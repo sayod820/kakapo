@@ -844,7 +844,21 @@ const CartPage = ({ go, cart, onAdd, onRm, onDel }) => {
   const [promo, setPromo] = useState("");
   const [promoOk, setPromoOk] = useState(false);
   const [promoErr, setPromoErr] = useState(false);
-  const items = PRODS.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty:cart[p.id] }));
+
+  // Store products in cart
+  const prodItems = PRODS.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id], isRest: false }));
+
+  // Restaurant dishes in cart (keys like "R${r.id}_${item.id}")
+  const restItems = RESTAURANTS.flatMap(r =>
+    (r.menu || []).map(item => {
+      const key = `R${r.id}_${item.id}`;
+      const qty = cart[key] || 0;
+      if (!qty) return null;
+      return { id: key, e: item.e, name: item.name, unit: `${r.name}`, price: item.price, old: item.old, grad: 'linear-gradient(135deg,#1A0808,#2A1210)', qty, isRest: true };
+    }).filter(Boolean)
+  );
+
+  const items = [...prodItems, ...restItems];
   const sub   = items.reduce((s,p) => s + p.price * p.qty, 0);
   const disc  = promoOk ? sub * .1 : 0;
   const del   = sub >= 30 ? 0 : 5;
@@ -1543,7 +1557,15 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
               {[...Array(2)].map((_,si) => <div key={si} style={{ display:"flex", flexShrink:0, width:"100%" }}>{["🔥 Молочная среда −30%","⚡ Флэш до 20:00","🥩 Мясные выходные −25%","🎁 Бесплатная доставка от 30 ЅМ"].map((t,i) => <span key={i} style={{ fontSize:11, fontWeight:700, color:"var(--red)", whiteSpace:"nowrap", padding:"0 24px" }}>{t}</span>)}</div>)}
             </div>
           </div>
-          <div style={{ padding:"12px 18px 10px", display:"flex", alignItems:"center" }}><div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>Акции</div></div>
+          <div style={{ padding:"12px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
+            <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>Акции</div>
+            {(() => { const qty = Object.values(cart||{}).reduce((a:number,b:any)=>a+(b||0),0) as number; return (
+              <button onClick={() => go("cart")} className="btn" style={{ position:"relative", width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <Ic n="cart" s={17} c={qty>0?"var(--gr)":"var(--t2)"}/>
+                {qty>0 && <div style={{ position:"absolute", top:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"var(--gr)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"#030B05" }}>{qty}</div>}
+              </button>
+            ); })()}
+          </div>
           <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
             {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"},{id:"codes",l:"🏷 Промокоды"}].map(t => (
               <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
@@ -5751,10 +5773,14 @@ export default function KakapoApp() {
     setTimeout(() => setToast(null), 2200);
   }, []);
 
-  const addItem = useCallback((id) => {
+  const addItem = useCallback((id: string, _price?: number, name?: string, emoji?: string) => {
     setCart(c => ({ ...c, [id]: (c[id]||0) + 1 }));
-    const p = PRODS.find(x => x.id === id);
-    if (p) showToast(`${p.e} ${p.name} в корзине`);
+    if (name && emoji) {
+      showToast(`${emoji} ${name} в корзине`);
+    } else {
+      const p = PRODS.find(x => x.id === id);
+      if (p) showToast(`${p.e} ${p.name} в корзине`);
+    }
   }, [showToast]);
 
   const rmItem = useCallback((id) => {
