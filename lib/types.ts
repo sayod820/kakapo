@@ -47,6 +47,7 @@ export interface Product {
   hot: boolean
   organic?: boolean
   discount?: number
+  photo?: string
 }
 
 export interface Restaurant {
@@ -76,6 +77,7 @@ export interface MenuItem {
   price: number
   inStock: boolean
   popular?: boolean
+  photo?: string
 }
 
 export interface Courier {

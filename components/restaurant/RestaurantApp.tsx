@@ -505,14 +505,26 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage}) {
   const [desc,      setDesc]      = useState('');
   const [cat,       setCat]       = useState(rest?.categories[0]||'');
   const [emoji,     setEmoji]     = useState('🍽');
+  const [photo,     setPhoto]     = useState('');
+  const [photoErr,  setPhotoErr]  = useState('');
 
   const catMenu = menu.filter(m=>m.cat===activeCat);
   const stopCount = menu.filter(m=>!m.inStock).length;
 
+  const handlePhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setPhotoErr('Файл слишком большой (макс. 5 МБ)'); return; }
+    setPhotoErr('');
+    const reader = new FileReader();
+    reader.onload = (ev) => setPhoto(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
   const save = () => {
     if(!name||!price) return;
-    onAdd({e:emoji,name,desc,price:Number(price),cat,inStock:true,popular:false});
-    setShowAdd(false); setName(''); setPrice(''); setDesc(''); setEmoji('🍽');
+    onAdd({e:emoji,name,desc,price:Number(price),cat,inStock:true,popular:false,photo});
+    setShowAdd(false); setName(''); setPrice(''); setDesc(''); setEmoji('🍽'); setPhoto(''); setPhotoErr('');
   };
 
   return (
@@ -553,9 +565,12 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage}) {
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
           {catMenu.map((item,i)=>(
             <div key={item.id} style={{display:'flex',gap:12,padding:'13px 14px',background:'#091508',border:`1.5px solid ${item.inStock?'#162B1A':'rgba(255,69,69,.3)'}`,borderRadius:15,animation:`fadeUp .35s ease ${i*.05}s both`,opacity:item.inStock?1:.7}}>
-              <div style={{width:58,height:58,borderRadius:14,background:'#0C1C0F',display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative'}}>
-                {item.e}
-                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,color:'#FF4545'}}>СТОП</div>}
+              <div style={{width:68,height:68,borderRadius:14,background:'#0C1C0F',display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',overflow:'hidden',border:'1px solid #162B1A'}}>
+                {(item as any).photo
+                  ? <img src={(item as any).photo} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                  : <span style={{fontSize:30}}>{item.e}</span>
+                }
+                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.65)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,color:'#FF4545'}}>СТОП</div>}
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13,fontWeight:800,marginBottom:2}}>{item.name}</div>
@@ -582,6 +597,27 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage}) {
             <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 18px'}}/>
             <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:800,marginBottom:16}}>Добавить блюдо</div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {/* Photo upload */}
+              <div>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:7,fontWeight:700}}>📷 Фото блюда</div>
+                {photo ? (
+                  <div style={{position:'relative',width:'100%',height:170,borderRadius:14,overflow:'hidden',border:'1px solid #162B1A'}}>
+                    <img src={photo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                    <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,rgba(0,0,0,.5) 0%,transparent 50%)'}}/>
+                    <button onClick={()=>setPhoto('')} style={{position:'absolute',top:8,right:8,width:30,height:30,borderRadius:'50%',background:'rgba(0,0,0,.75)',border:'1px solid rgba(255,255,255,.2)',color:'white',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                    <div style={{position:'absolute',bottom:10,left:12,fontSize:11,color:'rgba(255,255,255,.8)',fontWeight:700}}>✓ Фото добавлено</div>
+                  </div>
+                ) : (
+                  <label style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,width:'100%',height:120,borderRadius:14,border:'2px dashed #1D3822',background:'#0C1C0F',cursor:'pointer',transition:'all .2s'}}>
+                    <span style={{fontSize:30}}>📷</span>
+                    <span style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Нажмите чтобы добавить фото</span>
+                    <span style={{fontSize:10,color:'#3D6645'}}>JPG, PNG, WebP · до 5 МБ</span>
+                    <input type="file" accept="image/*" onChange={handlePhoto} style={{display:'none'}}/>
+                  </label>
+                )}
+                {photoErr&&<div style={{marginTop:5,fontSize:11,color:'#FF4545'}}>⚠️ {photoErr}</div>}
+              </div>
+
               <div style={{display:'grid',gridTemplateColumns:'72px 1fr',gap:10}}>
                 <div>
                   <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div>

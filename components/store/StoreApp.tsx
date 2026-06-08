@@ -2604,9 +2604,21 @@ const AdminDashPage = ({go}) => {
    ADMIN: ТОВАРЫ (с артикулами + синхронизация)
 ══════════════════════════════════════════════════════ */
 const AdminProductsPage = ({go}) => {
-  const [search,  setSearch]  = useState('');
-  const [showAdd, setShowAdd] = useState(false);
-  const [syncMsg, setSyncMsg] = useState('');
+  const [search,   setSearch]   = useState('');
+  const [showAdd,  setShowAdd]  = useState(false);
+  const [syncMsg,  setSyncMsg]  = useState('');
+  const [addPhoto, setAddPhoto] = useState('');
+  const [photoErr, setPhotoErr] = useState('');
+
+  const handleAddPhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setPhotoErr('Файл слишком большой (макс. 5 МБ)'); return; }
+    setPhotoErr('');
+    const reader = new FileReader();
+    reader.onload = (ev) => setAddPhoto(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
   const filtered = PRODS.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.art.toLowerCase().includes(search.toLowerCase()));
 
   const syncGBS = () => {
@@ -2671,6 +2683,27 @@ const AdminProductsPage = ({go}) => {
               <button onClick={()=>setShowAdd(false)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {/* Photo upload */}
+              <div>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:7,fontWeight:700}}>📷 Фото товара</div>
+                {addPhoto ? (
+                  <div style={{position:'relative',width:'100%',height:160,borderRadius:12,overflow:'hidden',border:'1px solid #162B1A'}}>
+                    <img src={addPhoto} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                    <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,rgba(0,0,0,.5) 0%,transparent 50%)'}}/>
+                    <button onClick={()=>setAddPhoto('')} style={{position:'absolute',top:8,right:8,width:30,height:30,borderRadius:'50%',background:'rgba(0,0,0,.75)',border:'1px solid rgba(255,255,255,.15)',color:'white',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                    <div style={{position:'absolute',bottom:9,left:12,fontSize:11,color:'rgba(255,255,255,.8)',fontWeight:700}}>✓ Фото загружено</div>
+                  </div>
+                ) : (
+                  <label style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:7,width:'100%',height:110,borderRadius:12,border:'2px dashed #1D3822',background:'#0C1C0F',cursor:'pointer'}}>
+                    <span style={{fontSize:28}}>📷</span>
+                    <span style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Нажмите чтобы загрузить фото</span>
+                    <span style={{fontSize:10,color:'#3D6645'}}>JPG, PNG, WebP · до 5 МБ</span>
+                    <input type="file" accept="image/*" onChange={handleAddPhoto} style={{display:'none'}}/>
+                  </label>
+                )}
+                {photoErr&&<div style={{marginTop:5,fontSize:11,color:'#FF4545'}}>⚠️ {photoErr}</div>}
+              </div>
+
               <div style={{display:'grid',gridTemplateColumns:'130px 1fr',gap:12}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Артикул GBS</div><input className="ai" placeholder="KAK-0013"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div><input className="ai" placeholder="Название товара"/></div>
@@ -2686,8 +2719,8 @@ const AdminProductsPage = ({go}) => {
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Фасовка</div><input className="ai" placeholder="500 гр"/></div>
               </div>
               <div style={{display:'flex',gap:10,marginTop:4}}>
-                <button className="ab abp" style={{flex:1,padding:12}}>✓ Сохранить</button>
-                <button className="ab abg" onClick={()=>setShowAdd(false)}>Отмена</button>
+                <button className="ab abp" style={{flex:1,padding:12}} onClick={()=>{setShowAdd(false);setAddPhoto('');setPhotoErr('');}}>✓ Сохранить</button>
+                <button className="ab abg" onClick={()=>{setShowAdd(false);setAddPhoto('');setPhotoErr('');}}>Отмена</button>
               </div>
             </div>
           </div>
@@ -4877,11 +4910,14 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           const disc = item.old ? Math.round((1-item.price/item.old)*100) : 0;
           return (
             <div key={item.id} style={{display:'flex',gap:12,padding:'14px',background:'var(--l2)',border:`1px solid ${item.inStock?'var(--b1)':'rgba(255,69,69,.2)'}`,borderRadius:16,animation:`fadeUp .4s ease ${i*.05}s both`,opacity:item.inStock?1:.6}}>
-              <div style={{width:80,height:80,borderRadius:14,background:'var(--l3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40,flexShrink:0,position:'relative'}}>
-                {item.e}
-                {item.popular&&<div style={{position:'absolute',top:-4,right:-4,padding:'2px 6px',borderRadius:7,background:'var(--red)',fontSize:8,fontWeight:800,color:'white'}}>ХИТ</div>}
-                {disc>0&&<div style={{position:'absolute',bottom:-4,left:-4,padding:'2px 6px',borderRadius:7,background:'var(--org)',fontSize:8,fontWeight:800,color:'white'}}>-{disc}%</div>}
-                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'white'}}>Стоп</div>}
+              <div style={{width:80,height:80,borderRadius:14,background:'var(--l3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40,flexShrink:0,position:'relative',overflow:'hidden'}}>
+                {item.photo
+                  ? <img src={item.photo} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                  : item.e
+                }
+                {item.popular&&<div style={{position:'absolute',top:-4,right:-4,padding:'2px 6px',borderRadius:7,background:'var(--red)',fontSize:8,fontWeight:800,color:'white',zIndex:2}}>ХИТ</div>}
+                {disc>0&&<div style={{position:'absolute',bottom:-4,left:-4,padding:'2px 6px',borderRadius:7,background:'var(--org)',fontSize:8,fontWeight:800,color:'white',zIndex:2}}>-{disc}%</div>}
+                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'white',zIndex:3}}>Стоп</div>}
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:14,fontWeight:700,marginBottom:3,lineHeight:1.3}}>{item.name}</div>

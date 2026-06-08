@@ -61,9 +61,12 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
       <div className="kakapo-card" onClick={() => router.push(ROUTES.product(p.id))}
         style={{ display:'flex', alignItems:'center', gap:12, padding:'12px', cursor:'pointer',
           animation: animDelay ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both` : undefined }}>
-        <div style={{ width:62, height:62, borderRadius:16, background:p.gradient, display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, flexShrink:0, position:'relative' }}>
-          {p.emoji}
-          {disc>0 && <div style={{ position:'absolute', top:-4, left:-4, borderRadius:8, background:'var(--red)', padding:'1px 5px', fontSize:9, fontWeight:800, color:'white' }}>-{disc}%</div>}
+        <div style={{ width:62, height:62, borderRadius:16, background:(p as any).gradient ?? '#0C1C0F', display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, flexShrink:0, position:'relative', overflow:'hidden' }}>
+          {(p as any).photo
+            ? <img src={(p as any).photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'cover', borderRadius:16, display:'block' }}/>
+            : ((p as any).emoji ?? p.e)
+          }
+          {disc>0 && <div style={{ position:'absolute', top:-4, left:-4, borderRadius:8, background:'var(--red)', padding:'1px 5px', fontSize:9, fontWeight:800, color:'white', zIndex:2 }}>-{disc}%</div>}
         </div>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:13, fontWeight:700, marginBottom:1 }}>{p.name}</div>
@@ -101,8 +104,11 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
         {p.isOrganic && <span className="badge" style={{ background:'rgba(52,211,153,.12)', color:'#34D399', border:'1px solid rgba(52,211,153,.28)' }}>🌿</span>}
       </div>
       {/* Image */}
-      <div style={{ height:110, background:p.gradient, display:'flex', alignItems:'center', justifyContent:'center', fontSize:48, animation:p.isHot?'float 3s ease-in-out infinite':undefined }}>
-        {p.emoji}
+      <div style={{ height:110, background:(p as any).gradient ?? '#0C1C0F', display:'flex', alignItems:'center', justifyContent:'center', fontSize:48, animation:(p as any).isHot?'float 3s ease-in-out infinite':undefined, overflow:'hidden', position:'relative' }}>
+        {(p as any).photo
+          ? <img src={(p as any).photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }}/>
+          : ((p as any).emoji ?? p.e)
+        }
       </div>
       {/* Info */}
       <div style={{ padding:'10px 10px 8px', flex:1, display:'flex', flexDirection:'column', gap:3 }}>
