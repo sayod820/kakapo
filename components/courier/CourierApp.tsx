@@ -15,6 +15,7 @@ const CSS = `
   @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
   @keyframes ping{0%{transform:scale(1);opacity:1}100%{transform:scale(2.4);opacity:0}}
+  @keyframes glow{0%,100%{box-shadow:0 0 12px rgba(31,215,96,.3)}50%{box-shadow:0 0 28px rgba(31,215,96,.6)}}
   ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#06100A}::-webkit-scrollbar-thumb{background:#1D3822;border-radius:2px}
 `
 
@@ -22,17 +23,20 @@ const COURIER = { name:'Фирдавс Назаров', vehicle:'🏍 TJ 1234 AA
 
 const NEW_ORDERS = [
   { id:'K-4831', client:'Нилуфар Хасанова', phone:'+992 90 123 45 67', addr:'ул. Сомони, 12', dist:3.4, weight:8.5, earning:5, pay:'Карта',
-    items:[{e:'🥛',n:'Молоко',q:2},{e:'🧀',n:'Сыр',q:1},{e:'☕',n:'Кофе',q:1}] },
+    productSum:42, deliveryFee:5,
+    items:[{e:'🥛',n:'Молоко',q:2,p:8},{e:'🧀',n:'Сыр',q:1,p:18},{e:'☕',n:'Кофе',q:1,p:8}] },
   { id:'K-4835', client:'Рустам Давлатов', phone:'+992 91 445 23 11', addr:'мкр. Мирный, 5', dist:1.8, weight:2.0, earning:3, pay:'Наличными',
-    items:[{e:'🥦',n:'Брокколи',q:2},{e:'🍅',n:'Томаты',q:1}] },
+    productSum:24, deliveryFee:3,
+    items:[{e:'🥦',n:'Брокколи',q:2,p:7},{e:'🍅',n:'Томаты',q:1,p:10}] },
   { id:'K-4838', client:'Зафар Мирзоев', phone:'+992 88 789 01 23', addr:'ул. Рудаки, 8', dist:2.6, weight:5.2, earning:4, pay:'Бонусы',
-    items:[{e:'🍞',n:'Хлеб',q:2},{e:'🥚',n:'Яйца',q:1},{e:'🧃',n:'Сок',q:3}] },
+    productSum:61, deliveryFee:4,
+    items:[{e:'🍞',n:'Хлеб',q:2,p:6},{e:'🥚',n:'Яйца',q:1,p:22},{e:'🧃',n:'Сок',q:3,p:9}] },
 ]
 
 const HISTORY = [
-  { id:'K-4820', client:'Лола М.', addr:'ул. Ленина 5', earning:5, time:'13:20', dist:'2.1 км' },
-  { id:'K-4815', client:'Бахром К.', addr:'мкр. Мирный 12', earning:4, time:'12:45', dist:'1.5 км' },
-  { id:'K-4810', client:'Зубайр Р.', addr:'ул. Сомони 8', earning:6, time:'12:10', dist:'3.8 км' },
+  { id:'K-4820', client:'Лола М.', addr:'ул. Ленина 5', earning:5, time:'13:20', dist:'2.1 км', productSum:38, deliveryFee:5 },
+  { id:'K-4815', client:'Бахром К.', addr:'мкр. Мирный 12', earning:4, time:'12:45', dist:'1.5 км', productSum:29, deliveryFee:4 },
+  { id:'K-4810', client:'Зубайр Р.', addr:'ул. Сомони 8', earning:6, time:'12:10', dist:'3.8 км', productSum:55, deliveryFee:6 },
 ]
 
 export default function CourierApp() {
@@ -92,18 +96,19 @@ export default function CourierApp() {
   return (
     <div style={{minHeight:'100vh',background:'#030B05',maxWidth:480,margin:'0 auto',paddingBottom:80}}>
       <style>{CSS}</style>
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid #162B1A',padding:'12px 18px',display:'flex',alignItems:'center',gap:10}}>
-        <div style={{width:40,height:40,borderRadius:13,background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>🛵</div>
-        <div style={{flex:1}}>
-          <div className="ub" style={{fontSize:14,fontWeight:900}}>{COURIER.name}</div>
-          <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
-            <div style={{width:6,height:6,borderRadius:'50%',background:status==='available'?'#1FD760':status==='busy'?'#FFB800':'#3D6645',animation:'pulse 2s infinite'}}/>
-            <span style={{fontSize:10,color:'#8FB897'}}>{status==='available'?'Свободен':status==='busy'?'В заказе':'Офлайн'} · {COURIER.vehicle}</span>
+      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid #162B1A',padding:'12px 18px',display:'flex',alignItems:'center',gap:12}}>
+        <div style={{width:42,height:42,borderRadius:13,background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0,boxShadow:'0 4px 16px rgba(59,142,240,.35)'}}>🛵</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="ub" style={{fontSize:13,fontWeight:900,color:'#EBF5ED',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{COURIER.name}</div>
+          <div style={{display:'flex',alignItems:'center',gap:5,marginTop:2}}>
+            <div style={{width:6,height:6,borderRadius:'50%',flexShrink:0,background:status==='available'?'#1FD760':status==='busy'?'#FFB800':'#3D6645',animation:'pulse 2s infinite',boxShadow:status==='available'?'0 0 6px #1FD760':status==='busy'?'0 0 6px #FFB800':'none'}}/>
+            <span style={{fontSize:10,color:'#8FB897',whiteSpace:'nowrap'}}>{status==='available'?'Свободен':status==='busy'?'В заказе':'Офлайн'} · {COURIER.vehicle}</span>
           </div>
         </div>
-        <div style={{textAlign:'right'}}>
-          <div style={{fontSize:9,color:'#3D6645'}}>Сегодня</div>
-          <div className="ub" style={{fontSize:15,fontWeight:900,color:'#FFB800'}}>42 ЅМ</div>
+        <div style={{textAlign:'right',flexShrink:0}}>
+          <div style={{fontSize:9,color:'#3D6645',marginBottom:1}}>СЕГОДНЯ</div>
+          <div className="ub" style={{fontSize:16,fontWeight:900,color:'#FFB800',lineHeight:1}}>42 ЅМ</div>
+          <div style={{fontSize:9,color:'#3D6645',marginTop:1}}>14 доставок</div>
         </div>
       </header>
 
@@ -115,9 +120,10 @@ export default function CourierApp() {
             ))}
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:18}}>
-            {[['Заработано','42 ЅМ','#FFB800'],['Доставок','14','#1FD760'],['Рейтинг','4.9 ★','#FFB800']].map(([l,v,c],i)=>(
-              <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'12px 10px',textAlign:'center'}}>
-                <div className="ub" style={{fontSize:15,fontWeight:900,color:c,marginBottom:3}}>{v}</div>
+            {([['Заработано','42 ЅМ','#FFB800','💰'],['Доставок','14','#1FD760','📦'],['Рейтинг','4.9 ★','#FFB800','⭐']] as const).map(([l,v,c,ic],i)=>(
+              <div key={i} style={{background:'linear-gradient(180deg,#0C1A0F,#091508)',border:`1px solid ${c}28`,borderRadius:14,padding:'12px 10px',textAlign:'center',boxShadow:`0 2px 12px ${c}10`}}>
+                <div style={{fontSize:18,marginBottom:4}}>{ic}</div>
+                <div className="ub" style={{fontSize:14,fontWeight:900,color:c,marginBottom:3}}>{v}</div>
                 <div style={{fontSize:10,color:'#3D6645'}}>{l}</div>
               </div>
             ))}
@@ -133,33 +139,83 @@ export default function CourierApp() {
               <div style={{fontSize:12,color:'#3D6645'}}>Включите «Свободен» чтобы получать заказы</div>
             </div>
           ) : (
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
               {available.map((order,idx)=>(
-                <div key={order.id} style={{background:'#091508',border:'1.5px solid #162B1A',borderRadius:18,overflow:'hidden',animation:`fadeUp .4s ease ${idx*.08}s both`}}>
-                  <div style={{padding:'13px 16px',borderBottom:'1px solid #162B1A',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    <div>
-                      <span className="ub" style={{fontSize:13,fontWeight:800,color:'#3B8EF0'}}>{order.id}</span>
-                      <span style={{fontSize:11,color:'#8FB897',marginLeft:8}}>{order.client.split(' ')[0]} · {order.pay}</span>
+                <div key={order.id} style={{background:'linear-gradient(180deg,#0C1A0F 0%,#091508 100%)',border:'1.5px solid #1A3320',borderRadius:20,overflow:'hidden',animation:`fadeUp .4s ease ${idx*.08}s both`,boxShadow:'0 4px 24px rgba(0,0,0,.4)'}}>
+                  {/* Header */}
+                  <div style={{padding:'13px 16px',background:'rgba(59,142,240,.05)',borderBottom:'1px solid #162B1A',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{width:34,height:34,borderRadius:10,background:'rgba(59,142,240,.12)',border:'1px solid rgba(59,142,240,.25)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        <span className="ub" style={{fontSize:9,fontWeight:900,color:'#3B8EF0'}}>{order.id.replace('K-','')}</span>
+                      </div>
+                      <div>
+                        <div className="ub" style={{fontSize:12,fontWeight:800,color:'#EBF5ED'}}>{order.client.split(' ')[0]}</div>
+                        <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
+                          <span style={{padding:'1px 6px',borderRadius:5,fontSize:9,fontWeight:700,background:order.pay==='Наличными'?'rgba(31,215,96,.12)':order.pay==='Карта'?'rgba(59,142,240,.12)':'rgba(255,184,0,.12)',color:order.pay==='Наличными'?'#1FD760':order.pay==='Карта'?'#3B8EF0':'#FFB800',border:`1px solid ${order.pay==='Наличными'?'rgba(31,215,96,.25)':order.pay==='Карта'?'rgba(59,142,240,.25)':'rgba(255,184,0,.25)'}`}}>{order.pay}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="ub" style={{fontSize:18,fontWeight:900,color:'#FFB800'}}>+{order.earning} ЅМ</div>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontSize:9,color:'#3D6645',marginBottom:2}}>МОЙ ЗАРАБОТОК</div>
+                      <div className="ub" style={{fontSize:20,fontWeight:900,color:'#1FD760'}}>+{order.earning} ЅМ</div>
+                    </div>
                   </div>
+                  {/* Route */}
                   <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A'}}>
-                    <div style={{display:'flex',gap:8,marginBottom:8}}>
-                      <div style={{width:8,height:8,borderRadius:'50%',background:'#1FD760',marginTop:4,flexShrink:0}}/>
-                      <div><div style={{fontSize:10,color:'#3D6645'}}>ЗАБРАТЬ</div><div style={{fontSize:13,fontWeight:700}}>KAKAPO, ул. Ленина 42</div></div>
+                    <div style={{display:'flex',gap:10,marginBottom:9,alignItems:'flex-start'}}>
+                      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2,marginTop:3}}>
+                        <div style={{width:10,height:10,borderRadius:'50%',background:'#1FD760',boxShadow:'0 0 8px rgba(31,215,96,.6)'}}/>
+                        <div style={{width:1.5,height:14,background:'repeating-linear-gradient(to bottom,#1D3822 0,#1D3822 4px,transparent 4px,transparent 7px)'}}/>
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:9,color:'#3D6645',fontWeight:700,letterSpacing:.5}}>ЗАБРАТЬ</div>
+                        <div style={{fontSize:13,fontWeight:700,color:'#EBF5ED'}}>KAKAPO, ул. Ленина 42</div>
+                      </div>
                     </div>
-                    <div style={{display:'flex',gap:8}}>
-                      <div style={{width:8,height:8,borderRadius:2,background:'#3B8EF0',marginTop:4,flexShrink:0}}/>
-                      <div><div style={{fontSize:10,color:'#3D6645'}}>ДОСТАВИТЬ</div><div style={{fontSize:13,fontWeight:700}}>{order.addr}</div></div>
+                    <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                      <div style={{width:10,height:10,borderRadius:3,background:'#3B8EF0',marginTop:3,flexShrink:0,boxShadow:'0 0 8px rgba(59,142,240,.5)'}}/>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:9,color:'#3D6645',fontWeight:700,letterSpacing:.5}}>ДОСТАВИТЬ</div>
+                        <div style={{fontSize:13,fontWeight:700,color:'#EBF5ED'}}>{order.addr}</div>
+                      </div>
+                      <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                        <span style={{padding:'3px 8px',borderRadius:7,fontSize:10,fontWeight:700,background:'rgba(59,142,240,.1)',color:'#3B8EF0',border:'1px solid rgba(59,142,240,.2)'}}>📍 {order.dist} км</span>
+                        <span style={{padding:'3px 8px',borderRadius:7,fontSize:10,fontWeight:700,background:'rgba(255,184,0,.1)',color:'#FFB800',border:'1px solid rgba(255,184,0,.2)'}}>⚖️ {order.weight} кг</span>
+                      </div>
                     </div>
                   </div>
-                  <div style={{padding:'10px 16px',borderBottom:'1px solid #162B1A',display:'flex',gap:8,flexWrap:'wrap'}}>
-                    <span style={{padding:'4px 9px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(59,142,240,.1)',color:'#3B8EF0',border:'1px solid rgba(59,142,240,.25)'}}>📍 {order.dist} км</span>
-                    <span style={{padding:'4px 9px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(255,184,0,.1)',color:'#FFB800',border:'1px solid rgba(255,184,0,.25)'}}>⚖️ {order.weight} кг</span>
-                    {order.items.map((it,i)=><span key={i} style={{padding:'4px 9px',borderRadius:8,fontSize:11,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897'}}>{it.e} {it.n}</span>)}
+                  {/* Items */}
+                  <div style={{padding:'10px 16px',borderBottom:'1px solid #162B1A',display:'flex',gap:6,flexWrap:'wrap'}}>
+                    {order.items.map((it,i)=>(
+                      <span key={i} style={{padding:'4px 9px',borderRadius:8,fontSize:11,background:'#0C1C0F',border:'1px solid #1A3320',color:'#8FB897',display:'flex',alignItems:'center',gap:4}}>
+                        {it.e} {it.n} <span style={{opacity:.5}}>×{it.q}</span>
+                        <span style={{color:'#FFB800',fontWeight:700,marginLeft:2}}>{it.p*it.q} ЅМ</span>
+                      </span>
+                    ))}
                   </div>
+                  {/* Price breakdown */}
+                  <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',background:'rgba(0,0,0,.15)'}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                      <div style={{textAlign:'center',padding:'10px 8px',borderRadius:12,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.15)'}}>
+                        <div style={{fontSize:9,color:'#3D6645',fontWeight:700,marginBottom:4}}>ТОВАРЫ</div>
+                        <div className="ub" style={{fontSize:15,fontWeight:900,color:'#FFB800'}}>{order.productSum} ЅМ</div>
+                      </div>
+                      <div style={{textAlign:'center',padding:'10px 8px',borderRadius:12,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.15)'}}>
+                        <div style={{fontSize:9,color:'#3D6645',fontWeight:700,marginBottom:4}}>ДОСТАВКА</div>
+                        <div className="ub" style={{fontSize:15,fontWeight:900,color:'#3B8EF0'}}>{order.deliveryFee} ЅМ</div>
+                      </div>
+                      <div style={{textAlign:'center',padding:'10px 8px',borderRadius:12,background:'rgba(31,215,96,.08)',border:'1px solid rgba(31,215,96,.2)'}}>
+                        <div style={{fontSize:9,color:'#3D6645',fontWeight:700,marginBottom:4}}>ИТОГО</div>
+                        <div className="ub" style={{fontSize:15,fontWeight:900,color:'#1FD760'}}>{order.productSum+order.deliveryFee} ЅМ</div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Accept */}
                   <div style={{padding:'12px 16px'}}>
-                    <button onClick={()=>acceptOrder(order)} className="btn" style={{width:'100%',padding:13,borderRadius:13,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>✓ Принять — +{order.earning} ЅМ</button>
+                    <button onClick={()=>acceptOrder(order)} className="btn" style={{width:'100%',padding:14,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8,boxShadow:'0 6px 20px rgba(31,215,96,.3)'}}>
+                      <span>✓ Принять заказ</span>
+                      <span style={{padding:'2px 8px',borderRadius:6,background:'rgba(3,11,5,.2)',fontSize:12}}>+{order.earning} ЅМ</span>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -197,12 +253,19 @@ export default function CourierApp() {
               </div>
             </div>
             <div style={{padding:'16px 18px'}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16,padding:'14px 16px',background:'rgba(59,142,240,.04)',border:'1px solid rgba(59,142,240,.12)',borderRadius:16}}>
                 <div>
-                  <span className="ub" style={{fontSize:16,fontWeight:900,color:'#3B8EF0'}}>{activeOrder.id}</span>
-                  <div style={{fontSize:12,color:'#8FB897',marginTop:2}}>{activeOrder.client}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                    <span className="ub" style={{fontSize:15,fontWeight:900,color:'#3B8EF0'}}>{activeOrder.id}</span>
+                    <span style={{padding:'2px 8px',borderRadius:6,fontSize:9,fontWeight:700,background:'rgba(255,184,0,.12)',color:'#FFB800',border:'1px solid rgba(255,184,0,.25)'}}>{activeOrder.pay}</span>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:700,color:'#EBF5ED'}}>{activeOrder.client}</div>
+                  <div style={{fontSize:11,color:'#3D6645',marginTop:1}}>{activeOrder.phone}</div>
                 </div>
-                <div className="ub" style={{fontSize:20,fontWeight:900,color:'#FFB800'}}>+{activeOrder.earning} ЅМ</div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:9,color:'#3D6645',marginBottom:3}}>МОЙ ЗАРАБОТОК</div>
+                  <div className="ub" style={{fontSize:22,fontWeight:900,color:'#1FD760',lineHeight:1}}>+{activeOrder.earning} ЅМ</div>
+                </div>
               </div>
               <div style={{display:'flex',marginBottom:18}}>
                 {([['toStore','🏪','В магазин'],['toClient','🛵','К клиенту'],['done','✓','Доставлено']] as const).map(([s,e,l],i)=>{
@@ -229,10 +292,46 @@ export default function CourierApp() {
                   <a href={`tel:${activeOrder.phone}`} style={{padding:'6px 10px',borderRadius:9,background:'rgba(59,142,240,.1)',border:'1px solid rgba(59,142,240,.3)',color:'#3B8EF0',fontSize:11,fontWeight:700,textDecoration:'none',alignSelf:'center'}}>📞</a>
                 </div>
               </div>
-              <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:16,padding:'12px 16px',marginBottom:18}}>
-                <div style={{fontSize:11,color:'#3D6645',marginBottom:8,fontWeight:700}}>СОСТАВ ЗАКАЗА</div>
-                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                  {activeOrder.items.map((it:any,i:number)=><span key={i} style={{padding:'5px 10px',borderRadius:9,fontSize:12,background:'#0C1C0F',border:'1px solid #162B1A',color:'#EBF5ED'}}>{it.e} {it.n} ×{it.q}</span>)}
+              <div style={{background:'#091508',border:'1px solid #1A3320',borderRadius:16,overflow:'hidden',marginBottom:14}}>
+                <div style={{padding:'10px 16px',borderBottom:'1px solid #162B1A',display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:14}}>🛍️</span>
+                  <span style={{fontSize:11,color:'#3D6645',fontWeight:700,letterSpacing:.5}}>СОСТАВ ЗАКАЗА</span>
+                </div>
+                <div style={{padding:'10px 16px',borderBottom:'1px solid #162B1A',display:'flex',gap:6,flexWrap:'wrap'}}>
+                  {activeOrder.items.map((it:any,i:number)=>(
+                    <span key={i} style={{padding:'5px 10px',borderRadius:9,fontSize:12,background:'#0C1C0F',border:'1px solid #162B1A',color:'#EBF5ED',display:'inline-flex',alignItems:'center',gap:4}}>
+                      {it.e} {it.n} <span style={{color:'#3D6645'}}>×{it.q}</span>
+                      <span style={{color:'#FFB800',fontWeight:700,marginLeft:2}}>{it.p*it.q} ЅМ</span>
+                    </span>
+                  ))}
+                </div>
+                <div style={{padding:'12px 16px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontSize:9,color:'#3D6645',fontWeight:700,marginBottom:5}}>СУММА ТОВАРОВ</div>
+                    <div className="ub" style={{fontSize:16,fontWeight:900,color:'#FFB800'}}>{activeOrder.productSum} ЅМ</div>
+                  </div>
+                  <div style={{textAlign:'center',borderLeft:'1px solid #162B1A',borderRight:'1px solid #162B1A'}}>
+                    <div style={{fontSize:9,color:'#3D6645',fontWeight:700,marginBottom:5}}>ДОСТАВКА</div>
+                    <div className="ub" style={{fontSize:16,fontWeight:900,color:'#3B8EF0'}}>{activeOrder.deliveryFee} ЅМ</div>
+                  </div>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontSize:9,color:'#3D6645',fontWeight:700,marginBottom:5}}>ИТОГО</div>
+                    <div className="ub" style={{fontSize:16,fontWeight:900,color:'#1FD760'}}>{activeOrder.productSum+activeOrder.deliveryFee} ЅМ</div>
+                  </div>
+                </div>
+              </div>
+              {/* Payment badge */}
+              <div style={{marginBottom:14,padding:'10px 16px',borderRadius:13,background:`${activeOrder.pay==='Наличными'?'rgba(31,215,96,.08)':activeOrder.pay==='Карта'?'rgba(59,142,240,.08)':'rgba(255,184,0,.08)'}`,border:`1px solid ${activeOrder.pay==='Наличными'?'rgba(31,215,96,.2)':activeOrder.pay==='Карта'?'rgba(59,142,240,.2)':'rgba(255,184,0,.2)'}`,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontSize:18}}>{activeOrder.pay==='Наличными'?'💵':activeOrder.pay==='Карта'?'💳':'🎁'}</span>
+                  <div>
+                    <div style={{fontSize:9,color:'#3D6645',fontWeight:700}}>СПОСОБ ОПЛАТЫ</div>
+                    <div style={{fontSize:13,fontWeight:700,color:'#EBF5ED'}}>{activeOrder.pay}</div>
+                  </div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:9,color:'#3D6645',fontWeight:700}}>К ПОЛУЧЕНИЮ</div>
+                  <div className="ub" style={{fontSize:16,fontWeight:900,color:activeOrder.pay==='Наличными'?'#1FD760':activeOrder.pay==='Карта'?'#3B8EF0':'#FFB800'}}>{activeOrder.pay==='Наличными'?`${activeOrder.productSum+activeOrder.deliveryFee} ЅМ`:'Оплачено'}</div>
                 </div>
               </div>
               {step==='toStore' && <button onClick={()=>setStep('toClient')} className="btn" style={{width:'100%',padding:15,borderRadius:15,background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15}}>📦 Забрал заказ — еду к клиенту</button>}
@@ -252,28 +351,46 @@ export default function CourierApp() {
 
       {tab==='earnings' && (
         <div style={{padding:'14px 18px'}}>
-          <div style={{background:'linear-gradient(135deg,#0A1828,#163050)',border:'1px solid rgba(59,142,240,.3)',borderRadius:20,padding:'20px',marginBottom:16,textAlign:'center'}}>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Заработано сегодня</div>
-            <div className="ub" style={{fontSize:38,fontWeight:900,color:'#FFB800',marginBottom:4}}>210 ЅМ</div>
-            <div style={{fontSize:12,color:'#3B8EF0'}}>14 доставок · 4.9 ★</div>
+          <div style={{background:'linear-gradient(135deg,#0A1828,#163050)',border:'1px solid rgba(59,142,240,.3)',borderRadius:22,padding:'22px',marginBottom:16,textAlign:'center',boxShadow:'0 8px 32px rgba(59,142,240,.15)',position:'relative',overflow:'hidden'}}>
+            <div style={{position:'absolute',inset:0,background:'radial-gradient(circle at 50% 0%,rgba(59,142,240,.1),transparent 70%)',pointerEvents:'none'}}/>
+            <div style={{fontSize:11,color:'#8FB897',marginBottom:8,letterSpacing:.5,fontWeight:700}}>ЗАРАБОТАНО СЕГОДНЯ</div>
+            <div className="ub" style={{fontSize:42,fontWeight:900,color:'#FFB800',marginBottom:6,lineHeight:1}}>210 ЅМ</div>
+            <div style={{display:'flex',justifyContent:'center',gap:12,marginTop:8}}>
+              <span style={{padding:'3px 10px',borderRadius:8,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',fontSize:11,color:'#1FD760',fontWeight:700}}>📦 14 доставок</span>
+              <span style={{padding:'3px 10px',borderRadius:8,background:'rgba(255,184,0,.1)',border:'1px solid rgba(255,184,0,.25)',fontSize:11,color:'#FFB800',fontWeight:700}}>⭐ 4.9 рейтинг</span>
+            </div>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:18}}>
-            {[['За неделю','1 240 ЅМ','#1FD760'],['Всего доставок','342','#3B8EF0'],['Ср. за день','177 ЅМ','#FFB800'],['Рейтинг','4.9 ★','#FFB800']].map(([l,v,c],i)=>(
-              <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'14px',textAlign:'center'}}>
-                <div className="ub" style={{fontSize:18,fontWeight:900,color:c,marginBottom:3}}>{v}</div>
-                <div style={{fontSize:10,color:'#3D6645'}}>{l}</div>
+            {([['За неделю','1 240 ЅМ','#1FD760','📅'],['Всего доставок','342','#3B8EF0','🏆'],['Ср. за день','177 ЅМ','#FFB800','📊'],['Рейтинг','4.9 ★','#FFB800','⭐']] as const).map(([l,v,c,ic],i)=>(
+              <div key={i} style={{background:'linear-gradient(180deg,#0C1A0F,#091508)',border:`1px solid ${c}22`,borderRadius:14,padding:'16px',textAlign:'center',boxShadow:`0 2px 12px ${c}10`}}>
+                <div style={{fontSize:22,marginBottom:6}}>{ic}</div>
+                <div className="ub" style={{fontSize:18,fontWeight:900,color:c,marginBottom:4}}>{v}</div>
+                <div style={{fontSize:10,color:'#3D6645',fontWeight:700}}>{l}</div>
               </div>
             ))}
           </div>
           <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>История доставок</div>
-          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {HISTORY.map((h,i)=>(
-              <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:13,padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div style={{display:'flex',alignItems:'center',gap:10}}>
-                  <div style={{width:34,height:34,borderRadius:9,background:'rgba(31,215,96,.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>✓</div>
-                  <div><div style={{fontSize:13,fontWeight:700}}>{h.id} · {h.client}</div><div style={{fontSize:11,color:'#3D6645'}}>{h.addr} · {h.dist}</div></div>
+              <div key={i} style={{background:'linear-gradient(180deg,#0C1A0F,#091508)',border:'1px solid #1A3320',borderRadius:16,overflow:'hidden',boxShadow:'0 2px 12px rgba(0,0,0,.3)'}}>
+                <div style={{padding:'11px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1px solid #162B1A'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    <div style={{width:34,height:34,borderRadius:10,background:'rgba(31,215,96,.12)',border:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15}}>✓</div>
+                    <div>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <span className="ub" style={{fontSize:11,fontWeight:800,color:'#3B8EF0'}}>{h.id}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:'#EBF5ED'}}>{h.client}</span>
+                      </div>
+                      <div style={{fontSize:10,color:'#3D6645',marginTop:1}}>{h.addr} · {h.dist} · {h.time}</div>
+                    </div>
+                  </div>
+                  <div className="ub" style={{fontSize:14,fontWeight:900,color:'#1FD760'}}>+{h.earning} ЅМ</div>
                 </div>
-                <div style={{textAlign:'right'}}><div className="ub" style={{fontSize:13,fontWeight:800,color:'#FFB800'}}>+{h.earning} ЅМ</div><div style={{fontSize:10,color:'#3D6645'}}>{h.time}</div></div>
+                <div style={{padding:'8px 14px',display:'flex',gap:8}}>
+                  <span style={{padding:'3px 9px',borderRadius:7,fontSize:10,fontWeight:700,background:'rgba(255,184,0,.08)',color:'#FFB800',border:'1px solid rgba(255,184,0,.15)'}}>Товары: {h.productSum} ЅМ</span>
+                  <span style={{padding:'3px 9px',borderRadius:7,fontSize:10,fontWeight:700,background:'rgba(59,142,240,.08)',color:'#3B8EF0',border:'1px solid rgba(59,142,240,.15)'}}>Доставка: {h.deliveryFee} ЅМ</span>
+                  <span style={{padding:'3px 9px',borderRadius:7,fontSize:10,fontWeight:700,background:'rgba(31,215,96,.08)',color:'#1FD760',border:'1px solid rgba(31,215,96,.15)'}}>Итого: {h.productSum+h.deliveryFee} ЅМ</span>
+                </div>
               </div>
             ))}
           </div>
