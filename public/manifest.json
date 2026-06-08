@@ -1,0 +1,20 @@
+{
+  "name": "KAKAPO — Супермаркет Яван",
+  "short_name": "KAKAPO",
+  "description": "Свежие продукты с доставкой по г. Яван за 45 минут",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030B05",
+  "theme_color": "#030B05",
+  "orientation": "portrait",
+  "lang": "ru",
+  "icons": [
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Каталог", "url": "/catalog" },
+    { "name": "Заказы",  "url": "/profile/orders" },
+    { "name": "Акции",   "url": "/promotions" }
+  ]
+}

@@ -1,0 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800;900&family=Nunito:wght@400;600;700;800&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { background: #030B05; color: #EBF5ED; font-family: 'Nunito', sans-serif; -webkit-font-smoothing: antialiased; }
+
+:root {
+  --bg:  #030B05;
+  --l1:  #06100A;
+  --l2:  #091508;
+  --l3:  #0C1C0F;
+  --b1:  #162B1A;
+  --b2:  #1D3822;
+  --gr:  #1FD760;
+  --gr2: #17B34E;
+  --gr3: #0F8A3A;
+  --gd:  #FFB800;
+  --red: #FF4545;
+  --org: #FF8C00;
+  --blue:#3B8EF0;
+  --pur: #9B6DFF;
+  --t1:  #EBF5ED;
+  --t2:  #8FB897;
+  --t3:  #3D6645;
+}
+
+.ub { font-family: 'Unbounded', sans-serif; }
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: #06100A; }
+::-webkit-scrollbar-thumb { background: #1D3822; border-radius: 2px; }
+
+@keyframes spin    { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+@keyframes fadeUp  { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeIn  { from{opacity:0} to{opacity:1} }
+@keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.35} }
+@keyframes ping    { 0%{transform:scale(1);opacity:1} 100%{transform:scale(2.2);opacity:0} }
+@keyframes float   { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+@keyframes slideUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+@keyframes checkPop{ 0%{transform:scale(0)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} }
