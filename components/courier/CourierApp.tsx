@@ -53,8 +53,8 @@ const DONE = [
 ]
 
 // ─── Night-mode city map ─────────────────────────────────────
-function NightMap({ orders, active, selId, step, completed }: {
-  orders: typeof ORDERS; active: any; selId: string | null; step: string; completed: string[]
+function NightMap({ orders, active, selId, step, completed, onPinClick }: {
+  orders: typeof ORDERS; active: any; selId: string | null; step: string; completed: string[]; onPinClick: (o: any) => void
 }) {
   const S = PIN.STORE
   const aPin = active ? PIN[active.id] : null
@@ -139,34 +139,33 @@ function NightMap({ orders, active, selId, step, completed }: {
         </>
       })()}
 
-      {/* Order pins — all visible */}
+      {/* Order pins — all visible, clickable */}
       {orders.filter(o => !completed.includes(o.id) && o.id!==active?.id).map((order,i) => {
         const pos = PIN[order.id]
         if (!pos) return null
         const isSel = selId === order.id
         const col = ['#00E676','#3B8EF0','#FF6B35'][i%3]
         return (
-          <g key={order.id} filter="url(#glow)">
-            <circle cx={pos.x} cy={pos.y} r={isSel?24:18} fill={`${col}12`}
+          <g key={order.id} filter="url(#glow)" onClick={() => onPinClick(order)} style={{cursor:'pointer'}}>
+            {/* Tap target — invisible larger area */}
+            <circle cx={pos.x} cy={pos.y} r="28" fill="transparent"/>
+            <circle cx={pos.x} cy={pos.y} r={isSel?26:20} fill={`${col}12`}
               style={{animation: isSel?'ripple 1.6s ease-out infinite':undefined}}/>
-            <circle cx={pos.x} cy={pos.y} r="12" fill="#040C08" stroke={col} strokeWidth="2"/>
-            <circle cx={pos.x} cy={pos.y+18} r="1" fill={col} opacity=".6"/>
+            <circle cx={pos.x} cy={pos.y} r="13" fill="#040C08" stroke={col} strokeWidth={isSel?3:2}/>
             <text x={pos.x} y={pos.y+4.5} textAnchor="middle" fontSize="10" fontWeight="900"
               fill={col} fontFamily="Space Grotesk">{order.num}</text>
-            {!isSel && (
-              <g>
-                <rect x={pos.x+13} y={pos.y-20} width={28} height={14} rx="7" fill={col} opacity=".9"/>
-                <text x={pos.x+27} y={pos.y-10} fontSize="7.5" fill="#040C08" textAnchor="middle"
-                  fontWeight="900" fontFamily="Space Grotesk">+{order.earn}</text>
-              </g>
-            )}
+            {/* Earning badge */}
+            <rect x={pos.x+14} y={pos.y-22} width={30} height={15} rx="7.5" fill={col} opacity=".9"/>
+            <text x={pos.x+29} y={pos.y-11} fontSize="7.5" fill="#040C08" textAnchor="middle"
+              fontWeight="900" fontFamily="Space Grotesk">+{order.earn}</text>
           </g>
         )
       })}
 
-      {/* Active dest */}
+      {/* Active dest — clickable */}
       {aPin && (
-        <g filter="url(#glow)">
+        <g filter="url(#glow)" onClick={() => onPinClick(active)} style={{cursor:'pointer'}}>
+          <circle cx={aPin.x} cy={aPin.y} r="28" fill="transparent"/>
           <circle cx={aPin.x} cy={aPin.y} r="22" fill="rgba(255,69,69,.1)"
             style={{animation:'ripple 2s ease-out infinite'}}/>
           <circle cx={aPin.x} cy={aPin.y} r="12" fill="#FF4545" opacity=".9"/>
@@ -334,7 +333,14 @@ export default function CourierApp() {
 
       {/* ── Map ── */}
       <div style={{height:220,flexShrink:0,position:'relative',borderBottom:'1px solid rgba(255,255,255,.04)'}}>
-        <NightMap orders={ORDERS} active={active} selId={selOrder?.id??null} step={step} completed={done}/>
+        <NightMap orders={ORDERS} active={active} selId={selOrder?.id??null} step={step} completed={done}
+          onPinClick={o => {
+            if (active && o.id === active.id) {
+              setSheet('active')
+            } else {
+              setSelOrder(o); setSheet('detail')
+            }
+          }}/>
         {/* Map legend overlay */}
         <div style={{position:'absolute',bottom:10,left:10,display:'flex',gap:6}}>
           {avail.map((o,i) => (
