@@ -1,5 +1,10 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, STORE_LOCATION } from '@/lib/courierData'
+import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
+import { DEMO_COURIER_ORDERS, DEMO_COURIER_HISTORY } from '@/lib/demoOrders'
+import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
+import type { PickupPoint } from '@/lib/pickups'
 
 /* ══════════════════════════════════════════════════════
    KAKAPO КУРЬЕР — карта со всеми заказами + список
@@ -26,98 +31,386 @@ const CSS = `
 
 const COURIER = { name:'Фирдавс Назаров', vehicle:'🏍 TJ 1234 AA', rating:4.9 };
 
-const ORDERS = [
-  { id:'K-4831', client:'Нилуфар Хасанова', phone:'+992 90 123 45 67', addr:'ул. Сомони, 12',  mx:72, my:28, dist:3.4, weight:8.5, earning:5, pay:'Наличными', time:'14:23',
-    sum:46.40, delivery:5, items:[{e:'🥛',n:'Молоко',q:2,p:4.90},{e:'🧀',n:'Сыр',q:1,p:18.5},{e:'☕',n:'Кофе',q:1,p:18.0}] },
-  { id:'K-4835', client:'Рустам Давлатов',  phone:'+992 91 445 23 11', addr:'мкр. Мирный, 5',   mx:35, my:62, dist:1.8, weight:2.0, earning:3, pay:'Наличными', time:'14:10',
-    sum:18.90, delivery:5, items:[{e:'🥦',n:'Брокколи',q:2,p:5.50},{e:'🍅',n:'Томаты',q:1,p:7.90}] },
-  { id:'K-4838', client:'Зафар Мирзоев',    phone:'+992 88 789 01 23', addr:'ул. Рудаки, 8',    mx:80, my:70, dist:2.6, weight:5.2, earning:4, pay:'Наличными', time:'13:58',
-    sum:32.10, delivery:5, items:[{e:'🍞',n:'Хлеб',q:2,p:3.20},{e:'🥚',n:'Яйца',q:1,p:8.90},{e:'🧃',n:'Сок',q:3,p:5.60}] },
-  { id:'K-4841', client:'Мадина Олимова',   phone:'+992 93 321 65 43', addr:'ул. Ленина, 18',   mx:50, my:40, dist:1.2, weight:3.4, earning:3, pay:'Наличными', time:'13:45',
-    sum:37.20, delivery:0, items:[{e:'🍫',n:'Шоколад',q:4,p:6.50},{e:'🧃',n:'Сок',q:2,p:5.60}] },
-];
+function useTariff() {
+  return usePricingStore(s => s.pricing);
+}
 
-const HISTORY = [
-  { id:'K-4820', client:'Лола М.',    addr:'ул. Ленина 5',    earning:5, time:'13:20', dist:'2.1 км', rating:5 },
-  { id:'K-4815', client:'Бахром К.',  addr:'мкр. Мирный 12',  earning:4, time:'12:45', dist:'1.5 км', rating:5 },
-  { id:'K-4810', client:'Зубайр Р.',  addr:'ул. Сомони 8',    earning:6, time:'12:10', dist:'3.8 км', rating:4 },
-  { id:'K-4805', client:'Сабрина Н.', addr:'ул. Рудаки 22',   earning:5, time:'11:30', dist:'2.7 км', rating:5 },
-];
+function calcDelivery(dist: number, weight: number, TARIFF = DEFAULT_PRICING): number {
+  return calcDeliveryFee(dist, weight, TARIFF);
+}
 
-const STORE = { mx:48, my:50 };
+function getOrderKm(o: { id: string }, roadKm: Record<string, number>): number | null {
+  return roadKm[o.id] ?? null;
+}
+
+function kmStr(km: number | null): string {
+  return km != null ? formatKm(km, false) : '…';
+}
+
+function orderDelivery(o: { id: string; weight: number }, roadKm: Record<string, number>, TARIFF = DEFAULT_PRICING): number | null {
+  const km = getOrderKm(o, roadKm);
+  return km != null ? calcDelivery(km, o.weight, TARIFF) : null;
+}
+
+function isMapAlive(map: any): boolean {
+  try {
+    const el = map?.getContainer?.();
+    return !!(map?._loaded && el?.isConnected && map.getPane?.('mapPane'));
+  } catch {
+    return false;
+  }
+}
+
+function safeFitBounds(map: any, bounds: any) {
+  if (!isMapAlive(map)) return;
+  try {
+    map.stop();
+    const center = bounds.getCenter();
+    const zoom = Math.min(map.getBoundsZoom(bounds, false), 18);
+    map.setView(center, zoom, { animate: false, reset: true });
+  } catch { /* карта уже уничтожена */ }
+}
+
+function destroyMap(map: any, container?: HTMLDivElement | null) {
+  if (!map) return;
+  try {
+    map.stop();
+    map.eachLayer((layer: any) => { try { map.removeLayer(layer); } catch {} });
+    map.off();
+    map.remove();
+  } catch {}
+  if (container) delete (container as any)._leaflet_id;
+}
+
+/* Центр карты по умолчанию (г. Яван) — без GPS курьера */
+const MAP_CENTER = { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng };
+
+function useCourierLocation() {
+  const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const watchRef = useRef<number | null>(null);
+
+  const stopWatch = () => {
+    if (watchRef.current != null) {
+      navigator.geolocation.clearWatch(watchRef.current);
+      watchRef.current = null;
+    }
+  };
+
+  const enable = () => {
+    if (!navigator.geolocation) {
+      setError('GPS недоступен в браузере');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    navigator.geolocation.getCurrentPosition(
+      p => {
+        setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+        setLoading(false);
+        stopWatch();
+        watchRef.current = navigator.geolocation.watchPosition(
+          wp => setPos({ lat: wp.coords.latitude, lng: wp.coords.longitude }),
+          () => {},
+          { enableHighAccuracy: true, maximumAge: 5000 }
+        );
+      },
+      err => {
+        setError(
+          err.code === 1 ? 'Доступ к GPS запрещён' :
+          err.code === 2 ? 'GPS сигнал недоступен' :
+          'Время ожидания GPS истекло'
+        );
+        setLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  };
+
+  const disable = () => {
+    stopWatch();
+    setPos(null);
+    setError('');
+  };
+
+  useEffect(() => () => stopWatch(), []);
+
+  return { pos, loading, error, enable, disable, enabled: pos != null };
+}
+
+/* Точки забора — из общего store (синхрон с админкой) */
+function buildPickupsMap(list: PickupPoint[]) {
+  return Object.fromEntries(list.map(p => [p.id, {
+    id: p.id, name: p.name, addr: p.addr, phone: p.phone, e: p.e, color: p.color, lat: p.lat, lng: p.lng,
+  }]));
+}
+
+const ORDERS = DEMO_COURIER_ORDERS;
+const HISTORY = DEMO_COURIER_HISTORY;
 
 /* ─────────────────────────────────────────────────────
-    КАРТА со всеми заказами (метки)
+    РЕАЛЬНАЯ КАРТА OpenStreetMap + Leaflet
 ───────────────────────────────────────────────────── */
-function OrdersMap({ orders, selected, onSelect, height = 280 }: {
-  orders: typeof ORDERS; selected: any; onSelect: (o: any) => void; height?: number
+function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 280, TARIFF = DEFAULT_PRICING, roadKm = {}, sheetOpen = false, courierPos = null, onEnableLocation, locationLoading = false, locationError = '', PICKUPS = {}, pickupLocations = {} }: {
+  orders: typeof ORDERS; selected: any; onSelect: (o: any) => void; height?: number; pickupIdx?: number; step?: string; TARIFF?: typeof DEFAULT_PRICING; roadKm?: Record<string, number>; sheetOpen?: boolean
+  courierPos?: { lat: number; lng: number } | null; onEnableLocation?: () => void; locationLoading?: boolean; locationError?: string
+  PICKUPS?: Record<string, { id: string; name: string; addr: string; phone: string; e: string; color: string; lat: number; lng: number }>
+  pickupLocations?: import('@/lib/pickups').PickupLocationMap
 }) {
-  return (
-    <div style={{ position:'relative', height, background:'linear-gradient(135deg,#081420,#0B1E12)', overflow:'hidden' }}>
-      {/* сетка улиц */}
-      <svg width="100%" height="100%" style={{ position:'absolute', inset:0, opacity:.13 }}>
-        {Array.from({length:12}).map((_,i)=><line key={'h'+i} x1="0" y1={i*26} x2="100%" y2={i*26} stroke="#1FD760" strokeWidth="0.5"/>)}
-        {Array.from({length:16}).map((_,i)=><line key={'v'+i} x1={i*34} y1="0" x2={i*34} y2="100%" stroke="#1FD760" strokeWidth="0.5"/>)}
-      </svg>
-      {/* диагональные «дороги» */}
-      <svg width="100%" height="100%" style={{ position:'absolute', inset:0, opacity:.2 }}>
-        <line x1="0" y1="70%" x2="100%" y2="40%" stroke="#3B8EF0" strokeWidth="2"/>
-        <line x1="20%" y1="0" x2="60%" y2="100%" stroke="#3B8EF0" strokeWidth="2"/>
-      </svg>
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef       = useRef<any>(null);
+  const mapGenRef    = useRef(0);
+  const markersRef   = useRef<any[]>([]);
+  const routesRef    = useRef<any[]>([]);
+  const fitTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFitKeyRef = useRef('');
+  const routeFitKeyRef = useRef('');
+  const roadKmRef = useRef(roadKm);
+  const courierPosRef = useRef(courierPos);
+  const pickupLocRef = useRef(pickupLocations);
+  const [ready, setReady] = useState(false);
 
-      {/* линия маршрута к выбранному */}
-      {selected && (
-        <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position:'absolute', inset:0 }}>
-          <line x1={STORE.mx} y1={STORE.my} x2={selected.mx} y2={selected.my}
-            stroke="#3B8EF0" strokeWidth="0.7" strokeDasharray="2 1.5" strokeLinecap="round"
-            style={{ animation:'dashmove 1s linear infinite' }}/>
-        </svg>
-      )}
+  useEffect(() => { roadKmRef.current = roadKm; }, [roadKm]);
+  useEffect(() => { courierPosRef.current = courierPos; }, [courierPos]);
+  useEffect(() => { pickupLocRef.current = pickupLocations; }, [pickupLocations]);
 
-      {/* магазин */}
-      <div style={{ position:'absolute', left:`${STORE.mx}%`, top:`${STORE.my}%`, transform:'translate(-50%,-50%)', zIndex:5 }}>
-        <div style={{ position:'relative' }}>
-          <div style={{ position:'absolute', inset:-6, borderRadius:'50%', border:'2px solid #1FD760', animation:'ping 2s ease-out infinite' }}/>
-          <div style={{ width:34, height:34, borderRadius:11, background:'linear-gradient(135deg,#0F8A3A,#1FD760)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, boxShadow:'0 4px 14px rgba(31,215,96,.5)' }}>🏪</div>
-        </div>
-        <div style={{ position:'absolute', top:38, left:'50%', transform:'translateX(-50%)', whiteSpace:'nowrap', fontSize:9, fontWeight:800, color:'#1FD760', background:'rgba(3,11,5,.8)', padding:'2px 7px', borderRadius:6 }}>KAKAPO</div>
-      </div>
+  const scheduleFit = (bounds: any, fitKey: string) => {
+    if (routeFitKeyRef.current === fitKey) return;
+    routeFitKeyRef.current = fitKey;
+    if (fitTimerRef.current) clearTimeout(fitTimerRef.current);
+    fitTimerRef.current = setTimeout(() => {
+      fitTimerRef.current = null;
+      if (isMapAlive(mapRef.current)) safeFitBounds(mapRef.current, bounds);
+    }, 80);
+  };
 
-      {/* метки заказов */}
-      {orders.map((o,i) => {
+  /* подключаем Leaflet CSS один раз */
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id   = 'leaflet-css';
+      link.rel  = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+  }, []);
+
+  /* инициализируем карту */
+  useEffect(() => {
+    if (typeof window === 'undefined' || !containerRef.current) return;
+    const gen = ++mapGenRef.current;
+    let cancelled = false;
+
+    import('leaflet').then(L => {
+      if (cancelled || gen !== mapGenRef.current || !containerRef.current) return;
+      if (mapRef.current || (containerRef.current as any)._leaflet_id) return;
+
+      (L.Icon.Default.prototype as any)._getIconUrl = undefined;
+      L.Icon.Default.mergeOptions({
+        iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      });
+
+      const map = L.map(containerRef.current!, {
+        center: [MAP_CENTER.lat, MAP_CENTER.lng],
+        zoom: 15,
+        zoomControl: false,
+        attributionControl: false,
+        zoomAnimation: false,
+        fadeAnimation: false,
+        markerZoomAnimation: false,
+        inertia: false,
+      });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+      mapRef.current = map;
+      map.whenReady(() => {
+        if (cancelled || gen !== mapGenRef.current) return;
+        setReady(true);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      mapGenRef.current += 1;
+      if (fitTimerRef.current) { clearTimeout(fitTimerRef.current); fitTimerRef.current = null; }
+      routesRef.current.forEach(r => { try { r.remove(); } catch {} });
+      routesRef.current = [];
+      markersRef.current.forEach(m => { try { m.remove(); } catch {} });
+      markersRef.current = [];
+      destroyMap(mapRef.current, containerRef.current);
+      mapRef.current = null;
+      setReady(false);
+    };
+  }, []);
+
+  /* обновляем маркеры при изменении данных */
+  useEffect(() => {
+    if (!ready || !isMapAlive(mapRef.current)) return;
+    const gen = mapGenRef.current;
+
+    import('leaflet').then(L => {
+      if (gen !== mapGenRef.current || !isMapAlive(mapRef.current)) return;
+      const map = mapRef.current;
+
+      markersRef.current.forEach(m => { try { m.remove(); } catch {} });
+      markersRef.current = [];
+
+      const mkIcon = (html: string, w: number, h: number, ax: number, ay: number) =>
+        L.divIcon({ html, className:'', iconSize:[w,h], iconAnchor:[ax,ay], popupAnchor:[0,-ay] });
+
+      if (selected && selected.pickupIds) {
+        selected.pickupIds.forEach((pid: string, i: number) => {
+          const pk = PICKUPS[pid] || PICKUPS.store;
+          const isCurrent = step === 'toPickup' && i === pickupIdx;
+          const isDone    = step === 'toClient' || step === 'done' || (step === 'toPickup' && i < pickupIdx);
+          const sz = isCurrent ? 40 : 30;
+          const icon = mkIcon(
+            `<div style="width:${sz}px;height:${sz}px;border-radius:10px;background:${isCurrent?pk.color+'33':isDone?'rgba(6,16,10,.7)':'rgba(6,16,10,.92)'};border:2px solid ${isCurrent?pk.color:isDone?pk.color+'55':'#2a4a2a'};display:flex;align-items:center;justify-content:center;font-size:${isCurrent?20:15}px;box-shadow:${isCurrent?`0 0 16px ${pk.color}99`:'none'};opacity:${isDone?0.5:1}">${isDone?'✓':pk.e}</div>`,
+            sz, sz, sz/2, sz/2
+          );
+          const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: isCurrent ? 600 : 200 }).addTo(map);
+          m.bindTooltip(`${i+1}. ${pk.name}`, { direction:'top', offset:[0,-sz/2] });
+          markersRef.current.push(m);
+        });
+      }
+
+      orders.forEach((o, i) => {
         const isSel = selected?.id === o.id;
-        return (
-          <div key={o.id} onClick={()=>onSelect(o)}
-            style={{ position:'absolute', left:`${o.mx}%`, top:`${o.my}%`, transform:'translate(-50%,-100%)', zIndex:isSel?20:10, cursor:'pointer', transition:'all .25s' }}>
-            <div style={{ position:'relative', animation: isSel ? 'bounce 1s ease-in-out infinite' : 'none' }}>
-              <div style={{
-                width: isSel?44:36, height: isSel?44:36, borderRadius:'50% 50% 50% 0',
-                transform:'rotate(-45deg)',
-                background: isSel ? 'linear-gradient(135deg,#1E5BB5,#3B8EF0)' : 'linear-gradient(135deg,#7a2020,#FF4545)',
-                display:'flex', alignItems:'center', justifyContent:'center',
-                boxShadow: isSel ? '0 6px 20px rgba(59,142,240,.6)' : '0 4px 12px rgba(255,69,69,.4)',
-                border:'2px solid rgba(255,255,255,.25)', transition:'all .25s'
-              }}>
-                <span style={{ transform:'rotate(45deg)', fontSize:isSel?17:14, fontWeight:900, color:'white' }}>{o.earning}</span>
-              </div>
-              <div style={{ position:'absolute', top:isSel?48:40, left:'50%', transform:'translateX(-50%)', whiteSpace:'nowrap', fontSize:9, fontWeight:800, color:isSel?'#3B8EF0':'#FF8888', background:'rgba(3,11,5,.85)', padding:'2px 7px', borderRadius:6 }}>
-                +{o.earning} ЅМ
-              </div>
-            </div>
-          </div>
+        const sz = isSel ? 44 : 36;
+        const label = i + 1;
+        const icon = mkIcon(
+          `<div style="width:${sz}px;height:${sz}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${isSel?'linear-gradient(135deg,#1E5BB5,#3B8EF0)':'linear-gradient(135deg,#7a2020,#FF4545)'};display:flex;align-items:center;justify-content:center;box-shadow:${isSel?'0 4px 16px rgba(59,142,240,.6)':'0 3px 12px rgba(255,69,69,.5)'};border:2px solid rgba(255,255,255,.25)"><span style="transform:rotate(45deg);font-size:${isSel?16:13}px;font-weight:900;color:#fff">${label}</span></div>`,
+          sz, sz, sz/2, sz
         );
-      })}
+        const m = L.marker([o.lat, o.lng], { icon, zIndexOffset: isSel ? 800 : 100 }).addTo(map);
+        m.on('click', () => onSelect(o));
+        const km = getOrderKm(o, roadKmRef.current);
+        const kmLabel = km != null ? formatKm(km) : '… км';
+        const dlv = km != null ? calcDelivery(km, o.weight, TARIFF) : '…';
+        m.bindTooltip(`${o.client} · ${kmLabel} · доставка ${dlv} ЅМ`, { direction:'top', offset:[0,-sz] });
+        markersRef.current.push(m);
+      });
 
-      {/* счётчик заказов */}
-      <div style={{ position:'absolute', top:12, left:12, padding:'8px 13px', borderRadius:12, background:'rgba(3,11,5,.85)', backdropFilter:'blur(10px)', border:'1px solid rgba(59,142,240,.3)', zIndex:30 }}>
-        <div className="ub" style={{ fontSize:17, fontWeight:900, color:'#3B8EF0' }}>{orders.length}</div>
-        <div style={{ fontSize:9, color:'#8FB897' }}>заказов рядом</div>
-      </div>
+      const pos = courierPosRef.current;
+      if (pos) {
+        const courierIcon = mkIcon(
+          `<div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#0F8A3A,#1FD760);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 16px rgba(31,215,96,.7);border:2px solid rgba(255,255,255,.25)">🛵</div>`,
+          38, 38, 19, 19
+        );
+        markersRef.current.push(
+          L.marker([pos.lat, pos.lng], { icon: courierIcon, zIndexOffset: 1000 }).addTo(map)
+        );
+      }
 
-      {/* кнопка «моё местоположение» */}
-      <div style={{ position:'absolute', bottom:12, right:12, width:40, height:40, borderRadius:12, background:'rgba(3,11,5,.85)', backdropFilter:'blur(10px)', border:'1px solid rgba(59,142,240,.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, zIndex:30, cursor:'pointer' }}>
-        🎯
-      </div>
+      if (!selected?.pickupIds && orders.length) {
+        const fitKey = orders.map(o => o.id).join(',') + (pos ? `:${pos.lat.toFixed(4)}` : '');
+        if (lastFitKeyRef.current !== fitKey) {
+          lastFitKeyRef.current = fitKey;
+          const bounds: [number, number][] = orders.map(o => [o.lat, o.lng]);
+          if (pos) bounds.push([pos.lat, pos.lng]);
+          scheduleFit(L.latLngBounds(bounds), `orders:${fitKey}`);
+        }
+      }
+    });
+  }, [ready, orders, selected, pickupIdx, step, onSelect, TARIFF, courierPos]);
+
+  /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
+  useEffect(() => {
+    if (!ready || !isMapAlive(mapRef.current) || !selected?.pickupIds) return;
+    const gen = mapGenRef.current;
+    let cancelled = false;
+    const selId = selected.id as string;
+    const deliveryFitKey = `delivery:${selId}`;
+
+    import('leaflet').then(async L => {
+      routesRef.current.forEach(r => { try { r.remove(); } catch {} });
+      routesRef.current = [];
+
+      /* основная линия — только от точек забора до клиента */
+      const delivery = await fetchOrderDeliveryRoute(selected, pickupLocRef.current);
+      if (cancelled || gen !== mapGenRef.current || !isMapAlive(mapRef.current)) return;
+
+      routesRef.current.push(
+        L.polyline(delivery.geometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(mapRef.current)
+      );
+
+      /* пунктир — где едет курьер (только если включён GPS) */
+      const pos = courierPosRef.current;
+      if (pos && (step === 'toPickup' || step === 'toClient')) {
+        const pids: string[] = selected.pickupIds;
+        const navPoints = step === 'toClient'
+          ? [{ lat: pos.lat, lng: pos.lng }, { lat: selected.lat, lng: selected.lng }]
+          : (() => {
+              const curPk = PICKUPS[pids[pickupIdx]] || PICKUPS.store;
+              return [{ lat: pos.lat, lng: pos.lng }, { lat: curPk.lat, lng: curPk.lng }];
+            })();
+        const nav = await fetchRoute(navPoints);
+        if (!cancelled && gen === mapGenRef.current && isMapAlive(mapRef.current)) {
+          routesRef.current.push(
+            L.polyline(nav.geometry, {
+              color: step === 'toClient' ? '#3B8EF0' : '#FFB800',
+              weight: 3, opacity: 0.55, dashArray: '8 6',
+            }).addTo(mapRef.current)
+          );
+        }
+      }
+
+      if (delivery.geometry.length >= 2) {
+        scheduleFit(L.latLngBounds(delivery.geometry), deliveryFitKey);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      routesRef.current.forEach(r => { try { r.remove(); } catch {} });
+      routesRef.current = [];
+    };
+  }, [ready, selected, pickupIdx, step, sheetOpen, courierPos, pickupLocations]);
+
+  useEffect(() => {
+    if (!selected) routeFitKeyRef.current = '';
+  }, [selected]);
+
+  const displayKm = selected ? getOrderKm(selected, roadKm) : null;
+
+  return (
+    <div style={{ position:'relative', height }}>
+      <div ref={containerRef} style={{ width:'100%', height:'100%' }}/>
+      {!sheetOpen && (
+        <div style={{ position:'absolute', top:12, left:12, padding:'7px 12px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid rgba(59,142,240,.3)', zIndex:999, pointerEvents:'none' }}>
+          <div className="ub" style={{ fontSize:17, fontWeight:900, color:'#3B8EF0' }}>{orders.length}</div>
+          <div style={{ fontSize:9, color:'#8FB897' }}>заказов рядом</div>
+        </div>
+      )}
+      {!sheetOpen && displayKm != null && (
+        <div style={{ position:'absolute', bottom:12, left:12, padding:'6px 12px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid rgba(31,215,96,.35)', zIndex:999, pointerEvents:'none', fontSize:11, fontWeight:700, color:'#1FD760' }}>
+          🛣 {formatKm(displayKm)} · забор → клиент
+        </div>
+      )}
+      {!sheetOpen && !courierPos && onEnableLocation && (
+        <div style={{ position:'absolute', bottom:12, right:12, zIndex:999, display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, maxWidth:'calc(100% - 24px)' }}>
+          {locationError && (
+            <div style={{ padding:'6px 10px', borderRadius:10, background:'rgba(255,69,69,.12)', border:'1px solid rgba(255,69,69,.3)', fontSize:10, color:'#FF4545', textAlign:'right' }}>
+              {locationError}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onEnableLocation}
+            disabled={locationLoading}
+            className="btn"
+            style={{ padding:'10px 14px', borderRadius:12, background:'linear-gradient(135deg,#0F8A3A,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:12, display:'flex', alignItems:'center', gap:6, boxShadow:'0 4px 16px rgba(31,215,96,.45)', opacity:locationLoading?0.7:1 }}
+          >
+            {locationLoading ? (
+              <div style={{ width:14, height:14, borderRadius:'50%', border:'2px solid rgba(3,11,5,.3)', borderTopColor:'#030B05', animation:'spin 1s linear infinite' }}/>
+            ) : '📍'}
+            {locationLoading ? 'Ищем GPS…' : 'Моя локация'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -126,16 +419,25 @@ function OrdersMap({ orders, selected, onSelect, height = 280 }: {
    ГЛАВНОЕ ПРИЛОЖЕНИЕ
 ───────────────────────────────────────────────────── */
 export default function CourierApp() {
+  const TARIFF = useTariff();
+  const pickupsList = usePickups();
+  const pickupLocations = usePickupLocations();
+  const PICKUPS = buildPickupsMap(pickupsList);
   const [logged,    setLogged]    = useState(false);
+  const { roadKm, loading: kmLoading } = useOrderRoadKm(ORDERS, logged);
+  const { pos: courierPos, loading: locationLoading, error: locationError, enable: enableLocation, disable: disableLocation, enabled: locationEnabled } = useCourierLocation();
   const [tab,       setTab]       = useState('orders');
   const [status,    setStatus]    = useState('available');
   const [selected,  setSelected]  = useState<any>(null);
-  const [active,    setActive]    = useState<any>(null);
-  const [step,      setStep]      = useState('toStore');
-  const [completed, setCompleted] = useState<string[]>([]);
+  const [active,     setActive]     = useState<any>(null);
+  const [step,       setStep]       = useState<'toPickup'|'toClient'|'done'>('toPickup');
+  const [pickupIdx,  setPickupIdx]  = useState(0);
+  const [completed,  setCompleted]  = useState<string[]>([]);
   const [otp,       setOtp]       = useState(['','','','']);
   const [err,       setErr]       = useState('');
   const [load,      setLoad]      = useState(false);
+
+  useEffect(() => { hydrateCourierStores(); }, []);
 
   const verify = () => {
     if (otp.join('').length < 4) return;
@@ -147,8 +449,15 @@ export default function CourierApp() {
     }, 700);
   };
 
-  const accept = (o: any) => { setActive(o); setStatus('busy'); setStep('toStore'); setSelected(null); setTab('active'); };
+  const accept = (o: any) => { setActive(o); setStatus('busy'); setStep('toPickup'); setPickupIdx(0); setSelected(null); setTab('active'); };
   const finish = () => { setCompleted(c=>[...c,active.id]); setActive(null); setStatus('available'); setTab('orders'); };
+  const nextStop = () => {
+    if (pickupIdx < active.pickupIds.length - 1) {
+      setPickupIdx(i => i + 1);
+    } else {
+      setStep('toClient');
+    }
+  };
 
   const available = ORDERS.filter(o => !completed.includes(o.id) && o.id !== active?.id);
 
@@ -202,8 +511,18 @@ export default function CourierApp() {
           </div>
           <div style={{ textAlign:'right' }}>
             <div style={{ fontSize:9, color:'#3D6645' }}>Сегодня</div>
-            <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#FFB800' }}>42 ЅМ</div>
+            <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>42 ЅМ</div>
           </div>
+          <button
+            type="button"
+            onClick={locationEnabled ? disableLocation : enableLocation}
+            disabled={locationLoading}
+            className="btn"
+            title={locationEnabled ? 'GPS включён · нажмите чтобы выключить' : 'Включить GPS'}
+            style={{ width:36, height:36, borderRadius:10, flexShrink:0, border:`1.5px solid ${locationEnabled?'rgba(31,215,96,.5)':'#162B1A'}`, background:locationEnabled?'rgba(31,215,96,.15)':'#0C1C0F', color:locationEnabled?'#1FD760':'#5a7a62', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', opacity:locationLoading?0.6:1, filter:locationEnabled?'none':'grayscale(1)' }}
+          >
+            {locationLoading ? '…' : '📍'}
+          </button>
         </header>
 
         {/* ═══ ВКЛАДКА ЗАКАЗЫ ═══ */}
@@ -224,47 +543,125 @@ export default function CourierApp() {
             ) : (
               <>
                 <div style={{ margin:'12px 0 0' }}>
-                  <OrdersMap orders={available} selected={selected} onSelect={setSelected} />
+                  <LeafletMap key="orders-map" orders={available} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} />
                 </div>
 
+                {/* BOTTOM SHEET — детали заказа, фиксированный оверлей */}
                 {selected && (
-                  <div style={{ margin:'-30px 14px 0', position:'relative', zIndex:40, background:'#0C1C0F', border:'1.5px solid rgba(59,142,240,.4)', borderRadius:18, padding:16, animation:'slideUp .35s cubic-bezier(.16,1,.3,1)', boxShadow:'0 -8px 30px rgba(0,0,0,.5)' }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
-                      <div>
-                        <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#3B8EF0' }}>{selected.id}</div>
-                        <div style={{ fontSize:12, color:'#EBF5ED', fontWeight:700, marginTop:2 }}>{selected.client}</div>
-                        <div style={{ fontSize:11, color:'#8FB897', marginTop:1 }}>📍 {selected.addr}</div>
+                  <div style={{ position:'fixed', inset:0, zIndex:500, display:'flex', flexDirection:'column', justifyContent:'flex-end', alignItems:'center' }}>
+                    {/* затемнение */}
+                    <div onClick={()=>setSelected(null)} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.7)', backdropFilter:'blur(4px)' }}/>
+                    {/* карточка */}
+                    <div style={{ position:'relative', width:'100%', maxWidth:480, background:'#0C1C0F', borderRadius:'22px 22px 0 0', padding:'20px 18px calc(32px + env(safe-area-inset-bottom, 0px))', maxHeight:'85vh', overflowY:'auto', boxShadow:'0 -12px 40px rgba(0,0,0,.8)' }}>
+                      {/* ручка */}
+                      <div style={{ width:36, height:4, borderRadius:2, background:'#2A4A2A', margin:'0 auto 14px' }}/>
+
+                      {/* ID + сумма доставки */}
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                        <div className="ub" style={{ fontSize:14, fontWeight:900, color:'#3B8EF0' }}>{selected.id}</div>
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ padding:'4px 10px', borderRadius:10, fontSize:10, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>
+                            🛣 {getOrderKm(selected, roadKm) != null ? formatKm(getOrderKm(selected, roadKm)!) : '…'}
+                          </span>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', borderRadius:10, background:'rgba(31,215,96,.12)', border:'1px solid rgba(31,215,96,.3)' }}>
+                            <span style={{ fontSize:10, color:'#1FD760' }}>доставка</span>
+                            <span className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{orderDelivery(selected, roadKm, TARIFF) ?? '…'} ЅМ</span>
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ textAlign:'right' }}>
-                        <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#FFB800' }}>+{selected.earning}</div>
-                        <div style={{ fontSize:10, color:'#3D6645' }}>ЅМ</div>
+
+                      {/* маршрут: точки забора → клиент */}
+                      <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:14, padding:'12px 14px', marginBottom:12 }}>
+                        {selected.pickupIds.map((pid:string, pi:number) => {
+                          const pk = PICKUPS[pid]||PICKUPS.store;
+                          return (
+                            <div key={pi} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
+                              <div style={{ width:32, height:32, borderRadius:9, background:pk.color+'22', border:`1.5px solid ${pk.color}55`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{pk.e}</div>
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>{pk.id==='store'?'ЗАБРАТЬ ИЗ МАГАЗИНА':'ЗАБРАТЬ ИЗ РЕСТОРАНА'}</div>
+                                <div style={{ fontSize:13, fontWeight:700, color:pk.color }}>{pk.name}</div>
+                                <div style={{ fontSize:10, color:'#3D6645' }}>{pk.addr}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div style={{ display:'flex', alignItems:'center', gap:10, paddingTop:8, borderTop:'1px dashed #1D3822' }}>
+                          <div style={{ width:32, height:32, borderRadius:9, background:'rgba(59,142,240,.12)', border:'1.5px solid rgba(59,142,240,.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>📍</div>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>ДОСТАВИТЬ КЛИЕНТУ</div>
+                            <div style={{ fontSize:13, fontWeight:700, color:'#EBF5ED' }}>{selected.client}</div>
+                            <div style={{ fontSize:10, color:'#8FB897' }}>{selected.addr}</div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:13 }}>
-                      <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>📍 {selected.dist} км</span>
-                      <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(255,184,0,.1)', color:'#FFB800', border:'1px solid rgba(255,184,0,.25)' }}>⚖️ {selected.weight} кг</span>
-                      <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(31,215,96,.1)', color:'#1FD760', border:'1px solid rgba(31,215,96,.25)' }}>💳 {selected.pay}</span>
-                    </div>
-                    <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:12 }}>
-                      {selected.items.map((it: any,i: number)=><span key={i} style={{ padding:'4px 9px', borderRadius:8, fontSize:11, background:'#091508', border:'1px solid #162B1A', color:'#8FB897' }}>{it.e} {it.n} ×{it.q}</span>)}
-                    </div>
-                    <div style={{ background:'rgba(31,215,96,.06)', border:'1px solid rgba(31,215,96,.25)', borderRadius:13, padding:'12px 14px', marginBottom:14 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                        <span style={{ fontSize:12, color:'#8FB897' }}>Сумма продуктов</span>
-                        <span style={{ fontSize:12, fontWeight:700 }}>{selected.sum.toFixed(2)} ЅМ</span>
+
+                      {/* теги */}
+                      <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:12 }}>
+                        <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>🛣 {getOrderKm(selected, roadKm) != null ? `${formatKm(getOrderKm(selected, roadKm)!)} · забор → клиент` : '… · забор → клиент'}</span>
+                        <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(255,184,0,.1)', color:'#FFB800', border:'1px solid rgba(255,184,0,.25)' }}>⚖️ {selected.weight} кг</span>
                       </div>
-                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8, paddingBottom:8, borderBottom:'1px dashed #1D3822' }}>
-                        <span style={{ fontSize:12, color:'#8FB897' }}>Доставка</span>
-                        <span style={{ fontSize:12, fontWeight:700, color:selected.delivery===0?'#1FD760':'#EBF5ED' }}>{selected.delivery===0?'Бесплатно':selected.delivery.toFixed(2)+' ЅМ'}</span>
+                      {/* состав */}
+                      <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
+                        {selected.items.map((it: any,i: number)=><span key={i} style={{ padding:'4px 9px', borderRadius:8, fontSize:11, background:'#091508', border:'1px solid #162B1A', color:'#8FB897' }}>{it.e} {it.n} ×{it.q}</span>)}
                       </div>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <span style={{ fontSize:13, fontWeight:800, color:'#1FD760' }}>💵 Взять наличными</span>
-                        <span className="ub" style={{ fontSize:18, fontWeight:900, color:'#1FD760' }}>{(selected.sum+selected.delivery).toFixed(2)} ЅМ</span>
+                      {/* оплата: товары + доставка = наличными у клиента */}
+                      <div style={{ background:'rgba(31,215,96,.07)', border:'1.5px solid rgba(31,215,96,.35)', borderRadius:14, padding:'13px 15px', marginBottom:16 }}>
+                        {(() => {
+                          const km = getOrderKm(selected, roadKm);
+                          const dlv = orderDelivery(selected, roadKm, TARIFF);
+                          const isHeavy = selected.weight > TARIFF.heavyKg;
+                          const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
+                          const total = dlv != null ? selected.sum + dlv : null;
+                          return (
+                            <>
+                              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
+                                <span style={{ fontSize:12, color:'#8FB897' }}>Продукт</span>
+                                <span style={{ fontSize:12, fontWeight:700 }}>{selected.sum.toFixed(2)} ЅМ</span>
+                              </div>
+                              <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
+                              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                                <span style={{ fontSize:12, color:'#8FB897' }}>Забор → клиент (по дорогам)</span>
+                                <span style={{ fontSize:12, fontWeight:700 }}>{km != null ? formatKm(km) : '…'}</span>
+                              </div>
+                              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                                <span style={{ fontSize:12, color:'#8FB897' }}>База (до {TARIFF.baseDist} км)</span>
+                                <span style={{ fontSize:12, fontWeight:700 }}>{TARIFF.base} ЅМ</span>
+                              </div>
+                              {extraKm > 0 && dlv != null && (
+                                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                                  <span style={{ fontSize:11, color:'#3D6645' }}>+ {formatKm(extraKm)} × {TARIFF.perKm} ЅМ</span>
+                                  <span style={{ fontSize:11, color:'#3D6645' }}>+{Math.ceil(extraKm * TARIFF.perKm)} ЅМ</span>
+                                </div>
+                              )}
+                              {isHeavy && (
+                                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                                  <span style={{ fontSize:11, color:'#FFB800' }}>⚖️ Тяжёлый груз ({selected.weight} кг)</span>
+                                  <span style={{ fontSize:11, color:'#FFB800' }}>+{TARIFF.heavyExtra} ЅМ</span>
+                                </div>
+                              )}
+                              <div style={{ display:'flex', justifyContent:'space-between', marginTop:6, marginBottom:8 }}>
+                                <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>Доставка итого</span>
+                                <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>{dlv ?? '…'} ЅМ</span>
+                              </div>
+                              <div style={{ borderTop:'1px dashed rgba(31,215,96,.3)', paddingTop:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div>
+                                  <div style={{ fontSize:13, fontWeight:800, color:'#1FD760' }}>💵 НАЛИЧНЫМИ</div>
+                                  <div style={{ fontSize:10, color:'#3D6645', marginTop:2 }}>взять с клиента</div>
+                                </div>
+                                <span className="ub" style={{ fontSize:26, fontWeight:900, color:'#1FD760' }}>{total != null ? `${total.toFixed(2)} ЅМ` : '…'}</span>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
-                    </div>
-                    <div style={{ display:'flex', gap:8 }}>
-                      <button onClick={()=>setSelected(null)} className="btn" style={{ padding:'13px 16px', borderRadius:13, background:'#162B1A', border:'none', color:'#8FB897', fontWeight:700, fontSize:13 }}>✕</button>
-                      <button onClick={()=>accept(selected)} className="btn" style={{ flex:1, padding:13, borderRadius:13, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:14 }}>✓ Принять заказ — +{selected.earning} ЅМ</button>
+                      {/* кнопки */}
+                      <div style={{ display:'flex', gap:8 }}>
+                        <button onClick={()=>setSelected(null)} className="btn" style={{ padding:'14px 18px', borderRadius:14, background:'#162B1A', border:'none', color:'#8FB897', fontWeight:700, fontSize:14 }}>✕</button>
+                        <button onClick={()=>accept(selected)} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                          <span>✓ Принять заказ</span>
+                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>наличными {(() => { const d = orderDelivery(selected, roadKm, TARIFF); return d != null ? `${(selected.sum + d).toFixed(2)} ЅМ` : '…'; })()}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -273,13 +670,16 @@ export default function CourierApp() {
                   <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
                     Доступные заказы
                     <span style={{ padding:'2px 8px', borderRadius:8, fontSize:11, fontWeight:800, background:'rgba(255,69,69,.12)', color:'#FF4545', border:'1px solid rgba(255,69,69,.28)' }}>{available.length}</span>
+                    {kmLoading && <span style={{ fontSize:10, color:'#3D6645', fontWeight:600 }}>· считаем км…</span>}
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                     {available.map((o,idx)=>{
                       const isSel = selected?.id === o.id;
+                      const km = getOrderKm(o, roadKm);
+                      const dlv = orderDelivery(o, roadKm, TARIFF);
                       return (
                         <div key={o.id} onClick={()=>setSelected(o)} className="btn"
-                          style={{ background:isSel?'rgba(59,142,240,.08)':'#091508', border:`1.5px solid ${isSel?'rgba(59,142,240,.4)':'#162B1A'}`, borderRadius:16, padding:'14px 15px', textAlign:'left', animation:`fadeUp .4s ease ${idx*.06}s both` }}>
+                          style={{ background:isSel?'rgba(59,142,240,.08)':'#091508', border:`1.5px solid ${isSel?'rgba(59,142,240,.4)':'#162B1A'}`, borderRadius:16, padding:'14px 15px', textAlign:'left' }}>
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                             <div style={{ display:'flex', alignItems:'center', gap:9 }}>
                               <div style={{ width:34, height:34, borderRadius:10, background:isSel?'linear-gradient(135deg,#1E5BB5,#3B8EF0)':'#0C1C0F', border:`1px solid ${isSel?'transparent':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, color:isSel?'white':'#3B8EF0' }}>{idx+1}</div>
@@ -288,15 +688,21 @@ export default function CourierApp() {
                                 <div style={{ fontSize:11, color:'#8FB897' }}>{o.client.split(' ')[0]} · {o.time}</div>
                               </div>
                             </div>
-                            <div className="ub" style={{ fontSize:17, fontWeight:900, color:'#FFB800' }}>+{o.earning} ЅМ</div>
+                            <div style={{ textAlign:'right' }}>
+                              <div className="ub" style={{ fontSize:17, fontWeight:900, color:'#1FD760' }}>{dlv ?? '…'} ЅМ</div>
+                              <div style={{ fontSize:9, color:'#3D6645' }}>доставка · {km != null ? `${formatKm(km)} забор→клиент` : '…'}</div>
+                            </div>
                           </div>
-                          <div style={{ fontSize:11, color:'#8FB897', marginBottom:8, display:'flex', alignItems:'center', gap:5 }}>
-                            📍 {o.addr}
+                          <div style={{ fontSize:11, color:'#8FB897', marginBottom:6, display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
+                            {o.pickupIds.map((pid:string,pi:number) => {
+                              const pk = PICKUPS[pid]||PICKUPS.store;
+                              return <span key={pi} style={{ color:pk.color, fontWeight:700 }}>{pi>0?'→ ':''}{pk.e} {pk.name.split(' ')[0]}</span>;
+                            })} <span style={{ color:'#8FB897' }}>→ 📍 {o.addr}</span>
                           </div>
                           <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                            <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0' }}>{o.dist} км</span>
+                            <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0' }}>🛣 {km != null ? formatKm(km) : '…'}</span>
                             <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'rgba(255,184,0,.1)', color:'#FFB800' }}>{o.weight} кг</span>
-                            <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'#0C1C0F', color:'#8FB897' }}>{o.items.length} тов.</span>
+                            <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'#0C1C0F', color:'#8FB897' }}>{o.items.length} пр.</span>
                             {isSel && <span style={{ marginLeft:'auto', fontSize:11, color:'#3B8EF0', fontWeight:700 }}>выбран ↑</span>}
                           </div>
                         </div>
@@ -313,39 +719,95 @@ export default function CourierApp() {
         {tab==='active' && (
           active ? (
             <div>
-              <OrdersMap orders={[active]} selected={active} onSelect={()=>{}} height={250} />
+              <LeafletMap key="active-map" orders={[active]} selected={active} onSelect={()=>{}} height={250} pickupIdx={pickupIdx} step={step} TARIFF={TARIFF} roadKm={roadKm} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations}/>
               <div style={{ padding:'16px 18px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
                   <div>
                     <span className="ub" style={{ fontSize:16, fontWeight:900, color:'#3B8EF0' }}>{active.id}</span>
                     <div style={{ fontSize:12, color:'#8FB897', marginTop:2 }}>{active.client}</div>
                   </div>
-                  <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#FFB800' }}>+{active.earning} ЅМ</div>
+                  <div style={{ textAlign:'right' }}>
+                    <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{orderDelivery(active, roadKm, TARIFF) ?? '…'} ЅМ</div>
+                    <div style={{ fontSize:9, color:'#3D6645' }}>доставка · {getOrderKm(active, roadKm) != null ? `${formatKm(getOrderKm(active, roadKm)!)} забор→клиент` : '…'}</div>
+                  </div>
                 </div>
 
-                <div style={{ display:'flex', marginBottom:18 }}>
-                  {([['toStore','🏪','В магазин'],['toClient','🛵','К клиенту'],['done','✓','Доставлено']] as const).map(([s,e,l],i)=>{
-                    const act = step===s;
-                    const dn = (step==='toClient'&&s==='toStore')||(step==='done'&&s!=='done');
+                {/* ── ДИНАМИЧЕСКИЕ ШАГИ ── */}
+                <div style={{ display:'flex', marginBottom:18, overflowX:'auto' }}>
+                  {active.pickupIds.map((pid: string, i: number) => {
+                    const pk = PICKUPS[pid] || PICKUPS.store;
+                    const isAct = step === 'toPickup' && pickupIdx === i;
+                    const isDone = step === 'toClient' || step === 'done' || (step === 'toPickup' && i < pickupIdx);
                     return (
-                      <div key={s} style={{ flex:1, textAlign:'center', position:'relative' }}>
-                        {i<2 && <div style={{ position:'absolute', top:18, left:'50%', width:'100%', height:2, background:dn?'#1FD760':'#162B1A' }}/>}
-                        <div style={{ width:38, height:38, borderRadius:'50%', background:act?'#3B8EF0':dn?'#1FD760':'#0C1C0F', border:`2px solid ${act?'#3B8EF0':dn?'#1FD760':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1, animation:act?'glow 1.8s infinite':'none' }}>{dn?'✓':e}</div>
-                        <div style={{ fontSize:10, fontWeight:act?700:400, color:act?'#3B8EF0':dn?'#1FD760':'#3D6645' }}>{l}</div>
+                      <div key={i} style={{ flex:1, textAlign:'center', position:'relative', minWidth:60 }}>
+                        <div style={{ position:'absolute', top:18, left:'50%', width:'100%', height:2, background:isDone?pk.color:'#162B1A' }}/>
+                        <div style={{ width:38, height:38, borderRadius:'50%', background:isAct?pk.color:isDone?pk.color+'33':'#0C1C0F', border:`2px solid ${isAct?pk.color:isDone?pk.color:'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1, animation:isAct?'glow 1.8s infinite':'none' }}>
+                          {isDone ? '✓' : pk.e}
+                        </div>
+                        <div style={{ fontSize:9, fontWeight:isAct?700:400, color:isAct?pk.color:isDone?pk.color:'#3D6645', whiteSpace:'nowrap' }}>{pk.name.split(' ')[0]}</div>
                       </div>
                     );
                   })}
+                  {/* шаг «К клиенту» */}
+                  {(() => {
+                    const isAct = step === 'toClient';
+                    const isDone = step === 'done';
+                    return (
+                      <div style={{ flex:1, textAlign:'center', position:'relative', minWidth:60 }}>
+                        <div style={{ position:'absolute', top:18, left:'50%', width:'100%', height:2, background:isDone?'#1FD760':'#162B1A' }}/>
+                        <div style={{ width:38, height:38, borderRadius:'50%', background:isAct?'#3B8EF0':isDone?'#1FD760':'#0C1C0F', border:`2px solid ${isAct?'#3B8EF0':isDone?'#1FD760':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1, animation:isAct?'glow 1.8s infinite':'none' }}>
+                          {isDone ? '✓' : '🛵'}
+                        </div>
+                        <div style={{ fontSize:9, fontWeight:isAct?700:400, color:isAct?'#3B8EF0':isDone?'#1FD760':'#3D6645' }}>К клиенту</div>
+                      </div>
+                    );
+                  })()}
+                  {/* шаг «Готово» */}
+                  {(() => {
+                    const isDone = step === 'done';
+                    return (
+                      <div style={{ flex:1, textAlign:'center', position:'relative', minWidth:60 }}>
+                        <div style={{ width:38, height:38, borderRadius:'50%', background:isDone?'#1FD760':'#0C1C0F', border:`2px solid ${isDone?'#1FD760':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1 }}>✓</div>
+                        <div style={{ fontSize:9, color:isDone?'#1FD760':'#3D6645' }}>Готово</div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
+                {/* ── КАРТОЧКА МАРШРУТА ── */}
                 <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:16, padding:'14px 16px', marginBottom:14 }}>
-                  <div style={{ display:'flex', gap:10, marginBottom:12, paddingBottom:12, borderBottom:'1px solid #162B1A' }}>
-                    <div style={{ width:10, height:10, borderRadius:'50%', background:'#1FD760', marginTop:4, flexShrink:0 }}/>
-                    <div style={{ flex:1 }}><div style={{ fontSize:10, color:'#3D6645' }}>ЗАБРАТЬ ЗАКАЗ</div><div style={{ fontSize:13, fontWeight:700 }}>KAKAPO, ул. Ленина 42</div></div>
-                    <a href="tel:+992118559797" style={{ padding:'7px 11px', borderRadius:9, background:'rgba(31,215,96,.1)', border:'1px solid rgba(31,215,96,.3)', color:'#1FD760', fontSize:13, textDecoration:'none', alignSelf:'center' }}>📞</a>
-                  </div>
-                  <div style={{ display:'flex', gap:10 }}>
+                  {step === 'toPickup' && (() => {
+                    const pk = PICKUPS[active.pickupIds[pickupIdx]] || PICKUPS.store;
+                    return (
+                      <div style={{ display:'flex', gap:10, marginBottom:active.pickupIds.length > 1 ? 12 : 0, paddingBottom:active.pickupIds.length > 1 ? 12 : 0, borderBottom:active.pickupIds.length > 1 ? '1px solid #162B1A' : 'none' }}>
+                        <div style={{ width:10, height:10, borderRadius:'50%', background:pk.color, marginTop:4, flexShrink:0 }}/>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:10, color:'#3D6645' }}>
+                            ТОЧКА {pickupIdx+1} из {active.pickupIds.length} — {pk.id==='store'?'МАГАЗИН':'РЕСТОРАН'}
+                          </div>
+                          <div style={{ fontSize:13, fontWeight:700, color:'#EBF5ED' }}>{pk.e} {pk.name}</div>
+                          <div style={{ fontSize:11, color:'#3D6645', marginTop:1 }}>{pk.addr}</div>
+                        </div>
+                        <a href={`tel:${pk.phone}`} style={{ padding:'7px 11px', borderRadius:9, background:`${pk.color}18`, border:`1px solid ${pk.color}44`, color:pk.color, fontSize:13, textDecoration:'none', alignSelf:'center' }}>📞</a>
+                      </div>
+                    );
+                  })()}
+                  {step === 'toPickup' && active.pickupIds.length > 1 && pickupIdx < active.pickupIds.length - 1 && (
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
+                      {active.pickupIds.slice(pickupIdx+1).map((pid:string, i:number) => {
+                        const pk = PICKUPS[pid]||PICKUPS.store;
+                        return <span key={i} style={{ padding:'3px 8px', borderRadius:7, fontSize:10, background:`${pk.color}11`, border:`1px solid ${pk.color}33`, color:pk.color }}>{pk.e} {pk.name.split(' ')[0]}</span>;
+                      })}
+                      <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, color:'#3D6645' }}>→ следующие точки</span>
+                    </div>
+                  )}
+                  <div style={{ display:'flex', gap:10, marginTop: step === 'toPickup' ? 12 : 0 }}>
                     <div style={{ width:10, height:10, borderRadius:2, background:'#3B8EF0', marginTop:4, flexShrink:0 }}/>
-                    <div style={{ flex:1 }}><div style={{ fontSize:10, color:'#3D6645' }}>ДОСТАВИТЬ КЛИЕНТУ</div><div style={{ fontSize:13, fontWeight:700 }}>{active.addr}</div><div style={{ fontSize:11, color:'#8FB897', marginTop:1 }}>{active.client}</div></div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:10, color:'#3D6645', opacity: step === 'toPickup' ? 0.6 : 1 }}>ДОСТАВИТЬ КЛИЕНТУ</div>
+                      <div style={{ fontSize:13, fontWeight:700, color: step === 'toPickup' ? '#3D6645' : '#EBF5ED' }}>{active.addr}</div>
+                      <div style={{ fontSize:11, color:'#8FB897', marginTop:1 }}>{active.client}</div>
+                    </div>
                     <a href={`tel:${active.phone}`} style={{ padding:'7px 11px', borderRadius:9, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.3)', color:'#3B8EF0', fontSize:13, textDecoration:'none', alignSelf:'center' }}>📞</a>
                   </div>
                 </div>
@@ -362,24 +824,65 @@ export default function CourierApp() {
                   </div>
                 </div>
 
-                <div style={{ background:'rgba(31,215,96,.06)', border:'1.5px solid rgba(31,215,96,.3)', borderRadius:16, padding:'14px 16px', marginBottom:18 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
-                    <span style={{ fontSize:13, color:'#8FB897' }}>Сумма продуктов</span>
-                    <span style={{ fontSize:13, fontWeight:700 }}>{active.sum.toFixed(2)} ЅМ</span>
-                  </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10, paddingBottom:10, borderBottom:'1px dashed #1D3822' }}>
-                    <span style={{ fontSize:13, color:'#8FB897' }}>Доставка</span>
-                    <span style={{ fontSize:13, fontWeight:700, color:active.delivery===0?'#1FD760':'#EBF5ED' }}>{active.delivery===0?'Бесплатно':active.delivery.toFixed(2)+' ЅМ'}</span>
-                  </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontSize:14, fontWeight:800, color:'#1FD760' }}>💵 Взять с клиента</span>
-                    <span className="ub" style={{ fontSize:22, fontWeight:900, color:'#1FD760' }}>{(active.sum+active.delivery).toFixed(2)} ЅМ</span>
-                  </div>
-                </div>
+                {(() => {
+                  const km = getOrderKm(active, roadKm);
+                  const dlv = orderDelivery(active, roadKm, TARIFF);
+                  const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
+                  const isHeavy = active.weight > TARIFF.heavyKg;
+                  return (
+                    <div style={{ background:'rgba(31,215,96,.08)', border:'2px solid rgba(31,215,96,.4)', borderRadius:16, padding:'16px', marginBottom:18 }}>
+                      <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:10, letterSpacing:1 }}>ИТОГО К ПОЛУЧЕНИЮ</div>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                        <span style={{ fontSize:12, color:'#8FB897' }}>Продукт</span>
+                        <span style={{ fontSize:13, fontWeight:700 }}>{active.sum.toFixed(2)} ЅМ</span>
+                      </div>
+                      <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                        <span style={{ fontSize:12, color:'#8FB897' }}>Забор → клиент (по дорогам)</span>
+                        <span style={{ fontSize:12, fontWeight:700 }}>{km != null ? formatKm(km) : '…'}</span>
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                        <span style={{ fontSize:12, color:'#8FB897' }}>База (до {TARIFF.baseDist} км)</span>
+                        <span style={{ fontSize:12, fontWeight:700 }}>{TARIFF.base} ЅМ</span>
+                      </div>
+                      {extraKm > 0 && dlv != null && (
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                          <span style={{ fontSize:11, color:'#3D6645' }}>+ {formatKm(extraKm)} × {TARIFF.perKm} ЅМ</span>
+                          <span style={{ fontSize:11, color:'#3D6645' }}>+{Math.ceil(extraKm * TARIFF.perKm)} ЅМ</span>
+                        </div>
+                      )}
+                      {isHeavy && (
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                          <span style={{ fontSize:11, color:'#FFB800' }}>⚖️ Тяжёлый груз ({active.weight} кг)</span>
+                          <span style={{ fontSize:11, color:'#FFB800' }}>+{TARIFF.heavyExtra} ЅМ</span>
+                        </div>
+                      )}
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6, marginBottom:8 }}>
+                        <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>Доставка итого</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>{dlv ?? '…'} ЅМ</span>
+                      </div>
+                      <div style={{ borderTop:'1px dashed rgba(31,215,96,.3)', paddingTop:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <div>
+                          <div style={{ fontSize:13, fontWeight:800, color:'#1FD760' }}>💵 НАЛИЧНЫМИ</div>
+                          <div style={{ fontSize:10, color:'#3D6645', marginTop:2 }}>взять с клиента</div>
+                        </div>
+                        <div className="ub" style={{ fontSize:30, fontWeight:900, color:'#1FD760' }}>{dlv != null ? `${(active.sum + dlv).toFixed(2)} ` : '… '}<span style={{ fontSize:16 }}>ЅМ</span></div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
-                {step==='toStore'  && <button onClick={()=>setStep('toClient')} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>📦 Забрал заказ — еду к клиенту</button>}
-                {step==='toClient' && <button onClick={()=>setStep('done')}    className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
-                {step==='done'     && <button onClick={finish}                  className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить +{active.earning} ЅМ</button>}
+                {step==='toPickup' && (() => {
+                  const pk = PICKUPS[active.pickupIds[pickupIdx]] || PICKUPS.store;
+                  const hasMore = pickupIdx < active.pickupIds.length - 1;
+                  return (
+                    <button onClick={nextStop} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:`linear-gradient(135deg,${pk.color}BB,${pk.color})`, border:'none', color:'#030B05', fontWeight:800, fontSize:14 }}>
+                      📦 Забрал у «{pk.name.split(' ')[0]}» — {hasMore ? `еду к следующей точке →` : 'еду к клиенту 🛵'}
+                    </button>
+                  );
+                })()}
+                {step==='toClient' && <button onClick={()=>setStep('done')} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
+                {step==='done'     && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {(() => { const d = orderDelivery(active, roadKm, TARIFF); return d != null ? `${(active.sum + d).toFixed(2)} ЅМ` : '…'; })()}</button>}
               </div>
             </div>
           ) : (
@@ -396,8 +899,8 @@ export default function CourierApp() {
         {tab==='earnings' && (
           <div style={{ padding:'14px 18px' }}>
             <div style={{ background:'linear-gradient(135deg,#0A1828,#163050)', border:'1px solid rgba(59,142,240,.3)', borderRadius:20, padding:'22px', marginBottom:16, textAlign:'center' }}>
-              <div style={{ fontSize:11, color:'#8FB897', marginBottom:6 }}>Заработано сегодня</div>
-              <div className="ub" style={{ fontSize:40, fontWeight:900, color:'#FFB800', marginBottom:4 }}>210 ЅМ</div>
+              <div style={{ fontSize:11, color:'#8FB897', marginBottom:6 }}>Доставки сегодня</div>
+              <div className="ub" style={{ fontSize:40, fontWeight:900, color:'#1FD760', marginBottom:4 }}>210 ЅМ</div>
               <div style={{ fontSize:12, color:'#3B8EF0' }}>14 доставок · 4.9 ★</div>
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:18 }}>
@@ -416,11 +919,10 @@ export default function CourierApp() {
                     <div style={{ width:34, height:34, borderRadius:9, background:'rgba(31,215,96,.12)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>✓</div>
                     <div>
                       <div style={{ fontSize:13, fontWeight:700 }}>{h.id} · {h.client}</div>
-                      <div style={{ fontSize:11, color:'#3D6645' }}>{h.addr} · {h.dist} · {'★'.repeat(h.rating)}</div>
+                      <div style={{ fontSize:11, color:'#3D6645' }}>{h.addr} · {'★'.repeat(h.rating)}</div>
                     </div>
                   </div>
                   <div style={{ textAlign:'right' }}>
-                    <div className="ub" style={{ fontSize:13, fontWeight:800, color:'#FFB800' }}>+{h.earning} ЅМ</div>
                     <div style={{ fontSize:10, color:'#3D6645' }}>{h.time}</div>
                   </div>
                 </div>

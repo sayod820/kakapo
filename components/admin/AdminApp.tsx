@@ -1,7 +1,17 @@
 'use client'
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { useOrders, useProducts, useRestaurants, useAuth } from '@/lib/store'
+import { usePricingStore, usePickupStore, hydrateCourierStores } from '@/lib/courierStore'
+import { restIdToPickupId } from '@/lib/pickups'
+import { STORE_LOCATION, calcDeliveryFee, formatKm, DEFAULT_PRICING } from '@/lib/courierData'
+import { useProductPhotos } from '@/lib/productPhotos'
+import PhotoUploadField from '@/components/shared/PhotoUploadField'
+import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
+import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import Link from 'next/link'
+
+const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
 // ─── KAKAPO Admin App ────────────────────────────
 /* ══════════════════════════════════════════════════════
    KAKAPO ADMIN — Единая панель управления
@@ -184,10 +194,11 @@ const NI = ({lbl,val,set,ph='',type='text',suf=''}) => (
 const NAV_GROUPS = [
   {g:'Общее',     items:[{id:'dashboard',icon:'📊',l:'Dashboard'},{id:'orders',icon:'📦',l:'Все заказы'}]},
   {g:'Магазин',   items:[{id:'products',icon:'🥦',l:'Товары'},{id:'categories',icon:'📁',l:'Категории'},{id:'inventory',icon:'📋',l:'Склад'},{id:'promos',icon:'💸',l:'Акции'}]},
-  {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'}]},
-  {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'}]},
+  {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'},{id:'pickups',icon:'📍',l:'Точки забора'}]},
+  {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
   {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'push',icon:'🔔',l:'Push'}]},
-  {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'}]},
+  {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
+  {g:'Контент',   items:[{id:'banners',icon:'🖼',l:'Баннеры / Слайдеры'}]},
   {g:'Система',   items:[{id:'settings',icon:'⚙️',l:'Настройки'}]},
 ];
 
@@ -298,6 +309,7 @@ function OrdersPage() {
 
 /* ── PRODUCTS ───────────────────────────────────── */
 function ProductsPage() {
+  const { setPhoto, getPhoto, hydrate } = useProductPhotos();
   const [prods,   setProds]   = useState(PRODS);
   const [search,  setSearch]  = useState('');
   const [catFlt,  setCatFlt]  = useState('all');
@@ -311,8 +323,16 @@ function ProductsPage() {
   const [nCat,    setNCat]    = useState('veg');
   const [nUnit,   setNUnit]   = useState('');
   const [nEmoji,  setNEmoji]  = useState('📦');
+  const [nPhoto,  setNPhoto]  = useState('');
   const [nStock,  setNStock]  = useState('');
   const [nOrganic,setNOrganic]= useState(false);
+  const [ePhoto,  setEPhoto]  = useState('');
+
+  useEffect(() => { hydrate(); }, [hydrate]);
+  useEffect(() => {
+    if (!editP) return;
+    setEPhoto(editP.photo || getPhoto(editP.id) || '');
+  }, [editP, getPhoto]);
 
   const syncGBS = () => { setSyncMsg('loading'); setTimeout(()=>setSyncMsg('ok'),1800); setTimeout(()=>setSyncMsg(''),5000); };
 
@@ -323,12 +343,52 @@ function ProductsPage() {
     return matchQ && matchC;
   });
 
+  const resetAddForm = () => {
+    setNName(''); setNArt(''); setNPrice(''); setNOld(''); setNUnit(''); setNStock('');
+    setNEmoji('📦'); setNPhoto(''); setNOrganic(false);
+  };
+
+  const closeAddModal = () => { setShowAdd(false); resetAddForm(); };
+
   const addProd = () => {
     if(!nName||!nPrice) return;
     const newId = Math.max(...prods.map(p=>p.id))+1;
     const nextArt = 'KAK-'+String(newId).padStart(4,'0');
-    setProds(ps=>[...ps,{id:newId,art:nArt||nextArt,e:nEmoji,name:nName,price:Number(nPrice),old:nOld?Number(nOld):null,cat:CATS_LIST.find(c=>c.id===nCat)?.name||nCat,catId:nCat,unit:nUnit||'шт',stock:Number(nStock)||0,hot:false,organic:nOrganic,discount:nOld?Math.round((1-Number(nPrice)/Number(nOld))*100):0}]);
-    setShowAdd(false); setNName(''); setNArt(''); setNPrice(''); setNOld(''); setNUnit(''); setNStock(''); setNEmoji('📦'); setNOrganic(false);
+    const product = {
+      id:newId, art:nArt||nextArt, e:nEmoji, name:nName, price:Number(nPrice),
+      old:nOld?Number(nOld):null, cat:CATS_LIST.find(c=>c.id===nCat)?.name||nCat, catId:nCat,
+      unit:nUnit||'шт', stock:Number(nStock)||0, hot:false, organic:nOrganic,
+      discount:nOld?Math.round((1-Number(nPrice)/Number(nOld))*100):0,
+      photo:nPhoto||undefined,
+    };
+    setProds(ps=>[...ps, product]);
+    if (nPhoto) setPhoto(newId, nPhoto);
+    closeAddModal();
+  };
+
+  const saveEdit = () => {
+    if (!editP) return;
+    const priceEl = document.getElementById('edit-price') as HTMLInputElement | null;
+    const oldEl = document.getElementById('edit-old') as HTMLInputElement | null;
+    const stockEl = document.getElementById('edit-stock') as HTMLInputElement | null;
+    const unitEl = document.getElementById('edit-unit') as HTMLInputElement | null;
+    const catEl = document.getElementById('edit-cat') as HTMLSelectElement | null;
+    const price = Number(priceEl?.value ?? editP.price);
+    const old = oldEl?.value ? Number(oldEl.value) : null;
+    const stock = Number(stockEl?.value ?? editP.stock);
+    const unit = unitEl?.value || editP.unit;
+    const catId = catEl?.value || editP.catId;
+    const updated = {
+      ...editP,
+      price, old, stock, unit, catId,
+      cat: CATS_LIST.find(c=>c.id===catId)?.name || editP.cat,
+      discount: old && old > price ? Math.round((1 - price / old) * 100) : 0,
+      photo: ePhoto || undefined,
+    };
+    setProds(ps => ps.map(p => p.id === editP.id ? updated : p));
+    if (ePhoto) setPhoto(editP.id, ePhoto);
+    else useProductPhotos.getState().removePhoto(editP.id);
+    setEditP(null);
   };
 
   const delProd = (id) => setProds(ps=>ps.filter(p=>p.id!==id));
@@ -393,7 +453,12 @@ function ProductsPage() {
                   <td><span className="ub" style={{fontSize:11,color:'#FFB800',letterSpacing:.5}}>{p.art}</span></td>
                   <td>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <div style={{width:34,height:34,borderRadius:9,background:'#162B1A',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{p.e}</div>
+                      <div style={{width:34,height:34,borderRadius:9,background:'#162B1A',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0,overflow:'hidden'}}>
+                        {(p.photo || getPhoto(p.id))
+                          ? <img src={p.photo || getPhoto(p.id)} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                          : p.e
+                        }
+                      </div>
                       <div><div style={{fontWeight:700,fontSize:13}}>{p.name}</div></div>
                     </div>
                   </td>
@@ -438,13 +503,14 @@ function ProductsPage() {
       {/* Add modal */}
       {showAdd&&(
         <div className="amod">
-          <div className="amodbg" onClick={()=>setShowAdd(false)}/>
+          <div className="amodbg" onClick={closeAddModal}/>
           <div className="amodbox" style={{maxWidth:580}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
               <div className="ub" style={{fontSize:15,fontWeight:800}}>Добавить товар</div>
-              <button onClick={()=>setShowAdd(false)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
+              <button onClick={closeAddModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <PhotoUploadField value={nPhoto} onChange={setNPhoto} />
               <div style={{display:'grid',gridTemplateColumns:'72px 1fr 1fr',gap:12}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div><input className="ai" value={nEmoji} onChange={e=>setNEmoji(e.target.value)} style={{textAlign:'center',fontSize:24,height:48}}/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div><input className="ai" value={nName} onChange={e=>setNName(e.target.value)} placeholder="Название товара"/></div>
@@ -494,22 +560,23 @@ function ProductsPage() {
               <button onClick={()=>setEditP(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <PhotoUploadField value={ePhoto} onChange={setEPhoto} height={120} />
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ)</div><input className="ai" defaultValue={editP.price} type="number"/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Старая цена (ЅМ)</div><input className="ai" defaultValue={editP.old||''} type="number" placeholder="Без скидки"/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Остаток</div><input className="ai" defaultValue={editP.stock} type="number"/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Единица</div><input className="ai" defaultValue={editP.unit}/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ)</div><input id="edit-price" className="ai" defaultValue={editP.price} type="number"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Старая цена (ЅМ)</div><input id="edit-old" className="ai" defaultValue={editP.old||''} type="number" placeholder="Без скидки"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Остаток</div><input id="edit-stock" className="ai" defaultValue={editP.stock} type="number"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Единица</div><input id="edit-unit" className="ai" defaultValue={editP.unit}/></div>
               </div>
               <div style={{display:'flex',gap:12}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Категория</div>
-                  <select className="ai" defaultValue={editP.catId} style={{cursor:'pointer'}}>
+                  <select id="edit-cat" className="ai" defaultValue={editP.catId} style={{cursor:'pointer'}}>
                     {CATS_LIST.map(c=><option key={c.id} value={c.id}>{c.e} {c.name}</option>)}
                   </select>
                 </div>
               </div>
               <div style={{display:'flex',gap:10}}>
-                <button onClick={()=>setEditP(null)} className="ab abp" style={{flex:1,padding:11}}>✓ Сохранить изменения</button>
+                <button onClick={saveEdit} className="ab abp" style={{flex:1,padding:11}}>✓ Сохранить изменения</button>
                 <button onClick={()=>{delProd(editP.id);setEditP(null);}} className="ab abd" style={{padding:'11px 16px'}}>🗑 Удалить</button>
               </div>
             </div>
@@ -571,13 +638,98 @@ function InventoryPage() {
 }
 /* ── РЕСТОРАНЫ (ПАРТНЁРЫ) ──────────────────────── */
 function PartnersPage() {
-  const [rests,setRests]=useState(RESTAURANTS.map(r=>({...r})));
-  const [sel,setSel]=useState(null);
-  const [tab,setTab]=useState('info');
-  const [showAdd,setShowAdd]=useState(false);
-  const toggleOpen=id=>setRests(rs=>rs.map(r=>r.id===id?{...r,open:!r.open}:r));
-  const toggleMenu=(rId,mId)=>setRests(rs=>rs.map(r=>r.id===rId?{...r,menu:r.menu.map(m=>m.id===mId?{...m,inStock:!m.inStock}:m)}:r));
-  const totalComm=rests.reduce((s,r)=>s+Math.round(r.revenueMonth*r.commission/100),0);
+  const pickups = usePickupStore(s => s.pickups);
+  const syncRestaurantPickup = usePickupStore(s => s.syncRestaurantPickup);
+  const [rests, setRests] = useState(RESTAURANTS.map(r => ({ ...r })));
+  const [sel, setSel] = useState<any>(null);
+  const [tab, setTab] = useState('info');
+  const [showAdd, setShowAdd] = useState(false);
+  const [editForm, setEditForm] = useState<any>(null);
+  const [locError, setLocError] = useState('');
+  const [addForm, setAddForm] = useState({
+    emoji: '🍽', name: '', cuisine: '', address: '', phone: '', email: '',
+    password: '', commission: '15', lat: null as number | null, lng: null as number | null,
+  });
+
+  const toggleOpen = id => setRests(rs => rs.map(r => r.id === id ? { ...r, open: !r.open } : r));
+  const toggleMenu = (rId, mId) => setRests(rs => rs.map(r => r.id === rId ? { ...r, menu: r.menu.map(m => m.id === mId ? { ...m, inStock: !m.inStock } : m) } : r));
+  const totalComm = rests.reduce((s, r) => s + Math.round(r.revenueMonth * r.commission / 100), 0);
+
+  const openManage = (r: typeof RESTAURANTS[0]) => {
+    const p = pickups.find(x => x.id === restIdToPickupId(r.id));
+    setEditForm({
+      name: r.name, cuisine: r.cuisine, address: r.address, phone: r.phone,
+      email: r.email, hours: '09:00–23:00',
+      lat: p?.lat ?? STORE_LOCATION.lat, lng: p?.lng ?? STORE_LOCATION.lng,
+      open: r.open,
+    });
+    setLocError('');
+    setSel(r);
+    setTab('info');
+  };
+
+  const pushPickup = (rest: any, lat: number, lng: number, addr: string, phone: string, active: boolean) => {
+    syncRestaurantPickup({
+      restId: rest.id, e: rest.emoji, name: rest.name, addr, phone, lat, lng, active,
+    });
+  };
+
+  const saveInfo = () => {
+    if (!sel || !editForm) return;
+    if (editForm.lat == null || editForm.lng == null) { setLocError('Укажите место ресторана на карте'); return; }
+    const updated = {
+      ...sel,
+      name: editForm.name, cuisine: editForm.cuisine, address: editForm.address,
+      phone: editForm.phone, email: editForm.email, open: editForm.open,
+    };
+    setRests(rs => rs.map(r => r.id === sel.id ? updated : r));
+    setSel(updated);
+    pushPickup(updated, editForm.lat, editForm.lng, editForm.address, editForm.phone, editForm.open);
+    setLocError('');
+  };
+
+  const resetAddForm = () => {
+    setAddForm({
+      emoji: '🍽', name: '', cuisine: '', address: '', phone: '', email: '',
+      password: '', commission: '15', lat: null, lng: null,
+    });
+    setLocError('');
+  };
+
+  const saveAdd = () => {
+    if (!addForm.name.trim()) { setLocError('Укажите название ресторана'); return; }
+    if (addForm.lat == null || addForm.lng == null) { setLocError('Выберите место на карте'); return; }
+    const newId = `R-0${rests.length + 1}`;
+    const commission = Number(addForm.commission) || 15;
+    const newRest = {
+      id: newId, name: addForm.name.trim(), emoji: addForm.emoji || '🍽',
+      cuisine: addForm.cuisine.trim() || '—', address: addForm.address.trim(),
+      phone: addForm.phone.trim(), email: addForm.email.trim(), commission,
+      open: true, rating: 5, reviews: 0, ordersMonth: 0, revenueMonth: 0,
+      img: 'linear-gradient(135deg,#1A0808,#3A1010)', menu: [],
+    };
+    setRests(rs => [...rs, newRest]);
+    pushPickup(newRest, addForm.lat, addForm.lng, addForm.address, addForm.phone, true);
+    setShowAdd(false);
+    resetAddForm();
+  };
+
+  const MapBlock = ({ lat, lng, onPick }: { lat: number | null; lng: number | null; onPick: (r: { lat: number; lng: number; address: string }) => void }) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>📍 Место на карте *</div>
+      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #162B1A' }}>
+        <AddressMapPicker
+          initial={lat != null && lng != null ? { lat, lng } : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }}
+          onSelect={onPick}
+        />
+      </div>
+      {lat != null && lng != null && (
+        <div style={{ marginTop: 6, fontSize: 10, color: '#3D6645', fontFamily: 'monospace' }}>
+          {lat.toFixed(5)}, {lng.toFixed(5)}
+        </div>
+      )}
+    </div>
+  );
   return (
     <div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
@@ -607,7 +759,7 @@ function PartnersPage() {
                 <Tog on={r.open} set={()=>toggleOpen(r.id)}/>
               </div>
               <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>{setSel(r);setTab('info');}} className="ab abg" style={{flex:1,padding:'7px',fontSize:11}}>⚙️ Управление</button>
+                <button onClick={() => openManage(r)} className="ab abg" style={{flex:1,padding:'7px',fontSize:11}}>⚙️ Управление</button>
                 <button className="ab" style={{flex:1,padding:'7px',fontSize:11,background:'rgba(255,184,0,.1)',border:'1.5px solid rgba(255,184,0,.3)',color:'#FFB800'}}>💰 Выплата</button>
               </div>
             </div>
@@ -637,7 +789,7 @@ function PartnersPage() {
       {sel&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>setSel(null)}/>
-          <div className="amodbox" style={{maxWidth:700}}>
+          <div className="amodbox" style={{maxWidth:700,maxHeight:'92vh',overflowY:'auto'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:28}}>{sel.emoji}</span><div><div className="ub" style={{fontSize:14,fontWeight:800}}>{sel.name}</div><div style={{fontSize:11,color:'#8FB897'}}>{sel.cuisine} · {sel.address}</div></div></div>
               <button onClick={()=>setSel(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
@@ -647,18 +799,32 @@ function PartnersPage() {
                 <button key={t.id} onClick={()=>setTab(t.id)} className="ab" style={{padding:'6px 13px',fontSize:11,background:tab===t.id?'rgba(31,215,96,.12)':'#0C1C0F',border:`1.5px solid ${tab===t.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:tab===t.id?'#1FD760':'#8FB897'}}>{t.l}</button>
               ))}
             </div>
-            {tab==='info'&&(
+            {tab==='info'&&editForm&&(
               <div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
-                  {[{l:'Название',v:sel.name},{l:'Кухня',v:sel.cuisine},{l:'Адрес',v:sel.address},{l:'Телефон',v:sel.phone},{l:'Email',v:sel.email},{l:'Часы',v:'09:00–23:00'}].map((f,i)=>(
-                    <div key={i}><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>{f.l}</div><input className="ai" defaultValue={f.v}/></div>
+                  {[
+                    {l:'Название',k:'name'},{l:'Кухня',k:'cuisine'},{l:'Адрес',k:'address'},
+                    {l:'Телефон',k:'phone'},{l:'Email',k:'email'},{l:'Часы',k:'hours'},
+                  ].map((f,i)=>(
+                    <div key={i}>
+                      <div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>{f.l}</div>
+                      <input className="ai" value={editForm[f.k]||''} onChange={e=>setEditForm((x:any)=>({...x,[f.k]:e.target.value}))}/>
+                    </div>
                   ))}
                 </div>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',borderRadius:11,background:sel.open?'rgba(31,215,96,.07)':'rgba(255,69,69,.07)',border:`1px solid ${sel.open?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)'}`,marginBottom:14}}>
-                  <span style={{fontSize:13,fontWeight:700,color:sel.open?'#1FD760':'#FF4545'}}>{sel.open?'🟢 Открыт':'🔴 Закрыт'}</span>
-                  <Tog on={sel.open} set={()=>{setSel(s=>({...s,open:!s.open}));toggleOpen(sel.id);}}/>
+                <MapBlock
+                  lat={editForm.lat} lng={editForm.lng}
+                  onPick={r=>setEditForm((x:any)=>({...x,lat:r.lat,lng:r.lng,address:r.address||x.address}))}
+                />
+                {locError&&<div style={{marginBottom:10,fontSize:11,color:'#FF4545'}}>⚠️ {locError}</div>}
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',borderRadius:11,background:editForm.open?'rgba(31,215,96,.07)':'rgba(255,69,69,.07)',border:`1px solid ${editForm.open?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)'}`,marginBottom:14}}>
+                  <span style={{fontSize:13,fontWeight:700,color:editForm.open?'#1FD760':'#FF4545'}}>{editForm.open?'🟢 Открыт':'🔴 Закрыт'}</span>
+                  <Tog on={editForm.open} set={()=>{setEditForm((x:any)=>({...x,open:!x.open}));toggleOpen(sel.id);}}/>
                 </div>
-                <div style={{display:'flex',gap:9}}><button className="ab abp" style={{flex:1,padding:10}}>✓ Сохранить</button><button className="ab abd" style={{padding:'10px 15px'}}>🚫 Заблокировать</button></div>
+                <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.2)',fontSize:11,color:'#8FB897',marginBottom:12}}>
+                  📍 Координаты сохраняются как точка забора · раздел «Точки забора»
+                </div>
+                <div style={{display:'flex',gap:9}}><button onClick={saveInfo} className="ab abp" style={{flex:1,padding:10}}>✓ Сохранить</button><button className="ab abd" style={{padding:'10px 15px'}}>🚫 Заблокировать</button></div>
               </div>
             )}
             {tab==='menu'&&(
@@ -719,18 +885,31 @@ function PartnersPage() {
       )}
       {showAdd&&(
         <div className="amod">
-          <div className="amodbg" onClick={()=>setShowAdd(false)}/>
-          <div className="amodbox" style={{maxWidth:500}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><div className="ub" style={{fontSize:14,fontWeight:800}}>Добавить ресторан</div><button onClick={()=>setShowAdd(false)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button></div>
+          <div className="amodbg" onClick={()=>{setShowAdd(false);resetAddForm();}}/>
+          <div className="amodbox" style={{maxWidth:560,maxHeight:'92vh',overflowY:'auto'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><div className="ub" style={{fontSize:14,fontWeight:800}}>Добавить ресторан</div><button onClick={()=>{setShowAdd(false);resetAddForm();}} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button></div>
             <div style={{display:'flex',flexDirection:'column',gap:11}}>
-              <div style={{display:'grid',gridTemplateColumns:'66px 1fr',gap:10}}><div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Emoji</div><input className="ai" defaultValue="🍽" style={{textAlign:'center',fontSize:22,height:46}}/></div><div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Название *</div><input className="ai" placeholder="Название ресторана"/></div></div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                {[{l:'Кухня',p:'Таджикская...'},{l:'Адрес',p:'ул. Ленина, 42'},{l:'Email партнёра *',p:'partner@rest.tj'},{l:'Пароль *',p:'••••••••'},{l:'Телефон',p:'+992 __ ___'},{l:'Комиссия %',p:'15'}].map((f,i)=>(
-                  <div key={i}><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>{f.l}</div><input className="ai" placeholder={f.p} type={f.l.includes('Пароль')?'password':f.l.includes('Комиссия')?'number':'text'}/></div>
-                ))}
+              <div style={{display:'grid',gridTemplateColumns:'66px 1fr',gap:10}}>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Emoji</div><input className="ai" value={addForm.emoji} onChange={e=>setAddForm(f=>({...f,emoji:e.target.value}))} style={{textAlign:'center',fontSize:22,height:46}}/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Название *</div><input className="ai" value={addForm.name} onChange={e=>setAddForm(f=>({...f,name:e.target.value}))} placeholder="Название ресторана"/></div>
               </div>
-              <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.18)',fontSize:11,color:'#8FB897'}}>📧 Ресторан получит доступ в kakapo-restaurant.jsx</div>
-              <button onClick={()=>setShowAdd(false)} className="ab abp" style={{width:'100%',padding:11}}>✓ Добавить партнёра</button>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Кухня</div><input className="ai" value={addForm.cuisine} onChange={e=>setAddForm(f=>({...f,cuisine:e.target.value}))} placeholder="Таджикская..."/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Адрес</div><input className="ai" value={addForm.address} onChange={e=>setAddForm(f=>({...f,address:e.target.value}))} placeholder="ул. Ленина, 42"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Email партнёра *</div><input className="ai" value={addForm.email} onChange={e=>setAddForm(f=>({...f,email:e.target.value}))} placeholder="partner@rest.tj"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Пароль *</div><input className="ai" type="password" value={addForm.password} onChange={e=>setAddForm(f=>({...f,password:e.target.value}))} placeholder="••••••••"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Телефон</div><input className="ai" value={addForm.phone} onChange={e=>setAddForm(f=>({...f,phone:e.target.value}))} placeholder="+992 __ ___"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Комиссия %</div><input className="ai" type="number" value={addForm.commission} onChange={e=>setAddForm(f=>({...f,commission:e.target.value}))} placeholder="15"/></div>
+              </div>
+              <MapBlock
+                lat={addForm.lat} lng={addForm.lng}
+                onPick={r=>setAddForm(f=>({...f,lat:r.lat,lng:r.lng,address:r.address||f.address}))}
+              />
+              {locError&&<div style={{fontSize:11,color:'#FF4545'}}>⚠️ {locError}</div>}
+              <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.18)',fontSize:11,color:'#8FB897'}}>
+                📍 Место на карте станет точкой забора для курьера · «Точки забора»
+              </div>
+              <button onClick={saveAdd} className="ab abp" style={{width:'100%',padding:11}}>✓ Добавить партнёра</button>
             </div>
           </div>
         </div>
@@ -1594,13 +1773,476 @@ function DashboardPage({setPage}) {
   );
 }
 
+/* ── BANNERS ─────────────────────────────────────── */
+/* ── ТАРИФ ДОСТАВКИ ─────────────────────────────── */
+function TariffPage() {
+  const pricing = usePricingStore(s => s.pricing);
+  const setPricing = usePricingStore(s => s.setPricing);
+  const [t, setT] = useState({ ...DEFAULT_PRICING, ...pricing });
+  const [saved, setSaved] = useState(false);
+  const [testDist,   setTestDist]   = useState('3.4');
+  const [testWeight, setTestWeight] = useState('8.5');
+
+  const save = () => { setPricing(t); setSaved(true); setTimeout(()=>setSaved(false), 2500); };
+
+  const NF = ({lbl, fld, unit, hint}: {lbl:string, fld:keyof typeof t, unit:string, hint:string}) => (
+    <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'16px'}}>
+      <div style={{fontSize:11,color:'#8FB897',fontWeight:700,marginBottom:4}}>{lbl}</div>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <input type="number" className="ai" style={{width:100,textAlign:'center',fontSize:18,fontWeight:900}}
+          value={t[fld]} onChange={e=>setT(v=>({...v,[fld]:parseFloat(e.target.value)||0}))}/>
+        <span style={{fontSize:13,color:'#3D6645',fontWeight:700}}>{unit}</span>
+      </div>
+      <div style={{fontSize:10,color:'#3D6645',marginTop:6}}>{hint}</div>
+    </div>
+  );
+
+  const dist   = parseFloat(testDist)   || 0;
+  const weight = parseFloat(testWeight) || 0;
+  const fee    = calcDeliveryFee(dist, weight, t);
+  const extra  = dist > t.baseDist ? Math.ceil((dist - t.baseDist) * t.perKm) : 0;
+  const heavy  = weight > t.heavyKg;
+
+  return (
+    <div style={{maxWidth:700}}>
+      {/* формула */}
+      <div style={{background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.2)',borderRadius:16,padding:'16px 18px',marginBottom:20,fontSize:13,color:'#8FB897',lineHeight:1.7}}>
+        <span style={{color:'#3B8EF0',fontWeight:800}}>Формула: </span>
+        Доставка = <b style={{color:'#EBF5ED'}}>База</b> + (расстояние − базовый км) × <b style={{color:'#EBF5ED'}}>за км</b> + надбавка за вес
+        <br/>Если расстояние ≤ базового — только базовая стоимость.
+      </div>
+
+      {/* поля */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
+        <NF lbl="Базовая стоимость" fld="base"       unit="ЅМ"  hint="Минимальная цена доставки"/>
+        <NF lbl="Бесплатный радиус" fld="baseDist"   unit="км"  hint="До этого расстояния — только базовая цена"/>
+        <NF lbl="За каждый доп. км" fld="perKm"      unit="ЅМ/км" hint="Добавляется за каждый км сверх базового"/>
+        <NF lbl="Порог тяжёлого груза" fld="heavyKg" unit="кг"  hint="Если вес заказа превышает — надбавка"/>
+        <NF lbl="Надбавка за тяжёлый груз" fld="heavyExtra" unit="ЅМ" hint="Добавляется если вес > порога"/>
+        <NF lbl="Бесплатная доставка от" fld="freeFrom" unit="ЅМ" hint="0 = отключено · сумма заказа для бесплатной доставки"/>
+      </div>
+
+      {/* калькулятор */}
+      <div style={{background:'#091508',border:'1.5px solid rgba(31,215,96,.3)',borderRadius:16,padding:'18px',marginBottom:20}}>
+        <div style={{fontWeight:800,fontSize:13,marginBottom:14,display:'flex',alignItems:'center',gap:8}}>
+          🧮 Калькулятор
+          <span style={{fontSize:11,color:'#3D6645',fontWeight:500}}>проверьте как работает тариф</span>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+          <div>
+            <div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Расстояние (км)</div>
+            <input type="number" className="ai" value={testDist} onChange={e=>setTestDist(e.target.value)} placeholder="3.4"/>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Вес заказа (кг)</div>
+            <input type="number" className="ai" value={testWeight} onChange={e=>setTestWeight(e.target.value)} placeholder="8.5"/>
+          </div>
+        </div>
+        <div style={{background:'#06100A',borderRadius:12,padding:'14px 16px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+            <span style={{fontSize:12,color:'#8FB897'}}>База (до {t.baseDist} км)</span>
+            <span style={{fontSize:12,fontWeight:700}}>{t.base} ЅМ</span>
+          </div>
+          {extra > 0 && (
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+              <span style={{fontSize:12,color:'#8FB897'}}>+ {(dist-t.baseDist).toFixed(1)} км × {t.perKm} ЅМ</span>
+              <span style={{fontSize:12,fontWeight:700,color:'#FFB800'}}>+{extra} ЅМ</span>
+            </div>
+          )}
+          {heavy && (
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+              <span style={{fontSize:12,color:'#FFB800'}}>⚖️ Тяжёлый груз ({weight} кг {'>'} {t.heavyKg} кг)</span>
+              <span style={{fontSize:12,fontWeight:700,color:'#FFB800'}}>+{t.heavyExtra} ЅМ</span>
+            </div>
+          )}
+          <div style={{borderTop:'1px dashed rgba(31,215,96,.3)',paddingTop:10,marginTop:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{fontSize:14,fontWeight:800,color:'#1FD760'}}>💵 Итого доставка</span>
+            <span style={{fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:'#1FD760'}}>{fee} ЅМ</span>
+          </div>
+        </div>
+      </div>
+
+      <button onClick={save} className="ab abp" style={{width:'100%',padding:13,fontSize:14}}>
+        {saved ? '✓ Сохранено!' : '💾 Сохранить тариф'}
+      </button>
+    </div>
+  );
+}
+
+/* ── ТОЧКИ ЗАБОРА ───────────────────────────────── */
+function PickupsPage() {
+  const list = usePickupStore(s => s.pickups);
+  const setPickups = usePickupStore(s => s.setPickups);
+  const [modal,  setModal]  = useState<any>(null);
+  const [form,   setForm]   = useState<any>({});
+
+  const storeList = list.filter(p => p.type === 'store');
+  const restList  = list.filter(p => p.type === 'rest');
+
+  const openAdd = () => { setForm({e:'🏪',color:'#1FD760',type:'store',active:true}); setModal('add'); };
+  const openEdit = (p:any) => { if (p.type !== 'store') return; setForm({...p}); setModal('edit'); };
+  const save = () => {
+    const row = { ...form, type:'store', lat: parseFloat(form.lat) || 0, lng: parseFloat(form.lng) || 0 };
+    if (modal==='add') setPickups([...list,{...row,id:'store-'+Date.now()}]);
+    else setPickups(list.map(p=>p.id===form.id?{...row}:p));
+    setModal(null);
+  };
+  const del = (id:string) => setPickups(list.filter(p=>p.id!==id));
+  const toggle = (id:string) => setPickups(list.map(p=>p.id===id?{...p,active:!p.active}:p));
+
+  const FI = ({lbl,fld,ph='',type='text'}:{lbl:string,fld:string,ph?:string,type?:string}) => (
+    <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>{lbl}</div>
+      <input className="ai" type={type} placeholder={ph} value={form[fld]||''} onChange={e=>setForm((f:any)=>({...f,[fld]:e.target.value}))}/>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
+        <StatCard l="Всего точек" v={list.length}/>
+        <StatCard l="Активных"   v={list.filter(p=>p.active).length}  c="#1FD760"/>
+        <StatCard l="Магазинов"  v={storeList.length} c="#3B8EF0"/>
+        <StatCard l="Ресторанов" v={restList.length}  c="#FFB800"/>
+      </div>
+
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <div style={{fontSize:12,color:'#8FB897'}}>🏪 Добавляйте только магазины · рестораны — в «Рестораны»</div>
+        <button onClick={openAdd} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>+ Добавить магазин</button>
+      </div>
+
+      <div className="ac" style={{marginBottom:16}}>
+        <div style={{padding:'10px 14px',borderBottom:'1px solid #162B1A',fontWeight:800,fontSize:12}}>🏪 Магазины</div>
+        <table className="at">
+          <thead><tr><th>Точка</th><th>Тип</th><th>Адрес</th><th>Телефон</th><th>Координаты</th><th>Статус</th><th></th></tr></thead>
+          <tbody>
+            {storeList.length ? storeList.map(p=>(
+              <tr key={p.id}>
+                <td><div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <div style={{width:36,height:36,borderRadius:10,background:p.color+'22',border:`1.5px solid ${p.color}55`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>{p.e}</div>
+                  <div><div style={{fontWeight:700,fontSize:13}}>{p.name}</div><div style={{fontSize:10,color:'#3D6645'}}>{p.id}</div></div>
+                </div></td>
+                <td><span style={{padding:'3px 8px',borderRadius:6,fontSize:11,fontWeight:700,background:'rgba(59,142,240,.12)',color:'#3B8EF0'}}>🏪 Магазин</span></td>
+                <td style={{fontSize:12,color:'#8FB897'}}>{p.addr}</td>
+                <td style={{fontSize:12,color:'#8FB897'}}>{p.phone}</td>
+                <td style={{fontSize:11,color:'#3D6645',fontFamily:'monospace'}}>{p.lat.toFixed(4)}, {p.lng.toFixed(4)}</td>
+                <td>
+                  <button onClick={()=>toggle(p.id)} className="ab" style={{padding:'4px 10px',fontSize:11,background:p.active?'rgba(31,215,96,.1)':'rgba(61,102,69,.1)',color:p.active?'#1FD760':'#3D6645',border:`1px solid ${p.active?'rgba(31,215,96,.3)':'rgba(61,102,69,.3)'}`}}>
+                    {p.active?'✓ Активна':'✕ Откл.'}
+                  </button>
+                </td>
+                <td><div style={{display:'flex',gap:5}}>
+                  <button onClick={()=>openEdit(p)} className="ab abg" style={{padding:'4px 9px',fontSize:11}}>✏️</button>
+                  <button onClick={()=>del(p.id)}   className="ab abd" style={{padding:'4px 9px',fontSize:11}}>🗑</button>
+                </div></td>
+              </tr>
+            )) : (
+              <tr><td colSpan={7} style={{textAlign:'center',color:'#3D6645',padding:20}}>Нет точек магазина</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="ac">
+        <div style={{padding:'10px 14px',borderBottom:'1px solid #162B1A',fontWeight:800,fontSize:12}}>🍽 Рестораны <span style={{fontWeight:400,color:'#3D6645',fontSize:11}}>· из раздела «Рестораны»</span></div>
+        <table className="at">
+          <thead><tr><th>Точка</th><th>Тип</th><th>Адрес</th><th>Телефон</th><th>Координаты</th><th>Статус</th><th></th></tr></thead>
+          <tbody>
+            {restList.map(p=>(
+              <tr key={p.id}>
+                <td><div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <div style={{width:36,height:36,borderRadius:10,background:p.color+'22',border:`1.5px solid ${p.color}55`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>{p.e}</div>
+                  <div><div style={{fontWeight:700,fontSize:13}}>{p.name}</div><div style={{fontSize:10,color:'#3D6645'}}>{p.id}</div></div>
+                </div></td>
+                <td><span style={{padding:'3px 8px',borderRadius:6,fontSize:11,fontWeight:700,background:'rgba(255,184,0,.12)',color:'#FFB800'}}>🍽 Ресторан</span></td>
+                <td style={{fontSize:12,color:'#8FB897'}}>{p.addr}</td>
+                <td style={{fontSize:12,color:'#8FB897'}}>{p.phone}</td>
+                <td style={{fontSize:11,color:'#3D6645',fontFamily:'monospace'}}>{p.lat.toFixed(4)}, {p.lng.toFixed(4)}</td>
+                <td>
+                  <button onClick={()=>toggle(p.id)} className="ab" style={{padding:'4px 10px',fontSize:11,background:p.active?'rgba(31,215,96,.1)':'rgba(61,102,69,.1)',color:p.active?'#1FD760':'#3D6645',border:`1px solid ${p.active?'rgba(31,215,96,.3)':'rgba(61,102,69,.3)'}`}}>
+                    {p.active?'✓ Активна':'✕ Откл.'}
+                  </button>
+                </td>
+                <td><span style={{fontSize:10,color:'#3D6645'}}>из «Рестораны»</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && (
+        <div className="amod">
+          <div className="amodbg" onClick={()=>setModal(null)}/>
+          <div className="amodbox" style={{maxWidth:460}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+              <div className="ub" style={{fontSize:14,fontWeight:800}}>{modal==='add'?'+ Точка магазина':'Редактировать магазин'}</div>
+              <button onClick={()=>setModal(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:10}}>
+                <FI lbl="Эмодзи" fld="e" ph="🏪"/>
+                <FI lbl="Название *" fld="name" ph="KAKAPO Магазин"/>
+              </div>
+              <FI lbl="Цвет (hex)" fld="color" ph="#1FD760"/>
+              <FI lbl="Адрес" fld="addr" ph="ул. Ленина, 42"/>
+              <FI lbl="Телефон" fld="phone" ph="+992 __ ___ __ __"/>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <FI lbl="Широта (lat)" fld="lat" ph="38.3250" type="number"/>
+                <FI lbl="Долгота (lng)" fld="lng" ph="69.0250" type="number"/>
+              </div>
+              <div style={{padding:'10px 12px',borderRadius:10,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.2)',fontSize:11,color:'#8FB897'}}>
+                💡 Координаты можно найти на <a href="https://www.openstreetmap.org" target="_blank" style={{color:'#3B8EF0'}}>openstreetmap.org</a> — правый клик → «Показать адрес»
+              </div>
+              <button onClick={save} className="ab abp" style={{width:'100%',padding:11}}>✓ Сохранить</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── ЗАКАЗЫ КУРЬЕРОВ ─────────────────────────────── */
+function CourierOrdersPage() {
+  const pricing = usePricingStore(s => s.pricing);
+  const pickups = usePickupStore(s => s.pickups);
+  const orders = DEMO_ADMIN_COURIER_ORDERS;
+  const { roadKm, loading: kmLoading } = useOrderRoadKm(orders, true);
+  const PM: Record<string,{e:string,name:string;color:string}> = Object.fromEntries(
+    pickups.map(p => [p.id, { e: p.e, name: p.name.split(' ')[0], color: p.color }])
+  );
+  const SS: Record<string,{l:string,c:string}> = {
+    new:      {l:'Новый',      c:'#3B8EF0'},
+    toPickup: {l:'Едет забрать',c:'#FFB800'},
+    toClient: {l:'Едет к клиенту',c:'#9B6DFF'},
+    done:     {l:'Доставлено', c:'#1FD760'},
+  };
+
+  return (
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
+        <StatCard l="Всего активных" v={orders.length}/>
+        <StatCard l="Едут забирать"  v={orders.filter(o=>o.step==='toPickup').length} c="#FFB800"/>
+        <StatCard l="Едут к клиенту" v={orders.filter(o=>o.step==='toClient').length} c="#9B6DFF"/>
+        <StatCard l="Новые (без курьера)" v={orders.filter(o=>o.step==='new').length} c="#FF4545"/>
+      </div>
+
+      <div className="ac">
+        <table className="at">
+          <thead><tr><th>Заказ</th><th>Курьер</th><th>Маршрут</th><th>Клиент</th><th>Км · доставка</th><th>Сумма</th><th>Прогресс</th><th>Статус</th></tr></thead>
+          <tbody>
+            {orders.map(o=>{
+              const ss = SS[o.step] || SS.new;
+              const km = roadKm[o.id];
+              const dlv = km != null ? calcDeliveryFee(km, o.weight, pricing) : null;
+              return (
+                <tr key={o.id}>
+                  <td><div style={{fontWeight:800,color:'#3B8EF0',fontFamily:'Unbounded',fontSize:12}}>{o.id}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.time}</div></td>
+                  <td style={{fontSize:12,fontWeight:700}}>{o.courier}</td>
+                  <td>
+                    <div style={{display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+                      {o.pickupIds.map((pid,i)=>{
+                        const pk = PM[pid] || { e:'📍', name: pid, color:'#3D6645' };
+                        const isDone = o.step==='toClient'||o.step==='done'||(o.step==='toPickup'&&i<o.pickupIdx);
+                        const isCur  = o.step==='toPickup'&&i===o.pickupIdx;
+                        return (
+                          <span key={i} style={{display:'inline-flex',alignItems:'center',gap:3,padding:'2px 7px',borderRadius:7,fontSize:11,fontWeight:700,
+                            background:isCur?pk.color+'22':isDone?'rgba(31,215,96,.08)':'rgba(22,43,26,.5)',
+                            color:isCur?pk.color:isDone?'#1FD760':'#3D6645',
+                            border:`1px solid ${isCur?pk.color+'55':isDone?'rgba(31,215,96,.3)':'#162B1A'}`
+                          }}>{isDone?'✓ ':isCur?'▶ ':''}{pk.e} {pk.name}</span>
+                        );
+                      })}
+                      <span style={{fontSize:11,color:'#3D6645'}}>→ 📍</span>
+                    </div>
+                  </td>
+                  <td><div style={{fontSize:12,fontWeight:700}}>{o.client}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.addr}</div></td>
+                  <td>
+                    <div style={{fontSize:11,fontWeight:700,color:'#3B8EF0'}}>{kmLoading ? '…' : km != null ? formatKm(km) : '…'}</div>
+                    <div style={{fontSize:10,color:'#1FD760'}}>{dlv != null ? `${dlv} ЅМ доставка` : '…'}</div>
+                  </td>
+                  <td><span style={{fontFamily:'Unbounded',fontSize:12,fontWeight:800,color:'#FFB800'}}>{o.sum.toFixed(2)} ЅМ</span></td>
+                  <td>
+                    <div style={{display:'flex',gap:3}}>
+                      {o.pickupIds.map((_,i)=>(
+                        <div key={i} style={{width:10,height:10,borderRadius:'50%',background:(o.step==='toClient'||o.step==='done'||(o.step==='toPickup'&&i<o.pickupIdx))?'#1FD760':(o.step==='toPickup'&&i===o.pickupIdx)?'#FFB800':'#162B1A'}}/>
+                      ))}
+                      <div style={{width:10,height:10,borderRadius:'50%',background:o.step==='toClient'?'#9B6DFF':o.step==='done'?'#1FD760':'#162B1A'}}/>
+                    </div>
+                  </td>
+                  <td><Badge v={ss.l} c={ss.c}/></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function BannersPage() {
+  /* ── Тикер ── */
+  const [tickers,setTickers] = useState([
+    {id:1,text:'🔥 Молочная среда −30%',on:true},
+    {id:2,text:'⚡ Флэш до 20:00',on:true},
+    {id:3,text:'🥩 Мясные выходные −25%',on:true},
+    {id:4,text:'🎁 Бесплатная доставка от 30 ЅМ',on:true},
+  ]);
+  const [newTick,setNewTick] = useState('');
+  const addTick  = () => { if(!newTick.trim()) return; setTickers(ts=>[...ts,{id:Date.now(),text:newTick.trim(),on:true}]); setNewTick(''); };
+  const rmTick   = id => setTickers(ts=>ts.filter(t=>t.id!==id));
+  const togTick  = id => setTickers(ts=>ts.map(t=>t.id===id?{...t,on:!t.on}:t));
+  const editTick = (id,val) => setTickers(ts=>ts.map(t=>t.id===id?{...t,text:val}:t));
+
+  /* ── Баннеры ── */
+  const DEF = {badge:'',title:'',sub:'',disc:'',e:'🎁',bg:'linear-gradient(135deg,#0A1A0A,#1A3020)',ac:'#1FD760',on:true};
+  const [banners,setBanners] = useState([
+    {id:1,badge:'ПЯТНИЦА',  title:'Органик-день',     sub:'20% на органические продукты', disc:20,e:'🥦',bg:'linear-gradient(135deg,#0A2A0A,#1A4A1A)',ac:'#1FD760',on:true},
+    {id:2,badge:'ХИТЫ',     title:'Молочная среда',   sub:'Скидка 30% на всё молочное',   disc:30,e:'🥛',bg:'linear-gradient(135deg,#0D2040,#163460)',ac:'#3B8EF0',on:true},
+    {id:3,badge:'ВЫХОДНЫЕ', title:'Мясные выходные',  sub:'−25% на мясо и птицу',         disc:25,e:'🥩',bg:'linear-gradient(135deg,#2A0E0E,#501818)',ac:'#FF4545',on:true},
+    {id:4,badge:'ФЛЭШ',     title:'Флэш до 20:00',    sub:'Успей купить — только сегодня',disc:40,e:'⚡',bg:'linear-gradient(135deg,#1A1A0A,#3A3010)',ac:'#FFB800',on:false},
+  ]);
+  const [form,setForm] = useState(DEF);
+  const [editId,setEditId] = useState(null);
+  const [showForm,setShowForm] = useState(false);
+
+  const toggle = id => setBanners(bs=>bs.map(b=>b.id===id?{...b,on:!b.on}:b));
+  const remove = id => setBanners(bs=>bs.filter(b=>b.id!==id));
+  const move   = (id,d) => {
+    const idx=banners.findIndex(b=>b.id===id), nb=[...banners], to=idx+d;
+    if(to<0||to>=nb.length) return;
+    [nb[idx],nb[to]]=[nb[to],nb[idx]]; setBanners(nb);
+  };
+  const startEdit = b => { setForm({...b,disc:String(b.disc)}); setEditId(b.id); setShowForm(true); };
+  const startAdd  = () => { setForm(DEF); setEditId(null); setShowForm(true); };
+  const save = () => {
+    if(!form.title.trim()) return;
+    if(editId!==null) setBanners(bs=>bs.map(b=>b.id===editId?{...b,...form,disc:Number(form.disc)}:b));
+    else setBanners(bs=>[...bs,{...form,id:Date.now(),disc:Number(form.disc)}]);
+    setShowForm(false); setEditId(null); setForm(DEF);
+  };
+  const FI = ({label,val,onChange,type='text',half}) => (
+    <div style={{marginBottom:12,flex:half?'1 1 48%':'1 1 100%'}}>
+      <div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>{label}</div>
+      <input className="ai" type={type} value={val} onChange={e=>onChange(e.target.value)}/>
+    </div>
+  );
+  const Tog = ({on,onToggle}) => (
+    <div onClick={onToggle} style={{width:42,height:23,borderRadius:12,background:on?'#1FD760':'#162B1A',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
+      <div style={{position:'absolute',top:2.5,left:on?21:2.5,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
+    </div>
+  );
+  return (
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+        {[{l:'Всего баннеров',v:banners.length,c:'#EBF5ED'},{l:'Активных',v:banners.filter(b=>b.on).length,c:'#1FD760'},{l:'Скрытых',v:banners.filter(b=>!b.on).length,c:'#8FB897'}].map((s,i)=>(
+          <div key={i} className="ac" style={{padding:'14px 16px',textAlign:'center'}}>
+            <div className="ub" style={{fontSize:24,fontWeight:900,color:s.c}}>{s.v}</div>
+            <div style={{fontSize:11,color:'#8FB897',marginTop:3}}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Тикер ── */}
+      <div className="ac" style={{padding:18,marginBottom:20}}>
+        <div className="ub" style={{fontSize:13,fontWeight:900,marginBottom:4}}>📢 Бегущая строка (тикер)</div>
+        <div style={{fontSize:11,color:'#8FB897',marginBottom:14}}>Отображается в шапке страницы Акций</div>
+
+        {/* Превью */}
+        <div style={{background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.18)',borderRadius:10,padding:'7px 0',overflow:'hidden',marginBottom:14}}>
+          <div style={{display:'flex',gap:0,whiteSpace:'nowrap',overflow:'hidden'}}>
+            {tickers.filter(t=>t.on).map((t,i)=>(
+              <span key={t.id} style={{fontSize:11,fontWeight:700,color:'#FF4545',padding:'0 24px',flexShrink:0}}>{t.text}</span>
+            ))}
+            {tickers.filter(t=>t.on).length===0&&<span style={{fontSize:11,color:'#3D6645',padding:'0 18px'}}>— нет активных элементов —</span>}
+          </div>
+        </div>
+
+        {/* Список */}
+        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:12}}>
+          {tickers.map(t=>(
+            <div key={t.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background:'#0C1C0F',borderRadius:10,border:`1px solid ${t.on?'#162B1A':'rgba(255,69,69,.2)'}`,opacity:t.on?1:.65}}>
+              <div onClick={()=>togTick(t.id)} style={{width:36,height:20,borderRadius:10,background:t.on?'#1FD760':'#162B1A',position:'relative',cursor:'pointer',flexShrink:0,transition:'background .2s'}}>
+                <div style={{position:'absolute',top:2,left:t.on?18:2,width:16,height:16,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
+              </div>
+              <input className="ai" value={t.text} onChange={e=>editTick(t.id,e.target.value)} style={{flex:1,padding:'5px 10px',fontSize:12,background:'transparent',border:'none',borderRadius:0,outline:'none'}}/>
+              <button onClick={()=>rmTick(t.id)} className="ab abd" style={{padding:'4px 10px',fontSize:11,flexShrink:0}}>✕</button>
+            </div>
+          ))}
+        </div>
+
+        {/* Добавить */}
+        <div style={{display:'flex',gap:8}}>
+          <input className="ai" value={newTick} onChange={e=>setNewTick(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTick()} placeholder="🎉 Новый текст для тикера..." style={{flex:1,fontSize:12}}/>
+          <button onClick={addTick} className="ab abp" style={{padding:'8px 16px',fontSize:12,whiteSpace:'nowrap'}}>+ Добавить</button>
+        </div>
+      </div>
+
+      {/* ── Баннеры ── */}
+      <div className="ub" style={{fontSize:13,fontWeight:900,marginBottom:12}}>🖼 Слайдер-баннеры</div>
+      <button onClick={startAdd} className="ab abp" style={{marginBottom:16,padding:'10px 20px',fontSize:13,display:'flex',alignItems:'center',gap:6}}>
+        + Добавить баннер
+      </button>
+
+      {showForm && (
+        <div className="ac" style={{padding:20,marginBottom:20}}>
+          <div className="ub" style={{fontSize:13,fontWeight:900,marginBottom:16}}>{editId?'✏️ Редактировать':'➕ Новый баннер'}</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:'0 12px'}}>
+            <FI half label="Заголовок *" val={form.title} onChange={v=>setForm(f=>({...f,title:v}))}/>
+            <FI half label="Бейдж (ФЛЭШ, ПЯТНИЦА...)" val={form.badge} onChange={v=>setForm(f=>({...f,badge:v}))}/>
+          </div>
+          <FI label="Подзаголовок" val={form.sub} onChange={v=>setForm(f=>({...f,sub:v}))}/>
+          <div style={{display:'flex',gap:12}}>
+            <FI half label="Скидка %" val={form.disc} onChange={v=>setForm(f=>({...f,disc:v}))} type="number"/>
+            <FI half label="Эмодзи" val={form.e} onChange={v=>setForm(f=>({...f,e:v}))}/>
+          </div>
+          <FI label="Цвет акцента (hex, напр. #1FD760)" val={form.ac} onChange={v=>setForm(f=>({...f,ac:v}))}/>
+          <FI label="Фон (CSS, напр. linear-gradient(135deg,#0A2A0A,#1A4A1A))" val={form.bg} onChange={v=>setForm(f=>({...f,bg:v}))}/>
+          <div style={{display:'flex',gap:8,marginTop:4}}>
+            <button onClick={save} className="ab abp" style={{padding:'9px 20px'}}>Сохранить</button>
+            <button onClick={()=>{setShowForm(false);setEditId(null);setForm(DEF);}} className="ab" style={{padding:'9px 16px',background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897'}}>Отмена</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+        {banners.map((b,idx)=>(
+          <div key={b.id} className="ac" style={{overflow:'visible',border:`1.5px solid ${b.on?'#162B1A':'rgba(255,69,69,.25)'}`,opacity:b.on?1:.75}}>
+            <div style={{background:b.bg,padding:'16px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',borderRadius:'14px 14px 0 0',minHeight:80}}>
+              <div>
+                {b.badge&&<div style={{display:'inline-flex',padding:'3px 10px',borderRadius:20,background:`${b.ac}22`,border:`1px solid ${b.ac}44`,color:b.ac,fontSize:10,fontWeight:800,marginBottom:6}}>✦ {b.badge}</div>}
+                <div className="ub" style={{fontSize:16,fontWeight:900,color:'white',marginBottom:2}}>{b.title||'—'}</div>
+                <div style={{fontSize:11,color:'rgba(255,255,255,.5)'}}>{b.sub}</div>
+                {b.disc>0&&<div style={{marginTop:8,display:'inline-block',padding:'4px 12px',borderRadius:8,background:b.ac,color:'white',fontFamily:'Unbounded',fontSize:13,fontWeight:900}}>−{b.disc}%</div>}
+              </div>
+              <div style={{fontSize:40,flexShrink:0,marginLeft:12}}>{b.e}</div>
+            </div>
+            <div style={{padding:'10px 14px',display:'flex',alignItems:'center',gap:8,background:'#091508',borderRadius:'0 0 14px 14px'}}>
+              <Tog on={b.on} onToggle={()=>toggle(b.id)}/>
+              <span style={{fontSize:11,color:b.on?'#1FD760':'#8FB897',fontWeight:700,flex:1}}>{b.on?'Активен':'Скрыт'}</span>
+              <button onClick={()=>move(b.id,-1)} disabled={idx===0} className="ab" style={{padding:'5px 10px',fontSize:13,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',opacity:idx===0?.3:1}}>↑</button>
+              <button onClick={()=>move(b.id,1)} disabled={idx===banners.length-1} className="ab" style={{padding:'5px 10px',fontSize:13,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',opacity:idx===banners.length-1?.3:1}}>↓</button>
+              <button onClick={()=>startEdit(b)} className="ab" style={{padding:'5px 12px',fontSize:12,background:'rgba(59,142,240,.12)',border:'1px solid rgba(59,142,240,.3)',color:'#3B8EF0'}}>✏️ Ред.</button>
+              <button onClick={()=>remove(b.id)} className="ab abd" style={{padding:'5px 12px',fontSize:12}}>✕</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════
    MAIN ADMIN APP — без логина
 ══════════════════════════════════════════════════════ */
 export default function AdminApp() {
   const [page,setPage]=useState('dashboard');
-  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',push:'Push уведомления',finance:'Финансы',settings:'Настройки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка + комиссии ресторанов',settings:'GBS Market · Доставка · SMS · Карты'};
+  useEffect(() => {
+    hydrateCourierStores();
+    useProductPhotos.getState().hydrate();
+  }, []);
+  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка + комиссии ресторанов',settings:'GBS Market · Доставка · SMS · Карты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Стоимость доставки для клиентов · kakapo-courier'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
@@ -1616,6 +2258,10 @@ export default function AdminApp() {
       {page==='clients'    && <ClientsPage/>}
       {page==='cards'      && <CardsPage/>}
       {page==='push'       && <PushPage/>}
+      {page==='banners'    && <BannersPage/>}
+      {page==='pickups'    && <PickupsPage/>}
+      {page==='tariff'     && <TariffPage/>}
+      {page==='courierorders' && <CourierOrdersPage/>}
       {page==='finance'    && <FinancePage/>}
       {page==='settings'   && <SettingsPage/>}
     </Layout>

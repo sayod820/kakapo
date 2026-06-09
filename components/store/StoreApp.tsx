@@ -1,14 +1,13 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useOrders, useCart, useProducts, useRestaurants } from '@/lib/store'
-import Link from 'next/link'
-// ─── KAKAPO Store App ────────────────────────────
+import { useState, useEffect, useRef, useCallback } from "react";
+import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
+import dynamic from "next/dynamic";
+import { formatKm } from "@/lib/courierData";
+import { hydrateCourierStores } from "@/lib/courierStore";
+import { resolveCheckoutPickupIds } from "@/lib/pickups";
+import { useProductPhotos } from "@/lib/productPhotos";
 
-/* ══════════════════════════════════════════════════════
-   KAKAPO.TJ — Полное приложение, все страницы
-   г. Яван, Таджикистан
-══════════════════════════════════════════════════════ */
-
+const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700;800;900&family=Nunito:wght@400;600;700;800&display=swap');
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -17,9 +16,9 @@ const CSS = `
   --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;--l4:#102213;
   --b1:#162B1A;--b2:#1D3822;
   --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
-  --red:#FF4545;--blue:#3B8EF0;--sky:#00D4C8;--pur:#9B6DFF;
+  --red:#FF4545;--blue:#3B8EF0;--sky:#00D4C8;--pur:#9B6DFF;--org:#FF7D3B;--gd2:#E89E00;
 }
-html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;overflow-x:hidden;-webkit-font-smoothing:antialiased;}
+html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
 .ub{font-family:'Unbounded',sans-serif;}
 ::-webkit-scrollbar{width:3px;height:3px;}::-webkit-scrollbar-track{background:var(--l1);}::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
@@ -34,9 +33,11 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;o
 @keyframes ping{0%{transform:scale(1);opacity:1;}100%{transform:scale(2.4);opacity:0;}}
 @keyframes successPop{0%{transform:scale(.7);opacity:0;}60%{transform:scale(1.08);}100%{transform:scale(1);opacity:1;}}
 @keyframes slideUp{from{opacity:0;transform:translateY(32px);}to{opacity:1;transform:translateY(0);}}
+@keyframes cartPop{0%{transform:scale(1);}50%{transform:scale(1.06);}100%{transform:scale(1);}}
 .btn{font-family:'Nunito',sans-serif;font-weight:700;cursor:pointer;border:none;transition:all .22s cubic-bezier(.16,1,.3,1);}
 .btn:active{transform:scale(.96);}
 .card{background:var(--l2);border:1px solid var(--b1);border-radius:20px;overflow:hidden;transition:all .25s cubic-bezier(.16,1,.3,1);}
+.kakapo-card{background:var(--l2);border:1px solid var(--b1);border-radius:18px;overflow:hidden;}
 .hscroll{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;}.hscroll::-webkit-scrollbar{display:none;}
 .chip{padding:8px 15px;border-radius:50px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--b1);background:var(--l2);color:var(--t2);transition:all .2s;font-family:'Nunito',sans-serif;}
 .chip.on{background:rgba(31,215,96,.12);color:var(--gr);border-color:rgba(31,215,96,.38);}
@@ -55,8 +56,6 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;o
 .b-rd{background:rgba(255,69,69,.12);color:var(--red);border:1px solid rgba(255,69,69,.28);}
 .b-bl{background:rgba(59,142,240,.1);color:var(--blue);border:1px solid rgba(59,142,240,.25);}
 `;
-
-/* ── ICONS ─────────────────────────────────────────── */
 const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
   const icons = {
     home:    <><path d="M3 9.5L12 2l9 7.5V21a1 1 0 01-1 1H5a1 1 0 01-1-1z"/><polyline points="9 22 9 12 15 12 15 22"/></>,
@@ -104,7 +103,6 @@ const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill={fill} stroke={c} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round">{icons[n]||null}</svg>;
 };
 
-/* ── STARS ─────────────────────────────────────────── */
 const Stars = ({ r, s=10 }) => (
   <div style={{ display:"flex", gap:1.5 }}>
     {[1,2,3,4,5].map(i => (
@@ -116,7 +114,6 @@ const Stars = ({ r, s=10 }) => (
   </div>
 );
 
-/* ── TOAST ─────────────────────────────────────────── */
 const Toast = ({ msg }) => !msg ? null : (
   <div style={{ position:"fixed", top:16, left:"50%", zIndex:999, animation:"notif .38s cubic-bezier(.16,1,.3,1)", background:"linear-gradient(135deg,#091C0D,#123020)", border:"1.5px solid rgba(31,215,96,.45)", borderRadius:16, padding:"12px 18px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 8px 36px rgba(0,0,0,.65)", whiteSpace:"nowrap", transform:"translateX(-50%)", maxWidth:"90vw" }}>
     <div style={{ width:24, height:24, borderRadius:"50%", background:"rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
@@ -126,7 +123,6 @@ const Toast = ({ msg }) => !msg ? null : (
   </div>
 );
 
-/* ── BOTTOM NAV ────────────────────────────────────── */
 const Nav = ({ page, go }) => (
   <nav style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"8px 18px 16px", display:"flex", justifyContent:"space-around", zIndex:80 }}>
     {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => (
@@ -139,7 +135,6 @@ const Nav = ({ page, go }) => (
   </nav>
 );
 
-/* ── HEADER ────────────────────────────────────────── */
 const Header = ({ title, back, go, cart }) => {
   const qty = Object.values(cart||{}).reduce((a,b)=>a+b,0);
   return (
@@ -176,8 +171,6 @@ const Header = ({ title, back, go, cart }) => {
     </header>
   );
 };
-
-/* ── DATA ──────────────────────────────────────────── */
 const PRODS = [
   {id:1,art:"KAK-0001",e:"🥦",name:"Брокколи свежая",    unit:"500 гр",price:5.50, old:7.20, hot:true, isNew:false,org:true, r:4.9,rv:184,grad:"linear-gradient(145deg,#0D2A0D,#1A4A1A)",cat:"veg",   desc:"Свежая брокколи без пестицидов, богата витаминами.",   specs:{Вес:"500 гр",Калории:"34 ккал/100г",Страна:"Таджикистан"}},
   {id:2,art:"KAK-0002",e:"🍅",name:"Томаты черри",        unit:"400 гр",price:7.90, old:null, hot:false,isNew:true, org:false,r:4.7,rv:92, grad:"linear-gradient(145deg,#2A0E0E,#4A1818)",cat:"veg",   desc:"Сладкие томаты черри, идеальны для салатов.",         specs:{Вес:"400 гр",Калории:"18 ккал/100г",Страна:"Таджикистан"}},
@@ -194,7 +187,6 @@ const PRODS = [
 ];
 
 const CATS = [
-  // ── Родительские категории ──
   {id:"veg",     e:"🥦",label:"Овощи и фрукты",   count:142,color:"#56C956",bg:"linear-gradient(145deg,#0D2A0D,#1A4A1A)", parentId:null},
   {id:"meat",    e:"🥩",label:"Мясо и птица",      count:67, color:"#FF6B6B",bg:"linear-gradient(145deg,#2A0A0A,#4A1818)", parentId:null},
   {id:"dairy",   e:"🥛",label:"Молочные продукты", count:98, color:"#93C5FD",bg:"linear-gradient(145deg,#0A1828,#163050)", parentId:null},
@@ -204,45 +196,35 @@ const CATS = [
   {id:"fish",    e:"🐟",label:"Рыба и морепродукты",count:39, color:"#7DD3FC",bg:"linear-gradient(145deg,#051822,#0E2C3E)", parentId:null},
   {id:"chem",    e:"🧴",label:"Бытовая химия",      count:45, color:"#6EE7B7",bg:"linear-gradient(145deg,#062018,#103A28)", parentId:null},
   {id:"kids",    e:"👶",label:"Товары для детей",   count:32, color:"#FBBF24",bg:"linear-gradient(145deg,#281800,#4A2C00)", parentId:null},
-  // ── Подкатегории: Овощи ──
   {id:"veg_ov",  e:"🥕",label:"Овощи",              count:65, color:"#56C956",bg:"linear-gradient(145deg,#0D2A0D,#1A4A1A)", parentId:"veg"},
   {id:"veg_fr",  e:"🍊",label:"Фрукты",              count:48, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"veg"},
   {id:"veg_gr",  e:"🌿",label:"Зелень",              count:18, color:"#34D399",bg:"linear-gradient(145deg,#032010,#06401A)", parentId:"veg"},
   {id:"veg_yg",  e:"🫐",label:"Ягоды",               count:11, color:"#A78BFA",bg:"linear-gradient(145deg,#14082A,#26104A)", parentId:"veg"},
-  // ── Подкатегории: Мясо ──
   {id:"meat_b",  e:"🥩",label:"Говядина и баранина", count:22, color:"#FF6B6B",bg:"linear-gradient(145deg,#2A0A0A,#4A1818)", parentId:"meat"},
   {id:"meat_p",  e:"🍗",label:"Птица",               count:18, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:"meat"},
   {id:"meat_k",  e:"🌭",label:"Колбасные изделия",   count:15, color:"#FB923C",bg:"linear-gradient(145deg,#2A1200,#4A2200)", parentId:"meat"},
   {id:"meat_f",  e:"🐟",label:"Рыба",                count:12, color:"#7DD3FC",bg:"linear-gradient(145deg,#051822,#0E2C3E)", parentId:"meat"},
-  // ── Подкатегории: Молочное ──
   {id:"dairy_m", e:"🥛",label:"Молоко и кефир",      count:28, color:"#93C5FD",bg:"linear-gradient(145deg,#0A1828,#163050)", parentId:"dairy"},
   {id:"dairy_s", e:"🧀",label:"Сыры",                count:22, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:"dairy"},
   {id:"dairy_e", e:"🥚",label:"Яйцо",                count:8,  color:"#FBBF24",bg:"linear-gradient(145deg,#281800,#4A2C00)", parentId:"dairy"},
   {id:"dairy_t", e:"🧈",label:"Масло и маргарин",    count:12, color:"#FDE68A",bg:"linear-gradient(145deg,#281A00,#4A3000)", parentId:"dairy"},
   {id:"dairy_y", e:"🍦",label:"Йогурты и творог",    count:18, color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:"dairy"},
-  // ── Подкатегории: Напитки ──
   {id:"drink_j", e:"🧃",label:"Соки и нектары",       count:24, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"drink"},
   {id:"drink_w", e:"💧",label:"Вода",                  count:18, color:"#67E8F9",bg:"linear-gradient(145deg,#041820,#0C2E3A)", parentId:"drink"},
   {id:"drink_t", e:"🍵",label:"Чай и кофе",            count:28, color:"#A78BFA",bg:"linear-gradient(145deg,#14082A,#26104A)", parentId:"drink"},
   {id:"drink_c", e:"🥤",label:"Газированные",          count:18, color:"#34D399",bg:"linear-gradient(145deg,#032010,#06401A)", parentId:"drink"},
-  // ── Подкатегории: Сладости ──
   {id:"sweet_c", e:"🍫",label:"Шоколад",               count:32, color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:"sweet"},
   {id:"sweet_b", e:"🍪",label:"Печенье и вафли",        count:28, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:"sweet"},
   {id:"sweet_k", e:"🍬",label:"Конфеты",                count:35, color:"#F472B6",bg:"linear-gradient(145deg,#2A0818,#4A1028)", parentId:"sweet"},
   {id:"sweet_h", e:"🥜",label:"Орехи и сухофрукты",    count:18, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"sweet"},
 ];
-
-
-/* ══════════════════════════════════════════════════════
-   МАРКЕТПЛЕЙС: ДАННЫЕ РЕСТОРАНОВ
-══════════════════════════════════════════════════════ */
 const RESTAURANTS = [
   {
     id:'R-01', name:'Чайхона Оромгох',   emoji:'🍖', rating:4.8, reviews:312,
     cuisine:'Таджикская кухня',            tags:['Плов','Шашлык','Манты'],
     minOrder:20, deliveryMin:35, deliveryFee:5, open:true,
     hours:'09:00–23:00', img:'linear-gradient(135deg,#2A1506,#4A2A0C)',
-    address:'ул. Рудаки, 15',             commission:15,
+    address:'ул. Рудаки, 15',             commission:15, email:'chaihona@kakapo.tj', revenueMonth:14280, ordersMonth:312,
     categories:['Горячее','Шашлык','Салаты','Супы','Напитки'],
     menu:[
       {id:1,cat:'Горячее', e:'🍚',name:'Плов узбекский',     desc:'Рис, мясо, морковь, специи',price:18,old:null,  popular:true, time:25,inStock:true},
@@ -260,7 +242,7 @@ const RESTAURANTS = [
     cuisine:'Итальянская кухня',           tags:['Пицца','Бургеры','Паста'],
     minOrder:25, deliveryMin:40, deliveryFee:5, open:true,
     hours:'10:00–22:00', img:'linear-gradient(135deg,#1A0808,#3A1010)',
-    address:'ул. Ленина, 28',             commission:18,
+    address:'ул. Ленина, 28',             commission:18, email:'pizza@kakapo.tj', revenueMonth:9680, ordersMonth:187,
     categories:['Пицца','Бургеры','Паста','Десерты','Напитки'],
     menu:[
       {id:1,cat:'Пицца',  e:'🍕',name:'Маргарита',          desc:'Томат, моцарелла, базилик',  price:28,old:35,   popular:true, time:25,inStock:true},
@@ -278,7 +260,7 @@ const RESTAURANTS = [
     cuisine:'Японская кухня',              tags:['Роллы','Суши','Рамен'],
     minOrder:30, deliveryMin:45, deliveryFee:7, open:true,
     hours:'11:00–22:00', img:'linear-gradient(135deg,#0A0A1A,#1A1A3A)',
-    address:'ул. Сомони, 8',              commission:20,
+    address:'ул. Сомони, 8',              commission:20, email:'sushi@kakapo.tj', revenueMonth:7340, ordersMonth:94,
     categories:['Роллы','Суши','Горячее','Напитки'],
     menu:[
       {id:1,cat:'Роллы',  e:'🌯',name:'Филадельфия',        desc:'Лосось, сыр Филадельфия, авокадо',price:32,old:null,popular:true, time:15,inStock:true},
@@ -294,7 +276,7 @@ const RESTAURANTS = [
     cuisine:'Быстрое питание',             tags:['Бургеры','Хот-дог','Картошка'],
     minOrder:10, deliveryMin:20, deliveryFee:3, open:true,
     hours:'00:00–24:00', img:'linear-gradient(135deg,#1A1000,#3A2200)',
-    address:'Центральный рынок',           commission:12,
+    address:'Центральный рынок',           commission:12, email:'fastfood@kakapo.tj', revenueMonth:11200, ordersMonth:521,
     categories:['Бургеры','Хот-доги','Картошка','Напитки'],
     menu:[
       {id:1,cat:'Бургеры', e:'🍔',name:'Двойной бургер',    desc:'2 котлеты, сыр, соус',       price:16,old:null, popular:true, time:10,inStock:true},
@@ -355,12 +337,11 @@ const FAQ = [
   {q:"Можно ли отследить курьера?",          a:"Да! После начала доставки в приложении появится карта с местоположением курьера."},
   {q:"Что если меня нет дома?",              a:"Курьер подождёт 10 минут. Оставьте комментарий к заказу — например, 'оставить у соседа'."},
 ];
-
-/* ── PRODUCT CARD ──────────────────────────────────── */
 const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const qty  = cart[p.id] || 0;
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const [pop, setPop] = useState(false);
+  const photo = useProductPhotos(s => s.photos[p.id]);
   const add = e => { e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 300); onAdd(p.id); };
   return (
     <div className="card" style={{ display:"flex", flexDirection:"column", cursor:"default", position:"relative" }} onClick={() => go("product", { id:p.id })}>
@@ -372,7 +353,12 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
         {p.isNew && <span className="bdg b-gr">NEW</span>}
         {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.12)", color:"#34D399", border:"1px solid rgba(52,211,153,.28)" }}>🌿</span>}
       </div>
-      <div style={{ height:110, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none" }}>{p.e}</div>
+      <div style={{ height:110, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
+        {photo
+          ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/>
+          : p.e
+        }
+      </div>
       <div style={{ padding:"10px 10px 8px", flex:1, display:"flex", flexDirection:"column", gap:3 }}>
         <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:30 }}>{p.name}</div>
         <div style={{ fontSize:10, color:"var(--t3)" }}>{p.unit}</div>
@@ -400,9 +386,6 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   PAGE: HOME
-══════════════════════════════════════════════════════ */
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
   const [bi, setBi] = useState(0);
   useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % BANNERS.length), 4000); return () => clearInterval(t); }, []);
@@ -411,7 +394,6 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <Header go={go} cart={cart}/>
       <div style={{ padding:"14px 18px 100px" }}>
-        {/* Hero */}
         <div style={{ borderRadius:22, overflow:"hidden", marginBottom:20, cursor:"pointer" }} onClick={() => go("promos")}>
           <div style={{ background:b.bg, padding:"22px 20px 18px", position:"relative", overflow:"hidden" }}>
             <div style={{ position:"absolute", left:0, right:0, height:1, background:`linear-gradient(90deg,transparent,${b.ac}55,transparent)`, animation:"scanLine 3s linear infinite" }}/>
@@ -429,7 +411,6 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
             </div>
           </div>
         </div>
-        {/* Categories */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>Категории</div>
           <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
@@ -441,14 +422,11 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
               <div style={{ fontSize:10, fontWeight:700, color:c.color, lineHeight:1.3 }}>{c.label.split(" ")[0]}</div>
             </div>
           ))}
-          {/* Рестораны как категория */}
           <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:90, borderRadius:16, background:"linear-gradient(145deg,#1A0808,#3A1010)", border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
             <div style={{ fontSize:28, marginBottom:6 }}>🍽</div>
             <div style={{ fontSize:10, fontWeight:700, color:"var(--org)", lineHeight:1.3 }}>Рестораны</div>
           </div>
         </div>
-
-        {/* Рестораны */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🍽 Рестораны г. Яван</div>
           <button onClick={() => go("restaurants")} className="btn" style={{ fontSize:12, color:"var(--org)", background:"transparent" }}>Все →</button>
@@ -470,8 +448,6 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
             </div>
           ))}
         </div>
-
-        {/* Hits */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🔥 Хиты продаж</div>
           <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
@@ -491,15 +467,11 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
           <div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>🏷</div>
         </div>
       </div>
-
       <Nav page="home" go={go}/>
     </div>
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   PAGE: CATALOG
-══════════════════════════════════════════════════════ */
 const CatalogPage = ({ go, cart }) => (
   <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart}/>
@@ -512,7 +484,6 @@ const CatalogPage = ({ go, cart }) => (
             <div style={{ fontSize:10, color:"var(--t3)" }}>{p.s}</div>
           </div>
         ))}
-        {/* Рестораны */}
         <div onClick={() => go("restaurants")} style={{ background:"linear-gradient(135deg,#1A0808,#3A1010)", border:"1px solid rgba(255,125,59,.25)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:"fadeUp .4s cubic-bezier(.16,1,.3,1) .2s both", gridColumn:"span 2" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             <div style={{ fontSize:38 }}>🍽</div>
@@ -553,10 +524,6 @@ const CatalogPage = ({ go, cart }) => (
     <Nav page="catalog" go={go}/>
   </div>
 );
-
-/* ══════════════════════════════════════════════════════
-   PAGE: PRODUCT LIST
-══════════════════════════════════════════════════════ */
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const [sort,    setSort]    = useState("pop");
   const [view,    setView]    = useState("grid");
@@ -565,7 +532,6 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const cat = CATS.find(c => c.id === params?.cat) || CATS[0];
   const subCats = CATS.filter(c => c.parentId === cat.id);
   const hasSubCats = subCats.length > 0;
-  const activeCat = subCat ? CATS.find(c=>c.id===subCat) : cat;
   const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
   let items = PRODS.filter(p => {
     if(subCat) return p.cat === subCat;
@@ -685,14 +651,12 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   PAGE: PRODUCT DETAIL
-══════════════════════════════════════════════════════ */
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const p = PRODS.find(x => x.id === params?.id) || PRODS[0];
   const qty = cart[p.id] || 0;
   const [tab, setTab] = useState("desc");
   const [myRating, setMyRating] = useState(0);
+  const photo = useProductPhotos(s => s.photos[p.id]);
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const related = PRODS.filter(x => x.cat === p.cat && x.id !== p.id).slice(0,4);
   const add = () => onAdd(p.id);
@@ -712,7 +676,10 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         </div>
       </div>
       <div style={{ height:300, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
-        <div style={{ fontSize:120, filter:"drop-shadow(0 20px 40px rgba(0,0,0,.5))", animation:"float 3s ease-in-out infinite", position:"relative", zIndex:1 }}>{p.e}</div>
+        {photo
+          ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/>
+          : <div style={{ fontSize:120, filter:"drop-shadow(0 20px 40px rgba(0,0,0,.5))", animation:"float 3s ease-in-out infinite", position:"relative", zIndex:1 }}>{p.e}</div>
+        }
         <div style={{ position:"absolute", bottom:18, left:18, display:"flex", gap:6 }}>
           {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.18)", color:"#34D399", border:"1px solid rgba(52,211,153,.35)" }}>🌿 Органик</span>}
           {p.hot && <span className="bdg b-gd">🔥 Хит</span>}
@@ -836,28 +803,15 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   PAGE: CART
-══════════════════════════════════════════════════════ */
-const CartPage = ({ go, cart, onAdd, onRm, onDel }) => {
+const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
   const [promo, setPromo] = useState("");
   const [promoOk, setPromoOk] = useState(false);
   const [promoErr, setPromoErr] = useState(false);
-
-  // Store products in cart
-  const prodItems = PRODS.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id], isRest: false }));
-
-  // Restaurant dishes in cart (keys like "R${r.id}_${item.id}")
-  const restItems = RESTAURANTS.flatMap(r =>
-    (r.menu || []).map(item => {
-      const key = `R${r.id}_${item.id}`;
-      const qty = cart[key] || 0;
-      if (!qty) return null;
-      return { id: key, e: item.e, name: item.name, unit: `${r.name}`, price: item.price, old: item.old, grad: 'linear-gradient(135deg,#1A0808,#2A1210)', qty, isRest: true };
-    }).filter(Boolean)
-  );
-
+  const prodItems = PRODS.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty:cart[p.id] }));
+  const restItems = Object.keys(cartMeta).filter(id => cart[id] > 0).map(id => ({
+    id, e: cartMeta[id].emoji, name: cartMeta[id].name, price: cartMeta[id].price,
+    qty: cart[id], isRest: true, restId: cartMeta[id].restId
+  }));
   const items = [...prodItems, ...restItems];
   const sub   = items.reduce((s,p) => s + p.price * p.qty, 0);
   const disc  = promoOk ? sub * .1 : 0;
@@ -886,7 +840,6 @@ const CartPage = ({ go, cart, onAdd, onRm, onDel }) => {
         </div>
       ) : (
         <div style={{ padding:"14px 18px 160px" }}>
-          {/* delivery bar */}
           <div style={{ marginBottom:14, padding:"13px 16px", borderRadius:16, background:sub>=30?"rgba(31,215,96,.08)":"var(--l2)", border:`1.5px solid ${sub>=30?"rgba(31,215,96,.3)":"var(--b1)"}` }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
               <div style={{ display:"flex", alignItems:"center", gap:6 }}><Ic n="truck" s={15} c={sub>=30?"var(--gr)":"var(--t2)"}/><span style={{ fontSize:12, fontWeight:700, color:sub>=30?"var(--gr)":"var(--t1)" }}>{sub>=30?"🎉 Бесплатная доставка!":"До бесплатной доставки"}</span></div>
@@ -894,18 +847,17 @@ const CartPage = ({ go, cart, onAdd, onRm, onDel }) => {
             </div>
             <div style={{ height:6, background:"var(--b1)", borderRadius:3, overflow:"hidden" }}><div style={{ height:"100%", width:`${Math.min((sub/30)*100,100)}%`, background:"var(--gr)", borderRadius:3, transition:"width .5s ease" }}/></div>
           </div>
-          {/* items */}
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
             {items.map(p => {
               const disc2 = p.old ? Math.round((1-p.price/p.old)*100) : 0;
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"13px" }}>
-                  <div style={{ width:62, height:62, borderRadius:15, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative" }}>
+                  <div style={{ width:62, height:62, borderRadius:15, background:p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative" }}>
                     {p.e}{disc2>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc2}%</div>}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:2 }}>{p.name}</div>
-                    <div style={{ fontSize:11, color:"var(--t3)", marginBottom:6 }}>{p.unit}</div>
+                    <div style={{ fontSize:11, color:"var(--t3)", marginBottom:6 }}>{p.isRest ? "🍽 Ресторан" : (p.unit||"шт")}</div>
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{(p.price*p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                       <div style={{ display:"flex", alignItems:"center", gap:0, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.25)", borderRadius:11, overflow:"hidden" }}>
@@ -921,7 +873,6 @@ const CartPage = ({ go, cart, onAdd, onRm, onDel }) => {
               );
             })}
           </div>
-          {/* promo */}
           <div className="card" style={{ padding:"16px", marginBottom:14 }}>
             <div style={{ fontSize:13, fontWeight:700, marginBottom:10, display:"flex", alignItems:"center", gap:6 }}><Ic n="percent" s={15} c="var(--gr)"/>Промокод</div>
             <div style={{ display:"flex", gap:8 }}>
@@ -933,7 +884,6 @@ const CartPage = ({ go, cart, onAdd, onRm, onDel }) => {
             {promoOk && <div style={{ marginTop:7, fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:5 }}><Ic n="check" s={11} c="var(--gr)" w={2.5}/>KAKAPO10 — скидка 10% применена!</div>}
             {promoErr && <div style={{ marginTop:7, fontSize:11, color:"var(--red)", fontWeight:700 }}>✗ Неверный промокод. Попробуйте KAKAPO10</div>}
           </div>
-          {/* summary */}
           <div className="card" style={{ padding:"16px", marginBottom:14 }}>
             {[{l:`Товары (${tqty} шт)`,v:`${sub.toFixed(2)} ЅМ`,c:"var(--t1)"},{l:"Доставка",v:del===0?"Бесплатно":`${del} ЅМ`,c:del===0?"var(--gr)":"var(--t1)"},...(promoOk?[{l:"Промокод -10%",v:`−${disc.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[])].map((r,i) => (
               <div key={i} style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}><span style={{ fontSize:12, color:"var(--t2)" }}>{r.l}</span><span style={{ fontSize:13, fontWeight:700, color:r.c }}>{r.v}</span></div>
@@ -962,10 +912,7 @@ const CartPage = ({ go, cart, onAdd, onRm, onDel }) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   PAGE: CHECKOUT
-══════════════════════════════════════════════════════ */
-const CheckoutPage = ({ go }) => {
+const CheckoutPage = ({ go, cart, cartMeta = {} }) => {
   const [step,  setStep]  = useState("form");
   const [name,  setName]  = useState("");
   const [phone, setPhone] = useState("");
@@ -975,12 +922,43 @@ const CheckoutPage = ({ go }) => {
   const [bonus, setBonus] = useState(false);
   const [errs,  setErrs]  = useState({});
   const [loading, setLoading] = useState(false);
+  const [deliveryFee, setDeliveryFee] = useState(0);
+  const [deliveryKm, setDeliveryKm] = useState(0);
+  const [deliveryMin, setDeliveryMin] = useState(0);
+  const [addrReady, setAddrReady] = useState(false);
+  const [clientLat, setClientLat] = useState(0);
+  const [clientLng, setClientLng] = useState(0);
+
+  const prodItems = PRODS.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id] }));
+  const restItems = Object.keys(cartMeta).filter(id => cart[id] > 0).map(id => ({
+    id, price: cartMeta[id].price, qty: cart[id], restId: cartMeta[id].restId,
+  }));
+  const items = [...prodItems, ...restItems];
+  const sub = items.reduce((s, p) => s + p.price * p.qty, 0);
+  const weightKg = Math.max(1, items.reduce((s, p) => s + p.qty, 0) * 0.4);
+  const pickupIds = resolveCheckoutPickupIds({
+    hasMarketItems: prodItems.length > 0,
+    restIds: [...new Set(restItems.map(r => r.restId).filter(Boolean))],
+  });
+  const total = sub + deliveryFee;
+
+  const resetDelivery = () => {
+    setAddrReady(false);
+    setDeliveryFee(0);
+    setDeliveryKm(0);
+    setDeliveryMin(0);
+    setClientLat(0);
+    setClientLng(0);
+  };
 
   const validate = () => {
     const e = {};
     if (!name.trim()) e.name = "Введите имя";
     if (!phone.trim()) e.phone = "Введите телефон";
     if (!addr.trim()) e.addr = "Введите адрес";
+    else if (!addrReady || !clientLat || !clientLng) {
+      e.addr = "Подтвердите точку на карте — без неё доставка не рассчитается";
+    }
     setErrs(e);
     return !Object.keys(e).length;
   };
@@ -997,7 +975,7 @@ const CheckoutPage = ({ go }) => {
       </div>
       <div className="ub" style={{ fontSize:24, fontWeight:900, marginBottom:6 }}>Заказ принят!</div>
       <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Заказ <span className="ub" style={{ color:"var(--gr)" }}>K-4833</span> оформлен</div>
-      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:28 }}>Курьер доедет за <span style={{ color:"var(--gr)", fontWeight:700 }}>45 минут</span></div>
+      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:28 }}>Курьер доедет за <span style={{ color:"var(--gr)", fontWeight:700 }}>{deliveryMin || 45} минут</span>{deliveryKm > 0 ? ` · ${formatKm(deliveryKm)}` : ''}</div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
         {[{icon:"bag",l:"Номер заказа",v:"K-4833",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:"~45 минут",c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"ул. Ленина, 42",c:"var(--sky)"},{icon:"star",l:"Бонусы",v:"+12 начислено",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
@@ -1021,7 +999,7 @@ const CheckoutPage = ({ go }) => {
       {err && <div style={{ fontSize:11, color:"var(--red)", marginTop:4 }}>{err}</div>}
     </div>
   );
-  const Radio = ({ id, label, sub, items, val, set }) => (
+  const Radio = ({ items, val, set }) => (
     <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
       {items.map(m => (
         <div key={m.id} onClick={() => set(m.id)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:13, background:val===m.id?"rgba(31,215,96,.08)":"var(--l3)", border:`1.5px solid ${val===m.id?"rgba(31,215,96,.4)":"var(--b1)"}`, cursor:"pointer", transition:"all .2s" }}>
@@ -1062,11 +1040,28 @@ const CheckoutPage = ({ go }) => {
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <Sec icon="map" color="var(--sky)" title="Адрес доставки"/>
-          <Row label="Улица, дом *" val={addr} set={setAddr} err={errs.addr}/>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginTop:10 }}>
-            <input className="inp" placeholder="Подъезд" style={{ fontSize:13 }}/>
-            <input className="inp" placeholder="Этаж" style={{ fontSize:13 }}/>
-            <input className="inp" placeholder="Кв." style={{ fontSize:13 }}/>
+          <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>Улица, дом *</div>
+          <GeoAddressPicker
+            value={addr}
+            onChange={v => { setAddr(v); resetDelivery(); setErrs(prev => ({ ...prev, addr: undefined })); }}
+            onClear={resetDelivery}
+            weightKg={weightKg}
+            orderAmount={sub}
+            pickupIds={pickupIds}
+            onPriceChange={(price, dist, meta) => {
+              setDeliveryFee(price.total);
+              setDeliveryKm(dist);
+              setDeliveryMin(meta.durationMin);
+              setClientLat(meta.lat);
+              setClientLng(meta.lng);
+              setAddrReady(true);
+            }}
+          />
+          {errs.addr && <div style={{ fontSize:11, color:"var(--red)", marginTop:6 }}>{errs.addr}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+            <input className="inp" placeholder="Квартира" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+            <input className="inp" placeholder="Этаж" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+            <input className="inp" placeholder="Подъезд" style={{ width: '100%', fontSize: 13, padding: '11px 12px', gridColumn: '1 / -1' }} />
           </div>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
@@ -1086,17 +1081,27 @@ const CheckoutPage = ({ go }) => {
         </div>
       </div>
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px 28px" }}>
+        {addrReady && (
+          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--t2)", marginBottom:4 }}>
+              <span>Продукт</span><span>{sub.toFixed(2)} ЅМ</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--t2)", marginBottom:6 }}>
+              <span>Доставка ({deliveryKm > 0 ? formatKm(deliveryKm) : '…'})</span><span style={{ color:"var(--gr)", fontWeight:700 }}>{deliveryFee.toFixed(2)} ЅМ</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, borderTop:"1px solid var(--b1)", paddingTop:8 }}>
+              <span>💵 Наличными</span>
+              <span className="ub" style={{ color:"var(--gd)" }}>{total.toFixed(2)} ЅМ</span>
+            </div>
+          </div>
+        )}
         <button onClick={submit} className="btn" style={{ width:"100%", padding:"15px", fontSize:15, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-          {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>Подтвердить заказ</>}
+          {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>{addrReady ? `Подтвердить · ${total.toFixed(2)} ЅМ` : "Подтвердить заказ"}</>}
         </button>
       </div>
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   PAGE: AUTH
-══════════════════════════════════════════════════════ */
 const AuthPage = ({ go, setUser }) => {
   const [step,  setStep]   = useState("phone");
   const [mode,  setMode]   = useState("login");
@@ -1228,9 +1233,6 @@ const AuthPage = ({ go, setUser }) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   PAGE: PROFILE
-══════════════════════════════════════════════════════ */
 const ProfilePage = ({ go, user, setUser }) => {
   const [notif, setNotif] = useState(true);
   const [showQR, setShowQR] = useState(false);
@@ -1250,14 +1252,13 @@ const ProfilePage = ({ go, user, setUser }) => {
       <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>Профиль</div>
-          <button className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
+          <button onClick={()=>go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="bell" s={17} c="var(--t2)"/>
             <div style={{ position:"absolute", top:8, right:8, width:7, height:7, borderRadius:"50%", background:"var(--red)", border:"1.5px solid var(--bg)" }}/>
           </button>
         </div>
       </header>
       <div style={{ padding:"16px 18px 110px" }}>
-        {/* Avatar block */}
         <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:20 }}>
           <div style={{ position:"relative", flexShrink:0 }}>
             <div style={{ width:70, height:70, borderRadius:21, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:26, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 6px 20px rgba(31,215,96,.4)" }}>{user.name.charAt(0)}</div>
@@ -1270,7 +1271,6 @@ const ProfilePage = ({ go, user, setUser }) => {
             <span style={{ fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:20, background:`${lc}18`, color:lc, border:`1px solid ${lc}35` }}>⭐ {user.level}</span>
           </div>
         </div>
-        {/* Stats */}
         <div style={{ display:"flex", gap:10, marginBottom:20 }}>
           {[{l:"Бонусов",v:(user.bonus||0).toLocaleString(),c:"var(--gd)"},{l:"Заказов",v:"34",c:"var(--gr)"},{l:"Сэкономил",v:"89 ЅМ",c:"var(--sky)"}].map((s,i) => (
             <div key={i} style={{ flex:1, background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 10px", textAlign:"center" }}>
@@ -1279,7 +1279,6 @@ const ProfilePage = ({ go, user, setUser }) => {
             </div>
           ))}
         </div>
-        {/* Bonus card */}
         <div onClick={() => setShowQR(v => !v)} style={{ borderRadius:22, overflow:"hidden", marginBottom:16, cursor:"pointer", background:"linear-gradient(135deg,#071A0A 0%,#0F3018 40%,#071A0A 100%)", border:"1.5px solid rgba(31,215,96,.25)", padding:"20px", position:"relative" }}>
           <div style={{ position:"absolute", left:0, right:0, height:1, background:"linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)", animation:"scanLine 3s linear infinite" }}/>
           {!showQR ? (
@@ -1306,12 +1305,13 @@ const ProfilePage = ({ go, user, setUser }) => {
             </div>
           )}
         </div>
-        {/* Menu */}
         {[
           {title:"Покупки",items:[{icon:"bag",l:"Мои заказы",s:"34 заказа",c:"var(--gr)",to:"orders"},{icon:"heart",l:"Избранное",s:"12 товаров",c:"var(--red)"},{icon:"star",l:"Отзывы",s:"8 отзывов",c:"var(--gd)"}]},
           {title:"VIP",items:[{icon:"crown",l:"VIP Профиль",s:"Platinum · кредит · менеджер",c:"var(--gd)",to:"vip"},{icon:"zap",l:"Мои привилегии",s:"8 VIP преимуществ",c:"var(--pur)"}]},
           {title:"Настройки",items:[{icon:"bell",l:"Уведомления",s:"Push, SMS",c:"var(--gd)",tog:true,tv:notif,ts:setNotif},{icon:"map",l:"Адреса доставки",s:"2 адреса",c:"var(--blue)",to:"addresses"},{icon:"shield",l:"Конфиденциальность",c:"var(--sky)"},{icon:"help",l:"Помощь / FAQ",c:"var(--gr)",to:"faq"},{icon:"info",l:"О KAKAPO",s:"История, магазины, команда",c:"var(--sky)",to:"about"}]},
           {title:"Ещё",items:[{icon:"repeat",l:"Реферальная программа",s:"Пригласи друга — получи бонусы",c:"var(--gr)",to:"referral"},{icon:"msg",l:"Чат с поддержкой",s:"Онлайн · г. Яван",c:"var(--blue)",to:"chat"}]},
+          {title:"Партнёрам",items:[{icon:"truck",l:"Кабинет курьера",s:"Доставка заказов",c:"var(--gr)",to:"courier_login"},{icon:"bag",l:"Кабинет сборщика",s:"Сборка заказов",c:"var(--pur)",to:"assembler_login"},{icon:"crown",l:"Кабинет ресторана",s:"Меню и заказы",c:"var(--org)",to:"partner_login"}]},
+          {title:"Администратор",items:[{icon:"shield",l:"Панель управления",s:"Товары, заказы, карты, настройки",c:"var(--gd)",to:"admin_dash"}]},
         ].map((sec,si) => (
           <div key={si} style={{ marginBottom:12 }}>
             <div style={{ fontSize:11, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:8 }}>{sec.title}</div>
@@ -1338,10 +1338,6 @@ const ProfilePage = ({ go, user, setUser }) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   PAGE: ORDERS
-══════════════════════════════════════════════════════ */
 const OrdersPage = ({ go }) => {
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -1427,7 +1423,6 @@ const OrdersPage = ({ go }) => {
           {reviewed[selected.id] && <div style={{ padding:"13px", borderRadius:15, background:"rgba(31,215,96,.07)", border:"1px solid rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", gap:7, fontSize:13, fontWeight:700, color:"var(--gr)" }}><Ic n="check" s={15} c="var(--gr)" w={2.5}/>Отзыв оставлен — спасибо!</div>}
         </div>
       </div>
-      {/* Review sheet */}
       {showRev && (
         <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
           <div onClick={() => setShowRev(null)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
@@ -1534,9 +1529,6 @@ const OrdersPage = ({ go }) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   PAGE: PROMOS
-══════════════════════════════════════════════════════ */
 const PromosPage = ({ go, cart, onAdd, onRm }) => {
   const [tab, setTab] = useState("all");
   const [bi, setBi] = useState(0);
@@ -1547,29 +1539,30 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
   const pad = n => String(n).padStart(2,"0");
   const b = BANNERS[bi];
   const copy = code => { setCopied(code); setTimeout(() => setCopied(null), 2000); };
-  const FLASH = PRODS.filter(p => p.old).map(p => ({ ...p, now:p.price, was:p.old, stock:Math.floor(Math.random()*60+5) })).slice(0,5);
+  const FLASH = PRODS.filter(p => p.old).map(p => ({ ...p, now:p.price, was:p.old, stock:((p.id * 37) % 56) + 5 })).slice(0,5);
+  const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
   return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
-        <div style={{ padding:"0", overflow:"hidden" }}>
-          <div style={{ background:"rgba(255,69,69,.1)", borderBottom:"1px solid rgba(255,69,69,.15)", padding:"6px 0", overflow:"hidden" }}>
-            <div style={{ display:"flex", animation:"ticker 20s linear infinite", width:"200%" }}>
-              {[...Array(2)].map((_,si) => <div key={si} style={{ display:"flex", flexShrink:0, width:"100%" }}>{["🔥 Молочная среда −30%","⚡ Флэш до 20:00","🥩 Мясные выходные −25%","🎁 Бесплатная доставка от 30 ЅМ"].map((t,i) => <span key={i} style={{ fontSize:11, fontWeight:700, color:"var(--red)", whiteSpace:"nowrap", padding:"0 24px" }}>{t}</span>)}</div>)}
-            </div>
-          </div>
-          <div style={{ padding:"12px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-            <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>Акции</div>
-            {(() => { const qty = Object.values(cart||{}).reduce((a:number,b:any)=>a+(b||0),0) as number; return (
-              <button onClick={() => go("cart")} className="btn" style={{ position:"relative", width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <Ic n="cart" s={17} c={qty>0?"var(--gr)":"var(--t2)"}/>
-                {qty>0 && <div style={{ position:"absolute", top:-4, right:-4, width:18, height:18, borderRadius:"50%", background:"var(--gr)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"#030B05" }}>{qty}</div>}
-              </button>
-            ); })()}
-          </div>
-          <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
-            {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"},{id:"codes",l:"🏷 Промокоды"}].map(t => (
-              <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
-            ))}
+        <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:17, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 4px 16px rgba(31,215,96,.4)", flexShrink:0 }}>K</div>
+          <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900 }}>Акции</div>
+          <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <Ic n="search" s={17} c="var(--t2)"/>
+          </button>
+          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:totalQty>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${totalQty>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:totalQty>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
+            <Ic n="cart" s={17} c={totalQty>0?"white":"var(--t2)"}/>
+            {totalQty>0 && <div style={{ position:"absolute", top:-6, right:-6, width:17, height:17, borderRadius:"50%", background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>}
+          </button>
+        </div>
+        <div className="hscroll" style={{ padding:"0 18px 10px", gap:6 }}>
+          {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"},{id:"codes",l:"🏷 Промокоды"}].map(t => (
+            <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
+          ))}
+        </div>
+        <div style={{ background:"rgba(255,69,69,.08)", borderTop:"1px solid rgba(255,69,69,.12)", padding:"5px 0", overflow:"hidden" }}>
+          <div style={{ display:"flex", animation:"ticker 20s linear infinite", width:"200%" }}>
+            {[...Array(2)].map((_,si) => <div key={si} style={{ display:"flex", flexShrink:0, width:"100%" }}>{["🔥 Молочная среда −30%","⚡ Флэш до 20:00","🥩 Мясные выходные −25%","🎁 Бесплатная доставка от 30 ЅМ"].map((t,i) => <span key={i} style={{ fontSize:11, fontWeight:700, color:"var(--red)", whiteSpace:"nowrap", padding:"0 24px" }}>{t}</span>)}</div>)}
           </div>
         </div>
       </header>
@@ -1626,7 +1619,7 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
                         <span className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--red)" }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                         <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>
                       </div>
-                      <div style={{ height:4, background:"var(--b1)", borderRadius:2, marginTop:6 }}><div style={{ height:"100%", width:`${Math.floor(Math.random()*60+10)}%`, background:"var(--gr)", borderRadius:2 }}/></div>
+                      <div style={{ height:4, background:"var(--b1)", borderRadius:2, marginTop:6 }}><div style={{ height:"100%", width:`${((p.id * 53) % 51) + 10}%`, background:"var(--gr)", borderRadius:2 }}/></div>
                     </div>
                     <div style={{ padding:"0 10px 10px" }}>
                       {qty===0 ? <button onClick={() => onAdd(p.id)} className="btn" style={{ width:"100%", padding:"8px", fontSize:11, borderRadius:10, background:"linear-gradient(135deg,#CC2A2A,var(--red))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><Ic n="plus" s={11} c="white" w={2.5}/>В корзину</button> :
@@ -1646,7 +1639,7 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
           <div style={{ marginBottom:22 }}>
             <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>По категориям</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              {CATS.slice(0,6).map((c,i) => (
+              {CATS.filter(c=>!c.parentId).slice(0,6).map((c,i) => (
                 <div key={c.id} onClick={() => go("plist",{cat:c.id})} className="card" style={{ background:c.bg, border:`1px solid ${c.color}22`, cursor:"pointer" }}>
                   <div style={{ padding:"14px 12px" }}>
                     <div style={{ fontSize:28, marginBottom:8 }}>{c.e}</div>
@@ -1689,14 +1682,19 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
           </div>
         )}
       </div>
+      {totalQty > 0 && (
+        <div style={{ position:"fixed", bottom:82, left:"50%", transform:"translateX(-50%)", zIndex:90, animation:"fadeUp .3s ease" }}>
+          <button onClick={() => go("cart")} className="btn" style={{ display:"flex", alignItems:"center", gap:10, padding:"13px 22px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", border:"none", boxShadow:"0 8px 24px rgba(31,215,96,.45)" }}>
+            <div style={{ background:"rgba(0,0,0,.28)", borderRadius:"50%", width:26, height:26, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:11, fontWeight:900, color:"white" }}>{totalQty}</div>
+            <span style={{ fontSize:14, fontWeight:800, color:"white", fontFamily:"Nunito" }}>Перейти в корзину</span>
+            <Ic n="arr" s={16} c="white"/>
+          </button>
+        </div>
+      )}
       <Nav page="promos" go={go}/>
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   PAGE: SEARCH
-══════════════════════════════════════════════════════ */
 const SearchPage = ({ go, cart, onAdd, onRm }) => {
   const [query, setQuery] = useState("");
   const iRef = useRef();
@@ -1785,9 +1783,6 @@ const SearchPage = ({ go, cart, onAdd, onRm }) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   PAGE: FAQ
-══════════════════════════════════════════════════════ */
 const FAQPage = ({ go }) => {
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState("");
@@ -1835,10 +1830,6 @@ const FAQPage = ({ go }) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   PAGE: VIP PROFILE
-══════════════════════════════════════════════════════ */
 const VIPPage = ({ go, user }) => {
   const [reserveModal, setReserveModal] = useState(false);
   const creditUsed = 1200, creditLimit = 3000;
@@ -1883,8 +1874,6 @@ const VIPPage = ({ go, user }) => {
       </header>
 
       <div style={{ padding:"16px 18px 100px" }}>
-
-        {/* Gold VIP Card */}
         <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,#1A1000,#2E1E00,#1A1000)", border:"1.5px solid rgba(255,184,0,.4)", boxShadow:"0 8px 40px rgba(255,184,0,.2)" }}>
           <div style={{ position:"absolute", inset:0, opacity:.04, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
           <div style={{ position:"absolute", right:-30, top:-30, width:160, height:160, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(20px)" }}/>
@@ -1922,7 +1911,6 @@ const VIPPage = ({ go, user }) => {
           </div>
         </div>
 
-        {/* Stats row */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
           {[
             { l:"Заказов",   v:"124",   c:"var(--gr)" },
@@ -1936,7 +1924,6 @@ const VIPPage = ({ go, user }) => {
           ))}
         </div>
 
-        {/* Credit limit */}
         <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
             <div className="ub" style={{ fontSize:14, fontWeight:800 }}>💳 Кредитный лимит</div>
@@ -1953,7 +1940,6 @@ const VIPPage = ({ go, user }) => {
             <span style={{ fontSize:11, color:"var(--t3)" }}>Доступно: <span style={{ color:"var(--gr)", fontWeight:700 }}>{(creditLimit-creditUsed).toLocaleString()} ЅМ</span></span>
             <span style={{ fontSize:11, color:"var(--t3)" }}>Лимит: {creditLimit.toLocaleString()} ЅМ</span>
           </div>
-          {/* History */}
           <div style={{ borderTop:"1px solid var(--b1)", paddingTop:12 }}>
             <div style={{ fontSize:12, fontWeight:700, marginBottom:10, color:"var(--t2)" }}>История</div>
             {HISTORY.map((h,i) => (
@@ -1973,37 +1959,31 @@ const VIPPage = ({ go, user }) => {
           </button>
         </div>
 
-        {/* Reserved products */}
         <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
             <div className="ub" style={{ fontSize:14, fontWeight:800 }}>📦 Резерв товаров</div>
             <button onClick={() => setReserveModal(true)} className="btn" style={{ padding:"6px 13px", borderRadius:10, background:"rgba(0,212,200,.1)", border:"1px solid rgba(0,212,200,.28)", color:"var(--sky)", fontSize:12, fontWeight:700 }}>+ Добавить</button>
           </div>
-          {RESERVED.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"20px 0", fontSize:12, color:"var(--t3)" }}>Нет зарезервированных товаров</div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {RESERVED.map((r,i) => (
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"var(--l3)", borderRadius:14, border:"1px solid var(--b1)" }}>
-                  <div style={{ width:44, height:44, borderRadius:12, background:"var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{r.e}</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, fontWeight:700 }}>{r.name}</div>
-                    <div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>{r.qty} шт · {r.unit}</div>
-                    <div style={{ fontSize:10, color:"var(--sky)", marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
-                      <Ic n="clock" s={10} c="var(--sky)"/>До {r.till}
-                    </div>
-                  </div>
-                  <div style={{ textAlign:"right" }}>
-                    <div className="ub" style={{ fontSize:13, fontWeight:800 }}>{(r.price*r.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
-                    <button className="btn" style={{ marginTop:6, padding:"4px 10px", borderRadius:8, background:"rgba(31,215,96,.12)", border:"1px solid rgba(31,215,96,.3)", color:"var(--gr)", fontSize:11 }}>Купить</button>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {RESERVED.map((r,i) => (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"var(--l3)", borderRadius:14, border:"1px solid var(--b1)" }}>
+                <div style={{ width:44, height:44, borderRadius:12, background:"var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{r.e}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:700 }}>{r.name}</div>
+                  <div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>{r.qty} шт · {r.unit}</div>
+                  <div style={{ fontSize:10, color:"var(--sky)", marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
+                    <Ic n="clock" s={10} c="var(--sky)"/>До {r.till}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+                <div style={{ textAlign:"right" }}>
+                  <div className="ub" style={{ fontSize:13, fontWeight:800 }}>{(r.price*r.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
+                  <button className="btn" style={{ marginTop:6, padding:"4px 10px", borderRadius:8, background:"rgba(31,215,96,.12)", border:"1px solid rgba(31,215,96,.3)", color:"var(--gr)", fontSize:11 }}>Купить</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Personal manager */}
         <div style={{ background:"linear-gradient(135deg,#0E0A28,#1A1440)", border:"1px solid rgba(155,109,255,.3)", borderRadius:18, padding:"18px", marginBottom:16 }}>
           <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>👑 Личный менеджер</div>
           <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:14 }}>
@@ -2027,7 +2007,6 @@ const VIPPage = ({ go, user }) => {
           </div>
         </div>
 
-        {/* VIP Perks grid */}
         <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
           {PERKS.map((perk,i) => (
@@ -2040,7 +2019,6 @@ const VIPPage = ({ go, user }) => {
         </div>
       </div>
 
-      {/* Reserve modal */}
       {reserveModal && (
         <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
           <div onClick={() => setReserveModal(false)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
@@ -2074,10 +2052,6 @@ const VIPPage = ({ go, user }) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   PAGE: ABOUT US + CONTACTS
-══════════════════════════════════════════════════════ */
 const AboutPage = ({ go }) => {
   const [tab, setTab] = useState("about");
   const [sent, setSent] = useState(false);
@@ -2141,11 +2115,8 @@ const AboutPage = ({ go }) => {
       </header>
 
       <div style={{ padding:"0 0 100px" }}>
-
-        {/* ─── О НАС ─── */}
         {tab==="about" && (
           <div>
-            {/* Hero */}
             <div style={{ height:200, background:"linear-gradient(160deg,#061A0A 0%,#103020 50%,#040E06 100%)", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"28px 24px", position:"relative", overflow:"hidden" }}>
               <div style={{ position:"absolute", left:0, right:0, height:1, background:"linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)", animation:"scanLine 3s linear infinite" }}/>
               <div>
@@ -2162,7 +2133,6 @@ const AboutPage = ({ go }) => {
               <div style={{ position:"absolute", bottom:0, left:0, right:0, height:60, background:"linear-gradient(transparent,var(--bg))" }}/>
             </div>
 
-            {/* Stats */}
             <div style={{ padding:"18px 18px 0" }}>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:22 }}>
                 {STATS.map((s,i) => (
@@ -2174,7 +2144,6 @@ const AboutPage = ({ go }) => {
                 ))}
               </div>
 
-              {/* Timeline */}
               <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Наша история</div>
               <div className="card" style={{ padding:"18px", marginBottom:20 }}>
                 {TIMELINE.map((step,i) => (
@@ -2194,7 +2163,6 @@ const AboutPage = ({ go }) => {
                 ))}
               </div>
 
-              {/* Award banner */}
               <div style={{ borderRadius:18, background:"linear-gradient(135deg,#0A1A06,#142A0E)", border:"1px solid rgba(31,215,96,.2)", padding:"18px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div>
                   <div style={{ fontSize:11, fontWeight:800, color:"var(--gr)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:6 }}>Нас выбирают</div>
@@ -2206,8 +2174,6 @@ const AboutPage = ({ go }) => {
             </div>
           </div>
         )}
-
-        {/* ─── КОНТАКТЫ ─── */}
         {tab==="contacts" && (
           <div style={{ padding:"16px 18px 0" }}>
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Связаться с нами</div>
@@ -2220,9 +2186,7 @@ const AboutPage = ({ go }) => {
                 { icon:"insta", label:"Instagram",        sub:"@kakapo.tj",        color:"#E1306C",     bg:"rgba(225,48,108,.1)" },
                 { icon:"msg",   label:"Email",            sub:"kakapo.tj@gmail.com",color:"var(--gd)",  bg:"rgba(255,184,0,.1)" },
               ].map((c,i) => (
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, cursor:"pointer", transition:"all .2s" }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor="rgba(31,215,96,.3)"; e.currentTarget.style.transform="translateX(3px)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor="var(--b1)"; e.currentTarget.style.transform="none"; }}>
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, cursor:"pointer", transition:"all .2s" }}>
                   <div style={{ width:42, height:42, borderRadius:13, background:c.bg, border:`1px solid ${c.color}30`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                     <Ic n={c.icon} s={20} c={c.color}/>
                   </div>
@@ -2235,7 +2199,6 @@ const AboutPage = ({ go }) => {
               ))}
             </div>
 
-            {/* Hours */}
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Режим работы</div>
             <div className="card" style={{ overflow:"hidden", marginBottom:22 }}>
               {[{d:"Понедельник – Пятница",h:"08:00–22:00"},{d:"Суббота",h:"08:00–22:00"},{d:"Воскресенье",h:"09:00–21:00"},{d:"Доставка",h:"08:00–22:00"}].map((r,i) => (
@@ -2249,14 +2212,12 @@ const AboutPage = ({ go }) => {
               ))}
             </div>
 
-            {/* Write us */}
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Написать нам</div>
             {!sent ? (
               <div className="card" style={{ padding:"18px", display:"flex", flexDirection:"column", gap:10 }}>
                 <input className="inp" value={name} onChange={e => setName(e.target.value)} placeholder="Ваше имя *" style={{ width:"100%" }}/>
                 <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Ваше сообщение *"
-                  style={{ width:"100%", background:"var(--l3)", border:"1.5px solid var(--b1)", borderRadius:14, padding:"13px 16px", color:"var(--t1)", fontFamily:"Nunito", fontSize:14, resize:"none", height:90, outline:"none" }}
-                  onFocus={e => e.target.style.borderColor="rgba(31,215,96,.5)"} onBlur={e => e.target.style.borderColor="var(--b1)"}/>
+                  style={{ width:"100%", background:"var(--l3)", border:"1.5px solid var(--b1)", borderRadius:14, padding:"13px 16px", color:"var(--t1)", fontFamily:"Nunito", fontSize:14, resize:"none", height:90, outline:"none" }}/>
                 <button onClick={send} className="btn" style={{ padding:"14px", fontSize:14, borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:name&&msg?1:.5 }}>
                   {sending ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="send" s={16} c="white"/>Отправить сообщение</>}
                 </button>
@@ -2272,7 +2233,6 @@ const AboutPage = ({ go }) => {
           </div>
         )}
 
-        {/* ─── МАГАЗИНЫ ─── */}
         {tab==="stores" && (
           <div style={{ padding:"16px 18px 0" }}>
             <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:16 }}>Наши магазины</div>
@@ -2294,7 +2254,6 @@ const AboutPage = ({ go }) => {
                         <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--t2)" }}><Ic n="clock" s={12} c="var(--gd)"/>{store.hours}</div>
                       </div>
                     </div>
-                    {/* Mini map */}
                     <div style={{ height:90, borderRadius:12, overflow:"hidden", position:"relative", background:"linear-gradient(135deg,#050F08,#091814)", border:"1px solid rgba(31,215,96,.12)", marginBottom:12, cursor:"pointer" }}>
                       <div style={{ position:"absolute", inset:0, opacity:.05, background:"repeating-linear-gradient(0deg,transparent,transparent 16px,rgba(31,215,96,1) 16px,rgba(31,215,96,1) 17px),repeating-linear-gradient(90deg,transparent,transparent 16px,rgba(31,215,96,1) 16px,rgba(31,215,96,1) 17px)" }}/>
                       <div style={{ position:"absolute", top:"40%", left:"45%", display:"flex", flexDirection:"column", alignItems:"center" }}>
@@ -2318,7 +2277,6 @@ const AboutPage = ({ go }) => {
           </div>
         )}
 
-        {/* ─── КОМАНДА ─── */}
         {tab==="team" && (
           <div style={{ padding:"16px 18px 0" }}>
             <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:6 }}>Наша команда</div>
@@ -2343,14 +2301,12 @@ const AboutPage = ({ go }) => {
                 </div>
               ))}
             </div>
-            {/* Hiring */}
             <div style={{ background:"linear-gradient(135deg,#060C20,#0E1640)", border:"1px solid rgba(59,142,240,.2)", borderRadius:18, padding:"20px", textAlign:"center", marginBottom:16 }}>
               <div style={{ fontSize:36, marginBottom:10 }}>💼</div>
               <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:6 }}>Хотите к нам?</div>
               <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.65, marginBottom:14 }}>Ищем ответственных и позитивных людей для работы в KAKAPO</div>
               <button className="btn" style={{ padding:"12px 24px", fontSize:13, borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white" }}>Отправить резюме →</button>
             </div>
-            {/* Socials */}
             <div className="card" style={{ padding:"16px" }}>
               <div style={{ fontSize:13, fontWeight:800, marginBottom:12 }}>Мы в социальных сетях</div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
@@ -2377,17 +2333,8 @@ const AboutPage = ({ go }) => {
     </div>
   );
 };
-
-
-
-/* ══════════════════════════════════════════════════════
-   ADMIN CSS
-══════════════════════════════════════════════════════ */
 const ACSS=`.ac{background:#091508;border:1px solid #162B1A;border-radius:14px;overflow:hidden;}.at{width:100%;border-collapse:collapse;}.at th{padding:9px 14px;text-align:left;font-size:10px;font-weight:800;color:#3D6645;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #162B1A;}.at td{padding:11px 14px;border-bottom:1px solid rgba(22,43,26,.5);font-size:13px;}.at tr:last-child td{border-bottom:none;}.at tr:hover td{background:rgba(31,215,96,.03);cursor:pointer;}.ai{background:#0C1C0F;border:1.5px solid #162B1A;border-radius:10px;color:#EBF5ED;font-family:Nunito,sans-serif;font-size:13px;outline:none;padding:9px 13px;transition:border-color .2s;width:100%;}.ai:focus{border-color:rgba(31,215,96,.5);}.ai::placeholder{color:#3D6645;}.ab{font-family:Nunito,sans-serif;font-weight:700;cursor:pointer;border:none;transition:all .2s;border-radius:10px;padding:8px 16px;font-size:13px;}.ab:active{transform:scale(.97);}.abp{background:linear-gradient(135deg,#17B34E,#1FD760);color:#030B05;}.abg{background:rgba(31,215,96,.09);color:#1FD760;border:1.5px solid rgba(31,215,96,.28);}.abd{background:rgba(255,69,69,.1);color:#FF4545;border:1px solid rgba(255,69,69,.3);}.amod{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;}.amodbg{position:absolute;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(8px);}.amodbox{position:relative;z-index:1;background:#06100A;border:1px solid #162B1A;border-radius:20px;padding:24px;width:100%;max-width:560px;max-height:88vh;overflow-y:auto;animation:fadeIn .3s ease;}`;
 
-/* ══════════════════════════════════════════════════════
-   ADMIN WRAPPER
-══════════════════════════════════════════════════════ */
 const AdminWrap = ({go, title, subtitle, children}) => {
   const [ok, setOk] = useState(() => { try { return localStorage.getItem('ka')==='1'; } catch { return false; } });
   const [em, setEm] = useState('');
@@ -2396,26 +2343,20 @@ const AdminWrap = ({go, title, subtitle, children}) => {
   const [ld, setLd] = useState(false);
 
   const NAV = [
-    // ── Общее ──
     {id:'admin_dash',      icon:'📊', l:'Dashboard',   group:'Общее'},
     {id:'admin_orders',    icon:'📦', l:'Все заказы',  group:'Общее'},
-    // ── Магазин ──
     {id:'admin_products',  icon:'🥦', l:'Товары',      group:'🛒 Магазин'},
     {id:'admin_inventory', icon:'📊', l:'Склад',       group:'🛒 Магазин'},
     {id:'admin_promos',    icon:'💸', l:'Акции',       group:'🛒 Магазин'},
-    // ── Рестораны ──
+    {id:'admin_banners',   icon:'🖼', l:'Баннеры / Слайдеры', group:'🖼 Контент'},
     {id:'admin_partners',  icon:'🍽', l:'Рестораны',   group:'🍽 Рестораны'},
     {id:'admin_reviews',   icon:'⭐', l:'Отзывы',      group:'🍽 Рестораны'},
-    // ── Команда ──
     {id:'admin_couriers',  icon:'🛵', l:'Курьеры',     group:'👥 Команда'},
     {id:'admin_assemblers',icon:'🛒', l:'Сборщики',    group:'👥 Команда'},
-    // ── Клиенты ──
     {id:'admin_clients',   icon:'👥', l:'Клиенты',     group:'💳 Клиенты'},
     {id:'admin_cards',     icon:'💳', l:'Карты',       group:'💳 Клиенты'},
     {id:'admin_push',      icon:'🔔', l:'Push',        group:'💳 Клиенты'},
-    // ── Финансы ──
     {id:'admin_finance',   icon:'💰', l:'Финансы',     group:'💰 Финансы'},
-    // ── Система ──
     {id:'admin_chat',      icon:'💬', l:'Чат',         group:'⚙️ Система'},
     {id:'admin_settings',  icon:'⚙️',  l:'Настройки',  group:'⚙️ Система'},
   ];
@@ -2470,7 +2411,7 @@ const AdminWrap = ({go, title, subtitle, children}) => {
         <nav style={{flex:1,padding:'8px',overflowY:'auto',display:'flex',flexDirection:'column',gap:1}}>
           {(() => {
             let lastGroup = null;
-            return NAV.map((n,i) => {
+            return NAV.map((n) => {
               const showGroup = n.group && n.group !== lastGroup;
               if(showGroup) lastGroup = n.group;
               return (
@@ -2501,10 +2442,6 @@ const AdminWrap = ({go, title, subtitle, children}) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: DASHBOARD
-══════════════════════════════════════════════════════ */
 const AdminDashPage = ({go}) => {
   const SC = {pending:{l:'Ожидает',c:'#FFB800'},assembling:{l:'Собирается',c:'#9B6DFF'},delivering:{l:'В пути',c:'#3B8EF0'},delivered:{l:'Доставлен',c:'#1FD760'},cancelled:{l:'Отменён',c:'#FF4545'},new:{l:'Новый',c:'#FF4545'},cooking:{l:'Готовится',c:'#FFB800'},ready:{l:'Готово',c:'#1FD760'}};
   const storeOrders = [
@@ -2518,7 +2455,6 @@ const AdminDashPage = ({go}) => {
 
   return (
     <AdminWrap go={go} title="Dashboard" subtitle="Управление всеми 4 приложениями · г. Яван">
-      {/* 4 apps status */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
         {[
           {e:'🛒',l:'Магазин',       v:'Работает',  sub:'48 заказов сегодня',c:'#1FD760', to:'admin_orders'},
@@ -2526,9 +2462,7 @@ const AdminDashPage = ({go}) => {
           {e:'🛵',l:'Курьеры',       v:'3 активных',sub:'1 офлайн',          c:'#3B8EF0', to:'admin_couriers'},
           {e:'🛒',l:'Сборщики',      v:'2 на смене', sub:'12 собрано сегодня',c:'#9B6DFF', to:'admin_assemblers'},
         ].map((s,i)=>(
-          <div key={i} onClick={()=>go(s.to)} className="ac" style={{padding:16,cursor:'pointer',transition:'transform .2s'}}
-            onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
-            onMouseLeave={e=>e.currentTarget.style.transform='none'}>
+          <div key={i} onClick={()=>go(s.to)} className="ac" style={{padding:16,cursor:'pointer',transition:'transform .2s'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
               <div style={{fontSize:11,color:'#8FB897',fontWeight:600}}>{s.l}</div>
               <span style={{fontSize:24}}>{s.e}</span>
@@ -2539,7 +2473,6 @@ const AdminDashPage = ({go}) => {
         ))}
       </div>
 
-      {/* Revenue overview */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
         {[
           {l:'Выручка магазина',  v:'3 580 ЅМ',c:'#1FD760',t:'+12%'},
@@ -2556,7 +2489,6 @@ const AdminDashPage = ({go}) => {
       </div>
 
       <div style={{display:'grid',gridTemplateColumns:'1.2fr 1fr',gap:18,marginBottom:18}}>
-        {/* Store orders */}
         <div className="ac">
           <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div style={{fontSize:13,fontWeight:800}}>🛒 Заказы магазина</div>
@@ -2575,7 +2507,6 @@ const AdminDashPage = ({go}) => {
           </table>
         </div>
 
-        {/* Restaurant orders */}
         <div className="ac">
           <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div style={{fontSize:13,fontWeight:800}}>🍽 Заказы ресторанов</div>
@@ -2599,7 +2530,6 @@ const AdminDashPage = ({go}) => {
         </div>
       </div>
 
-      {/* Quick actions */}
       <div className="ac" style={{padding:16}}>
         <div style={{fontSize:13,fontWeight:800,marginBottom:14}}>Быстрые действия</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:10}}>
@@ -2620,27 +2550,10 @@ const AdminDashPage = ({go}) => {
     </AdminWrap>
   );
 };
-
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: ТОВАРЫ (с артикулами + синхронизация)
-══════════════════════════════════════════════════════ */
 const AdminProductsPage = ({go}) => {
-  const [search,   setSearch]   = useState('');
-  const [showAdd,  setShowAdd]  = useState(false);
-  const [syncMsg,  setSyncMsg]  = useState('');
-  const [addPhoto, setAddPhoto] = useState('');
-  const [photoErr, setPhotoErr] = useState('');
-
-  const handleAddPhoto = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { setPhotoErr('Файл слишком большой (макс. 5 МБ)'); return; }
-    setPhotoErr('');
-    const reader = new FileReader();
-    reader.onload = (ev) => setAddPhoto(ev.target?.result as string);
-    reader.readAsDataURL(file);
-  };
+  const [search,  setSearch]  = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
   const filtered = PRODS.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.art.toLowerCase().includes(search.toLowerCase()));
 
   const syncGBS = () => {
@@ -2705,27 +2618,6 @@ const AdminProductsPage = ({go}) => {
               <button onClick={()=>setShowAdd(false)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              {/* Photo upload */}
-              <div>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:7,fontWeight:700}}>📷 Фото товара</div>
-                {addPhoto ? (
-                  <div style={{position:'relative',width:'100%',height:160,borderRadius:12,overflow:'hidden',border:'1px solid #162B1A'}}>
-                    <img src={addPhoto} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                    <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,rgba(0,0,0,.5) 0%,transparent 50%)'}}/>
-                    <button onClick={()=>setAddPhoto('')} style={{position:'absolute',top:8,right:8,width:30,height:30,borderRadius:'50%',background:'rgba(0,0,0,.75)',border:'1px solid rgba(255,255,255,.15)',color:'white',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
-                    <div style={{position:'absolute',bottom:9,left:12,fontSize:11,color:'rgba(255,255,255,.8)',fontWeight:700}}>✓ Фото загружено</div>
-                  </div>
-                ) : (
-                  <label style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:7,width:'100%',height:110,borderRadius:12,border:'2px dashed #1D3822',background:'#0C1C0F',cursor:'pointer'}}>
-                    <span style={{fontSize:28}}>📷</span>
-                    <span style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Нажмите чтобы загрузить фото</span>
-                    <span style={{fontSize:10,color:'#3D6645'}}>JPG, PNG, WebP · до 5 МБ</span>
-                    <input type="file" accept="image/*" onChange={handleAddPhoto} style={{display:'none'}}/>
-                  </label>
-                )}
-                {photoErr&&<div style={{marginTop:5,fontSize:11,color:'#FF4545'}}>⚠️ {photoErr}</div>}
-              </div>
-
               <div style={{display:'grid',gridTemplateColumns:'130px 1fr',gap:12}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Артикул GBS</div><input className="ai" placeholder="KAK-0013"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div><input className="ai" placeholder="Название товара"/></div>
@@ -2735,14 +2627,14 @@ const AdminProductsPage = ({go}) => {
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ)*</div><input className="ai" type="number" placeholder="0.00"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Категория</div>
                   <select className="ai" style={{cursor:'pointer'}}>
-                    {CATS.map(c=><option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
+                    {CATS.map(c=><option key={c.id} value={c.id}>{c.e} {c.label}</option>)}
                   </select>
                 </div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Фасовка</div><input className="ai" placeholder="500 гр"/></div>
               </div>
               <div style={{display:'flex',gap:10,marginTop:4}}>
-                <button className="ab abp" style={{flex:1,padding:12}} onClick={()=>{setShowAdd(false);setAddPhoto('');setPhotoErr('');}}>✓ Сохранить</button>
-                <button className="ab abg" onClick={()=>{setShowAdd(false);setAddPhoto('');setPhotoErr('');}}>Отмена</button>
+                <button className="ab abp" style={{flex:1,padding:12}}>✓ Сохранить</button>
+                <button className="ab abg" onClick={()=>setShowAdd(false)}>Отмена</button>
               </div>
             </div>
           </div>
@@ -2751,10 +2643,6 @@ const AdminProductsPage = ({go}) => {
     </AdminWrap>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: КАРТЫ ЛОЯЛЬНОСТИ
-══════════════════════════════════════════════════════ */
 const CARDS_DATA = [
   {num:'KAKAPO-0001',client:'Диловар Рахимов',  phone:'+992 93 456 78 90',status:'active',  level:'platinum',bonus:4850,debtLimit:3000,debt:1200,issued:'01.01.2022'},
   {num:'KAKAPO-0042',client:'Нилуфар Хасанова', phone:'+992 90 123 45 67',status:'active',  level:'gold',    bonus:1240,debtLimit:1000,debt:0,   issued:'15.03.2023'},
@@ -2793,7 +2681,6 @@ const AdminCardsPage = ({go}) => {
 
   return (
     <AdminWrap go={go} title="Карты" subtitle="Управление картами лояльности KAKAPO">
-      {/* Stats */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
         {[
           {l:'Всего карт',   v:CARDS_DATA.length,                                    c:'#1FD760'},
@@ -2808,7 +2695,6 @@ const AdminCardsPage = ({go}) => {
         ))}
       </div>
 
-      {/* Toolbar */}
       <div style={{display:'flex',gap:10,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
         <input className="ai" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Номер карты, клиент, телефон..." style={{width:280}}/>
         <div style={{display:'flex',gap:6}}>
@@ -2824,7 +2710,6 @@ const AdminCardsPage = ({go}) => {
         </button>
       </div>
 
-      {/* Table */}
       <div className="ac">
         <table className="at">
           <thead><tr><th>Номер карты</th><th>Клиент</th><th>Телефон</th><th>Статус</th><th>Уровень</th><th>Бонусы</th><th>Лимит долга</th><th>Долг</th><th>Действия</th></tr></thead>
@@ -2852,8 +2737,6 @@ const AdminCardsPage = ({go}) => {
           </tbody>
         </table>
       </div>
-
-      {/* Detail modal */}
       {sel&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>setSel(null)}/>
@@ -2862,12 +2745,11 @@ const AdminCardsPage = ({go}) => {
               <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800}}>Карта {sel.num}</div>
               <button onClick={()=>setSel(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
             </div>
-            {/* Mini QR */}
             <div style={{background:'linear-gradient(135deg,#071A0A,#0F3018)',border:'1.5px solid rgba(31,215,96,.3)',borderRadius:14,padding:16,marginBottom:14,textAlign:'center',position:'relative',overflow:'hidden'}}>
               <div style={{position:'absolute',left:0,right:0,height:1,background:'linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)',animation:'scanLine 3s linear infinite'}}/>
               <div style={{fontFamily:'Unbounded',fontSize:10,color:'#1FD760',marginBottom:8}}>KAKAPO LOYALTY CARD</div>
               <div style={{width:80,height:80,margin:'0 auto 8px',background:'#030B05',borderRadius:8,display:'grid',gridTemplateColumns:'repeat(10,1fr)',gap:1,padding:6,border:'1px solid rgba(31,215,96,.2)'}}>
-                {Array.from({length:100},(_,idx)=>{const b=(idx<3||idx>96)||(idx%10===0||idx%10===9)||(Math.floor(idx/10)<3&&idx%10<3)||(Math.floor(idx/10)>6&&idx%10<3);return <div key={idx} style={{borderRadius:1,background:b?'#EBF5ED':'transparent'}}/>;},)}
+                {Array.from({length:100},(_,idx)=>{const b=(idx<3||idx>96)||(idx%10===0||idx%10===9)||(Math.floor(idx/10)<3&&idx%10<3)||(Math.floor(idx/10)>6&&idx%10<3);return <div key={idx} style={{borderRadius:1,background:b?'#EBF5ED':'transparent'}}/>;})}
               </div>
               <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#FFB800',letterSpacing:2}}>{sel.num}</div>
             </div>
@@ -2894,7 +2776,6 @@ const AdminCardsPage = ({go}) => {
         </div>
       )}
 
-      {/* Link modal */}
       {showLink&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>setShowLink(null)}/>
@@ -2933,7 +2814,6 @@ const AdminCardsPage = ({go}) => {
         </div>
       )}
 
-      {/* Generate modal */}
       {showGen&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>{setShowGen(false);setGened(false);}}/>
@@ -2969,10 +2849,6 @@ const AdminCardsPage = ({go}) => {
     </AdminWrap>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: НАСТРОЙКИ + ИНТЕГРАЦИИ
-══════════════════════════════════════════════════════ */
 const AdminSettingsPage = ({go}) => {
   const [tab,    setTab]    = useState('gbs');
   const [gbsIP,  setGbsIP]  = useState('http://192.168.1.100');
@@ -3033,7 +2909,6 @@ const AdminSettingsPage = ({go}) => {
         </button>
       </div>
 
-      {/* GBS MARKET */}
       {tab==='gbs'&&(
         <div style={{display:'grid',gridTemplateColumns:'1.3fr 1fr',gap:18}}>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
@@ -3116,8 +2991,6 @@ const AdminSettingsPage = ({go}) => {
           </div>
         </div>
       )}
-
-      {/* КАРТЫ */}
       {tab==='cards'&&(
         <div className="ac" style={{padding:20,maxWidth:560}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:18}}>Настройки карт лояльности</div>
@@ -3146,7 +3019,6 @@ const AdminSettingsPage = ({go}) => {
         </div>
       )}
 
-      {/* ДОСТАВКА */}
       {tab==='delivery'&&(
         <div className="ac" style={{padding:20,maxWidth:560}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:18}}>Настройки доставки</div>
@@ -3162,7 +3034,6 @@ const AdminSettingsPage = ({go}) => {
         </div>
       )}
 
-      {/* SMS */}
       {tab==='sms'&&(
         <div className="ac" style={{padding:20,maxWidth:520}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:18}}>SMS провайдер (OTP авторизация)</div>
@@ -3181,7 +3052,6 @@ const AdminSettingsPage = ({go}) => {
         </div>
       )}
 
-      {/* MAPS */}
       {tab==='maps'&&(
         <div className="ac" style={{padding:20,maxWidth:520}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:18}}>Карты и геолокация</div>
@@ -3196,7 +3066,6 @@ const AdminSettingsPage = ({go}) => {
         </div>
       )}
 
-      {/* PUSH */}
       {tab==='push'&&(
         <div className="ac" style={{padding:20,maxWidth:520}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:18}}>Firebase Push Notifications</div>
@@ -3214,7 +3083,6 @@ const AdminSettingsPage = ({go}) => {
         </div>
       )}
 
-      {/* МАГАЗИН */}
       {tab==='store'&&(
         <div className="ac" style={{padding:20,maxWidth:520}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:18}}>Информация о магазине</div>
@@ -3228,14 +3096,6 @@ const AdminSettingsPage = ({go}) => {
     </AdminWrap>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: ЗАКАЗЫ
-══════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: АКЦИИ И СКИДКИ
-══════════════════════════════════════════════════════ */
 const AdminPromosPage = ({go}) => {
   const [promos, setPromos] = useState([
     {id:1, e:'🥛', title:'Молочная среда',   sub:'Скидка на всё молочное',      disc:30, cat:'dairy',  on:true,  type:'pct',  from:'08:00', to:'22:00', till:'Среда'},
@@ -3263,7 +3123,6 @@ const AdminPromosPage = ({go}) => {
 
   return (
     <AdminWrap go={go} title="Акции" subtitle="Управление скидками и промо-акциями">
-      {/* Stats */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
         {[
           {l:'Всего акций',  v:promos.length,               c:'var(--t1)'},
@@ -3282,7 +3141,6 @@ const AdminPromosPage = ({go}) => {
         <button onClick={()=>setShowAdd(true)} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>+ Добавить акцию</button>
       </div>
 
-      {/* Promos list */}
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
         {promos.map(p=>(
           <div key={p.id} className="ac" style={{padding:'16px 18px',opacity:p.on?1:.65,transition:'opacity .2s'}}>
@@ -3313,7 +3171,6 @@ const AdminPromosPage = ({go}) => {
         ))}
       </div>
 
-      {/* Promo codes */}
       <div style={{marginTop:20}}>
         <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>Промокоды</div>
         <div className="ac" style={{overflow:'hidden'}}>
@@ -3339,13 +3196,11 @@ const AdminPromosPage = ({go}) => {
           <div style={{padding:'12px 16px',borderTop:'1px solid #162B1A',display:'flex',gap:10}}>
             <input className="ai" placeholder="Новый промокод..." style={{flex:1}}/>
             <input className="ai" placeholder="Скидка %" type="number" style={{width:100}}/>
-            <input className="ai" placeholder="До даты..." style={{width:130}}/>
             <button className="ab abp" style={{padding:'8px 16px',fontSize:12,flexShrink:0}}>+ Создать</button>
           </div>
         </div>
       </div>
 
-      {/* Add promo modal */}
       {showAdd&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>setShowAdd(false)}/>
@@ -3374,7 +3229,7 @@ const AdminPromosPage = ({go}) => {
                   <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Категория</div>
                   <select className="ai" value={newCat} onChange={e=>setNewCat(e.target.value)} style={{cursor:'pointer'}}>
                     <option value="all">Все товары</option>
-                    {CATS.map(c=><option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
+                    {CATS.map(c=><option key={c.id} value={c.id}>{c.e} {c.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -3401,10 +3256,115 @@ const AdminPromosPage = ({go}) => {
     </AdminWrap>
   );
 };
+const AdminBannersPage = ({go}) => {
+  const [banners, setBanners] = useState([
+    {id:1,badge:'ПЯТНИЦА',   title:'Органик-день',       sub:'20% на органические продукты',  disc:20, e:'🥦', bg:'linear-gradient(135deg,#0A2A0A,#1A4A1A)', ac:'#1FD760', on:true},
+    {id:2,badge:'ХИТЫ',      title:'Молочная среда',     sub:'Скидка 30% на всё молочное',     disc:30, e:'🥛', bg:'linear-gradient(135deg,#0D2040,#163460)', ac:'#3B8EF0', on:true},
+    {id:3,badge:'ВЫХОДНЫЕ',  title:'Мясные выходные',    sub:'−25% на мясо и птицу',           disc:25, e:'🥩', bg:'linear-gradient(135deg,#2A0E0E,#501818)', ac:'#FF4545', on:true},
+    {id:4,badge:'ФЛЭШ',      title:'Флэш до 20:00',      sub:'Успей купить — только сегодня',  disc:40, e:'⚡', bg:'linear-gradient(135deg,#1A1A0A,#3A3010)', ac:'#FFB800', on:false},
+  ]);
+  const [edit, setEdit] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const def = {badge:'',title:'',sub:'',disc:'',e:'🎁',bg:'linear-gradient(135deg,#0A1A0A,#1A3020)',ac:'#1FD760',on:true};
+  const [form, setForm] = useState(def);
+  const F = ({label,val,onChange,type='text'}) => (
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:11,color:'var(--t3)',marginBottom:4,fontWeight:700}}>{label}</div>
+      <input className="inp" type={type} value={val} onChange={e=>onChange(e.target.value)} style={{width:'100%'}}/>
+    </div>
+  );
+  const save = () => {
+    if(!form.title.trim()) return;
+    if(edit!==null) {
+      setBanners(bs=>bs.map(b=>b.id===edit?{...b,...form,disc:Number(form.disc)}:b));
+      setEdit(null);
+    } else {
+      setBanners(bs=>[...bs,{...form,id:Date.now(),disc:Number(form.disc)}]);
+      setShowAdd(false);
+    }
+    setForm(def);
+  };
+  const startEdit = (b) => { setForm({...b,disc:String(b.disc)}); setEdit(b.id); setShowAdd(true); };
+  const remove = (id) => setBanners(bs=>bs.filter(b=>b.id!==id));
+  const toggle = (id) => setBanners(bs=>bs.map(b=>b.id===id?{...b,on:!b.on}:b));
+  const move = (id,dir) => {
+    const idx=banners.findIndex(b=>b.id===id);
+    const nb=[...banners];
+    const to=idx+dir;
+    if(to<0||to>=nb.length) return;
+    [nb[idx],nb[to]]=[nb[to],nb[idx]];
+    setBanners(nb);
+  };
+  const Tog = ({on,onToggle}) => (
+    <div onClick={onToggle} style={{width:40,height:22,borderRadius:11,background:on?'var(--gr)':'var(--b2)',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
+      <div style={{position:'absolute',top:2,left:on?20:2,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
+    </div>
+  );
+  return (
+    <AdminWrap go={go} title="Баннеры" subtitle="Управление слайдером на главной и в акциях">
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:18}}>
+        {[
+          {l:'Всего баннеров', v:banners.length,              c:'var(--t1)'},
+          {l:'Активных',       v:banners.filter(b=>b.on).length, c:'var(--gr)'},
+          {l:'Скрытых',        v:banners.filter(b=>!b.on).length,c:'var(--t3)'},
+        ].map((s,i)=>(
+          <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:14,padding:'14px 12px',textAlign:'center'}}>
+            <div style={{fontSize:22,fontWeight:900,color:s.c,fontFamily:'Unbounded'}}>{s.v}</div>
+            <div style={{fontSize:10,color:'var(--t3)',marginTop:3}}>{s.l}</div>
+          </div>
+        ))}
+      </div>
 
-/* ══════════════════════════════════════════════════════
-   ADMIN: PUSH УВЕДОМЛЕНИЯ
-══════════════════════════════════════════════════════ */
+      <button onClick={()=>{setForm(def);setEdit(null);setShowAdd(s=>!s);}} className="btn" style={{width:'100%',padding:'11px',borderRadius:12,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontFamily:'Unbounded',fontSize:12,fontWeight:800,marginBottom:16,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+        + Добавить баннер
+      </button>
+
+      {showAdd && (
+        <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:16,marginBottom:18}}>
+          <div className="ub" style={{fontSize:13,fontWeight:800,marginBottom:14}}>{edit!==null?'✏️ Редактировать баннер':'➕ Новый баннер'}</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 12px'}}>
+            <F label="Заголовок" val={form.title} onChange={v=>setForm(f=>({...f,title:v}))}/>
+            <F label="Бейдж (ПЯТНИЦА, ФЛЭШ...)" val={form.badge} onChange={v=>setForm(f=>({...f,badge:v}))}/>
+          </div>
+          <F label="Подзаголовок" val={form.sub} onChange={v=>setForm(f=>({...f,sub:v}))}/>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 12px'}}>
+            <F label="Скидка %" val={form.disc} onChange={v=>setForm(f=>({...f,disc:v}))} type="number"/>
+            <F label="Эмодзи" val={form.e} onChange={v=>setForm(f=>({...f,e:v}))}/>
+            <F label="Цвет акцента (hex)" val={form.ac} onChange={v=>setForm(f=>({...f,ac:v}))}/>
+          </div>
+          <F label="Фон (CSS gradient)" val={form.bg} onChange={v=>setForm(f=>({...f,bg:v}))}/>
+          <div style={{display:'flex',gap:8,marginTop:4}}>
+            <button onClick={save} className="btn" style={{flex:1,padding:'10px',borderRadius:11,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontWeight:800,fontSize:13}}>Сохранить</button>
+            <button onClick={()=>{setShowAdd(false);setEdit(null);setForm(def);}} className="btn" style={{padding:'10px 16px',borderRadius:11,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',fontSize:13}}>Отмена</button>
+          </div>
+        </div>
+      )}
+
+      {/* Preview */}
+      {banners.map((b,idx)=>(
+        <div key={b.id} style={{background:'var(--l2)',border:`1px solid ${b.on?'var(--b1)':'rgba(255,69,69,.25)'}`,borderRadius:16,marginBottom:12,overflow:'hidden',opacity:b.on?1:.7}}>
+          <div style={{background:b.bg,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'relative'}}>
+            <div>
+              {b.badge&&<div style={{display:'inline-flex',alignItems:'center',gap:4,padding:'3px 10px',borderRadius:20,background:`${b.ac}22`,border:`1px solid ${b.ac}44`,color:b.ac,fontSize:10,fontWeight:800,marginBottom:6}}>✦ {b.badge}</div>}
+              <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,color:'white',marginBottom:3}}>{b.title||'—'}</div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,.55)',marginBottom:8}}>{b.sub}</div>
+              {b.disc>0&&<div style={{display:'inline-block',padding:'5px 14px',borderRadius:9,background:b.ac,color:'white',fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>−{b.disc}%</div>}
+            </div>
+            <div style={{fontSize:38,flexShrink:0}}>{b.e}</div>
+          </div>
+          <div style={{padding:'10px 14px',display:'flex',alignItems:'center',gap:8}}>
+            <Tog on={b.on} onToggle={()=>toggle(b.id)}/>
+            <span style={{fontSize:11,color:b.on?'var(--gr)':'var(--t3)',fontWeight:700,flex:1}}>{b.on?'Активен':'Скрыт'}</span>
+            <button onClick={()=>move(b.id,-1)} disabled={idx===0} className="btn" style={{width:30,height:30,borderRadius:8,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',fontSize:14,opacity:idx===0?.3:1}}>↑</button>
+            <button onClick={()=>move(b.id,1)} disabled={idx===banners.length-1} className="btn" style={{width:30,height:30,borderRadius:8,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',fontSize:14,opacity:idx===banners.length-1?.3:1}}>↓</button>
+            <button onClick={()=>startEdit(b)} className="btn" style={{padding:'6px 12px',borderRadius:8,background:'rgba(59,142,240,.15)',border:'1px solid rgba(59,142,240,.3)',color:'var(--blue)',fontSize:11,fontWeight:700}}>✏️</button>
+            <button onClick={()=>remove(b.id)} className="btn" style={{padding:'6px 12px',borderRadius:8,background:'rgba(255,69,69,.12)',border:'1px solid rgba(255,69,69,.3)',color:'var(--red)',fontSize:11,fontWeight:700}}>✕</button>
+          </div>
+        </div>
+      ))}
+    </AdminWrap>
+  );
+};
 const AdminPushPage = ({go}) => {
   const [target,  setTarget]  = useState('all');
   const [title,   setTitle]   = useState('');
@@ -3451,12 +3411,10 @@ const AdminPushPage = ({go}) => {
   return (
     <AdminWrap go={go} title="Push уведомления" subtitle="Рассылка уведомлений клиентам">
       <div style={{display:'grid',gridTemplateColumns:'1.2fr 1fr',gap:18}}>
-        {/* Left — composer */}
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           <div className="ac" style={{padding:20}}>
             <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:16}}>Новое уведомление</div>
 
-            {/* Target */}
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Получатели</div>
               <div style={{display:'flex',flexDirection:'column',gap:6}}>
@@ -3473,7 +3431,6 @@ const AdminPushPage = ({go}) => {
               </div>
             </div>
 
-            {/* Content */}
             <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
               <div>
                 <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Заголовок *</div>
@@ -3487,7 +3444,6 @@ const AdminPushPage = ({go}) => {
               </div>
             </div>
 
-            {/* Preview */}
             {(title||body)&&(
               <div style={{marginBottom:14,padding:'12px 14px',borderRadius:13,background:'#0C1C0F',border:'1px solid #162B1A'}}>
                 <div style={{fontSize:10,color:'#3D6645',marginBottom:8,fontWeight:700}}>ПРЕДПРОСМОТР</div>
@@ -3509,7 +3465,6 @@ const AdminPushPage = ({go}) => {
             </button>
           </div>
 
-          {/* Templates */}
           <div className="ac" style={{padding:18}}>
             <div className="ub" style={{fontSize:13,fontWeight:800,marginBottom:12}}>Быстрые шаблоны</div>
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -3529,7 +3484,6 @@ const AdminPushPage = ({go}) => {
           </div>
         </div>
 
-        {/* Right — history + settings */}
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           <div className="ac" style={{overflow:'hidden'}}>
             <div style={{padding:'13px 16px',borderBottom:'1px solid #162B1A',fontWeight:800,fontSize:13}}>История рассылок</div>
@@ -3569,10 +3523,6 @@ const AdminPushPage = ({go}) => {
     </AdminWrap>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: КУРЬЕРЫ
-══════════════════════════════════════════════════════ */
 const AdminCouriersPage = ({go}) => {
   const COURIERS = [
     {id:'C-01',name:'Фирдавс Назаров',  phone:'+992 93 111 22 33',vehicle:'🏍 Мото', num:'TJ 1234 AA',status:'busy',     rating:4.9,orders:342,today:42, week:310},
@@ -3599,7 +3549,6 @@ const AdminCouriersPage = ({go}) => {
         ))}
       </div>
 
-      {/* Live map */}
       <div className="ac" style={{overflow:'hidden',marginBottom:16}}>
         <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontWeight:800,fontSize:13}}>📍 Карта курьеров — Live</div>
@@ -3610,12 +3559,10 @@ const AdminCouriersPage = ({go}) => {
         </div>
         <div style={{height:200,background:'linear-gradient(135deg,#050F08,#091814)',position:'relative',overflow:'hidden'}}>
           <div style={{position:'absolute',inset:0,opacity:.05,background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(31,215,96,1) 20px,rgba(31,215,96,1) 21px),repeating-linear-gradient(90deg,transparent,transparent 20px,rgba(31,215,96,1) 20px,rgba(31,215,96,1) 21px)'}}/>
-          {/* Store */}
           <div style={{position:'absolute',left:'44%',top:'42%',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
             <div style={{width:30,height:30,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:12,fontWeight:900,color:'var(--bg)',boxShadow:'0 0 12px rgba(31,215,96,.6)'}}>K</div>
             <span style={{fontSize:8,color:'rgba(255,255,255,.5)',background:'rgba(0,0,0,.6)',padding:'1px 4px',borderRadius:3}}>Магазин</span>
           </div>
-          {/* Couriers */}
           {COURIERS.filter(c=>c.status!=='offline').map((c,i)=>(
             <div key={c.id} style={{position:'absolute',left:`${20+i*22}%`,top:`${28+i*16}%`,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
               <div style={{width:26,height:26,borderRadius:'50%',background:c.status==='available'?'var(--blue)':'var(--gd)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,position:'relative',boxShadow:`0 0 10px ${c.status==='available'?'rgba(59,142,240,.6)':'rgba(255,184,0,.6)'}`}}>
@@ -3692,7 +3639,6 @@ const AdminCouriersPage = ({go}) => {
   );
 };
 
-
 const AdminOrdersPage = ({go}) => {
   const SC={pending:{l:'Ожидает',c:'#FFB800'},assembling:{l:'Собирается',c:'#9B6DFF'},delivering:{l:'В пути',c:'#3B8EF0'},delivered:{l:'Доставлен',c:'#1FD760'},cancelled:{l:'Отменён',c:'#FF4545'}};
   const ORDERS=[
@@ -3732,9 +3678,6 @@ const AdminOrdersPage = ({go}) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   ADMIN: КЛИЕНТЫ
-══════════════════════════════════════════════════════ */
 const AdminClientsPage = ({go}) => {
   const CLIENTS=[
     {name:'Диловар Рахимов', phone:'+992 93 456 78 90',level:'platinum',orders:87,spent:3420,debt:1200,bonus:4850,card:'KAKAPO-0001'},
@@ -3771,10 +3714,6 @@ const AdminClientsPage = ({go}) => {
     </AdminWrap>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   КУРЬЕР: ВХОД
-══════════════════════════════════════════════════════ */
 const CourierLoginPage = ({go}) => {
   const [phone, setPhone] = useState('');
   const [otp,   setOtp]   = useState(['','','','']);
@@ -3793,7 +3732,7 @@ const CourierLoginPage = ({go}) => {
     setLoad(true);
     setTimeout(() => {
       setLoad(false);
-      if (code === '1234') go('courier_dash');
+      if (code === '1234') { window.location.href = '/courier'; return; }
       else { setErr('Неверный код. Демо: 1234'); setOtp(['','','','']); }
     }, 800);
   };
@@ -3852,44 +3791,170 @@ const CourierLoginPage = ({go}) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   КУРЬЕР: ЗАКАЗЫ
-══════════════════════════════════════════════════════ */
+const CourierDashRedirect = () => {
+  useEffect(() => { window.location.href = '/courier'; }, []);
+  return (
+    <div style={{ minHeight:'100vh', background:'var(--bg)', maxWidth:480, margin:'0 auto', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:32, textAlign:'center' }}>
+      <div style={{ fontSize:48, marginBottom:16 }}>🛵</div>
+      <div className="ub" style={{ fontSize:18, fontWeight:900, marginBottom:8 }}>Приложение курьера</div>
+      <div style={{ fontSize:13, color:'var(--t2)', marginBottom:20 }}>Перенаправляем на карту с OSRM-маршрутами…</div>
+      <a href="/courier" style={{ padding:'12px 24px', borderRadius:14, background:'linear-gradient(135deg,var(--gr2),var(--gr))', color:'white', fontWeight:800, textDecoration:'none' }}>Открыть /courier</a>
+    </div>
+  );
+};
+
 const CourierDashPage = ({go}) => {
-  const [status,   setStatus]   = useState('available');
-  const [accepted, setAccepted] = useState(null);
   const SC = {available:{l:'Свободен',c:'var(--gr)'},busy:{l:'В заказе',c:'var(--gd)'},offline:{l:'Офлайн',c:'var(--t3)'}};
+
+  // Точки на карте (SVG 340x240)
+  const POINTS = {
+    courier:  {x:170, y:130, label:'Я',        color:'var(--gr)',  icon:'🛵'},
+    market:   {x:170, y:100, label:'Магазин',   color:'var(--gr)',  icon:'🛒'},
+    rest1:    {x:80,  y:80,  label:'Чайхона',   color:'var(--org)', icon:'🍖'},
+    rest2:    {x:260, y:70,  label:'Пицца',     color:'var(--red)', icon:'🍕'},
+    rest3:    {x:290, y:160, label:'Суши',      color:'var(--blue)',icon:'🍣'},
+    rest4:    {x:100, y:185, label:'Фаст-фуд',  color:'var(--gd)', icon:'🍟'},
+    client1:  {x:60,  y:160, label:'Нилуфар Х.',color:'var(--pur)', icon:'📍'},
+    client2:  {x:230, y:195, label:'Рустам Д.', color:'var(--pur)', icon:'📍'},
+    client3:  {x:310, y:100, label:'Мадина О.', color:'var(--pur)', icon:'📍'},
+  };
+
   const ORDERS = [
-    {id:'K-4831',client:'Нилуфар Х.',addr:'ул. Сомони, 12',dist:3.4,weight:8.5,earning:5,items:[{e:'🥛',n:'Молоко'},{e:'🧀',n:'Сыр'},{e:'☕',n:'Кофе'}],pay:'Карта'},
-    {id:'K-4835',client:'Рустам Д.', addr:'мкр. Мирный, 5',dist:1.8,weight:2.0,earning:3,items:[{e:'🥦',n:'Брокколи'},{e:'🍅',n:'Томаты'}],pay:'Наличными'},
+    {id:'K-4831',client:'Нилуфар Х.',  phone:'+992 93 456-78-90',addr:'ул. Сомони, 12',   dist:3.4,earning:5, pay:'Карта',    type:'market',    pickupKey:'market', deliverKey:'client1', items:[{e:'🥛',n:'Молоко'},{e:'🧀',n:'Сыр'},{e:'☕',n:'Кофе'}],    pickupName:'KAKAPO Магазин'},
+    {id:'K-4835',client:'Рустам Д.',   phone:'+992 90 123-45-67',addr:'мкр. Мирный, 5',  dist:1.8,earning:3, pay:'Наличными', type:'market',    pickupKey:'market', deliverKey:'client2', items:[{e:'🥦',n:'Брокколи'},{e:'🍅',n:'Томаты'},{e:'🥩',n:'Говядина'}], pickupName:'KAKAPO Магазин'},
+    {id:'K-4837',client:'Мадина О.',   phone:'+992 91 333-21-10',addr:'ул. Ленина, 18',   dist:4.1,earning:6, pay:'Карта',    type:'restaurant', pickupKey:'rest1',  deliverKey:'client3', items:[{e:'🍚',n:'Плов'},{e:'🥩',n:'Шашлык ×2'}],              pickupName:'Чайхона Оромгох'},
+    {id:'K-4838',client:'Зафар М.',    phone:'+992 88 777-55-33',addr:'ул. Рудаки, 8',    dist:2.6,earning:4, pay:'Наличными', type:'restaurant', pickupKey:'rest2',  deliverKey:'client1', items:[{e:'🍕',n:'Пепперони'},{e:'🍕',n:'Маргарита'}],           pickupName:'Пицца Яван'},
+    {id:'K-4840',client:'Бахром К.',   phone:'+992 93 555-12-34',addr:'ул. Навои, 3',     dist:3.0,earning:5, pay:'Карта',    type:'restaurant', pickupKey:'rest3',  deliverKey:'client2', items:[{e:'🌯',n:'Филадельфия ×2'},{e:'🌯',n:'Дракон'}],          pickupName:'Суши Яван'},
+    {id:'K-4841',client:'Гулнора С.',  phone:'+992 90 888-44-21',addr:'мкр. Садовый, 7',  dist:1.2,earning:2, pay:'Наличными', type:'restaurant', pickupKey:'rest4',  deliverKey:'client3', items:[{e:'🍔',n:'Двойной бургер'},{e:'🌭',n:'Хот-дог'}],          pickupName:'Фаст-фуд 24/7'},
   ];
+
+  const [status,   setStatus]   = useState('available');
+  const [activeId, setActiveId] = useState(null);
+  const [step,     setStep]     = useState(0); // 0=едем в точку, 1=забрали, 2=доставили
+  const [tab,      setTab]      = useState('orders'); // orders | map
+
+  const activeOrder = ORDERS.find(o=>o.id===activeId);
+
+  const accept = (order) => { setActiveId(order.id); setStatus('busy'); setStep(0); setTab('map'); };
+  const nextStep = () => {
+    if(step===0) setStep(1);
+    else if(step===1) setStep(2);
+    else { setActiveId(null); setStatus('available'); setStep(0); setTab('orders'); }
+  };
+
+  const stepInfo = [
+    {label:'Едешь за заказом', sub: activeOrder ? `→ ${activeOrder.pickupName}` : '', c:'var(--gd)',  btn:'✅ Забрал заказ'},
+    {label:'Везёшь клиенту',   sub: activeOrder ? `→ ${activeOrder.addr}` : '',       c:'var(--blue)',btn:'📦 Доставил'},
+    {label:'Заказ доставлен',  sub:'Отлично! +отзыв',                                  c:'var(--gr)', btn:'✓ Завершить'},
+  ];
+
+  // SVG Карта
+  const RouteMap = ({order}) => {
+    if(!order) return null;
+    const courier = POINTS.courier;
+    const pickup  = POINTS[order.pickupKey];
+    const deliver = POINTS[order.deliverKey];
+    // путь: курьер → забрать → доставить
+    const path = step===0
+      ? `M${courier.x},${courier.y} L${pickup.x},${pickup.y}`
+      : `M${pickup.x},${pickup.y} L${deliver.x},${deliver.y}`;
+    const fullPath = `M${courier.x},${courier.y} L${pickup.x},${pickup.y} L${deliver.x},${deliver.y}`;
+
+    return (
+      <svg width="100%" viewBox="0 0 340 240" style={{display:'block',borderRadius:16,background:'#061008'}}>
+        {/* Сетка улиц */}
+        {[40,80,120,160,200].map(y=><line key={y} x1="0" y1={y} x2="340" y2={y} stroke="#0D2010" strokeWidth="1"/>)}
+        {[60,120,180,240,300].map(x=><line key={x} x1={x} y1="0" x2={x} y2="240" stroke="#0D2010" strokeWidth="1"/>)}
+        {/* Главные дороги */}
+        <line x1="0" y1="120" x2="340" y2="120" stroke="#122018" strokeWidth="3"/>
+        <line x1="170" y1="0" x2="170" y2="240" stroke="#122018" strokeWidth="3"/>
+        <line x1="0" y1="60" x2="340" y2="200" stroke="#0F1A0E" strokeWidth="2"/>
+
+        {/* Полный маршрут (серый) */}
+        <polyline points={`${courier.x},${courier.y} ${pickup.x},${pickup.y} ${deliver.x},${deliver.y}`} fill="none" stroke="#1D3822" strokeWidth="2.5" strokeDasharray="6 4"/>
+
+        {/* Активный участок маршрута */}
+        <line x1={path.split('M')[1].split(' L')[0].split(',')[0]} y1={path.split('M')[1].split(' L')[0].split(',')[1]}
+              x2={path.split('L')[1].split(',')[0]} y2={path.split('L')[1].split(',')[1]}
+              stroke={step===0?'var(--gd)':'var(--blue)'} strokeWidth="3" strokeLinecap="round"/>
+
+        {/* Все рестораны и магазин */}
+        {Object.entries(POINTS).filter(([k])=>!['courier','client1','client2','client3'].includes(k)).map(([k,p])=>(
+          <g key={k}>
+            <circle cx={p.x} cy={p.y} r="14" fill={k===order.pickupKey?p.color+'44':'#0C1C0F'} stroke={k===order.pickupKey?p.color:'#1D3822'} strokeWidth={k===order.pickupKey?2:1}/>
+            <text x={p.x} y={p.y+5} textAnchor="middle" fontSize="13">{p.icon}</text>
+          </g>
+        ))}
+
+        {/* Точка доставки */}
+        <g>
+          <circle cx={deliver.x} cy={deliver.y} r="14" fill={step===1?'rgba(155,109,255,.35)':'#0C1C0F'} stroke={step===1?'var(--pur)':'#1D3822'} strokeWidth={step===1?2:1}/>
+          <text x={deliver.x} y={deliver.y+5} textAnchor="middle" fontSize="12">📍</text>
+        </g>
+
+        {/* Курьер */}
+        <g>
+          <circle cx={step===0?courier.x:step===1?pickup.x:deliver.x} cy={step===0?courier.y:step===1?pickup.y:deliver.y} r="16" fill="rgba(31,215,96,.25)" stroke="var(--gr)" strokeWidth="2.5"/>
+          <text x={step===0?courier.x:step===1?pickup.x:deliver.x} y={(step===0?courier.y:step===1?pickup.y:deliver.y)+5} textAnchor="middle" fontSize="14">🛵</text>
+        </g>
+
+        {/* Метки активных точек */}
+        {[{p:pickup,l:order.pickupName.split(' ')[0],c:pickup.color},{p:deliver,l:order.client.split(' ')[0],c:'var(--pur)'}].map((m,i)=>(
+          <text key={i} x={m.p.x} y={m.p.y-19} textAnchor="middle" fontSize="9" fill={m.c} fontWeight="700">{m.l}</text>
+        ))}
+
+        {/* Легенда */}
+        <rect x="4" y="4" width="95" height="34" rx="6" fill="rgba(3,11,5,.85)"/>
+        <text x="10" y="16" fontSize="8" fill="#3D6645">🛵 Курьер  📍 Клиент</text>
+        <text x="10" y="28" fontSize="8" fill="#3D6645">🛒 Магазин  🍽 Рестораны</text>
+      </svg>
+    );
+  };
+
   return (
     <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      <div style={{padding:'12px 18px',background:'var(--l1)',borderBottom:'1px solid var(--b1)',display:'flex',alignItems:'center',gap:10}}>
-        <button onClick={()=>go('home')} className="btn" style={{width:36,height:36,borderRadius:10,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-          <Ic n="arrL" s={15} c="var(--t2)"/>
-        </button>
-        <div style={{flex:1}}>
-          <div className="ub" style={{fontSize:14,fontWeight:800}}>Курьер KAKAPO</div>
-          <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
-            <div style={{width:6,height:6,borderRadius:'50%',background:SC[status].c,animation:'pulse 2s infinite'}}/>
-            <span style={{fontSize:10,color:'var(--t2)'}}>{SC[status].l} · 🏍 TJ 1234 AA</span>
+      {/* Шапка */}
+      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+        <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
+          <button onClick={()=>go('courier_login')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <Ic n="arrL" s={17} c="var(--t2)"/>
+          </button>
+          <div style={{flex:1}}>
+            <div className="ub" style={{fontSize:15,fontWeight:900}}>Курьер KAKAPO</div>
+            <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
+              <div style={{width:6,height:6,borderRadius:'50%',background:SC[status].c,animation:'pulse 2s infinite'}}/>
+              <span style={{fontSize:10,color:'var(--t2)'}}>{SC[status].l} · 🏍 TJ 1234 AA</span>
+            </div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:9,color:'var(--t3)'}}>Сегодня</div>
+            <div className="ub" style={{fontSize:15,fontWeight:900,color:'var(--gd)'}}>42 ЅМ</div>
           </div>
         </div>
-        <div style={{textAlign:'right'}}>
-          <div style={{fontSize:9,color:'var(--t3)'}}>Сегодня</div>
-          <div className="ub" style={{fontSize:15,fontWeight:900,color:'var(--gd)'}}>42 ЅМ</div>
+        {/* Табы */}
+        <div style={{display:'flex',borderTop:'1px solid var(--b1)'}}>
+          {[{id:'orders',l:'📋 Заказы'},{id:'map',l:'🗺 Маршрут'}].map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} className="btn"
+              style={{flex:1,padding:'10px',fontSize:12,fontWeight:700,color:tab===t.id?'var(--gr)':'var(--t3)',borderBottom:`2px solid ${tab===t.id?'var(--gr)':'transparent'}`,background:'transparent',borderRadius:0,transition:'all .2s',fontFamily:'Nunito'}}>
+              {t.l}
+              {t.id==='map'&&activeOrder&&<span style={{marginLeft:4,width:7,height:7,borderRadius:'50%',background:'var(--gd)',display:'inline-block',animation:'pulse 2s infinite'}}/>}
+            </button>
+          ))}
         </div>
-      </div>
+      </header>
+
       <div style={{padding:'14px 18px 30px'}}>
+        {/* Статус */}
         <div style={{display:'flex',gap:8,marginBottom:16}}>
           {['available','busy','offline'].map(s=>(
-            <button key={s} onClick={()=>setStatus(s)} className="btn"
-              style={{flex:1,padding:'9px 6px',borderRadius:11,fontSize:11,fontWeight:700,border:`1.5px solid ${status===s?SC[s].c:'var(--b1)'}`,background:status===s?SC[s].c+'14':'var(--l2)',color:status===s?SC[s].c:'var(--t2)',fontFamily:'Nunito'}}>
+            <button key={s} onClick={()=>!activeOrder&&setStatus(s)} className="btn"
+              style={{flex:1,padding:'9px 6px',borderRadius:11,fontSize:11,fontWeight:700,border:`1.5px solid ${status===s?SC[s].c:'var(--b1)'}`,background:status===s?SC[s].c+'14':'var(--l2)',color:status===s?SC[s].c:'var(--t2)',fontFamily:'Nunito',opacity:activeOrder&&s!=='busy'?.4:1}}>
               {SC[s].l}
             </button>
           ))}
         </div>
+
+        {/* Статистика */}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:18}}>
           {[{l:'Заработано',v:'42 ЅМ',c:'var(--gd)'},{l:'Доставок',v:'14',c:'var(--gr)'},{l:'Рейтинг',v:'4.9 ★',c:'var(--gd)'}].map((s,i)=>(
             <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:14,padding:'12px 10px',textAlign:'center'}}>
@@ -3898,60 +3963,165 @@ const CourierDashPage = ({go}) => {
             </div>
           ))}
         </div>
-        <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>
-          Новые заказы
-          <span style={{marginLeft:8,padding:'2px 8px',borderRadius:8,fontSize:11,fontWeight:800,background:'rgba(255,69,69,.12)',color:'var(--red)',border:'1px solid rgba(255,69,69,.28)'}}>{ORDERS.length}</span>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          {ORDERS.map(order=>(
-            <div key={order.id} style={{background:'var(--l2)',border:`1.5px solid ${accepted===order.id?'rgba(31,215,96,.4)':'var(--b1)'}`,borderRadius:18,overflow:'hidden'}}>
-              <div style={{padding:'13px 16px',borderBottom:'1px solid var(--b1)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div>
-                  <span className="ub" style={{fontSize:13,fontWeight:800,color:'var(--gr)'}}>{order.id}</span>
-                  <span style={{fontSize:11,color:'var(--t2)',marginLeft:8}}>{order.client} · {order.pay}</span>
-                </div>
-                <div className="ub" style={{fontSize:18,fontWeight:900,color:'var(--gd)'}}>+{order.earning} ЅМ</div>
+
+        {/* ── ТАБ: КАРТА МАРШРУТА ── */}
+        {tab==='map' && (
+          <div>
+            {!activeOrder ? (
+              <div style={{textAlign:'center',padding:'40px 20px',background:'var(--l2)',borderRadius:18,border:'1px solid var(--b1)'}}>
+                <div style={{fontSize:48,marginBottom:12}}>🗺</div>
+                <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:6}}>Нет активного заказа</div>
+                <div style={{fontSize:12,color:'var(--t3)',marginBottom:16}}>Прими заказ во вкладке «Заказы»</div>
+                <button onClick={()=>setTab('orders')} className="btn" style={{padding:'10px 24px',borderRadius:12,background:'rgba(31,215,96,.12)',border:'1px solid rgba(31,215,96,.3)',color:'var(--gr)',fontWeight:700,fontSize:13}}>Смотреть заказы →</button>
               </div>
-              <div style={{padding:'12px 16px',borderBottom:'1px solid var(--b1)'}}>
-                <div style={{display:'flex',gap:8,marginBottom:8}}>
-                  <div style={{width:8,height:8,borderRadius:'50%',background:'var(--gr)',marginTop:4,flexShrink:0}}/>
-                  <div><div style={{fontSize:10,color:'var(--t3)'}}>ЗАБРАТЬ</div><div style={{fontSize:13,fontWeight:700}}>KAKAPO, ул. Ленина 42</div></div>
-                </div>
-                <div style={{display:'flex',gap:8}}>
-                  <div style={{width:8,height:8,borderRadius:2,background:'var(--blue)',marginTop:4,flexShrink:0}}/>
-                  <div><div style={{fontSize:10,color:'var(--t3)'}}>ДОСТАВИТЬ</div><div style={{fontSize:13,fontWeight:700}}>{order.addr}</div></div>
-                </div>
-              </div>
-              <div style={{padding:'10px 16px',borderBottom:'1px solid var(--b1)',display:'flex',gap:8,flexWrap:'wrap'}}>
-                <span style={{padding:'4px 9px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(59,142,240,.1)',color:'var(--blue)',border:'1px solid rgba(59,142,240,.25)'}}>📍 {order.dist} км</span>
-                <span style={{padding:'4px 9px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(255,184,0,.1)',color:'var(--gd)',border:'1px solid rgba(255,184,0,.25)'}}>⚖️ {order.weight} кг</span>
-                {order.items.map((it,i)=><span key={i} style={{padding:'4px 9px',borderRadius:8,fontSize:11,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)'}}>{it.e} {it.n}</span>)}
-              </div>
-              <div style={{padding:'12px 16px'}}>
-                {accepted===order.id ? (
-                  <div style={{padding:12,borderRadius:12,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.3)',textAlign:'center',fontSize:13,fontWeight:700,color:'var(--gr)'}}>
-                    🛵 Заказ принят! Едешь в магазин
+            ) : (
+              <div>
+                {/* Статус маршрута */}
+                <div style={{background:'var(--l2)',border:`1.5px solid ${stepInfo[step].c}44`,borderRadius:16,padding:'14px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:12}}>
+                  <div style={{width:44,height:44,borderRadius:12,background:`${stepInfo[step].c}18`,border:`1.5px solid ${stepInfo[step].c}44`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>
+                    {step===0?'🛵':step===1?'📦':'✅'}
                   </div>
-                ) : (
-                  <button onClick={()=>{setAccepted(order.id);setStatus('busy');}} className="btn"
-                    style={{width:'100%',padding:13,borderRadius:13,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
-                    ✓ Принять — +{order.earning} ЅМ
-                  </button>
-                )}
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,fontWeight:800,color:stepInfo[step].c}}>{stepInfo[step].label}</div>
+                    <div style={{fontSize:12,color:'var(--t2)',marginTop:2}}>{stepInfo[step].sub}</div>
+                  </div>
+                  <div className="ub" style={{fontSize:16,fontWeight:900,color:'var(--gd)'}}>+{activeOrder.earning} ЅМ</div>
+                </div>
+
+                {/* SVG Карта */}
+                <div style={{borderRadius:16,overflow:'hidden',border:'1px solid var(--b1)',marginBottom:14}}>
+                  <RouteMap order={activeOrder}/>
+                </div>
+
+                {/* Маршрутные точки */}
+                <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'14px 16px',marginBottom:14}}>
+                  <div style={{fontSize:11,color:'var(--t3)',fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:1}}>Маршрут</div>
+                  {/* Точка 1: Курьер */}
+                  <div style={{display:'flex',gap:10,marginBottom:0}}>
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'center'}}>
+                      <div style={{width:12,height:12,borderRadius:'50%',background:'var(--gr)',border:'2px solid var(--bg)',flexShrink:0}}/>
+                      <div style={{width:2,height:28,background:'var(--b2)'}}/>
+                    </div>
+                    <div style={{paddingBottom:12}}>
+                      <div style={{fontSize:11,color:'var(--t3)'}}>МОЁ МЕСТОПОЛОЖЕНИЕ</div>
+                      <div style={{fontSize:13,fontWeight:700}}>ул. Ленина, 42 · г. Яван</div>
+                    </div>
+                  </div>
+                  {/* Точка 2: Забрать */}
+                  <div style={{display:'flex',gap:10,marginBottom:0}}>
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'center'}}>
+                      <div style={{width:12,height:12,borderRadius:3,background:step>=1?'var(--gr)':'var(--gd)',border:'2px solid var(--bg)',flexShrink:0}}/>
+                      <div style={{width:2,height:28,background:'var(--b2)'}}/>
+                    </div>
+                    <div style={{paddingBottom:12}}>
+                      <div style={{fontSize:11,color:'var(--t3)'}}>ЗАБРАТЬ {activeOrder.type==='restaurant'?'ИЗ РЕСТОРАНА':'ИЗ МАГАЗИНА'} {step>=1&&'✅'}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:step>=1?'var(--t3)':'var(--t1)'}}>{activeOrder.pickupName}</div>
+                      <div style={{fontSize:11,color:'var(--t3)',marginTop:2}}>Заказ {activeOrder.id} · {activeOrder.items.map(it=>it.e+it.n).join(', ')}</div>
+                    </div>
+                  </div>
+                  {/* Точка 3: Доставить */}
+                  <div style={{display:'flex',gap:10}}>
+                    <div style={{alignItems:'center',display:'flex',flexDirection:'column'}}>
+                      <div style={{width:12,height:12,borderRadius:2,background:step>=2?'var(--gr)':'var(--pur)',border:'2px solid var(--bg)',flexShrink:0}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:11,color:'var(--t3)'}}>ДОСТАВИТЬ КЛИЕНТУ {step>=2&&'✅'}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:step>=2?'var(--t3)':'var(--t1)'}}>{activeOrder.client} · {activeOrder.addr}</div>
+                      <div style={{fontSize:11,color:'var(--t3)',marginTop:2}}>{activeOrder.phone} · Оплата: {activeOrder.pay}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Кнопка действия */}
+                <button onClick={nextStep} className="btn" style={{width:'100%',padding:14,borderRadius:14,background:step===2?'linear-gradient(135deg,var(--gr2),var(--gr))':step===1?'linear-gradient(135deg,#2255CC,var(--blue))':'linear-gradient(135deg,#CC8800,var(--gd))',border:'none',color:step===2?'var(--bg)':'white',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
+                  {stepInfo[step].btn}
+                </button>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ── ТАБ: ЗАКАЗЫ ── */}
+        {tab==='orders' && (
+          <div>
+            {activeOrder && (
+              <div onClick={()=>setTab('map')} style={{background:'rgba(31,215,96,.08)',border:'1.5px solid rgba(31,215,96,.35)',borderRadius:14,padding:'12px 16px',marginBottom:16,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
+                <div style={{width:38,height:38,borderRadius:10,background:'rgba(31,215,96,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>🛵</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:800,color:'var(--gr)'}}>Активный заказ: {activeOrder.id}</div>
+                  <div style={{fontSize:11,color:'var(--t2)',marginTop:1}}>{stepInfo[step].label} · {stepInfo[step].sub}</div>
+                </div>
+                <span style={{fontSize:12,color:'var(--gr)',fontWeight:700}}>Карта →</span>
+              </div>
+            )}
+
+            <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>
+              Новые заказы
+              <span style={{marginLeft:8,padding:'2px 8px',borderRadius:8,fontSize:11,fontWeight:800,background:'rgba(255,69,69,.12)',color:'var(--red)',border:'1px solid rgba(255,69,69,.28)'}}>{ORDERS.filter(o=>o.id!==activeId).length}</span>
             </div>
-          ))}
-        </div>
+
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {ORDERS.filter(o=>o.id!==activeId).map(order=>(
+                <div key={order.id} style={{background:'var(--l2)',border:'1.5px solid var(--b1)',borderRadius:18,overflow:'hidden'}}>
+                  <div style={{padding:'13px 16px',borderBottom:'1px solid var(--b1)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div>
+                      <span className="ub" style={{fontSize:13,fontWeight:800,color:'var(--gr)'}}>{order.id}</span>
+                      <span style={{fontSize:10,padding:'2px 7px',borderRadius:6,marginLeft:8,background:order.type==='restaurant'?'rgba(255,125,59,.12)':'rgba(31,215,96,.1)',color:order.type==='restaurant'?'var(--org)':'var(--gr)',border:`1px solid ${order.type==='restaurant'?'rgba(255,125,59,.25)':'rgba(31,215,96,.2)'}`}}>{order.type==='restaurant'?'🍽 Ресторан':'🛒 Магазин'}</span>
+                    </div>
+                    <div className="ub" style={{fontSize:18,fontWeight:900,color:'var(--gd)'}}>+{order.earning} ЅМ</div>
+                  </div>
+                  <div style={{padding:'12px 16px',borderBottom:'1px solid var(--b1)',display:'flex',flexDirection:'column',gap:10}}>
+                    {/* Забрать */}
+                    <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                      <div style={{width:28,height:28,borderRadius:8,background:'rgba(31,215,96,.12)',border:'1px solid rgba(31,215,96,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}>
+                        {order.type==='restaurant'?'🍽':'🛒'}
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,color:'var(--t3)',fontWeight:700,marginBottom:1}}>ЗАБРАТЬ</div>
+                        <div style={{fontSize:13,fontWeight:700}}>{order.pickupName}</div>
+                        <div style={{fontSize:11,color:'var(--t3)',marginTop:1}}>{order.items.map(it=>it.e+' '+it.n).join(' · ')}</div>
+                      </div>
+                    </div>
+                    {/* Стрелка */}
+                    <div style={{paddingLeft:8,color:'var(--t3)',fontSize:12}}>↓ {order.dist} км</div>
+                    {/* Доставить */}
+                    <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                      <div style={{width:28,height:28,borderRadius:8,background:'rgba(155,109,255,.12)',border:'1px solid rgba(155,109,255,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}>📍</div>
+                      <div>
+                        <div style={{fontSize:10,color:'var(--t3)',fontWeight:700,marginBottom:1}}>ДОСТАВИТЬ</div>
+                        <div style={{fontSize:13,fontWeight:700}}>{order.client}</div>
+                        <div style={{fontSize:11,color:'var(--t3)',marginTop:1}}>{order.addr} · {order.pay}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{padding:'12px 16px'}}>
+                    {activeOrder ? (
+                      <div style={{padding:10,borderRadius:12,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',textAlign:'center',fontSize:12,color:'var(--t3)'}}>
+                        Сначала завершите текущий заказ
+                      </div>
+                    ) : (
+                      <button onClick={()=>accept(order)} className="btn"
+                        style={{width:'100%',padding:13,borderRadius:13,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
+                        ✓ Принять — +{order.earning} ЅМ
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {ORDERS.filter(o=>o.id!==activeId).length===0&&(
+                <div style={{textAlign:'center',padding:'30px 20px',background:'var(--l2)',borderRadius:18,border:'1px solid var(--b1)'}}>
+                  <div style={{fontSize:40,marginBottom:10}}>✅</div>
+                  <div className="ub" style={{fontSize:13,fontWeight:800}}>Нет новых заказов</div>
+                  <div style={{fontSize:11,color:'var(--t3)',marginTop:4}}>Ожидай следующего заказа...</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 };
-
-
-
-/* ══════════════════════════════════════════════════════
-   КЛИЕНТ: УВЕДОМЛЕНИЯ
-══════════════════════════════════════════════════════ */
 const NotifPage = ({go}) => {
   const [notifs, setNotifs] = useState([
     {id:1,read:false,icon:'🛵',title:'Курьер выехал',   body:'Фирдавс едет к вам · ~12 мин',      time:'14:23',color:'var(--blue)'},
@@ -3999,28 +4169,97 @@ const NotifPage = ({go}) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   КЛИЕНТ: МОИ АДРЕСА
-══════════════════════════════════════════════════════ */
-const AddressesPage = ({go}) => {
-  const [addrs, setAddrs] = useState([
-    {id:1,label:'🏠 Дом',     street:'ул. Ленина, 42',    apt:'15',floor:'3',ent:'2',comment:'Домофон 15',def:true},
-    {id:2,label:'💼 Работа',  street:'ул. Сомони, 12',    apt:'',  floor:'1',ent:'1',comment:'',          def:false},
-  ]);
-  const [showAdd, setShowAdd] = useState(false);
-  const [street,  setStreet]  = useState('');
-  const [apt,     setApt]     = useState('');
-  const [floor,   setFloor]   = useState('');
-  const [ent,     setEnt]     = useState('');
-  const [comment, setComment] = useState('');
-  const [label,   setLabel]   = useState('🏠 Дом');
+const ADDRESSES_STORAGE_KEY = 'kakapo-client-addresses';
 
-  const setDef = (id) => setAddrs(as=>as.map(a=>({...a,def:a.id===id})));
-  const remove = (id) => setAddrs(as=>as.filter(a=>a.id!==id));
-  const add = () => {
-    if(!street) return;
-    setAddrs(as=>[...as,{id:Date.now(),label,street,apt,floor,ent,comment,def:false}]);
-    setShowAdd(false); setStreet(''); setApt(''); setFloor(''); setEnt(''); setComment('');
+const DEFAULT_ADDRESSES = [
+  { id: 1, label: '🏠 Дом', street: 'ул. Ленина, 42', apt: '15', floor: '3', ent: '2', comment: 'Домофон 15', def: true, lat: 38.3260, lng: 69.0280 },
+  { id: 2, label: '💼 Работа', street: 'ул. Сомони, 12', apt: '', floor: '1', ent: '1', comment: '', def: false, lat: 38.3160, lng: 69.0340 },
+];
+
+const AddressesPage = ({ go }) => {
+  const [addrs, setAddrs] = useState(DEFAULT_ADDRESSES);
+  const [showAdd, setShowAdd] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [street, setStreet] = useState('');
+  const [apt, setApt] = useState('');
+  const [floor, setFloor] = useState('');
+  const [ent, setEnt] = useState('');
+  const [comment, setComment] = useState('');
+  const [label, setLabel] = useState('🏠 Дом');
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [editId, setEditId] = useState<number | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ADDRESSES_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) setAddrs(parsed);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ADDRESSES_STORAGE_KEY, JSON.stringify(addrs));
+    } catch { /* ignore */ }
+  }, [addrs]);
+
+  const resetForm = () => {
+    setShowAdd(false);
+    setMapOpen(false);
+    setEditId(null);
+    setStreet('');
+    setApt('');
+    setFloor('');
+    setEnt('');
+    setComment('');
+    setCoords(null);
+    setLabel('🏠 Дом');
+  };
+
+  const openAdd = () => {
+    setEditId(null);
+    setStreet('');
+    setApt('');
+    setFloor('');
+    setEnt('');
+    setComment('');
+    setCoords(null);
+    setLabel('🏠 Дом');
+    setMapOpen(false);
+    setShowAdd(true);
+  };
+
+  const openEdit = (a) => {
+    setEditId(a.id);
+    setLabel(a.label);
+    setStreet(a.street);
+    setApt(a.apt || '');
+    setFloor(a.floor || '');
+    setEnt(a.ent || '');
+    setComment(a.comment || '');
+    setCoords(a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : null);
+    setMapOpen(false);
+    setShowAdd(true);
+  };
+
+  const setDef = (id) => setAddrs(as => as.map(a => ({ ...a, def: a.id === id })));
+  const remove = (id) => setAddrs(as => as.filter(a => a.id !== id));
+  const save = () => {
+    if (!street || !coords) return;
+    if (editId != null) {
+      setAddrs(as => as.map(a => a.id === editId
+        ? { ...a, label, street, apt, floor, ent, comment, lat: coords.lat, lng: coords.lng }
+        : a
+      ));
+    } else {
+      setAddrs(as => [...as, {
+        id: Date.now(), label, street, apt, floor, ent, comment,
+        lat: coords.lat, lng: coords.lng, def: false,
+      }]);
+    }
+    resetForm();
   };
 
   return (
@@ -4029,12 +4268,12 @@ const AddressesPage = ({go}) => {
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Мои адреса</div>
-          <button onClick={()=>setShowAdd(true)} className="btn" style={{padding:'8px 14px',borderRadius:12,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>+ Добавить</button>
+          <button onClick={openAdd} className="btn" style={{padding:'8px 14px',borderRadius:12,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>+ Добавить</button>
         </div>
       </header>
       <div style={{padding:'16px 18px 100px',display:'flex',flexDirection:'column',gap:12}}>
         {addrs.map((a,i)=>(
-          <div key={a.id} className="kakapo-card" style={{padding:'16px',border:`1.5px solid ${a.def?'rgba(31,215,96,.35)':'var(--b1)'}`,animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.08}s both`}}>
+          <div key={a.id} className="card" style={{padding:'16px',border:`1.5px solid ${a.def?'rgba(31,215,96,.35)':'var(--b1)'}`,animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.08}s both`}}>
             <div style={{display:'flex',alignItems:'flex-start',gap:12}}>
               <div style={{width:44,height:44,borderRadius:13,background:a.def?'rgba(31,215,96,.14)':'var(--l3)',border:`1px solid ${a.def?'rgba(31,215,96,.3)':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{a.label.split(' ')[0]}</div>
               <div style={{flex:1}}>
@@ -4046,44 +4285,87 @@ const AddressesPage = ({go}) => {
                 {(a.floor||a.ent)&&<div style={{fontSize:11,color:'var(--t3)',marginBottom:2}}>
                   {a.floor&&`Этаж ${a.floor}`}{a.floor&&a.ent&&' · '}{a.ent&&`Подъезд ${a.ent}`}
                 </div>}
-                {a.comment&&<div style={{fontSize:11,color:'var(--t3)'}}>💬 {a.comment}</div>}
+                {a.comment && <div style={{ fontSize: 11, color: 'var(--t3)' }}>💬 {a.comment}</div>}
+                {a.lat != null && a.lng != null && (
+                  <div style={{ fontSize: 10, color: 'var(--sky)', marginTop: 4, fontWeight: 700 }}>📍 Точка на карте · {a.lat.toFixed(4)}, {a.lng.toFixed(4)}</div>
+                )}
               </div>
             </div>
             <div style={{display:'flex',gap:8,marginTop:12}}>
               {!a.def&&<button onClick={()=>setDef(a.id)} className="btn" style={{flex:1,padding:'9px',borderRadius:11,background:'rgba(31,215,96,.08)',border:'1px solid rgba(31,215,96,.25)',color:'var(--gr)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>✓ Сделать основным</button>}
-              <button className="btn" style={{flex:1,padding:'9px',borderRadius:11,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>✏️ Изменить</button>
+              <button onClick={() => openEdit(a)} className="btn" style={{flex:1,padding:'9px',borderRadius:11,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>✏️ Изменить</button>
               {!a.def&&<button onClick={()=>remove(a.id)} className="btn" style={{width:38,height:38,borderRadius:11,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.25)',color:'var(--red)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🗑</button>}
             </div>
           </div>
         ))}
-        <div style={{padding:'16px',borderRadius:16,background:'rgba(31,215,96,.06)',border:'1.5px dashed rgba(31,215,96,.3)',textAlign:'center',cursor:'pointer'}} onClick={()=>setShowAdd(true)}>
+        <div style={{padding:'16px',borderRadius:16,background:'rgba(31,215,96,.06)',border:'1.5px dashed rgba(31,215,96,.3)',textAlign:'center',cursor:'pointer'}} onClick={openAdd}>
           <div style={{fontSize:28,marginBottom:6}}>📍</div>
           <div style={{fontSize:13,fontWeight:700,color:'var(--gr)'}}>Добавить новый адрес</div>
-          <div style={{fontSize:11,color:'var(--t3)',marginTop:2}}>Или использовать GPS</div>
+          <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>С точкой на карте для курьера</div>
         </div>
       </div>
-      {showAdd&&(
-        <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-          <div onClick={()=>setShowAdd(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.8)',backdropFilter:'blur(8px)'}}/>
-          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,background:'var(--l1)',borderTop:'1px solid var(--b1)',borderRadius:'24px 24px 0 0',padding:'20px 20px 40px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
-            <div style={{width:40,height:4,borderRadius:2,background:'var(--b2)',margin:'0 auto 18px'}}/>
-            <div className="ub" style={{fontSize:15,fontWeight:800,marginBottom:16}}>Новый адрес</div>
-            <div style={{display:'flex',gap:8,marginBottom:12}}>
-              {['🏠 Дом','💼 Работа','📍 Другое'].map(l=>(
-                <button key={l} onClick={()=>setLabel(l)} className="btn" style={{flex:1,padding:'8px 4px',borderRadius:10,fontSize:12,fontWeight:700,border:`1.5px solid ${label===l?'rgba(31,215,96,.4)':'var(--b1)'}`,background:label===l?'rgba(31,215,96,.1)':'var(--l3)',color:label===l?'var(--gr)':'var(--t2)',fontFamily:'Nunito'}}>{l}</button>
+      {showAdd && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div onClick={resetForm} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
+          <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 16px calc(40px + env(safe-area-inset-bottom, 0px))', maxHeight: '92vh', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 18px' }} />
+            <div className="ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 16 }}>{editId != null ? 'Изменить адрес' : 'Новый адрес'}</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {['🏠 Дом', '💼 Работа', '📍 Другое'].map(l => (
+                <button key={l} onClick={() => setLabel(l)} className="btn" style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${label === l ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`, background: label === l ? 'rgba(31,215,96,.1)' : 'var(--l3)', color: label === l ? 'var(--gr)' : 'var(--t2)', fontFamily: 'Nunito' }}>{l}</button>
               ))}
             </div>
-            <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              <div><div style={{fontSize:11,color:'var(--t2)',marginBottom:5,fontWeight:700}}>Улица, дом *</div><input className="inp" value={street} onChange={e=>setStreet(e.target.value)} placeholder="ул. Ленина, 42"/></div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
-                <div><div style={{fontSize:11,color:'var(--t2)',marginBottom:5,fontWeight:700}}>Квартира</div><input className="inp" value={apt} onChange={e=>setApt(e.target.value)} placeholder="15"/></div>
-                <div><div style={{fontSize:11,color:'var(--t2)',marginBottom:5,fontWeight:700}}>Этаж</div><input className="inp" value={floor} onChange={e=>setFloor(e.target.value)} placeholder="3"/></div>
-                <div><div style={{fontSize:11,color:'var(--t2)',marginBottom:5,fontWeight:700}}>Подъезд</div><input className="inp" value={ent} onChange={e=>setEnt(e.target.value)} placeholder="2"/></div>
+
+            {!mapOpen ? (
+              <button
+                type="button"
+                onClick={() => setMapOpen(true)}
+                className="btn"
+                style={{ width: '100%', marginBottom: 12, padding: '14px', borderRadius: 14, background: coords ? 'rgba(59,142,240,.1)' : 'rgba(31,215,96,.08)', border: `1.5px solid ${coords ? 'rgba(59,142,240,.35)' : 'rgba(31,215,96,.35)'}`, color: coords ? 'var(--sky)' : 'var(--gr)', fontSize: 13, fontWeight: 700, fontFamily: 'Nunito' }}
+              >
+                {coords ? '✓ Точка выбрана · изменить на карте' : '🗺 Указать точку на карте'}
+              </button>
+            ) : (
+              <div style={{ marginBottom: 12 }}>
+                <button type="button" onClick={() => setMapOpen(false)} className="btn" style={{ marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontSize: 11, fontWeight: 700, fontFamily: 'Nunito' }}>← Назад к полям</button>
+                <AddressMapPicker
+                  key={editId != null ? `edit-${editId}-${coords?.lat}-${coords?.lng}` : 'new'}
+                  initial={coords}
+                  onSelect={({ lat, lng, address }) => {
+                    setCoords({ lat, lng });
+                    setStreet(address);
+                    setMapOpen(false);
+                  }}
+                />
               </div>
-              <div><div style={{fontSize:11,color:'var(--t2)',marginBottom:5,fontWeight:700}}>Комментарий</div><input className="inp" value={comment} onChange={e=>setComment(e.target.value)} placeholder="Домофон, пожелания..."/></div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица, дом *</div>
+                <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="ул. Ленина, 42" style={{ width: '100%' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Квартира</div>
+                  <input className="inp" value={apt} onChange={e => setApt(e.target.value)} placeholder="15" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Этаж</div>
+                  <input className="inp" value={floor} onChange={e => setFloor(e.target.value)} placeholder="3" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                </div>
+                <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Подъезд</div>
+                  <input className="inp" value={ent} onChange={e => setEnt(e.target.value)} placeholder="2" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                </div>
+              </div>
+              <div><div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Комментарий</div><input className="inp" value={comment} onChange={e => setComment(e.target.value)} placeholder="Домофон, пожелания..." /></div>
             </div>
-            <button onClick={add} className="btn" style={{width:'100%',marginTop:14,padding:'14px',borderRadius:15,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'white',fontSize:14,fontFamily:'Nunito',fontWeight:700,opacity:street?1:.5}}>
-              📍 Сохранить адрес
+            {!coords && (
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--gd)', fontWeight: 600 }}>⚠️ Укажите точку на карте — курьер увидит ваш дом</div>
+            )}
+            <button onClick={save} className="btn" style={{ width: '100%', marginTop: 14, padding: '14px', borderRadius: 15, background: 'linear-gradient(135deg,var(--gr2),var(--gr))', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: street && coords ? 1 : 0.5 }}>
+              📍 {editId != null ? 'Сохранить изменения' : 'Сохранить адрес'}
             </button>
           </div>
         </div>
@@ -4092,10 +4374,6 @@ const AddressesPage = ({go}) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   КЛИЕНТ: РЕФЕРАЛЬНАЯ ПРОГРАММА
-══════════════════════════════════════════════════════ */
 const ReferralPage = ({go}) => {
   const [copied, setCopied] = useState(false);
   const code = 'KAKAPO-D7F2';
@@ -4121,7 +4399,6 @@ const ReferralPage = ({go}) => {
         </div>
       </header>
       <div style={{padding:'16px 18px 100px'}}>
-        {/* Hero */}
         <div style={{borderRadius:22,background:'linear-gradient(135deg,#061A0C,#0F3020)',border:'1px solid rgba(31,215,96,.2)',padding:'24px',textAlign:'center',marginBottom:18,position:'relative',overflow:'hidden'}}>
           <div style={{position:'absolute',left:0,right:0,height:1,background:'linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)',animation:'scanLine 3s linear infinite'}}/>
           <div style={{fontSize:48,marginBottom:10,animation:'float 3s ease-in-out infinite'}}>🎁</div>
@@ -4130,7 +4407,6 @@ const ReferralPage = ({go}) => {
             За каждого друга который сделает первый заказ —<br/>
             <span style={{color:'var(--gr)',fontWeight:700}}>ты +50 бонусов</span>, он <span style={{color:'var(--gd)',fontWeight:700}}>+100 бонусов</span>
           </div>
-          {/* Code */}
           <div style={{background:'var(--bg)',borderRadius:14,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',border:'1px solid rgba(31,215,96,.25)'}}>
             <div>
               <div style={{fontSize:10,color:'var(--t3)',marginBottom:3}}>Твой реферальный код</div>
@@ -4142,7 +4418,6 @@ const ReferralPage = ({go}) => {
           </div>
         </div>
 
-        {/* Stats */}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:18}}>
           {stats.map((s,i)=>(
             <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'14px 12px',textAlign:'center'}}>
@@ -4152,7 +4427,6 @@ const ReferralPage = ({go}) => {
           ))}
         </div>
 
-        {/* Share buttons */}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:18}}>
           {[
             {e:'💬',l:'WhatsApp',c:'#25D366',bg:'rgba(37,211,102,.1)'},
@@ -4165,9 +4439,8 @@ const ReferralPage = ({go}) => {
           ))}
         </div>
 
-        {/* Friends list */}
         <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>Мои приглашённые</div>
-        <div className="kakapo-card" style={{overflow:'hidden'}}>
+        <div className="card" style={{overflow:'hidden'}}>
           {friends.map((f,i)=>(
             <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 15px',borderBottom:i<friends.length-1?'1px solid var(--b1)':'none'}}>
               <div style={{width:36,height:36,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'var(--bg)',flexShrink:0}}>{f.name.charAt(0)}</div>
@@ -4185,7 +4458,6 @@ const ReferralPage = ({go}) => {
           ))}
         </div>
 
-        {/* How it works */}
         <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12,marginTop:20}}>Как это работает</div>
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
           {[
@@ -4205,9 +4477,6 @@ const ReferralPage = ({go}) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   КЛИЕНТ: ЧАТ С ПОДДЕРЖКОЙ
-══════════════════════════════════════════════════════ */
 const ChatPage = ({go}) => {
   const [msgs, setMsgs] = useState([
     {from:'support',text:'Здравствуйте! Чем могу помочь?',time:'14:00',read:true},
@@ -4243,7 +4512,6 @@ const ChatPage = ({go}) => {
             </div>
           </div>
         </div>
-        {/* Quick replies */}
         <div className="hscroll" style={{padding:'0 18px 12px',gap:6}}>
           {QUICK.map((q,i)=>(
             <button key={i} onClick={()=>send(q)} className="btn" style={{padding:'7px 13px',borderRadius:50,fontSize:11,fontWeight:700,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',whiteSpace:'nowrap',fontFamily:'Nunito'}}>
@@ -4253,7 +4521,6 @@ const ChatPage = ({go}) => {
         </div>
       </header>
 
-      {/* Messages */}
       <div style={{flex:1,padding:'14px 18px',display:'flex',flexDirection:'column',gap:10,overflowY:'auto'}}>
         {msgs.map((m,i)=>(
           <div key={i} style={{display:'flex',justifyContent:m.from==='me'?'flex-end':'flex-start',gap:8,animation:'fadeIn .3s ease'}}>
@@ -4276,7 +4543,6 @@ const ChatPage = ({go}) => {
         )}
       </div>
 
-      {/* Input */}
       <div style={{padding:'12px 18px 28px',borderTop:'1px solid var(--b1)',background:'rgba(3,11,5,.97)',backdropFilter:'blur(20px)',display:'flex',gap:10}}>
         <input className="inp" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send(input)} placeholder="Написать сообщение..." style={{flex:1}}/>
         <button onClick={()=>send(input)} className="btn" style={{width:46,height:46,borderRadius:13,background:input?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:input?'none':'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -4286,10 +4552,6 @@ const ChatPage = ({go}) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   СБОРЩИК: ВХОД И ЗАКАЗЫ
-══════════════════════════════════════════════════════ */
 const AssemblerLoginPage = ({go}) => {
   const [pin,  setPin]   = useState(['','','','']);
   const [load, setLoad]  = useState(false);
@@ -4371,7 +4633,6 @@ const AssemblerDashPage = ({go}) => {
           </div>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,color:allDone?'var(--gr)':'var(--gd)'}}>{doneCount}/{order.items.length}</div>
         </div>
-        {/* Progress bar */}
         <div style={{height:4,background:'var(--b1)',margin:'0 18px 14px'}}>
           <div style={{height:'100%',width:`${(doneCount/order.items.length)*100}%`,background:'var(--gr)',transition:'width .4s ease',borderRadius:2}}/>
         </div>
@@ -4434,7 +4695,7 @@ const AssemblerDashPage = ({go}) => {
           ))}
         </div>
         {orders.map((o,i)=>(
-          <div key={o.id} className="kakapo-card" onClick={()=>setActive(o.id)} style={{cursor:'pointer',animation:`fadeUp .4s ease ${i*.08}s both`}}>
+          <div key={o.id} className="card" onClick={()=>setActive(o.id)} style={{cursor:'pointer',animation:`fadeUp .4s ease ${i*.08}s both`}}>
             {o.priority==='urgent'&&(
               <div style={{padding:'7px 14px',background:'rgba(255,69,69,.08)',borderBottom:'1px solid rgba(255,69,69,.2)',display:'flex',alignItems:'center',gap:6}}>
                 <div style={{width:6,height:6,borderRadius:'50%',background:'var(--red)',animation:'pulse 1s infinite'}}/>
@@ -4461,10 +4722,6 @@ const AssemblerDashPage = ({go}) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: ФИНАНСОВЫЙ ОТЧЁТ
-══════════════════════════════════════════════════════ */
 const AdminFinancePage = ({go}) => {
   const [period, setPeriod] = useState('month');
   const DAYS = [
@@ -4479,7 +4736,6 @@ const AdminFinancePage = ({go}) => {
 
   return (
     <AdminWrap go={go} title="Финансы" subtitle="Выручка и аналитика продаж">
-      {/* Period */}
       <div style={{display:'flex',gap:8,marginBottom:18}}>
         {[{id:'week',l:'Неделя'},{id:'month',l:'Месяц'},{id:'quarter',l:'Квартал'}].map(p=>(
           <button key={p.id} onClick={()=>setPeriod(p.id)} className="ab"
@@ -4493,7 +4749,6 @@ const AdminFinancePage = ({go}) => {
         </div>
       </div>
 
-      {/* KPIs */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:20}}>
         {[
           {l:'Выручка',       v:`${total.toLocaleString()} ЅМ`, c:'#1FD760',t:'+18%'},
@@ -4509,7 +4764,6 @@ const AdminFinancePage = ({go}) => {
         ))}
       </div>
 
-      {/* Chart */}
       <div className="ac" style={{padding:20,marginBottom:16}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
           <div className="ub" style={{fontSize:14,fontWeight:800}}>Выручка по дням</div>
@@ -4526,7 +4780,6 @@ const AdminFinancePage = ({go}) => {
         </div>
       </div>
 
-      {/* By category + top products */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
         <div className="ac" style={{padding:18}}>
           <div className="ub" style={{fontSize:13,fontWeight:800,marginBottom:14}}>По категориям</div>
@@ -4572,9 +4825,6 @@ const AdminFinancePage = ({go}) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   ADMIN: СКЛАД / ОСТАТКИ
-══════════════════════════════════════════════════════ */
 const AdminInventoryPage = ({go}) => {
   const [filter,setFilter]=useState('all');
   const STOCK = PRODS.map((p,i)=>({...p,stock:[0,3,5,2,12,0,8,4,1,15,7,2][i],minStock:[5,5,10,5,15,5,10,10,5,10,5,5][i]}));
@@ -4585,7 +4835,6 @@ const AdminInventoryPage = ({go}) => {
 
   return (
     <AdminWrap go={go} title="Склад" subtitle="Контроль остатков товаров">
-      {/* Alerts */}
       {(out.length>0||low.length>0)&&(
         <div style={{display:'flex',gap:10,marginBottom:18}}>
           {out.length>0&&<div style={{flex:1,padding:'12px 14px',borderRadius:13,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.3)',display:'flex',alignItems:'center',gap:10}}>
@@ -4599,7 +4848,6 @@ const AdminInventoryPage = ({go}) => {
         </div>
       )}
 
-      {/* Stats */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
         {[{l:'Всего позиций',v:STOCK.length,c:'var(--t1)'},{l:'В наличии',v:ok.length,c:'var(--gr)'},{l:'Мало',v:low.length,c:'var(--org)'},{l:'Закончилось',v:out.length,c:'var(--red)'}].map((s,i)=>(
           <div key={i} className="ac" style={{padding:'13px 14px'}}>
@@ -4609,7 +4857,6 @@ const AdminInventoryPage = ({go}) => {
         ))}
       </div>
 
-      {/* Filter */}
       <div style={{display:'flex',gap:8,marginBottom:14}}>
         {[{id:'all',l:'Все'},{id:'out',l:'🚨 Закончилось'},{id:'low',l:'⚠️ Мало'},{id:'ok',l:'✅ В наличии'}].map(f=>(
           <button key={f.id} onClick={()=>setFilter(f.id)} className="ab"
@@ -4656,10 +4903,6 @@ const AdminInventoryPage = ({go}) => {
     </AdminWrap>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: ЧАТ ПОДДЕРЖКИ
-══════════════════════════════════════════════════════ */
 const AdminChatSupportPage = ({go}) => {
   const [active, setActive] = useState(0);
   const [reply,  setReply]  = useState('');
@@ -4691,7 +4934,6 @@ const AdminChatSupportPage = ({go}) => {
   return (
     <AdminWrap go={go} title="Чат поддержки" subtitle={`${chats.reduce((s,c)=>s+c.unread,0)} новых сообщений`}>
       <div style={{display:'grid',gridTemplateColumns:'280px 1fr',gap:16,height:'70vh'}}>
-        {/* Chat list */}
         <div className="ac" style={{overflow:'hidden',display:'flex',flexDirection:'column'}}>
           <div style={{padding:'12px 14px',borderBottom:'1px solid #162B1A',fontSize:13,fontWeight:800}}>Диалоги</div>
           <div style={{overflowY:'auto',flex:1}}>
@@ -4710,7 +4952,6 @@ const AdminChatSupportPage = ({go}) => {
           </div>
         </div>
 
-        {/* Chat window */}
         <div className="ac" style={{overflow:'hidden',display:'flex',flexDirection:'column'}}>
           <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',display:'flex',alignItems:'center',gap:10}}>
             <div style={{width:34,height:34,borderRadius:'50%',background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#030B05',flexShrink:0}}>{activeChat.client.charAt(0)}</div>
@@ -4732,7 +4973,6 @@ const AdminChatSupportPage = ({go}) => {
             ))}
           </div>
 
-          {/* Quick replies */}
           <div style={{padding:'8px 16px',borderTop:'1px solid #162B1A',display:'flex',gap:6,overflowX:'auto'}}>
             {QUICK_REPLIES.map((q,i)=>(
               <button key={i} onClick={()=>setReply(q)} className="ab" style={{padding:'5px 10px',fontSize:11,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',whiteSpace:'nowrap',flexShrink:0}}>
@@ -4751,10 +4991,6 @@ const AdminChatSupportPage = ({go}) => {
   );
 };
 
-
-/* ══════════════════════════════════════════════════════
-   КЛИЕНТ: СПИСОК РЕСТОРАНОВ
-══════════════════════════════════════════════════════ */
 const RestaurantsPage = ({go, cart, onAdd}) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -4769,45 +5005,40 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
   return (
     <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
       <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
-        <div style={{padding:'14px 18px 10px',display:'flex',alignItems:'center',gap:10}}>
-          <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,flex:1}}>Рестораны</div>
-          {totalQty>0&&<button onClick={()=>go('cart')} className="btn" style={{padding:'7px 14px',borderRadius:11,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontSize:12,fontFamily:'Nunito',fontWeight:800,display:'flex',alignItems:'center',gap:6}}>
-            🛒 {totalQty} · Корзина
-          </button>}
+        <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:40,height:40,borderRadius:12,background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'var(--bg)',animation:'glow 3s ease-in-out infinite',boxShadow:'0 4px 16px rgba(31,215,96,.4)',flexShrink:0}}>K</div>
+          <div className="ub" style={{flex:1,fontSize:16,fontWeight:900}}>Рестораны</div>
+          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQty>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQty>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQty>0?'0 4px 14px rgba(31,215,96,.4)':'none'}}>
+            <Ic n="cart" s={17} c={totalQty>0?'white':'var(--t2)'}/>
+            {totalQty>0&&<div style={{position:'absolute',top:-6,right:-6,width:17,height:17,borderRadius:'50%',background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
+          </button>
         </div>
         <div style={{padding:'0 18px 10px',position:'relative'}}>
-          <div style={{position:'absolute',left:30,top:'50%',transform:'translateY(-50%)',fontSize:16,pointerEvents:'none'}}>🔍</div>
+          <div style={{position:'absolute',left:30,top:'50%',transform:'translateY(-50%)',fontSize:15,pointerEvents:'none'}}><Ic n="search" s={15} c="var(--t3)"/></div>
           <input className="inp" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Ресторан или кухня..." style={{paddingLeft:38,width:'100%'}}/>
         </div>
         <div className="hscroll" style={{padding:'0 18px 12px',gap:6}}>
           {[{id:'all',l:'Все'},{id:'open',l:'🟢 Открыты'},{id:'fast',l:'⚡ До 30 мин'}].map(f=>(
-            <button key={f.id} onClick={()=>setFilter(f.id)} className="btn"
-              style={{padding:'7px 14px',borderRadius:50,fontSize:12,fontWeight:700,border:`1.5px solid ${filter===f.id?'rgba(31,215,96,.38)':'var(--b1)'}`,background:filter===f.id?'rgba(31,215,96,.12)':'var(--l2)',color:filter===f.id?'var(--gr)':'var(--t2)',whiteSpace:'nowrap',fontFamily:'Nunito'}}>
-              {f.l}
-            </button>
+            <button key={f.id} onClick={()=>setFilter(f.id)} className={`chip ${filter===f.id?'on':''}`}>{f.l}</button>
           ))}
         </div>
       </header>
 
       <div style={{padding:'14px 18px 100px'}}>
-        {/* Hero banner */}
         <div style={{borderRadius:20,overflow:'hidden',marginBottom:20,background:'linear-gradient(135deg,#0A1A06,#14300F)',border:'1px solid rgba(31,215,96,.2)',padding:'18px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div>
             <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Рестораны г. Яван</div>
             <div style={{fontSize:12,color:'var(--t2)',marginBottom:8}}>Заказывай еду из любимых мест · Один курьер</div>
             <div style={{display:'flex',gap:8}}>
               <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(31,215,96,.12)',color:'var(--gr)',border:'1px solid rgba(31,215,96,.25)'}}>{RESTAURANTS.length} ресторана</span>
-              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(255,184,0,.12)',color:'var(--gd)',border:'1px solid rgba(255,184,0,.25)'}}>Комиссия 0%</span>
             </div>
           </div>
           <div style={{fontSize:48,animation:'float 3s ease-in-out infinite'}}>🍽</div>
         </div>
 
-        {/* Restaurant cards */}
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           {filtered.map((r,i)=>(
-            <div key={r.id} onClick={()=>go('restaurant',{rid:r.id})} className="kakapo-card" style={{cursor:'pointer',animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`,opacity:r.open?1:.7}}>
-              {/* Cover */}
+            <div key={r.id} onClick={()=>go('restaurant',{rid:r.id})} className="card" style={{cursor:'pointer',animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`,opacity:r.open?1:.7}}>
               <div style={{height:130,background:r.img,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 18px',position:'relative',overflow:'hidden'}}>
                 <div style={{position:'absolute',inset:0,opacity:.04,background:'repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,1) 8px,rgba(255,255,255,1) 9px)'}}/>
                 <div>
@@ -4820,7 +5051,6 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
                 <div style={{fontSize:56,animation:'float 3s ease-in-out infinite',filter:'drop-shadow(0 4px 12px rgba(0,0,0,.5))'}}>{r.emoji}</div>
                 {!r.open&&<div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:'white'}}>🔴 Закрыто</div>}
               </div>
-              {/* Info */}
               <div style={{padding:'12px 16px',display:'flex',gap:14,alignItems:'center'}}>
                 <div style={{display:'flex',alignItems:'center',gap:4}}>
                   <span style={{color:'var(--gd)',fontSize:14}}>★</span>
@@ -4854,15 +5084,10 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   КЛИЕНТ: МЕНЮ РЕСТОРАНА
-══════════════════════════════════════════════════════ */
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const r = RESTAURANTS.find(x=>x.id===(params&&params.rid)) || RESTAURANTS[0];
   const [activeCat, setActiveCat] = useState(r.categories[0]);
-  const [showInfo,  setShowInfo]  = useState(false);
   const totalQty = Object.values(cart||{}).reduce((a,b)=>a+b,0);
-  const cartTotal = (r.menu||[]).reduce((s,item)=>s+(cart[`R${r.id}_${item.id}`]||0)*item.price,0);
 
   const menuByCat = r.menu.filter(item=>item.cat===activeCat);
 
@@ -4872,18 +5097,35 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
 
   return (
     <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      {/* Hero */}
-      <div style={{height:200,background:r.img,display:'flex',alignItems:'flex-end',padding:'18px',position:'relative',overflow:'hidden'}}>
-        <div style={{position:'absolute',top:14,left:14,display:'flex',gap:8,zIndex:2}}>
-          <button onClick={()=>go('restaurants')} className="btn" style={{width:38,height:38,borderRadius:'50%',background:'rgba(0,0,0,.5)',backdropFilter:'blur(10px)',border:'1px solid rgba(255,255,255,.2)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <Ic n="arrL" s={17} c="white"/>
+
+      {/* Sticky header — back + name + cart + categories */}
+      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+        <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
+          <button onClick={()=>go('restaurants')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <Ic n="arrL" s={17} c="var(--t2)"/>
+          </button>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="ub" style={{fontSize:15,fontWeight:900,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginTop:1}}>
+              <span style={{fontSize:10,color:'var(--gd)',fontWeight:700}}>★ {r.rating}</span>
+              <span style={{fontSize:10,color:'var(--t3)'}}>· {r.cuisine}</span>
+              <span style={{fontSize:10,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'● Открыто':'● Закрыто'}</span>
+            </div>
+          </div>
+          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQty>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQty>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQty>0?'0 4px 14px rgba(31,215,96,.4)':'none',flexShrink:0}}>
+            <Ic n="cart" s={17} c={totalQty>0?'white':'var(--t2)'}/>
+            {totalQty>0&&<div style={{position:'absolute',top:-6,right:-6,width:17,height:17,borderRadius:'50%',background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
           </button>
         </div>
-        <div style={{position:'absolute',top:14,right:14,zIndex:2}}>
-          {totalQty>0&&<button onClick={()=>go('cart')} className="btn" style={{padding:'8px 14px',borderRadius:11,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontSize:12,fontFamily:'Nunito',fontWeight:800}}>
-            🛒 {totalQty}
-          </button>}
+        <div className="hscroll" style={{padding:'0 18px 10px',gap:6}}>
+          {r.categories.map(cat=>(
+            <button key={cat} onClick={()=>setActiveCat(cat)} className={`chip ${activeCat===cat?'on':''}`}>{cat}</button>
+          ))}
         </div>
+      </header>
+
+      {/* Hero banner — scrollable */}
+      <div style={{height:180,background:r.img,display:'flex',alignItems:'flex-end',padding:'18px',position:'relative',overflow:'hidden'}}>
         <div style={{position:'absolute',inset:0,background:'linear-gradient(transparent 30%,rgba(3,11,5,.95))'}}/>
         <div style={{position:'relative',zIndex:1}}>
           <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:'white',marginBottom:4}}>{r.name}</div>
@@ -4897,7 +5139,6 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
         </div>
       </div>
 
-      {/* Delivery info bar */}
       <div style={{padding:'12px 18px',background:'var(--l2)',borderBottom:'1px solid var(--b1)',display:'flex',gap:14,justifyContent:'center'}}>
         {[
           {e:'⏱',l:'Доставка',v:`${r.deliveryMin} мин`},
@@ -4912,19 +5153,6 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
         ))}
       </div>
 
-      {/* Categories */}
-      <div style={{position:'sticky',top:0,zIndex:50,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
-        <div className="hscroll" style={{padding:'10px 18px',gap:6}}>
-          {r.categories.map(cat=>(
-            <button key={cat} onClick={()=>setActiveCat(cat)} className="btn"
-              style={{padding:'8px 15px',borderRadius:50,fontSize:12,fontWeight:700,border:`1.5px solid ${activeCat===cat?'rgba(31,215,96,.38)':'var(--b1)'}`,background:activeCat===cat?'rgba(31,215,96,.12)':'var(--l2)',color:activeCat===cat?'var(--gr)':'var(--t2)',whiteSpace:'nowrap',fontFamily:'Nunito'}}>
-              {cat}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Menu items */}
       <div style={{padding:'14px 18px 160px',display:'flex',flexDirection:'column',gap:10}}>
         <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:4,color:'var(--t2)'}}>{activeCat}</div>
         {menuByCat.map((item,i)=>{
@@ -4932,14 +5160,11 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           const disc = item.old ? Math.round((1-item.price/item.old)*100) : 0;
           return (
             <div key={item.id} style={{display:'flex',gap:12,padding:'14px',background:'var(--l2)',border:`1px solid ${item.inStock?'var(--b1)':'rgba(255,69,69,.2)'}`,borderRadius:16,animation:`fadeUp .4s ease ${i*.05}s both`,opacity:item.inStock?1:.6}}>
-              <div style={{width:80,height:80,borderRadius:14,background:'var(--l3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40,flexShrink:0,position:'relative',overflow:'hidden'}}>
-                {item.photo
-                  ? <img src={item.photo} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
-                  : item.e
-                }
-                {item.popular&&<div style={{position:'absolute',top:-4,right:-4,padding:'2px 6px',borderRadius:7,background:'var(--red)',fontSize:8,fontWeight:800,color:'white',zIndex:2}}>ХИТ</div>}
-                {disc>0&&<div style={{position:'absolute',bottom:-4,left:-4,padding:'2px 6px',borderRadius:7,background:'var(--org)',fontSize:8,fontWeight:800,color:'white',zIndex:2}}>-{disc}%</div>}
-                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'white',zIndex:3}}>Стоп</div>}
+              <div style={{width:80,height:80,borderRadius:14,background:'var(--l3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40,flexShrink:0,position:'relative'}}>
+                {item.e}
+                {item.popular&&<div style={{position:'absolute',top:-4,right:-4,padding:'2px 6px',borderRadius:7,background:'var(--red)',fontSize:8,fontWeight:800,color:'white'}}>ХИТ</div>}
+                {disc>0&&<div style={{position:'absolute',bottom:-4,left:-4,padding:'2px 6px',borderRadius:7,background:'var(--org)',fontSize:8,fontWeight:800,color:'white'}}>-{disc}%</div>}
+                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'white'}}>Стоп</div>}
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:14,fontWeight:700,marginBottom:3,lineHeight:1.3}}>{item.name}</div>
@@ -4972,29 +5197,32 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
         })}
       </div>
 
-      {/* Sticky cart button */}
-      {cartTotal>0&&(
-        <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:90,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid var(--b1)',padding:'13px 18px 28px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-            <div>
-              <div style={{fontSize:10,color:'var(--t3)'}}>Ваш заказ</div>
-              <div style={{fontFamily:'Unbounded',fontSize:11,fontWeight:700,color:'var(--t2)'}}>{r.name}</div>
-            </div>
-            {cartTotal<r.minOrder&&<div style={{fontSize:11,color:'var(--gd)',fontWeight:700}}>Ещё {(r.minOrder-cartTotal).toFixed(0)} ЅМ до минимума</div>}
-          </div>
-          <button onClick={()=>go('cart')} className="btn" style={{width:'100%',padding:'14px',borderRadius:16,background:cartTotal>=r.minOrder?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:cartTotal>=r.minOrder?'none':'1px solid var(--b1)',color:cartTotal>=r.minOrder?'white':'var(--t2)',fontFamily:'Nunito',fontWeight:700,fontSize:14,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <span>🛒 Оформить заказ</span>
-            <span style={{fontFamily:'Unbounded',fontWeight:900}}>{cartTotal.toFixed(2)} ЅМ</span>
+      {totalQty>0&&(
+        <div style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", zIndex:90, animation:"fadeUp .3s ease" }}>
+          <button onClick={() => go("cart")} className="btn" style={{ display:"flex", alignItems:"center", gap:10, padding:"13px 22px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", border:"none", boxShadow:"0 8px 24px rgba(31,215,96,.45)" }}>
+            <div style={{ background:"rgba(0,0,0,.28)", borderRadius:"50%", width:26, height:26, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:11, fontWeight:900, color:"white" }}>{totalQty}</div>
+            <span style={{ fontSize:14, fontWeight:800, color:"white", fontFamily:"Nunito" }}>Перейти в корзину</span>
+            <Ic n="arr" s={16} c="white"/>
           </button>
         </div>
       )}
     </div>
   );
 };
+const REVIEWS_DATA = [
+  {id:1,restId:'R-01',client:'Зафар М.',  rating:2,text:'Долго ждали, еда была холодная',  date:'16 мая',status:'new'},
+  {id:2,restId:'R-02',client:'Лола К.',   rating:5,text:'Отличная пицца! Быстро доставили',date:'15 мая',status:'read'},
+  {id:3,restId:'R-03',client:'Бахром Т.', rating:4,text:'Вкусные роллы, но дорого',        date:'15 мая',status:'read'},
+  {id:4,restId:'R-01',client:'Нилуфар С.',rating:1,text:'Неправильный заказ привезли',     date:'14 мая',status:'new'},
+];
 
-/* ══════════════════════════════════════════════════════
-   ПАРТНЁР: ВХОД В КАБИНЕТ
-══════════════════════════════════════════════════════ */
+const ASSEMBLERS_DATA = [
+  {id:'A-01',name:'Камола Юсупова', phone:'+992 93 500 11 22',status:'active',ordersToday:12,avgTime:8, rating:4.9},
+  {id:'A-02',name:'Шахло Рахимова', phone:'+992 93 500 33 44',status:'active',ordersToday:9, avgTime:11,rating:4.7},
+  {id:'A-03',name:'Мухаббат Алиева',phone:'+992 90 600 55 66',status:'break', ordersToday:7, avgTime:9, rating:4.8},
+  {id:'A-04',name:'Зарина Каримова',phone:'+992 88 700 77 88',status:'offline',ordersToday:0, avgTime:0, rating:4.6},
+];
+
 const PartnerLoginPage = ({go}) => {
   const [email, setEmail] = useState('');
   const [pass,  setPass]  = useState('');
@@ -5051,9 +5279,6 @@ const PartnerLoginPage = ({go}) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   ПАРТНЁР: ДАШБОРД РЕСТОРАНА
-══════════════════════════════════════════════════════ */
 const PartnerDashPage = ({go}) => {
   const [partnerUser] = useState(()=>{try{return JSON.parse(localStorage.getItem('kp_partner')||'null');}catch{return PARTNER_USERS[0];}});
   const rest = partnerUser ? RESTAURANTS.find(r=>r.id===partnerUser.restId) : RESTAURANTS[0];
@@ -5074,14 +5299,12 @@ const PartnerDashPage = ({go}) => {
   ];
 
   const SC = {cooking:{l:'Готовится',c:'var(--gd)'},ready:{l:'Готово',c:'var(--gr)'},delivered:{l:'Доставлен',c:'var(--blue)'}};
-
   const toggleStock = (id) => setMenu(m=>m.map(item=>item.id===id?{...item,inStock:!item.inStock}:item));
 
   if(!rest) return null;
 
   return (
     <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      {/* Header */}
       <div style={{background:rest.img,padding:'20px 18px 16px',position:'relative',overflow:'hidden'}}>
         <div style={{position:'absolute',inset:0,background:'rgba(3,11,5,.7)'}}/>
         <div style={{position:'relative',zIndex:1}}>
@@ -5109,7 +5332,6 @@ const PartnerDashPage = ({go}) => {
         </div>
       </div>
 
-      {/* Tabs */}
       <div style={{background:'var(--l1)',borderBottom:'1px solid var(--b1)',display:'flex'}}>
         {[{id:'orders',l:'📦 Заказы'},{id:'menu',l:'🍽 Меню'},{id:'stats',l:'📊 Статистика'}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} className="btn"
@@ -5120,14 +5342,12 @@ const PartnerDashPage = ({go}) => {
       </div>
 
       <div style={{padding:'14px 18px 100px'}}>
-
-        {/* ЗАКАЗЫ */}
         {tab==='orders'&&(
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {ORDERS_REST.map((o,i)=>{
-              const s=SC[o.status];
+              const s=SC[o.status]||{l:o.status,c:'var(--t2)'};
               return (
-                <div key={o.id} className="kakapo-card" style={{padding:'14px',animation:`fadeUp .4s ease ${i*.07}s both`}}>
+                <div key={o.id} className="card" style={{padding:'14px',animation:`fadeUp .4s ease ${i*.07}s both`}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
                     <div>
                       <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,color:'var(--gr)'}}>{o.id}</span>
@@ -5152,7 +5372,6 @@ const PartnerDashPage = ({go}) => {
           </div>
         )}
 
-        {/* МЕНЮ */}
         {tab==='menu'&&(
           <div>
             <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
@@ -5184,7 +5403,6 @@ const PartnerDashPage = ({go}) => {
           </div>
         )}
 
-        {/* СТАТИСТИКА */}
         {tab==='stats'&&(
           <div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
@@ -5200,7 +5418,7 @@ const PartnerDashPage = ({go}) => {
                 </div>
               ))}
             </div>
-            <div className="kakapo-card" style={{padding:'16px'}}>
+            <div className="card" style={{padding:'16px'}}>
               <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:12}}>Топ блюда</div>
               {menu.filter(m=>m.popular).map((item,i)=>(
                 <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:i<menu.filter(m=>m.popular).length-1?'1px solid var(--b1)':'none'}}>
@@ -5210,18 +5428,10 @@ const PartnerDashPage = ({go}) => {
                 </div>
               ))}
             </div>
-            <div style={{marginTop:14,padding:'14px 16px',borderRadius:14,background:'rgba(255,69,69,.06)',border:'1px solid rgba(255,69,69,.2)'}}>
-              <div style={{fontFamily:'Unbounded',fontSize:12,fontWeight:800,color:'var(--red)',marginBottom:6}}>Комиссия KAKAPO</div>
-              <div style={{fontSize:12,color:'var(--t2)',lineHeight:1.65}}>
-                С каждого заказа KAKAPO берёт <span style={{color:'var(--red)',fontWeight:800}}>{rest.commission}%</span> комиссии.<br/>
-                За этот месяц выплачено: <span style={{color:'var(--red)',fontWeight:800}}>{Math.round(14280*rest.commission/100).toLocaleString()} ЅМ</span>
-              </div>
-            </div>
           </div>
         )}
       </div>
 
-      {/* Add dish modal */}
       {showAdd&&(
         <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
           <div onClick={()=>setShowAdd(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.8)',backdropFilter:'blur(8px)'}}/>
@@ -5273,14 +5483,6 @@ const PartnerDashPage = ({go}) => {
     </div>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: ПАРТНЁРЫ / РЕСТОРАНЫ
-══════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: РЕСТОРАНЫ — полное управление
-══════════════════════════════════════════════════════ */
 const AdminPartnersPage = ({go}) => {
   const [rests,   setRests]   = useState(RESTAURANTS.map(r=>({...r,commEdit:r.commission})));
   const [sel,     setSel]     = useState(null);
@@ -5302,13 +5504,12 @@ const AdminPartnersPage = ({go}) => {
 
   return (
     <AdminWrap go={go} title="Рестораны" subtitle="Маркетплейс — управление партнёрами, меню, комиссиями">
-      {/* Stats */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
         {[
-          {l:'Партнёров',       v:rests.length,                            c:'#1FD760'},
-          {l:'Открытых',        v:rests.filter(r=>r.open).length,          c:'#3B8EF0'},
-          {l:'Заказов/мес',     v:rests.reduce((s,r)=>s+r.ordersMonth,0),  c:'#FFB800'},
-          {l:'Комиссия/мес',    v:`${totalComm.toLocaleString()} ЅМ`,      c:'#FF4545'},
+          {l:'Партнёров',    v:rests.length,                           c:'#1FD760'},
+          {l:'Открытых',     v:rests.filter(r=>r.open).length,         c:'#3B8EF0'},
+          {l:'Заказов/мес',  v:rests.reduce((s,r)=>s+r.ordersMonth,0), c:'#FFB800'},
+          {l:'Комиссия/мес', v:`${totalComm.toLocaleString()} ЅМ`,     c:'#FF4545'},
         ].map((s,i)=>(
           <div key={i} className="ac" style={{padding:'14px 16px'}}>
             <div style={{fontSize:10,color:'#8FB897',marginBottom:6}}>{s.l}</div>
@@ -5321,7 +5522,6 @@ const AdminPartnersPage = ({go}) => {
         <button onClick={()=>setShowAdd(true)} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>+ Добавить ресторан</button>
       </div>
 
-      {/* Restaurant cards */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:22}}>
         {rests.map((r,i)=>(
           <div key={r.id} className="ac" style={{overflow:'hidden',animation:`fadeIn .4s ease ${i*.06}s both`}}>
@@ -5368,7 +5568,6 @@ const AdminPartnersPage = ({go}) => {
         ))}
       </div>
 
-      {/* Commission table */}
       <div className="ac">
         <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',fontWeight:800,fontSize:13}}>Комиссии за этот месяц</div>
         <table className="at">
@@ -5396,7 +5595,6 @@ const AdminPartnersPage = ({go}) => {
         </table>
       </div>
 
-      {/* УПРАВЛЕНИЕ РЕСТОРАНОМ */}
       {sel&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>setSel(null)}/>
@@ -5444,7 +5642,7 @@ const AdminPartnersPage = ({go}) => {
             {rtab==='menu'&&(
               <div>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-                  <span style={{fontSize:12,color:'#8FB897'}}>{sel.menu?.length||0} блюд · {sel.menu?.filter(m=>!m.inStock).length||0} в стоп-листе</span>
+                  <span style={{fontSize:12,color:'#8FB897'}}>{sel.menu?.length||0} блюд</span>
                   <button className="ab abp" style={{padding:'6px 13px',fontSize:12}}>+ Добавить блюдо</button>
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -5468,9 +5666,9 @@ const AdminPartnersPage = ({go}) => {
 
             {rtab==='orders'&&(
               <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                {(RESTAURANTS.find(r=>r.id===sel.id) ? [{id:'K-4832',client:'Диловар Р.',items:['🍚 Плов ×2','🥩 Шашлык'],total:58,status:'cooking',time:'14:23'},{id:'K-4831',client:'Нилуфар Х.',items:['🍜 Лагман','🥗 Салат'],total:22,status:'ready',time:'14:10'}] : []).map((o,i)=>{
-                  const SC={cooking:{l:'Готовится',c:'#FFB800'},ready:{l:'Готово!',c:'#1FD760'},new:{l:'Новый',c:'#FF4545'}};
-                  const s=SC[o.status]||{l:o.status,c:'#8FB897'};
+                {[{id:'K-4832',client:'Диловар Р.',items:['🍚 Плов ×2','🥩 Шашлык'],total:58,status:'cooking',time:'14:23'},{id:'K-4831',client:'Нилуфар Х.',items:['🍜 Лагман','🥗 Салат'],total:22,status:'ready',time:'14:10'}].map((o,i)=>{
+                  const SC2={cooking:{l:'Готовится',c:'#FFB800'},ready:{l:'Готово!',c:'#1FD760'},new:{l:'Новый',c:'#FF4545'}};
+                  const s=SC2[o.status]||{l:o.status,c:'#8FB897'};
                   return(
                     <div key={i} style={{padding:'12px 14px',background:'#0C1C0F',borderRadius:12,border:`1px solid ${s.c}22`}}>
                       <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
@@ -5528,7 +5726,6 @@ const AdminPartnersPage = ({go}) => {
                 </div>
                 <div style={{display:'flex',gap:10}}>
                   <button className="ab abp" style={{flex:1,padding:11}}>✓ Обновить доступ</button>
-                  <button className="ab" style={{padding:'11px 16px',background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0'}}>📧 Письмо</button>
                   <button className="ab abd" style={{padding:'11px 16px'}}>🚫 Заблок.</button>
                 </div>
               </div>
@@ -5537,7 +5734,6 @@ const AdminPartnersPage = ({go}) => {
         </div>
       )}
 
-      {/* ВЫПЛАТА */}
       {showPay&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>setShowPay(null)}/>
@@ -5565,7 +5761,6 @@ const AdminPartnersPage = ({go}) => {
         </div>
       )}
 
-      {/* ДОБАВИТЬ РЕСТОРАН */}
       {showAdd&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>setShowAdd(false)}/>
@@ -5595,16 +5790,6 @@ const AdminPartnersPage = ({go}) => {
     </AdminWrap>
   );
 };
-
-/* ══════════════════════════════════════════════════════
-   ADMIN: ОТЗЫВЫ
-══════════════════════════════════════════════════════ */
-const REVIEWS_DATA = [
-  {id:1,restId:'R-01',client:'Зафар М.',  rating:2,text:'Долго ждали, еда была холодная',  date:'16 мая',status:'new'},
-  {id:2,restId:'R-02',client:'Лола К.',   rating:5,text:'Отличная пицца! Быстро доставили',date:'15 мая',status:'read'},
-  {id:3,restId:'R-03',client:'Бахром Т.', rating:4,text:'Вкусные роллы, но дорого',        date:'15 мая',status:'read'},
-  {id:4,restId:'R-01',client:'Нилуфар С.',rating:1,text:'Неправильный заказ привезли',     date:'14 мая',status:'new'},
-];
 
 const AdminReviewsPage = ({go}) => {
   const [reviews, setReviews] = useState(REVIEWS_DATA);
@@ -5673,25 +5858,15 @@ const AdminReviewsPage = ({go}) => {
   );
 };
 
-/* ══════════════════════════════════════════════════════
-   ADMIN: СБОРЩИКИ
-══════════════════════════════════════════════════════ */
-const ASSEMBLERS_DATA = [
-  {id:'A-01',name:'Камола Юсупова', phone:'+992 93 500 11 22',status:'active',ordersToday:12,avgTime:8, rating:4.9},
-  {id:'A-02',name:'Шахло Рахимова', phone:'+992 93 500 33 44',status:'active',ordersToday:9, avgTime:11,rating:4.7},
-  {id:'A-03',name:'Мухаббат Алиева',phone:'+992 90 600 55 66',status:'break', ordersToday:7, avgTime:9, rating:4.8},
-  {id:'A-04',name:'Зарина Каримова',phone:'+992 88 700 77 88',status:'offline',ordersToday:0, avgTime:0, rating:4.6},
-];
-
 const AdminAssemblersPage = ({go}) => {
   const SC = {active:{l:'На смене',c:'#1FD760'},break:{l:'Перерыв',c:'#FFB800'},offline:{l:'Офлайн',c:'#3D6645'}};
   return (
     <AdminWrap go={go} title="Сборщики" subtitle="Управление командой сборки заказов">
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
         {[
-          {l:'Всего сборщиков',v:ASSEMBLERS_DATA.length,                                    c:'#EBF5ED'},
-          {l:'На смене',       v:ASSEMBLERS_DATA.filter(a=>a.status==='active').length,     c:'#1FD760'},
-          {l:'Собрано сегодня',v:ASSEMBLERS_DATA.reduce((s,a)=>s+a.ordersToday,0),         c:'#3B8EF0'},
+          {l:'Всего сборщиков', v:ASSEMBLERS_DATA.length,                                    c:'#EBF5ED'},
+          {l:'На смене',        v:ASSEMBLERS_DATA.filter(a=>a.status==='active').length,     c:'#1FD760'},
+          {l:'Собрано сегодня', v:ASSEMBLERS_DATA.reduce((s,a)=>s+a.ordersToday,0),         c:'#3B8EF0'},
           {l:'Ср. время сборки',v:`${Math.round(ASSEMBLERS_DATA.filter(a=>a.avgTime>0).reduce((s,a)=>s+a.avgTime,0)/ASSEMBLERS_DATA.filter(a=>a.avgTime>0).length)} мин`,c:'#FFB800'},
         ].map((s,i)=>(
           <div key={i} className="ac" style={{padding:'14px 16px'}}>
@@ -5737,7 +5912,6 @@ const AdminAssemblersPage = ({go}) => {
     </AdminWrap>
   );
 };
-
 const Page404 = ({ go }) => (
   <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center", position:"relative", overflow:"hidden" }}>
     <div style={{ position:"absolute", inset:0, opacity:.03, background:"repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(31,215,96,1) 28px,rgba(31,215,96,1) 29px),repeating-linear-gradient(90deg,transparent,transparent 28px,rgba(31,215,96,1) 28px,rgba(31,215,96,1) 29px)" }}/>
@@ -5752,16 +5926,19 @@ const Page404 = ({ go }) => (
   </div>
 );
 
-/* ══════════════════════════════════════════════════════
-   ROUTER / MAIN APP
-══════════════════════════════════════════════════════ */
 export default function KakapoApp() {
   const [page,   setPage]   = useState("home");
   const [params, setParams] = useState({});
   const [cart,   setCart]   = useState({});
+  const [cartMeta, setCartMeta] = useState({});
   const [wished, setWished] = useState({});
   const [user,   setUser]   = useState(null);
   const [toast,  setToast]  = useState(null);
+
+  useEffect(() => {
+    hydrateCourierStores();
+    useProductPhotos.getState().hydrate();
+  }, []);
 
   const go = useCallback((p, prm = {}) => {
     setPage(p); setParams(prm);
@@ -5773,13 +5950,14 @@ export default function KakapoApp() {
     setTimeout(() => setToast(null), 2200);
   }, []);
 
-  const addItem = useCallback((id: string, _price?: number, name?: string, emoji?: string) => {
+  const addItem = useCallback((id, price, name, emoji, restId) => {
     setCart(c => ({ ...c, [id]: (c[id]||0) + 1 }));
-    if (name && emoji) {
-      showToast(`${emoji} ${name} в корзине`);
-    } else {
-      const p = PRODS.find(x => x.id === id);
-      if (p) showToast(`${p.e} ${p.name} в корзине`);
+    const p = PRODS.find(x => x.id === id);
+    if (p) {
+      showToast(`${p.e} ${p.name} в корзине`);
+    } else if (name) {
+      setCartMeta(m => ({ ...m, [id]: { price, name, emoji: emoji || '🍽', restId } }));
+      showToast(`${emoji || '🍽'} ${name} в корзине`);
     }
   }, [showToast]);
 
@@ -5789,6 +5967,7 @@ export default function KakapoApp() {
 
   const delItem = useCallback((id) => {
     setCart(c => { const n = {...c}; delete n[id]; return n; });
+    setCartMeta(m => { const n = {...m}; delete n[id]; return n; });
   }, []);
 
   const toggleWish = useCallback((id) => {
@@ -5797,40 +5976,41 @@ export default function KakapoApp() {
     if (p && !wished[id]) showToast(`❤️ ${p.name} в избранном`);
   }, [wished, showToast]);
 
-  const shared = { go, cart, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params };
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params };
 
   const render = () => {
     switch (page) {
-      case "home":     return <HomePage     {...shared}/>;
-      case "catalog":  return <CatalogPage  {...shared}/>;
-      case "plist":    return <PListPage    {...shared}/>;
-      case "product":  return <ProductPage  {...shared}/>;
-      case "cart":     return <CartPage     {...shared} onDel={delItem}/>;
-      case "checkout": return <CheckoutPage {...shared}/>;
-      case "auth":     return <AuthPage     {...shared} setUser={setUser}/>;
-      case "profile":  return <ProfilePage  {...shared} user={user} setUser={setUser}/>;
-      case "orders":   return <OrdersPage   {...shared}/>;
-      case "promos":   return <PromosPage   {...shared}/>;
-      case "search":   return <SearchPage   {...shared}/>;
-      case "faq":           return <FAQPage          {...shared}/>;
-      case "vip":           return <VIPPage           {...shared} user={user}/>;
-      case "about":         return <AboutPage         {...shared}/>;
-      case "admin_dash":    return <AdminDashPage      go={go}/>;
-      case "admin_orders":  return <AdminOrdersPage    go={go}/>;
-      case "admin_products":return <AdminProductsPage  go={go}/>;
-      case "admin_cards":   return <AdminCardsPage     go={go}/>;
-      case "admin_clients": return <AdminClientsPage   go={go}/>;
-      case "admin_settings":return <AdminSettingsPage  go={go}/>;
-      case "admin_couriers":return <AdminCouriersPage  go={go}/>;
-      case "admin_promos":  return <AdminPromosPage    go={go}/>;
-      case "admin_push":    return <AdminPushPage      go={go}/>;
-      case "restaurants":      return <RestaurantsPage    go={go} cart={cart} onAdd={addItem} />;
-      case "restaurant":       return <RestaurantPage     go={go} params={params} cart={cart} onAdd={addItem} onRm={rmItem}/>;
-      case "partner_login":    return <PartnerLoginPage   go={go}/>;
-      case "partner_dash":     return <PartnerDashPage    go={go}/>;
-      case "admin_partners":   return <AdminPartnersPage  go={go}/>;
+      case "home":             return <HomePage          {...shared}/>;
+      case "catalog":          return <CatalogPage       {...shared}/>;
+      case "plist":            return <PListPage         {...shared}/>;
+      case "product":          return <ProductPage       {...shared}/>;
+      case "cart":             return <CartPage          {...shared} onDel={delItem}/>;
+      case "checkout":         return <CheckoutPage      {...shared}/>;
+      case "auth":             return <AuthPage          {...shared} setUser={setUser}/>;
+      case "profile":          return <ProfilePage       {...shared} user={user} setUser={setUser}/>;
+      case "orders":           return <OrdersPage        {...shared}/>;
+      case "promos":           return <PromosPage        {...shared}/>;
+      case "search":           return <SearchPage        {...shared}/>;
+      case "faq":              return <FAQPage           {...shared}/>;
+      case "vip":              return <VIPPage           {...shared} user={user}/>;
+      case "about":            return <AboutPage         {...shared}/>;
+      case "admin_dash":       return <AdminDashPage     go={go}/>;
+      case "admin_orders":     return <AdminOrdersPage   go={go}/>;
+      case "admin_products":   return <AdminProductsPage go={go}/>;
+      case "admin_cards":      return <AdminCardsPage    go={go}/>;
+      case "admin_clients":    return <AdminClientsPage  go={go}/>;
+      case "admin_settings":   return <AdminSettingsPage go={go}/>;
+      case "admin_couriers":   return <AdminCouriersPage go={go}/>;
+      case "admin_promos":     return <AdminPromosPage   go={go}/>;
+      case "admin_banners":    return <AdminBannersPage  go={go}/>;
+      case "admin_push":       return <AdminPushPage     go={go}/>;
+      case "restaurants":      return <RestaurantsPage   go={go} cart={cart} onAdd={addItem}/>;
+      case "restaurant":       return <RestaurantPage    go={go} params={params} cart={cart} onAdd={addItem} onRm={rmItem}/>;
+      case "partner_login":    return <PartnerLoginPage  go={go}/>;
+      case "partner_dash":     return <PartnerDashPage   go={go}/>;
+      case "admin_partners":   return <AdminPartnersPage go={go}/>;
       case "courier_login":    return <CourierLoginPage      go={go}/>;
-      case "courier_dash":     return <CourierDashPage       go={go}/>;
+      case "courier_dash":     return <CourierDashRedirect/>;
       case "assembler_login":  return <AssemblerLoginPage    go={go}/>;
       case "assembler_dash":   return <AssemblerDashPage     go={go}/>;
       case "notifs":           return <NotifPage             {...shared}/>;
@@ -5840,9 +6020,9 @@ export default function KakapoApp() {
       case "admin_finance":    return <AdminFinancePage      go={go}/>;
       case "admin_inventory":  return <AdminInventoryPage    go={go}/>;
       case "admin_chat":       return <AdminChatSupportPage  go={go}/>;
-      case "admin_reviews":    return <AdminReviewsPage     go={go}/>;
-      case "admin_assemblers": return <AdminAssemblersPage  go={go}/>;
-      default:              return <Page404            go={go}/>;
+      case "admin_reviews":    return <AdminReviewsPage      go={go}/>;
+      case "admin_assemblers": return <AdminAssemblersPage   go={go}/>;
+      default:                 return <Page404               go={go}/>;
     }
   };
 
@@ -5850,7 +6030,7 @@ export default function KakapoApp() {
     <>
       <style>{CSS}</style>
       <Toast msg={toast}/>
-      <div style={{ maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"var(--bg)" }}>
+      <div style={{ maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"var(--bg)", overflowX:"clip" }}>
         {render()}
       </div>
     </>

@@ -1,83 +1,94 @@
 'use client';
 import { useState, useCallback } from 'react';
-import { calcDeliveryPrice, calcDistanceKm } from '@/lib/courierData';
-import { usePricing } from '@/lib/courierStore';
+import dynamic from 'next/dynamic';
+import { calcDeliveryPrice, fetchOrderDeliveryRoute, formatKm, roundRouteKm, STORE_LOCATION } from '@/lib/courierData';
+import { usePricing, usePickupLocations } from '@/lib/courierStore';
+import { reverseGeocode, forwardGeocode } from '@/lib/geocode';
 
-/* ── Координаты магазина KAKAPO г. Яван ── */
-const STORE_LAT = 38.5500;
-const STORE_LNG = 69.1400;
+const RouteMiniMap = dynamic(() => import('./RouteMiniMap'), { ssr: false });
+const AddressMapPicker = dynamic(() => import('./AddressMapPicker'), { ssr: false });
 
 interface AddressResult {
-  address:    string;
-  lat:        number;
-  lng:        number;
+  address: string;
+  lat: number;
+  lng: number;
   distanceKm: number;
+  durationMin: number;
+  geometry: [number, number][];
 }
 
 interface Props {
-  value:      string;
-  onChange:   (val: string) => void;
-  weightKg?:  number;
-  orderAmount?:number;
-  onPriceChange?: (price: ReturnType<typeof calcDeliveryPrice>, dist: number) => void;
+  value: string;
+  onChange: (val: string) => void;
+  weightKg?: number;
+  orderAmount?: number;
+  pickupIds?: string[];
+  onPriceChange?: (
+    price: ReturnType<typeof calcDeliveryPrice>,
+    dist: number,
+    meta: { lat: number; lng: number; durationMin: number; geometry: [number, number][]; pickupIds: string[] }
+  ) => void;
+  /** Сброс расчёта доставки (когда адрес изменён без точки на карте) */
+  onClear?: () => void;
 }
 
-/* ── Reverse geocode через Nominatim (OpenStreetMap, бесплатно) ── */
-async function reverseGeocode(lat: number, lng: number): Promise<string> {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ru`,
-      { headers: { 'User-Agent': 'KAKAPO.TJ/1.0' } }
-    );
-    const data = await res.json();
-    const a = data.address ?? {};
-    const parts = [
-      a.road || a.pedestrian || a.street,
-      a.house_number,
-      a.suburb || a.neighbourhood || a.city_district,
-    ].filter(Boolean);
-    return parts.length > 0 ? parts.join(', ') : data.display_name?.split(',').slice(0,3).join(',') ?? '';
-  } catch {
-    return '';
-  }
-}
+export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderAmount = 0, pickupIds = ['store'], onPriceChange, onClear }: Props) {
+  const { pricing } = usePricing();
+  const locations = usePickupLocations();
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [gpsError, setGpsError] = useState('');
+  const [suggestions, setSuggestions] = useState<{ lat: number; lng: number; display: string }[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [resolved, setResolved] = useState<AddressResult | null>(null);
+  const [showPinMap, setShowPinMap] = useState(false);
+  const [draftPin, setDraftPin] = useState<{ lat: number; lng: number } | null>(null);
 
-/* ── Forward geocode — поиск адреса по тексту ── */
-async function forwardGeocode(query: string): Promise<{ lat:number; lng:number; display:string }[]> {
-  try {
-    const q = encodeURIComponent(`${query}, Яван, Таджикистан`);
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=4&accept-language=ru`,
-      { headers: { 'User-Agent': 'KAKAPO.TJ/1.0' } }
-    );
-    const data = await res.json();
-    return data.map((d: any) => ({
-      lat:     parseFloat(d.lat),
-      lng:     parseFloat(d.lon),
-      display: d.display_name,
-    }));
-  } catch {
-    return [];
-  }
-}
+  const resetCalculation = useCallback(() => {
+    setResolved(null);
+    onClear?.();
+  }, [onClear]);
 
-export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderAmount = 0, onPriceChange }: Props) {
-  const { pricing }    = usePricing();
-  const [gpsLoading,   setGpsLoading]   = useState(false);
-  const [gpsError,     setGpsError]     = useState('');
-  const [suggestions,  setSuggestions]  = useState<{ lat:number; lng:number; display:string }[]>([]);
-  const [searchLoading,setSearchLoading]= useState(false);
-  const [resolved,     setResolved]     = useState<AddressResult | null>(null);
-  const [showMap,      setShowMap]      = useState(false);
+  const resolveCoords = useCallback(async (lat: number, lng: number, address: string) => {
+    setRouteLoading(true);
+    try {
+      const route = await fetchOrderDeliveryRoute({ pickupIds, lat, lng }, locations);
+      const result: AddressResult = {
+        address,
+        lat,
+        lng,
+        distanceKm: roundRouteKm(route.distanceKm),
+        durationMin: route.durationMin,
+        geometry: route.geometry,
+      };
+      setResolved(result);
+      setShowPinMap(false);
+      const price = calcDeliveryPrice({ orderAmount, distanceKm: route.distanceKm, weightKg, pricing });
+      onPriceChange?.(price, route.distanceKm, {
+        lat,
+        lng,
+        durationMin: route.durationMin,
+        geometry: route.geometry,
+        pickupIds,
+      });
+    } finally {
+      setRouteLoading(false);
+    }
+  }, [orderAmount, weightKg, pricing, onPriceChange, pickupIds, locations]);
 
-  /* Вычислить и сообщить цену */
-  const computePrice = useCallback((distKm: number) => {
-    const result = calcDeliveryPrice({ orderAmount, distanceKm:distKm, weightKg, pricing });
-    onPriceChange?.(result, distKm);
-    return result;
-  }, [orderAmount, weightKg, pricing, onPriceChange]);
+  const openMap = (initial?: { lat: number; lng: number } | null) => {
+    setDraftPin(initial ?? draftPin ?? { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng });
+    setShowPinMap(true);
+    resetCalculation();
+  };
 
-  /* GPS — получить текущее местоположение */
+  const confirmPin = async ({ lat, lng, address }: { lat: number; lng: number; address: string }) => {
+    const text = address || value || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    onChange(text);
+    setDraftPin({ lat, lng });
+    await resolveCoords(lat, lng, text);
+  };
+
   const useGPS = () => {
     if (!navigator.geolocation) {
       setGpsError('GPS недоступен в вашем браузере');
@@ -88,13 +99,12 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords;
-        const distKm = calcDistanceKm(STORE_LAT, STORE_LNG, lat, lng);
-        const addr   = await reverseGeocode(lat, lng);
-        const price  = computePrice(distKm);
-        const result: AddressResult = { address: addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng, distanceKm: distKm };
-        setResolved(result);
-        setShowMap(true);
-        onChange(addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        const addr = await reverseGeocode(lat, lng);
+        const text = addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        onChange(text);
+        setDraftPin({ lat, lng });
+        setShowPinMap(true);
+        resetCalculation();
         setGpsLoading(false);
       },
       (err) => {
@@ -109,13 +119,15 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
     );
   };
 
-  /* Поиск адреса по тексту */
   let searchTimer: ReturnType<typeof setTimeout>;
   const handleInput = (val: string) => {
     onChange(val);
-    setResolved(null);
+    setSuggestions([]);
+    setShowPinMap(false);
+    setDraftPin(null);
+    resetCalculation();
     clearTimeout(searchTimer);
-    if (val.length < 3) { setSuggestions([]); return; }
+    if (val.length < 3) return;
     setSearchLoading(true);
     searchTimer = setTimeout(async () => {
       const results = await forwardGeocode(val);
@@ -124,153 +136,169 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
     }, 600);
   };
 
-  /* Выбрать из подсказок */
-  const pickSuggestion = (s: { lat:number; lng:number; display:string }) => {
-    const distKm = calcDistanceKm(STORE_LAT, STORE_LNG, s.lat, s.lng);
-    const result: AddressResult = { address: s.display.split(',').slice(0,3).join(','), lat:s.lat, lng:s.lng, distanceKm:distKm };
-    setResolved(result);
-    setShowMap(true);
-    onChange(result.address);
+  const pickSuggestion = async (s: { lat: number; lng: number; display: string }) => {
+    const text = s.display.split(',').slice(0, 3).join(',');
+    onChange(text);
     setSuggestions([]);
-    computePrice(distKm);
+    setDraftPin({ lat: s.lat, lng: s.lng });
+    setShowPinMap(true);
+    resetCalculation();
   };
 
-  const price = resolved ? computePrice(resolved.distanceKm) : null;
+  const price = resolved
+    ? calcDeliveryPrice({ orderAmount, distanceKm: resolved.distanceKm, weightKg, pricing })
+    : null;
+
+  const routeLabel = pickupIds.length > 1
+    ? `${pickupIds.length} точки → клиент`
+    : pickupIds[0] === 'store'
+      ? 'магазин → клиент'
+      : 'ресторан → клиент';
 
   return (
-    <div style={{ position:'relative' }}>
-
-      {/* Input + GPS button */}
-      <div style={{ position:'relative', display:'flex', gap:8 }}>
-        <div style={{ flex:1, position:'relative' }}>
-          <div style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', fontSize:16, zIndex:2 }}>📍</div>
+    <div style={{ position: 'relative' }}>
+      <div style={{ position: 'relative', display: 'flex', gap: 8 }}>
+        <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+          <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: 16, zIndex: 2 }}>📍</div>
           <input
-            className="kakapo-input"
+            className="inp"
             value={value}
             onChange={e => handleInput(e.target.value)}
-            placeholder="Улица, дом или нажми 📡 GPS"
-            style={{ paddingLeft:38, paddingRight:searchLoading?36:14 }}
+            placeholder="Улица, дом — затем укажите точку на карте"
+            style={{ width: '100%', paddingLeft: 38, paddingRight: searchLoading ? 36 : 14 }}
           />
           {searchLoading && (
-            <div style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', width:16, height:16, borderRadius:'50%', border:'2px solid rgba(31,215,96,.3)', borderTopColor:'var(--gr)', animation:'spin 1s linear infinite' }}/>
+            <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16, borderRadius: '50%', border: '2px solid rgba(31,215,96,.3)', borderTopColor: 'var(--gr)', animation: 'spin 1s linear infinite' }} />
           )}
         </div>
-
-        {/* GPS кнопка */}
         <button
           type="button"
           onClick={useGPS}
-          disabled={gpsLoading}
-          style={{ flexShrink:0, width:48, height:48, borderRadius:13, background:resolved?'rgba(31,215,96,.12)':'var(--l3)', border:`1.5px solid ${resolved?'rgba(31,215,96,.4)':'var(--b1)'}`, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:20, transition:'all .2s', boxShadow:resolved?'0 4px 14px rgba(31,215,96,.2)':undefined }}
-          title="Определить мой адрес по GPS"
+          disabled={gpsLoading || routeLoading}
+          style={{ flexShrink: 0, width: 48, height: 48, borderRadius: 13, background: resolved ? 'rgba(31,215,96,.12)' : 'var(--l3)', border: `1.5px solid ${resolved ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 20, transition: 'all .2s', boxShadow: resolved ? '0 4px 14px rgba(31,215,96,.2)' : undefined }}
+          title="GPS — затем подтвердите точку на карте"
         >
-          {gpsLoading
-            ? <div style={{ width:18, height:18, borderRadius:'50%', border:'2.5px solid rgba(31,215,96,.3)', borderTopColor:'var(--gr)', animation:'spin 1s linear infinite' }}/>
+          {gpsLoading || routeLoading
+            ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2.5px solid rgba(31,215,96,.3)', borderTopColor: 'var(--gr)', animation: 'spin 1s linear infinite' }} />
             : resolved ? '✅' : '📡'
           }
         </button>
       </div>
 
-      {/* GPS error */}
       {gpsError && (
-        <div style={{ marginTop:8, padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.08)', border:'1px solid rgba(255,69,69,.25)', fontSize:12, color:'var(--red)', display:'flex', alignItems:'center', gap:7 }}>
+        <div style={{ marginTop: 8, padding: '9px 12px', borderRadius: 10, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', fontSize: 12, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 7 }}>
           ⚠️ {gpsError}
         </div>
       )}
 
-      {/* Autocomplete suggestions */}
       {suggestions.length > 0 && (
-        <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, right:0, zIndex:50, background:'var(--l1)', border:'1px solid var(--b1)', borderRadius:14, overflow:'hidden', boxShadow:'0 12px 40px rgba(0,0,0,.6)' }}>
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 50, background: 'var(--l1)', border: '1px solid var(--b1)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,.6)' }}>
           {suggestions.map((s, i) => (
             <div key={i} onClick={() => pickSuggestion(s)}
-              style={{ padding:'11px 14px', cursor:'pointer', borderBottom:i<suggestions.length-1?'1px solid var(--b1)':'none', transition:'background .15s', display:'flex', alignItems:'center', gap:10 }}
+              style={{ padding: '11px 14px', cursor: 'pointer', borderBottom: i < suggestions.length - 1 ? '1px solid var(--b1)' : 'none', transition: 'background .15s', display: 'flex', alignItems: 'center', gap: 10 }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(31,215,96,.06)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-              <span style={{ fontSize:16, flexShrink:0 }}>📍</span>
-              <span style={{ fontSize:12, lineHeight:1.4, color:'var(--t1)' }}>{s.display.split(',').slice(0,4).join(', ')}</span>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>📍</span>
+              <span style={{ fontSize: 12, lineHeight: 1.4, color: 'var(--t1)' }}>{s.display.split(',').slice(0, 4).join(', ')}</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* GPS resolved — map + price breakdown */}
-      {resolved && showMap && price && (
-        <div style={{ marginTop:10, borderRadius:16, overflow:'hidden', border:'1px solid rgba(31,215,96,.25)' }}>
+      {/* Обязательный шаг: точка на карте */}
+      {!resolved && !showPinMap && (
+        <button
+          type="button"
+          onClick={() => openMap()}
+          style={{ width: '100%', marginTop: 10, padding: '13px 14px', borderRadius: 14, background: 'rgba(31,215,96,.08)', border: '1.5px solid rgba(31,215,96,.35)', color: 'var(--gr)', fontSize: 13, fontWeight: 700, fontFamily: 'Nunito', cursor: 'pointer' }}
+        >
+          🗺 Указать точку на карте *
+        </button>
+      )}
 
-          {/* Mini map */}
-          <div style={{ height:130, background:'linear-gradient(135deg,#050F08,#091814)', position:'relative', overflow:'hidden' }}>
-            <div style={{ position:'absolute', inset:0, opacity:.06, background:'repeating-linear-gradient(0deg,transparent,transparent 16px,rgba(31,215,96,1) 16px,rgba(31,215,96,1) 17px),repeating-linear-gradient(90deg,transparent,transparent 16px,rgba(31,215,96,1) 16px,rgba(31,215,96,1) 17px)' }}/>
+      {!resolved && showPinMap && (
+        <div style={{ marginTop: 10, padding: 12, borderRadius: 16, border: '1px solid rgba(59,142,240,.3)', background: 'rgba(59,142,240,.05)' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sky)', marginBottom: 8 }}>
+            Шаг 2 · Подтвердите точку дома на карте
+          </div>
+          <AddressMapPicker
+            key={`pin-${draftPin?.lat}-${draftPin?.lng}`}
+            initial={draftPin}
+            onSelect={confirmPin}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPinMap(false)}
+            style={{ marginTop: 8, fontSize: 11, color: 'var(--t3)', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Nunito', fontWeight: 600 }}
+          >
+            ← Скрыть карту
+          </button>
+        </div>
+      )}
 
-            {/* Store marker */}
-            <div style={{ position:'absolute', left:'35%', top:'40%', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-              <div style={{ width:28, height:28, borderRadius:'50%', background:'linear-gradient(135deg,var(--gr3),var(--gr))', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Unbounded', fontSize:11, fontWeight:900, color:'var(--bg)', boxShadow:'0 0 12px rgba(31,215,96,.6)' }}>K</div>
-              <span style={{ fontSize:9, color:'rgba(255,255,255,.6)', whiteSpace:'nowrap', background:'rgba(0,0,0,.5)', padding:'1px 5px', borderRadius:4 }}>Магазин</span>
-            </div>
+      {!resolved && value && !showPinMap && (
+        <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', fontWeight: 600 }}>
+          ⚠️ Без точки на карте доставка не рассчитается — нажмите «🗺 Указать точку на карте»
+        </div>
+      )}
 
-            {/* Client marker */}
-            <div style={{ position:'absolute', right:'25%', top:'30%', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-              <div style={{ width:28, height:28, borderRadius:'50%', background:'var(--blue)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, boxShadow:'0 0 12px rgba(59,142,240,.6)', position:'relative' }}>
-                🏠
-                <div style={{ position:'absolute', inset:-3, borderRadius:'50%', border:'2px solid var(--blue)', animation:'ping 2s ease-out infinite', opacity:.4 }}/>
-              </div>
-              <span style={{ fontSize:9, color:'rgba(255,255,255,.6)', whiteSpace:'nowrap', background:'rgba(0,0,0,.5)', padding:'1px 5px', borderRadius:4 }}>Вы</span>
-            </div>
+      {routeLoading && (
+        <div style={{ marginTop: 10, height: 80, borderRadius: 14, background: '#050F08', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: '1px solid rgba(31,215,96,.25)' }}>
+          <div style={{ width: 24, height: 24, borderRadius: '50%', border: '3px solid rgba(31,215,96,.2)', borderTopColor: 'var(--gr)', animation: 'spin 1s linear infinite' }} />
+          <span style={{ fontSize: 12, color: 'var(--t2)' }}>Считаем маршрут и доставку…</span>
+        </div>
+      )}
 
-            {/* Dotted line */}
-            <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', pointerEvents:'none' }}>
-              <line x1="37%" y1="45%" x2="75%" y2="37%" stroke="rgba(31,215,96,.4)" strokeWidth={1.5} strokeDasharray="5,4"/>
-            </svg>
-
-            {/* Distance badge */}
-            <div style={{ position:'absolute', bottom:8, left:'50%', transform:'translateX(-50%)', padding:'4px 12px', borderRadius:20, background:'rgba(3,11,5,.85)', border:'1px solid rgba(31,215,96,.3)', fontSize:11, fontWeight:700, color:'var(--gr)', whiteSpace:'nowrap' }}>
-              📏 {resolved.distanceKm.toFixed(1)} км от магазина
+      {resolved && price && !routeLoading && (
+        <div style={{ marginTop: 10, borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(31,215,96,.25)' }}>
+          <div style={{ position: 'relative' }}>
+            <RouteMiniMap geometry={resolved.geometry} height={140} />
+            <div style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', padding: '4px 12px', borderRadius: 20, background: 'rgba(3,11,5,.85)', border: '1px solid rgba(31,215,96,.3)', fontSize: 11, fontWeight: 700, color: 'var(--gr)', whiteSpace: 'nowrap', zIndex: 500 }}>
+              🛣 {formatKm(resolved.distanceKm)} · {routeLabel} · ~{resolved.durationMin} мин
             </div>
           </div>
 
-          {/* Price breakdown */}
-          <div style={{ background:'rgba(9,21,8,.95)', padding:'14px 16px' }}>
-            <div style={{ fontSize:11, color:'var(--t3)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.5px', marginBottom:10 }}>
+          <div style={{ background: 'rgba(9,21,8,.95)', padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, color: 'var(--gr)', fontWeight: 700, marginBottom: 8 }}>
+              ✓ Точка подтверждена · {resolved.lat.toFixed(5)}, {resolved.lng.toFixed(5)}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10 }}>
               Расчёт стоимости доставки
             </div>
-
-            <div style={{ display:'flex', flexDirection:'column', gap:5, marginBottom:12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 12 }}>
               {price.breakdown.map((line, i) => (
-                <div key={i} style={{ display:'flex', alignItems:'center', gap:7, fontSize:12, color:line.startsWith('✅')?'var(--gr)':'var(--t2)' }}>
-                  <span>{line}</span>
-                </div>
+                <div key={i} style={{ fontSize: 12, color: line.startsWith('✅') ? 'var(--gr)' : 'var(--t2)' }}>{line}</div>
               ))}
             </div>
-
-            {/* Total */}
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 12px', borderRadius:12, background:price.isFree?'rgba(31,215,96,.1)':'rgba(255,184,0,.08)', border:`1px solid ${price.isFree?'rgba(31,215,96,.3)':'rgba(255,184,0,.25)'}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 12, background: price.isFree ? 'rgba(31,215,96,.1)' : 'rgba(255,184,0,.08)', border: `1px solid ${price.isFree ? 'rgba(31,215,96,.3)' : 'rgba(255,184,0,.25)'}` }}>
               <div>
-                <div style={{ fontSize:13, fontWeight:700, color:price.isFree?'var(--gr)':'var(--t1)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: price.isFree ? 'var(--gr)' : 'var(--t1)' }}>
                   {price.isFree ? '🎉 Доставка бесплатна!' : 'Стоимость доставки'}
                 </div>
-                {price.freeReason && <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>{price.freeReason}</div>}
+                {price.freeReason && <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 2 }}>{price.freeReason}</div>}
               </div>
-              <div style={{ textAlign:'right', flexShrink:0 }}>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 {price.isFree
-                  ? <span style={{ fontFamily:'Unbounded', fontSize:16, fontWeight:900, color:'var(--gr)' }}>0 ЅМ</span>
-                  : <span style={{ fontFamily:'Unbounded', fontSize:16, fontWeight:900, color:'var(--gd)' }}>{price.total.toFixed(2)} ЅМ</span>
+                  ? <span className="ub" style={{ fontFamily: 'Unbounded', fontSize: 16, fontWeight: 900, color: 'var(--gr)' }}>0 ЅМ</span>
+                  : <span className="ub" style={{ fontFamily: 'Unbounded', fontSize: 16, fontWeight: 900, color: 'var(--gd)' }}>{price.total.toFixed(2)} ЅМ</span>
                 }
               </div>
             </div>
-
-            {/* Reset */}
-            <button type="button" onClick={() => { setResolved(null); setShowMap(false); onChange(''); }}
-              style={{ marginTop:10, fontSize:11, color:'var(--t3)', background:'transparent', border:'none', cursor:'pointer', fontFamily:'Nunito', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+            <button
+              type="button"
+              onClick={() => { setResolved(null); setShowPinMap(false); setDraftPin(null); onChange(''); resetCalculation(); }}
+              style={{ marginTop: 10, fontSize: 11, color: 'var(--t3)', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Nunito', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
+            >
               ✕ Изменить адрес
             </button>
           </div>
         </div>
       )}
 
-      {/* Hint when no address yet */}
       {!resolved && !value && (
-        <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:8, fontSize:12, color:'var(--t3)' }}>
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--t3)' }}>
           <span>💡</span>
-          <span>Нажми <span style={{ color:'var(--gr)', fontWeight:700 }}>📡</span> чтобы автоматически определить адрес и цену доставки</span>
+          <span>Адрес + <span style={{ color: 'var(--gr)', fontWeight: 700 }}>точка на карте</span> — тогда посчитаем доставку</span>
         </div>
       )}
     </div>

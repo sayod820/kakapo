@@ -22,7 +22,7 @@ export interface Order {
   type: OrderType
   status: OrderStatus
   createdAt: string
-  client: { name: string; phone: string; addr: string }
+  client: { name: string; phone: string; addr: string; lat?: number; lng?: number }
   courier?: { name: string; phone: string } | null
   assembler?: { name: string } | null
   items: OrderItem[]
@@ -31,6 +31,11 @@ export interface Order {
   priority?: 'normal' | 'urgent'
   restId?: string
   restName?: string
+  pickupIds?: string[]
+  distanceKm?: number
+  deliveryFee?: number
+  durationMin?: number
+  weightKg?: number
 }
 
 export interface Product {
