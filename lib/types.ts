@@ -7,7 +7,8 @@ export type OrderStatus =
 export type OrderType = 'market' | 'restaurant' | 'mixed'
 
 export interface OrderItem {
-  id: number
+  id?: number
+  product_id?: number
   art?: string
   e: string
   name: string
@@ -43,7 +44,15 @@ export interface Order {
   marketStatus?: 'new' | 'assembling' | 'done'
   /** Статус части ресторана(ов) в смешанном заказе */
   restParts?: Record<string, 'new' | 'cooking' | 'done'>
+  /** Точки забора, откуда курьер уже забрал (store, rest1, …) */
+  pickedUpIds?: string[]
+  /** Порядок точек забора, выбранный курьером */
+  courierRoute?: string[]
+  /** Время завершения доставки (HH:MM) */
+  deliveredAt?: string
 }
+
+export type SellType = 'piece' | 'weight'
 
 export interface Product {
   id: number
@@ -60,6 +69,18 @@ export interface Product {
   organic?: boolean
   discount?: number
   photo?: string
+  desc?: string
+  brand?: string
+  country?: string
+  barcode?: string
+  /** piece — поштучно, weight — на развес (граммы в корзине) */
+  sellType?: SellType
+  /** Цена указана за столько грамм (1000 = за 1 кг) */
+  unitGrams?: number
+  /** Шаг добавления в корзину, г */
+  weightStep?: number
+  /** Минимальный заказ, г */
+  minWeight?: number
 }
 
 export interface Restaurant {
@@ -122,4 +143,20 @@ export interface Client {
   spent: number
   debt: number
   bonus: number
+}
+
+export type PromoType = 'pct' | 'free' | 'first' | 'fixed'
+
+export interface Promo {
+  id: number
+  e: string
+  title: string
+  sub: string
+  disc: number
+  on: boolean
+  cat: 'Магазин' | 'Рестораны'
+  type?: PromoType
+  from?: string
+  to?: string
+  till?: string
 }

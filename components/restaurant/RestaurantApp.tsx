@@ -1,9 +1,11 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useOrders, useRestaurants, useAuth, USE_API } from '@/lib/store'
 import { mapOrdersForRestaurant } from '@/lib/orderUiMap'
 import { isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
+import { useAppNavigation } from '@/lib/useAppNavigation'
+import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichRestaurants } from '@/lib/enrichCatalog'
 import Link from 'next/link'
 // ─── KAKAPO Restaurant App ───────────────────────
@@ -92,14 +94,23 @@ const DEMO_ORDERS = [
    MAIN APP
 ══════════════════════════════════════════════════════ */
 export default function RestaurantApp() {
+  return (
+    <AppNavigationBoundary>
+      <RestaurantAppInner />
+    </AppNavigationBoundary>
+  );
+}
+
+function RestaurantAppInner() {
   useApiSync('restaurant');
+  const { page, setPage } = useAppNavigation('dashboard');
   const apiOrders = useOrders(s => s.orders);
   const updateStatusApi = useOrders(s => s.updateStatus);
   const updateRestPart = useOrders(s => s.updateRestPart);
   const apiRests = useRestaurants(s => s.restaurants);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
+  const toggleOpenApi = useRestaurants(s => s.toggleOpen);
   const authLogin = useAuth(s => s.login);
-  const [page,    setPage]    = useState('dashboard');
   const [partner, setPartner] = useState({email:'chaihona@kakapo.tj', name:'Чайхона Оромгох'});
   const [rest,    setRest]    = useState(DEMO_RESTAURANTS[0]);
   const [menu,    setMenu]    = useState(DEMO_RESTAURANTS[0].menu);
@@ -108,8 +119,18 @@ export default function RestaurantApp() {
     [apiOrders, rest]
   );
   const [orders,  setOrders]  = useState(DEMO_ORDERS);
-  const [isOpen,  setIsOpen]  = useState(true);
   const [newOrder,setNewOrder]= useState(false);
+
+  const isOpen = rest ? (typeof rest.open === 'boolean' ? rest.open : (rest.isOpen ?? true)) : true;
+
+  const toggleOpen = useCallback(async () => {
+    if (!rest?.id) return;
+    if (USE_API) {
+      await toggleOpenApi(rest.id);
+    } else {
+      setRest(r => ({ ...r, open: !isOpen, isOpen: !isOpen }));
+    }
+  }, [rest?.id, toggleOpenApi, isOpen]);
 
   useEffect(() => {
     if (USE_API && apiRests.length && partner?.email) {
@@ -118,7 +139,6 @@ export default function RestaurantApp() {
       if (found) {
         setRest(found);
         setMenu(found.menu);
-        setIsOpen(found.open ?? found.isOpen ?? true);
       }
     }
   }, [apiRests, partner?.email]);
@@ -144,7 +164,6 @@ export default function RestaurantApp() {
         if (found) {
           setRest(found);
           setMenu(found.menu);
-          setIsOpen(found.open ?? true);
         }
         setPage('dashboard');
         return true;
@@ -156,7 +175,6 @@ export default function RestaurantApp() {
       setPartner({email, name: found.name});
       setRest(found);
       setMenu(found.menu);
-      setIsOpen(found.isOpen);
       setPage('dashboard');
       return true;
     }
@@ -225,11 +243,11 @@ export default function RestaurantApp() {
           </div>
         )}
 
-        {page==='dashboard' && <DashboardPage rest={rest} orders={orders} isOpen={isOpen} setIsOpen={setIsOpen} onPage={setPage} onLogout={logout} newOrder={newOrder}/>}
+        {page==='dashboard' && <DashboardPage rest={rest} orders={orders} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout} newOrder={newOrder}/>}
         {page==='orders'    && <OrdersPage    rest={rest} orders={orders} onUpdate={updateOrderStatus} onPage={setPage}/>}
         {page==='menu'      && <MenuPage      rest={rest} menu={menu} onToggle={toggleDish} onAdd={addDish} onRemove={removeDish} onPage={setPage}/>}
         {page==='stats'     && <StatsPage     rest={rest} orders={orders} onPage={setPage}/>}
-        {page==='settings'  && <SettingsPage  rest={rest} isOpen={isOpen} setIsOpen={setIsOpen} onPage={setPage} onLogout={logout}/>}
+        {page==='settings'  && <SettingsPage  rest={rest} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout}/>}
       </div>
     </>
   );
@@ -295,13 +313,13 @@ function LoginPage({onLogin}) {
    HEADER (shared)
 ══════════════════════════════════════════════════════ */
 function Header({
-  rest, isOpen, setIsOpen, onPage,
+  rest, isOpen, onToggleOpen, onPage,
   onLogout = () => {},
   showBack = false,
   backPage = 'dashboard',
   title = '',
 }: {
-  rest: any; isOpen: boolean; setIsOpen: (v: boolean | ((p: boolean) => boolean)) => void
+  rest: any; isOpen: boolean; onToggleOpen?: () => void
   onPage: (p: string) => void; onLogout?: () => void
   showBack?: boolean; backPage?: string; title?: string
 }) {
@@ -319,8 +337,8 @@ function Header({
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900}}>{title||rest?.name}</div>
           <div style={{fontSize:10,color:'#8FB897',marginTop:1}}>{rest?.cuisine} · {rest?.address}</div>
         </div>
-        {!showBack && (
-          <div onClick={()=>setIsOpen(v=>!v)} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:11,background:isOpen?'rgba(31,215,96,.12)':'rgba(255,69,69,.12)',border:`1px solid ${isOpen?'rgba(31,215,96,.3)':'rgba(255,69,69,.3)'}`,cursor:'pointer'}}>
+        {!showBack && onToggleOpen && (
+          <div onClick={onToggleOpen} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:11,background:isOpen?'rgba(31,215,96,.12)':'rgba(255,69,69,.12)',border:`1px solid ${isOpen?'rgba(31,215,96,.3)':'rgba(255,69,69,.3)'}`,cursor:'pointer'}}>
             <div style={{width:7,height:7,borderRadius:'50%',background:isOpen?'#1FD760':'#FF4545',animation:'pulse 2s infinite'}}/>
             <span style={{fontSize:12,fontWeight:700,color:isOpen?'#1FD760':'#FF4545'}}>{isOpen?'Открыто':'Закрыто'}</span>
           </div>
@@ -358,7 +376,7 @@ function BottomNav({page, onPage, newOrders}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({rest, orders, isOpen, setIsOpen, onPage, onLogout, newOrder}) {
+function DashboardPage({rest, orders, isOpen, onToggleOpen, onPage, onLogout, newOrder}) {
   const todayOrders   = orders.filter(o=>o.status!=='delivered');
   const doneToday     = orders.filter(o=>o.status==='delivered').length;
   const revenue       = orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+o.total,0);
@@ -366,7 +384,7 @@ function DashboardPage({rest, orders, isOpen, setIsOpen, onPage, onLogout, newOr
 
   return (
     <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
-      <Header rest={rest} isOpen={isOpen} setIsOpen={setIsOpen} onPage={onPage} onLogout={onLogout}/>
+      <Header rest={rest} isOpen={isOpen} onToggleOpen={onToggleOpen} onPage={onPage} onLogout={onLogout}/>
 
       <div style={{padding:'16px 18px'}}>
         {/* Alert new orders */}
@@ -469,7 +487,7 @@ function OrdersPage({rest, orders, onUpdate, onPage}) {
 
   return (
     <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
-      <Header rest={rest} isOpen={true} setIsOpen={()=>{}} onPage={onPage} showBack backPage="dashboard" title="Заказы"/>
+      <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Заказы"/>
 
       <div style={{padding:'14px 18px 0'}}>
         <div style={{display:'flex',gap:8,marginBottom:14}}>
@@ -597,7 +615,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage}) {
 
   return (
     <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
-      <Header rest={rest} isOpen={true} setIsOpen={()=>{}} onPage={onPage} showBack backPage="dashboard" title="Управление меню"/>
+      <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Управление меню"/>
 
       {/* Stop-list alert */}
       {stopCount>0&&(
@@ -746,7 +764,7 @@ function StatsPage({rest, orders, onPage}) {
 
   return (
     <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
-      <Header rest={rest} isOpen={true} setIsOpen={()=>{}} onPage={onPage} showBack backPage="dashboard" title="Статистика"/>
+      <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Статистика"/>
 
       <div style={{padding:'16px 18px'}}>
         {/* Revenue summary */}
@@ -814,19 +832,19 @@ function StatsPage({rest, orders, onPage}) {
 /* ══════════════════════════════════════════════════════
    НАСТРОЙКИ
 ══════════════════════════════════════════════════════ */
-function SettingsPage({rest, isOpen, setIsOpen, onPage, onLogout}) {
+function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout}) {
   const [notifs, setNotifs] = useState(true);
   const [sound,  setSound]  = useState(true);
 
-  const Tog = ({on,set}) => (
-    <div onClick={()=>set(v=>!v)} style={{width:44,height:24,borderRadius:12,background:on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
+  const Tog = ({on, onToggle}) => (
+    <div onClick={onToggle} style={{width:44,height:24,borderRadius:12,background:on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
       <div style={{position:'absolute',top:3,left:on?23:3,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
     </div>
   );
 
   return (
     <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
-      <Header rest={rest} isOpen={isOpen} setIsOpen={setIsOpen} onPage={onPage} showBack backPage="dashboard" title="Настройки"/>
+      <Header rest={rest} isOpen={isOpen} onToggleOpen={onToggleOpen} onPage={onPage} showBack backPage="dashboard" title="Настройки"/>
 
       <div style={{padding:'16px 18px',display:'flex',flexDirection:'column',gap:12}}>
         {/* Restaurant status */}
@@ -837,7 +855,7 @@ function SettingsPage({rest, isOpen, setIsOpen, onPage, onLogout}) {
               <div style={{fontSize:13,fontWeight:700,color:isOpen?'#1FD760':'#FF4545'}}>{isOpen?'🟢 Ресторан открыт':'🔴 Ресторан закрыт'}</div>
               <div style={{fontSize:11,color:'#8FB897',marginTop:2}}>{isOpen?'Клиенты могут делать заказы':'Заказы не принимаются'}</div>
             </div>
-            <Tog on={isOpen} set={setIsOpen}/>
+            <Tog on={isOpen} onToggle={onToggleOpen}/>
           </div>
           <div style={{fontSize:11,color:'#3D6645',marginTop:8}}>Режим работы: {rest?.hours?.open} – {rest?.hours?.close}</div>
         </div>
@@ -863,12 +881,12 @@ function SettingsPage({rest, isOpen, setIsOpen, onPage, onLogout}) {
         <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:16,padding:'16px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:14}}>Уведомления</div>
           {[
-            {l:'Push при новом заказе', on:notifs, set:setNotifs},
-            {l:'Звук при новом заказе', on:sound,  set:setSound},
+            {l:'Push при новом заказе', on:notifs, onToggle:() => setNotifs(v => !v)},
+            {l:'Звук при новом заказе', on:sound,  onToggle:() => setSound(v => !v)},
           ].map((r,i,arr)=>(
             <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 0',borderBottom:i<arr.length-1?'1px solid #162B1A':'none'}}>
               <span style={{fontSize:13,fontWeight:600}}>{r.l}</span>
-              <Tog on={r.on} set={r.set}/>
+              <Tog on={r.on} onToggle={r.onToggle}/>
             </div>
           ))}
         </div>

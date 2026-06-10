@@ -23,7 +23,10 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
       source,
     }
     const pid = it.id ?? it.product_id
-    if (typeof pid === 'number' && pid > 0) item.product_id = pid
+    if (typeof pid === 'number' && pid > 0) {
+      item.id = pid
+      item.product_id = pid
+    }
     const art = it.art ?? it.article
     if (art) item.art = String(art)
     if (source === 'restaurant' && it.restId) item.restId = String(it.restId)

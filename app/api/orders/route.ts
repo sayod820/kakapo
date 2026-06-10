@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
         message = await readBackendError(new Response(JSON.stringify(json), { status: res.status }))
       } catch {
         message = text === 'Internal Server Error'
-          ? 'Сервер Render перегружен. Подождите 10 сек и нажмите «Подтвердить» ещё раз.'
+          ? 'Сервер временно недоступен. Подождите 10 сек и попробуйте снова.'
           : text.slice(0, 200)
       }
       return NextResponse.json({ detail: message }, { status: res.status })

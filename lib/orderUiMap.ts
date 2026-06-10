@@ -1,13 +1,15 @@
 import type { Order, OrderStatus } from './types'
 import type { DemoCourierOrder } from './demoOrders'
-import { restIdToPickupId } from './pickups'
 import {
   allPartsDone,
+  anyPartDone,
   getMarketItems,
   getMarketStatus,
   getRestItems,
   getRestPartStatus,
   getRestIdsFromOrder,
+  getReadyUnpickedPickupIds,
+  getPendingPartsForCourier,
   isMarketPartActive,
   isMixedOrder,
   isRestPartActive,
@@ -52,7 +54,7 @@ function clientStatus(o: Order): string {
     if (s === 'courier_picked' || s === 'delivering') return 'delivering'
     if (s === 'delivered') return 'delivered'
     if (s === 'cancelled') return 'cancelled'
-    if (allPartsDone(order) || s === 'assembler_done') return 'waiting_courier'
+    if (anyPartDone(order) || s === 'assembler_done' || s === 'ready') return 'waiting_courier'
     return 'assembling'
   }
 
@@ -74,11 +76,12 @@ function clientStatus(o: Order): string {
   return 'pending'
 }
 
-/** Заказ готов для курьера (после сборщика и/или ресторана) */
+/** Заказ доступен курьеру (хотя бы одна часть готова) */
 export function isCourierReadyOrder(o: Order): boolean {
   const order = normalizeOrder(o)
   if (order.status === 'delivered' || order.status === 'cancelled') return false
-  if (isMixedOrder(order)) return allPartsDone(order) && order.status === 'assembler_done'
+  if (['courier_picked', 'delivering'].includes(order.status)) return false
+  if (isMixedOrder(order)) return anyPartDone(order) && (order.status === 'ready' || order.status === 'assembler_done')
   if (order.type === 'market') return order.status === 'assembler_done'
   if (order.type === 'restaurant') return order.status === 'ready'
   return false
@@ -91,22 +94,62 @@ export function isCourierSyncOrder(o: Order): boolean {
   return isCourierReadyOrder(order) || order.status === 'courier_picked' || order.status === 'delivering'
 }
 
+/** Заказы курьера в сторе: активные + завершённые (для истории и заработка) */
+export function isCourierRoleOrder(o: Order): boolean {
+  return isCourierSyncOrder(o) || o.status === 'delivered'
+}
+
+/** Админка — подписи статусов */
+export const ADMIN_STATUS_LABELS: Record<string, { l: string; c: string }> = {
+  new: { l: 'Новый', c: '#FF4545' },
+  assembling: { l: 'Собирается', c: '#9B6DFF' },
+  assembler_done: { l: 'Собран', c: '#9B6DFF' },
+  cooking: { l: 'Готовится', c: '#FF8C00' },
+  ready: { l: 'Готов', c: '#FFB800' },
+  courier_picked: { l: 'У курьера', c: '#3B8EF0' },
+  delivering: { l: 'В пути', c: '#3B8EF0' },
+  delivered: { l: 'Доставлен', c: '#1FD760' },
+  cancelled: { l: 'Отменён', c: '#3D6645' },
+}
+
+export function adminStatusLabel(status: string) {
+  return ADMIN_STATUS_LABELS[status] || { l: status, c: '#8FB897' }
+}
+
 /** Админка — таблица заказов */
 export function mapOrdersForAdmin(orders: Order[]) {
-  return orders.map(o => ({
-    id: o.id,
-    type: o.type,
-    client: o.client?.name || '',
-    phone: o.client?.phone || '',
-    items: (o.items || []).map(it => it.name).join(', '),
-    total: o.total,
-    status: o.status,
-    courier: o.courier?.name || '—',
-    assembler: o.assembler?.name || '—',
-    time: o.createdAt || '',
-    addr: o.client?.addr || '',
-    rest: o.restName || '',
-  }))
+  return orders.map(o => {
+    const order = normalizeOrder(o)
+    return {
+      id: order.id,
+      type: order.type,
+      client: order.client?.name || '',
+      phone: order.client?.phone || '',
+      items: (order.items || []).map(it => `${it.name}${it.qty > 1 ? ` ×${it.qty}` : ''}`).join(', '),
+      itemsDetailed: (order.items || []).map(it => ({
+        e: it.e,
+        name: it.name,
+        qty: it.qty,
+        price: it.price,
+        source: it.source,
+        restId: it.restId,
+      })),
+      total: order.total,
+      deliveryFee: order.deliveryFee,
+      status: order.status,
+      courier: order.courier?.name || '—',
+      courierPhone: order.courier?.phone || '',
+      assembler: order.assembler?.name || '—',
+      time: order.createdAt || '',
+      deliveredAt: order.deliveredAt || '',
+      addr: order.client?.addr || '',
+      comment: order.comment || '',
+      rest: order.restName || '',
+      marketStatus: order.marketStatus,
+      restParts: order.restParts,
+      pickedUpIds: order.pickedUpIds,
+    }
+  })
 }
 
 export const ADMIN_NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -141,7 +184,7 @@ export function mapOrdersForAssembler(orders: Order[]) {
         courier: order.courier || { name: '—', phone: '' },
         comment: order.comment || '',
         items: marketItems.map((it, idx) => ({
-          id: it.id ?? idx + 1,
+          id: it.id ?? it.product_id ?? idx + 1,
           art: it.art || '',
           e: it.e,
           name: it.name,
@@ -154,32 +197,42 @@ export function mapOrdersForAssembler(orders: Order[]) {
     })
 }
 
-/** Курьер — только после сборки / готовности ресторана */
-export function mapOrdersForCourier(orders: Order[]): DemoCourierOrder[] {
+/** Один заказ → формат курьера (с учётом частичной готовности) */
+export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoCourierOrder {
+  const order = normalizeOrder(o)
+  const routePickupIds = getReadyUnpickedPickupIds(order)
+  const pendingParts = getPendingPartsForCourier(order)
+  return {
+    id: order.id,
+    pickupIds: routePickupIds,
+    mapPickupIds: routePickupIds,
+    mixed: isMixedOrder(order),
+    pendingParts,
+    pickedUpIds: order.pickedUpIds || [],
+    client: order.client?.name || '',
+    phone: order.client?.phone || '',
+    addr: order.client?.addr || '',
+    lat: order.client?.lat ?? 38.325,
+    lng: order.client?.lng ?? 69.028,
+    weight: Math.round((order.weightKg ?? Math.max(1, (order.items?.reduce((s, i) => s + i.qty, 0) || 1) * 0.4)) * 10) / 10,
+    pay: 'Наличными',
+    time: order.createdAt || '',
+    sum: Math.max(0, order.total - (order.deliveryFee ?? 0)),
+    items: (order.items || []).map(it => ({
+      e: it.e,
+      n: it.name,
+      q: it.qty,
+      p: it.price,
+      source: it.source,
+    })),
+  }
+}
+
+/** Курьер — после готовности хотя бы одной части */
+export function mapOrdersForCourier(orders: Order[]): import('./demoOrders').DemoCourierOrder[] {
   return orders
     .filter(o => isCourierReadyOrder(o))
-    .map(o => {
-      const order = normalizeOrder(o)
-      return {
-        id: order.id,
-        pickupIds: order.pickupIds?.length
-          ? order.pickupIds
-          : [
-            ...(getMarketItems(order.items).length ? ['store'] : []),
-            ...getRestIdsFromOrder(order).map(restIdToPickupId),
-          ],
-        client: order.client?.name || '',
-        phone: order.client?.phone || '',
-        addr: order.client?.addr || '',
-        lat: order.client?.lat ?? 38.325,
-        lng: order.client?.lng ?? 69.028,
-        weight: Math.round((order.weightKg ?? Math.max(1, (order.items?.reduce((s, i) => s + i.qty, 0) || 1) * 0.4)) * 10) / 10,
-        pay: 'Наличными',
-        time: order.createdAt || '',
-        sum: Math.max(0, order.total - (order.deliveryFee ?? 0)),
-        items: (order.items || []).map(it => ({ e: it.e, n: it.name, q: it.qty, p: it.price })),
-      }
-    })
+    .map(o => mapSingleOrderForCourier(o))
 }
 
 /** Ресторан — только блюда своего ресторана из заказа */

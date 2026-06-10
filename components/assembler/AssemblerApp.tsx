@@ -3,7 +3,9 @@ import { useState, useEffect, useMemo } from 'react'
 import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler } from '@/lib/orderUiMap'
 import { isMixedOrder, normalizeOrder } from '@/lib/orderParts'
-import { useApiSync } from '@/lib/useApiSync'
+import { ASSEMBLER_NAME } from '@/lib/courierStats'
+import { useAppNavigation } from '@/lib/useAppNavigation'
+import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import Link from 'next/link'
 // ─── KAKAPO Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
@@ -86,7 +88,17 @@ const HISTORY_DATA = [
    MAIN APP
 ══════════════════════════════════════════════════════ */
 export default function AssemblerApp() {
+  return (
+    <AppNavigationBoundary>
+      <AssemblerAppInner />
+    </AppNavigationBoundary>
+  );
+}
+
+function AssemblerAppInner() {
   useApiSync('assembler');
+  const { page, navigate, params } = useAppNavigation('dashboard');
+  const setPage = (p: string) => navigate(p);
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
   const startMarketPart = useOrders(s => s.startMarketPart);
@@ -96,13 +108,26 @@ export default function AssemblerApp() {
     () => (USE_API ? mapOrdersForAssembler(apiOrders) : ORDERS_DATA),
     [apiOrders]
   );
-  const [page,   setPage]   = useState('dashboard');
   const [orders, setOrders] = useState(mapped.map(o=>({...o, items:o.items.map(i=>({...i}))})));
-  const [activeOrderId, setActiveOrderId] = useState(null);
-  const [completedIds,  setCompletedIds]  = useState([]);
+  const [completedIds,  setCompletedIds]  = useState<string[]>([]);
+  const activeOrderId = page === 'collect' ? (params.order || null) : null;
 
   useEffect(() => {
-    setOrders(mapped.map(o => ({ ...o, items: o.items.map(i => ({ ...i })) })));
+    setOrders(prev => {
+      const doneMap = new Map<string, Map<number, boolean>>()
+      for (const o of prev) {
+        const m = new Map<number, boolean>()
+        o.items.forEach(it => m.set(it.id, !!it.done))
+        doneMap.set(o.id, m)
+      }
+      return mapped.map(o => ({
+        ...o,
+        items: o.items.map(it => ({
+          ...it,
+          done: doneMap.get(o.id)?.get(it.id) ?? it.done ?? false,
+        })),
+      }))
+    })
   }, [mapped]);
 
   const activeOrder = orders.find(o=>o.id===activeOrderId);
@@ -120,18 +145,17 @@ export default function AssemblerApp() {
     if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
       await completeMarketPart(orderId);
     } else if (USE_API) {
-      await updateStatus(orderId, 'assembler_done');
+      await updateStatus(orderId, 'assembler_done', { assembler: { name: ASSEMBLER_NAME } });
     }
     setCompletedIds(ids=>[...ids, orderId]);
     setOrders(os=>os.filter(o=>o.id!==orderId));
-    setActiveOrderId(null);
-    setPage('dashboard');
+    navigate('dashboard');
   };
 
   const pending = orders.filter(o=>!completedIds.includes(o.id));
 
   if(page==='collect' && activeOrder) {
-    return <CollectPage order={activeOrder} onToggle={toggleItem} onComplete={completeOrder} onBack={()=>setPage('dashboard')}/>;
+    return <CollectPage order={activeOrder} onToggle={toggleItem} onComplete={completeOrder} onBack={()=>navigate('dashboard')}/>;
   }
 
   return (
@@ -146,8 +170,7 @@ export default function AssemblerApp() {
           } else if (USE_API && order) {
             await updateStatus(id, 'assembling');
           }
-          setActiveOrderId(id);
-          setPage('collect');
+          navigate('collect', { order: id });
         }} onPage={setPage}/>}
         {page==='history'   && <HistoryPage onPage={setPage}/>}
         {page==='stats'     && <StatsPage   onPage={setPage} completed={completedIds.length}/>}

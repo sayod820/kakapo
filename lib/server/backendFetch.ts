@@ -49,7 +49,7 @@ export async function readBackendError(res: Response): Promise<string> {
     }
   } catch { /* plain text */ }
   if (text === 'Internal Server Error') {
-    return 'Сервер Render перегружен. Подождите 10 сек и нажмите «Подтвердить» ещё раз.'
+    return 'Сервер временно недоступен. Подождите 10 сек и попробуйте снова.'
   }
   return text.slice(0, 200)
 }

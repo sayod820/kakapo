@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════
 // KAKAPO — API клиент (связь с backend)
 // ════════════════════════════════════════════════
-import type { Order, Product, Restaurant, Category } from './types'
+import type { Order, Product, Restaurant, Category, Promo } from './types'
 import type { PickupPoint } from './pickups'
 import type { PricingConfig } from './courierData'
 import { getApiUrl } from './config'
@@ -132,6 +132,14 @@ export const api = {
   getCategoriesTree: () => request<any[]>('/categories/tree'),
   createCategory: (data: any) => request('/categories', { method: 'POST', body: JSON.stringify(data) }),
   deleteCategory: (id: number) => request(`/categories/${id}`, { method: 'DELETE' }),
+
+  // ── Акции ──
+  getPromos: () => request<Promo[]>('/promos'),
+  createPromo: (data: Partial<Promo>) =>
+    request<Promo>('/promos', { method: 'POST', body: JSON.stringify(data) }),
+  updatePromo: (id: number, data: Partial<Promo>) =>
+    request<Promo>(`/promos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePromo: (id: number) => request(`/promos/${id}`, { method: 'DELETE' }),
 
   // ── Заказы ──
   createOrder: (data: any) => {

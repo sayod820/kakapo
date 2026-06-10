@@ -2,14 +2,19 @@
 import { useState, useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { useOrders, useProducts, useRestaurants, useAuth, USE_API } from '@/lib/store'
-import { mapOrdersForAdmin, ADMIN_NEXT_STATUS } from '@/lib/orderUiMap'
+import { mapOrdersForAdmin, ADMIN_NEXT_STATUS, adminStatusLabel } from '@/lib/orderUiMap'
 import { useApiSync } from '@/lib/useApiSync'
+import { useAppNavigation } from '@/lib/useAppNavigation'
+import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
 import { usePricingStore, usePickupStore, hydrateCourierStores } from '@/lib/courierStore'
 import { restIdToPickupId } from '@/lib/pickups'
 import { STORE_LOCATION, calcDeliveryFee, formatKm, DEFAULT_PRICING } from '@/lib/courierData'
 import { useProductPhotos } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
+import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
+import { api } from '@/lib/api'
+import type { Promo } from '@/lib/types'
 import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import Link from 'next/link'
@@ -121,12 +126,12 @@ const PRODS = [
   {id:3, art:'KAK-0003',e:'🍊',name:'Апельсины Навел',    price:6.50, old:8.90, cat:'Фрукты',  catId:'veg',   unit:'1 кг',  stock:15,hot:true, organic:false,discount:27},
   {id:4, art:'KAK-0004',e:'🥝',name:'Киви New Zealand',   price:12.0, old:null, cat:'Фрукты',  catId:'veg',   unit:'500 гр',stock:6, hot:false,organic:false,discount:0},
   {id:5, art:'KAK-0005',e:'🍋',name:'Лимоны',             price:4.50, old:null, cat:'Фрукты',  catId:'veg',   unit:'500 гр',stock:20,hot:false,organic:false,discount:0},
-  {id:6, art:'KAK-0006',e:'🥩',name:'Говядина вырезка',   price:38.0, old:47.0, cat:'Мясо',    catId:'meat',  unit:'500 гр',stock:5, hot:true, organic:false,discount:19},
-  {id:7, art:'KAK-0007',e:'🍗',name:'Куриное филе',       price:16.5, old:null, cat:'Мясо',    catId:'meat',  unit:'1 кг',  stock:12,hot:true, organic:false,discount:0},
-  {id:8, art:'KAK-0008',e:'🥓',name:'Бекон копчёный',     price:22.0, old:null, cat:'Мясо',    catId:'meat',  unit:'200 гр',stock:4, hot:false,organic:false,discount:0},
-  {id:9, art:'KAK-0009',e:'🍖',name:'Баранина на кости',  price:42.0, old:null, cat:'Мясо',    catId:'meat',  unit:'500 гр',stock:8, hot:false,organic:false,discount:0},
+  {id:6, art:'KAK-0006',e:'🥩',name:'Говядина вырезка',   price:38.0, old:47.0, cat:'Мясо',    catId:'meat',  unit:'500 гр',stock:5, hot:true, organic:false,discount:19, sellType:'weight', unitGrams:500, weightStep:100, minWeight:100},
+  {id:7, art:'KAK-0007',e:'🍗',name:'Куриное филе',       price:16.5, old:null, cat:'Мясо',    catId:'meat',  unit:'1 кг',  stock:12,hot:true, organic:false,discount:0, sellType:'weight', unitGrams:1000, weightStep:100, minWeight:100},
+  {id:8, art:'KAK-0008',e:'🥓',name:'Бекон копчёный',     price:22.0, old:null, cat:'Мясо',    catId:'meat',  unit:'200 гр',stock:4, hot:false,organic:false,discount:0, sellType:'weight', unitGrams:200, weightStep:100, minWeight:100},
+  {id:9, art:'KAK-0009',e:'🍖',name:'Баранина на кости',  price:42.0, old:null, cat:'Мясо',    catId:'meat',  unit:'500 гр',stock:8, hot:false,organic:false,discount:0, sellType:'weight', unitGrams:500, weightStep:100, minWeight:100},
   {id:10,art:'KAK-0010',e:'🥛',name:'Молоко 3.2%',        price:4.90, old:null, cat:'Молочное',catId:'dairy', unit:'1 л',   stock:0, hot:false,organic:false,discount:0},
-  {id:11,art:'KAK-0011',e:'🧀',name:'Сыр Российский',     price:18.5, old:null, cat:'Молочное',catId:'dairy', unit:'250 гр',stock:7, hot:true, organic:false,discount:0},
+  {id:11,art:'KAK-0011',e:'🧀',name:'Сыр Российский',     price:18.5, old:null, cat:'Молочное',catId:'dairy', unit:'250 гр',stock:7, hot:true, organic:false,discount:0, sellType:'weight', unitGrams:250, weightStep:100, minWeight:100},
   {id:12,art:'KAK-0012',e:'🥚',name:'Яйца С1',            price:8.90, old:null, cat:'Молочное',catId:'dairy', unit:'10 шт', stock:15,hot:true, organic:false,discount:0},
   {id:13,art:'KAK-0013',e:'🧈',name:'Масло сливочное 82%',price:14.0, old:null, cat:'Молочное',catId:'dairy', unit:'200 гр',stock:9, hot:false,organic:false,discount:0},
   {id:14,art:'KAK-0014',e:'🥐',name:'Круассан с шоколадом',price:2.50,old:null, cat:'Выпечка', catId:'bread', unit:'1 шт',  stock:2, hot:true, organic:false,discount:0},
@@ -206,7 +211,12 @@ const NAV_GROUPS = [
 ];
 
 function Layout({page,setPage,children,title,subtitle}) {
-  const newOrders = ALL_ORDERS.filter(o=>o.status==='new').length;
+  const apiOrders = useOrders(s => s.orders);
+  const orders = useMemo(
+    () => (USE_API ? mapOrdersForAdmin(apiOrders) : ALL_ORDERS),
+    [apiOrders],
+  );
+  const newOrders = orders.filter(o => o.status === 'new').length;
   return (
     <div style={{display:'flex',minHeight:'100vh',background:'#030B05',fontFamily:'Nunito,sans-serif'}}>
       <style>{CSS}</style>
@@ -223,7 +233,7 @@ function Layout({page,setPage,children,title,subtitle}) {
                 <button key={n.id} onClick={()=>setPage(n.id)} className="btn"
                   style={{display:'flex',alignItems:'center',gap:9,padding:'9px 11px',borderRadius:10,background:page===n.id?'rgba(31,215,96,.14)':'transparent',border:`1px solid ${page===n.id?'rgba(31,215,96,.22)':'transparent'}`,color:page===n.id?'#1FD760':'#8FB897',fontSize:13,fontWeight:600,textAlign:'left',cursor:'pointer',width:'100%',position:'relative'}}>
                   <span style={{fontSize:16,flexShrink:0}}>{n.icon}</span>{n.l}
-                  {n.id==='orders'&&newOrders>0&&<span style={{marginLeft:'auto',width:18,height:18,borderRadius:'50%',background:'#FF4545',fontSize:9,fontWeight:900,color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{newOrders}</span>}
+                  {n.id==='orders'&&newOrders>0&&<span style={{marginLeft:'auto',minWidth:18,height:18,padding:'0 5px',borderRadius:999,background:'#FF4545',fontSize:9,fontWeight:900,color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{newOrders > 99 ? '99+' : newOrders}</span>}
                 </button>
               ))}
             </div>
@@ -253,6 +263,89 @@ function Layout({page,setPage,children,title,subtitle}) {
   );
 }
 /* ── ORDERS ─────────────────────────────────────── */
+function OrderDetailModal({ order, onClose }) {
+  if (!order) return null
+  const st = adminStatusLabel(order.status)
+  const PART_LABELS = { new: 'Новый', assembling: 'Собирается', done: 'Готово', cooking: 'Готовится' }
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.72)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} className="ac" style={{ width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', padding:22 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:18 }}>
+          <div>
+            <div className="ub" style={{ fontSize:18, fontWeight:900, color:'#1FD760', marginBottom:4 }}>{order.id}</div>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              <Badge v={st.l} c={st.c}/>
+              <Badge v={order.type==='restaurant'?'🍽 Ресторан':order.type==='mixed'?'🔀 Смешанный':'🛒 Магазин'} c={order.type==='restaurant'?'#FF8C00':'#1FD760'}/>
+            </div>
+          </div>
+          <button onClick={onClose} className="btn" style={{ width:32, height:32, borderRadius:10, background:'#0C1C0F', border:'1px solid #162B1A', color:'#8FB897', fontSize:16 }}>✕</button>
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
+          <div style={{ background:'#0C1C0F', borderRadius:12, padding:12, border:'1px solid #162B1A' }}>
+            <div style={{ fontSize:10, color:'#3D6645', marginBottom:6, fontWeight:700 }}>КЛИЕНТ</div>
+            <div style={{ fontWeight:700, fontSize:13, marginBottom:2 }}>{order.client}</div>
+            <div style={{ fontSize:11, color:'#8FB897' }}>{order.phone}</div>
+            <div style={{ fontSize:11, color:'#8FB897', marginTop:4 }}>📍 {order.addr || '—'}</div>
+          </div>
+          <div style={{ background:'#0C1C0F', borderRadius:12, padding:12, border:'1px solid #162B1A' }}>
+            <div style={{ fontSize:10, color:'#3D6645', marginBottom:6, fontWeight:700 }}>КОМАНДА</div>
+            <div style={{ fontSize:12, marginBottom:6 }}>
+              <span style={{ color:'#3D6645' }}>Сборщик: </span>
+              <span style={{ color:'#9B6DFF', fontWeight:700 }}>{order.assembler}</span>
+            </div>
+            <div style={{ fontSize:12 }}>
+              <span style={{ color:'#3D6645' }}>Курьер: </span>
+              <span style={{ color:'#3B8EF0', fontWeight:700 }}>{order.courier}</span>
+              {order.courierPhone && <span style={{ color:'#3D6645', fontSize:10 }}> · {order.courierPhone}</span>}
+            </div>
+          </div>
+        </div>
+
+        {order.rest && (
+          <div style={{ fontSize:12, color:'#FF8C00', marginBottom:12, fontWeight:700 }}>🍽 {order.rest}</div>
+        )}
+
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10, color:'#3D6645', marginBottom:8, fontWeight:700 }}>СОСТАВ ЗАКАЗА</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {(order.itemsDetailed || []).map((it, i) => (
+              <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 10px', background:'#0C1C0F', borderRadius:10, border:'1px solid #162B1A' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <span>{it.e || '📦'}</span>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:600 }}>{it.name}</div>
+                    <div style={{ fontSize:10, color:'#3D6645' }}>{it.qty} шт · {it.source === 'restaurant' ? 'ресторан' : 'магазин'}</div>
+                  </div>
+                </div>
+                <div className="ub" style={{ fontSize:12, fontWeight:800 }}>{(it.price * it.qty).toFixed(1)} ЅМ</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {(order.marketStatus || order.restParts) && (
+          <div style={{ marginBottom:14, padding:12, background:'rgba(155,109,255,.06)', borderRadius:12, border:'1px solid rgba(155,109,255,.2)' }}>
+            <div style={{ fontSize:10, color:'#9B6DFF', marginBottom:8, fontWeight:700 }}>ЭТАПЫ (СМЕШАННЫЙ ЗАКАЗ)</div>
+            {order.marketStatus && <div style={{ fontSize:11, marginBottom:4 }}>🛒 Магазин: <strong>{PART_LABELS[order.marketStatus] || order.marketStatus}</strong></div>}
+            {order.restParts && Object.entries(order.restParts).map(([rid, ps]) => (
+              <div key={rid} style={{ fontSize:11, marginBottom:2 }}>🍽 {rid}: <strong>{PART_LABELS[ps] || ps}</strong></div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingTop:12, borderTop:'1px solid #162B1A' }}>
+          <div>
+            <div style={{ fontSize:10, color:'#3D6645' }}>Создан: {order.time || '—'}{order.deliveredAt ? ` · Доставлен: ${order.deliveredAt}` : ''}</div>
+            {order.comment && <div style={{ fontSize:11, color:'#8FB897', marginTop:4 }}>💬 {order.comment}</div>}
+          </div>
+          <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{order.total} ЅМ</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function OrdersPage() {
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
@@ -262,7 +355,14 @@ function OrdersPage() {
   );
   const [type,   setType]   = useState('all');
   const [status, setStatus] = useState('all');
-  const filtered = orders.filter(o=>(type==='all'||o.type===type)&&(status==='all'||o.status===status));
+  const [detail, setDetail] = useState(null);
+  const ACTIVE_STATUSES = ['assembling','assembler_done','cooking','ready','courier_picked'];
+  const filtered = orders.filter(o => {
+    const matchType = type === 'all' || o.type === type;
+    const matchStatus = status === 'all' || o.status === status
+      || (status === 'assembling' && ACTIVE_STATUSES.includes(o.status));
+    return matchType && matchStatus;
+  });
   const advance = async (o: typeof orders[0]) => {
     const nxt = ADMIN_NEXT_STATUS[o.status as keyof typeof ADMIN_NEXT_STATUS];
     if (!nxt) return;
@@ -270,10 +370,13 @@ function OrdersPage() {
   };
   return (
     <div>
+      {detail && <OrderDetailModal order={detail} onClose={()=>setDetail(null)}/>}
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:18}}>
         {['all','new','assembling','delivering','delivered'].map(s=>{
-          const cnt = s==='all' ? orders.length : orders.filter(o=>o.status===s).length;
-          const sc  = SC_STATUS[s]||{l:'Все',c:'#EBF5ED'};
+          const cnt = s==='all' ? orders.length
+            : s==='assembling' ? orders.filter(o=>ACTIVE_STATUSES.includes(o.status)).length
+            : orders.filter(o=>o.status===s).length;
+          const sc  = s==='all' ? {l:'Все',c:'#EBF5ED'} : s==='assembling' ? {l:'В работе',c:'#9B6DFF'} : adminStatusLabel(s);
           return (
             <div key={s} onClick={()=>setStatus(s)} className="ac" style={{padding:'12px 14px',cursor:'pointer',border:`1.5px solid ${status===s?'rgba(31,215,96,.3)':'#162B1A'}`,background:status===s?'rgba(31,215,96,.06)':'#091508'}}>
               <div style={{fontSize:10,color:'#8FB897',marginBottom:5}}>{s==='all'?'Все заказы':sc.l}</div>
@@ -292,23 +395,24 @@ function OrdersPage() {
       </div>
       <div className="ac">
         <table className="at">
-          <thead><tr><th>ID</th><th>Тип</th><th>Клиент</th><th>Состав</th><th>Сумма</th><th>Курьер</th><th>Сборщик</th><th>Статус</th><th>Время</th><th></th></tr></thead>
+          <thead><tr><th>ID</th><th>Тип</th><th>Клиент</th><th>Адрес</th><th>Состав</th><th>Сумма</th><th>Курьер</th><th>Сборщик</th><th>Статус</th><th>Время</th><th></th></tr></thead>
           <tbody>
             {filtered.map(o=>{
-              const s=SC_STATUS[o.status]||{l:o.status,c:'#8FB897'};
+              const s=adminStatusLabel(o.status);
               const nxt=ADMIN_NEXT_STATUS[o.status as keyof typeof ADMIN_NEXT_STATUS];
               return (
-                <tr key={o.id}>
+                <tr key={o.id} onClick={()=>setDetail(o)} style={{ cursor:'pointer' }}>
                   <td><span className="ub" style={{fontSize:11,color:'#1FD760'}}>{o.id}</span></td>
-                  <td><span style={{fontSize:10,padding:'2px 7px',borderRadius:6,background:o.type==='restaurant'?'rgba(255,140,0,.12)':'rgba(31,215,96,.1)',color:o.type==='restaurant'?'#FF8C00':'#1FD760'}}>{o.type==='restaurant'?`🍽 ${o.rest||''}` :'🛒'}</span></td>
+                  <td><span style={{fontSize:10,padding:'2px 7px',borderRadius:6,background:o.type==='restaurant'?'rgba(255,140,0,.12)':'rgba(31,215,96,.1)',color:o.type==='restaurant'?'#FF8C00':'#1FD760'}}>{o.type==='restaurant'?`🍽 ${o.rest||''}` :o.type==='mixed'?'🔀 Смеш.':'🛒'}</span></td>
                   <td><div style={{fontWeight:600,fontSize:12}}>{o.client}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.phone}</div></td>
+                  <td style={{fontSize:10,color:'#8FB897',maxWidth:100}}>{o.addr||'—'}</td>
                   <td style={{fontSize:11,color:'#8FB897',maxWidth:130}}>{o.items}</td>
                   <td><span className="ub" style={{fontSize:12,fontWeight:800}}>{o.total} ЅМ</span></td>
-                  <td style={{fontSize:11,color:'#3B8EF0'}}>{o.courier}</td>
-                  <td style={{fontSize:11,color:'#9B6DFF'}}>{o.assembler}</td>
+                  <td style={{fontSize:11,color:o.courier==='—'?'#3D6645':'#3B8EF0',fontWeight:o.courier==='—'?400:700}}>{o.courier}</td>
+                  <td style={{fontSize:11,color:o.assembler==='—'?'#3D6645':'#9B6DFF',fontWeight:o.assembler==='—'?400:700}}>{o.assembler}</td>
                   <td><Badge v={s.l} c={s.c}/></td>
                   <td style={{fontSize:11,color:'#3D6645'}}>{o.time}</td>
-                  <td>{nxt&&<button onClick={()=>advance(o)} className="ab abg" style={{padding:'4px 9px',fontSize:11}}>→</button>}</td>
+                  <td>{nxt&&<button onClick={(e)=>{e.stopPropagation();advance(o);}} className="ab abg" style={{padding:'4px 9px',fontSize:11}}>→</button>}</td>
                 </tr>
               );
             })}
@@ -341,12 +445,37 @@ function ProductsPage() {
   const [nPhoto,  setNPhoto]  = useState('');
   const [nStock,  setNStock]  = useState('');
   const [nOrganic,setNOrganic]= useState(false);
+  const [nSellType,setNSellType]=useState('piece');
+  const [nWeightStep,setNWeightStep]=useState('100');
+  const [nUnitGrams,setNUnitGrams]=useState('1000');
+  const [nDesc,setNDesc]=useState('');
+  const [editForm,setEditForm]=useState(null);
   const [ePhoto,  setEPhoto]  = useState('');
 
   useEffect(() => { hydrate(); }, [hydrate]);
   useEffect(() => {
-    if (!editP) return;
+    if (!editP) { setEditForm(null); return; }
     setEPhoto(editP.photo || getPhoto(editP.id) || '');
+    setEditForm({
+      name: editP.name,
+      art: editP.art,
+      e: editP.e || '📦',
+      desc: editP.desc || '',
+      brand: editP.brand || '',
+      country: editP.country || '',
+      barcode: editP.barcode || '',
+      price: editP.price,
+      old: editP.old ?? '',
+      stock: editP.stock,
+      unit: editP.unit || 'шт',
+      catId: editP.catId,
+      sellType: editP.sellType || 'piece',
+      weightStep: editP.weightStep || 100,
+      minWeight: editP.minWeight || editP.weightStep || 100,
+      unitGrams: editP.unitGrams || productUnitGrams(editP),
+      hot: !!editP.hot,
+      organic: !!editP.organic,
+    });
   }, [editP, getPhoto]);
 
   const syncGBS = () => { setSyncMsg('loading'); setTimeout(()=>setSyncMsg('ok'),1800); setTimeout(()=>setSyncMsg(''),5000); };
@@ -360,7 +489,8 @@ function ProductsPage() {
 
   const resetAddForm = () => {
     setNName(''); setNArt(''); setNPrice(''); setNOld(''); setNUnit(''); setNStock('');
-    setNEmoji('📦'); setNPhoto(''); setNOrganic(false);
+    setNEmoji('📦'); setNPhoto(''); setNOrganic(false); setNSellType('piece');
+    setNWeightStep('100'); setNUnitGrams('1000'); setNDesc('');
   };
 
   const closeAddModal = () => { setShowAdd(false); resetAddForm(); };
@@ -373,6 +503,12 @@ function ProductsPage() {
       id:newId, art:nArt||nextArt, e:nEmoji, name:nName, price:Number(nPrice),
       old:nOld?Number(nOld):null, cat:CATS_LIST.find(c=>c.id===nCat)?.name||nCat, catId:nCat,
       unit:nUnit||'шт', stock:Number(nStock)||0, hot:false, organic:nOrganic,
+      desc:nDesc||undefined, sellType:nSellType,
+      ...(nSellType==='weight' ? {
+        weightStep:Number(nWeightStep)||100,
+        minWeight:Number(nWeightStep)||100,
+        unitGrams:Number(nUnitGrams)||1000,
+      } : {}),
       discount:nOld?Math.round((1-Number(nPrice)/Number(nOld))*100):0,
       photo:nPhoto||undefined,
     };
@@ -382,23 +518,24 @@ function ProductsPage() {
   };
 
   const saveEdit = async () => {
-    if (!editP) return;
-    const priceEl = document.getElementById('edit-price') as HTMLInputElement | null;
-    const oldEl = document.getElementById('edit-old') as HTMLInputElement | null;
-    const stockEl = document.getElementById('edit-stock') as HTMLInputElement | null;
-    const unitEl = document.getElementById('edit-unit') as HTMLInputElement | null;
-    const catEl = document.getElementById('edit-cat') as HTMLSelectElement | null;
-    const price = Number(priceEl?.value ?? editP.price);
-    const old = oldEl?.value ? Number(oldEl.value) : null;
-    const stock = Number(stockEl?.value ?? editP.stock);
-    const unit = unitEl?.value || editP.unit;
-    const catId = catEl?.value || editP.catId;
+    if (!editP || !editForm) return;
+    const price = Number(editForm.price);
+    const old = editForm.old !== '' && editForm.old != null ? Number(editForm.old) : null;
     const updated = {
       ...editP,
-      price, old, stock, unit, catId,
-      cat: CATS_LIST.find(c=>c.id===catId)?.name || editP.cat,
+      ...editForm,
+      price, old,
+      stock: Number(editForm.stock),
+      catId: editForm.catId,
+      cat: CATS_LIST.find(c=>c.id===editForm.catId)?.name || editP.cat,
       discount: old && old > price ? Math.round((1 - price / old) * 100) : 0,
       photo: ePhoto || undefined,
+      sellType: editForm.sellType || 'piece',
+      ...(editForm.sellType === 'weight' ? {
+        weightStep: Number(editForm.weightStep) || 100,
+        minWeight: Number(editForm.minWeight) || Number(editForm.weightStep) || 100,
+        unitGrams: Number(editForm.unitGrams) || 1000,
+      } : { weightStep: undefined, minWeight: undefined, unitGrams: undefined }),
     };
     await saveProduct(updated);
     if (ePhoto) setPhoto(editP.id, ePhoto);
@@ -485,7 +622,7 @@ function ProductsPage() {
                     </div>
                   </td>
                   <td>{p.discount>0?<Badge v={`-${p.discount}%`} c="#FF4545"/>:<span style={{color:'#3D6645',fontSize:11}}>—</span>}</td>
-                  <td style={{fontSize:11,color:'#8FB897'}}>{p.unit}</td>
+                  <td style={{fontSize:11,color:'#8FB897'}}>{p.unit}{isWeighted(p)?' ⚖️':''}</td>
                   <td>
                     <div style={{display:'flex',alignItems:'center',gap:6}}>
                       <div style={{width:45,height:6,borderRadius:3,background:'#162B1A',overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,p.stock/25*100)}%`,background:sc.c,borderRadius:3}}/></div>
@@ -545,6 +682,21 @@ function ProductsPage() {
                 </div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Единица измерения</div><input className="ai" value={nUnit} onChange={e=>setNUnit(e.target.value)} placeholder="500 гр / 1 кг / 1 л ..."/></div>
               </div>
+              <div>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div>
+                <textarea className="ai" value={nDesc} onChange={e=>setNDesc(e.target.value)} rows={2} placeholder="Краткое описание для клиента"/>
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                {[{id:'piece',l:'📦 Поштучно'},{id:'weight',l:'⚖️ На развес'}].map(t=>(
+                  <button key={t.id} type="button" onClick={()=>setNSellType(t.id)} className="ab" style={{flex:1,padding:'8px',fontSize:12,background:nSellType===t.id?'rgba(31,215,96,.14)':'#091508',border:`1.5px solid ${nSellType===t.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:nSellType===t.id?'#1FD760':'#8FB897'}}>{t.l}</button>
+                ))}
+              </div>
+              {nSellType==='weight'&&(
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                  <div><div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Цена за (г)</div><input className="ai" value={nUnitGrams} onChange={e=>setNUnitGrams(e.target.value)} type="number"/></div>
+                  <div><div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Шаг в корзине (г)</div><input className="ai" value={nWeightStep} onChange={e=>setNWeightStep(e.target.value)} type="number"/></div>
+                </div>
+              )}
               <div style={{display:'flex',gap:16,padding:'10px 14px',borderRadius:11,background:'#0C1C0F',border:'1px solid #162B1A'}}>
                 <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,fontWeight:600}}>
                   <input type="checkbox" onChange={e=>setNOrganic(e.target.checked)} style={{width:16,height:16,accentColor:'#34D399'}}/>
@@ -563,31 +715,67 @@ function ProductsPage() {
       )}
 
       {/* Edit modal */}
-      {editP&&(
+      {editP&&editForm&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>setEditP(null)}/>
-          <div className="amodbox" style={{maxWidth:520}}>
+          <div className="amodbox" style={{maxWidth:560,maxHeight:'92vh',overflowY:'auto'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={{fontSize:28}}>{editP.e}</span>
-                <div><div className="ub" style={{fontSize:14,fontWeight:800}}>{editP.name}</div><div style={{fontSize:11,color:'#8FB897'}}>{editP.art}</div></div>
+                <input className="ai" value={editForm.e} onChange={e=>setEditForm(f=>({...f,e:e.target.value}))} style={{width:52,textAlign:'center',fontSize:24,padding:'8px 4px'}}/>
+                <div>
+                  <input className="ai" value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{fontFamily:'Unbounded',fontWeight:800,fontSize:14,marginBottom:4}}/>
+                  <div style={{fontSize:11,color:'#8FB897'}}>{editForm.art}</div>
+                </div>
               </div>
               <button onClick={()=>setEditP(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
               <PhotoUploadField value={ePhoto} onChange={setEPhoto} height={120} />
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ)</div><input id="edit-price" className="ai" defaultValue={editP.price} type="number"/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Старая цена (ЅМ)</div><input id="edit-old" className="ai" defaultValue={editP.old||''} type="number" placeholder="Без скидки"/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Остаток</div><input id="edit-stock" className="ai" defaultValue={editP.stock} type="number"/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Единица</div><input id="edit-unit" className="ai" defaultValue={editP.unit}/></div>
+              <div>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div>
+                <textarea className="ai" value={editForm.desc} onChange={e=>setEditForm(f=>({...f,desc:e.target.value}))} rows={3} placeholder="Подробное описание для клиента..." style={{resize:'vertical',minHeight:72}}/>
               </div>
-              <div style={{display:'flex',gap:12}}>
-                <div style={{flex:1}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Бренд</div><input className="ai" value={editForm.brand} onChange={e=>setEditForm(f=>({...f,brand:e.target.value}))} placeholder="Производитель"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Страна</div><input className="ai" value={editForm.country} onChange={e=>setEditForm(f=>({...f,country:e.target.value}))} placeholder="Таджикистан"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Штрих-код</div><input className="ai" value={editForm.barcode} onChange={e=>setEditForm(f=>({...f,barcode:e.target.value}))} placeholder="4600..."/></div>
+              </div>
+              <div style={{padding:'12px 14px',borderRadius:12,background:'#0C1C0F',border:'1px solid #162B1A'}}>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Тип продажи</div>
+                <div style={{display:'flex',gap:8,marginBottom:10}}>
+                  {[{id:'piece',l:'📦 Поштучно'},{id:'weight',l:'⚖️ На развес'}].map(t=>(
+                    <button key={t.id} type="button" onClick={()=>setEditForm(f=>({...f,sellType:t.id}))} className="ab" style={{flex:1,padding:'9px 8px',fontSize:12,background:editForm.sellType===t.id?'rgba(31,215,96,.14)':'#091508',border:`1.5px solid ${editForm.sellType===t.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:editForm.sellType===t.id?'#1FD760':'#8FB897'}}>{t.l}</button>
+                  ))}
+                </div>
+                {editForm.sellType==='weight' && (
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+                    <div><div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Цена за (г)</div><input className="ai" type="number" value={editForm.unitGrams} onChange={e=>setEditForm(f=>({...f,unitGrams:Number(e.target.value)}))}/></div>
+                    <div><div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Шаг (+г)</div><input className="ai" type="number" value={editForm.weightStep} onChange={e=>setEditForm(f=>({...f,weightStep:Number(e.target.value)}))}/></div>
+                    <div><div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Минимум (г)</div><input className="ai" type="number" value={editForm.minWeight} onChange={e=>setEditForm(f=>({...f,minWeight:Number(e.target.value)}))}/></div>
+                  </div>
+                )}
+                <div style={{fontSize:10,color:'#3D6645',marginTop:8}}>
+                  {editForm.sellType==='weight'
+                    ? `Клиент добавляет в корзину с шагом ${editForm.weightStep || 100} г · ${formatPriceLabel({ ...editForm, price: Number(editForm.price)||0 })}`
+                    : 'Клиент добавляет целыми штуками / упаковками'}
+                </div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ)</div><input className="ai" value={editForm.price} onChange={e=>setEditForm(f=>({...f,price:e.target.value}))} type="number"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Старая цена (ЅМ)</div><input className="ai" value={editForm.old} onChange={e=>setEditForm(f=>({...f,old:e.target.value}))} type="number" placeholder="Без скидки"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Остаток</div><input className="ai" value={editForm.stock} onChange={e=>setEditForm(f=>({...f,stock:e.target.value}))} type="number"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Единица (отображение)</div><input className="ai" value={editForm.unit} onChange={e=>setEditForm(f=>({...f,unit:e.target.value}))} placeholder="500 гр / шт / 1 л"/></div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+                <div>
                   <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Категория</div>
-                  <select id="edit-cat" className="ai" defaultValue={editP.catId} style={{cursor:'pointer'}}>
+                  <select className="ai" value={editForm.catId} onChange={e=>setEditForm(f=>({...f,catId:e.target.value}))} style={{cursor:'pointer'}}>
                     {CATS_LIST.map(c=><option key={c.id} value={c.id}>{c.e} {c.name}</option>)}
                   </select>
+                </div>
+                <div style={{display:'flex',alignItems:'flex-end',gap:8,paddingBottom:2}}>
+                  <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,cursor:'pointer'}}><input type="checkbox" checked={editForm.hot} onChange={e=>setEditForm(f=>({...f,hot:e.target.checked}))}/> 🔥 Хит</label>
+                  <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,cursor:'pointer'}}><input type="checkbox" checked={editForm.organic} onChange={e=>setEditForm(f=>({...f,organic:e.target.checked}))}/> 🌿 Органик</label>
                 </div>
               </div>
               <div style={{display:'flex',gap:10}}>
@@ -1415,15 +1603,155 @@ function CategoriesPage() {
 
 
 function PromosPage() {
-  const [promos,setPromos]=useState([
-    {id:1,e:'🥛',t:'Молочная среда',s:'Скидка 30% на молочное',disc:30,on:true,cat:'Магазин'},
-    {id:2,e:'🥩',t:'Мясные выходные',s:'Скидка 25% на мясо и птицу',disc:25,on:true,cat:'Магазин'},
-    {id:3,e:'🥦',t:'Органик-день',s:'Скидка 20% на органик продукты',disc:20,on:false,cat:'Магазин'},
-    {id:4,e:'⚡',t:'Флэш-распродажа',s:'Только до 20:00 сегодня',disc:40,on:true,cat:'Магазин'},
-    {id:5,e:'🚀',t:'Бесплатная доставка',s:'При заказе от 30 ЅМ',disc:0,on:true,cat:'Магазин'},
-    {id:6,e:'🍽',t:'Скидка в ресторанах',s:'10% в Чайхоне и Суши',disc:10,on:false,cat:'Рестораны'},
-    {id:7,e:'🎁',t:'Первый заказ',s:'15% скидка на первый заказ',disc:15,on:true,cat:'Магазин'},
-  ]);
+  const LOCAL_KEY = 'kakapo_admin_promos'
+  const defaultPromos: Promo[] = [
+    { id: 1, e: '🥛', title: 'Молочная среда', sub: 'Скидка 30% на молочное', disc: 30, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Среда' },
+    { id: 2, e: '🥩', title: 'Мясные выходные', sub: 'Скидка 25% на мясо и птицу', disc: 25, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Сб–Вс' },
+    { id: 3, e: '🥦', title: 'Органик-день', sub: 'Скидка 20% на органик продукты', disc: 20, on: false, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Пятница' },
+    { id: 4, e: '⚡', title: 'Флэш-распродажа', sub: 'Только до 20:00 сегодня', disc: 40, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '20:00', till: 'Сегодня' },
+    { id: 5, e: '🚀', title: 'Бесплатная доставка', sub: 'При заказе от 30 ЅМ', disc: 0, on: true, cat: 'Магазин', type: 'free', from: '08:00', to: '22:00', till: 'Всегда' },
+    { id: 6, e: '🍽', title: 'Скидка в ресторанах', sub: '10% в Чайхоне и Суши', disc: 10, on: false, cat: 'Рестораны', type: 'pct', from: '10:00', to: '23:00', till: 'Всегда' },
+    { id: 7, e: '🎁', title: 'Первый заказ', sub: '15% скидка на первый заказ', disc: 15, on: true, cat: 'Магазин', type: 'first', from: '00:00', to: '23:59', till: 'Всегда' },
+  ]
+  const emptyForm = { e: '🎁', title: '', sub: '', disc: '0', cat: 'Магазин' as Promo['cat'], type: 'pct' as Promo['type'], from: '08:00', to: '22:00', till: 'Всегда', on: true }
+
+  const [promos, setPromos] = useState<Promo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [editId, setEditId] = useState<number | null>(null)
+  const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
+
+  const persistLocal = (list: Promo[]) => {
+    if (typeof window !== 'undefined') localStorage.setItem(LOCAL_KEY, JSON.stringify(list))
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (USE_API) {
+          const list = await api.getPromos()
+          if (!cancelled) setPromos(list)
+        } else {
+          const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_KEY) : null
+          const list = raw ? (JSON.parse(raw) as Promo[]) : defaultPromos
+          if (!cancelled) setPromos(list)
+        }
+      } catch {
+        if (!cancelled) setPromos(defaultPromos)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const openCreate = () => {
+    setEditId(null)
+    setForm(emptyForm)
+    setShowModal(true)
+  }
+
+  const openEdit = (p: Promo) => {
+    setEditId(p.id)
+    setForm({
+      e: p.e,
+      title: p.title,
+      sub: p.sub,
+      disc: String(p.disc),
+      cat: p.cat,
+      type: p.type || 'pct',
+      from: p.from || '08:00',
+      to: p.to || '22:00',
+      till: p.till || 'Всегда',
+      on: p.on,
+    })
+    setShowModal(true)
+  }
+
+  const closeModal = () => {
+    setShowModal(false)
+    setEditId(null)
+    setForm(emptyForm)
+  }
+
+  const savePromo = async () => {
+    if (!form.title.trim()) return
+    setSaving(true)
+    const payload = {
+      e: form.e || '🎁',
+      title: form.title.trim(),
+      sub: form.sub.trim(),
+      disc: form.type === 'free' ? 0 : Number(form.disc) || 0,
+      cat: form.cat,
+      type: form.type,
+      from: form.from,
+      to: form.to,
+      till: form.till || 'Всегда',
+      on: form.on,
+    }
+    try {
+      if (USE_API) {
+        if (editId !== null) {
+          const updated = await api.updatePromo(editId, payload)
+          setPromos(ps => ps.map(x => (x.id === editId ? updated : x)))
+        } else {
+          const created = await api.createPromo(payload)
+          setPromos(ps => [...ps, created])
+        }
+      } else {
+        if (editId !== null) {
+          const next = promos.map(x => (x.id === editId ? { ...x, ...payload, id: editId } : x))
+          setPromos(next)
+          persistLocal(next)
+        } else {
+          const created: Promo = { ...payload, id: Date.now() }
+          const next = [...promos, created]
+          setPromos(next)
+          persistLocal(next)
+        }
+      }
+      closeModal()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось сохранить акцию')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const togglePromo = async (p: Promo) => {
+    const nextOn = !p.on
+    setPromos(ps => ps.map(x => (x.id === p.id ? { ...x, on: nextOn } : x)))
+    try {
+      if (USE_API) await api.updatePromo(p.id, { on: nextOn })
+      else persistLocal(promos.map(x => (x.id === p.id ? { ...x, on: nextOn } : x)))
+    } catch {
+      setPromos(ps => ps.map(x => (x.id === p.id ? { ...x, on: p.on } : x)))
+    }
+  }
+
+  const removePromo = async (id: number) => {
+    if (!confirm('Удалить акцию?')) return
+    const prev = promos
+    setPromos(ps => ps.filter(x => x.id !== id))
+    try {
+      if (USE_API) await api.deletePromo(id)
+      else persistLocal(prev.filter(x => x.id !== id))
+    } catch {
+      setPromos(prev)
+      alert('Не удалось удалить акцию')
+    }
+  }
+
+  const discBadge = (p: Promo) => {
+    if (p.type === 'free') return <Badge v="Бесплатная доставка" c="#1FD760"/>
+    if (p.disc > 0) return <Badge v={`-${p.disc}%`} c="#FF4545"/>
+    return null
+  }
+
+  const setF = (k: keyof typeof form, v: string | boolean) => setForm(f => ({ ...f, [k]: v }))
+
   return (
     <div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:18}}>
@@ -1432,32 +1760,100 @@ function PromosPage() {
         <StatCard l="Выключено" v={promos.filter(p=>!p.on).length} c="#3D6645"/>
       </div>
       <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
-        <button className="ab abp">+ Создать акцию</button>
+        <button onClick={openCreate} className="ab abp">+ Создать акцию</button>
       </div>
-      <div style={{display:'flex',flexDirection:'column',gap:10}}>
-        {promos.map(p=>(
-          <div key={p.id} className="ac" style={{padding:'14px 16px',opacity:p.on?1:.6,transition:'opacity .2s'}}>
-            <div style={{display:'flex',alignItems:'center',gap:12}}>
-              <div style={{width:44,height:44,borderRadius:13,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{p.e}</div>
-              <div style={{flex:1}}>
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3}}>
-                  <span style={{fontSize:14,fontWeight:800}}>{p.t}</span>
-                  {p.disc>0&&<Badge v={`-${p.disc}%`} c="#FF4545"/>}
-                  {p.disc===0&&<Badge v="Бесплатная доставка" c="#1FD760"/>}
-                  <Badge v={p.cat} c={p.cat==='Рестораны'?'#FF8C00':'#3B8EF0'}/>
+      {loading ? (
+        <div style={{padding:24,textAlign:'center',color:'#8FB897'}}>Загрузка…</div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {promos.map(p=>(
+            <div key={p.id} className="ac" style={{padding:'14px 16px',opacity:p.on?1:.6,transition:'opacity .2s'}}>
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <div style={{width:44,height:44,borderRadius:13,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{p.e}</div>
+                <div style={{flex:1}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3,flexWrap:'wrap'}}>
+                    <span style={{fontSize:14,fontWeight:800}}>{p.title}</span>
+                    {discBadge(p)}
+                    <Badge v={p.cat} c={p.cat==='Рестораны'?'#FF8C00':'#3B8EF0'}/>
+                  </div>
+                  <div style={{fontSize:12,color:'#8FB897'}}>{p.sub}</div>
                 </div>
-                <div style={{fontSize:12,color:'#8FB897'}}>{p.s}</div>
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
+                  <Tog on={p.on} set={()=>togglePromo(p)}/>
+                  <button onClick={()=>openEdit(p)} className="ab abg" style={{padding:'5px 10px',fontSize:11}}>✏️</button>
+                  <button onClick={()=>removePromo(p.id)} className="ab abd" style={{padding:'5px 10px',fontSize:11}}>🗑</button>
+                </div>
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
-                <Tog on={p.on} set={()=>setPromos(ps=>ps.map(x=>x.id===p.id?{...x,on:!x.on}:x))}/>
-                <button className="ab abg" style={{padding:'5px 10px',fontSize:11}}>✏️</button>
-                <button onClick={()=>setPromos(ps=>ps.filter(x=>x.id!==p.id))} className="ab abd" style={{padding:'5px 10px',fontSize:11}}>🗑</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showModal && (
+        <div className="amod">
+          <div className="amodbg" onClick={closeModal}/>
+          <div className="amodbox" style={{maxWidth:520}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+              <div className="ub" style={{fontSize:15,fontWeight:800}}>{editId !== null ? 'Редактировать акцию' : 'Новая акция'}</div>
+              <button onClick={closeModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <div style={{display:'grid',gridTemplateColumns:'70px 1fr',gap:12}}>
+                <div>
+                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div>
+                  <input className="ai" value={form.e} onChange={e=>setF('e', e.target.value)} style={{textAlign:'center',fontSize:26,height:50}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div>
+                  <input className="ai" value={form.title} onChange={e=>setF('title', e.target.value)} placeholder="Название акции"/>
+                </div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+                <div>
+                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Тип акции</div>
+                  <select className="ai" value={form.type} onChange={e=>setF('type', e.target.value)} style={{cursor:'pointer'}}>
+                    <option value="pct">% скидка</option>
+                    <option value="free">Бесплатная доставка</option>
+                    <option value="first">Первый заказ</option>
+                    <option value="fixed">Фиксированная (ЅМ)</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Скидка (%)</div>
+                  <input className="ai" value={form.disc} onChange={e=>setF('disc', e.target.value)} type="number" placeholder="30" disabled={form.type==='free'}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Раздел</div>
+                  <select className="ai" value={form.cat} onChange={e=>setF('cat', e.target.value)} style={{cursor:'pointer'}}>
+                    <option value="Магазин">Магазин</option>
+                    <option value="Рестораны">Рестораны</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Начало</div><input className="ai" type="time" value={form.from} onChange={e=>setF('from', e.target.value)}/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Конец</div><input className="ai" type="time" value={form.to} onChange={e=>setF('to', e.target.value)}/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Действует до</div><input className="ai" value={form.till} onChange={e=>setF('till', e.target.value)} placeholder="Напр: Среда"/></div>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div>
+                <input className="ai" value={form.sub} onChange={e=>setF('sub', e.target.value)} placeholder="Короткое описание для клиентов"/>
+              </div>
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#8FB897',cursor:'pointer'}}>
+                <input type="checkbox" checked={form.on} onChange={e=>setF('on', e.target.checked)}/>
+                Акция активна
+              </label>
+              <div style={{display:'flex',gap:10,marginTop:4}}>
+                <button onClick={savePromo} disabled={saving || !form.title.trim()} className="ab abp" style={{flex:1,padding:12,opacity:saving||!form.title.trim()?0.6:1}}>
+                  {saving ? 'Сохранение…' : editId !== null ? '✓ Сохранить' : '✓ Создать акцию'}
+                </button>
+                <button onClick={closeModal} className="ab abg">Отмена</button>
               </div>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2265,8 +2661,16 @@ function BannersPage() {
    MAIN ADMIN APP — без логина
 ══════════════════════════════════════════════════════ */
 export default function AdminApp() {
+  return (
+    <AppNavigationBoundary>
+      <AdminAppInner />
+    </AppNavigationBoundary>
+  );
+}
+
+function AdminAppInner() {
   useApiSync('all');
-  const [page,setPage]=useState('dashboard');
+  const { page, setPage } = useAppNavigation('dashboard');
   useEffect(() => {
     hydrateCourierStores();
     useProductPhotos.getState().hydrate();

@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-const backendUrl = process.env.KAKAPO_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://kakapo-api.onrender.com'
+const backendUrl = process.env.KAKAPO_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const nextConfig = {
   reactStrictMode: true,

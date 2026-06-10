@@ -2,14 +2,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
-import { formatKm } from "@/lib/courierData";
 import { hydrateCourierStores } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
-import { useOrders, USE_API } from "@/lib/store";
+import { useOrders, USE_API, useRestaurants } from "@/lib/store";
+import { enrichRestaurants } from "@/lib/enrichCatalog";
 import { mapOrdersForClient } from "@/lib/orderUiMap";
 import { useApiSync } from "@/lib/useApiSync";
+import { useAppNavigation } from "@/lib/useAppNavigation";
+import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
+import { isWeighted, formatCartQty, calcLineTotal, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg } from "@/lib/productWeight";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
@@ -38,7 +41,7 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 @keyframes successPop{0%{transform:scale(.7);opacity:0;}60%{transform:scale(1.08);}100%{transform:scale(1);opacity:1;}}
 @keyframes slideUp{from{opacity:0;transform:translateY(32px);}to{opacity:1;transform:translateY(0);}}
 @keyframes cartPop{0%{transform:scale(1);}50%{transform:scale(1.06);}100%{transform:scale(1);}}
-.btn{font-family:'Nunito',sans-serif;font-weight:700;cursor:pointer;border:none;transition:all .22s cubic-bezier(.16,1,.3,1);}
+.btn{font-family:'Nunito',sans-serif;font-weight:700;cursor:pointer;border:none;background:transparent;color:inherit;transition:all .22s cubic-bezier(.16,1,.3,1);}
 .btn:active{transform:scale(.96);}
 .card{background:var(--l2);border:1px solid var(--b1);border-radius:20px;overflow:hidden;transition:all .25s cubic-bezier(.16,1,.3,1);}
 .kakapo-card{background:var(--l2);border:1px solid var(--b1);border-radius:18px;overflow:hidden;}
@@ -179,10 +182,10 @@ const PRODS = [
   {id:1,art:"KAK-0001",e:"🥦",name:"Брокколи свежая",    unit:"500 гр",price:5.50, old:7.20, hot:true, isNew:false,org:true, r:4.9,rv:184,grad:"linear-gradient(145deg,#0D2A0D,#1A4A1A)",cat:"veg",   desc:"Свежая брокколи без пестицидов, богата витаминами.",   specs:{Вес:"500 гр",Калории:"34 ккал/100г",Страна:"Таджикистан"}},
   {id:2,art:"KAK-0002",e:"🍅",name:"Томаты черри",        unit:"400 гр",price:7.90, old:null, hot:false,isNew:true, org:false,r:4.7,rv:92, grad:"linear-gradient(145deg,#2A0E0E,#4A1818)",cat:"veg",   desc:"Сладкие томаты черри, идеальны для салатов.",         specs:{Вес:"400 гр",Калории:"18 ккал/100г",Страна:"Таджикистан"}},
   {id:3,art:"KAK-0003",e:"🍊",name:"Апельсины Навел",     unit:"1 кг",  price:6.50, old:8.90, hot:true, isNew:false,org:false,r:4.8,rv:310,grad:"linear-gradient(145deg,#2A1A06,#4A2E12)",cat:"veg",   desc:"Сочные апельсины сорта Навел, богаты витамином C.",    specs:{Вес:"1 кг",Калории:"47 ккал/100г",Страна:"Таджикистан"}},
-  {id:4,art:"KAK-0004",e:"🥩",name:"Говядина вырезка",    unit:"500 гр",price:38.00,old:47.0, hot:true, isNew:false,org:false,r:5.0,rv:225,grad:"linear-gradient(145deg,#2A0E0E,#501818)",cat:"meat",  desc:"Охлаждённая говяжья вырезка, нежное мясо высшего сорта.", specs:{Вес:"500 гр",Белки:"26 г/100г",Страна:"Таджикистан"}},
-  {id:5,art:"KAK-0005",e:"🍗",name:"Куриное филе",        unit:"1 кг",  price:16.50,old:null, hot:true, isNew:false,org:false,r:4.8,rv:441,grad:"linear-gradient(145deg,#2A1408,#481E0C)",cat:"meat",  desc:"Свежее куриное филе без кожи и костей, охлаждённое.", specs:{Вес:"1 кг",Белки:"23 г/100г",Страна:"Таджикистан"}},
+  {id:4,art:"KAK-0004",e:"🥩",name:"Говядина вырезка",    unit:"500 гр",price:38.00,old:47.0, hot:true, isNew:false,org:false,r:5.0,rv:225,grad:"linear-gradient(145deg,#2A0E0E,#501818)",cat:"meat",  desc:"Охлаждённая говяжья вырезка, нежное мясо высшего сорта.", specs:{Вес:"500 гр",Белки:"26 г/100г",Страна:"Таджикистан"}, sellType:"weight", unitGrams:500, weightStep:100, minWeight:100},
+  {id:5,art:"KAK-0005",e:"🍗",name:"Куриное филе",        unit:"1 кг",  price:16.50,old:null, hot:true, isNew:false,org:false,r:4.8,rv:441,grad:"linear-gradient(145deg,#2A1408,#481E0C)",cat:"meat",  desc:"Свежее куриное филе без кожи и костей, охлаждённое.", specs:{Вес:"1 кг",Белки:"23 г/100г",Страна:"Таджикистан"}, sellType:"weight", unitGrams:1000, weightStep:100, minWeight:100},
   {id:6,art:"KAK-0006",e:"🥛",name:"Молоко 3.2%",         unit:"1 л",   price:4.90, old:6.20, hot:false,isNew:false,org:false,r:4.7,rv:388,grad:"linear-gradient(145deg,#0D2040,#163460)",cat:"dairy",  desc:"Пастеризованное молоко 3.2% жирности, натуральный продукт.", specs:{Объём:"1 л",Жирность:"3.2%",Страна:"Таджикистан"}},
-  {id:7,art:"KAK-0007",e:"🧀",name:"Сыр Российский",      unit:"250 гр",price:18.50,old:23.0, hot:true, isNew:false,org:false,r:4.8,rv:127,grad:"linear-gradient(145deg,#0D2040,#163460)",cat:"dairy",  desc:"Твёрдый сыр Российский, жирность 50%, отличный вкус.",  specs:{Вес:"250 гр",Жирность:"50%",Страна:"Таджикистан"}},
+  {id:7,art:"KAK-0007",e:"🧀",name:"Сыр Российский",      unit:"250 гр",price:18.50,old:23.0, hot:true, isNew:false,org:false,r:4.8,rv:127,grad:"linear-gradient(145deg,#0D2040,#163460)",cat:"dairy",  desc:"Твёрдый сыр Российский, жирность 50%, отличный вкус.",  specs:{Вес:"250 гр",Жирность:"50%",Страна:"Таджикистан"}, sellType:"weight", unitGrams:250, weightStep:100, minWeight:100},
   {id:8,art:"KAK-0008",e:"🥐",name:"Круассан масляный",   unit:"шт",    price:2.50, old:null, hot:true, isNew:false,org:false,r:4.9,rv:203,grad:"linear-gradient(145deg,#2A1A06,#442A0E)",cat:"bread",  desc:"Свежий масляный круассан, выпечка каждое утро.",        specs:{Вес:"80 гр",Калории:"410 ккал/100г",Страна:"Таджикистан"}},
   {id:9,art:"KAK-0009",e:"☕",name:"Кофе Nescafé Gold",   unit:"190 гр",price:32.00,old:38.5, hot:false,isNew:false,org:false,r:4.9,rv:178,grad:"linear-gradient(145deg,#261A06,#402C0C)",cat:"drink",  desc:"Растворимый кофе Nescafé Gold, насыщенный вкус и аромат.", specs:{Вес:"190 гр",Тип:"Растворимый",Страна:"Швейцария"}},
   {id:10,art:"KAK-0010",e:"🧃",name:"Сок Rich Яблоко",   unit:"1 л",   price:7.20, old:9.50, hot:false,isNew:false,org:false,r:4.6,rv:231,grad:"linear-gradient(145deg,#041820,#0C2E3A)",cat:"drink",  desc:"Яблочный сок Rich прямого отжима, натуральный без сахара.", specs:{Объём:"1 л",Калории:"46 ккал/100г",Страна:"Россия"}},
@@ -333,6 +336,61 @@ const OSTATUS = {
 
 function phoneDigits(v: string) {
   return (v || '').replace(/\D/g, '').slice(-9);
+}
+
+/** Повтор заказа — товары и блюда в корзину */
+function fillCartFromOrder(
+  orderId: string,
+  clientOrder: { items?: { e?: string; name: string; qty?: number; price: number; art?: string; id?: number; product_id?: number; source?: string; restId?: string }[] },
+  ctx: {
+    apiOrders: import('@/lib/types').Order[];
+    prods: { id: number; art?: string; name: string; price: number; e?: string }[];
+    restaurants: { id: string; menu?: { id: number; name: string; price: number; e: string }[] }[];
+    onAdd: (id: string | number, price?: number, name?: string, emoji?: string, restId?: string) => void;
+    onClearCart: () => void;
+  },
+): number {
+  const { apiOrders, prods, restaurants, onAdd, onClearCart } = ctx;
+  onClearCart();
+  const raw = apiOrders.find(o => o.id === orderId);
+  const items = raw?.items?.length ? raw.items : clientOrder.items || [];
+  let added = 0;
+
+  for (const it of items) {
+    const qty = Math.max(1, it.qty || 1);
+    const isRest = it.source === 'restaurant' || !!(it as { restId?: string }).restId;
+
+    if (isRest) {
+      const restId = (it as { restId?: string }).restId || raw?.restId;
+      const rest = restaurants.find(r => r.id === restId);
+      const menuItem = rest?.menu?.find(m => m.name === it.name);
+      if (rest && menuItem) {
+        for (let i = 0; i < qty; i++) {
+          onAdd(`R${rest.id}_${menuItem.id}`, menuItem.price, menuItem.name, menuItem.e, rest.id);
+        }
+        added += qty;
+      } else if (restId) {
+        const cartId = `R${restId}_repeat_${String(it.name).replace(/\s+/g, '_').slice(0, 24)}`;
+        for (let i = 0; i < qty; i++) {
+          onAdd(cartId, it.price, it.name, it.e || '🍽', restId);
+        }
+        added += qty;
+      }
+    } else {
+      const pid = it.id ?? it.product_id;
+      let prod = pid != null ? prods.find(p => p.id === pid) : undefined;
+      if (!prod && it.art) prod = prods.find(p => p.art === it.art);
+      if (!prod) prod = prods.find(p => p.name === it.name);
+      if (prod) {
+        for (let i = 0; i < qty; i++) onAdd(prod.id);
+        added += qty;
+      } else if (pid != null) {
+        for (let i = 0; i < qty; i++) onAdd(pid, it.price, it.name, it.e || '📦');
+        added += qty;
+      }
+    }
+  }
+  return added;
 }
 
 const FAQ = [
@@ -666,15 +724,61 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   );
 };
 
+const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
+  const btn = size === "sm" ? 34 : 40;
+  const display = label ?? qty;
+  const wrap = {
+    display: "flex",
+    alignItems: "center",
+    gap: size === "sm" ? 6 : 8,
+    background: "rgba(255,255,255,.04)",
+    border: "1px solid var(--b1)",
+    borderRadius: size === "sm" ? 12 : 14,
+    padding: size === "sm" ? "4px 5px" : "5px 8px",
+  };
+  const btnStyle = {
+    width: btn,
+    height: btn,
+    borderRadius: btn / 2,
+    background: "rgba(31,215,96,.12)",
+    border: "1px solid rgba(31,215,96,.22)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--t1)",
+    flexShrink: 0,
+    opacity: 1,
+  };
+  return (
+    <div style={wrap}>
+      <button
+        type="button"
+        onClick={onRm}
+        disabled={qty === 0}
+        className="btn"
+        style={{ ...btnStyle, opacity: qty > 0 ? 1 : 0.35 }}
+      >
+        <Ic n="minus" s={size === "sm" ? 14 : 16} c="var(--t1)" w={2.2}/>
+      </button>
+      <div className="ub" style={{ minWidth: size === "sm" ? 24 : 32, textAlign: "center", fontSize: size === "sm" ? 13 : 15, fontWeight: 900, color: "var(--t1)" }}>{display}</div>
+      <button type="button" onClick={onAdd} className="btn" style={btnStyle}>
+        <Ic n="plus" s={size === "sm" ? 14 : 16} c="var(--gr)" w={2.5}/>
+      </button>
+    </div>
+  );
+};
+
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const { prods } = useLiveCatalog();
-  const p = prods.find(x => x.id === params?.id) || prods[0];
+  const p = prods.find(x => x.id == params?.id) || prods[0];
   const qty = cart[p.id] || 0;
   const [tab, setTab] = useState("desc");
   const [myRating, setMyRating] = useState(0);
   const photo = useProductPhotos(s => s.photos[p.id]);
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const related = prods.filter(x => x.cat === p.cat && x.id !== p.id).slice(0,4);
+  const weighted = isWeighted(p);
+  const qtyLabel = weighted ? formatCartQty(p, qty) : qty;
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
   return (
@@ -711,23 +815,20 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           <span style={{ fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:4 }}><div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>В наличии</span>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:16 }}>
-          <div style={{ display:"flex", alignItems:"flex-end", gap:10, marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"flex-end", gap:10, marginBottom:4 }}>
             <span className="ub" style={{ fontSize:34, fontWeight:900 }}>{p.price.toFixed(2)}</span>
             <span style={{ fontSize:18, color:"var(--gd)", fontWeight:800, marginBottom:2 }}>ЅМ</span>
             {p.old && <><span style={{ fontSize:16, color:"var(--t3)", textDecoration:"line-through", marginBottom:4 }}>{p.old.toFixed(2)} ЅМ</span><span className="bdg b-rd">−{disc}%</span></>}
           </div>
+          <div style={{ fontSize:12, color:"var(--t2)", marginBottom:10 }}>{formatPriceLabel(p)}{weighted && <span style={{ color:"var(--org)", marginLeft:8 }}>⚖️ На развес</span>}</div>
           <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 13px", borderRadius:12, background:"rgba(255,184,0,.07)", border:"1px solid rgba(255,184,0,.22)", marginBottom:14 }}>
             <span style={{ fontSize:18 }}>⭐</span>
             <div><div style={{ fontSize:12, fontWeight:800, color:"var(--gd)" }}>+{Math.ceil(p.price*.03)} бонуса за покупку</div><div style={{ fontSize:10, color:"var(--t2)" }}>1 бонус = 1 ЅМ</div></div>
           </div>
           <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-            <div style={{ display:"flex", alignItems:"center", background:"var(--l3)", border:"1.5px solid var(--b1)", borderRadius:14, overflow:"hidden" }}>
-              <button onClick={rm} className="btn" style={{ width:44, height:48, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--gr)", fontSize:22 }}>−</button>
-              <div className="ub" style={{ minWidth:36, textAlign:"center", fontSize:18, fontWeight:900 }}>{qty}</div>
-              <button onClick={add} className="btn" style={{ width:44, height:48, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--gr)", fontSize:22 }}>+</button>
-            </div>
-            <button onClick={add} className="btn" style={{ flex:1, padding:"14px", fontSize:14, borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-              <Ic n="bag" s={18} c="white"/>{qty===0?"В корзину":`Добавить · ${(p.price*qty).toFixed(2)} ЅМ`}
+            <QtyStepper qty={qty} label={qtyLabel} onAdd={add} onRm={rm}/>
+            <button onClick={add} className="btn" style={{ flex:1, padding:"14px", fontSize:14, borderRadius:14, background:qty>0?"rgba(31,215,96,.14)":"linear-gradient(135deg,var(--gr2),var(--gr))", border:qty>0?"1.5px solid rgba(31,215,96,.35)":"none", color:qty>0?"var(--gr)":"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:qty>0?"none":"0 6px 20px rgba(31,215,96,.28)" }}>
+              <Ic n="bag" s={18} c={qty>0?"var(--gr)":"white"}/>{qty===0 ? (weighted ? "В корзину" : "В корзину") : `Добавить · ${calcLineTotal(p, qty).toFixed(2)} ЅМ`}
             </button>
           </div>
         </div>
@@ -799,17 +900,13 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
             </div>
           </div>
           {qty === 0 ? (
-            <button onClick={add} className="btn" style={{ flex:2, padding:"14px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+            <button onClick={add} className="btn" style={{ flex:2, padding:"14px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
               <Ic n="bag" s={18} c="white"/>В корзину
             </button>
           ) : (
-            <div style={{ flex:2, display:"flex", gap:8 }}>
-              <div style={{ display:"flex", alignItems:"center", background:"var(--l3)", border:"1.5px solid var(--b1)", borderRadius:13, overflow:"hidden" }}>
-                <button onClick={rm} className="btn" style={{ width:42, height:48, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--gr)", fontSize:20 }}>−</button>
-                <span className="ub" style={{ minWidth:28, textAlign:"center", fontSize:16, fontWeight:900 }}>{qty}</span>
-                <button onClick={add} className="btn" style={{ width:42, height:48, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--gr)", fontSize:20 }}>+</button>
-              </div>
-              <button onClick={() => go("cart")} className="btn" style={{ flex:1, padding:"13px", fontSize:13, borderRadius:13, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+            <div style={{ flex:2, display:"flex", gap:8, alignItems:"center" }}>
+              <QtyStepper qty={qty} label={qtyLabel} onAdd={add} onRm={rm} size="sm"/>
+              <button onClick={() => go("cart")} className="btn" style={{ flex:1, padding:"13px", fontSize:13, borderRadius:13, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:6, boxShadow:"0 4px 16px rgba(31,215,96,.22)" }}>
                 <Ic n="check" s={15} c="white" w={2.5}/>Оформить
               </button>
             </div>
@@ -830,11 +927,10 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
     qty: cart[id], isRest: true, restId: cartMeta[id].restId
   }));
   const items = [...prodItems, ...restItems];
-  const sub   = items.reduce((s,p) => s + p.price * p.qty, 0);
+  const sub   = items.reduce((s,p) => s + calcLineTotal(p, p.qty), 0);
   const disc  = promoOk ? sub * .1 : 0;
-  const del   = sub >= 30 ? 0 : 5;
-  const total = sub - disc + del;
-  const tqty  = items.reduce((s,p) => s + p.qty, 0);
+  const total = sub - disc;
+  const tqty  = items.length;
   const applyPromo = () => {
     if (promo.toUpperCase() === "KAKAPO10") { setPromoOk(true); setPromoErr(false); }
     else { setPromoErr(true); setTimeout(() => setPromoErr(false), 2200); }
@@ -857,13 +953,6 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
         </div>
       ) : (
         <div style={{ padding:"14px 18px 160px" }}>
-          <div style={{ marginBottom:14, padding:"13px 16px", borderRadius:16, background:sub>=30?"rgba(31,215,96,.08)":"var(--l2)", border:`1.5px solid ${sub>=30?"rgba(31,215,96,.3)":"var(--b1)"}` }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}><Ic n="truck" s={15} c={sub>=30?"var(--gr)":"var(--t2)"}/><span style={{ fontSize:12, fontWeight:700, color:sub>=30?"var(--gr)":"var(--t1)" }}>{sub>=30?"🎉 Бесплатная доставка!":"До бесплатной доставки"}</span></div>
-              {sub<30 && <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gd)" }}>{(30-sub).toFixed(2)} ЅМ</span>}
-            </div>
-            <div style={{ height:6, background:"var(--b1)", borderRadius:3, overflow:"hidden" }}><div style={{ height:"100%", width:`${Math.min((sub/30)*100,100)}%`, background:"var(--gr)", borderRadius:3, transition:"width .5s ease" }}/></div>
-          </div>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
             {items.map(p => {
               const disc2 = p.old ? Math.round((1-p.price/p.old)*100) : 0;
@@ -874,14 +963,14 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:2 }}>{p.name}</div>
-                    <div style={{ fontSize:11, color:"var(--t3)", marginBottom:6 }}>{p.isRest ? "🍽 Ресторан" : (p.unit||"шт")}</div>
+                    <div style={{ fontSize:11, color:"var(--t3)", marginBottom:6 }}>{p.isRest ? "🍽 Ресторан" : (isWeighted(p) ? `⚖️ ${formatCartQty(p, p.qty)}` : (p.unit||"шт"))}</div>
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                      <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{(p.price*p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                      <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                       <div style={{ display:"flex", alignItems:"center", gap:0, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.25)", borderRadius:11, overflow:"hidden" }}>
-                        <button onClick={() => p.qty===1 ? onDel(p.id) : onRm(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:p.qty===1?"var(--red)":"var(--gr)", background:"transparent", fontSize:16 }}>
-                          {p.qty===1 ? <Ic n="trash" s={13} c="var(--red)"/> : "−"}
+                        <button onClick={() => (isWeighted(p) ? p.qty <= (p.minWeight || 100) : p.qty===1) ? onDel(p.id) : onRm(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:(!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100)) ? "var(--red)" : "var(--gr)", background:"transparent", fontSize:16 }}>
+                          {((!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100))) ? <Ic n="trash" s={13} c="var(--red)"/> : "−"}
                         </button>
-                        <span className="ub" style={{ minWidth:28, textAlign:"center", fontSize:14, fontWeight:800, color:"var(--gr)" }}>{p.qty}</span>
+                        <span className="ub" style={{ minWidth:36, textAlign:"center", fontSize:12, fontWeight:800, color:"var(--gr)" }}>{isWeighted(p) ? formatCartQty(p, p.qty) : p.qty}</span>
                         <button onClick={() => onAdd(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--gr)", background:"transparent", fontSize:18 }}>+</button>
                       </div>
                     </div>
@@ -902,7 +991,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
             {promoErr && <div style={{ marginTop:7, fontSize:11, color:"var(--red)", fontWeight:700 }}>✗ Неверный промокод. Попробуйте KAKAPO10</div>}
           </div>
           <div className="card" style={{ padding:"16px", marginBottom:14 }}>
-            {[{l:`Товары (${tqty} шт)`,v:`${sub.toFixed(2)} ЅМ`,c:"var(--t1)"},{l:"Доставка",v:del===0?"Бесплатно":`${del} ЅМ`,c:del===0?"var(--gr)":"var(--t1)"},...(promoOk?[{l:"Промокод -10%",v:`−${disc.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[])].map((r,i) => (
+            {[{l:`Товары (${tqty} шт)`,v:`${sub.toFixed(2)} ЅМ`,c:"var(--t1)"},...(promoOk?[{l:"Промокод -10%",v:`−${disc.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[])].map((r,i) => (
               <div key={i} style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}><span style={{ fontSize:12, color:"var(--t2)" }}>{r.l}</span><span style={{ fontSize:13, fontWeight:700, color:r.c }}>{r.v}</span></div>
             ))}
             <div style={{ height:1, background:"var(--b1)", margin:"8px 0" }}/>
@@ -917,7 +1006,6 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
         <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px 28px" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
             <div><div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div><div style={{ display:"flex", alignItems:"baseline", gap:5 }}><span className="ub" style={{ fontSize:26, fontWeight:900 }}>{total.toFixed(2)}</span><span style={{ fontSize:14, color:"var(--gd)", fontWeight:800 }}>ЅМ</span></div></div>
-            {del===0 && <span className="bdg b-gr">🚀 Бесплатно</span>}
           </div>
           <button onClick={() => go("checkout")} className="btn" style={{ width:"100%", padding:"15px", fontSize:15, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
             <Ic n="bag" s={20} c="white"/>Оформить заказ · {tqty} товаров
@@ -1059,13 +1147,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
     restId: cartMeta[id].restId,
   }));
   const items = [...prodItems, ...restItems];
-  const sub = items.reduce((s, p) => s + p.price * p.qty, 0);
-  const weightKg = Math.max(1, items.reduce((s, p) => s + p.qty, 0) * 0.4);
+  const sub = items.reduce((s, p) => s + calcLineTotal(p, p.qty), 0);
+  const weightKg = estimateCartWeightKg(prodItems.map(p => ({ p, qty: p.qty })));
   const pickupIds = resolveCheckoutPickupIds({
     hasMarketItems: prodItems.length > 0,
     restIds: [...new Set(restItems.map(r => r.restId).filter(Boolean))],
   });
-  const total = sub + deliveryFee;
+  const total = sub;
 
   const resetDelivery = () => {
     setAddrReady(false);
@@ -1101,16 +1189,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
       type: orderType,
       client: { name, phone, addr, lat: clientLat, lng: clientLng },
       items: [
-        ...prodItems.map(p => ({
-          ...(typeof p.id === 'number' ? { id: p.id } : {}),
-          name: p.name || 'Товар',
-          e: p.e || '📦',
-          qty: p.qty,
-          unit: p.unit || 'шт',
-          price: Number(p.price) || 0,
-          source: 'market',
-          ...(p.art ? { art: p.art } : {}),
-        })),
+        ...prodItems.map(p => orderItemFromProduct(p, p.qty)),
         ...restItems.map(p => ({
           name: p.name || 'Блюдо',
           e: p.e || '🍽',
@@ -1122,7 +1201,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
         })),
       ],
       total: Number(total.toFixed(2)),
-      deliveryFee: Number(deliveryFee.toFixed(2)),
+      deliveryFee: 0,
       pickupIds,
       distanceKm: deliveryKm > 0 ? Number(deliveryKm.toFixed(2)) : undefined,
       durationMin: deliveryMin > 0 ? Math.round(deliveryMin) : undefined,
@@ -1271,14 +1350,8 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px 28px" }}>
         {addrReady && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--t2)", marginBottom:4 }}>
-              <span>Продукт</span><span>{sub.toFixed(2)} ЅМ</span>
-            </div>
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--t2)", marginBottom:6 }}>
-              <span>Доставка ({deliveryKm > 0 ? formatKm(deliveryKm) : '…'})</span><span style={{ color:"var(--gr)", fontWeight:700 }}>{deliveryFee.toFixed(2)} ЅМ</span>
-            </div>
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, borderTop:"1px solid var(--b1)", paddingTop:8 }}>
-              <span>💵 Наличными</span>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800 }}>
+              <span>💵 К оплате</span>
               <span className="ub" style={{ color:"var(--gd)" }}>{total.toFixed(2)} ЅМ</span>
             </div>
           </div>
@@ -1536,8 +1609,9 @@ const ProfilePage = ({ go, user, setUser }) => {
     </div>
   );
 };
-const OrdersPage = ({ go, user }) => {
+const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
   const apiOrders = useOrders(s => s.orders);
+  const { prods, restaurants } = useLiveCatalog();
   const ordersList = useMemo(() => {
     const all = USE_API ? mapOrdersForClient(apiOrders) : ORDERS_LIST;
     if (!USE_API) return all;
@@ -1555,6 +1629,18 @@ const OrdersPage = ({ go, user }) => {
   useEffect(() => { if (step < 3) { const t = setTimeout(() => setStep(s => s+1), 8000); return () => clearTimeout(t); } }, [step]);
   const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
   const ST = OSTATUS;
+
+  const repeatOrder = (order) => {
+    const silentAdd = (id, price, name, emoji, restId) => onAdd(id, price, name, emoji, restId, true);
+    const n = fillCartFromOrder(order.id, order, { apiOrders, prods, restaurants, onAdd: silentAdd, onClearCart });
+    if (n > 0) {
+      setSelected(null);
+      showToast?.(`🔄 ${n} поз. добавлено в корзину`);
+      go('cart');
+    } else {
+      showToast?.('Не удалось добавить товары — проверьте каталог');
+    }
+  };
 
   if (selected) return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
@@ -1628,16 +1714,17 @@ const OrdersPage = ({ go, user }) => {
           ))}
         </div>
         <div className="card" style={{ padding:"15px", marginBottom:14 }}>
-          {[{l:"Доставка",v:selected.delivery===0?"Бесплатно":`${selected.delivery} ЅМ`,c:selected.delivery===0?"var(--gr)":"var(--t1)"},{l:"Адрес",v:selected.addr,c:"var(--t2)"}].map((r,i) => (
-            <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:"1px solid var(--b1)" }}><span style={{ fontSize:12, color:"var(--t2)" }}>{r.l}</span><span style={{ fontSize:12, fontWeight:700, color:r.c }}>{r.v}</span></div>
-          ))}
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginTop:10 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0" }}>
+            <span style={{ fontSize:12, color:"var(--t2)" }}>Адрес</span>
+            <span style={{ fontSize:12, fontWeight:700, color:"var(--t2)", textAlign:"right", maxWidth:"60%" }}>{selected.addr}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginTop:10, borderTop:"1px solid var(--b1)", paddingTop:10 }}>
             <span style={{ fontSize:14, fontWeight:700 }}>Итого</span>
             <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{selected.total.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
           </div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-          <button className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+          <button type="button" onClick={() => repeatOrder(selected)} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
             <Ic n="repeat" s={16} c="white"/>Повторить заказ
           </button>
           {selected.status==="delivered" && !reviewed[selected.id] && (
@@ -1725,7 +1812,7 @@ const OrdersPage = ({ go, user }) => {
                 <div style={{ display:"flex", gap:8 }}>
                   {o.status==="delivering" && o.trackable && <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="map" s={13} c="white"/>Отследить</button>}
                   {o.status==="delivered" && !reviewed[o.id] && <button className="btn" onClick={e=>{e.stopPropagation();setShowRev(o);setRating(0);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd)"/>Отзыв</button>}
-                  <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="repeat" s={13} c="var(--t2)"/>Повторить</button>
+                  <button type="button" className="btn" onClick={e=>{e.stopPropagation();repeatOrder(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="repeat" s={13} c="var(--t2)"/>Повторить</button>
                 </div>
                 {o.cancelReason && <div style={{ marginTop:9, padding:"7px 10px", borderRadius:9, background:"rgba(255,69,69,.07)", border:"1px solid rgba(255,69,69,.2)", fontSize:11, color:"var(--red)" }}>ℹ️ {o.cancelReason}</div>}
               </div>
@@ -1925,7 +2012,10 @@ const SearchPage = ({ go, cart, onAdd, onRm }) => {
   const { prods } = useLiveCatalog();
   const [query, setQuery] = useState("");
   const iRef = useRef();
-  useEffect(() => setTimeout(() => iRef.current?.focus(), 100), []);
+  useEffect(() => {
+    const t = setTimeout(() => iRef.current?.focus(), 100);
+    return () => clearTimeout(t);
+  }, []);
   const results = query.trim() ? prods.filter(p => p.name.toLowerCase().includes(query.toLowerCase())) : [];
   const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
   return (
@@ -5219,11 +5309,12 @@ const AdminChatSupportPage = ({go}) => {
 };
 
 const RestaurantsPage = ({go, cart, onAdd}) => {
+  const { restaurants } = useLiveCatalog();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const totalQty = Object.values(cart||{}).reduce((a,b)=>a+b,0);
 
-  const filtered = RESTAURANTS.filter(r => {
+  const filtered = restaurants.filter(r => {
     const q = search.toLowerCase();
     return (!search || r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.tags.some(t=>t.toLowerCase().includes(q)))
       && (filter==='all' || (filter==='open'&&r.open) || (filter==='fast'&&r.deliveryMin<=30));
@@ -5257,7 +5348,8 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
             <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Рестораны г. Яван</div>
             <div style={{fontSize:12,color:'var(--t2)',marginBottom:8}}>Заказывай еду из любимых мест · Один курьер</div>
             <div style={{display:'flex',gap:8}}>
-              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(31,215,96,.12)',color:'var(--gr)',border:'1px solid rgba(31,215,96,.25)'}}>{RESTAURANTS.length} ресторана</span>
+              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(31,215,96,.12)',color:'var(--gr)',border:'1px solid rgba(31,215,96,.25)'}}>{restaurants.length} ресторана</span>
+              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(255,69,69,.1)',color:'var(--red)',border:'1px solid rgba(255,69,69,.25)'}}>{restaurants.filter(x=>x.open).length} открыто</span>
             </div>
           </div>
           <div style={{fontSize:48,animation:'float 3s ease-in-out infinite'}}>🍽</div>
@@ -5288,11 +5380,6 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
                 <div style={{fontSize:12,color:'var(--t2)'}}>⏱ {r.deliveryMin} мин</div>
                 <div style={{width:1,height:16,background:'var(--b1)'}}/>
                 <div style={{fontSize:12,color:'var(--t2)'}}>📍 от {r.minOrder} ЅМ</div>
-                <div style={{flex:1,textAlign:'right'}}>
-                  <span style={{fontSize:12,fontWeight:700,color:r.deliveryFee===0?'var(--gr)':'var(--t2)'}}>
-                    {r.deliveryFee===0?'🚀 Бесплат.':`${r.deliveryFee} ЅМ доставка`}
-                  </span>
-                </div>
               </div>
             </div>
           ))}
@@ -5312,11 +5399,18 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
 };
 
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
-  const r = RESTAURANTS.find(x=>x.id===(params&&params.rid)) || RESTAURANTS[0];
-  const [activeCat, setActiveCat] = useState(r.categories[0]);
+  const { restaurants } = useLiveCatalog();
+  const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
+  const [activeCat, setActiveCat] = useState(r?.categories?.[0] || '');
   const totalQty = Object.values(cart||{}).reduce((a,b)=>a+b,0);
 
-  const menuByCat = r.menu.filter(item=>item.cat===activeCat);
+  useEffect(() => {
+    if (r?.categories?.length) setActiveCat(r.categories[0]);
+  }, [r?.id]);
+
+  if (!r) return null;
+
+  const menuByCat = r.menu.filter(item => item.cat === activeCat);
 
   const addItem  = (item) => onAdd && onAdd(`R${r.id}_${item.id}`, item.price, item.name, item.e, r.id);
   const rmItem   = (item) => onRm  && onRm(`R${r.id}_${item.id}`);
@@ -5366,11 +5460,10 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
         </div>
       </div>
 
-      <div style={{padding:'12px 18px',background:'var(--l2)',borderBottom:'1px solid var(--b1)',display:'flex',gap:14,justifyContent:'center'}}>
+      <div style={{padding:'12px 18px',background:'var(--l2)',borderBottom:'1px solid var(--b1)',display:'flex',gap:24,justifyContent:'center'}}>
         {[
           {e:'⏱',l:'Доставка',v:`${r.deliveryMin} мин`},
           {e:'💰',l:'Мин. заказ',v:`${r.minOrder} ЅМ`},
-          {e:'🛵',l:'Стоимость',v:r.deliveryFee===0?'Бесплатно':`${r.deliveryFee} ЅМ`},
         ].map((s,i)=>(
           <div key={i} style={{textAlign:'center'}}>
             <div style={{fontSize:16,marginBottom:2}}>{s.e}</div>
@@ -5379,6 +5472,13 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           </div>
         ))}
       </div>
+
+      {!r.open && (
+        <div style={{margin:'0 18px 12px',padding:'12px 14px',borderRadius:14,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.35)',textAlign:'center'}}>
+          <div style={{fontSize:13,fontWeight:800,color:'var(--red)',marginBottom:4}}>🔴 Ресторан сейчас закрыт</div>
+          <div style={{fontSize:11,color:'var(--t2)'}}>Заказ временно недоступен — попробуйте позже</div>
+        </div>
+      )}
 
       <div style={{padding:'14px 18px 160px',display:'flex',flexDirection:'column',gap:10}}>
         <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:4,color:'var(--t2)'}}>{activeCat}</div>
@@ -5404,7 +5504,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
                     <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>{item.price}<span style={{fontSize:10,color:'var(--gd)',marginLeft:2}}>ЅМ</span></span>
                     {item.old&&<span style={{fontSize:11,color:'var(--t3)',textDecoration:'line-through'}}>{item.old}</span>}
                   </div>
-                  {item.inStock ? (
+                  {item.inStock && r.open ? (
                     qty===0 ? (
                       <button onClick={()=>addItem(item)} className="btn" style={{padding:'7px 16px',borderRadius:11,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'white',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>+ Добавить</button>
                     ) : (
@@ -5415,7 +5515,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
                       </div>
                     )
                   ) : (
-                    <span style={{fontSize:11,color:'var(--red)',fontWeight:700}}>Нет в наличии</span>
+                    <span style={{fontSize:11,color:'var(--red)',fontWeight:700}}>{!r.open ? 'Закрыто' : 'Нет в наличии'}</span>
                   )}
                 </div>
               </div>
@@ -5425,7 +5525,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
       </div>
 
       {totalQty>0&&(
-        <div style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", zIndex:90, animation:"fadeUp .3s ease" }}>
+        <div style={{ position:"fixed", bottom:88, left:"50%", transform:"translateX(-50%)", zIndex:90, animation:"fadeUp .3s ease" }}>
           <button onClick={() => go("cart")} className="btn" style={{ display:"flex", alignItems:"center", gap:10, padding:"13px 22px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", border:"none", boxShadow:"0 8px 24px rgba(31,215,96,.45)" }}>
             <div style={{ background:"rgba(0,0,0,.28)", borderRadius:"50%", width:26, height:26, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:11, fontWeight:900, color:"white" }}>{totalQty}</div>
             <span style={{ fontSize:14, fontWeight:800, color:"white", fontFamily:"Nunito" }}>Перейти в корзину</span>
@@ -5433,6 +5533,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           </button>
         </div>
       )}
+      <Nav page="home" go={go}/>
     </div>
   );
 };
@@ -5507,8 +5608,18 @@ const PartnerLoginPage = ({go}) => {
 };
 
 const PartnerDashPage = ({go}) => {
+  const apiRests = useRestaurants(s => s.restaurants);
+  const toggleOpenApi = useRestaurants(s => s.toggleOpen);
   const [partnerUser] = useState(()=>{try{return JSON.parse(localStorage.getItem('kp_partner')||'null');}catch{return PARTNER_USERS[0];}});
-  const rest = partnerUser ? RESTAURANTS.find(r=>r.id===partnerUser.restId) : RESTAURANTS[0];
+  const seedRest = partnerUser ? RESTAURANTS.find(r=>r.id===partnerUser.restId) : RESTAURANTS[0];
+  const rest = useMemo(() => {
+    if (USE_API && apiRests.length && partnerUser?.restId) {
+      const enriched = enrichRestaurants(apiRests, RESTAURANTS);
+      return enriched.find(r => r.id === partnerUser.restId) || enriched[0];
+    }
+    return seedRest;
+  }, [apiRests, partnerUser?.restId, seedRest]);
+  const isOpen = rest ? (typeof rest.open === 'boolean' ? rest.open : true) : true;
   const [tab,   setTab]   = useState('orders');
   const [menu,  setMenu]  = useState(rest ? rest.menu : []);
   const [showAdd,setShowAdd]=useState(false);
@@ -5517,7 +5628,8 @@ const PartnerDashPage = ({go}) => {
   const [newCat,setNewCat]=useState(rest?rest.categories[0]:'');
   const [newEmoji2,setNewEmoji2]=useState('🍽');
   const [newDesc,setNewDesc]=useState('');
-  const [isOpen,setIsOpen]=useState(rest?rest.open:true);
+
+  const toggleOpen = () => { if (rest?.id) void toggleOpenApi(rest.id); };
 
   const ORDERS_REST = [
     {id:'R-4832',client:'Диловар Р.',items:['🍚 Плов','🥩 Шашлык'],total:40,status:'cooking',time:'14:23'},
@@ -5542,7 +5654,7 @@ const PartnerDashPage = ({go}) => {
             </div>
             <div style={{textAlign:'right'}}>
               <div style={{fontSize:10,color:'rgba(255,255,255,.6)',marginBottom:2}}>Статус</div>
-              <div onClick={()=>setIsOpen(v=>!v)} style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',padding:'5px 10px',borderRadius:10,background:isOpen?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)',border:`1px solid ${isOpen?'rgba(31,215,96,.4)':'rgba(255,69,69,.4)'}`}}>
+              <div onClick={toggleOpen} style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',padding:'5px 10px',borderRadius:10,background:isOpen?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)',border:`1px solid ${isOpen?'rgba(31,215,96,.4)':'rgba(255,69,69,.4)'}`}}>
                 <div style={{width:8,height:8,borderRadius:'50%',background:isOpen?'var(--gr)':'var(--red)',animation:'pulse 2s infinite'}}/>
                 <span style={{fontSize:12,fontWeight:700,color:isOpen?'var(--gr)':'var(--red)'}}>{isOpen?'Открыто':'Закрыто'}</span>
               </div>
@@ -5711,13 +5823,21 @@ const PartnerDashPage = ({go}) => {
   );
 };
 const AdminPartnersPage = ({go}) => {
+  const apiRests = useRestaurants(s => s.restaurants);
+  const toggleOpenApi = useRestaurants(s => s.toggleOpen);
   const [rests,   setRests]   = useState(RESTAURANTS.map(r=>({...r,commEdit:r.commission})));
   const [sel,     setSel]     = useState(null);
   const [rtab,    setRtab]    = useState('info');
   const [showAdd, setShowAdd] = useState(false);
   const [showPay, setShowPay] = useState(null);
 
-  const toggleOpen = (id) => setRests(rs=>rs.map(r=>r.id===id?{...r,open:!r.open}:r));
+  useEffect(() => {
+    if (USE_API && apiRests.length) {
+      setRests(enrichRestaurants(apiRests, RESTAURANTS).map(r => ({ ...r, commEdit: r.commission })));
+    }
+  }, [apiRests]);
+
+  const toggleOpen = (id) => { void toggleOpenApi(id); };
   const saveComm   = (id,v) => setRests(rs=>rs.map(r=>r.id===id?{...r,commission:v,commEdit:v}:r));
   const toggleDish = (rid,mid) => setRests(rs=>rs.map(r=>r.id===rid?{...r,menu:r.menu.map(m=>m.id===mid?{...m,inStock:!m.inStock}:m)}:r));
 
@@ -6156,7 +6276,9 @@ const Page404 = ({ go }) => (
 export default function KakapoApp() {
   return (
     <LiveCatalogProvider fallbackProds={PRODS} fallbackRests={RESTAURANTS}>
-      <KakapoAppInner />
+      <AppNavigationBoundary>
+        <KakapoAppInner />
+      </AppNavigationBoundary>
     </LiveCatalogProvider>
   );
 }
@@ -6164,8 +6286,7 @@ export default function KakapoApp() {
 function KakapoAppInner() {
   useApiSync('all');
   const { prods } = useLiveCatalog();
-  const [page,   setPage]   = useState("home");
-  const [params, setParams] = useState({});
+  const { page, params, go } = useAppNavigation('home');
   const [cart,   setCart]   = useState({});
   const [cartMeta, setCartMeta] = useState({});
   const [wished, setWished] = useState({});
@@ -6177,30 +6298,44 @@ function KakapoAppInner() {
     useProductPhotos.getState().hydrate();
   }, []);
 
-  const go = useCallback((p, prm = {}) => {
-    setPage(p); setParams(prm);
-    if (typeof window !== "undefined") window.scrollTo(0, 0);
-  }, []);
-
   const showToast = useCallback((msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2200);
   }, []);
 
-  const addItem = useCallback((id, price, name, emoji, restId) => {
+  const addItem = useCallback((id, price, name, emoji, restId, silent) => {
+    const p = prods.find(x => x.id == id);
+    if (p && !restId) {
+      setCart(c => {
+        const cur = c[id] || 0;
+        const next = nextCartQty(p, cur, true);
+        if (!silent && next > 0) showToast(`${p.e} ${p.name} — ${formatCartQty(p, next)}`);
+        if (next === 0) return c;
+        return { ...c, [id]: next };
+      });
+      return;
+    }
     setCart(c => ({ ...c, [id]: (c[id]||0) + 1 }));
-    const p = prods.find(x => x.id === id);
-    if (p) {
-      showToast(`${p.e} ${p.name} в корзине`);
-    } else if (name) {
+    if (name) {
       setCartMeta(m => ({ ...m, [id]: { price, name, emoji: emoji || '🍽', restId } }));
-      showToast(`${emoji || '🍽'} ${name} в корзине`);
+      if (!silent) showToast(`${emoji || '🍽'} ${name} в корзине`);
     }
   }, [showToast, prods]);
 
   const rmItem = useCallback((id) => {
-    setCart(c => { const n = {...c}; if (n[id] > 1) n[id]--; else delete n[id]; return n; });
-  }, []);
+    const p = prods.find(x => x.id == id);
+    setCart(c => {
+      const cur = c[id] || 0;
+      if (!cur) return c;
+      const n = { ...c };
+      if (p && isWeighted(p)) {
+        const next = nextCartQty(p, cur, false);
+        if (next === 0) delete n[id]; else n[id] = next;
+      } else if (n[id] > 1) n[id]--;
+      else delete n[id];
+      return n;
+    });
+  }, [prods]);
 
   const delItem = useCallback((id) => {
     setCart(c => { const n = {...c}; delete n[id]; return n; });
@@ -6218,7 +6353,7 @@ function KakapoAppInner() {
     setCartMeta({});
   }, []);
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart };
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast };
 
   const render = () => {
     switch (page) {

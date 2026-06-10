@@ -5,6 +5,11 @@
 export interface DemoCourierOrder {
   id: string;
   pickupIds: string[];
+  /** Точки для карты (только готовые к забору) */
+  mapPickupIds?: string[];
+  mixed?: boolean;
+  pendingParts?: { pickupId: string; label: string; status: string }[];
+  pickedUpIds?: string[];
   client: string;
   phone: string;
   addr: string;
@@ -14,7 +19,7 @@ export interface DemoCourierOrder {
   pay: string;
   time: string;
   sum: number;
-  items: { e: string; n: string; q: number; p: number }[];
+  items: { e: string; n: string; q: number; p: number; source?: string }[];
 }
 
 export interface DemoAdminCourierOrder extends DemoCourierOrder {

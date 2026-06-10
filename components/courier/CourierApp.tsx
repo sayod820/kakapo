@@ -2,11 +2,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, STORE_LOCATION } from '@/lib/courierData'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
-import { DEMO_COURIER_ORDERS, DEMO_COURIER_HISTORY } from '@/lib/demoOrders'
+import { DEMO_COURIER_ORDERS } from '@/lib/demoOrders'
+import { buildCourierStats, COURIER_NAME, COURIER_PHONE, formatSm } from '@/lib/courierStats'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { useOrders, USE_API } from '@/lib/store'
-import { mapOrdersForCourier, isCourierReadyOrder } from '@/lib/orderUiMap'
+import { mapOrdersForCourier, mapSingleOrderForCourier, isCourierReadyOrder } from '@/lib/orderUiMap'
+import { normalizeOrder, buildCourierRoute, getAllPickupIds, getReadyUnpickedPickupIds, formatCourierWaitingMessage } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
+import { useAppNavigation, readSessionFlag, writeSessionFlag } from '@/lib/useAppNavigation'
+import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import type { PickupPoint } from '@/lib/pickups'
 
 /* ══════════════════════════════════════════════════════
@@ -32,7 +36,7 @@ const CSS = `
   ::-webkit-scrollbar{width:0;height:0;}
 `;
 
-const COURIER = { name:'Фирдавс Назаров', vehicle:'🏍 TJ 1234 AA', rating:4.9 };
+const COURIER = { name: COURIER_NAME, vehicle: '🏍 TJ 1234 AA', rating: 4.9 };
 
 function useTariff() {
   return usePricingStore(s => s.pricing);
@@ -171,8 +175,6 @@ function buildPickupsMap(list: PickupPoint[]) {
   }]));
 }
 
-const HISTORY = DEMO_COURIER_HISTORY;
-
 /* ─────────────────────────────────────────────────────
     РЕАЛЬНАЯ КАРТА OpenStreetMap + Leaflet
 ───────────────────────────────────────────────────── */
@@ -285,8 +287,9 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       const mkIcon = (html: string, w: number, h: number, ax: number, ay: number) =>
         L.divIcon({ html, className:'', iconSize:[w,h], iconAnchor:[ax,ay], popupAnchor:[0,-ay] });
 
-      if (selected && selected.pickupIds && step) {
-        selected.pickupIds.forEach((pid: string, i: number) => {
+      if (selected && (selected.mapPickupIds ?? selected.pickupIds) && step) {
+        const displayPickups = selected.mapPickupIds ?? selected.pickupIds
+        displayPickups.forEach((pid: string, i: number) => {
           const pk = PICKUPS[pid] || PICKUPS.store;
           const isCurrent = step === 'toPickup' && i === pickupIdx;
           const isDone    = step === 'toClient' || step === 'done' || (step === 'toPickup' && i < pickupIdx);
@@ -448,10 +451,21 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
    ГЛАВНОЕ ПРИЛОЖЕНИЕ
 ───────────────────────────────────────────────────── */
 export default function CourierApp() {
+  return (
+    <AppNavigationBoundary>
+      <CourierAppInner />
+    </AppNavigationBoundary>
+  );
+}
+
+function CourierAppInner() {
   useApiSync('courier');
+  const { page: tab, navigate: setTab } = useAppNavigation('orders');
   const TARIFF = useTariff();
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
+  const markPickupDone = useOrders(s => s.markPickupDone);
+  const setCourierRoute = useOrders(s => s.setCourierRoute);
   const ORDERS = useMemo(
     () => {
       if (!USE_API && !apiOrders.length) return DEMO_COURIER_ORDERS
@@ -462,13 +476,29 @@ export default function CourierApp() {
   const pickupsList = usePickups();
   const pickupLocations = usePickupLocations();
   const PICKUPS = buildPickupsMap(pickupsList);
-  const [logged,    setLogged]    = useState(false);
+  const [logged,    setLogged]    = useState(() => readSessionFlag('courier'));
+  useEffect(() => { writeSessionFlag('courier', logged); }, [logged]);
   const { roadKm, loading: kmLoading } = useOrderRoadKm(ORDERS, logged);
+  const courierStats = useMemo(
+    () => buildCourierStats(apiOrders, roadKm, TARIFF),
+    [apiOrders, roadKm, TARIFF],
+  );
   const { pos: courierPos, loading: locationLoading, error: locationError, enable: enableLocation, disable: disableLocation, enabled: locationEnabled } = useCourierLocation();
-  const [tab,       setTab]       = useState('orders');
   const [status,    setStatus]    = useState('available');
   const [selected,  setSelected]  = useState<any>(null);
-  const [active,     setActive]     = useState<any>(null);
+  const [activeId,   setActiveId]   = useState<string | null>(null);
+  const [localPickedUp, setLocalPickedUp] = useState<Record<string, string[]>>({});
+  const [localPickupRoute, setLocalPickupRoute] = useState<Record<string, string[]>>({});
+  const [routePicker, setRoutePicker] = useState<any>(null);
+  const active = useMemo(() => {
+    if (!activeId) return null
+    const raw = apiOrders.find(o => o.id === activeId)
+    if (!raw) return null
+    const pickedUpIds = [...new Set([...(raw.pickedUpIds || []), ...(localPickedUp[activeId] || [])])]
+    const courierRoute = localPickupRoute[activeId] ?? raw.courierRoute
+    return mapSingleOrderForCourier({ ...normalizeOrder(raw), pickedUpIds, courierRoute })
+  }, [activeId, apiOrders, localPickedUp, localPickupRoute]);
+  const waitingForPickup = !!(active && !active.pickupIds.length && active.pendingParts?.length);
   const [step,       setStep]       = useState<'toPickup'|'toClient'|'done'>('toPickup');
   const [pickupIdx,  setPickupIdx]  = useState(0);
   const [completed,  setCompleted]  = useState<string[]>([]);
@@ -477,6 +507,20 @@ export default function CourierApp() {
   const [load,      setLoad]      = useState(false);
 
   useEffect(() => { hydrateCourierStores(); }, []);
+
+  useEffect(() => {
+    if (activeId || !USE_API) return
+    const inProgress = apiOrders.find(o => o.status === 'courier_picked' || o.status === 'delivering')
+    if (inProgress) {
+      setActiveId(inProgress.id)
+      if (inProgress.courierRoute?.length) {
+        setLocalPickupRoute(prev => ({ ...prev, [inProgress.id]: inProgress.courierRoute! }))
+      }
+      setStatus('busy')
+      setTab('active')
+      setStep(inProgress.status === 'delivering' ? 'toClient' : 'toPickup')
+    }
+  }, [apiOrders, activeId]);
 
   const verify = () => {
     if (otp.join('').length < 4) return;
@@ -488,34 +532,106 @@ export default function CourierApp() {
     }, 700);
   };
 
-  const accept = async (o: any) => {
-    setActive(o);
+  const confirmAccept = async (o: any, route: string[]) => {
+    setLocalPickupRoute(prev => ({ ...prev, [o.id]: route }));
+    setActiveId(o.id);
     setStatus('busy');
     setStep('toPickup');
     setPickupIdx(0);
     setSelected(null);
+    setRoutePicker(null);
     setTab('active');
-    await updateStatus(o.id, 'courier_picked');
+    void setCourierRoute(o.id, route);
+    await updateStatus(o.id, 'courier_picked', { courier: { name: COURIER.name, phone: COURIER_PHONE } });
+  };
+
+  const accept = (o: any) => {
+    if (!o.pickupIds?.length) return;
+    const raw = apiOrders.find(x => x.id === o.id);
+    const order = raw ? normalizeOrder(raw) : null;
+    const allStops = order ? getAllPickupIds(order) : o.pickupIds;
+    const ready = order ? getReadyUnpickedPickupIds(order) : o.pickupIds;
+
+    if (allStops.length > 1 && ready.length > 1) {
+      setRoutePicker({ order: o, ready, allStops });
+      return;
+    }
+    const route = ready.length === 1
+      ? buildCourierRoute(ready[0], order || { items: [], type: 'mixed' } as any)
+      : allStops;
+    void confirmAccept(o, route);
+  };
+
+  const chooseFirstPickup = (pid: string) => {
+    if (!activeId) return;
+    const raw = apiOrders.find(o => o.id === activeId);
+    if (!raw) return;
+    const route = buildCourierRoute(pid, normalizeOrder(raw));
+    setLocalPickupRoute(prev => ({ ...prev, [activeId]: route }));
+    setPickupIdx(0);
+    void setCourierRoute(activeId, route);
+  };
+
+  const pickRouteAndAccept = (firstPid: string) => {
+    if (!routePicker) return;
+    const raw = apiOrders.find(o => o.id === routePicker.order.id);
+    const route = raw
+      ? buildCourierRoute(firstPid, normalizeOrder(raw))
+      : [firstPid, ...routePicker.allStops.filter((x: string) => x !== firstPid)];
+    void confirmAccept(routePicker.order, route);
   };
   const finish = async () => {
-    if (active) await updateStatus(active.id, 'delivered');
-    if (active) setCompleted(c => [...c, active.id]);
-    setActive(null);
+    const deliveredAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    if (activeId) {
+      await updateStatus(activeId, 'delivered', {
+        courier: { name: COURIER.name, phone: COURIER_PHONE },
+        deliveredAt,
+      });
+      setCompleted(c => [...c, activeId]);
+      setLocalPickedUp(prev => {
+        const next = { ...prev };
+        delete next[activeId];
+        return next;
+      });
+      setLocalPickupRoute(prev => {
+        const next = { ...prev };
+        delete next[activeId];
+        return next;
+      });
+    }
+    setActiveId(null);
     setStatus('available');
-    setTab('orders');
+    setTab('earnings');
   };
   const nextStop = () => {
-    if (pickupIdx < active.pickupIds.length - 1) {
-      setPickupIdx(i => i + 1);
+    if (!active || !activeId) return;
+    const currentPid = active.pickupIds[pickupIdx];
+    if (!currentPid) return;
+
+    const nextPicked = [...new Set([...(active.pickedUpIds || []), currentPid])];
+    setLocalPickedUp(prev => ({ ...prev, [active.id]: nextPicked }));
+    setPickupIdx(0);
+
+    void markPickupDone(active.id, currentPid);
+
+    const raw = apiOrders.find(o => o.id === active.id);
+    if (!raw) return;
+    const mapped = mapSingleOrderForCourier({ ...normalizeOrder(raw), pickedUpIds: nextPicked });
+
+    if (mapped.pickupIds.length > 0) {
+      setStep('toPickup');
+    } else if (mapped.pendingParts?.length) {
+      setStep('toPickup');
     } else {
       setStep('toClient');
-      if (active) updateStatus(active.id, 'delivering');
+      void updateStatus(active.id, 'delivering');
     }
   };
 
   const available = ORDERS.filter(o =>
     !completed.includes(o.id) &&
-    o.id !== active?.id,
+    o.id !== activeId &&
+    o.pickupIds.length > 0,
   );
 
   /* ── ЛОГИН ── */
@@ -568,7 +684,7 @@ export default function CourierApp() {
           </div>
           <div style={{ textAlign:'right' }}>
             <div style={{ fontSize:9, color:'#3D6645' }}>Сегодня</div>
-            <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>42 ЅМ</div>
+            <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>
           </div>
           <button
             type="button"
@@ -642,6 +758,15 @@ export default function CourierApp() {
                             </div>
                           );
                         })}
+                        {selected.pendingParts?.map((pp: { pickupId: string; label: string; status: string }, pi: number) => (
+                          <div key={`p-${pi}`} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8, opacity:0.65 }}>
+                            <div style={{ width:32, height:32, borderRadius:9, background:'rgba(255,184,0,.12)', border:'1.5px dashed rgba(255,184,0,.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>⏳</div>
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontSize:10, color:'#FFB800', fontWeight:700 }}>{pp.label} — {pp.status}</div>
+                              <div style={{ fontSize:11, color:'#3D6645' }}>Появится на карте после готовности</div>
+                            </div>
+                          </div>
+                        ))}
                         <div style={{ display:'flex', alignItems:'center', gap:10, paddingTop:8, borderTop:'1px dashed #1D3822' }}>
                           <div style={{ width:32, height:32, borderRadius:9, background:'rgba(59,142,240,.12)', border:'1.5px solid rgba(59,142,240,.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>📍</div>
                           <div style={{ flex:1 }}>
@@ -654,6 +779,7 @@ export default function CourierApp() {
 
                       {/* теги */}
                       <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:12 }}>
+                        {selected.mixed && <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(255,140,0,.12)', color:'#FF8C00', border:'1px solid rgba(255,140,0,.3)' }}>🔀 Смешанный заказ</span>}
                         <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>🛣 {getOrderKm(selected, roadKm) != null ? `${formatKm(getOrderKm(selected, roadKm)!)} · забор → клиент` : '… · забор → клиент'}</span>
                         <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(255,184,0,.1)', color:'#FFB800', border:'1px solid rgba(255,184,0,.25)' }}>⚖️ {selected.weight} кг</span>
                       </div>
@@ -723,6 +849,34 @@ export default function CourierApp() {
                   </div>
                 )}
 
+                {/* Выбор порядка забора при принятии */}
+                {routePicker && (
+                  <div style={{ position:'fixed', inset:0, zIndex:600, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+                    <div onClick={()=>setRoutePicker(null)} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)', backdropFilter:'blur(4px)' }}/>
+                    <div style={{ position:'relative', width:'100%', maxWidth:480, background:'#0C1C0F', borderRadius:'22px 22px 0 0', padding:'22px 18px calc(28px + env(safe-area-inset-bottom, 0px))' }}>
+                      <div className="ub" style={{ fontSize:16, fontWeight:900, color:'#3B8EF0', marginBottom:6 }}>Куда ехать первым?</div>
+                      <div style={{ fontSize:12, color:'#8FB897', marginBottom:16 }}>Заказ {routePicker.order.id} · выберите первую точку забора</div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                        {routePicker.ready.map((pid: string) => {
+                          const pk = PICKUPS[pid] || PICKUPS.store;
+                          return (
+                            <button key={pid} type="button" onClick={()=>pickRouteAndAccept(pid)} className="btn"
+                              style={{ display:'flex', alignItems:'center', gap:14, padding:'16px', borderRadius:16, background:`${pk.color}14`, border:`2px solid ${pk.color}55`, textAlign:'left' }}>
+                              <span style={{ fontSize:28 }}>{pk.e}</span>
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>{pid==='store'?'МАГАЗИН':'РЕСТОРАН'}</div>
+                                <div style={{ fontSize:15, fontWeight:800, color:pk.color }}>{pk.name}</div>
+                                <div style={{ fontSize:11, color:'#8FB897', marginTop:2 }}>{pk.addr}</div>
+                              </div>
+                              <span style={{ fontSize:18, color:pk.color }}>→</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ padding:'18px 18px 0' }}>
                   <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
                     Доступные заказы
@@ -784,7 +938,7 @@ export default function CourierApp() {
           active ? (
             <div>
               <LeafletMap key="active-map" orders={[active]} selected={active} onSelect={()=>{}} height={250} pickupIdx={pickupIdx} step={step} TARIFF={TARIFF} roadKm={roadKm} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations}/>
-              <div style={{ padding:'16px 18px' }}>
+              <div style={{ padding:'16px 18px 110px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
                   <div>
                     <span className="ub" style={{ fontSize:16, fontWeight:900, color:'#3B8EF0' }}>{active.id}</span>
@@ -838,9 +992,39 @@ export default function CourierApp() {
                   })()}
                 </div>
 
+                {/* Выбор следующей точки (если несколько готовы) */}
+                {step === 'toPickup' && !waitingForPickup && active.pickupIds.length > 1 && (
+                  <div style={{ marginBottom:14, padding:'12px 14px', borderRadius:14, background:'#091508', border:'1px solid #162B1A' }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#8FB897', marginBottom:10 }}>🗺 Сначала заехать:</div>
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                      {active.pickupIds.map((pid: string, i: number) => {
+                        const pk = PICKUPS[pid] || PICKUPS.store;
+                        const isCurrent = pickupIdx === i;
+                        return (
+                          <button key={pid} type="button" onClick={() => chooseFirstPickup(pid)} className="btn"
+                            style={{ padding:'10px 14px', borderRadius:12, fontSize:12, fontWeight:700, border:`2px solid ${isCurrent ? pk.color : pk.color + '44'}`, background: isCurrent ? pk.color + '22' : '#0C1C0F', color: isCurrent ? pk.color : '#8FB897' }}>
+                            {pk.e} {pk.name.split(' ')[0]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* ── КАРТОЧКА МАРШРУТА ── */}
                 <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:16, padding:'14px 16px', marginBottom:14 }}>
-                  {step === 'toPickup' && (() => {
+                  {waitingForPickup && (
+                    <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,184,0,.08)', border:'1px solid rgba(255,184,0,.35)', marginBottom:12 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:'#FFB800', marginBottom:4 }}>⏳ Ожидаем готовность</div>
+                      {active.pendingParts?.map((pp: { label: string; status: string }, i: number) => (
+                        <div key={i} style={{ fontSize:12, color:'#8FB897', marginTop:4 }}>
+                          {pp.label}: <span style={{ color:'#FFB800', fontWeight:700 }}>{pp.status}</span>
+                        </div>
+                      ))}
+                      <div style={{ fontSize:11, color:'#3D6645', marginTop:8 }}>Точка появится на карте автоматически, когда будет готова</div>
+                    </div>
+                  )}
+                  {step === 'toPickup' && !waitingForPickup && active.pickupIds[pickupIdx] && (() => {
                     const pk = PICKUPS[active.pickupIds[pickupIdx]] || PICKUPS.store;
                     return (
                       <div style={{ display:'flex', gap:10, marginBottom:active.pickupIds.length > 1 ? 12 : 0, paddingBottom:active.pickupIds.length > 1 ? 12 : 0, borderBottom:active.pickupIds.length > 1 ? '1px solid #162B1A' : 'none' }}>
@@ -856,6 +1040,15 @@ export default function CourierApp() {
                       </div>
                     );
                   })()}
+                  {step === 'toPickup' && !waitingForPickup && active.pendingParts?.length > 0 && (
+                    <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:8 }}>
+                      {active.pendingParts.map((pp: { label: string; status: string }, i: number) => (
+                        <span key={i} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, background:'rgba(255,184,0,.08)', border:'1px dashed rgba(255,184,0,.35)', color:'#FFB800' }}>
+                          ⏳ {pp.label}: {pp.status}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {step === 'toPickup' && active.pickupIds.length > 1 && pickupIdx < active.pickupIds.length - 1 && (
                     <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
                       {active.pickupIds.slice(pickupIdx+1).map((pid:string, i:number) => {
@@ -936,13 +1129,21 @@ export default function CourierApp() {
                   );
                 })()}
 
-                {step==='toPickup' && (() => {
+                {step==='toPickup' && !waitingForPickup && active.pickupIds[pickupIdx] && (() => {
                   const pk = PICKUPS[active.pickupIds[pickupIdx]] || PICKUPS.store;
-                  const hasMore = pickupIdx < active.pickupIds.length - 1;
+                  const hasMore = active.pickupIds.length > pickupIdx + 1 || (active.pendingParts?.length ?? 0) > 0;
                   return (
-                    <button onClick={nextStop} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:`linear-gradient(135deg,${pk.color}BB,${pk.color})`, border:'none', color:'#030B05', fontWeight:800, fontSize:14 }}>
-                      📦 Забрал у «{pk.name.split(' ')[0]}» — {hasMore ? `еду к следующей точке →` : 'еду к клиенту 🛵'}
+                    <button type="button" onClick={nextStop} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:`linear-gradient(135deg,${pk.color}BB,${pk.color})`, border:'none', color:'#030B05', fontWeight:800, fontSize:14 }}>
+                      📦 Забрал у «{pk.name.split(' ')[0]}» — {hasMore ? `дальше →` : 'еду к клиенту 🛵'}
                     </button>
+                  );
+                })()}
+                {step==='toPickup' && waitingForPickup && (() => {
+                  const wait = formatCourierWaitingMessage(active.pendingParts || []);
+                  return (
+                  <div style={{ width:'100%', padding:15, borderRadius:15, background:'rgba(255,184,0,.1)', border:'1px solid rgba(255,184,0,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#FFB800' }}>
+                    {wait.icon} {wait.text}
+                  </div>
                   );
                 })()}
                 {step==='toClient' && <button onClick={()=>setStep('done')} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
@@ -964,11 +1165,16 @@ export default function CourierApp() {
           <div style={{ padding:'14px 18px' }}>
             <div style={{ background:'linear-gradient(135deg,#0A1828,#163050)', border:'1px solid rgba(59,142,240,.3)', borderRadius:20, padding:'22px', marginBottom:16, textAlign:'center' }}>
               <div style={{ fontSize:11, color:'#8FB897', marginBottom:6 }}>Доставки сегодня</div>
-              <div className="ub" style={{ fontSize:40, fontWeight:900, color:'#1FD760', marginBottom:4 }}>210 ЅМ</div>
-              <div style={{ fontSize:12, color:'#3B8EF0' }}>14 доставок · 4.9 ★</div>
+              <div className="ub" style={{ fontSize:40, fontWeight:900, color:'#1FD760', marginBottom:4 }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>
+              <div style={{ fontSize:12, color:'#3B8EF0' }}>{courierStats.todayCount} {courierStats.todayCount === 1 ? 'доставка' : courierStats.todayCount >= 2 && courierStats.todayCount <= 4 ? 'доставки' : 'доставок'} · {courierStats.rating} ★</div>
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:18 }}>
-              {([['За неделю','1 240 ЅМ','#1FD760'],['Всего доставок','342','#3B8EF0'],['Ср. за день','177 ЅМ','#FFB800'],['Рейтинг','4.9 ★','#FFB800']] as const).map(([l,v,c],i)=>(
+              {([
+                ['За неделю', `${formatSm(courierStats.weekEarnings)} ЅМ`, '#1FD760'],
+                ['Всего доставок', String(courierStats.totalDeliveries), '#3B8EF0'],
+                ['Ср. за день', `${formatSm(courierStats.avgPerDay)} ЅМ`, '#FFB800'],
+                ['Рейтинг', `${courierStats.rating} ★`, '#FFB800'],
+              ] as const).map(([l,v,c],i)=>(
                 <div key={i} style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:14, padding:'15px', textAlign:'center' }}>
                   <div className="ub" style={{ fontSize:18, fontWeight:900, color:c, marginBottom:3 }}>{v}</div>
                   <div style={{ fontSize:10, color:'#3D6645' }}>{l}</div>
@@ -977,8 +1183,12 @@ export default function CourierApp() {
             </div>
             <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:12 }}>История доставок</div>
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {HISTORY.map((h,i)=>(
-                <div key={i} style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:13, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              {courierStats.history.length === 0 ? (
+                <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:13, padding:'24px 14px', textAlign:'center', color:'#3D6645', fontSize:13 }}>
+                  Доставок пока нет — завершите заказ во вкладке «Доставка»
+                </div>
+              ) : courierStats.history.map((h)=>(
+                <div key={h.id} style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:13, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <div style={{ width:34, height:34, borderRadius:9, background:'rgba(31,215,96,.12)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>✓</div>
                     <div>
@@ -987,6 +1197,7 @@ export default function CourierApp() {
                     </div>
                   </div>
                   <div style={{ textAlign:'right' }}>
+                    <div className="ub" style={{ fontSize:12, fontWeight:800, color:'#1FD760' }}>+{formatSm(h.earning)} ЅМ</div>
                     <div style={{ fontSize:10, color:'#3D6645' }}>{h.time}</div>
                   </div>
                 </div>

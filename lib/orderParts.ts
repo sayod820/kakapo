@@ -1,4 +1,5 @@
 import type { Order, OrderItem, OrderStatus, OrderType } from './types'
+import { restIdToPickupId } from './pickups'
 
 export type PartStatus = 'new' | 'assembling' | 'cooking' | 'done'
 
@@ -95,6 +96,89 @@ export function allPartsDone(o: Order): boolean {
   return allRestPartsDone(o)
 }
 
+export function anyPartDone(o: Order): boolean {
+  const order = normalizeOrder(o)
+  if (hasMarketPart(order) && getMarketStatus(order) === 'done') return true
+  return getRestIdsFromOrder(order).some(id => getRestPartStatus(order, id) === 'done')
+}
+
+export function getAllPickupIds(o: Order): string[] {
+  const order = normalizeOrder(o)
+  const ids: string[] = []
+  if (hasMarketPart(order)) ids.push('store')
+  getRestIdsFromOrder(order).forEach(rid => ids.push(restIdToPickupId(rid)))
+  return ids
+}
+
+export function isPickupPointReady(o: Order, pickupId: string): boolean {
+  const order = normalizeOrder(o)
+  if (pickupId === 'store') return getMarketStatus(order) === 'done'
+  for (const rid of getRestIdsFromOrder(order)) {
+    if (restIdToPickupId(rid) === pickupId) return getRestPartStatus(order, rid) === 'done'
+  }
+  return false
+}
+
+export function getReadyUnpickedPickupIds(o: Order, routeOrder?: string[]): string[] {
+  const order = normalizeOrder(o)
+  const route = routeOrder ?? order.courierRoute
+  const picked = new Set(order.pickedUpIds || [])
+  const ready = getAllPickupIds(order).filter(pid => isPickupPointReady(order, pid) && !picked.has(pid))
+  if (!route?.length) return ready
+  const rank = new Map(route.map((id, i) => [id, i]))
+  return [...ready].sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999))
+}
+
+/** Маршрут: сначала выбранная точка, затем остальные */
+export function buildCourierRoute(firstPickupId: string, o: Order): string[] {
+  const all = getAllPickupIds(normalizeOrder(o))
+  return [firstPickupId, ...all.filter(id => id !== firstPickupId)]
+}
+
+export function getPendingPartsForCourier(o: Order): { pickupId: string; label: string; status: string }[] {
+  const order = normalizeOrder(o)
+  const out: { pickupId: string; label: string; status: string }[] = []
+  if (hasMarketPart(order) && getMarketStatus(order) !== 'done') {
+    const ms = getMarketStatus(order)
+    out.push({
+      pickupId: 'store',
+      label: 'Магазин',
+      status: ms === 'assembling' ? 'Собирается' : 'Ожидает сборку',
+    })
+  }
+  for (const rid of getRestIdsFromOrder(order)) {
+    const st = getRestPartStatus(order, rid)
+    if (st !== 'done') {
+      out.push({
+        pickupId: restIdToPickupId(rid),
+        label: 'Ресторан',
+        status: st === 'cooking' ? 'Готовится' : 'Ожидает',
+      })
+    }
+  }
+  return out
+}
+
+/** Текст ожидания для курьера — магазин или ресторан */
+export function formatCourierWaitingMessage(
+  parts: { pickupId: string; label: string; status: string }[],
+): { icon: string; text: string } {
+  if (!parts.length) return { icon: '⏳', text: 'Ожидаем готовность заказа…' }
+  if (parts.length === 1) {
+    if (parts[0].pickupId === 'store') {
+      return { icon: '🛒', text: 'Товар из магазина ещё собирается…' }
+    }
+    return { icon: '🍽', text: 'Заказ из ресторана ещё готовится…' }
+  }
+  const waiting = parts.map(p => (p.pickupId === 'store' ? 'магазин' : 'ресторан'))
+  return { icon: '⏳', text: `Ожидаем: ${waiting.join(' и ')}…` }
+}
+
+export function allPickupsCollected(o: Order): boolean {
+  const order = normalizeOrder(o)
+  return getAllPickupIds(order).every(pid => (order.pickedUpIds || []).includes(pid))
+}
+
 export function restPartToUiStatus(part: PartStatus): 'new' | 'cooking' | 'ready' | 'delivered' {
   if (part === 'new') return 'new'
   if (part === 'cooking') return 'cooking'
@@ -152,8 +236,14 @@ export function applyRestPartStatus(o: Order, restId: string, status: PartStatus
 export function syncOverallStatus(o: Order): Order {
   const order = normalizeOrder(o)
   if (!isMixedOrder(order)) return order
+  if (['courier_picked', 'delivering', 'delivered', 'cancelled'].includes(order.status)) {
+    return order
+  }
   if (allPartsDone(order)) {
     return { ...order, status: 'assembler_done' as OrderStatus }
+  }
+  if (anyPartDone(order)) {
+    return { ...order, status: 'ready' as OrderStatus }
   }
   if (hasMarketPart(order) && getMarketStatus(order) === 'assembling') {
     return { ...order, status: 'assembling' as OrderStatus }

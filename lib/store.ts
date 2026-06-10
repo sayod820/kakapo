@@ -4,7 +4,7 @@ import type { Order, OrderStatus, Product, Restaurant } from './types'
 import { INITIAL_ORDERS, PRODUCTS, RESTAURANTS } from './data'
 import { api, setToken, getToken } from './api'
 import { USE_API } from './config'
-import { isCourierReadyOrder, isCourierSyncOrder, isAssemblerOrder } from './orderUiMap'
+import { isCourierReadyOrder, isCourierSyncOrder, isCourierRoleOrder, isAssemblerOrder } from './orderUiMap'
 import {
   applyMarketStatus,
   applyRestPartStatus,
@@ -14,6 +14,7 @@ import {
   normalizeOrder,
   normalizeOrders,
 } from './orderParts'
+import { ASSEMBLER_NAME } from './courierStats'
 
 export { USE_API }
 
@@ -72,11 +73,33 @@ function patchOrders(
 
 async function loadCourierOrdersFromApi(): Promise<Order[]> {
   try {
-    const dedicated = await api.getCourierOrders()
-    if (dedicated.length) return normalizeOrders(dedicated.filter(isCourierSyncOrder))
+    const list = await api.getOrders()
+    return normalizeOrders(list.filter(o => isCourierSyncOrder(o) || o.status === 'delivered'))
   } catch { /* fallback */ }
-  const list = await api.getOrders()
-  return normalizeOrders(list.filter(isCourierSyncOrder))
+  try {
+    const dedicated = await api.getCourierOrders()
+    return normalizeOrders(dedicated.filter(isCourierSyncOrder))
+  } catch {
+    return []
+  }
+}
+
+export function mergeOrderFields(local: Order, remote: Order): Order {
+  const pickedUpIds = [...new Set([...(local.pickedUpIds || []), ...(remote.pickedUpIds || [])])]
+  const courierRoute = local.courierRoute?.length ? local.courierRoute : remote.courierRoute
+  const items = (remote.items || []).map((it, idx) => {
+    const localIt = local.items?.[idx]
+    if (localIt?.done && !it.done) return { ...it, done: true }
+    return it
+  })
+  return {
+    ...remote,
+    courier: remote.courier?.name ? remote.courier : local.courier,
+    assembler: remote.assembler?.name ? remote.assembler : local.assembler,
+    ...(pickedUpIds.length ? { pickedUpIds } : {}),
+    ...(courierRoute?.length ? { courierRoute } : {}),
+    items,
+  }
 }
 
 function mergeRoleOrders(
@@ -85,9 +108,14 @@ function mergeRoleOrders(
   belongsToRole: (o: Order) => boolean,
 ): Order[] {
   const remoteIds = new Set(remote.map(o => o.id))
+  const localById = new Map(current.filter(belongsToRole).map(o => [o.id, o]))
   const outsideRole = current.filter(o => !belongsToRole(o))
   const localRoleOnly = current.filter(o => belongsToRole(o) && !remoteIds.has(o.id))
-  const merged = [...outsideRole, ...remote, ...localRoleOnly]
+  const mergedRemote = remote.map(o => {
+    const local = localById.get(o.id)
+    return local ? mergeOrderFields(local, o) : o
+  })
+  const merged = [...outsideRole, ...mergedRemote, ...localRoleOnly]
   const seen = new Set<string>()
   return merged.filter(o => {
     if (seen.has(o.id)) return false
@@ -116,16 +144,18 @@ interface OrdersStore {
   fetchRestaurantOrders: () => Promise<void>
   createOrder: (data: any) => Promise<Order | null>
   addOrder: (order: Order) => void
-  updateStatus: (id: string, status: OrderStatus) => Promise<void>
+  updateStatus: (id: string, status: OrderStatus, extra?: Record<string, unknown>) => Promise<void>
   startMarketPart: (id: string) => Promise<void>
   completeMarketPart: (id: string) => Promise<void>
   updateRestPart: (id: string, restId: string, partStatus: 'new' | 'cooking' | 'done') => Promise<void>
+  markPickupDone: (id: string, pickupId: string) => Promise<void>
+  setCourierRoute: (id: string, route: string[]) => Promise<void>
   toggleItem: (orderId: string, itemId: number) => void
   getByStatus: (status: OrderStatus | OrderStatus[]) => Order[]
   getByType: (type: 'market' | 'restaurant') => Order[]
 }
 export const useOrders = create<OrdersStore>((set, get) => ({
-  orders: USE_API ? (loadStoredOrders() ?? []) : (loadStoredOrders() ?? INITIAL_ORDERS),
+  orders: USE_API ? [] : (loadStoredOrders() ?? INITIAL_ORDERS),
   loading: false,
 
   fetchOrders: async () => {
@@ -150,7 +180,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (!USE_API) return
     try {
       const orders = await loadCourierOrdersFromApi()
-      patchOrders(set, get, s => mergeRoleOrders(s, orders, isCourierSyncOrder))
+      patchOrders(set, get, s => mergeRoleOrders(s, orders, isCourierRoleOrder))
     } catch (e) { console.error(e) }
   },
 
@@ -198,12 +228,12 @@ export const useOrders = create<OrdersStore>((set, get) => ({
 
   addOrder: (order) => patchOrders(set, get, s => [order, ...s]),
 
-  updateStatus: async (id, status) => {
-    patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, status } : o))
+  updateStatus: async (id, status, extra) => {
+    patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, status, ...(extra || {}) } : o))
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(id, status)
-        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, status }) : o))
+        const updated = await api.updateOrderStatus(id, status, extra)
+        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, status: updated.status ?? status }) : o))
       } catch (e) { console.error(e) }
     }
   },
@@ -211,14 +241,17 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   startMarketPart: async (id) => {
     const order = get().orders.find(o => o.id === id)
     if (!order) return
+    const assembler = { name: ASSEMBLER_NAME }
     const next = isMixedOrder(normalizeOrder(order))
-      ? applyMarketStatus(order, 'assembling')
-      : { ...order, status: 'assembling' as OrderStatus }
+      ? { ...order, marketStatus: 'assembling' as const, assembler: order.assembler || assembler }
+      : { ...order, status: 'assembling' as OrderStatus, assembler: order.assembler || assembler }
     patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
     if (USE_API) {
       try {
-        const status = isMixedOrder(normalizeOrder(order)) ? 'assembling' : 'assembling'
-        const extra = isMixedOrder(normalizeOrder(order)) ? { marketStatus: 'assembling' } : undefined
+        const status = 'assembling'
+        const extra = isMixedOrder(normalizeOrder(order))
+          ? { marketStatus: 'assembling', assembler: next.assembler }
+          : { assembler: next.assembler }
         const updated = await api.updateOrderStatus(id, status, extra)
         patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
       } catch (e) { console.error(e) }
@@ -228,17 +261,19 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   completeMarketPart: async (id) => {
     const order = get().orders.find(o => o.id === id)
     if (!order) return
+    const assembler = order.assembler || { name: ASSEMBLER_NAME }
     const next = isMixedOrder(normalizeOrder(order))
       ? applyMarketStatus(order, 'done')
-      : { ...order, status: 'assembler_done' as OrderStatus }
-    patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
+      : { ...order, status: 'assembler_done' as OrderStatus, assembler }
+    const withAssembler = { ...next, assembler }
+    patchOrders(set, get, s => s.map(o => o.id === id ? withAssembler : o))
     if (USE_API) {
       try {
         const extra = isMixedOrder(normalizeOrder(order))
-          ? { marketStatus: 'done', restParts: order.restParts }
-          : undefined
-        const updated = await api.updateOrderStatus(id, next.status, extra)
-        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
+          ? { marketStatus: 'done', restParts: withAssembler.restParts, assembler }
+          : { assembler }
+        const updated = await api.updateOrderStatus(id, withAssembler.status, extra)
+        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...withAssembler }) : o))
       } catch (e) { console.error(e) }
     }
   },
@@ -265,9 +300,44 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     }
   },
 
+  markPickupDone: async (id, pickupId) => {
+    const order = get().orders.find(o => o.id === id)
+    if (!order) return
+    const pickedUpIds = [...new Set([...(order.pickedUpIds || []), pickupId])]
+    patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, pickedUpIds } : o))
+    if (USE_API) {
+      try {
+        const updated = await api.updateOrderStatus(id, order.status, { pickedUpIds })
+        patchOrders(set, get, s => s.map(o => o.id === id
+          ? normalizeOrder({ ...o, ...updated, pickedUpIds: updated.pickedUpIds ?? pickedUpIds })
+          : o))
+      } catch (e) { console.error(e) }
+    }
+  },
+
+  setCourierRoute: async (id, route) => {
+    patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, courierRoute: route } : o))
+    if (USE_API) {
+      const order = get().orders.find(o => o.id === id)
+      if (!order) return
+      try {
+        const updated = await api.updateOrderStatus(id, order.status, { courierRoute: route })
+        patchOrders(set, get, s => s.map(o => o.id === id
+          ? normalizeOrder({ ...o, ...updated, courierRoute: updated.courierRoute ?? route })
+          : o))
+      } catch (e) { console.error(e) }
+    }
+  },
+
   toggleItem: (orderId, itemId) => set(s => ({
     orders: s.orders.map(o => o.id === orderId
-      ? { ...o, items: o.items.map(it => it.id === itemId ? { ...it, done: !it.done } : it) }
+      ? {
+        ...o,
+        items: o.items.map((it, idx) => {
+          const key = it.id ?? it.product_id ?? idx + 1
+          return key === itemId ? { ...it, done: !it.done } : it
+        }),
+      }
       : o)
   })),
 
@@ -357,10 +427,16 @@ export const useRestaurants = create<RestaurantsStore>((set, get) => ({
 
   toggleOpen: async (id) => {
     if (USE_API) {
-      try { await api.toggleRestaurant(id) } catch (e) { console.error(e) }
+      try {
+        const updated = await api.toggleRestaurant(id)
+        set(s => ({
+          restaurants: s.restaurants.map(r => r.id === id ? { ...r, ...updated, open: updated.open } : r),
+        }))
+        return
+      } catch (e) { console.error(e); return }
     }
     set(s => ({
-      restaurants: s.restaurants.map(r => r.id === id ? { ...r, open: !r.open } : r)
+      restaurants: s.restaurants.map(r => r.id === id ? { ...r, open: !r.open } : r),
     }))
   },
 

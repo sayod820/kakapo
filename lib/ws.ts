@@ -3,6 +3,7 @@
 // ════════════════════════════════════════════════
 import { useEffect, useRef, useState } from 'react'
 import { getToken } from './api'
+import { USE_API } from './config'
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
 
@@ -21,6 +22,7 @@ export function useWebSocket(role: WSRole, onMessage: (msg: WSMessage) => void) 
   useEffect(() => { onMsgRef.current = onMessage }, [onMessage])
 
   useEffect(() => {
+    if (!USE_API) return
     let stopped = false
     let reconnectTimer: any = null
     let pingTimer: any = null
