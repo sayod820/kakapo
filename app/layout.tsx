@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import ApiSyncProvider from '@/components/shared/ApiSyncProvider'
 
 export const metadata: Metadata = {
   title: 'KAKAPO — Доставка продуктов · г. Яван',
@@ -9,7 +10,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body>
+        <ApiSyncProvider>{children}</ApiSyncProvider>
+      </body>
     </html>
   )
 }

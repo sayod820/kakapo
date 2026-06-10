@@ -1,13 +1,11 @@
-// ════════════════════════════════════════════════
-// KAKAPO — общий стейт (Zustand) + связь с API
-// ════════════════════════════════════════════════
+'use client'
 import { create } from 'zustand'
-import type { Order, OrderStatus, Product, Restaurant, MenuItem } from './types'
+import type { Order, OrderStatus, Product, Restaurant } from './types'
 import { INITIAL_ORDERS, PRODUCTS, RESTAURANTS } from './data'
-import { api, setToken } from './api'
+import { api, setToken, getToken } from './api'
+import { USE_API } from './config'
 
-// Если true — использует backend API. Если false — локальные демо-данные.
-const USE_API = process.env.NEXT_PUBLIC_USE_API === 'true'
+export { USE_API }
 
 // ── CART ─────────────────────────────────────────
 interface CartItem { productId: number; name: string; emoji: string; price: number; qty: number }
@@ -35,7 +33,7 @@ export const useCart = create<CartStore>((set, get) => ({
   count: () => Object.values(get().items).reduce((s, i) => s + i.qty, 0),
 }))
 
-// ── ORDERS (общий между всеми приложениями) ──────
+// ── ORDERS ───────────────────────────────────────
 interface OrdersStore {
   orders: Order[]
   loading: boolean
@@ -78,20 +76,31 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         set(s => ({ orders: [order, ...s.orders] }))
         return order
       } catch (e) { console.error(e); return null }
-    } else {
-      const order = { ...data, id: `K-${Date.now()}`, code: `K-${Date.now()}`, status: 'new', createdAt: new Date().toISOString() }
-      set(s => ({ orders: [order, ...s.orders] }))
-      return order
     }
+    const order: Order = {
+      ...data,
+      id: `K-${Date.now()}`,
+      status: 'new',
+      createdAt: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+      client: data.client || { name: data.client_name, phone: data.client_phone, addr: data.address },
+      items: data.items || [],
+      total: data.total || 0,
+    }
+    set(s => ({ orders: [order, ...s.orders] }))
+    return order
   },
 
   addOrder: (order) => set(s => ({ orders: [order, ...s.orders] })),
 
   updateStatus: async (id, status) => {
     if (USE_API) {
-      try { await api.updateOrderStatus(Number(id), status) } catch (e) { console.error(e) }
+      try {
+        const updated = await api.updateOrderStatus(id, status)
+        set(s => ({ orders: s.orders.map(o => o.id === id ? { ...o, ...updated, status } : o) }))
+        return
+      } catch (e) { console.error(e) }
     }
-    set(s => ({ orders: s.orders.map(o => o.id === id || (o as any).code === id ? { ...o, status } : o) }))
+    set(s => ({ orders: s.orders.map(o => o.id === id ? { ...o, status } : o) }))
   },
 
   toggleItem: (orderId, itemId) => set(s => ({
@@ -111,48 +120,107 @@ export const useOrders = create<OrdersStore>((set, get) => ({
 interface ProductsStore {
   products: Product[]
   fetchProducts: () => Promise<void>
+  saveProduct: (data: Partial<Product> & { art?: string; id?: number }) => Promise<Product | null>
   updateProduct: (id: number, updates: Partial<Product>) => void
   addProduct: (p: Product) => void
-  removeProduct: (id: number) => void
+  removeProduct: (id: number) => Promise<void>
 }
-export const useProducts = create<ProductsStore>((set) => ({
+export const useProducts = create<ProductsStore>((set, get) => ({
   products: PRODUCTS,
+
   fetchProducts: async () => {
     if (!USE_API) return
     try { set({ products: await api.getProducts() }) } catch (e) { console.error(e) }
   },
+
+  saveProduct: async (data) => {
+    if (USE_API) {
+      try {
+        if (data.id) {
+          const p = await api.updateProduct(data.id, {
+            name: data.name, price: data.price, old: data.old, stock: data.stock,
+            hot: data.hot, organic: data.organic, photo: data.photo,
+            art: data.art, e: data.e,
+          })
+          set(s => ({ products: s.products.map(x => x.id === p.id ? p : x) }))
+          return p
+        }
+        const p = await api.createProduct({
+          art: data.art, name: data.name!, price: data.price!, stock: data.stock ?? 0,
+          e: data.e, hot: data.hot, organic: data.organic, photo: data.photo,
+          unit: data.unit, old: data.old,
+        })
+        set(s => ({ products: [...s.products, p] }))
+        return p
+      } catch (e) { console.error(e); return null }
+    }
+    if (data.id) {
+      get().updateProduct(data.id, data as Partial<Product>)
+      return get().products.find(p => p.id === data.id) || null
+    }
+    const p = { ...data, id: Date.now() } as Product
+    get().addProduct(p)
+    return p
+  },
+
   updateProduct: (id, updates) => set(s => ({
     products: s.products.map(p => p.id === id ? { ...p, ...updates } : p)
   })),
+
   addProduct: (p) => set(s => ({ products: [...s.products, p] })),
-  removeProduct: (id) => set(s => ({ products: s.products.filter(p => p.id !== id) })),
+
+  removeProduct: async (id) => {
+    if (USE_API) {
+      try { await api.deleteProduct(id) } catch (e) { console.error(e) }
+    }
+    set(s => ({ products: s.products.filter(p => p.id !== id) }))
+  },
 }))
 
 // ── RESTAURANTS ──────────────────────────────────
 interface RestaurantsStore {
   restaurants: Restaurant[]
   fetchRestaurants: () => Promise<void>
-  toggleOpen: (id: string) => void
-  updateCommission: (id: string, commission: number) => void
-  toggleMenuItem: (restId: string, menuId: number) => void
+  toggleOpen: (id: string) => Promise<void>
+  updateCommission: (id: string, commission: number) => Promise<void>
+  toggleMenuItem: (restId: string, menuId: number) => Promise<void>
 }
-export const useRestaurants = create<RestaurantsStore>((set) => ({
+export const useRestaurants = create<RestaurantsStore>((set, get) => ({
   restaurants: RESTAURANTS,
+
   fetchRestaurants: async () => {
     if (!USE_API) return
     try { set({ restaurants: await api.getRestaurants() }) } catch (e) { console.error(e) }
   },
-  toggleOpen: (id) => set(s => ({
-    restaurants: s.restaurants.map(r => r.id === id ? { ...r, open: !r.open } : r)
-  })),
-  updateCommission: (id, commission) => set(s => ({
-    restaurants: s.restaurants.map(r => r.id === id ? { ...r, commission } : r)
-  })),
-  toggleMenuItem: (restId, menuId) => set(s => ({
-    restaurants: s.restaurants.map(r => r.id !== restId ? r : {
-      ...r, menu: r.menu.map(m => m.id === menuId ? { ...m, inStock: !m.inStock } : m)
-    })
-  })),
+
+  toggleOpen: async (id) => {
+    if (USE_API) {
+      try { await api.toggleRestaurant(id) } catch (e) { console.error(e) }
+    }
+    set(s => ({
+      restaurants: s.restaurants.map(r => r.id === id ? { ...r, open: !r.open } : r)
+    }))
+  },
+
+  updateCommission: async (id, commission) => {
+    if (USE_API) {
+      try { await api.setCommission(id, commission) } catch (e) { console.error(e) }
+    }
+    set(s => ({
+      restaurants: s.restaurants.map(r => r.id === id ? { ...r, commission } : r)
+    }))
+  },
+
+  toggleMenuItem: async (restId, menuId) => {
+    if (USE_API) {
+      try { await api.toggleMenuStock(menuId) } catch (e) { console.error(e) }
+    }
+    set(s => ({
+      restaurants: s.restaurants.map(r => r.id !== restId ? r : {
+        ...r, menu: r.menu.map(m => m.id === menuId ? { ...m, inStock: !m.inStock } : m)
+      })
+    }))
+  },
 }))
 
 // ── AUTH ─────────────────────────────────────────
@@ -161,13 +229,23 @@ interface AuthStore {
   role: string | null
   userId: number | null
   name: string
+  email: string
+  hydrated: boolean
+  hydrate: () => void
   sendOTP: (phone: string) => Promise<boolean>
   verifyOTP: (phone: string, code: string) => Promise<boolean>
   login: (email: string, password: string) => Promise<boolean>
   logout: () => void
 }
 export const useAuth = create<AuthStore>((set) => ({
-  token: null, role: null, userId: null, name: '',
+  token: null, role: null, userId: null, name: '', email: '', hydrated: false,
+
+  hydrate: () => {
+    if (typeof window === 'undefined') return
+    const t = getToken()
+    if (t) set({ token: t, hydrated: true })
+    else set({ hydrated: true })
+  },
 
   sendOTP: async (phone) => {
     if (!USE_API) return true
@@ -189,16 +267,19 @@ export const useAuth = create<AuthStore>((set) => ({
 
   login: async (email, password) => {
     if (!USE_API) {
-      if (password === 'admin123' || password === 'rest123') { set({ role: 'admin' }); return true }
+      if (email === 'admin@kakapo.tj' && password === 'admin123') {
+        set({ role: 'admin', name: 'Админ', email }); return true
+      }
+      if (password === 'rest123') { set({ role: 'restaurant', name: 'Ресторан', email }); return true }
       return false
     }
     try {
       const r = await api.login(email, password)
       setToken(r.access_token)
-      set({ token: r.access_token, role: r.role, userId: r.user_id, name: r.name })
+      set({ token: r.access_token, role: r.role, userId: r.user_id, name: r.name, email })
       return true
     } catch { return false }
   },
 
-  logout: () => { setToken(null); set({ token: null, role: null, userId: null, name: '' }) },
+  logout: () => { setToken(null); set({ token: null, role: null, userId: null, name: '', email: '' }) },
 }))

@@ -1,11 +1,14 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
 import { formatKm } from "@/lib/courierData";
 import { hydrateCourierStores } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos } from "@/lib/productPhotos";
+import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
+import { useOrders, USE_API } from "@/lib/store";
+import { mapOrdersForClient } from "@/lib/orderUiMap";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
@@ -387,6 +390,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 };
 
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
+  const { prods, restaurants } = useLiveCatalog();
   const [bi, setBi] = useState(0);
   useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % BANNERS.length), 4000); return () => clearInterval(t); }, []);
   const b = BANNERS[bi];
@@ -432,7 +436,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
           <button onClick={() => go("restaurants")} className="btn" style={{ fontSize:12, color:"var(--org)", background:"transparent" }}>Все →</button>
         </div>
         <div className="hscroll" style={{ marginBottom:22 }}>
-          {RESTAURANTS.map((r,i) => (
+          {restaurants.map((r,i) => (
             <div key={r.id} onClick={() => go("restaurant",{rid:r.id})}
               style={{ flexShrink:0, width:160, borderRadius:18, overflow:"hidden", background:r.img, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`, position:"relative" }}>
               {!r.open && <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", zIndex:2, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:"white" }}>🔴 Закрыто</div>}
@@ -453,7 +457,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
           <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
-          {PRODS.filter(p => p.hot).slice(0,4).map((p,i) => (
+          {prods.filter(p => p.hot).slice(0,4).map((p,i) => (
             <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both` }}>
               <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
             </div>
@@ -472,7 +476,9 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
   );
 };
 
-const CatalogPage = ({ go, cart }) => (
+const CatalogPage = ({ go, cart }) => {
+  const { restaurants } = useLiveCatalog();
+  return (
   <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart}/>
     <div style={{ padding:"16px 18px 100px" }}>
@@ -491,13 +497,13 @@ const CatalogPage = ({ go, cart }) => (
               <div className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--org)", marginBottom:2 }}>Рестораны г. Яван</div>
               <div style={{ fontSize:11, color:"rgba(255,255,255,.5)", marginBottom:6 }}>Чайхона, Пицца, Суши, Фаст-фуд</div>
               <div style={{ display:"flex", gap:8 }}>
-                {RESTAURANTS.map(r => (
+                {restaurants.map(r => (
                   <span key={r.id} style={{ fontSize:18 }}>{r.emoji}</span>
                 ))}
               </div>
             </div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
-              <div style={{ fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--org)" }}>{RESTAURANTS.length}</div>
+              <div style={{ fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--org)" }}>{restaurants.length}</div>
               <div style={{ fontSize:10, color:"rgba(255,255,255,.4)" }}>ресторана</div>
               <div style={{ marginTop:6, fontSize:11, fontWeight:700, color:"var(--org)" }}>Смотреть →</div>
             </div>
@@ -523,8 +529,10 @@ const CatalogPage = ({ go, cart }) => (
     </div>
     <Nav page="catalog" go={go}/>
   </div>
-);
+  );
+};
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
+  const { prods } = useLiveCatalog();
   const [sort,    setSort]    = useState("pop");
   const [view,    setView]    = useState("grid");
   const [search,  setSearch]  = useState("");
@@ -533,7 +541,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const subCats = CATS.filter(c => c.parentId === cat.id);
   const hasSubCats = subCats.length > 0;
   const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
-  let items = PRODS.filter(p => {
+  let items = prods.filter(p => {
     if(subCat) return p.cat === subCat;
     if(params?.cat) return p.cat === params.cat || CATS.filter(c=>c.parentId===params.cat).some(sub=>sub.id===p.cat);
     return true;
@@ -652,13 +660,14 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
 };
 
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
-  const p = PRODS.find(x => x.id === params?.id) || PRODS[0];
+  const { prods } = useLiveCatalog();
+  const p = prods.find(x => x.id === params?.id) || prods[0];
   const qty = cart[p.id] || 0;
   const [tab, setTab] = useState("desc");
   const [myRating, setMyRating] = useState(0);
   const photo = useProductPhotos(s => s.photos[p.id]);
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
-  const related = PRODS.filter(x => x.cat === p.cat && x.id !== p.id).slice(0,4);
+  const related = prods.filter(x => x.cat === p.cat && x.id !== p.id).slice(0,4);
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
   return (
@@ -804,10 +813,11 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   );
 };
 const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
+  const { prods } = useLiveCatalog();
   const [promo, setPromo] = useState("");
   const [promoOk, setPromoOk] = useState(false);
   const [promoErr, setPromoErr] = useState(false);
-  const prodItems = PRODS.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty:cart[p.id] }));
+  const prodItems = prods.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty:cart[p.id] }));
   const restItems = Object.keys(cartMeta).filter(id => cart[id] > 0).map(id => ({
     id, e: cartMeta[id].emoji, name: cartMeta[id].name, price: cartMeta[id].price,
     qty: cart[id], isRest: true, restId: cartMeta[id].restId
@@ -912,7 +922,9 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
   );
 };
 
-const CheckoutPage = ({ go, cart, cartMeta = {} }) => {
+const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
+  const { prods } = useLiveCatalog();
+  const createOrder = useOrders(s => s.createOrder);
   const [step,  setStep]  = useState("form");
   const [name,  setName]  = useState("");
   const [phone, setPhone] = useState("");
@@ -922,6 +934,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {} }) => {
   const [bonus, setBonus] = useState(false);
   const [errs,  setErrs]  = useState({});
   const [loading, setLoading] = useState(false);
+  const [orderId, setOrderId] = useState("");
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryKm, setDeliveryKm] = useState(0);
   const [deliveryMin, setDeliveryMin] = useState(0);
@@ -929,7 +942,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {} }) => {
   const [clientLat, setClientLat] = useState(0);
   const [clientLng, setClientLng] = useState(0);
 
-  const prodItems = PRODS.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id] }));
+  const prodItems = prods.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id] }));
   const restItems = Object.keys(cartMeta).filter(id => cart[id] > 0).map(id => ({
     id, price: cartMeta[id].price, qty: cart[id], restId: cartMeta[id].restId,
   }));
@@ -962,10 +975,40 @@ const CheckoutPage = ({ go, cart, cartMeta = {} }) => {
     setErrs(e);
     return !Object.keys(e).length;
   };
-  const submit = () => {
+  const submit = async () => {
     if (!validate()) return;
     setLoading(true);
-    setTimeout(() => { setLoading(false); setStep("ok"); }, 1400);
+    const hasMarket = prodItems.length > 0;
+    const hasRest = restItems.length > 0;
+    const orderType = hasRest && !hasMarket ? 'restaurant' : 'market';
+    const payload = {
+      type: orderType,
+      client: { name, phone, addr, lat: clientLat, lng: clientLng },
+      items: items.map(p => ({
+        id: typeof p.id === 'number' ? p.id : undefined,
+        name: p.name,
+        e: p.e || '📦',
+        qty: p.qty,
+        unit: p.unit || 'шт',
+        price: p.price,
+        art: p.art,
+      })),
+      total,
+      deliveryFee,
+      pickupIds,
+      distanceKm: deliveryKm,
+      durationMin: deliveryMin,
+      weightKg,
+      restId: orderType === 'restaurant' ? restItems[0]?.restId : undefined,
+      comment: '',
+    };
+    const order = await createOrder(payload);
+    setLoading(false);
+    if (order) {
+      setOrderId(order.id);
+      setStep('ok');
+      onClearCart?.();
+    }
   };
 
   if (step === "ok") return (
@@ -974,10 +1017,10 @@ const CheckoutPage = ({ go, cart, cartMeta = {} }) => {
         <Ic n="check" s={44} c="white" w={2.5}/>
       </div>
       <div className="ub" style={{ fontSize:24, fontWeight:900, marginBottom:6 }}>Заказ принят!</div>
-      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Заказ <span className="ub" style={{ color:"var(--gr)" }}>K-4833</span> оформлен</div>
+      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Заказ <span className="ub" style={{ color:"var(--gr)" }}>{orderId || '…'}</span> оформлен</div>
       <div style={{ fontSize:13, color:"var(--t2)", marginBottom:28 }}>Курьер доедет за <span style={{ color:"var(--gr)", fontWeight:700 }}>{deliveryMin || 45} минут</span>{deliveryKm > 0 ? ` · ${formatKm(deliveryKm)}` : ''}</div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
-        {[{icon:"bag",l:"Номер заказа",v:"K-4833",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:"~45 минут",c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"ул. Ленина, 42",c:"var(--sky)"},{icon:"star",l:"Бонусы",v:"+12 начислено",c:"var(--gd)"}].map((r,i) => (
+        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"ул. Ленина, 42",c:"var(--sky)"},{icon:"star",l:"Бонусы",v:"+12 начислено",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
             <div style={{ width:30, height:30, borderRadius:8, background:`${r.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={r.icon} s={14} c={r.c}/></div>
             <span style={{ fontSize:12, color:"var(--t2)", flex:1 }}>{r.l}</span>
@@ -1339,6 +1382,11 @@ const ProfilePage = ({ go, user, setUser }) => {
   );
 };
 const OrdersPage = ({ go }) => {
+  const apiOrders = useOrders(s => s.orders);
+  const ordersList = useMemo(
+    () => (USE_API ? mapOrdersForClient(apiOrders) : ORDERS_LIST),
+    [apiOrders]
+  );
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [reviewed, setReviewed] = useState({});
@@ -1346,7 +1394,7 @@ const OrdersPage = ({ go }) => {
   const [showRev, setShowRev] = useState(null);
   const [step, setStep] = useState(1);
   useEffect(() => { if (step < 3) { const t = setTimeout(() => setStep(s => s+1), 8000); return () => clearTimeout(t); } }, [step]);
-  const filtered = filter==="all" ? ORDERS_LIST : ORDERS_LIST.filter(o => o.status===filter);
+  const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
   const ST = OSTATUS;
 
   if (selected) return (
@@ -1450,7 +1498,7 @@ const OrdersPage = ({ go }) => {
       <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{ORDERS_LIST.length} заказов</div></div>
+          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{ordersList.length} заказов</div></div>
         </div>
         <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
           {[{id:"all",l:"Все"},{id:"delivering",l:"🚀 В пути"},{id:"delivered",l:"✅ Доставлен"},{id:"cancelled",l:"❌ Отменён"}].map(f => (
@@ -1458,8 +1506,8 @@ const OrdersPage = ({ go }) => {
           ))}
         </div>
       </header>
-      {ORDERS_LIST.some(o => o.status==="delivering") && filter==="all" && (
-        <div onClick={() => setSelected(ORDERS_LIST.find(o => o.status==="delivering"))} style={{ margin:"14px 18px 0", padding:"12px 16px", borderRadius:16, background:"rgba(59,142,240,.08)", border:"1px solid rgba(59,142,240,.3)", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
+      {ordersList.some(o => o.status==="delivering") && filter==="all" && (
+        <div onClick={() => setSelected(ordersList.find(o => o.status==="delivering"))} style={{ margin:"14px 18px 0", padding:"12px 16px", borderRadius:16, background:"rgba(59,142,240,.08)", border:"1px solid rgba(59,142,240,.3)", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
           <div style={{ width:8, height:8, borderRadius:"50%", background:"var(--blue)", position:"relative", flexShrink:0 }}><div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"var(--blue)", animation:"ping 1.5s ease-out infinite", opacity:.5 }}/></div>
           <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:"var(--blue)" }}>Заказ K-4832 едет к вам!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>~12 минут</div></div>
           <Ic n="arr" s={15} c="var(--blue)"/>
@@ -1530,6 +1578,7 @@ const OrdersPage = ({ go }) => {
 };
 
 const PromosPage = ({ go, cart, onAdd, onRm }) => {
+  const { prods } = useLiveCatalog();
   const [tab, setTab] = useState("all");
   const [bi, setBi] = useState(0);
   const [copied, setCopied] = useState(null);
@@ -1539,7 +1588,7 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
   const pad = n => String(n).padStart(2,"0");
   const b = BANNERS[bi];
   const copy = code => { setCopied(code); setTimeout(() => setCopied(null), 2000); };
-  const FLASH = PRODS.filter(p => p.old).map(p => ({ ...p, now:p.price, was:p.old, stock:((p.id * 37) % 56) + 5 })).slice(0,5);
+  const FLASH = prods.filter(p => p.old).map(p => ({ ...p, now:p.price, was:p.old, stock:((p.id * 37) % 56) + 5 })).slice(0,5);
   const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
   return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
@@ -1696,10 +1745,11 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
   );
 };
 const SearchPage = ({ go, cart, onAdd, onRm }) => {
+  const { prods } = useLiveCatalog();
   const [query, setQuery] = useState("");
   const iRef = useRef();
   useEffect(() => setTimeout(() => iRef.current?.focus(), 100), []);
-  const results = query.trim() ? PRODS.filter(p => p.name.toLowerCase().includes(query.toLowerCase())) : [];
+  const results = query.trim() ? prods.filter(p => p.name.toLowerCase().includes(query.toLowerCase())) : [];
   const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
   return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
@@ -5927,6 +5977,15 @@ const Page404 = ({ go }) => (
 );
 
 export default function KakapoApp() {
+  return (
+    <LiveCatalogProvider fallbackProds={PRODS} fallbackRests={RESTAURANTS}>
+      <KakapoAppInner />
+    </LiveCatalogProvider>
+  );
+}
+
+function KakapoAppInner() {
+  const { prods } = useLiveCatalog();
   const [page,   setPage]   = useState("home");
   const [params, setParams] = useState({});
   const [cart,   setCart]   = useState({});
@@ -5952,14 +6011,14 @@ export default function KakapoApp() {
 
   const addItem = useCallback((id, price, name, emoji, restId) => {
     setCart(c => ({ ...c, [id]: (c[id]||0) + 1 }));
-    const p = PRODS.find(x => x.id === id);
+    const p = prods.find(x => x.id === id);
     if (p) {
       showToast(`${p.e} ${p.name} в корзине`);
     } else if (name) {
       setCartMeta(m => ({ ...m, [id]: { price, name, emoji: emoji || '🍽', restId } }));
       showToast(`${emoji || '🍽'} ${name} в корзине`);
     }
-  }, [showToast]);
+  }, [showToast, prods]);
 
   const rmItem = useCallback((id) => {
     setCart(c => { const n = {...c}; if (n[id] > 1) n[id]--; else delete n[id]; return n; });
@@ -5972,11 +6031,16 @@ export default function KakapoApp() {
 
   const toggleWish = useCallback((id) => {
     setWished(w => { const n = {...w, [id]: !w[id]}; return n; });
-    const p = PRODS.find(x => x.id === id);
+    const p = prods.find(x => x.id === id);
     if (p && !wished[id]) showToast(`❤️ ${p.name} в избранном`);
-  }, [wished, showToast]);
+  }, [wished, showToast, prods]);
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params };
+  const clearCart = useCallback(() => {
+    setCart({});
+    setCartMeta({});
+  }, []);
+
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart };
 
   const render = () => {
     switch (page) {

@@ -1,6 +1,8 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useOrders } from '@/lib/store'
+import { useState, useEffect, useMemo } from 'react'
+import { useOrders, USE_API } from '@/lib/store'
+import { mapOrdersForAssembler } from '@/lib/orderUiMap'
+import { useApiSync } from '@/lib/useApiSync'
 import Link from 'next/link'
 // ─── KAKAPO Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
@@ -83,21 +85,35 @@ const HISTORY_DATA = [
    MAIN APP
 ══════════════════════════════════════════════════════ */
 export default function AssemblerApp() {
+  useApiSync('assembler');
+  const apiOrders = useOrders(s => s.orders);
+  const updateStatus = useOrders(s => s.updateStatus);
+  const toggleItemStore = useOrders(s => s.toggleItem);
+  const mapped = useMemo(
+    () => (USE_API ? mapOrdersForAssembler(apiOrders) : ORDERS_DATA),
+    [apiOrders]
+  );
   const [page,   setPage]   = useState('dashboard');
-  const [orders, setOrders] = useState(ORDERS_DATA.map(o=>({...o, items:o.items.map(i=>({...i}))})));
+  const [orders, setOrders] = useState(mapped.map(o=>({...o, items:o.items.map(i=>({...i}))})));
   const [activeOrderId, setActiveOrderId] = useState(null);
   const [completedIds,  setCompletedIds]  = useState([]);
+
+  useEffect(() => {
+    setOrders(mapped.map(o => ({ ...o, items: o.items.map(i => ({ ...i })) })));
+  }, [mapped]);
 
   const activeOrder = orders.find(o=>o.id===activeOrderId);
 
   const toggleItem = (orderId, itemId) => {
+    if (USE_API) toggleItemStore(orderId, itemId);
     setOrders(os=>os.map(o=>o.id===orderId
       ? {...o, items:o.items.map(it=>it.id===itemId?{...it,done:!it.done}:it)}
       : o
     ));
   };
 
-  const completeOrder = (orderId) => {
+  const completeOrder = async (orderId) => {
+    if (USE_API) await updateStatus(orderId, 'assembler_done');
     setCompletedIds(ids=>[...ids, orderId]);
     setOrders(os=>os.filter(o=>o.id!==orderId));
     setActiveOrderId(null);

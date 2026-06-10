@@ -3,6 +3,8 @@ import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
 import { DEFAULT_PRICING, type PricingConfig } from './courierData';
 import { DEFAULT_PICKUPS, pickupsToLocationMap, type PickupPoint, type PickupLocationMap, upsertRestaurantPickup, type RestaurantPickupSync } from './pickups';
+import { USE_API } from './config';
+import { api } from './api';
 
 const PRICING_KEY = 'kakapo-pricing';
 const PICKUPS_KEY = 'kakapo-pickups';
@@ -62,7 +64,8 @@ export const usePricingStore = create<PricingStore>((set, get) => ({
   },
   setPricing: p => set(s => {
     const pricing = { ...s.pricing, ...p };
-    saveJson(PRICING_KEY, pricing);
+    if (!USE_API) saveJson(PRICING_KEY, pricing);
+    else api.updatePricing(pricing).catch(console.error);
     return { pricing };
   }),
 }));
@@ -75,17 +78,18 @@ export const usePickupStore = create<PickupStore>((set, get) => ({
     set({ pickups: loadPickups(), hydrated: true });
   },
   setPickups: list => {
-    saveJson(PICKUPS_KEY, list);
+    if (!USE_API) saveJson(PICKUPS_KEY, list);
     set({ pickups: list });
   },
   updatePickup: (id, patch) => set(s => {
     const pickups = s.pickups.map(p => (p.id === id ? { ...p, ...patch } : p));
-    saveJson(PICKUPS_KEY, pickups);
+    if (!USE_API) saveJson(PICKUPS_KEY, pickups);
+    else api.updatePickup(id, patch).catch(console.error);
     return { pickups };
   }),
   syncRestaurantPickup: data => set(s => {
     const pickups = upsertRestaurantPickup(s.pickups, data);
-    saveJson(PICKUPS_KEY, pickups);
+    if (!USE_API) saveJson(PICKUPS_KEY, pickups);
     return { pickups };
   }),
 }));
@@ -113,4 +117,20 @@ export function usePickupLocations(): PickupLocationMap {
 export function hydrateCourierStores() {
   usePricingStore.getState().hydrate();
   usePickupStore.getState().hydrate();
+}
+
+/** Загрузить pickups + pricing с API (Render) */
+export async function syncCourierStoresFromApi() {
+  if (!USE_API) {
+    hydrateCourierStores();
+    return;
+  }
+  try {
+    const [pickups, pricing] = await Promise.all([api.getPickups(), api.getPricing()]);
+    usePickupStore.setState({ pickups, hydrated: true });
+    usePricingStore.setState({ pricing: { ...DEFAULT_PRICING, ...pricing }, hydrated: true });
+  } catch (e) {
+    console.error(e);
+    hydrateCourierStores();
+  }
 }

@@ -1,6 +1,8 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useOrders, useRestaurants } from '@/lib/store'
+import { useState, useEffect, useMemo } from 'react'
+import { useOrders, useRestaurants, useAuth, USE_API } from '@/lib/store'
+import { mapOrdersForRestaurant } from '@/lib/orderUiMap'
+import { enrichRestaurants } from '@/lib/enrichCatalog'
 import Link from 'next/link'
 // ─── KAKAPO Restaurant App ───────────────────────
 /* ══════════════════════════════════════════════════════
@@ -88,13 +90,38 @@ const DEMO_ORDERS = [
    MAIN APP
 ══════════════════════════════════════════════════════ */
 export default function RestaurantApp() {
+  const apiOrders = useOrders(s => s.orders);
+  const updateStatusApi = useOrders(s => s.updateStatus);
+  const apiRests = useRestaurants(s => s.restaurants);
+  const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
+  const authLogin = useAuth(s => s.login);
   const [page,    setPage]    = useState('dashboard');
   const [partner, setPartner] = useState({email:'chaihona@kakapo.tj', name:'Чайхона Оромгох'});
   const [rest,    setRest]    = useState(DEMO_RESTAURANTS[0]);
   const [menu,    setMenu]    = useState(DEMO_RESTAURANTS[0].menu);
+  const mappedOrders = useMemo(
+    () => (USE_API && rest ? mapOrdersForRestaurant(apiOrders, rest.id) : DEMO_ORDERS),
+    [apiOrders, rest]
+  );
   const [orders,  setOrders]  = useState(DEMO_ORDERS);
   const [isOpen,  setIsOpen]  = useState(true);
   const [newOrder,setNewOrder]= useState(false);
+
+  useEffect(() => {
+    if (USE_API && apiRests.length && partner?.email) {
+      const enriched = enrichRestaurants(apiRests, DEMO_RESTAURANTS);
+      const found = enriched.find(r => r.email?.toLowerCase() === partner.email.toLowerCase());
+      if (found) {
+        setRest(found);
+        setMenu(found.menu);
+        setIsOpen(found.open ?? found.isOpen ?? true);
+      }
+    }
+  }, [apiRests, partner?.email]);
+
+  useEffect(() => {
+    setOrders(mappedOrders);
+  }, [mappedOrders]);
 
   // Simulate new order notification
   useEffect(() => {
@@ -103,7 +130,23 @@ export default function RestaurantApp() {
     return () => clearTimeout(t);
   }, [partner]);
 
-  const login = (email, pass) => {
+  const login = async (email, pass) => {
+    if (USE_API) {
+      const ok = await authLogin(email, pass);
+      if (ok) {
+        const enriched = enrichRestaurants(apiRests, DEMO_RESTAURANTS);
+        const found = enriched.find(r => r.email?.toLowerCase() === email.toLowerCase()) || enriched[0];
+        setPartner({ email, name: found?.name || email });
+        if (found) {
+          setRest(found);
+          setMenu(found.menu);
+          setIsOpen(found.open ?? true);
+        }
+        setPage('dashboard');
+        return true;
+      }
+      return false;
+    }
     const found = DEMO_RESTAURANTS.find(r => r.email.toLowerCase()===email.toLowerCase() && r.pass===pass);
     if(found) {
       setPartner({email, name: found.name});
@@ -118,11 +161,13 @@ export default function RestaurantApp() {
 
   const logout = () => { setPartner(null); setRest(null); setPage('login'); };
 
-  const updateOrderStatus = (id, status) => {
+  const updateOrderStatus = async (id, status) => {
+    if (USE_API) await updateStatusApi(id, status);
     setOrders(os => os.map(o => o.id===id ? {...o, status} : o));
   };
 
-  const toggleDish = (id) => {
+  const toggleDish = async (id) => {
+    if (USE_API && rest) await toggleMenuApi(rest.id, id);
     setMenu(m => m.map(dish => dish.id===id ? {...dish, inStock:!dish.inStock} : dish));
   };
 
@@ -236,7 +281,17 @@ function LoginPage({onLogin}) {
 /* ══════════════════════════════════════════════════════
    HEADER (shared)
 ══════════════════════════════════════════════════════ */
-function Header({rest, isOpen, setIsOpen, onPage, onLogout, showBack, backPage, title}) {
+function Header({
+  rest, isOpen, setIsOpen, onPage,
+  onLogout = () => {},
+  showBack = false,
+  backPage = 'dashboard',
+  title = '',
+}: {
+  rest: any; isOpen: boolean; setIsOpen: (v: boolean | ((p: boolean) => boolean)) => void
+  onPage: (p: string) => void; onLogout?: () => void
+  showBack?: boolean; backPage?: string; title?: string
+}) {
   return (
     <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid #162B1A'}}>
       <div style={{padding:'13px 18px',display:'flex',alignItems:'center',gap:10}}>
@@ -666,11 +721,11 @@ function StatsPage({rest, orders, onPage}) {
   const commission= Math.round(revenue*rest?.commission/100);
   const myShare   = revenue - commission;
 
-  const topDishes = {};
+  const topDishes: Record<string, number> = {};
   delivered.forEach(o=>o.items.forEach(it=>{
     topDishes[it.name] = (topDishes[it.name]||0) + it.qty;
   }));
-  const top = Object.entries(topDishes).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const top = Object.entries(topDishes).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
   const WEEK = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
   const weekData = WEEK.map((_,i)=>Math.round(revenue/7*(0.7+Math.random()*0.6)));

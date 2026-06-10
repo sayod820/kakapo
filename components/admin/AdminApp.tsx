@@ -1,7 +1,9 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import { useOrders, useProducts, useRestaurants, useAuth } from '@/lib/store'
+import { useOrders, useProducts, useRestaurants, useAuth, USE_API } from '@/lib/store'
+import { mapOrdersForAdmin, ADMIN_NEXT_STATUS } from '@/lib/orderUiMap'
+import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
 import { usePricingStore, usePickupStore, hydrateCourierStores } from '@/lib/courierStore'
 import { restIdToPickupId } from '@/lib/pickups'
 import { STORE_LOCATION, calcDeliveryFee, formatKm, DEFAULT_PRICING } from '@/lib/courierData'
@@ -251,11 +253,20 @@ function Layout({page,setPage,children,title,subtitle}) {
 }
 /* ── ORDERS ─────────────────────────────────────── */
 function OrdersPage() {
-  const [orders, setOrders] = useState(ALL_ORDERS);
+  const apiOrders = useOrders(s => s.orders);
+  const updateStatus = useOrders(s => s.updateStatus);
+  const orders = useMemo(
+    () => (USE_API ? mapOrdersForAdmin(apiOrders) : ALL_ORDERS),
+    [apiOrders]
+  );
   const [type,   setType]   = useState('all');
   const [status, setStatus] = useState('all');
   const filtered = orders.filter(o=>(type==='all'||o.type===type)&&(status==='all'||o.status===status));
-  const nextStatus = {new:'assembling',assembling:'delivering',cooking:'delivering',delivering:'delivered'};
+  const advance = async (o: typeof orders[0]) => {
+    const nxt = ADMIN_NEXT_STATUS[o.status as keyof typeof ADMIN_NEXT_STATUS];
+    if (!nxt) return;
+    if (USE_API) await updateStatus(o.id, nxt);
+  };
   return (
     <div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:18}}>
@@ -284,7 +295,7 @@ function OrdersPage() {
           <tbody>
             {filtered.map(o=>{
               const s=SC_STATUS[o.status]||{l:o.status,c:'#8FB897'};
-              const nxt=nextStatus[o.status];
+              const nxt=ADMIN_NEXT_STATUS[o.status as keyof typeof ADMIN_NEXT_STATUS];
               return (
                 <tr key={o.id}>
                   <td><span className="ub" style={{fontSize:11,color:'#1FD760'}}>{o.id}</span></td>
@@ -296,7 +307,7 @@ function OrdersPage() {
                   <td style={{fontSize:11,color:'#9B6DFF'}}>{o.assembler}</td>
                   <td><Badge v={s.l} c={s.c}/></td>
                   <td style={{fontSize:11,color:'#3D6645'}}>{o.time}</td>
-                  <td>{nxt&&<button onClick={()=>setOrders(os=>os.map(x=>x.id===o.id?{...x,status:nxt}:x))} className="ab abg" style={{padding:'4px 9px',fontSize:11}}>→</button>}</td>
+                  <td>{nxt&&<button onClick={()=>advance(o)} className="ab abg" style={{padding:'4px 9px',fontSize:11}}>→</button>}</td>
                 </tr>
               );
             })}
@@ -310,7 +321,10 @@ function OrdersPage() {
 /* ── PRODUCTS ───────────────────────────────────── */
 function ProductsPage() {
   const { setPhoto, getPhoto, hydrate } = useProductPhotos();
-  const [prods,   setProds]   = useState(PRODS);
+  const apiProducts = useProducts(s => s.products);
+  const saveProduct = useProducts(s => s.saveProduct);
+  const removeProduct = useProducts(s => s.removeProduct);
+  const prods = useMemo(() => enrichProducts(apiProducts, PRODS), [apiProducts]);
   const [search,  setSearch]  = useState('');
   const [catFlt,  setCatFlt]  = useState('all');
   const [syncMsg, setSyncMsg] = useState('');
@@ -350,9 +364,9 @@ function ProductsPage() {
 
   const closeAddModal = () => { setShowAdd(false); resetAddForm(); };
 
-  const addProd = () => {
+  const addProd = async () => {
     if(!nName||!nPrice) return;
-    const newId = Math.max(...prods.map(p=>p.id))+1;
+    const newId = Math.max(0, ...prods.map(p=>p.id))+1;
     const nextArt = 'KAK-'+String(newId).padStart(4,'0');
     const product = {
       id:newId, art:nArt||nextArt, e:nEmoji, name:nName, price:Number(nPrice),
@@ -361,12 +375,12 @@ function ProductsPage() {
       discount:nOld?Math.round((1-Number(nPrice)/Number(nOld))*100):0,
       photo:nPhoto||undefined,
     };
-    setProds(ps=>[...ps, product]);
-    if (nPhoto) setPhoto(newId, nPhoto);
+    const saved = await saveProduct(product);
+    if (saved && nPhoto) setPhoto(saved.id, nPhoto);
     closeAddModal();
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editP) return;
     const priceEl = document.getElementById('edit-price') as HTMLInputElement | null;
     const oldEl = document.getElementById('edit-old') as HTMLInputElement | null;
@@ -385,13 +399,13 @@ function ProductsPage() {
       discount: old && old > price ? Math.round((1 - price / old) * 100) : 0,
       photo: ePhoto || undefined,
     };
-    setProds(ps => ps.map(p => p.id === editP.id ? updated : p));
+    await saveProduct(updated);
     if (ePhoto) setPhoto(editP.id, ePhoto);
     else useProductPhotos.getState().removePhoto(editP.id);
     setEditP(null);
   };
 
-  const delProd = (id) => setProds(ps=>ps.filter(p=>p.id!==id));
+  const delProd = async (id) => { await removeProduct(id); };
 
   const cats = CATS_LIST;
   const byCat = cats.map(c=>({...c, count: prods.filter(p=>p.catId===c.id).length}));
@@ -478,12 +492,12 @@ function ProductsPage() {
                     </div>
                   </td>
                   <td>
-                    <div onClick={()=>setProds(ps=>ps.map(x=>x.id===p.id?{...x,hot:!x.hot}:x))} style={{width:36,height:20,borderRadius:10,background:p.hot?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
+                    <div onClick={()=>saveProduct({ ...p, hot: !p.hot })} style={{width:36,height:20,borderRadius:10,background:p.hot?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
                       <div style={{position:'absolute',top:2,left:p.hot?17:2,width:16,height:16,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
                     </div>
                   </td>
                   <td>
-                    <div onClick={()=>setProds(ps=>ps.map(x=>x.id===p.id?{...x,organic:!x.organic}:x))} style={{width:36,height:20,borderRadius:10,background:p.organic?'#34D399':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
+                    <div onClick={()=>saveProduct({ ...p, organic: !p.organic })} style={{width:36,height:20,borderRadius:10,background:p.organic?'#34D399':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
                       <div style={{position:'absolute',top:2,left:p.organic?17:2,width:16,height:16,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
                     </div>
                   </td>
@@ -640,7 +654,15 @@ function InventoryPage() {
 function PartnersPage() {
   const pickups = usePickupStore(s => s.pickups);
   const syncRestaurantPickup = usePickupStore(s => s.syncRestaurantPickup);
+  const apiRests = useRestaurants(s => s.restaurants);
+  const toggleOpenApi = useRestaurants(s => s.toggleOpen);
+  const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const [rests, setRests] = useState(RESTAURANTS.map(r => ({ ...r })));
+  useEffect(() => {
+    if (USE_API && apiRests.length) {
+      setRests(enrichRestaurants(apiRests, RESTAURANTS));
+    }
+  }, [apiRests]);
   const [sel, setSel] = useState<any>(null);
   const [tab, setTab] = useState('info');
   const [showAdd, setShowAdd] = useState(false);
@@ -651,8 +673,14 @@ function PartnersPage() {
     password: '', commission: '15', lat: null as number | null, lng: null as number | null,
   });
 
-  const toggleOpen = id => setRests(rs => rs.map(r => r.id === id ? { ...r, open: !r.open } : r));
-  const toggleMenu = (rId, mId) => setRests(rs => rs.map(r => r.id === rId ? { ...r, menu: r.menu.map(m => m.id === mId ? { ...m, inStock: !m.inStock } : m) } : r));
+  const toggleOpen = id => {
+    toggleOpenApi(id);
+    setRests(rs => rs.map(r => r.id === id ? { ...r, open: !r.open } : r));
+  };
+  const toggleMenu = (rId, mId) => {
+    toggleMenuApi(rId, mId);
+    setRests(rs => rs.map(r => r.id === rId ? { ...r, menu: r.menu.map(m => m.id === mId ? { ...m, inStock: !m.inStock } : m) } : r));
+  };
   const totalComm = rests.reduce((s, r) => s + Math.round(r.revenueMonth * r.commission / 100), 0);
 
   const openManage = (r: typeof RESTAURANTS[0]) => {

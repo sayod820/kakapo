@@ -1,9 +1,12 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, STORE_LOCATION } from '@/lib/courierData'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
 import { DEMO_COURIER_ORDERS, DEMO_COURIER_HISTORY } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
+import { useOrders, USE_API } from '@/lib/store'
+import { mapOrdersForCourier } from '@/lib/orderUiMap'
+import { useApiSync } from '@/lib/useApiSync'
 import type { PickupPoint } from '@/lib/pickups'
 
 /* ══════════════════════════════════════════════════════
@@ -146,14 +149,13 @@ function buildPickupsMap(list: PickupPoint[]) {
   }]));
 }
 
-const ORDERS = DEMO_COURIER_ORDERS;
 const HISTORY = DEMO_COURIER_HISTORY;
 
 /* ─────────────────────────────────────────────────────
     РЕАЛЬНАЯ КАРТА OpenStreetMap + Leaflet
 ───────────────────────────────────────────────────── */
 function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 280, TARIFF = DEFAULT_PRICING, roadKm = {}, sheetOpen = false, courierPos = null, onEnableLocation, locationLoading = false, locationError = '', PICKUPS = {}, pickupLocations = {} }: {
-  orders: typeof ORDERS; selected: any; onSelect: (o: any) => void; height?: number; pickupIdx?: number; step?: string; TARIFF?: typeof DEFAULT_PRICING; roadKm?: Record<string, number>; sheetOpen?: boolean
+  orders: typeof DEMO_COURIER_ORDERS; selected: any; onSelect: (o: any) => void; height?: number; pickupIdx?: number; step?: string; TARIFF?: typeof DEFAULT_PRICING; roadKm?: Record<string, number>; sheetOpen?: boolean
   courierPos?: { lat: number; lng: number } | null; onEnableLocation?: () => void; locationLoading?: boolean; locationError?: string
   PICKUPS?: Record<string, { id: string; name: string; addr: string; phone: string; e: string; color: string; lat: number; lng: number }>
   pickupLocations?: import('@/lib/pickups').PickupLocationMap
@@ -419,7 +421,14 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
    ГЛАВНОЕ ПРИЛОЖЕНИЕ
 ───────────────────────────────────────────────────── */
 export default function CourierApp() {
+  useApiSync('courier');
   const TARIFF = useTariff();
+  const apiOrders = useOrders(s => s.orders);
+  const updateStatus = useOrders(s => s.updateStatus);
+  const ORDERS = useMemo(
+    () => (USE_API ? mapOrdersForCourier(apiOrders) : DEMO_COURIER_ORDERS),
+    [apiOrders]
+  );
   const pickupsList = usePickups();
   const pickupLocations = usePickupLocations();
   const PICKUPS = buildPickupsMap(pickupsList);
@@ -450,7 +459,13 @@ export default function CourierApp() {
   };
 
   const accept = (o: any) => { setActive(o); setStatus('busy'); setStep('toPickup'); setPickupIdx(0); setSelected(null); setTab('active'); };
-  const finish = () => { setCompleted(c=>[...c,active.id]); setActive(null); setStatus('available'); setTab('orders'); };
+  const finish = async () => {
+    if (active && USE_API) await updateStatus(active.id, 'delivered');
+    setCompleted(c=>[...c,active.id]);
+    setActive(null);
+    setStatus('available');
+    setTab('orders');
+  };
   const nextStop = () => {
     if (pickupIdx < active.pickupIds.length - 1) {
       setPickupIdx(i => i + 1);

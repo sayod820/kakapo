@@ -2,6 +2,8 @@
 // KAKAPO — API клиент (связь с backend)
 // ════════════════════════════════════════════════
 import type { Order, Product, Restaurant, Category } from './types'
+import type { PickupPoint } from './pickups'
+import type { PricingConfig } from './courierData'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -88,16 +90,26 @@ export const api = {
   getOrder: (id: number) => request<Order>(`/orders/${id}`),
   getAssemblerOrders: () => request<Order[]>('/orders/assembler'),
   getCourierOrders: () => request<Order[]>('/orders/courier'),
-  updateOrderStatus: (id: number, status: string) =>
+  updateOrderStatus: (id: string | number, status: string) =>
     request<Order>(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
   // ── Рестораны ──
   getRestaurants: () => request<Restaurant[]>('/restaurants'),
-  getRestaurant: (id: number) => request<Restaurant>(`/restaurants/${id}`),
-  toggleRestaurant: (id: number) => request(`/restaurants/${id}/toggle`, { method: 'PATCH' }),
-  setCommission: (id: number, commission: number) =>
+  getRestaurant: (id: string | number) => request<Restaurant>(`/restaurants/${id}`),
+  toggleRestaurant: (id: string) => request(`/restaurants/${id}/toggle`, { method: 'PATCH' }),
+  setCommission: (id: string, commission: number) =>
     request(`/restaurants/${id}/commission?commission=${commission}`, { method: 'PATCH' }),
   toggleMenuStock: (itemId: number) => request(`/restaurants/menu/${itemId}/stock`, { method: 'PATCH' }),
+
+  // ── Точки забора ──
+  getPickups: () => request<PickupPoint[]>('/pickups'),
+  updatePickup: (id: string, data: Partial<PickupPoint>) =>
+    request<PickupPoint>(`/pickups/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Тариф доставки ──
+  getPricing: () => request<PricingConfig>('/settings/pricing'),
+  updatePricing: (data: Partial<PricingConfig>) =>
+    request<PricingConfig>('/settings/pricing', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Карты ──
   getCards: () => request<any[]>('/cards'),
