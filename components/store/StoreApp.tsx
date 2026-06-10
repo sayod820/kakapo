@@ -9,6 +9,7 @@ import { useProductPhotos } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
 import { useOrders, USE_API } from "@/lib/store";
 import { mapOrdersForClient } from "@/lib/orderUiMap";
+import { useApiSync } from "@/lib/useApiSync";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
@@ -934,6 +935,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
   const [bonus, setBonus] = useState(false);
   const [errs,  setErrs]  = useState({});
   const [loading, setLoading] = useState(false);
+  const [submitErr, setSubmitErr] = useState("");
   const [orderId, setOrderId] = useState("");
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryKm, setDeliveryKm] = useState(0);
@@ -978,6 +980,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
   const submit = async () => {
     if (!validate()) return;
     setLoading(true);
+    setSubmitErr("");
     const hasMarket = prodItems.length > 0;
     const hasRest = restItems.length > 0;
     const orderType = hasRest && !hasMarket ? 'restaurant' : 'market';
@@ -1008,6 +1011,8 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
       setOrderId(order.id);
       setStep('ok');
       onClearCart?.();
+    } else {
+      setSubmitErr('Не удалось оформить заказ. Проверьте интернет и попробуйте снова.');
     }
   };
 
@@ -1136,6 +1141,11 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
               <span>💵 Наличными</span>
               <span className="ub" style={{ color:"var(--gd)" }}>{total.toFixed(2)} ЅМ</span>
             </div>
+          </div>
+        )}
+        {submitErr && (
+          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"rgba(255,69,69,.1)", border:"1px solid rgba(255,69,69,.3)", fontSize:12, color:"#FF4545", textAlign:"center" }}>
+            ⚠️ {submitErr}
           </div>
         )}
         <button onClick={submit} className="btn" style={{ width:"100%", padding:"15px", fontSize:15, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
@@ -5985,6 +5995,7 @@ export default function KakapoApp() {
 }
 
 function KakapoAppInner() {
+  useApiSync('all');
   const { prods } = useLiveCatalog();
   const [page,   setPage]   = useState("home");
   const [params, setParams] = useState({});

@@ -426,7 +426,7 @@ export default function CourierApp() {
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
   const ORDERS = useMemo(
-    () => (USE_API ? mapOrdersForCourier(apiOrders) : DEMO_COURIER_ORDERS),
+    () => (USE_API || apiOrders.length ? mapOrdersForCourier(apiOrders) : DEMO_COURIER_ORDERS),
     [apiOrders]
   );
   const pickupsList = usePickups();
@@ -458,10 +458,18 @@ export default function CourierApp() {
     }, 700);
   };
 
-  const accept = (o: any) => { setActive(o); setStatus('busy'); setStep('toPickup'); setPickupIdx(0); setSelected(null); setTab('active'); };
+  const accept = async (o: any) => {
+    await updateStatus(o.id, 'courier_picked');
+    setActive(o);
+    setStatus('busy');
+    setStep('toPickup');
+    setPickupIdx(0);
+    setSelected(null);
+    setTab('active');
+  };
   const finish = async () => {
-    if (active && USE_API) await updateStatus(active.id, 'delivered');
-    setCompleted(c=>[...c,active.id]);
+    if (active) await updateStatus(active.id, 'delivered');
+    if (active) setCompleted(c => [...c, active.id]);
     setActive(null);
     setStatus('available');
     setTab('orders');

@@ -3,9 +3,9 @@ import { useEffect } from 'react'
 import { useAuth } from '@/lib/store'
 import { USE_API } from '@/lib/config'
 
-type Props = { children: React.ReactNode; mode?: 'all' | 'assembler' | 'courier' }
+type Props = { children: React.ReactNode; mode?: 'all' | 'assembler' | 'courier' | 'catalog' }
 
-export default function ApiSyncProvider({ children, mode = 'all' }: Props) {
+export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
   const hydrate = useAuth(s => s.hydrate)
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export default function ApiSyncProvider({ children, mode = 'all' }: Props) {
       ]
       if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
       else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
-      else tasks.push(useOrders.getState().fetchOrders())
+      else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
       if (!cancelled) await Promise.all(tasks)
     }
 

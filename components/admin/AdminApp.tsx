@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { useOrders, useProducts, useRestaurants, useAuth, USE_API } from '@/lib/store'
 import { mapOrdersForAdmin, ADMIN_NEXT_STATUS } from '@/lib/orderUiMap'
+import { useApiSync } from '@/lib/useApiSync'
 import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
 import { usePricingStore, usePickupStore, hydrateCourierStores } from '@/lib/courierStore'
 import { restIdToPickupId } from '@/lib/pickups'
@@ -2264,6 +2265,7 @@ function BannersPage() {
    MAIN ADMIN APP — без логина
 ══════════════════════════════════════════════════════ */
 export default function AdminApp() {
+  useApiSync('all');
   const [page,setPage]=useState('dashboard');
   useEffect(() => {
     hydrateCourierStores();

@@ -102,7 +102,7 @@ export function mapOrdersForCourier(orders: Order[]): DemoCourierOrder[] {
       addr: o.client?.addr || '',
       lat: o.client?.lat ?? 38.325,
       lng: o.client?.lng ?? 69.028,
-      weight: o.weightKg ?? Math.max(1, (o.items?.reduce((s, i) => s + i.qty, 0) || 1) * 0.4),
+      weight: Math.round((o.weightKg ?? Math.max(1, (o.items?.reduce((s, i) => s + i.qty, 0) || 1) * 0.4)) * 10) / 10,
       pay: 'Наличными',
       time: o.createdAt || '',
       sum: Math.max(0, o.total - (o.deliveryFee ?? 0)),

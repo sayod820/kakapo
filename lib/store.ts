@@ -34,6 +34,54 @@ export const useCart = create<CartStore>((set, get) => ({
 }))
 
 // ── ORDERS ───────────────────────────────────────
+const ORDERS_STORAGE_KEY = 'kakapo_orders_v1'
+
+function loadStoredOrders(): Order[] | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(ORDERS_STORAGE_KEY)
+    return raw ? (JSON.parse(raw) as Order[]) : null
+  } catch { return null }
+}
+
+function saveStoredOrders(orders: Order[]) {
+  if (typeof window === 'undefined') return
+  try { localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders)) } catch { /* quota */ }
+}
+
+function patchOrders(
+  set: (partial: Partial<{ orders: Order[] }> | ((state: { orders: Order[] }) => Partial<{ orders: Order[] }>)) => void,
+  get: () => { orders: Order[] },
+  updater: Order[] | ((orders: Order[]) => Order[]),
+) {
+  const next = typeof updater === 'function' ? updater(get().orders) : updater
+  set({ orders: next })
+  saveStoredOrders(next)
+}
+
+const COURIER_VISIBLE = new Set<OrderStatus>([
+  'new', 'assembling', 'assembler_done', 'cooking', 'ready',
+  'courier_picked', 'delivering',
+])
+
+async function loadCourierOrdersFromApi(): Promise<Order[]> {
+  let list = await api.getCourierOrders()
+  if (!list.length) {
+    list = await api.getOrders()
+    list = list.filter(o => COURIER_VISIBLE.has(o.status))
+  }
+  return list
+}
+
+async function loadAssemblerOrdersFromApi(): Promise<Order[]> {
+  let list = await api.getAssemblerOrders()
+  if (!list.length) {
+    list = await api.getOrders()
+    list = list.filter(o => o.type === 'market' && (o.status === 'new' || o.status === 'assembling'))
+  }
+  return list
+}
+
 interface OrdersStore {
   orders: Order[]
   loading: boolean
@@ -48,34 +96,45 @@ interface OrdersStore {
   getByType: (type: 'market' | 'restaurant') => Order[]
 }
 export const useOrders = create<OrdersStore>((set, get) => ({
-  orders: INITIAL_ORDERS,
+  orders: USE_API ? (loadStoredOrders() ?? []) : (loadStoredOrders() ?? INITIAL_ORDERS),
   loading: false,
 
   fetchOrders: async () => {
     if (!USE_API) return
     set({ loading: true })
-    try { set({ orders: await api.getOrders() }) }
-    catch (e) { console.error(e) }
+    try {
+      const orders = await api.getOrders()
+      patchOrders(set, get, orders)
+    } catch (e) { console.error(e) }
     finally { set({ loading: false }) }
   },
 
   fetchAssemblerOrders: async () => {
     if (!USE_API) return
-    try { set({ orders: await api.getAssemblerOrders() }) } catch (e) { console.error(e) }
+    try {
+      const orders = await loadAssemblerOrdersFromApi()
+      patchOrders(set, get, orders)
+    } catch (e) { console.error(e) }
   },
 
   fetchCourierOrders: async () => {
     if (!USE_API) return
-    try { set({ orders: await api.getCourierOrders() }) } catch (e) { console.error(e) }
+    try {
+      const orders = await loadCourierOrdersFromApi()
+      patchOrders(set, get, orders)
+    } catch (e) { console.error(e) }
   },
 
   createOrder: async (data) => {
     if (USE_API) {
       try {
         const order = await api.createOrder(data)
-        set(s => ({ orders: [order, ...s.orders] }))
+        patchOrders(set, get, s => [order, ...s])
         return order
-      } catch (e) { console.error(e); return null }
+      } catch (e) {
+        console.error(e)
+        return null
+      }
     }
     const order: Order = {
       ...data,
@@ -85,22 +144,25 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       client: data.client || { name: data.client_name, phone: data.client_phone, addr: data.address },
       items: data.items || [],
       total: data.total || 0,
+      deliveryFee: data.deliveryFee,
+      pickupIds: data.pickupIds,
+      weightKg: data.weightKg,
     }
-    set(s => ({ orders: [order, ...s.orders] }))
+    patchOrders(set, get, s => [order, ...s])
     return order
   },
 
-  addOrder: (order) => set(s => ({ orders: [order, ...s.orders] })),
+  addOrder: (order) => patchOrders(set, get, s => [order, ...s]),
 
   updateStatus: async (id, status) => {
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(id, status)
-        set(s => ({ orders: s.orders.map(o => o.id === id ? { ...o, ...updated, status } : o) }))
+        patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, ...updated, status } : o))
         return
       } catch (e) { console.error(e) }
     }
-    set(s => ({ orders: s.orders.map(o => o.id === id ? { ...o, status } : o) }))
+    patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, status } : o))
   },
 
   toggleItem: (orderId, itemId) => set(s => ({

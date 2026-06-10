@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useOrders, useRestaurants, useAuth, USE_API } from '@/lib/store'
 import { mapOrdersForRestaurant } from '@/lib/orderUiMap'
+import { useApiSync } from '@/lib/useApiSync'
 import { enrichRestaurants } from '@/lib/enrichCatalog'
 import Link from 'next/link'
 // ─── KAKAPO Restaurant App ───────────────────────
@@ -90,6 +91,7 @@ const DEMO_ORDERS = [
    MAIN APP
 ══════════════════════════════════════════════════════ */
 export default function RestaurantApp() {
+  useApiSync('all');
   const apiOrders = useOrders(s => s.orders);
   const updateStatusApi = useOrders(s => s.updateStatus);
   const apiRests = useRestaurants(s => s.restaurants);
