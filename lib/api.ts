@@ -22,8 +22,13 @@ export const getToken = (): string | null => {
 }
 
 // ── Базовый запрос ──
-function formatApiError(detail: unknown): string {
-  if (typeof detail === 'string') return detail
+function formatApiError(detail: unknown, status?: number): string {
+  if (typeof detail === 'string') {
+    if (detail === 'Internal Server Error' && status === 500) {
+      return 'Сервер временно недоступен. Подождите 5 сек и попробуйте снова.'
+    }
+    return detail
+  }
   if (Array.isArray(detail)) {
     return detail
       .map(item => {
@@ -33,10 +38,23 @@ function formatApiError(detail: unknown): string {
       .join(' · ')
   }
   if (detail && typeof detail === 'object' && 'msg' in detail) return String((detail as { msg: string }).msg)
-  return 'Ошибка сервера'
+  return status ? `Ошибка сервера (${status})` : 'Ошибка сервера'
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function parseErrorResponse(res: Response): Promise<string> {
+  const text = await res.text()
+  if (!text) return formatApiError(null, res.status)
+  try {
+    const json = JSON.parse(text)
+    return formatApiError(json.detail ?? json.message ?? json, res.status) || text.slice(0, 160)
+  } catch {
+    return formatApiError(text, res.status) || text.slice(0, 160)
+  }
+}
+
+const RETRY_STATUS = new Set([500, 502, 503, 504])
+
+async function request<T>(path: string, options: RequestInit = {}, attempt = 0): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
@@ -44,10 +62,33 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(`${getApiUrl()}${path}`, { ...options, headers })
+  let res: Response
+  try {
+    res = await fetch(`${getApiUrl()}${path}`, { ...options, headers })
+  } catch {
+    throw new Error('Нет связи с сервером. Проверьте интернет.')
+  }
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Ошибка сервера' }))
-    throw new Error(formatApiError(err.detail) || `Ошибка ${res.status}`)
+    const message = await parseErrorResponse(res)
+    if (RETRY_STATUS.has(res.status) && attempt < 2) {
+      await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
+      return request<T>(path, options, attempt + 1)
+    }
+    throw new Error(message || `Ошибка ${res.status}`)
+  }
+  return res.json()
+}
+
+async function createOrderViaAppRoute(data: unknown): Promise<Order> {
+  const res = await fetch('/api/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const message = await parseErrorResponse(res)
+    throw new Error(message)
   }
   return res.json()
 }
@@ -93,7 +134,12 @@ export const api = {
   deleteCategory: (id: number) => request(`/categories/${id}`, { method: 'DELETE' }),
 
   // ── Заказы ──
-  createOrder: (data: any) => request<Order>('/orders', { method: 'POST', body: JSON.stringify(data) }),
+  createOrder: (data: any) => {
+    if (typeof window !== 'undefined') {
+      return createOrderViaAppRoute(data)
+    }
+    return request<Order>('/orders', { method: 'POST', body: JSON.stringify(data) })
+  },
   getOrders: (params?: { status?: string; type?: string }) => {
     const q = new URLSearchParams()
     if (params?.status) q.set('status', params.status)

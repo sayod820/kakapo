@@ -132,8 +132,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   createOrder: async (data) => {
     if (USE_API) {
       try {
-        const clean = JSON.parse(JSON.stringify(data))
-        const order = await api.createOrder(clean)
+        const order = await api.createOrder(data)
         patchOrders(set, get, s => [order, ...s])
         return order
       } catch (e) {

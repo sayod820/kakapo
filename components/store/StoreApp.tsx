@@ -1044,7 +1044,12 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
 
   const prodItems = prods.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id] }));
   const restItems = Object.keys(cartMeta).filter(id => cart[id] > 0).map(id => ({
-    id, price: cartMeta[id].price, qty: cart[id], restId: cartMeta[id].restId,
+    id,
+    e: cartMeta[id].emoji,
+    name: cartMeta[id].name,
+    price: cartMeta[id].price,
+    qty: cart[id],
+    restId: cartMeta[id].restId,
   }));
   const items = [...prodItems, ...restItems];
   const sub = items.reduce((s, p) => s + p.price * p.qty, 0);
@@ -1086,20 +1091,20 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
       type: orderType,
       client: { name, phone, addr, lat: clientLat, lng: clientLng },
       items: items.map(p => ({
-        id: typeof p.id === 'number' ? p.id : undefined,
-        name: p.name,
+        ...(typeof p.id === 'number' ? { id: p.id } : {}),
+        name: p.name || 'Товар',
         e: p.e || '📦',
         qty: p.qty,
         unit: p.unit || 'шт',
-        price: p.price,
-        art: p.art,
+        price: Number(p.price) || 0,
+        ...(p.art ? { art: p.art } : {}),
       })),
-      total,
-      deliveryFee,
+      total: Number(total.toFixed(2)),
+      deliveryFee: Number(deliveryFee.toFixed(2)),
       pickupIds,
-      distanceKm: deliveryKm,
-      durationMin: deliveryMin,
-      weightKg,
+      distanceKm: deliveryKm > 0 ? Number(deliveryKm.toFixed(2)) : undefined,
+      durationMin: deliveryMin > 0 ? Math.round(deliveryMin) : undefined,
+      weightKg: Number(weightKg.toFixed(1)),
       restId: orderType === 'restaurant' ? restItems[0]?.restId : undefined,
       comment: '',
     };
