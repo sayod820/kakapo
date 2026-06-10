@@ -88,6 +88,28 @@ function destroyMap(map: any, container?: HTMLDivElement | null) {
 /* Центр карты по умолчанию (г. Яван) — без GPS курьера */
 const MAP_CENTER = { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng };
 
+/** Разводит маркеры с одинаковыми координатами, чтобы все заказы были видны на карте */
+function spreadOrderCoords<T extends { id: string; lat: number; lng: number }>(orders: T[]) {
+  const groups = new Map<string, T[]>()
+  for (const o of orders) {
+    const key = `${o.lat.toFixed(4)}_${o.lng.toFixed(4)}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(o)
+  }
+  const out = new Map<string, { lat: number; lng: number }>()
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      out.set(group[0].id, { lat: group[0].lat, lng: group[0].lng })
+    } else {
+      group.forEach((o, i) => {
+        const a = (2 * Math.PI * i) / group.length
+        out.set(o.id, { lat: o.lat + Math.sin(a) * 0.00028, lng: o.lng + Math.cos(a) * 0.00028 })
+      })
+    }
+  }
+  return out
+}
+
 function useCourierLocation() {
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -263,7 +285,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       const mkIcon = (html: string, w: number, h: number, ax: number, ay: number) =>
         L.divIcon({ html, className:'', iconSize:[w,h], iconAnchor:[ax,ay], popupAnchor:[0,-ay] });
 
-      if (selected && selected.pickupIds) {
+      if (selected && selected.pickupIds && step) {
         selected.pickupIds.forEach((pid: string, i: number) => {
           const pk = PICKUPS[pid] || PICKUPS.store;
           const isCurrent = step === 'toPickup' && i === pickupIdx;
@@ -279,15 +301,17 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         });
       }
 
+      const coords = spreadOrderCoords(orders)
       orders.forEach((o, i) => {
         const isSel = selected?.id === o.id;
+        const pos = coords.get(o.id) || { lat: o.lat, lng: o.lng };
         const sz = isSel ? 44 : 36;
         const label = i + 1;
         const icon = mkIcon(
           `<div style="width:${sz}px;height:${sz}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${isSel?'linear-gradient(135deg,#1E5BB5,#3B8EF0)':'linear-gradient(135deg,#7a2020,#FF4545)'};display:flex;align-items:center;justify-content:center;box-shadow:${isSel?'0 4px 16px rgba(59,142,240,.6)':'0 3px 12px rgba(255,69,69,.5)'};border:2px solid rgba(255,255,255,.25)"><span style="transform:rotate(45deg);font-size:${isSel?16:13}px;font-weight:900;color:#fff">${label}</span></div>`,
           sz, sz, sz/2, sz
         );
-        const m = L.marker([o.lat, o.lng], { icon, zIndexOffset: isSel ? 800 : 100 }).addTo(map);
+        const m = L.marker([pos.lat, pos.lng], { icon, zIndexOffset: isSel ? 800 : 100 }).addTo(map);
         m.on('click', () => onSelect(o));
         const km = getOrderKm(o, roadKmRef.current);
         const kmLabel = km != null ? formatKm(km) : '… км';
@@ -307,11 +331,14 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         );
       }
 
-      if (!selected?.pickupIds && orders.length) {
+      if (!step && orders.length) {
         const fitKey = orders.map(o => o.id).join(',') + (pos ? `:${pos.lat.toFixed(4)}` : '');
         if (lastFitKeyRef.current !== fitKey) {
           lastFitKeyRef.current = fitKey;
-          const bounds: [number, number][] = orders.map(o => [o.lat, o.lng]);
+          const bounds: [number, number][] = orders.map(o => {
+            const c = coords.get(o.id) || { lat: o.lat, lng: o.lng };
+            return [c.lat, c.lng];
+          });
           if (pos) bounds.push([pos.lat, pos.lng]);
           scheduleFit(L.latLngBounds(bounds), `orders:${fitKey}`);
         }
@@ -321,7 +348,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 
   /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
   useEffect(() => {
-    if (!ready || !isMapAlive(mapRef.current) || !selected?.pickupIds) return;
+    if (!ready || !isMapAlive(mapRef.current) || !selected?.pickupIds || !step) return;
     const gen = mapGenRef.current;
     let cancelled = false;
     const selId = selected.id as string;
@@ -459,13 +486,13 @@ export default function CourierApp() {
   };
 
   const accept = async (o: any) => {
-    await updateStatus(o.id, 'courier_picked');
     setActive(o);
     setStatus('busy');
     setStep('toPickup');
     setPickupIdx(0);
     setSelected(null);
     setTab('active');
+    await updateStatus(o.id, 'courier_picked');
   };
   const finish = async () => {
     if (active) await updateStatus(active.id, 'delivered');
@@ -482,7 +509,11 @@ export default function CourierApp() {
     }
   };
 
-  const available = ORDERS.filter(o => !completed.includes(o.id) && o.id !== active?.id);
+  const available = ORDERS.filter(o =>
+    !['delivered', 'cancelled'].includes(o.status as string) &&
+    !completed.includes(o.id) &&
+    o.id !== active?.id,
+  );
 
   /* ── ЛОГИН ── */
   if (!logged) return (
@@ -696,6 +727,13 @@ export default function CourierApp() {
                     {kmLoading && <span style={{ fontSize:10, color:'#3D6645', fontWeight:600 }}>· считаем км…</span>}
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    {available.length === 0 && (
+                      <div style={{ textAlign:'center', padding:'28px 16px', color:'#8FB897', background:'#091508', border:'1px solid #162B1A', borderRadius:16 }}>
+                        <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
+                        <div style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>Нет доступных заказов</div>
+                        <div style={{ fontSize:11, color:'#3D6645' }}>{active ? 'Активная доставка на вкладке «Доставка»' : 'Новые появятся после оформления в магазине'}</div>
+                      </div>
+                    )}
                     {available.map((o,idx)=>{
                       const isSel = selected?.id === o.id;
                       const km = getOrderKm(o, roadKm);

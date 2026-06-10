@@ -65,12 +65,16 @@ const COURIER_VISIBLE = new Set<OrderStatus>([
 ])
 
 async function loadCourierOrdersFromApi(): Promise<Order[]> {
-  let list = await api.getCourierOrders()
-  if (!list.length) {
-    list = await api.getOrders()
-    list = list.filter(o => COURIER_VISIBLE.has(o.status))
-  }
-  return list
+  const list = await api.getOrders()
+  return list.filter(o => COURIER_VISIBLE.has(o.status))
+}
+
+function mergeCourierOrders(current: Order[], remote: Order[]): Order[] {
+  const remoteIds = new Set(remote.map(o => o.id))
+  const localOnly = current.filter(o =>
+    COURIER_VISIBLE.has(o.status) && !remoteIds.has(o.id),
+  )
+  return [...remote, ...localOnly]
 }
 
 async function loadAssemblerOrdersFromApi(): Promise<Order[]> {
@@ -121,7 +125,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (!USE_API) return
     try {
       const orders = await loadCourierOrdersFromApi()
-      patchOrders(set, get, orders)
+      patchOrders(set, get, s => mergeCourierOrders(s, orders))
     } catch (e) { console.error(e) }
   },
 
@@ -156,14 +160,13 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   addOrder: (order) => patchOrders(set, get, s => [order, ...s]),
 
   updateStatus: async (id, status) => {
+    patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, status } : o))
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(id, status)
         patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, ...updated, status } : o))
-        return
       } catch (e) { console.error(e) }
     }
-    patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, status } : o))
   },
 
   toggleItem: (orderId, itemId) => set(s => ({
