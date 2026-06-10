@@ -4,8 +4,7 @@
 import type { Order, Product, Restaurant, Category } from './types'
 import type { PickupPoint } from './pickups'
 import type { PricingConfig } from './courierData'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { getApiUrl } from './config'
 
 // ── Хранение токена ──
 let _token: string | null = null
@@ -31,7 +30,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers })
+  const res = await fetch(`${getApiUrl()}${path}`, { ...options, headers })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Ошибка сервера' }))
     throw new Error(err.detail || `Ошибка ${res.status}`)

@@ -923,6 +923,81 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
   );
 };
 
+const CHECKOUT_PAYS = [
+  { id: 'cash', icon: '💵', label: 'Наличными', sub: 'Курьеру' },
+  { id: 'card', icon: '💳', label: 'Карта', sub: 'Visa/HUMO' },
+  { id: 'kaspi', icon: '📱', label: 'Kaspi QR', sub: 'Приложение' },
+  { id: 'bonus', icon: '⭐', label: 'Бонусами', sub: '73 бонуса' },
+];
+const CHECKOUT_TIMES = [
+  { id: 'asap', l: 'Как можно скорее', s: '~45 мин' },
+  { id: 't1', l: '12:00–14:00', s: 'Сегодня' },
+  { id: 't2', l: '14:00–16:00', s: 'Сегодня' },
+  { id: 't3', l: '18:00–20:00', s: 'Сегодня' },
+];
+
+function CheckoutField({ label, value, onChange, err }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 6, fontWeight: 700 }}>{label}</div>
+      <input
+        className={`inp ${err ? 'inp-err' : value ? 'inp-ok' : ''}`}
+        value={value}
+        onChange={onChange}
+        style={{ width: '100%' }}
+      />
+      {err && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{err}</div>}
+    </div>
+  );
+}
+
+function CheckoutRadio({ items, val, set }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {items.map(m => (
+        <div
+          key={m.id}
+          onClick={() => set(m.id)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 13,
+            background: val === m.id ? 'rgba(31,215,96,.08)' : 'var(--l3)',
+            border: `1.5px solid ${val === m.id ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`,
+            cursor: 'pointer', transition: 'all .2s',
+          }}
+        >
+          <div style={{
+            width: 20, height: 20, borderRadius: '50%',
+            border: `2px solid ${val === m.id ? 'var(--gr)' : 'var(--b2)'}`,
+            background: val === m.id ? 'var(--gr)' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            {val === m.id && <Ic n="check" s={10} c="var(--bg)" w={3} />}
+          </div>
+          {m.icon && <span style={{ fontSize: 20, flexShrink: 0 }}>{m.icon}</span>}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: val === m.id ? 'var(--gr)' : 'var(--t1)' }}>{m.l || m.label}</div>
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>{m.s || m.sub}</div>
+          </div>
+          {m.id === 'asap' && (
+            <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 8, background: 'rgba(31,215,96,.12)', color: 'var(--gr)' }}>~45 мин</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CheckoutSec({ icon, color, title }) {
+  return (
+    <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ width: 26, height: 26, borderRadius: 7, background: `${color}14`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Ic n={icon} s={13} c={color} />
+      </div>
+      {title}
+    </div>
+  );
+}
+
 const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
   const { prods } = useLiveCatalog();
   const createOrder = useOrders(s => s.createOrder);
@@ -1005,14 +1080,20 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
       restId: orderType === 'restaurant' ? restItems[0]?.restId : undefined,
       comment: '',
     };
-    const order = await createOrder(payload);
+    let order = null;
+    let errMsg = '';
+    try {
+      order = await createOrder(payload);
+    } catch (e) {
+      errMsg = e instanceof Error ? e.message : 'Не удалось оформить заказ. Проверьте интернет и попробуйте снова.';
+    }
     setLoading(false);
     if (order) {
       setOrderId(order.id);
       setStep('ok');
       onClearCart?.();
     } else {
-      setSubmitErr('Не удалось оформить заказ. Проверьте интернет и попробуйте снова.');
+      setSubmitErr(errMsg || 'Не удалось оформить заказ. Проверьте интернет и попробуйте снова.');
     }
   };
 
@@ -1038,38 +1119,6 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
     </div>
   );
 
-  const PAYS = [{id:"cash",icon:"💵",label:"Наличными",sub:"Курьеру"},{id:"card",icon:"💳",label:"Карта",sub:"Visa/HUMO"},{id:"kaspi",icon:"📱",label:"Kaspi QR",sub:"Приложение"},{id:"bonus",icon:"⭐",label:"Бонусами",sub:"73 бонуса"}];
-  const TIMES = [{id:"asap",l:"Как можно скорее",s:"~45 мин"},{id:"t1",l:"12:00–14:00",s:"Сегодня"},{id:"t2",l:"14:00–16:00",s:"Сегодня"},{id:"t3",l:"18:00–20:00",s:"Сегодня"}];
-  const Row = ({ label, val, set, err }) => (
-    <div>
-      <div style={{ fontSize:11, color:"var(--t2)", marginBottom:6, fontWeight:700 }}>{label}</div>
-      <input className={`inp ${err?"inp-err":val?"inp-ok":""}`} value={val} onChange={e => { set(e.target.value); setErrs(prev => ({...prev})); }} style={{ width:"100%" }}/>
-      {err && <div style={{ fontSize:11, color:"var(--red)", marginTop:4 }}>{err}</div>}
-    </div>
-  );
-  const Radio = ({ items, val, set }) => (
-    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-      {items.map(m => (
-        <div key={m.id} onClick={() => set(m.id)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:13, background:val===m.id?"rgba(31,215,96,.08)":"var(--l3)", border:`1.5px solid ${val===m.id?"rgba(31,215,96,.4)":"var(--b1)"}`, cursor:"pointer", transition:"all .2s" }}>
-          <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${val===m.id?"var(--gr)":"var(--b2)"}`, background:val===m.id?"var(--gr)":"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            {val===m.id && <Ic n="check" s={10} c="var(--bg)" w={3}/>}
-          </div>
-          {m.icon && <span style={{ fontSize:20, flexShrink:0 }}>{m.icon}</span>}
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:val===m.id?"var(--gr)":"var(--t1)" }}>{m.l||m.label}</div>
-            <div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>{m.s||m.sub}</div>
-          </div>
-          {m.id==="asap" && <span style={{ fontSize:10, fontWeight:800, padding:"3px 8px", borderRadius:8, background:"rgba(31,215,96,.12)", color:"var(--gr)" }}>~45 мин</span>}
-        </div>
-      ))}
-    </div>
-  );
-  const Sec = ({ icon, color, title }) => (
-    <div className="ub" style={{ fontSize:13, fontWeight:800, marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
-      <div style={{ width:26, height:26, borderRadius:7, background:`${color}14`, display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n={icon} s={13} c={color}/></div>
-      {title}
-    </div>
-  );
   return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
@@ -1080,14 +1129,24 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
       </header>
       <div style={{ padding:"14px 18px 160px" }}>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
-          <Sec icon="user" color="var(--gr)" title="Получатель"/>
+          <CheckoutSec icon="user" color="var(--gr)" title="Получатель"/>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            <Row label="Имя и фамилия *" val={name} set={setName} err={errs.name}/>
-            <Row label="Номер телефона *" val={phone} set={setPhone} err={errs.phone}/>
+            <CheckoutField
+              label="Имя и фамилия *"
+              value={name}
+              onChange={e => { setName(e.target.value); setErrs(p => ({ ...p, name: undefined })); }}
+              err={errs.name}
+            />
+            <CheckoutField
+              label="Номер телефона *"
+              value={phone}
+              onChange={e => { setPhone(e.target.value); setErrs(p => ({ ...p, phone: undefined })); }}
+              err={errs.phone}
+            />
           </div>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
-          <Sec icon="map" color="var(--sky)" title="Адрес доставки"/>
+          <CheckoutSec icon="map" color="var(--sky)" title="Адрес доставки"/>
           <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>Улица, дом *</div>
           <GeoAddressPicker
             value={addr}
@@ -1113,12 +1172,12 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
           </div>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
-          <Sec icon="clock" color="var(--gd)" title="Время доставки"/>
-          <Radio items={TIMES} val={time} set={setTime}/>
+          <CheckoutSec icon="clock" color="var(--gd)" title="Время доставки"/>
+          <CheckoutRadio items={CHECKOUT_TIMES} val={time} set={setTime}/>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
-          <Sec icon="card" color="var(--blue)" title="Оплата"/>
-          <Radio items={PAYS} val={pay} set={setPay}/>
+          <CheckoutSec icon="card" color="var(--blue)" title="Оплата"/>
+          <CheckoutRadio items={CHECKOUT_PAYS} val={pay} set={setPay}/>
         </div>
         <div className="card" style={{ padding:"16px", marginBottom:13, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
