@@ -4,7 +4,7 @@ export type OrderStatus =
   | 'courier_picked' | 'delivering' | 'delivered' | 'cancelled'
   | 'cooking' | 'ready'
 
-export type OrderType = 'market' | 'restaurant'
+export type OrderType = 'market' | 'restaurant' | 'mixed'
 
 export interface OrderItem {
   id: number
@@ -15,6 +15,8 @@ export interface OrderItem {
   unit: string
   price: number
   done?: boolean // для сборщика
+  source?: 'market' | 'restaurant'
+  restId?: string
 }
 
 export interface Order {
@@ -30,12 +32,17 @@ export interface Order {
   comment?: string
   priority?: 'normal' | 'urgent'
   restId?: string
+  restIds?: string[]
   restName?: string
   pickupIds?: string[]
   distanceKm?: number
   deliveryFee?: number
   durationMin?: number
   weightKg?: number
+  /** Статус части магазина в смешанном заказе */
+  marketStatus?: 'new' | 'assembling' | 'done'
+  /** Статус части ресторана(ов) в смешанном заказе */
+  restParts?: Record<string, 'new' | 'cooking' | 'done'>
 }
 
 export interface Product {

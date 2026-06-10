@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler } from '@/lib/orderUiMap'
+import { isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
 import Link from 'next/link'
 // ─── KAKAPO Assembler App ────────────────────────
@@ -88,6 +89,8 @@ export default function AssemblerApp() {
   useApiSync('assembler');
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
+  const startMarketPart = useOrders(s => s.startMarketPart);
+  const completeMarketPart = useOrders(s => s.completeMarketPart);
   const toggleItemStore = useOrders(s => s.toggleItem);
   const mapped = useMemo(
     () => (USE_API ? mapOrdersForAssembler(apiOrders) : ORDERS_DATA),
@@ -113,7 +116,12 @@ export default function AssemblerApp() {
   };
 
   const completeOrder = async (orderId) => {
-    if (USE_API) await updateStatus(orderId, 'assembler_done');
+    const raw = apiOrders.find(o => o.id === orderId);
+    if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
+      await completeMarketPart(orderId);
+    } else if (USE_API) {
+      await updateStatus(orderId, 'assembler_done');
+    }
     setCompletedIds(ids=>[...ids, orderId]);
     setOrders(os=>os.filter(o=>o.id!==orderId));
     setActiveOrderId(null);
@@ -130,7 +138,17 @@ export default function AssemblerApp() {
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
-        {page==='dashboard' && <DashboardPage orders={pending} completed={completedIds.length} onStart={(id)=>{setActiveOrderId(id);setPage('collect');}} onPage={setPage}/>}
+        {page==='dashboard' && <DashboardPage orders={pending} completed={completedIds.length} onStart={async (id) => {
+          const order = orders.find(o => o.id === id);
+          const raw = apiOrders.find(o => o.id === id);
+          if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
+            await startMarketPart(id);
+          } else if (USE_API && order) {
+            await updateStatus(id, 'assembling');
+          }
+          setActiveOrderId(id);
+          setPage('collect');
+        }} onPage={setPage}/>}
         {page==='history'   && <HistoryPage onPage={setPage}/>}
         {page==='stats'     && <StatsPage   onPage={setPage} completed={completedIds.length}/>}
       </div>

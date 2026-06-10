@@ -5,7 +5,7 @@ import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores }
 import { DEMO_COURIER_ORDERS, DEMO_COURIER_HISTORY } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { useOrders, USE_API } from '@/lib/store'
-import { mapOrdersForCourier } from '@/lib/orderUiMap'
+import { mapOrdersForCourier, isCourierReadyOrder } from '@/lib/orderUiMap'
 import { useApiSync } from '@/lib/useApiSync'
 import type { PickupPoint } from '@/lib/pickups'
 
@@ -453,7 +453,10 @@ export default function CourierApp() {
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
   const ORDERS = useMemo(
-    () => (USE_API || apiOrders.length ? mapOrdersForCourier(apiOrders) : DEMO_COURIER_ORDERS),
+    () => {
+      if (!USE_API && !apiOrders.length) return DEMO_COURIER_ORDERS
+      return mapOrdersForCourier(apiOrders.filter(isCourierReadyOrder))
+    },
     [apiOrders]
   );
   const pickupsList = usePickups();
@@ -506,11 +509,11 @@ export default function CourierApp() {
       setPickupIdx(i => i + 1);
     } else {
       setStep('toClient');
+      if (active) updateStatus(active.id, 'delivering');
     }
   };
 
   const available = ORDERS.filter(o =>
-    !['delivered', 'cancelled'].includes(o.status as string) &&
     !completed.includes(o.id) &&
     o.id !== active?.id,
   );

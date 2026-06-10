@@ -322,12 +322,18 @@ const ORDERS_LIST = [
 ];
 
 const OSTATUS = {
-  pending:   {l:"Ожидает",    c:"var(--gd)"},
-  assembling:{l:"Собирается", c:"var(--pur)"},
-  delivering:{l:"В пути",     c:"var(--blue)"},
-  delivered: {l:"Доставлен",  c:"var(--gr)"},
-  cancelled: {l:"Отменён",    c:"var(--red)"},
+  pending:         {l:"Ожидает",       c:"var(--gd)"},
+  assembling:      {l:"Собирается",    c:"var(--pur)"},
+  cooking:         {l:"Готовится",     c:"var(--gd)"},
+  waiting_courier: {l:"Ждём курьера",  c:"var(--gd)"},
+  delivering:      {l:"В пути",        c:"var(--blue)"},
+  delivered:       {l:"Доставлен",     c:"var(--gr)"},
+  cancelled:       {l:"Отменён",       c:"var(--red)"},
 };
+
+function phoneDigits(v: string) {
+  return (v || '').replace(/\D/g, '').slice(-9);
+}
 
 const FAQ = [
   {q:"Как быстро доставляют заказ?",         a:"45 минут по всему г. Яван. В часы пик до 60 минут. Придёт SMS когда курьер выедет."},
@@ -999,7 +1005,7 @@ function CheckoutSec({ icon, color, title }) {
 }
 
 const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
-  const { prods } = useLiveCatalog();
+  const { prods, restaurants } = useLiveCatalog();
   const createOrder = useOrders(s => s.createOrder);
   const [step,  setStep]  = useState("form");
   const [name,  setName]  = useState("");
@@ -1012,6 +1018,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
   const [loading, setLoading] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
   const [orderId, setOrderId] = useState("");
+  const [checkoutMode, setCheckoutMode] = useState('market');
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryKm, setDeliveryKm] = useState(0);
   const [deliveryMin, setDeliveryMin] = useState(0);
@@ -1084,30 +1091,48 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
     if (!validate()) return;
     setLoading(true);
     setSubmitErr("");
+
     const hasMarket = prodItems.length > 0;
     const hasRest = restItems.length > 0;
-    const orderType = hasRest && !hasMarket ? 'restaurant' : 'market';
+    const orderType = hasMarket && hasRest ? 'mixed' : hasRest ? 'restaurant' : 'market';
+    const restIds = [...new Set(restItems.map(r => r.restId).filter(Boolean))];
+
     const payload = {
       type: orderType,
       client: { name, phone, addr, lat: clientLat, lng: clientLng },
-      items: items.map(p => ({
-        ...(typeof p.id === 'number' ? { id: p.id } : {}),
-        name: p.name || 'Товар',
-        e: p.e || '📦',
-        qty: p.qty,
-        unit: p.unit || 'шт',
-        price: Number(p.price) || 0,
-        ...(p.art ? { art: p.art } : {}),
-      })),
+      items: [
+        ...prodItems.map(p => ({
+          ...(typeof p.id === 'number' ? { id: p.id } : {}),
+          name: p.name || 'Товар',
+          e: p.e || '📦',
+          qty: p.qty,
+          unit: p.unit || 'шт',
+          price: Number(p.price) || 0,
+          source: 'market',
+          ...(p.art ? { art: p.art } : {}),
+        })),
+        ...restItems.map(p => ({
+          name: p.name || 'Блюдо',
+          e: p.e || '🍽',
+          qty: p.qty,
+          unit: 'порция',
+          price: Number(p.price) || 0,
+          source: 'restaurant',
+          restId: p.restId,
+        })),
+      ],
       total: Number(total.toFixed(2)),
       deliveryFee: Number(deliveryFee.toFixed(2)),
       pickupIds,
       distanceKm: deliveryKm > 0 ? Number(deliveryKm.toFixed(2)) : undefined,
       durationMin: deliveryMin > 0 ? Math.round(deliveryMin) : undefined,
       weightKg: Number(weightKg.toFixed(1)),
-      restId: orderType === 'restaurant' ? restItems[0]?.restId : undefined,
+      restIds,
+      restId: restIds[0],
+      restName: restIds[0] ? restaurants.find(r => r.id === restIds[0])?.name : undefined,
       comment: '',
     };
+
     let order = null;
     let errMsg = '';
     try {
@@ -1116,8 +1141,11 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
       errMsg = e instanceof Error ? e.message : 'Не удалось оформить заказ. Проверьте интернет и попробуйте снова.';
     }
     setLoading(false);
+
     if (order) {
       setOrderId(order.id);
+      setCheckoutMode(orderType);
+      try { localStorage.setItem('kakapo_client_phone', phone); } catch { /* private mode */ }
       setStep('ok');
       onClearCart?.();
     } else {
@@ -1132,7 +1160,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
       </div>
       <div className="ub" style={{ fontSize:24, fontWeight:900, marginBottom:6 }}>Заказ принят!</div>
       <div style={{ fontSize:13, color:"var(--t2)", marginBottom:6 }}>Заказ <span className="ub" style={{ color:"var(--gr)" }}>{orderId || '…'}</span> оформлен</div>
-      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:28 }}>Курьер доедет за <span style={{ color:"var(--gr)", fontWeight:700 }}>{deliveryMin || 45} минут</span>{deliveryKm > 0 ? ` · ${formatKm(deliveryKm)}` : ''}</div>
+      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:28 }}>
+        {checkoutMode === 'mixed'
+          ? 'Один заказ: сборщик соберёт товары, ресторан приготовит блюда. Курьер заберёт всё, когда обе части будут готовы.'
+          : checkoutMode === 'restaurant'
+            ? 'Ресторан готовит заказ. Когда блюда будут готовы — назначат курьера. Отслеживание появится когда курьер примет заказ.'
+            : 'Сначала соберут заказ, затем назначат курьера. Отслеживание появится когда курьер примет заказ.'}
+      </div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
         {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"ул. Ленина, 42",c:"var(--sky)"},{icon:"star",l:"Бонусы",v:"+12 начислено",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
@@ -1142,7 +1176,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
           </div>
         ))}
       </div>
-      <button onClick={() => go("orders")} className="btn" style={{ width:"100%", padding:"15px", fontSize:14, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", marginBottom:10 }}>Отследить заказ</button>
+      <button onClick={() => go("orders")} className="btn" style={{ width:"100%", padding:"15px", fontSize:14, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", marginBottom:10 }}>Мои заказы</button>
       <button onClick={() => go("home")} className="btn" style={{ width:"100%", padding:"14px", fontSize:13, borderRadius:17, background:"var(--l2)", border:"1px solid var(--b1)", color:"var(--t2)" }}>На главную</button>
     </div>
   );
@@ -1247,6 +1281,11 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
               <span>💵 Наличными</span>
               <span className="ub" style={{ color:"var(--gd)" }}>{total.toFixed(2)} ЅМ</span>
             </div>
+          </div>
+        )}
+        {prodItems.length > 0 && restItems.length > 0 && (
+          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"rgba(59,142,240,.08)", border:"1px solid rgba(59,142,240,.2)", fontSize:12, color:"var(--t2)", textAlign:"center" }}>
+            📦 Один заказ · сборщик соберёт товары, ресторан приготовит блюда
           </div>
         )}
         {submitErr && (
@@ -1497,12 +1536,16 @@ const ProfilePage = ({ go, user, setUser }) => {
     </div>
   );
 };
-const OrdersPage = ({ go }) => {
+const OrdersPage = ({ go, user }) => {
   const apiOrders = useOrders(s => s.orders);
-  const ordersList = useMemo(
-    () => (USE_API ? mapOrdersForClient(apiOrders) : ORDERS_LIST),
-    [apiOrders]
-  );
+  const ordersList = useMemo(() => {
+    const all = USE_API ? mapOrdersForClient(apiOrders) : ORDERS_LIST;
+    if (!USE_API) return all;
+    const mine = phoneDigits(user?.phone || (typeof window !== 'undefined' ? localStorage.getItem('kakapo_client_phone') : '') || '');
+    if (!mine) return all;
+    const matched = all.filter(o => phoneDigits(o.phone || '') === mine);
+    return matched.length ? matched : all;
+  }, [apiOrders, user?.phone]);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [reviewed, setReviewed] = useState({});
@@ -1523,6 +1566,24 @@ const OrdersPage = ({ go }) => {
         </div>
       </header>
       <div style={{ padding:"16px 18px 100px" }}>
+        {selected.status==="assembling" && (
+          <div style={{ padding:"16px", borderRadius:16, background:"rgba(155,109,255,.08)", border:"1px solid rgba(155,109,255,.25)", marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:"var(--pur)", marginBottom:6 }}>📦 Заказ собирается</div>
+            <div style={{ fontSize:12, color:"var(--t2)" }}>Сборщик комплектует ваш заказ. Курьер получит его после сборки.</div>
+          </div>
+        )}
+        {selected.status==="cooking" && (
+          <div style={{ padding:"16px", borderRadius:16, background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.25)", marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)", marginBottom:6 }}>👨‍🍳 Ресторан готовит заказ</div>
+            <div style={{ fontSize:12, color:"var(--t2)" }}>Когда блюда будут готовы — курьер заберёт заказ из ресторана.</div>
+          </div>
+        )}
+        {selected.status==="waiting_courier" && (
+          <div style={{ padding:"16px", borderRadius:16, background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.25)", marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)", marginBottom:6 }}>{selected.orderType === 'restaurant' ? '✅ Заказ готов' : '✅ Заказ собран'}</div>
+            <div style={{ fontSize:12, color:"var(--t2)" }}>{selected.orderType === 'restaurant' ? 'Ресторан передал заказ. Ждём курьера — когда он примет заказ, здесь появится карта.' : 'Ждём курьера. Когда он примет заказ — здесь появится карта отслеживания.'}</div>
+          </div>
+        )}
         {selected.status==="delivering" && (
           <div style={{ padding:"16px", borderRadius:16, background:"rgba(59,142,240,.06)", border:"1px solid rgba(59,142,240,.2)", marginBottom:16 }}>
             <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:14 }}>
@@ -1617,15 +1678,15 @@ const OrdersPage = ({ go }) => {
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{ordersList.length} заказов</div></div>
         </div>
         <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
-          {[{id:"all",l:"Все"},{id:"delivering",l:"🚀 В пути"},{id:"delivered",l:"✅ Доставлен"},{id:"cancelled",l:"❌ Отменён"}].map(f => (
+          {[{id:"all",l:"Все"},{id:"assembling",l:"📦 Сборка"},{id:"cooking",l:"👨‍🍳 Готовится"},{id:"waiting_courier",l:"⏳ Ждём курьера"},{id:"delivering",l:"🚀 В пути"},{id:"delivered",l:"✅ Доставлен"}].map(f => (
             <button key={f.id} className={`chip ${filter===f.id?"on":""}`} onClick={() => setFilter(f.id)}>{f.l}</button>
           ))}
         </div>
       </header>
-      {ordersList.some(o => o.status==="delivering") && filter==="all" && (
+      {ordersList.some(o => o.status==="delivering" && o.trackable) && filter==="all" && (
         <div onClick={() => setSelected(ordersList.find(o => o.status==="delivering"))} style={{ margin:"14px 18px 0", padding:"12px 16px", borderRadius:16, background:"rgba(59,142,240,.08)", border:"1px solid rgba(59,142,240,.3)", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
           <div style={{ width:8, height:8, borderRadius:"50%", background:"var(--blue)", position:"relative", flexShrink:0 }}><div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"var(--blue)", animation:"ping 1.5s ease-out infinite", opacity:.5 }}/></div>
-          <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:"var(--blue)" }}>Заказ K-4832 едет к вам!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>~12 минут</div></div>
+          <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:"var(--blue)" }}>Курьер в пути!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>Нажмите чтобы отследить</div></div>
           <Ic n="arr" s={15} c="var(--blue)"/>
         </div>
       )}
@@ -1662,7 +1723,7 @@ const OrdersPage = ({ go }) => {
                   <div style={{ flex:1, display:"flex", justifyContent:"flex-end", alignItems:"center" }}><Ic n="arr" s={14} c="var(--t3)"/></div>
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
-                  {o.status==="delivering" && <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="map" s={13} c="white"/>Отследить</button>}
+                  {o.status==="delivering" && o.trackable && <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="map" s={13} c="white"/>Отследить</button>}
                   {o.status==="delivered" && !reviewed[o.id] && <button className="btn" onClick={e=>{e.stopPropagation();setShowRev(o);setRating(0);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd)"/>Отзыв</button>}
                   <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="repeat" s={13} c="var(--t2)"/>Повторить</button>
                 </div>
@@ -6169,7 +6230,7 @@ function KakapoAppInner() {
       case "checkout":         return <CheckoutPage      {...shared}/>;
       case "auth":             return <AuthPage          {...shared} setUser={setUser}/>;
       case "profile":          return <ProfilePage       {...shared} user={user} setUser={setUser}/>;
-      case "orders":           return <OrdersPage        {...shared}/>;
+      case "orders":           return <OrdersPage        {...shared} user={user}/>;
       case "promos":           return <PromosPage        {...shared}/>;
       case "search":           return <SearchPage        {...shared}/>;
       case "faq":              return <FAQPage           {...shared}/>;

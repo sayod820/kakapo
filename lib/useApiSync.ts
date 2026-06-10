@@ -4,7 +4,7 @@ import { USE_API } from './config'
 import { useProducts, useRestaurants, useOrders } from './store'
 import { syncCourierStoresFromApi } from './courierStore'
 
-export type SyncMode = 'all' | 'assembler' | 'courier' | 'catalog'
+export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog'
 
 const INTERVAL_MS = 12000
 
@@ -22,6 +22,7 @@ export function useApiSync(mode: SyncMode = 'all') {
       ]
       if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
       else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
+      else if (mode === 'restaurant') tasks.push(useOrders.getState().fetchRestaurantOrders())
       else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
       await Promise.all(tasks)
     }

@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useOrders, useRestaurants, useAuth, USE_API } from '@/lib/store'
 import { mapOrdersForRestaurant } from '@/lib/orderUiMap'
+import { isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
 import { enrichRestaurants } from '@/lib/enrichCatalog'
 import Link from 'next/link'
@@ -91,9 +92,10 @@ const DEMO_ORDERS = [
    MAIN APP
 ══════════════════════════════════════════════════════ */
 export default function RestaurantApp() {
-  useApiSync('all');
+  useApiSync('restaurant');
   const apiOrders = useOrders(s => s.orders);
   const updateStatusApi = useOrders(s => s.updateStatus);
+  const updateRestPart = useOrders(s => s.updateRestPart);
   const apiRests = useRestaurants(s => s.restaurants);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const authLogin = useAuth(s => s.login);
@@ -164,8 +166,17 @@ export default function RestaurantApp() {
   const logout = () => { setPartner(null); setRest(null); setPage('login'); };
 
   const updateOrderStatus = async (id, status) => {
-    if (USE_API) await updateStatusApi(id, status);
-    setOrders(os => os.map(o => o.id===id ? {...o, status} : o));
+    const raw = apiOrders.find(o => o.id === id);
+    const mixed = raw && rest && isMixedOrder(normalizeOrder(raw));
+    if (USE_API && mixed) {
+      if (status === 'cooking') await updateRestPart(id, rest.id, 'cooking');
+      else if (status === 'ready') await updateRestPart(id, rest.id, 'done');
+      else if (status === 'delivered') await updateStatusApi(id, 'delivered');
+      else await updateRestPart(id, rest.id, 'new');
+    } else if (USE_API) {
+      await updateStatusApi(id, status);
+    }
+    setOrders(os => os.map(o => o.id === id ? { ...o, status } : o));
   };
 
   const toggleDish = async (id) => {

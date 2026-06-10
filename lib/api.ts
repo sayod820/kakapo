@@ -149,8 +149,11 @@ export const api = {
   getOrder: (id: number) => request<Order>(`/orders/${id}`),
   getAssemblerOrders: () => request<Order[]>('/orders/assembler'),
   getCourierOrders: () => request<Order[]>('/orders/courier'),
-  updateOrderStatus: (id: string | number, status: string) =>
-    request<Order>(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  updateOrderStatus: (id: string | number, status: string, extra?: Record<string, unknown>) =>
+    request<Order>(`/orders/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, ...extra }),
+    }),
 
   // ── Рестораны ──
   getRestaurants: () => request<Restaurant[]>('/restaurants'),

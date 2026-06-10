@@ -4,6 +4,16 @@ import type { Order, OrderStatus, Product, Restaurant } from './types'
 import { INITIAL_ORDERS, PRODUCTS, RESTAURANTS } from './data'
 import { api, setToken, getToken } from './api'
 import { USE_API } from './config'
+import { isCourierReadyOrder, isCourierSyncOrder, isAssemblerOrder } from './orderUiMap'
+import {
+  applyMarketStatus,
+  applyRestPartStatus,
+  hasRestPart,
+  initMixedOrderFields,
+  isMixedOrder,
+  normalizeOrder,
+  normalizeOrders,
+} from './orderParts'
 
 export { USE_API }
 
@@ -59,31 +69,42 @@ function patchOrders(
   saveStoredOrders(next)
 }
 
-const COURIER_VISIBLE = new Set<OrderStatus>([
-  'new', 'assembling', 'assembler_done', 'cooking', 'ready',
-  'courier_picked', 'delivering',
-])
 
 async function loadCourierOrdersFromApi(): Promise<Order[]> {
+  try {
+    const dedicated = await api.getCourierOrders()
+    if (dedicated.length) return normalizeOrders(dedicated.filter(isCourierSyncOrder))
+  } catch { /* fallback */ }
   const list = await api.getOrders()
-  return list.filter(o => COURIER_VISIBLE.has(o.status))
+  return normalizeOrders(list.filter(isCourierSyncOrder))
 }
 
-function mergeCourierOrders(current: Order[], remote: Order[]): Order[] {
+function mergeRoleOrders(
+  current: Order[],
+  remote: Order[],
+  belongsToRole: (o: Order) => boolean,
+): Order[] {
   const remoteIds = new Set(remote.map(o => o.id))
-  const localOnly = current.filter(o =>
-    COURIER_VISIBLE.has(o.status) && !remoteIds.has(o.id),
-  )
-  return [...remote, ...localOnly]
+  const outsideRole = current.filter(o => !belongsToRole(o))
+  const localRoleOnly = current.filter(o => belongsToRole(o) && !remoteIds.has(o.id))
+  const merged = [...outsideRole, ...remote, ...localRoleOnly]
+  const seen = new Set<string>()
+  return merged.filter(o => {
+    if (seen.has(o.id)) return false
+    seen.add(o.id)
+    return true
+  })
+}
+
+async function loadRestaurantOrdersFromApi(): Promise<Order[]> {
+  const list = await api.getOrders()
+  return normalizeOrders(list.filter(o => hasRestPart(normalizeOrder(o))))
 }
 
 async function loadAssemblerOrdersFromApi(): Promise<Order[]> {
   let list = await api.getAssemblerOrders()
-  if (!list.length) {
-    list = await api.getOrders()
-    list = list.filter(o => o.type === 'market' && (o.status === 'new' || o.status === 'assembling'))
-  }
-  return list
+  if (!list.length) list = await api.getOrders()
+  return normalizeOrders(list.filter(o => isAssemblerOrder(o)))
 }
 
 interface OrdersStore {
@@ -92,9 +113,13 @@ interface OrdersStore {
   fetchOrders: () => Promise<void>
   fetchAssemblerOrders: () => Promise<void>
   fetchCourierOrders: () => Promise<void>
+  fetchRestaurantOrders: () => Promise<void>
   createOrder: (data: any) => Promise<Order | null>
   addOrder: (order: Order) => void
   updateStatus: (id: string, status: OrderStatus) => Promise<void>
+  startMarketPart: (id: string) => Promise<void>
+  completeMarketPart: (id: string) => Promise<void>
+  updateRestPart: (id: string, restId: string, partStatus: 'new' | 'cooking' | 'done') => Promise<void>
   toggleItem: (orderId: string, itemId: number) => void
   getByStatus: (status: OrderStatus | OrderStatus[]) => Order[]
   getByType: (type: 'market' | 'restaurant') => Order[]
@@ -107,7 +132,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (!USE_API) return
     set({ loading: true })
     try {
-      const orders = await api.getOrders()
+      const orders = normalizeOrders(await api.getOrders())
       patchOrders(set, get, orders)
     } catch (e) { console.error(e) }
     finally { set({ loading: false }) }
@@ -117,7 +142,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (!USE_API) return
     try {
       const orders = await loadAssemblerOrdersFromApi()
-      patchOrders(set, get, orders)
+      patchOrders(set, get, s => mergeRoleOrders(s, orders, o => isAssemblerOrder(normalizeOrder(o))))
     } catch (e) { console.error(e) }
   },
 
@@ -125,33 +150,48 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (!USE_API) return
     try {
       const orders = await loadCourierOrdersFromApi()
-      patchOrders(set, get, s => mergeCourierOrders(s, orders))
+      patchOrders(set, get, s => mergeRoleOrders(s, orders, isCourierSyncOrder))
+    } catch (e) { console.error(e) }
+  },
+
+  fetchRestaurantOrders: async () => {
+    if (!USE_API) return
+    try {
+      const orders = await loadRestaurantOrdersFromApi()
+      patchOrders(set, get, s => mergeRoleOrders(s, orders, o => hasRestPart(normalizeOrder(o))))
     } catch (e) { console.error(e) }
   },
 
   createOrder: async (data) => {
+    const prepared = initMixedOrderFields(data)
     if (USE_API) {
       try {
-        const order = await api.createOrder(data)
-        patchOrders(set, get, s => [order, ...s])
-        return order
+        const order = await api.createOrder(prepared)
+        const normalized = normalizeOrder({
+          ...order,
+          ...prepared,
+          items: (prepared.items as Order['items']) ?? order.items,
+          status: 'new',
+        })
+        patchOrders(set, get, s => [normalized, ...s])
+        return normalized
       } catch (e) {
         console.error(e)
         throw e
       }
     }
-    const order: Order = {
-      ...data,
+    const order: Order = normalizeOrder({
+      ...prepared,
       id: `K-${Date.now()}`,
       status: 'new',
       createdAt: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
       client: data.client || { name: data.client_name, phone: data.client_phone, addr: data.address },
-      items: data.items || [],
+      items: prepared.items || data.items || [],
       total: data.total || 0,
       deliveryFee: data.deliveryFee,
       pickupIds: data.pickupIds,
       weightKg: data.weightKg,
-    }
+    } as Order)
     patchOrders(set, get, s => [order, ...s])
     return order
   },
@@ -163,7 +203,64 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(id, status)
-        patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, ...updated, status } : o))
+        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, status }) : o))
+      } catch (e) { console.error(e) }
+    }
+  },
+
+  startMarketPart: async (id) => {
+    const order = get().orders.find(o => o.id === id)
+    if (!order) return
+    const next = isMixedOrder(normalizeOrder(order))
+      ? applyMarketStatus(order, 'assembling')
+      : { ...order, status: 'assembling' as OrderStatus }
+    patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
+    if (USE_API) {
+      try {
+        const status = isMixedOrder(normalizeOrder(order)) ? 'assembling' : 'assembling'
+        const extra = isMixedOrder(normalizeOrder(order)) ? { marketStatus: 'assembling' } : undefined
+        const updated = await api.updateOrderStatus(id, status, extra)
+        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
+      } catch (e) { console.error(e) }
+    }
+  },
+
+  completeMarketPart: async (id) => {
+    const order = get().orders.find(o => o.id === id)
+    if (!order) return
+    const next = isMixedOrder(normalizeOrder(order))
+      ? applyMarketStatus(order, 'done')
+      : { ...order, status: 'assembler_done' as OrderStatus }
+    patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
+    if (USE_API) {
+      try {
+        const extra = isMixedOrder(normalizeOrder(order))
+          ? { marketStatus: 'done', restParts: order.restParts }
+          : undefined
+        const updated = await api.updateOrderStatus(id, next.status, extra)
+        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
+      } catch (e) { console.error(e) }
+    }
+  },
+
+  updateRestPart: async (id, restId, partStatus) => {
+    const order = get().orders.find(o => o.id === id)
+    if (!order) return
+    const normalized = normalizeOrder(order)
+    const next = isMixedOrder(normalized)
+      ? applyRestPartStatus(order, restId, partStatus)
+      : {
+        ...order,
+        status: (partStatus === 'done' ? 'ready' : partStatus === 'cooking' ? 'cooking' : 'new') as OrderStatus,
+      }
+    patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
+    if (USE_API) {
+      try {
+        const extra = isMixedOrder(normalized)
+          ? { restParts: next.restParts, marketStatus: next.marketStatus }
+          : undefined
+        const updated = await api.updateOrderStatus(id, next.status, extra)
+        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
       } catch (e) { console.error(e) }
     }
   },
