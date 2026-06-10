@@ -1018,6 +1018,29 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
   const [addrReady, setAddrReady] = useState(false);
   const [clientLat, setClientLat] = useState(0);
   const [clientLng, setClientLng] = useState(0);
+  const [savedAddrs, setSavedAddrs] = useState([]);
+
+  // Загрузить сохранённые адреса из профиля + автозаполнить адрес по умолчанию
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('kakapo-client-addresses');
+      const list = raw ? JSON.parse(raw) : DEFAULT_ADDRESSES;
+      setSavedAddrs(list);
+      const def = list.find(a => a.def) || list[0];
+      if (def && !addr) {
+        setAddr(def.street);
+        if (def.lat && def.lng) {
+          setClientLat(def.lat); setClientLng(def.lng); setAddrReady(true);
+        }
+      }
+    } catch {}
+  }, []);
+
+  const pickSavedAddr = (a) => {
+    setAddr(a.street);
+    setErrs(prev => ({ ...prev, addr: undefined }));
+    if (a.lat && a.lng) { setClientLat(a.lat); setClientLng(a.lng); setAddrReady(true); }
+  };
 
   const prodItems = prods.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id] }));
   const restItems = Object.keys(cartMeta).filter(id => cart[id] > 0).map(id => ({
@@ -1147,6 +1170,25 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="map" color="var(--sky)" title="Адрес доставки"/>
+          {savedAddrs.length > 0 && (
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>Сохранённые адреса</div>
+              <div className="hscroll" style={{ gap:8 }}>
+                {savedAddrs.map(a => {
+                  const active = addr === a.street;
+                  return (
+                    <button key={a.id} onClick={() => pickSavedAddr(a)} className="btn"
+                      style={{ flexShrink:0, padding:"10px 14px", borderRadius:12, textAlign:"left",
+                        border:`1.5px solid ${active ? "var(--gr)" : "var(--b1)"}`,
+                        background: active ? "rgba(31,215,96,.1)" : "var(--l2)", minWidth:140 }}>
+                      <div style={{ fontSize:12, fontWeight:800, color: active ? "var(--gr)" : "var(--t1)", marginBottom:2 }}>{a.label}</div>
+                      <div style={{ fontSize:11, color:"var(--t2)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:160 }}>{a.street}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>Улица, дом *</div>
           <GeoAddressPicker
             value={addr}

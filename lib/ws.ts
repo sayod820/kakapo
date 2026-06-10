@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════
-// KAKAPO — WebSocket (real-time заказы)
+// KAKAPO — WebSocket (real-time заказы) с авто-переподключением
 // ════════════════════════════════════════════════
 import { useEffect, useRef, useState } from 'react'
 import { getToken } from './api'
@@ -13,39 +13,72 @@ export interface WSMessage {
   order: any
 }
 
-/**
- * Хук для real-time подключения
- * Использование:
- *   useWebSocket('assembler', (msg) => {
- *     if (msg.event === 'new_order') { ... }
- *   })
- */
 export function useWebSocket(role: WSRole, onMessage: (msg: WSMessage) => void) {
   const wsRef = useRef<WebSocket | null>(null)
+  const onMsgRef = useRef(onMessage)
   const [connected, setConnected] = useState(false)
 
-  useEffect(() => {
-    const token = getToken() || ''
-    const ws = new WebSocket(`${WS_URL}/ws/${role}?token=${token}`)
-    wsRef.current = ws
+  useEffect(() => { onMsgRef.current = onMessage }, [onMessage])
 
-    ws.onopen = () => setConnected(true)
-    ws.onclose = () => setConnected(false)
-    ws.onmessage = (e) => {
+  useEffect(() => {
+    let stopped = false
+    let reconnectTimer: any = null
+    let pingTimer: any = null
+    let attempt = 0
+
+    const connect = () => {
+      if (stopped) return
+      const token = getToken() || ''
+      let ws: WebSocket
       try {
-        const msg = JSON.parse(e.data) as WSMessage
-        onMessage(msg)
-      } catch {}
+        ws = new WebSocket(`${WS_URL}/ws/${role}?token=${token}`)
+      } catch {
+        scheduleReconnect()
+        return
+      }
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        attempt = 0
+        setConnected(true)
+        pingTimer = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            try { ws.send('ping') } catch {}
+          }
+        }, 25000)
+      }
+
+      ws.onmessage = (e) => {
+        if (e.data === 'pong') return
+        try {
+          const msg = JSON.parse(e.data) as WSMessage
+          onMsgRef.current(msg)
+        } catch {}
+      }
+
+      ws.onclose = () => {
+        setConnected(false)
+        if (pingTimer) clearInterval(pingTimer)
+        scheduleReconnect()
+      }
+
+      ws.onerror = () => { try { ws.close() } catch {} }
     }
 
-    // ping каждые 30 сек чтобы соединение не закрылось
-    const ping = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send('ping')
-    }, 30000)
+    const scheduleReconnect = () => {
+      if (stopped) return
+      attempt += 1
+      const delay = Math.min(2000 * attempt, 15000)
+      reconnectTimer = setTimeout(connect, delay)
+    }
+
+    connect()
 
     return () => {
-      clearInterval(ping)
-      ws.close()
+      stopped = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (pingTimer) clearInterval(pingTimer)
+      if (wsRef.current) { try { wsRef.current.close() } catch {} }
     }
   }, [role])
 
