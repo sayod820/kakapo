@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
+import { COURIER_MAP_VIEW } from '@/lib/courierData';
 
 function destroyMap(map: any, container?: HTMLDivElement | null) {
   if (!map) return;
@@ -68,9 +69,7 @@ export default function RouteMiniMap({
           if (cancelled || gen !== genRef.current) return;
           try {
             const bounds = L.latLngBounds(geometry);
-            const center = bounds.getCenter();
-            const zoom = Math.min(map.getBoundsZoom(bounds, false), 17);
-            map.setView(center, zoom, { animate: false, reset: true });
+            map.fitBounds(bounds, { animate: false, maxZoom: COURIER_MAP_VIEW.zoom, padding: [24, 24] });
           } catch { /* ignore */ }
         });
       }

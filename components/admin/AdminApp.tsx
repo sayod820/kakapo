@@ -2,14 +2,124 @@
 import { useState, useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { useOrders, useProducts, useRestaurants, useAuth, USE_API } from '@/lib/store'
-import { mapOrdersForAdmin, ADMIN_NEXT_STATUS, adminStatusLabel } from '@/lib/orderUiMap'
+import { mapOrdersForAdmin, ADMIN_STATUS_OPTIONS, adminStatusLabel, buildAdminStatusPatch, COURIER_ASSIGNED_STATUSES } from '@/lib/orderUiMap'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
-import { usePricingStore, usePickupStore, hydrateCourierStores } from '@/lib/courierStore'
+import { usePricingStore, usePickupStore, hydrateCourierStores, syncCourierStoresFromApi } from '@/lib/courierStore'
+import { useCourierTeamStore, useCourierTeam, syncCourierTeamFromApi } from '@/lib/courierTeamStore'
+import {
+  useAssemblerTeamStore,
+  useAssemblerTeam,
+  syncAssemblerTeamFromApi,
+  hydrateAssemblerTeamStore,
+} from '@/lib/assemblerTeamStore'
+import {
+  emptyAssemblerForm,
+  countAssemblerActiveOrders,
+  countAssemblerCompletedOrders,
+  formatAssemblerAvgTime,
+  type AdminAssembler,
+  type AssemblerStatus,
+} from '@/lib/assemblerTeam'
+import {
+  useClientStore,
+  useClients,
+  syncClientsFromApi,
+  hydrateClientStore,
+} from '@/lib/clientStore'
+import {
+  useCardStore,
+  useCards,
+  syncCardsFromApi,
+  hydrateCardStore,
+} from '@/lib/cardStore'
+import {
+  emptyCardLoyaltyForm,
+  mergeCardsWithClients,
+  cardMatchesSearch,
+  previewCardRange,
+  CARD_STATUS_LABELS,
+  findClientForCard,
+  type AdminCard,
+  type CardStatus,
+  type CardLoyaltyForm,
+} from '@/lib/cardCrm'
+import {
+  emptyClientProfileForm,
+  clientProfileFromClient,
+  mergeClientsWithOrders,
+  clientSegment,
+  clientSegmentLabel,
+  isNewThisMonth,
+  normalizePhone,
+  CLIENT_LEVEL_OPTIONS,
+  type AdminClient,
+  type ClientLevel,
+  type ClientProfileForm,
+} from '@/lib/clientCrm'
+import {
+  saveClientProfile,
+  saveCardLoyalty,
+  createAndLinkCard,
+  lookupClientByPhone,
+  loyaltySummaryForClient,
+  clientNoteForCard,
+  cardLoyaltyFromCard,
+} from '@/lib/clientCardSync'
+import {
+  enrichClientsForPush,
+  filterClientsBySegment,
+  countSegment,
+  formatPushTime,
+  openRatePercent,
+  PUSH_SEGMENT_OPTIONS,
+  type PushSegmentId,
+} from '@/lib/pushCrm'
+import {
+  hydratePushStore,
+  syncPushFromApi,
+  usePushAutoSettings,
+  usePushHistory,
+  usePushTemplates,
+  usePushStore,
+} from '@/lib/pushStore'
+import { sendPushCampaign } from '@/lib/pushService'
+import {
+  buildFinanceSummary,
+  downloadCsv,
+  printFinanceReport,
+  formatSm,
+  FINANCE_TAB_OPTIONS,
+  restaurantBalance,
+  prepareOrdersForFinance,
+  type FinanceTab,
+} from '@/lib/financeCrm'
+import {
+  TARIFF_TAB_OPTIONS,
+  TARIFF_PRESETS,
+  TARIFF_FIELD_META,
+  validatePricing,
+  normalizePricing,
+  buildTariffStats,
+  previewOrdersForTab,
+  courierTariffSummary,
+  calcPreview,
+  TAB_CONNECTIONS,
+  type TariffTab,
+} from '@/lib/tariffCrm'
+import {
+  emptyCourierForm,
+  countCourierActiveOrders,
+  vehicleIcon,
+  vehicleLabel,
+  VEHICLE_OPTIONS,
+  type AdminCourier,
+  type CourierStatus,
+} from '@/lib/courierTeam'
 import { restIdToPickupId } from '@/lib/pickups'
-import { STORE_LOCATION, calcDeliveryFee, formatKm, DEFAULT_PRICING } from '@/lib/courierData'
+import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
 import { useProductPhotos } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
@@ -71,18 +181,6 @@ const RESTAURANTS = [
    menu:[{id:1,cat:'Бургеры',e:'🍔',name:'Двойной бургер',price:16,inStock:true},{id:2,cat:'Хот-доги',e:'🌭',name:'Хот-дог',price:8,inStock:true}]},
 ];
 
-const COURIERS = [
-  {id:'C-01',name:'Фирдавс Назаров',phone:'+992 93 111 22 33',vehicle:'🏍 Мото',num:'TJ 1234 AA',status:'busy',rating:4.9,orders:342,today:42,week:310},
-  {id:'C-02',name:'Баходур Кодиров',phone:'+992 90 222 33 44',vehicle:'🚲 Вело',num:'—',status:'available',rating:4.7,orders:187,today:28,week:195},
-  {id:'C-03',name:'Рустам Холов',phone:'+992 91 333 44 55',vehicle:'🚗 Авто',num:'TJ 5678 BB',status:'available',rating:4.8,orders:521,today:56,week:420},
-  {id:'C-04',name:'Зубайр Рахимов',phone:'+992 88 444 55 66',vehicle:'🏍 Мото',num:'TJ 9012 CC',status:'offline',rating:4.6,orders:98,today:0,week:145},
-];
-
-const ASSEMBLERS = [
-  {id:'A-01',name:'Камола Юсупова',phone:'+992 93 500 11 22',status:'working',ordersToday:12,avgTime:'7 мин',rating:4.9},
-  {id:'A-02',name:'Шахло Рахимова',phone:'+992 93 500 33 44',status:'available',ordersToday:8,avgTime:'9 мин',rating:4.7},
-  {id:'A-03',name:'Зарина Холова',phone:'+992 93 500 55 66',status:'offline',ordersToday:0,avgTime:'—',rating:4.5},
-];
 
 const ALL_ORDERS = [
   {id:'K-4832',type:'market',    client:'Диловар Р.',  phone:'+992 93 456 78 90',items:'Брокколи, Говядина',   total:64, status:'delivering', courier:'Фирдавс Н.',  assembler:'Камола Ю.',time:'14:23',addr:'ул. Ленина, 42'},
@@ -99,13 +197,6 @@ const REST_ORDERS = [
   {id:'K-4830',restId:'R-02',client:'Бахром К.',   phone:'+992 88 789 01 23',items:['🍕 Маргарита ×1','🥤 Кола ×2'],total:38,status:'cooking',  time:'14:05'},
   {id:'K-4829',restId:'R-03',client:'Мадина О.',   phone:'+992 91 111 22 33',items:['🌯 Филадельфия ×2'],            total:64,status:'new',       time:'14:01'},
   {id:'K-4828',restId:'R-02',client:'Рустам Д.',   phone:'+992 93 654 32 10',items:['🍔 Бургер ×2','🍟 Картошка ×1'],total:51,status:'delivered', time:'13:40'},
-];
-
-const CLIENTS = [
-  {id:'U-01',name:'Диловар Рахимов',phone:'+992 93 456 78 90',card:'KAKAPO-0001',level:'platinum',orders:87,spent:3420,debt:1200,bonus:4850,last:'Сегодня'},
-  {id:'U-02',name:'Нилуфар Хасанова',phone:'+992 90 123 45 67',card:'KAKAPO-0042',level:'gold',orders:43,spent:1890,debt:0,bonus:1240,last:'Вчера'},
-  {id:'U-03',name:'Бахром Каримов',phone:'+992 88 789 01 23',card:'KAKAPO-0118',level:'silver',orders:28,spent:980,debt:0,bonus:560,last:'3 дня назад'},
-  {id:'U-04',name:'Зафар Мирзоев',phone:'+992 91 654 32 10',card:'KAKAPO-0234',level:'gold',orders:56,spent:2340,debt:4500,bonus:2100,last:'Сегодня'},
 ];
 
 const CATS_LIST = [
@@ -147,15 +238,6 @@ const PRODS = [
   {id:24,art:'KAK-0024',e:'🧹',name:'Порошок Tide',       price:24.0, old:29.0, cat:'Химия',   catId:'house', unit:'1 кг',  stock:4, hot:false,organic:false,discount:17},
 ];
 
-const CARDS_DATA = [
-  {num:'KAKAPO-0001',client:'Диловар Рахимов',phone:'+992 93 456 78 90',status:'active',level:'platinum',bonus:4850,debtLimit:3000,debt:1200},
-  {num:'KAKAPO-0042',client:'Нилуфар Хасанова',phone:'+992 90 123 45 67',status:'active',level:'gold',bonus:1240,debtLimit:1000,debt:0},
-  {num:'KAKAPO-0118',client:'Бахром Каримов',phone:'+992 88 789 01 23',status:'active',level:'silver',bonus:560,debtLimit:0,debt:0},
-  {num:'KAKAPO-0099',client:'',phone:'',status:'unlinked',level:'',bonus:0,debtLimit:0,debt:0},
-  {num:'KAKAPO-0234',client:'Зафар Мирзоев',phone:'+992 91 654 32 10',status:'active',level:'gold',bonus:2100,debtLimit:2000,debt:4500},
-  {num:'KAKAPO-0055',client:'Рустам Давлатов',phone:'+992 90 445 23 11',status:'blocked',level:'gold',bonus:2100,debtLimit:0,debt:0},
-];
-
 const REVIEWS = [
   {id:1,restId:'R-01',client:'Зафар М.',rating:2,text:'Долго ждали, еда была холодная',date:'16 мая',status:'new'},
   {id:2,restId:'R-02',client:'Лола К.',rating:5,text:'Отличная пицца! Быстро доставили',date:'15 мая',status:'read'},
@@ -168,7 +250,7 @@ const SC_STATUS = {new:{l:'Новый',c:'#FF4545'},assembling:{l:'Собира�
 const LVC = {bronze:'#CD7F32',silver:'#C0C0C0',gold:'#FFB800',platinum:'#3B8EF0'};
 
 const Tog = ({on,set}) => (
-  <div onClick={()=>set(v=>!v)} style={{width:44,height:24,borderRadius:12,background:on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
+  <div onClick={() => { if (typeof set === 'function') set(); }} style={{width:44,height:24,borderRadius:12,background:on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
     <div style={{position:'absolute',top:3,left:on?23:3,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
   </div>
 );
@@ -263,7 +345,78 @@ function Layout({page,setPage,children,title,subtitle}) {
   );
 }
 /* ── ORDERS ─────────────────────────────────────── */
-function OrderDetailModal({ order, onClose }) {
+function OrderStatusSelect({ value, onChange, disabled = false }) {
+  const cur = adminStatusLabel(value)
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onClick={e => e.stopPropagation()}
+      onChange={e => { e.stopPropagation(); onChange(e.target.value); }}
+      style={{
+        padding: '4px 8px',
+        borderRadius: 7,
+        fontSize: 10,
+        fontWeight: 800,
+        background: `${cur.c}18`,
+        color: cur.c,
+        border: `1px solid ${cur.c}28`,
+        cursor: disabled ? 'default' : 'pointer',
+        maxWidth: 130,
+        opacity: disabled ? .6 : 1,
+      }}
+    >
+      {ADMIN_STATUS_OPTIONS.map(st => {
+        const lb = adminStatusLabel(st)
+        return <option key={st} value={st} style={{ background: '#0C1C0F', color: '#EBF5ED' }}>{lb.l}</option>
+      })}
+    </select>
+  )
+}
+
+function resolvePersonSelectId(people, displayName) {
+  if (!displayName || displayName === '—') return ''
+  const d = displayName.toLowerCase().replace(/\./g, '').trim()
+  const hit = people.find(p => {
+    const n = p.name.toLowerCase()
+    if (n === displayName.toLowerCase()) return true
+    const parts = d.split(/\s+/).filter(Boolean)
+    return parts.length > 0 && (n.startsWith(parts[0]) || parts.every(pt => n.includes(pt)))
+  })
+  return hit?.id ?? ''
+}
+
+function OrderPersonSelect({ value, options, onChange, disabled = false, accent = '#8FB897' }) {
+  const hasValue = !!value
+  const color = hasValue ? accent : '#3D6645'
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onClick={e => e.stopPropagation()}
+      onChange={e => { e.stopPropagation(); onChange(e.target.value); }}
+      style={{
+        padding: '4px 8px',
+        borderRadius: 7,
+        fontSize: 10,
+        fontWeight: hasValue ? 700 : 400,
+        background: `${color}18`,
+        color,
+        border: `1px solid ${color}28`,
+        cursor: disabled ? 'default' : 'pointer',
+        maxWidth: 120,
+        opacity: disabled ? .6 : 1,
+      }}
+    >
+      <option value="" style={{ background: '#0C1C0F', color: '#EBF5ED' }}>—</option>
+      {options.map(p => (
+        <option key={p.id} value={p.id} style={{ background: '#0C1C0F', color: '#EBF5ED' }}>{p.name}</option>
+      ))}
+    </select>
+  )
+}
+
+function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onAssemblerChange, couriers, assemblers, statusBusy, courierBusy, assemblerBusy }) {
   if (!order) return null
   const st = adminStatusLabel(order.status)
   const PART_LABELS = { new: 'Новый', assembling: 'Собирается', done: 'Готово', cooking: 'Готовится' }
@@ -290,14 +443,36 @@ function OrderDetailModal({ order, onClose }) {
           </div>
           <div style={{ background:'#0C1C0F', borderRadius:12, padding:12, border:'1px solid #162B1A' }}>
             <div style={{ fontSize:10, color:'#3D6645', marginBottom:6, fontWeight:700 }}>КОМАНДА</div>
-            <div style={{ fontSize:12, marginBottom:6 }}>
-              <span style={{ color:'#3D6645' }}>Сборщик: </span>
-              <span style={{ color:'#9B6DFF', fontWeight:700 }}>{order.assembler}</span>
+            <div style={{ fontSize:12, marginBottom:8 }}>
+              <div style={{ fontSize:10, color:'#3D6645', marginBottom:4 }}>Сборщик</div>
+              {onAssemblerChange ? (
+                <OrderPersonSelect
+                  value={resolvePersonSelectId(assemblers, order.assembler)}
+                  options={assemblers}
+                  disabled={assemblerBusy}
+                  accent="#9B6DFF"
+                  onChange={v => onAssemblerChange(order, v)}
+                />
+              ) : (
+                <span style={{ color:'#9B6DFF', fontWeight:700 }}>{order.assembler}</span>
+              )}
             </div>
             <div style={{ fontSize:12 }}>
-              <span style={{ color:'#3D6645' }}>Курьер: </span>
-              <span style={{ color:'#3B8EF0', fontWeight:700 }}>{order.courier}</span>
-              {order.courierPhone && <span style={{ color:'#3D6645', fontSize:10 }}> · {order.courierPhone}</span>}
+              <div style={{ fontSize:10, color:'#3D6645', marginBottom:4 }}>Курьер</div>
+              {onCourierChange ? (
+                <OrderPersonSelect
+                  value={resolvePersonSelectId(couriers, order.courier)}
+                  options={couriers}
+                  disabled={courierBusy}
+                  accent="#3B8EF0"
+                  onChange={v => onCourierChange(order, v)}
+                />
+              ) : (
+                <>
+                  <span style={{ color:'#3B8EF0', fontWeight:700 }}>{order.courier}</span>
+                  {order.courierPhone && <span style={{ color:'#3D6645', fontSize:10 }}> · {order.courierPhone}</span>}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -329,7 +504,9 @@ function OrderDetailModal({ order, onClose }) {
             <div style={{ fontSize:10, color:'#9B6DFF', marginBottom:8, fontWeight:700 }}>ЭТАПЫ (СМЕШАННЫЙ ЗАКАЗ)</div>
             {order.marketStatus && <div style={{ fontSize:11, marginBottom:4 }}>🛒 Магазин: <strong>{PART_LABELS[order.marketStatus] || order.marketStatus}</strong></div>}
             {order.restParts && Object.entries(order.restParts).map(([rid, ps]) => (
-              <div key={rid} style={{ fontSize:11, marginBottom:2 }}>🍽 {rid}: <strong>{PART_LABELS[ps] || ps}</strong></div>
+              <div key={rid} style={{ fontSize:11, marginBottom:2 }}>
+                🍽 {order.restNameById?.[rid] || order.rest || rid}: <strong>{PART_LABELS[ps] || ps}</strong>
+              </div>
             ))}
           </div>
         )}
@@ -341,6 +518,13 @@ function OrderDetailModal({ order, onClose }) {
           </div>
           <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{order.total} ЅМ</div>
         </div>
+
+        {onStatusChange && (
+          <div style={{ marginTop:16, paddingTop:14, borderTop:'1px solid #162B1A' }}>
+            <div style={{ fontSize:10, color:'#3D6645', marginBottom:8, fontWeight:700 }}>ИЗМЕНИТЬ СТАТУС</div>
+            <OrderStatusSelect value={order.status} disabled={statusBusy} onChange={s => onStatusChange(order, s)} />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -348,29 +532,149 @@ function OrderDetailModal({ order, onClose }) {
 
 function OrdersPage() {
   const apiOrders = useOrders(s => s.orders);
-  const updateStatus = useOrders(s => s.updateStatus);
+  const adminPins = useOrders(s => s.orderAdminPins);
+  const adminUpdateStatus = useOrders(s => s.adminUpdateStatus);
+  const adminAssignCourier = useOrders(s => s.adminAssignCourier);
+  const adminAssignAssembler = useOrders(s => s.adminAssignAssembler);
+  const couriers = useCourierTeam();
+  const assemblers = useAssemblerTeam();
+  const apiRests = useRestaurants(s => s.restaurants);
+  const restaurants = USE_API && apiRests.length ? enrichRestaurants(apiRests, RESTAURANTS) : RESTAURANTS;
+  const [demoPatch, setDemoPatch] = useState({});
+  const [busyKey, setBusyKey] = useState(null);
   const orders = useMemo(
-    () => (USE_API ? mapOrdersForAdmin(apiOrders) : ALL_ORDERS),
-    [apiOrders]
+    () => {
+      const pinned = apiOrders.map(o => {
+        const pin = adminPins[o.id]
+        return pin ? { ...o, ...pin, status: pin.status ?? o.status } : o
+      })
+      const base = USE_API ? mapOrdersForAdmin(pinned, restaurants) : ALL_ORDERS;
+      return base.map(o => (demoPatch[o.id] ? { ...o, ...demoPatch[o.id] } : o));
+    },
+    [apiOrders, adminPins, demoPatch, restaurants]
   );
   const [type,   setType]   = useState('all');
   const [status, setStatus] = useState('all');
+  const [orderSearch, setOrderSearch] = useState('');
   const [detail, setDetail] = useState(null);
   const ACTIVE_STATUSES = ['assembling','assembler_done','cooking','ready','courier_picked'];
+  const matchesOrderId = (orderId, query) => {
+    const q = query.trim().toLowerCase().replace(/\s/g, '');
+    if (!q) return true;
+    const id = String(orderId).toLowerCase();
+    const digits = q.replace(/^k-?/, '');
+    return id.includes(q) || id.replace(/^k-/, '').includes(digits);
+  };
   const filtered = orders.filter(o => {
     const matchType = type === 'all' || o.type === type;
     const matchStatus = status === 'all' || o.status === status
       || (status === 'assembling' && ACTIVE_STATUSES.includes(o.status));
-    return matchType && matchStatus;
+    const matchId = matchesOrderId(o.id, orderSearch);
+    return matchType && matchStatus && matchId;
   });
-  const advance = async (o: typeof orders[0]) => {
-    const nxt = ADMIN_NEXT_STATUS[o.status as keyof typeof ADMIN_NEXT_STATUS];
-    if (!nxt) return;
-    if (USE_API) await updateStatus(o.id, nxt);
+  const changeStatus = async (o, newStatus) => {
+    if (!newStatus || newStatus === o.status) return;
+    if (newStatus === 'cancelled' && !window.confirm(`Отменить заказ ${o.id}?`)) return;
+    const clearsCourier = !COURIER_ASSIGNED_STATUSES.includes(newStatus);
+    setBusyKey(`${o.id}:status`);
+    try {
+      if (USE_API) {
+        await adminUpdateStatus(o.id, newStatus);
+      } else {
+        const raw = apiOrders.find(x => x.id === o.id)
+        const extra = buildAdminStatusPatch(raw, newStatus)
+        const { adminOverride: _ao, ...fields } = extra
+        setDemoPatch(prev => ({
+          ...prev,
+          [o.id]: {
+            status: newStatus,
+            ...fields,
+            courier: clearsCourier ? '—' : o.courier,
+            courierPhone: clearsCourier ? '' : o.courierPhone,
+          },
+        }));
+      }
+      if (detail?.id === o.id) {
+        setDetail(prev => (prev ? {
+          ...prev,
+          status: newStatus,
+          courier: clearsCourier ? '—' : prev.courier,
+          courierPhone: clearsCourier ? '' : prev.courierPhone,
+        } : null));
+      }
+    } finally {
+      setBusyKey(null);
+    }
+  };
+  const applyCourier = async (o, courierId) => {
+    const currentId = resolvePersonSelectId(couriers, o.courier);
+    if (courierId === currentId) return;
+    const person = courierId ? couriers.find(c => c.id === courierId) : null;
+    setBusyKey(`${o.id}:courier`);
+    try {
+      if (USE_API) {
+        await adminAssignCourier(o.id, person ? { name: person.name, phone: person.phone } : null);
+      } else {
+        setDemoPatch(prev => ({
+          ...prev,
+          [o.id]: {
+            ...prev[o.id],
+            courier: person ? person.name : '—',
+            courierPhone: person?.phone || '',
+          },
+        }));
+      }
+      if (detail?.id === o.id) {
+        setDetail(prev => prev ? {
+          ...prev,
+          courier: person ? person.name : '—',
+          courierPhone: person?.phone || '',
+        } : null);
+      }
+    } finally {
+      setBusyKey(null);
+    }
+  };
+  const applyAssembler = async (o, assemblerId) => {
+    const currentId = resolvePersonSelectId(assemblers, o.assembler);
+    if (assemblerId === currentId) return;
+    const person = assemblerId ? assemblers.find(a => a.id === assemblerId) : null;
+    setBusyKey(`${o.id}:assembler`);
+    try {
+      if (USE_API) {
+        await adminAssignAssembler(o.id, person ? { name: person.name } : null);
+      } else {
+        setDemoPatch(prev => ({
+          ...prev,
+          [o.id]: {
+            ...prev[o.id],
+            assembler: person ? person.name : '—',
+          },
+        }));
+      }
+      if (detail?.id === o.id) {
+        setDetail(prev => prev ? { ...prev, assembler: person ? person.name : '—' } : null);
+      }
+    } finally {
+      setBusyKey(null);
+    }
   };
   return (
     <div>
-      {detail && <OrderDetailModal order={detail} onClose={()=>setDetail(null)}/>}
+      {detail && (
+        <OrderDetailModal
+          order={detail}
+          onClose={() => setDetail(null)}
+          onStatusChange={changeStatus}
+          onCourierChange={applyCourier}
+          onAssemblerChange={applyAssembler}
+          couriers={couriers.filter(c => !c.blocked)}
+          assemblers={assemblers.filter(a => !a.blocked)}
+          statusBusy={busyKey === `${detail.id}:status`}
+          courierBusy={busyKey === `${detail.id}:courier`}
+          assemblerBusy={busyKey === `${detail.id}:assembler`}
+        />
+      )}
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:18}}>
         {['all','new','assembling','delivering','delivered'].map(s=>{
           const cnt = s==='all' ? orders.length
@@ -385,22 +689,51 @@ function OrdersPage() {
           );
         })}
       </div>
-      <div style={{display:'flex',gap:8,marginBottom:14}}>
-        {[{id:'all',l:'Все типы'},{id:'market',l:'🛒 Магазин'},{id:'restaurant',l:'🍽 Рестораны'}].map(f=>(
+      <div style={{display:'flex',gap:10,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
+        <div style={{position:'relative',flex:1,minWidth:200,maxWidth:280}}>
+          <div style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',fontSize:14,pointerEvents:'none'}}>🔍</div>
+          <input
+            className="ai"
+            value={orderSearch}
+            onChange={e => setOrderSearch(e.target.value)}
+            placeholder="Номер заказа · K-4846"
+            style={{paddingLeft:38,paddingRight:orderSearch ? 34 : 13}}
+          />
+          {orderSearch && (
+            <button
+              type="button"
+              onClick={() => setOrderSearch('')}
+              className="btn"
+              style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'transparent',border:'none',color:'#3D6645',fontSize:16,padding:4,lineHeight:1}}
+              aria-label="Очистить"
+            >×</button>
+          )}
+        </div>
+        {[{id:'all',l:'Все типы'},{id:'market',l:'🛒 Магазин'},{id:'restaurant',l:'🍽 Рестораны'},{id:'mixed',l:'🔀 Смешанные'}].map(f=>(
           <button key={f.id} onClick={()=>setType(f.id)} className="ab"
             style={{padding:'7px 14px',fontSize:12,background:type===f.id?'rgba(31,215,96,.12)':'#0C1C0F',border:`1.5px solid ${type===f.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:type===f.id?'#1FD760':'#8FB897'}}>
             {f.l}
           </button>
         ))}
+        {orderSearch.trim() && (
+          <span style={{fontSize:11,color:'#8FB897'}}>
+            Найдено: <strong style={{color:'#1FD760'}}>{filtered.length}</strong>
+          </span>
+        )}
       </div>
       <div className="ac">
         <table className="at">
-          <thead><tr><th>ID</th><th>Тип</th><th>Клиент</th><th>Адрес</th><th>Состав</th><th>Сумма</th><th>Курьер</th><th>Сборщик</th><th>Статус</th><th>Время</th><th></th></tr></thead>
+          <thead><tr><th>ID</th><th>Тип</th><th>Клиент</th><th>Адрес</th><th>Состав</th><th>Сумма</th><th>Курьер</th><th>Сборщик</th><th>Статус</th><th>Время</th></tr></thead>
           <tbody>
-            {filtered.map(o=>{
-              const s=adminStatusLabel(o.status);
-              const nxt=ADMIN_NEXT_STATUS[o.status as keyof typeof ADMIN_NEXT_STATUS];
-              return (
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={10} style={{textAlign:'center',padding:'28px 14px',color:'#8FB897',fontSize:13}}>
+                  {orderSearch.trim()
+                    ? `Заказ «${orderSearch.trim()}» не найден`
+                    : 'Нет заказов по выбранным фильтрам'}
+                </td>
+              </tr>
+            ) : filtered.map(o=>(
                 <tr key={o.id} onClick={()=>setDetail(o)} style={{ cursor:'pointer' }}>
                   <td><span className="ub" style={{fontSize:11,color:'#1FD760'}}>{o.id}</span></td>
                   <td><span style={{fontSize:10,padding:'2px 7px',borderRadius:6,background:o.type==='restaurant'?'rgba(255,140,0,.12)':'rgba(31,215,96,.1)',color:o.type==='restaurant'?'#FF8C00':'#1FD760'}}>{o.type==='restaurant'?`🍽 ${o.rest||''}` :o.type==='mixed'?'🔀 Смеш.':'🛒'}</span></td>
@@ -410,12 +743,12 @@ function OrdersPage() {
                   <td><span className="ub" style={{fontSize:12,fontWeight:800}}>{o.total} ЅМ</span></td>
                   <td style={{fontSize:11,color:o.courier==='—'?'#3D6645':'#3B8EF0',fontWeight:o.courier==='—'?400:700}}>{o.courier}</td>
                   <td style={{fontSize:11,color:o.assembler==='—'?'#3D6645':'#9B6DFF',fontWeight:o.assembler==='—'?400:700}}>{o.assembler}</td>
-                  <td><Badge v={s.l} c={s.c}/></td>
+                  <td>
+                    {(() => { const sc = adminStatusLabel(o.status); return <Badge v={sc.l} c={sc.c}/>; })()}
+                  </td>
                   <td style={{fontSize:11,color:'#3D6645'}}>{o.time}</td>
-                  <td>{nxt&&<button onClick={(e)=>{e.stopPropagation();advance(o);}} className="ab abg" style={{padding:'4px 9px',fontSize:11}}>→</button>}</td>
                 </tr>
-              );
-            })}
+              ))}
           </tbody>
         </table>
       </div>
@@ -843,10 +1176,15 @@ function InventoryPage() {
 function PartnersPage() {
   const pickups = usePickupStore(s => s.pickups);
   const syncRestaurantPickup = usePickupStore(s => s.syncRestaurantPickup);
+  const updatePickup = usePickupStore(s => s.updatePickup);
   const apiRests = useRestaurants(s => s.restaurants);
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
+  const blockRestaurantApi = useRestaurants(s => s.blockRestaurant);
+  const fetchRestaurantsApi = useRestaurants(s => s.fetchRestaurants);
+  const updateRestaurantApi = useRestaurants(s => s.updateRestaurant);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const [rests, setRests] = useState(RESTAURANTS.map(r => ({ ...r })));
+  const [savingInfo, setSavingInfo] = useState(false);
   useEffect(() => {
     if (USE_API && apiRests.length) {
       setRests(enrichRestaurants(apiRests, RESTAURANTS));
@@ -855,6 +1193,16 @@ function PartnersPage() {
   const [sel, setSel] = useState<any>(null);
   const [tab, setTab] = useState('info');
   const [showAdd, setShowAdd] = useState(false);
+  const [showPay, setShowPay] = useState<any>(null);
+  const [payMethod, setPayMethod] = useState('cash');
+  const [payNote, setPayNote] = useState('');
+  const [paySaving, setPaySaving] = useState(false);
+  const [payDone, setPayDone] = useState(false);
+  const [payError, setPayError] = useState('');
+  const [payMode, setPayMode] = useState<'full' | 'partial'>('full');
+  const [payAmountInput, setPayAmountInput] = useState('');
+  const [lastPaidPayout, setLastPaidPayout] = useState<any>(null);
+  const [payoutHistory, setPayoutHistory] = useState<any[]>([]);
   const [editForm, setEditForm] = useState<any>(null);
   const [locError, setLocError] = useState('');
   const [addForm, setAddForm] = useState({
@@ -870,7 +1218,199 @@ function PartnersPage() {
     toggleMenuApi(rId, mId);
     setRests(rs => rs.map(r => r.id === rId ? { ...r, menu: r.menu.map(m => m.id === mId ? { ...m, inStock: !m.inStock } : m) } : r));
   };
-  const totalComm = rests.reduce((s, r) => s + Math.round(r.revenueMonth * r.commission / 100), 0);
+  const totalComm = rests.reduce((s, r) => {
+    const paidGross = r.paidRevenueMonth || 0;
+    const pendingGross = Math.max(0, (r.revenueMonth || 0) - paidGross);
+    return s + Math.round(pendingGross * r.commission / 100);
+  }, 0);
+
+  const payoutAmounts = (r: any) => {
+    const totalGross = r?.revenueMonth || 0;
+    const paidGross = r?.paidRevenueMonth || 0;
+    const pendingGross = Math.max(0, totalGross - paidGross);
+    const pct = r?.commission || 0;
+    const pendingCommission = Math.round(pendingGross * pct / 100);
+    const paidCommission = Math.round(paidGross * pct / 100);
+    const pendingNet = Math.max(0, pendingGross - pendingCommission);
+    const paidNet = Math.max(0, paidGross - paidCommission);
+    return {
+      revenue: totalGross,
+      paidGross,
+      pendingGross,
+      commissionAmt: pendingCommission,
+      paidCommission,
+      paidNet,
+      net: pendingNet,
+    };
+  };
+
+  const syncRestaurantPayoutFields = (updated: any) => {
+    setRests(rs => rs.map(r => r.id === showPay.id ? {
+      ...r,
+      revenueMonth: updated.revenueMonth,
+      paidRevenueMonth: updated.paidRevenueMonth ?? 0,
+      ordersMonth: updated.ordersMonth,
+    } : r));
+    setShowPay((p: any) => ({
+      ...p,
+      revenueMonth: updated.revenueMonth,
+      paidRevenueMonth: updated.paidRevenueMonth ?? 0,
+      ordersMonth: updated.ordersMonth,
+    }));
+    if (sel?.id === showPay.id) {
+      setSel((s: any) => ({
+        ...s,
+        revenueMonth: updated.revenueMonth,
+        paidRevenueMonth: updated.paidRevenueMonth ?? 0,
+        ordersMonth: updated.ordersMonth,
+      }));
+    }
+  };
+
+  const openPay = async (r: any) => {
+    setShowPay(r);
+    setPayMethod('cash');
+    setPayNote('');
+    setPayDone(false);
+    setPayError('');
+    setPayMode('full');
+    setLastPaidPayout(null);
+    if (USE_API) {
+      try {
+        const [history, fresh] = await Promise.all([
+          api.getPayouts(r.id),
+          api.getRestaurant(r.id),
+        ]);
+        setPayoutHistory(history);
+        const freshRest = { ...fresh, paidRevenueMonth: fresh.paidRevenueMonth ?? 0 };
+        setShowPay(freshRest);
+        const { net } = payoutAmounts(freshRest);
+        setPayAmountInput(net > 0 ? String(net) : '');
+      } catch {
+        setPayoutHistory([]);
+        const { net } = payoutAmounts(r);
+        setPayAmountInput(net > 0 ? String(net) : '');
+      }
+    } else {
+      const { net } = payoutAmounts(r);
+      setPayAmountInput(net > 0 ? String(net) : '');
+    }
+  };
+
+  const confirmPayout = async () => {
+    if (!showPay || paySaving) return;
+    const bal = payoutAmounts(showPay);
+    const { net, pendingGross } = bal;
+    if (net <= 0) return;
+
+    let payNet = payMode === 'partial' ? Math.round(Number(payAmountInput) || 0) : net;
+    if (payNet <= 0) {
+      setPayError('Укажите сумму выплаты');
+      return;
+    }
+    if (payNet > net) {
+      setPayError(`Максимум к выплате: ${net.toLocaleString()} ЅМ`);
+      return;
+    }
+
+    setPaySaving(true);
+    setPayError('');
+    try {
+      if (USE_API) {
+        const payload: { method: string; note: string; amount?: number } = {
+          method: payMethod,
+          note: payNote,
+        };
+        if (payMode === 'partial' || payNet < net) payload.amount = payNet;
+        const result = await api.createPayout(showPay.id, payload);
+        syncRestaurantPayoutFields(result.restaurant);
+        setLastPaidPayout(result.payout);
+        const history = await api.getPayouts(showPay.id);
+        setPayoutHistory(history);
+        await fetchRestaurantsApi();
+      } else {
+        const pct = showPay.commission || 0;
+        const rate = (100 - pct) / 100;
+        const isFull = payNet >= net;
+        const grossPay = isFull ? pendingGross : Math.min(pendingGross, Math.round(payNet / (rate || 1)));
+        const commissionPay = Math.round(grossPay * pct / 100);
+        const actualNet = isFull ? net : grossPay - commissionPay;
+        const newPaidGross = (showPay.paidRevenueMonth || 0) + grossPay;
+        const fullySettled = isFull || newPaidGross >= (showPay.revenueMonth || 0);
+        const record = {
+          id: Date.now(),
+          restId: showPay.id,
+          restName: showPay.name,
+          emoji: showPay.emoji,
+          partial: !fullySettled,
+          revenueTotal: showPay.revenueMonth,
+          revenuePaid: grossPay,
+          revenue: grossPay,
+          revenueRemaining: fullySettled ? 0 : Math.max(0, (showPay.revenueMonth || 0) - newPaidGross),
+          commission: commissionPay,
+          commissionPct: pct,
+          amount: actualNet,
+          netRemaining: fullySettled ? 0 : net - actualNet,
+          paidNetBefore: net,
+          method: payMethod,
+          note: payNote.trim(),
+          date: new Date().toLocaleString('ru-RU'),
+        };
+        setPayoutHistory(h => [record, ...h].slice(0, 200));
+        const updated = fullySettled
+          ? { revenueMonth: 0, paidRevenueMonth: 0, ordersMonth: 0 }
+          : { revenueMonth: showPay.revenueMonth, paidRevenueMonth: newPaidGross, ordersMonth: showPay.ordersMonth };
+        syncRestaurantPayoutFields(updated);
+        setLastPaidPayout(record);
+      }
+      setPayDone(true);
+    } catch (e: any) {
+      setPayError(e?.message || 'Не удалось провести выплату');
+    } finally {
+      setPaySaving(false);
+    }
+  };
+
+  const closePay = () => {
+    setShowPay(null);
+    setPayDone(false);
+    setPayNote('');
+    setPayMode('full');
+    setLastPaidPayout(null);
+  };
+
+  const payMethodLabel = (m: string) => (
+    m === 'transfer' ? '🏦 Банковский перевод' : m === 'mobile' ? '📱 Kaspi / HUMO' : '💵 Наличными'
+  );
+
+  const renderPayoutHistoryItem = (p: any) => (
+    <div key={p.id} style={{padding:'10px 11px',borderRadius:10,background:'#081208',border:'1px solid #162B1A',marginBottom:8}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:6}}>
+        <div>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:3}}>
+            {p.partial && <span style={{fontSize:9,fontWeight:800,color:'#FFB800',background:'rgba(255,184,0,.12)',padding:'2px 6px',borderRadius:6}}>ЧАСТИЧНАЯ</span>}
+            {!p.partial && <span style={{fontSize:9,fontWeight:800,color:'#1FD760',background:'rgba(31,215,96,.12)',padding:'2px 6px',borderRadius:6}}>ПОЛНАЯ</span>}
+          </div>
+          <div style={{fontSize:11,color:'#8FB897'}}>{p.date}</div>
+          <div style={{fontSize:10,color:'#3D6645',marginTop:2}}>{payMethodLabel(p.method)}</div>
+        </div>
+        <div style={{textAlign:'right'}}>
+          <div className="ub" style={{fontSize:14,fontWeight:900,color:'#1FD760'}}>+{(p.amount ?? 0).toLocaleString()} ЅМ</div>
+          {(p.netRemaining ?? 0) > 0 && (
+            <div style={{fontSize:10,color:'#FFB800',marginTop:2}}>осталось {(p.netRemaining).toLocaleString()} ЅМ</div>
+          )}
+        </div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px 10px',fontSize:10,color:'#3D6645'}}>
+        <span>Выручка (часть): <span style={{color:'#8FB897'}}>{(p.revenuePaid ?? p.revenue ?? 0).toLocaleString()} ЅМ</span></span>
+        <span>Комиссия {p.commissionPct}%: <span style={{color:'#FF4545'}}>−{(p.commission ?? 0).toLocaleString()} ЅМ</span></span>
+        {(p.revenueTotal ?? 0) > 0 && <span>Выручка периода: <span style={{color:'#8FB897'}}>{p.revenueTotal.toLocaleString()} ЅМ</span></span>}
+        {(p.paidNetBefore ?? 0) > 0 && <span>Было к выплате: <span style={{color:'#8FB897'}}>{p.paidNetBefore.toLocaleString()} ЅМ</span></span>}
+        {(p.orders ?? 0) > 0 && <span>Заказов: <span style={{color:'#8FB897'}}>{p.orders}</span></span>}
+      </div>
+      {p.note && <div style={{fontSize:10,color:'#8FB897',marginTop:6,paddingTop:6,borderTop:'1px solid #162B1A'}}>💬 {p.note}</div>}
+    </div>
+  );
 
   const openManage = (r: typeof RESTAURANTS[0]) => {
     const p = pickups.find(x => x.id === restIdToPickupId(r.id));
@@ -879,30 +1419,131 @@ function PartnersPage() {
       email: r.email, hours: '09:00–23:00',
       lat: p?.lat ?? STORE_LOCATION.lat, lng: p?.lng ?? STORE_LOCATION.lng,
       open: r.open,
+      blocked: !!r.blocked,
     });
     setLocError('');
     setSel(r);
     setTab('info');
   };
 
-  const pushPickup = (rest: any, lat: number, lng: number, addr: string, phone: string, active: boolean) => {
+  const syncPickupForRest = (rest: any, active: boolean, lat?: number, lng?: number, addr?: string, phone?: string) => {
+    const p = pickups.find(x => x.id === restIdToPickupId(rest.id));
+    const pickupLat = lat ?? p?.lat ?? STORE_LOCATION.lat;
+    const pickupLng = lng ?? p?.lng ?? STORE_LOCATION.lng;
+    const pickupAddr = addr ?? rest.address;
+    const pickupPhone = phone ?? rest.phone;
     syncRestaurantPickup({
-      restId: rest.id, e: rest.emoji, name: rest.name, addr, phone, lat, lng, active,
+      restId: rest.id, e: rest.emoji, name: rest.name,
+      addr: pickupAddr, phone: pickupPhone, lat: pickupLat, lng: pickupLng, active,
+    });
+    updatePickup(restIdToPickupId(rest.id), {
+      active,
+      lat: pickupLat,
+      lng: pickupLng,
+      addr: pickupAddr,
+      phone: pickupPhone,
+      name: rest.name,
+      e: rest.emoji,
     });
   };
 
-  const saveInfo = () => {
+  const persistPickupCoords = async (rest: any, lat: number, lng: number, addr: string, phone: string, active: boolean) => {
+    const pickupId = restIdToPickupId(rest.id);
+    const patch = { lat, lng, addr, phone, name: rest.name, e: rest.emoji, active };
+    syncRestaurantPickup({ restId: rest.id, e: rest.emoji, name: rest.name, addr, phone, lat, lng, active });
+    updatePickup(pickupId, patch);
+    if (USE_API) await api.updatePickup(pickupId, patch);
+  };
+
+  const applyBlockStatus = async (rest: any, nextBlocked: boolean, form?: any) => {
+    const merged = {
+      ...rest,
+      blocked: nextBlocked,
+      open: nextBlocked ? false : true,
+    };
+    setRests(rs => rs.map(r => r.id === rest.id ? merged : r));
+    if (sel?.id === rest.id) {
+      setSel(merged);
+      if (form) setEditForm((x: any) => x ? { ...x, blocked: nextBlocked, open: merged.open } : x);
+    }
+    syncPickupForRest(
+      merged,
+      !nextBlocked,
+      form?.lat,
+      form?.lng,
+      form?.address ?? merged.address,
+      form?.phone ?? merged.phone,
+    );
+    try {
+      const updated = await blockRestaurantApi(rest.id, nextBlocked);
+      if (updated) {
+        const synced = { ...merged, ...updated, blocked: nextBlocked, open: nextBlocked ? false : true };
+        setRests(rs => rs.map(r => r.id === rest.id ? synced : r));
+        if (sel?.id === rest.id) {
+          setSel(synced);
+          if (form) setEditForm((x: any) => x ? { ...x, blocked: nextBlocked, open: synced.open } : x);
+        }
+      }
+    } catch {
+      /* локальное состояние уже обновлено */
+    }
+    return merged;
+  };
+
+  const onBlockToggle = async () => {
+    if (!sel || !editForm) return;
+    await applyBlockStatus(sel, !editForm.blocked, editForm);
+  };
+
+  const pushPickup = (rest: any, lat: number, lng: number, addr: string, phone: string, active: boolean) => {
+    void persistPickupCoords(rest, lat, lng, addr, phone, active);
+  };
+
+  const saveInfo = async () => {
     if (!sel || !editForm) return;
     if (editForm.lat == null || editForm.lng == null) { setLocError('Укажите место ресторана на карте'); return; }
+    setSavingInfo(true);
+    setLocError('');
     const updated = {
       ...sel,
       name: editForm.name, cuisine: editForm.cuisine, address: editForm.address,
       phone: editForm.phone, email: editForm.email, open: editForm.open,
+      blocked: editForm.blocked,
     };
+    let pickupOk = false;
+    let restOk = false;
+    try {
+      await persistPickupCoords(
+        updated,
+        editForm.lat,
+        editForm.lng,
+        editForm.address,
+        editForm.phone,
+        !editForm.blocked,
+      );
+      pickupOk = true;
+    } catch { /* pickup failed */ }
+    try {
+      await updateRestaurantApi(sel.id, {
+        name: editForm.name,
+        cuisine: editForm.cuisine,
+        address: editForm.address,
+        phone: editForm.phone,
+        email: editForm.email,
+        open: editForm.open,
+      });
+      restOk = true;
+    } catch { /* restaurant patch may be missing on old API */ }
     setRests(rs => rs.map(r => r.id === sel.id ? updated : r));
     setSel(updated);
-    pushPickup(updated, editForm.lat, editForm.lng, editForm.address, editForm.phone, editForm.open);
-    setLocError('');
+    if (pickupOk || restOk) {
+      if (!pickupOk) setLocError('Адрес сохранён, но координаты не записались на сервер.');
+      else if (!restOk && USE_API) setLocError('');
+      else setLocError('');
+    } else {
+      setLocError('Не удалось сохранить. Перезапустите backend: cd server && npm run dev');
+    }
+    setSavingInfo(false);
   };
 
   const resetAddForm = () => {
@@ -936,6 +1577,8 @@ function PartnersPage() {
       <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>📍 Место на карте *</div>
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #162B1A' }}>
         <AddressMapPicker
+          variant="admin"
+          mapHeight={240}
           initial={lat != null && lng != null ? { lat, lng } : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }}
           onSelect={onPick}
         />
@@ -960,11 +1603,14 @@ function PartnersPage() {
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:20}}>
         {rests.map((r,i)=>(
-          <div key={r.id} className="ac" style={{overflow:'hidden',animation:`fadeUp .4s ease ${i*.07}s both`}}>
+          <div key={r.id} className="ac" style={{overflow:'hidden',animation:`fadeUp .4s ease ${i*.07}s both`,opacity:r.blocked?.5:(r.open?1:.7)}}>
             <div style={{height:80,background:r.img,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 15px',position:'relative'}}>
               <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.35)'}}/>
               <div style={{position:'relative',zIndex:1}}><div className="ub" style={{fontSize:13,fontWeight:900,color:'white',marginBottom:1}}>{r.name}</div><div style={{fontSize:10,color:'rgba(255,255,255,.6)'}}>{r.cuisine} · {r.address}</div></div>
-              <span style={{fontSize:32,position:'relative',zIndex:1}}>{r.emoji}</span>
+              <div style={{position:'relative',zIndex:1,display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
+                {r.blocked && <Badge v="Заблокирован" c="#FF4545"/>}
+                <span style={{fontSize:32}}>{r.emoji}</span>
+              </div>
             </div>
             <div style={{padding:'12px 14px'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
@@ -973,11 +1619,11 @@ function PartnersPage() {
                   <div style={{textAlign:'center'}}><div style={{fontSize:9,color:'#3D6645'}}>Выручка</div><div className="ub" style={{fontSize:13,fontWeight:800}}>{(r.revenueMonth/1000).toFixed(1)}k</div></div>
                   <div style={{textAlign:'center'}}><div style={{fontSize:9,color:'#FF4545'}}>Комиссия</div><div className="ub" style={{fontSize:13,fontWeight:800,color:'#FF4545'}}>{r.commission}%</div></div>
                 </div>
-                <Tog on={r.open} set={()=>toggleOpen(r.id)}/>
+                <Tog on={r.open} set={()=>{ if (!r.blocked) toggleOpen(r.id); }}/>
               </div>
               <div style={{display:'flex',gap:8}}>
                 <button onClick={() => openManage(r)} className="ab abg" style={{flex:1,padding:'7px',fontSize:11}}>⚙️ Управление</button>
-                <button className="ab" style={{flex:1,padding:'7px',fontSize:11,background:'rgba(255,184,0,.1)',border:'1.5px solid rgba(255,184,0,.3)',color:'#FFB800'}}>💰 Выплата</button>
+                <button onClick={() => openPay(r)} className="ab" style={{flex:1,padding:'7px',fontSize:11,background:'rgba(255,184,0,.1)',border:'1.5px solid rgba(255,184,0,.3)',color:'#FFB800'}}>💰 Выплата</button>
               </div>
             </div>
           </div>
@@ -996,7 +1642,7 @@ function PartnersPage() {
                 <td><div style={{display:'flex',alignItems:'center',gap:6}}><input type="number" defaultValue={r.commission} className="ai" style={{width:60,padding:'4px 8px',fontSize:12,textAlign:'center'}}/><span style={{fontSize:11,color:'#3D6645'}}>%</span></div></td>
                 <td><span className="ub" style={{fontSize:12,color:'#1FD760',fontWeight:900}}>{Math.round(r.revenueMonth*r.commission/100).toLocaleString()} ЅМ</span></td>
                 <td><span className="ub" style={{fontSize:12}}>{Math.round(r.revenueMonth*(1-r.commission/100)).toLocaleString()} ЅМ</span></td>
-                <td><button className="ab" style={{padding:'4px 11px',fontSize:11,background:'rgba(255,184,0,.1)',border:'1px solid rgba(255,184,0,.28)',color:'#FFB800'}}>Выплатить</button></td>
+                <td><button onClick={() => openPay(r)} className="ab" style={{padding:'4px 11px',fontSize:11,background:'rgba(255,184,0,.1)',border:'1px solid rgba(255,184,0,.28)',color:'#FFB800'}}>Выплатить</button></td>
               </tr>
             ))}
           </tbody>
@@ -1031,17 +1677,46 @@ function PartnersPage() {
                 </div>
                 <MapBlock
                   lat={editForm.lat} lng={editForm.lng}
-                  onPick={r=>setEditForm((x:any)=>({...x,lat:r.lat,lng:r.lng,address:r.address||x.address}))}
+                  onPick={r => {
+                    const addr = r.address || editForm.address;
+                    setEditForm((x: any) => ({ ...x, lat: r.lat, lng: r.lng, address: addr }));
+                    if (sel) {
+                      void persistPickupCoords(
+                        { ...sel, name: editForm.name, address: addr },
+                        r.lat,
+                        r.lng,
+                        addr,
+                        editForm.phone,
+                        !editForm.blocked,
+                      ).catch(() => setLocError('Точка выбрана, но не сохранилась на сервере. Нажмите «Сохранить».'));
+                    }
+                  }}
                 />
                 {locError&&<div style={{marginBottom:10,fontSize:11,color:'#FF4545'}}>⚠️ {locError}</div>}
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',borderRadius:11,background:editForm.open?'rgba(31,215,96,.07)':'rgba(255,69,69,.07)',border:`1px solid ${editForm.open?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)'}`,marginBottom:14}}>
-                  <span style={{fontSize:13,fontWeight:700,color:editForm.open?'#1FD760':'#FF4545'}}>{editForm.open?'🟢 Открыт':'🔴 Закрыт'}</span>
-                  <Tog on={editForm.open} set={()=>{setEditForm((x:any)=>({...x,open:!x.open}));toggleOpen(sel.id);}}/>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',borderRadius:11,background:!editForm.blocked?'rgba(31,215,96,.07)':'rgba(255,69,69,.07)',border:`1px solid ${!editForm.blocked?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)'}`,marginBottom:12}}>
+                  <div>
+                    <span style={{fontSize:13,fontWeight:700,color:!editForm.blocked?'#1FD760':'#FF4545'}}>{!editForm.blocked?'✓ Активен в приложении':'🚫 Заблокирован'}</span>
+                    <div style={{fontSize:11,color:'#8FB897',marginTop:2}}>{!editForm.blocked?'Ресторан виден клиентам':'Не принимает заказы'}</div>
+                </div>
+                  <Tog on={!editForm.blocked} set={onBlockToggle}/>
+                </div>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',borderRadius:11,background:editForm.open?'rgba(31,215,96,.07)':'rgba(255,69,69,.07)',border:`1px solid ${editForm.open?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)'}`,marginBottom:14,opacity:editForm.blocked?.5:1}}>
+                  <div>
+                    <span style={{fontSize:13,fontWeight:700,color:editForm.open?'#1FD760':'#FF4545'}}>{editForm.open?'🟢 Открыт':'🔴 Закрыт'}</span>
+                    <div style={{fontSize:11,color:'#8FB897',marginTop:2}}>{editForm.open?'Принимает заказы сейчас':'Заказы остановлены'}</div>
+                  </div>
+                  <Tog on={editForm.open} set={()=>{
+                    if (editForm.blocked) return;
+                    setEditForm((x:any)=>({...x,open:!x.open}));
+                    toggleOpen(sel.id);
+                  }}/>
                 </div>
                 <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.2)',fontSize:11,color:'#8FB897',marginBottom:12}}>
                   📍 Координаты сохраняются как точка забора · раздел «Точки забора»
                 </div>
-                <div style={{display:'flex',gap:9}}><button onClick={saveInfo} className="ab abp" style={{flex:1,padding:10}}>✓ Сохранить</button><button className="ab abd" style={{padding:'10px 15px'}}>🚫 Заблокировать</button></div>
+                <button onClick={saveInfo} disabled={savingInfo} className="ab abp" style={{width:'100%',padding:10,opacity:savingInfo?0.7:1}}>
+                  {savingInfo ? 'Сохранение…' : '✓ Сохранить'}
+                </button>
               </div>
             )}
             {tab==='menu'&&(
@@ -1084,6 +1759,7 @@ function PartnersPage() {
                   ))}
                 </div>
                 <div style={{marginBottom:12}}><div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Быстрый выбор %</div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{[10,12,15,18,20,25].map(v=><button key={v} className="ab" style={{padding:'7px 14px',fontSize:12,background:sel.commission===v?'rgba(255,69,69,.15)':'#0C1C0F',border:`1.5px solid ${sel.commission===v?'rgba(255,69,69,.4)':'#162B1A'}`,color:sel.commission===v?'#FF4545':'#8FB897'}}>{v}%</button>)}</div></div>
+                <button onClick={() => openPay(sel)} className="ab" style={{width:'100%',padding:10,marginTop:8,background:'rgba(255,184,0,.1)',border:'1.5px solid rgba(255,184,0,.3)',color:'#FFB800'}}>💰 Выплатить партнёру</button>
                 <button className="ab abp" style={{width:'100%',padding:10}}>✓ Сохранить комиссию</button>
               </div>
             )}
@@ -1100,6 +1776,138 @@ function PartnersPage() {
           </div>
         </div>
       )}
+      {showPay && (() => {
+        const bal = payoutAmounts(showPay);
+        const { revenue, paidGross, pendingGross, commissionAmt, paidCommission, paidNet, net } = bal;
+        const restHistory = payoutHistory.filter(p => p.restId === showPay.id);
+        const payNetPreview = payMode === 'partial'
+          ? Math.min(net, Math.max(0, Math.round(Number(payAmountInput) || 0)))
+          : net;
+        const remainAfter = Math.max(0, net - payNetPreview);
+        return (
+          <div className="amod">
+            <div className="amodbg" onClick={closePay}/>
+            <div className="amodbox" style={{maxWidth:480,maxHeight:'92vh',overflowY:'auto'}}>
+              {payDone && lastPaidPayout ? (
+                <div style={{padding:'10px 4px'}}>
+                  <div style={{textAlign:'center',marginBottom:16}}>
+                    <div style={{fontSize:48,marginBottom:12}}>✅</div>
+                    <div className="ub" style={{fontSize:16,fontWeight:800,marginBottom:8}}>
+                      {lastPaidPayout.partial ? 'Частичная выплата проведена' : 'Выплата подтверждена'}
+                    </div>
+                    <div style={{fontSize:13,color:'#8FB897',marginBottom:6}}>{showPay.emoji} {showPay.name}</div>
+                    <div className="ub" style={{fontSize:22,fontWeight:900,color:'#1FD760',marginBottom:8}}>
+                      {(lastPaidPayout.amount ?? 0).toLocaleString()} ЅМ
+                    </div>
+                    <div style={{fontSize:12,color:'#3D6645'}}>{payMethodLabel(lastPaidPayout.method || payMethod)} · {lastPaidPayout.date}</div>
+                  </div>
+                  {renderPayoutHistoryItem(lastPaidPayout)}
+                  {(lastPaidPayout.netRemaining ?? 0) > 0 ? (
+                    <div style={{padding:'11px 12px',borderRadius:10,background:'rgba(255,184,0,.08)',border:'1px solid rgba(255,184,0,.25)',fontSize:12,color:'#FFB800',marginBottom:12,textAlign:'center'}}>
+                      Осталось к выплате: <strong>{(lastPaidPayout.netRemaining).toLocaleString()} ЅМ</strong>
+                    </div>
+                  ) : (
+                    <div style={{padding:'11px 12px',borderRadius:10,background:'rgba(31,215,96,.08)',border:'1px solid rgba(31,215,96,.25)',fontSize:12,color:'#1FD760',marginBottom:12,textAlign:'center'}}>
+                      Период полностью закрыт — новые продажи начнут новый расчёт
+                    </div>
+                  )}
+                  <button onClick={closePay} className="ab abp" style={{width:'100%',padding:12}}>Готово</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <span style={{fontSize:28}}>{showPay.emoji}</span>
+                      <div>
+                        <div className="ub" style={{fontSize:14,fontWeight:800}}>Выплата</div>
+                        <div style={{fontSize:11,color:'#8FB897'}}>{showPay.name}</div>
+                      </div>
+                    </div>
+                    <button onClick={closePay} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
+                  </div>
+                  {[
+                    {l:'Выручка за период',v:`${revenue.toLocaleString()} ЅМ`,c:'#EBF5ED'},
+                    ...(paidGross > 0 ? [{l:'Уже выплачено',v:`−${paidNet.toLocaleString()} ЅМ`,c:'#FFB800'}] : []),
+                    {l:`Комиссия KAKAPO (${showPay.commission}%)`,v:`−${commissionAmt.toLocaleString()} ЅМ`,c:'#FF4545'},
+                    {l:'К выплате сейчас',v:`${net.toLocaleString()} ЅМ`,c:'#1FD760'},
+                  ].map((row,i)=>(
+                    <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'11px 14px',background:i===3||(paidGross===0&&i===2)?'rgba(31,215,96,.06)':'#0C1C0F',borderRadius:10,border:`1px solid ${i===3||(paidGross===0&&i===2)?'rgba(31,215,96,.25)':'#162B1A'}`,marginBottom:8}}>
+                      <span style={{fontSize:12,color:'#8FB897'}}>{row.l}</span>
+                      <span className="ub" style={{fontSize:13,fontWeight:800,color:row.c}}>{row.v}</span>
+                    </div>
+                  ))}
+                  {paidGross > 0 && (
+                    <div style={{fontSize:10,color:'#3D6645',marginBottom:10,padding:'0 2px'}}>
+                      Выплачено {paidGross.toLocaleString()} ЅМ выручки · комиссия {paidCommission.toLocaleString()} ЅМ · осталось {pendingGross.toLocaleString()} ЅМ выручки
+                    </div>
+                  )}
+                  <div style={{display:'flex',gap:8,marginBottom:10}}>
+                    {(['full','partial'] as const).map(mode=>(
+                      <button key={mode} type="button" onClick={()=>{
+                        setPayMode(mode);
+                        if (mode === 'full') setPayAmountInput(String(net));
+                      }} className="ab" style={{flex:1,padding:'8px 10px',fontSize:11,background:payMode===mode?'rgba(31,215,96,.12)':'#0C1C0F',border:`1.5px solid ${payMode===mode?'rgba(31,215,96,.35)':'#162B1A'}`,color:payMode===mode?'#1FD760':'#8FB897'}}>
+                        {mode === 'full' ? '✓ Полная' : '◑ Частичная'}
+                      </button>
+                    ))}
+                  </div>
+                  {payMode === 'partial' && net > 0 && (
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Сумма к выплате (ЅМ)</div>
+                      <input className="ai" type="number" min={1} max={net} value={payAmountInput} onChange={e=>setPayAmountInput(e.target.value)} placeholder={`Макс. ${net}`}/>
+                      <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
+                        {[0.25,0.5,0.75,1].map(frac=>(
+                          <button key={frac} type="button" onClick={()=>setPayAmountInput(String(Math.round(net*frac)))} className="ab" style={{padding:'5px 10px',fontSize:10,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897'}}>
+                            {frac===1?'Вся сумма':`${frac*100}%`}
+                          </button>
+                        ))}
+                      </div>
+                      {payNetPreview > 0 && payNetPreview < net && (
+                        <div style={{fontSize:11,color:'#FFB800',marginTop:8}}>
+                          После выплаты останется: <strong>{remainAfter.toLocaleString()} ЅМ</strong>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div style={{marginBottom:10,marginTop:4}}>
+                    <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Способ выплаты</div>
+                    <select className="ai" value={payMethod} onChange={e=>setPayMethod(e.target.value)} style={{cursor:'pointer'}}>
+                      <option value="cash">💵 Наличными</option>
+                      <option value="transfer">🏦 Банковский перевод</option>
+                    </select>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Комментарий (необязательно)</div>
+                    <input className="ai" value={payNote} onChange={e=>setPayNote(e.target.value)} placeholder="Напр: выплата за май, часть 1"/>
+                  </div>
+                  {restHistory.length > 0 && (
+                    <div style={{marginBottom:12,padding:'10px 12px',borderRadius:10,background:'#0C1C0F',border:'1px solid #162B1A'}}>
+                      <div style={{fontSize:10,color:'#3D6645',marginBottom:8,fontWeight:700}}>ИСТОРИЯ ВЫПЛАТ ({restHistory.length})</div>
+                      <div style={{maxHeight:220,overflowY:'auto',paddingRight:2}}>
+                        {restHistory.map(renderPayoutHistoryItem)}
+                      </div>
+                    </div>
+                  )}
+                  {payError && (
+                    <div style={{padding:'10px 12px',borderRadius:10,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.25)',fontSize:12,color:'#FF4545',marginBottom:10}}>
+                      {payError}
+                    </div>
+                  )}
+                  {net <= 0 ? (
+                    <div style={{padding:'12px',borderRadius:10,background:'rgba(255,184,0,.08)',border:'1px solid rgba(255,184,0,.25)',fontSize:12,color:'#FFB800',textAlign:'center'}}>
+                      Нет суммы к выплате — период закрыт или всё уже выплачено
+                    </div>
+                  ) : (
+                    <button onClick={confirmPayout} disabled={paySaving || (payMode === 'partial' && payNetPreview <= 0)} className="ab abp" style={{width:'100%',padding:12,opacity:paySaving?0.7:1}}>
+                      {paySaving ? 'Обработка…' : `✓ Подтвердить выплату ${payNetPreview.toLocaleString()} ЅМ`}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {showAdd&&(
         <div className="amod">
           <div className="amodbg" onClick={()=>{setShowAdd(false);resetAddForm();}}/>
@@ -1137,37 +1945,119 @@ function PartnersPage() {
 
 /* ── ОТЗЫВЫ ─────────────────────────────────────── */
 function ReviewsPage() {
-  const [reviews,setReviews]=useState(REVIEWS);
-  const Stars=({n})=><span>{[1,2,3,4,5].map(i=><span key={i} style={{color:i<=n?'#FFB800':'#1D3822',fontSize:13}}>★</span>)}</span>;
+  const apiRests = useRestaurants(s => s.restaurants);
+  const rests = USE_API && apiRests.length ? enrichRestaurants(apiRests, RESTAURANTS) : RESTAURANTS;
+  const [reviews, setReviews] = useState(REVIEWS);
+  const [loading, setLoading] = useState(false);
+  const [replyId, setReplyId] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState('');
+
+  const loadReviews = async () => {
+    if (!USE_API) { setReviews(REVIEWS); return; }
+    setLoading(true);
+    try {
+      const list = await api.getReviews();
+      setReviews(list.length ? list : REVIEWS);
+    } catch {
+      setReviews(REVIEWS);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadReviews(); }, []);
+
+  const patchReview = async (id: number, data: Record<string, unknown>) => {
+    if (USE_API) {
+      try {
+        const updated = await api.updateReview(id, data);
+        setReviews(rs => rs.map(r => r.id === id ? { ...r, ...updated } : r));
+        return;
+      } catch { /* fallback local */ }
+    }
+    setReviews(rs => rs.map(r => r.id === id ? { ...r, ...data } : r));
+  };
+
+  const avgRating = reviews.length
+    ? (reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length).toFixed(1)
+    : '—';
+
+  const Stars = ({ n }: { n: number }) => (
+    <span>{[1, 2, 3, 4, 5].map(i => <span key={i} style={{ color: i <= n ? '#FFB800' : '#1D3822', fontSize: 13 }}>★</span>)}</span>
+  );
+
   return (
     <div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
-        <StatCard l="Всего отзывов" v={reviews.length}/>
-        <StatCard l="Новых" v={reviews.filter(r=>r.status==='new').length} c="#FF4545"/>
-        <StatCard l="Жалоб (≤2★)" v={reviews.filter(r=>r.rating<=2).length} c="#FF4545"/>
-        <StatCard l="Средний рейтинг" v="4.6 ★" c="#FFB800"/>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+        <button onClick={loadReviews} className="ab" style={{ padding: '6px 12px', fontSize: 11 }} disabled={loading}>
+          {loading ? '…' : '↻ Обновить'}
+        </button>
       </div>
-      <div style={{display:'flex',flexDirection:'column',gap:12}}>
-        {reviews.map((rev,i)=>{
-          const rest=RESTAURANTS.find(r=>r.id===rev.restId);
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
+        <StatCard l="Всего отзывов" v={reviews.length} />
+        <StatCard l="Новых" v={reviews.filter(r => r.status === 'new').length} c="#FF4545" />
+        <StatCard l="Жалоб (≤2★)" v={reviews.filter(r => r.rating <= 2).length} c="#FF4545" />
+        <StatCard l="Средний рейтинг" v={`${avgRating} ★`} c="#FFB800" />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {reviews.map((rev, i) => {
+          const rest = rests.find(r => r.id === rev.restId);
           return (
-            <div key={rev.id} className="ac" style={{padding:'15px 17px',border:`1.5px solid ${rev.status==='new'?'rgba(255,69,69,.3)':'#162B1A'}`,animation:`fadeUp .4s ease ${i*.06}s both`}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
-                <div style={{display:'flex',alignItems:'center',gap:10}}>
-                  <div style={{width:36,height:36,borderRadius:'50%',background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#030B05',flexShrink:0}}>{rev.client.charAt(0)}</div>
-                  <div><div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{rev.client}</div><div style={{display:'flex',gap:8,alignItems:'center'}}><Stars n={rev.rating}/><span style={{fontSize:10,color:'#3D6645'}}>{rev.date}</span></div></div>
+            <div key={rev.id} className="ac" style={{ padding: '15px 17px', border: `1.5px solid ${rev.status === 'new' ? 'rgba(255,69,69,.3)' : '#162B1A'}`, animation: `fadeUp .4s ease ${i * .06}s both` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 13, fontWeight: 900, color: '#030B05', flexShrink: 0 }}>{rev.client.charAt(0)}</div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{rev.client}</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Stars n={rev.rating} />
+                      <span style={{ fontSize: 10, color: '#3D6645' }}>{rev.date}</span>
+                      {rev.orderId && <span style={{ fontSize: 10, color: '#3D6645' }}>· {rev.orderId}</span>}
                 </div>
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <div style={{display:'flex',alignItems:'center',gap:5,padding:'3px 9px',borderRadius:8,background:'rgba(0,0,0,.3)',border:'1px solid #162B1A'}}><span style={{fontSize:14}}>{rest?.emoji}</span><span style={{fontSize:11,color:'#8FB897'}}>{rest?.name}</span></div>
-                  {rev.status==='new'&&<Badge v="Новый" c="#FF4545"/>}
                 </div>
               </div>
-              <div style={{fontSize:13,color:'#EBF5ED',lineHeight:1.6,marginBottom:10,padding:'9px 12px',background:'#0C1C0F',borderRadius:9,border:'1px solid #162B1A'}}>"{rev.text}"</div>
-              <div style={{display:'flex',gap:8}}>
-                {rev.status==='new'&&<button onClick={()=>setReviews(rs=>rs.map(r=>r.id===rev.id?{...r,status:'read'}:r))} className="ab abg" style={{padding:'5px 12px',fontSize:11}}>✓ Прочитано</button>}
-                <button className="ab" style={{padding:'5px 12px',fontSize:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0'}}>💬 Ответить</button>
-                {rev.rating<=2&&<button className="ab abd" style={{padding:'5px 12px',fontSize:11}}>⚠️ Предупредить ресторан</button>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 8, background: 'rgba(0,0,0,.3)', border: '1px solid #162B1A' }}>
+                    <span style={{ fontSize: 14 }}>{rest?.emoji}</span>
+                    <span style={{ fontSize: 11, color: '#8FB897' }}>{rest?.name || rev.restName}</span>
               </div>
+                  {rev.status === 'new' && <Badge v="Новый" c="#FF4545" />}
+                  {rev.restSeen ? <Badge v="Ресторан видел" c="#1FD760" /> : <Badge v="Не прочитан рест." c="#FFB800" />}
+                  {rev.urgent && <Badge v="Срочно" c="#FF4545" />}
+                </div>
+              </div>
+              <div style={{ fontSize: 13, color: '#EBF5ED', lineHeight: 1.6, marginBottom: 10, padding: '9px 12px', background: '#0C1C0F', borderRadius: 9, border: '1px solid #162B1A' }}>
+                "{rev.text || 'Без комментария'}"
+              </div>
+              {rev.adminReply && (
+                <div style={{ fontSize: 12, color: '#3B8EF0', marginBottom: 10, padding: '8px 12px', background: 'rgba(59,142,240,.08)', borderRadius: 9, border: '1px solid rgba(59,142,240,.2)' }}>
+                  💬 KAKAPO: {rev.adminReply}
+                </div>
+              )}
+              {rev.restReply && (
+                <div style={{ fontSize: 12, color: '#1FD760', marginBottom: 10, padding: '8px 12px', background: 'rgba(31,215,96,.08)', borderRadius: 9, border: '1px solid rgba(31,215,96,.2)' }}>
+                  🍽 Ресторан: {rev.restReply}
+                </div>
+              )}
+              {replyId === rev.id ? (
+                <div style={{ marginBottom: 10 }}>
+                  <textarea className="ai" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Ответ клиенту от KAKAPO…" rows={2} style={{ marginBottom: 8, resize: 'vertical' }} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => { patchReview(rev.id, { adminReply: replyText, status: 'read' }); setReplyId(null); setReplyText(''); }} className="ab abp" style={{ padding: '5px 12px', fontSize: 11 }}>Отправить ответ</button>
+                    <button onClick={() => { setReplyId(null); setReplyText(''); }} className="ab" style={{ padding: '5px 12px', fontSize: 11 }}>Отмена</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {rev.status === 'new' && (
+                    <button onClick={() => patchReview(rev.id, { status: 'read' })} className="ab abg" style={{ padding: '5px 12px', fontSize: 11 }}>✓ Прочитано</button>
+                  )}
+                  <button onClick={() => { setReplyId(rev.id); setReplyText(rev.adminReply || ''); }} className="ab" style={{ padding: '5px 12px', fontSize: 11, background: 'rgba(59,142,240,.1)', border: '1.5px solid rgba(59,142,240,.3)', color: '#3B8EF0' }}>💬 Ответить</button>
+                  {rev.rating <= 2 && (
+                    <button onClick={() => patchReview(rev.id, { urgent: true, restNotified: true, restSeen: false })} className="ab abd" style={{ padding: '5px 12px', fontSize: 11 }}>⚠️ Предупредить ресторан</button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -1178,69 +2068,181 @@ function ReviewsPage() {
 
 /* ── КУРЬЕРЫ ─────────────────────────────────────── */
 function CouriersPage() {
-  const [showAdd,setShowAdd]=useState(false);
-  const SC={available:{l:'Свободен',c:'#1FD760'},busy:{l:'В заказе',c:'#FFB800'},offline:{l:'Офлайн',c:'#3D6645'}};
+  const couriers = useCourierTeam();
+  const { addCourier, updateCourier, toggleBlock } = useCourierTeamStore();
+  const apiOrders = useOrders(s => s.orders);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState(emptyCourierForm());
+  const [formErr, setFormErr] = useState('');
+
+  const SC: Record<CourierStatus, { l: string; c: string }> = {
+    available: { l: 'Свободен', c: '#1FD760' },
+    busy: { l: 'В заказе', c: '#FFB800' },
+    offline: { l: 'Офлайн', c: '#3D6645' },
+  };
+
+  const openAdd = () => {
+    setForm(emptyCourierForm());
+    setFormErr('');
+    setEditId(null);
+    setShowAdd(true);
+  };
+
+  const openEdit = (c: AdminCourier) => {
+    setForm({
+      name: c.name,
+      phone: c.phone,
+      vehicle: c.vehicle,
+      num: c.num === '—' ? '' : c.num,
+      status: c.status,
+      maxActiveOrders: c.maxActiveOrders,
+      blocked: c.blocked,
+      otp: c.otp || '1234',
+    });
+    setFormErr('');
+    setEditId(c.id);
+    setShowAdd(true);
+  };
+
+  const closeModal = () => {
+    setShowAdd(false);
+    setEditId(null);
+    setFormErr('');
+  };
+
+  const saveCourier = () => {
+    const name = form.name.trim();
+    const phone = form.phone.trim();
+    if (!name || !phone) {
+      setFormErr('Укажите ФИО и телефон');
+      return;
+    }
+    const maxActiveOrders = Math.max(1, Math.min(5, Number(form.maxActiveOrders) || 1));
+    const payload = {
+      ...form,
+      name,
+      phone,
+      num: form.num.trim() || '—',
+      maxActiveOrders,
+      otp: (form.otp || '1234').trim(),
+    };
+    if (editId) updateCourier(editId, payload);
+    else addCourier(payload);
+    closeModal();
+  };
+
+  const setF = <K extends keyof typeof form>(key: K, val: (typeof form)[K]) =>
+    setForm(prev => ({ ...prev, [key]: val }));
+
   return (
     <div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
-        <StatCard l="Всего" v={COURIERS.length}/>
-        <StatCard l="Свободных" v={COURIERS.filter(c=>c.status==='available').length} c="#1FD760"/>
-        <StatCard l="В заказе" v={COURIERS.filter(c=>c.status==='busy').length} c="#FFB800"/>
-        <StatCard l="Офлайн" v={COURIERS.filter(c=>c.status==='offline').length} c="#3D6645"/>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
+        <StatCard l="Всего" v={couriers.length} />
+        <StatCard l="Свободных" v={couriers.filter(c => c.status === 'available' && !c.blocked).length} c="#1FD760" />
+        <StatCard l="В заказе" v={couriers.filter(c => c.status === 'busy').length} c="#FFB800" />
+        <StatCard l="Офлайн" v={couriers.filter(c => c.status === 'offline' || c.blocked).length} c="#3D6645" />
       </div>
-      <div className="ac" style={{overflow:'hidden',marginBottom:16}}>
-        <div style={{padding:'11px 15px',borderBottom:'1px solid #162B1A',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <span style={{fontWeight:800,fontSize:13}}>📍 Live карта</span>
-          <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:6,height:6,borderRadius:'50%',background:'#1FD760',animation:'pulse 2s infinite'}}/><span style={{fontSize:11,color:'#1FD760',fontWeight:700}}>GPS Live</span></div>
-        </div>
-        <div style={{height:160,background:'linear-gradient(135deg,#050F08,#091814)',position:'relative',overflow:'hidden'}}>
-          <div style={{position:'absolute',inset:0,opacity:.04,background:'repeating-linear-gradient(0deg,transparent,transparent 20px,rgba(31,215,96,1) 20px,rgba(31,215,96,1) 21px),repeating-linear-gradient(90deg,transparent,transparent 20px,rgba(31,215,96,1) 20px,rgba(31,215,96,1) 21px)'}}/>
-          <div style={{position:'absolute',left:'44%',top:'40%',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-            <div style={{width:28,height:28,borderRadius:'50%',background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:11,fontWeight:900,color:'#030B05',boxShadow:'0 0 10px rgba(31,215,96,.6)'}}>K</div>
-          </div>
-          {COURIERS.filter(c=>c.status!=='offline').map((c,i)=>(
-            <div key={c.id} style={{position:'absolute',left:`${18+i*22}%`,top:`${22+i*18}%`,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-              <div style={{width:24,height:24,borderRadius:'50%',background:c.status==='available'?'#3B8EF0':'#FFB800',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,position:'relative',boxShadow:`0 0 8px ${c.status==='available'?'rgba(59,142,240,.6)':'rgba(255,184,0,.6)'}`}}>🛵<div style={{position:'absolute',inset:-2,borderRadius:'50%',border:`2px solid ${c.status==='available'?'#3B8EF0':'#FFB800'}`,animation:'ping 2s ease-out infinite',opacity:.4}}/></div>
-              <span style={{fontSize:7,color:'rgba(255,255,255,.5)',background:'rgba(0,0,0,.6)',padding:'1px 3px',borderRadius:3,whiteSpace:'nowrap'}}>{c.name.split(' ')[0]}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
-        <button onClick={()=>setShowAdd(true)} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>+ Добавить курьера</button>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button onClick={openAdd} className="ab abp" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>+ Добавить курьера</button>
       </div>
       <div className="ac">
         <table className="at">
-          <thead><tr><th>Курьер</th><th>Транспорт</th><th>Статус</th><th>Рейтинг</th><th>Сегодня</th><th>Неделя</th><th>Заказов</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <th>Курьер</th>
+              <th>Транспорт</th>
+              <th>Статус</th>
+              <th>Макс. заказов</th>
+              <th>Рейтинг</th>
+              <th>Сегодня</th>
+              <th>Неделя</th>
+              <th>Заказов</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody>
-            {COURIERS.map(c=>{const s=SC[c.status];return(
-              <tr key={c.id}>
-                <td><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:34,height:34,borderRadius:'50%',background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#030B05',flexShrink:0}}>{c.name.charAt(0)}</div><div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:11,color:'#8FB897'}}>{c.phone}</div></div></div></td>
-                <td style={{fontSize:12,color:'#8FB897'}}>{c.vehicle}<div style={{fontSize:10,color:'#3D6645'}}>{c.num}</div></td>
-                <td><Badge v={s.l} c={s.c}/></td>
-                <td style={{color:'#FFB800',fontWeight:700}}>★ {c.rating}</td>
-                <td><span className="ub" style={{fontSize:12,fontWeight:800,color:'#FFB800'}}>{c.today} ЅМ</span></td>
-                <td><span className="ub" style={{fontSize:12}}>{c.week} ЅМ</span></td>
-                <td style={{color:'#8FB897'}}>{c.orders}</td>
-                <td><div style={{display:'flex',gap:5}}><button className="ab abg" style={{padding:'4px 9px',fontSize:11}}>📱</button><button className="ab abd" style={{padding:'4px 9px',fontSize:11}}>Блок</button></div></td>
+            {couriers.map(c => {
+              const s = c.blocked ? { l: 'Заблокирован', c: '#FF4545' } : SC[c.status];
+              const active = countCourierActiveOrders(apiOrders, c);
+              return (
+                <tr key={c.id} style={c.blocked ? { opacity: .65 } : undefined}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 13, fontWeight: 900, color: '#030B05', flexShrink: 0 }}>{c.name.charAt(0)}</div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
+                        <div style={{ fontSize: 11, color: '#8FB897' }}>{c.phone}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ fontSize: 12, color: '#8FB897' }}>
+                    {vehicleIcon(c.vehicle)} {vehicleLabel(c.vehicle)}
+                    <div style={{ fontSize: 10, color: '#3D6645' }}>{c.num}</div>
+                  </td>
+                  <td><Badge v={s.l} c={s.c} /></td>
+                  <td>
+                    <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: active >= c.maxActiveOrders ? '#FFB800' : '#1FD760' }}>
+                      {active}/{c.maxActiveOrders}
+                    </span>
+                  </td>
+                  <td style={{ color: '#FFB800', fontWeight: 700 }}>★ {c.rating}</td>
+                  <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#FFB800' }}>{c.today} ЅМ</span></td>
+                  <td><span className="ub" style={{ fontSize: 12 }}>{c.week} ЅМ</span></td>
+                  <td style={{ color: '#8FB897' }}>{c.orders}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      <a href={`tel:${c.phone.replace(/\s/g, '')}`} className="ab abg" style={{ padding: '4px 9px', fontSize: 11, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>📱</a>
+                      <button onClick={() => openEdit(c)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>✏️</button>
+                      <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
+                        {c.blocked ? 'Разблок' : 'Блок'}
+                      </button>
+                    </div>
+                  </td>
               </tr>
-            );})}
+              );
+            })}
           </tbody>
         </table>
       </div>
-      {showAdd&&(
+      {showAdd && (
         <div className="amod">
-          <div className="amodbg" onClick={()=>setShowAdd(false)}/>
-          <div className="amodbox" style={{maxWidth:400}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><div className="ub" style={{fontSize:14,fontWeight:800}}>Добавить курьера</div><button onClick={()=>setShowAdd(false)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button></div>
-            <div style={{display:'flex',flexDirection:'column',gap:11}}>
-              <NI lbl="ФИО *" val="" set={()=>{}} ph="Имя Фамилия"/>
-              <NI lbl="Телефон *" val="" set={()=>{}} ph="+992 __ ___ __ __"/>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Транспорт</div><select className="ai"><option>🏍 Мотоцикл</option><option>🚲 Велосипед</option><option>🚗 Авто</option></select></div>
-                <NI lbl="Номер ТС" val="" set={()=>{}} ph="TJ XXXX XX"/>
+          <div className="amodbg" onClick={closeModal} />
+          <div className="amodbox" style={{ maxWidth: 420 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{editId ? 'Редактировать курьера' : 'Добавить курьера'}</div>
+              <button onClick={closeModal} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
               </div>
-              <button onClick={()=>setShowAdd(false)} className="ab abp" style={{width:'100%',padding:11}}>✓ Добавить</button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <NI lbl="ФИО *" val={form.name} set={v => setF('name', v)} ph="Имя Фамилия" />
+              <NI lbl="Телефон *" val={form.phone} set={v => setF('phone', v)} ph="+992 __ ___ __ __" />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Транспорт</div>
+                  <select className="ai" value={form.vehicle} onChange={e => setF('vehicle', e.target.value as AdminCourier['vehicle'])}>
+                    {VEHICLE_OPTIONS.map(v => (
+                      <option key={v.id} value={v.id}>{v.icon} {v.label}</option>
+                    ))}
+                  </select>
+            </div>
+                <NI lbl="Номер ТС" val={form.num} set={v => setF('num', v)} ph="TJ XXXX XX" />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Статус</div>
+                  <select className="ai" value={form.status} onChange={e => setF('status', e.target.value as CourierStatus)}>
+                    <option value="available">Свободен</option>
+                    <option value="busy">В заказе</option>
+                    <option value="offline">Офлайн</option>
+                  </select>
+                </div>
+                <NI lbl="Макс. заказов одновременно" val={String(form.maxActiveOrders)} set={v => setF('maxActiveOrders', Math.max(1, Math.min(5, parseInt(v, 10) || 1)))} ph="1–5" type="number" />
+              </div>
+              <NI lbl="Код входа (OTP)" val={form.otp || ''} set={v => setF('otp', v)} ph="1234" />
+              {formErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{formErr}</div>}
+              <button onClick={saveCourier} className="ab abp" style={{ width: '100%', padding: 11 }}>
+                {editId ? '✓ Сохранить' : '✓ Добавить'}
+              </button>
             </div>
           </div>
         </div>
@@ -1251,46 +2253,174 @@ function CouriersPage() {
 
 /* ── СБОРЩИКИ ───────────────────────────────────── */
 function AssemblersPage() {
-  const [showAdd,setShowAdd]=useState(false);
-  const SC={working:{l:'Собирает',c:'#9B6DFF'},available:{l:'Свободен',c:'#1FD760'},offline:{l:'Офлайн',c:'#3D6645'}};
+  const assemblers = useAssemblerTeam();
+  const { addAssembler, updateAssembler, toggleBlock } = useAssemblerTeamStore();
+  const apiOrders = useOrders(s => s.orders);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState(emptyAssemblerForm());
+  const [formErr, setFormErr] = useState('');
+
+  const SC: Record<AssemblerStatus, { l: string; c: string }> = {
+    working: { l: 'Собирает', c: '#9B6DFF' },
+    available: { l: 'Свободен', c: '#1FD760' },
+    offline: { l: 'Офлайн', c: '#3D6645' },
+  };
+
+  const openAdd = () => {
+    setForm(emptyAssemblerForm());
+    setFormErr('');
+    setEditId(null);
+    setShowAdd(true);
+  };
+
+  const openEdit = (a: AdminAssembler) => {
+    setForm({
+      name: a.name,
+      phone: a.phone,
+      status: a.status,
+      avgTimeMin: a.avgTimeMin,
+      blocked: a.blocked,
+      otp: a.otp || '5678',
+    });
+    setFormErr('');
+    setEditId(a.id);
+    setShowAdd(true);
+  };
+
+  const closeModal = () => {
+    setShowAdd(false);
+    setEditId(null);
+    setFormErr('');
+  };
+
+  const saveAssembler = () => {
+    const name = form.name.trim();
+    const phone = form.phone.trim();
+    if (!name || !phone) {
+      setFormErr('Укажите ФИО и телефон');
+      return;
+    }
+    const avgTimeMin = Math.max(1, Math.min(60, Number(form.avgTimeMin) || 8));
+    const payload = {
+      ...form,
+      name,
+      phone,
+      avgTimeMin,
+      otp: (form.otp || '5678').trim(),
+    };
+    if (editId) updateAssembler(editId, payload);
+    else addAssembler(payload);
+    closeModal();
+  };
+
+  const setF = <K extends keyof typeof form>(key: K, val: (typeof form)[K]) =>
+    setForm(prev => ({ ...prev, [key]: val }));
+
+  const workingCount = assemblers.filter(a => !a.blocked && (
+    a.status === 'working' || countAssemblerActiveOrders(apiOrders, a) > 0
+  )).length;
+
   return (
     <div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
-        <StatCard l="Всего" v={ASSEMBLERS.length}/>
-        <StatCard l="Собирают" v={ASSEMBLERS.filter(a=>a.status==='working').length} c="#9B6DFF"/>
-        <StatCard l="Свободных" v={ASSEMBLERS.filter(a=>a.status==='available').length} c="#1FD760"/>
-        <StatCard l="Офлайн" v={ASSEMBLERS.filter(a=>a.status==='offline').length} c="#3D6645"/>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
+        <StatCard l="Всего" v={assemblers.length} />
+        <StatCard l="Собирают" v={workingCount} c="#9B6DFF" />
+        <StatCard l="Свободных" v={assemblers.filter(a => a.status === 'available' && !a.blocked).length} c="#1FD760" />
+        <StatCard l="Офлайн" v={assemblers.filter(a => a.status === 'offline' || a.blocked).length} c="#3D6645" />
       </div>
-      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
-        <button onClick={()=>setShowAdd(true)} className="ab abp">+ Добавить сборщика</button>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button onClick={openAdd} className="ab abp">+ Добавить сборщика</button>
       </div>
       <div className="ac">
         <table className="at">
-          <thead><tr><th>Сборщик</th><th>Статус</th><th>Заказов сегодня</th><th>Ср. время</th><th>Рейтинг</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <th>Сборщик</th>
+              <th>Статус</th>
+              <th>В работе</th>
+              <th>Сегодня</th>
+              <th>Неделя</th>
+              <th>Всего</th>
+              <th>Ср. время</th>
+              <th>Рейтинг</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody>
-            {ASSEMBLERS.map(a=>{const s=SC[a.status];return(
-              <tr key={a.id}>
-                <td><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:34,height:34,borderRadius:'50%',background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'white',flexShrink:0}}>{a.name.charAt(0)}</div><div><div style={{fontWeight:700,fontSize:13}}>{a.name}</div><div style={{fontSize:11,color:'#8FB897'}}>{a.phone}</div></div></div></td>
-                <td><Badge v={s.l} c={s.c}/></td>
-                <td><span className="ub" style={{fontSize:13,fontWeight:800,color:'#9B6DFF'}}>{a.ordersToday}</span></td>
-                <td style={{color:'#8FB897'}}>{a.avgTime}</td>
-                <td style={{color:'#FFB800',fontWeight:700}}>★ {a.rating}</td>
-                <td><div style={{display:'flex',gap:5}}><button className="ab abg" style={{padding:'4px 9px',fontSize:11}}>✏️</button><button className="ab abd" style={{padding:'4px 9px',fontSize:11}}>Блок</button></div></td>
-              </tr>
-            );})}
+            {assemblers.map(a => {
+              const active = countAssemblerActiveOrders(apiOrders, a);
+              const doneLive = countAssemblerCompletedOrders(apiOrders, a);
+              const s = a.blocked
+                ? { l: 'Заблокирован', c: '#FF4545' }
+                : active > 0
+                  ? SC.working
+                  : SC[a.status];
+              const today = Math.max(a.ordersToday, doneLive);
+              return (
+                <tr key={a.id} style={a.blocked ? { opacity: .65 } : undefined}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#6B3FD4,#9B6DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 13, fontWeight: 900, color: 'white', flexShrink: 0 }}>{a.name.charAt(0)}</div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{a.name}</div>
+                        <div style={{ fontSize: 11, color: '#8FB897' }}>{a.phone}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><Badge v={s.l} c={s.c} /></td>
+                  <td>
+                    <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: active ? '#9B6DFF' : '#3D6645' }}>
+                      {active}
+                    </span>
+                  </td>
+                  <td><span className="ub" style={{ fontSize: 13, fontWeight: 800, color: '#9B6DFF' }}>{today}</span></td>
+                  <td><span className="ub" style={{ fontSize: 12 }}>{a.week}</span></td>
+                  <td style={{ color: '#8FB897' }}>{a.ordersTotal}</td>
+                  <td style={{ color: '#8FB897' }}>{formatAssemblerAvgTime(a.avgTimeMin)}</td>
+                  <td style={{ color: '#FFB800', fontWeight: 700 }}>★ {a.rating}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      <a href={`tel:${a.phone.replace(/\s/g, '')}`} className="ab abg" style={{ padding: '4px 9px', fontSize: 11, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>📱</a>
+                      <button onClick={() => openEdit(a)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>✏️</button>
+                      <button onClick={() => toggleBlock(a.id)} className={`ab ${a.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
+                        {a.blocked ? 'Разблок' : 'Блок'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      {showAdd&&(
+      {showAdd && (
         <div className="amod">
-          <div className="amodbg" onClick={()=>setShowAdd(false)}/>
-          <div className="amodbox" style={{maxWidth:380}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><div className="ub" style={{fontSize:14,fontWeight:800}}>Добавить сборщика</div><button onClick={()=>setShowAdd(false)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button></div>
-            <div style={{display:'flex',flexDirection:'column',gap:11}}>
-              <NI lbl="ФИО *" val="" set={()=>{}} ph="Имя Фамилия"/>
-              <NI lbl="Телефон *" val="" set={()=>{}} ph="+992 __ ___ __ __"/>
-              <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>PIN код (4 цифры)</div><input className="ai" type="password" placeholder="••••" maxLength={4}/></div>
-              <button onClick={()=>setShowAdd(false)} className="ab abp" style={{width:'100%',padding:11}}>✓ Добавить</button>
+          <div className="amodbg" onClick={closeModal} />
+          <div className="amodbox" style={{ maxWidth: 420 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{editId ? 'Редактировать сборщика' : 'Добавить сборщика'}</div>
+              <button onClick={closeModal} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <NI lbl="ФИО *" val={form.name} set={v => setF('name', v)} ph="Имя Фамилия" />
+              <NI lbl="Телефон *" val={form.phone} set={v => setF('phone', v)} ph="+992 __ ___ __ __" />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Статус</div>
+                  <select className="ai" value={form.status} onChange={e => setF('status', e.target.value as AssemblerStatus)}>
+                    <option value="available">Свободен</option>
+                    <option value="working">Собирает</option>
+                    <option value="offline">Офлайн</option>
+                  </select>
+                </div>
+                <NI lbl="Ср. время (мин)" val={String(form.avgTimeMin)} set={v => setF('avgTimeMin', Math.max(1, parseInt(v, 10) || 8))} ph="8" type="number" />
+              </div>
+              <NI lbl="PIN код (4 цифры)" val={form.otp || ''} set={v => setF('otp', v)} ph="5678" />
+              {formErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{formErr}</div>}
+              <button onClick={saveAssembler} className="ab abp" style={{ width: '100%', padding: 11 }}>
+                {editId ? '✓ Сохранить' : '✓ Добавить'}
+              </button>
             </div>
           </div>
         </div>
@@ -1301,80 +2431,1176 @@ function AssemblersPage() {
 
 /* ── КЛИЕНТЫ ────────────────────────────────────── */
 function ClientsPage() {
+  const stored = useClients();
+  const allCards = useCards();
+  const { toggleBlock } = useClientStore();
+  const apiOrders = useOrders(s => s.orders);
+  const [search, setSearch] = useState('');
+  const [filterLevel, setFilterLevel] = useState<'all' | ClientLevel>('all');
+  const [filterDebt, setFilterDebt] = useState<'all' | 'with' | 'without'>('all');
+  const [filterCard, setFilterCard] = useState<'all' | 'with' | 'without'>('all');
+  const [filterBlocked, setFilterBlocked] = useState<'all' | 'active' | 'blocked'>('all');
+  const [filterSegment, setFilterSegment] = useState<'all' | 'market' | 'restaurant' | 'mixed'>('all');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState<ClientProfileForm>(emptyClientProfileForm());
+  const [formErr, setFormErr] = useState('');
+
+  const clients = useMemo(() => mergeClientsWithOrders(stored, apiOrders), [stored, apiOrders]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const qCompact = q.replace(/\s/g, '');
+    const qDigits = q.replace(/\D/g, '');
+    return clients.filter(c => {
+      if (filterLevel !== 'all' && c.level !== filterLevel) return false;
+      if (filterDebt === 'with' && c.debt <= 0) return false;
+      if (filterDebt === 'without' && c.debt > 0) return false;
+      if (filterCard === 'with' && !c.card) return false;
+      if (filterCard === 'without' && c.card) return false;
+      if (filterBlocked === 'active' && c.blocked) return false;
+      if (filterBlocked === 'blocked' && !c.blocked) return false;
+      if (filterSegment !== 'all' && clientSegment(c) !== filterSegment) return false;
+      if (q) {
+        const hay = `${c.name} ${c.phone} ${c.card} ${c.id} ${c.email || ''}`.toLowerCase();
+        const phoneOk = qDigits.length >= 3 && normalizePhone(c.phone).includes(qDigits.slice(-9));
+        if (!hay.includes(q) && !hay.replace(/\s/g, '').includes(qCompact) && !phoneOk) return false;
+      }
+      return true;
+    });
+  }, [clients, search, filterLevel, filterDebt, filterCard, filterBlocked, filterSegment]);
+
+  const stats = useMemo(() => ({
+    total: clients.length,
+    withCard: clients.filter(c => !!c.card).length,
+    withDebt: clients.filter(c => c.debt > 0).length,
+    newMonth: clients.filter(c => isNewThisMonth(c.createdAt)).length,
+  }), [clients]);
+
+  const detailClient = detailId ? clients.find(c => c.id === detailId) : null;
+
+  const openAdd = () => {
+    setForm(emptyClientProfileForm());
+    setFormErr('');
+    setEditId(null);
+    setShowAdd(true);
+  };
+
+  const openEdit = (c: AdminClient) => {
+    setForm(clientProfileFromClient(c));
+    setFormErr('');
+    setEditId(c.id);
+    setShowAdd(true);
+  };
+
+  const closeModal = () => {
+    setShowAdd(false);
+    setEditId(null);
+    setFormErr('');
+  };
+
+  const saveClient = () => {
+    const name = form.name.trim();
+    const phone = form.phone.trim();
+    if (!name || !phone) {
+      setFormErr('Укажите имя и телефон');
+      return;
+    }
+    saveClientProfile(editId, form);
+    closeModal();
+  };
+
+  const setF = <K extends keyof ClientProfileForm>(key: K, val: ClientProfileForm[K]) =>
+    setForm(prev => ({ ...prev, [key]: val }));
+
+  const unlinkedCards = useMemo(
+    () => allCards.filter(c => c.status === 'unlinked'),
+    [allCards],
+  );
+
+  const formLoyalty = useMemo(() => {
+    if (!form.card) return null;
+    const editClient = editId ? stored.find(c => c.id === editId) : undefined;
+    const base: AdminClient = editClient || {
+      id: '',
+      name: form.name,
+      phone: form.phone,
+      card: form.card,
+      level: 'bronze',
+      bonus: 0,
+      debt: 0,
+      debtLimit: 0,
+      orders: 0,
+      spent: 0,
+      blocked: false,
+    };
+    return loyaltySummaryForClient({ ...base, card: form.card }, allCards);
+  }, [form.card, form.name, form.phone, allCards, editId, stored]);
+
   return (
     <div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
-        <StatCard l="Всего клиентов" v="1 847"/>
-        <StatCard l="С картами" v="234" c="#FFB800"/>
-        <StatCard l="VIP (долг)" v={CLIENTS.filter(c=>c.debt>0).length} c="#FF4545"/>
-        <StatCard l="Новых за месяц" v="48" c="#1FD760"/>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
+        <StatCard l="Всего клиентов" v={stats.total.toLocaleString()} />
+        <StatCard l="С картами" v={stats.withCard} c="#FFB800" />
+        <StatCard l="VIP (долг)" v={stats.withDebt} c="#FF4545" />
+        <StatCard l="Новых за месяц" v={stats.newMonth} c="#1FD760" />
       </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12, alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 360 }}>
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: .5 }}>🔍</span>
+          <input
+            className="ai"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Поиск: имя, телефон, карта, ID…"
+            style={{ paddingLeft: 38, paddingRight: search ? 34 : 13 }}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#8FB897', cursor: 'pointer', fontSize: 16 }}
+            >✕</button>
+          )}
+        </div>
+        {search.trim() && (
+          <span style={{ fontSize: 12, color: '#8FB897' }}>
+            Найдено: <strong style={{ color: '#1FD760' }}>{filtered.length}</strong>
+          </span>
+        )}
+        <div style={{ marginLeft: 'auto' }}>
+          <button onClick={openAdd} className="ab abp">+ Добавить клиента</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+        {[{ id: 'all', l: 'Все типы' }, { id: 'market', l: '🛒 Магазин' }, { id: 'restaurant', l: '🍽 Рестораны' }, { id: 'mixed', l: '🔀 Смешанные' }].map(f => (
+          <button
+            key={f.id}
+            onClick={() => setFilterSegment(f.id as typeof filterSegment)}
+            className="ab"
+            style={{
+              padding: '5px 12px',
+              fontSize: 11,
+              background: filterSegment === f.id ? 'rgba(31,215,96,.15)' : '#0C1C0F',
+              color: filterSegment === f.id ? '#1FD760' : '#8FB897',
+              border: `1px solid ${filterSegment === f.id ? 'rgba(31,215,96,.35)' : '#162B1A'}`,
+            }}
+          >{f.l}</button>
+        ))}
+        {[{ id: 'all', l: 'Все уровни' }, ...CLIENT_LEVEL_OPTIONS.map(o => ({ id: o.id, l: o.label }))].map(f => (
+          <button
+            key={f.id}
+            onClick={() => setFilterLevel(f.id as typeof filterLevel)}
+            className="ab"
+            style={{
+              padding: '5px 10px',
+              fontSize: 11,
+              background: filterLevel === f.id ? `${LVC[f.id as ClientLevel] || '#1FD760'}18` : '#0C1C0F',
+              color: filterLevel === f.id ? (LVC[f.id as ClientLevel] || '#1FD760') : '#8FB897',
+              border: `1px solid ${filterLevel === f.id ? `${LVC[f.id as ClientLevel] || '#1FD760'}40` : '#162B1A'}`,
+            }}
+          >{f.l}</button>
+        ))}
+        {[
+          { id: 'all', l: 'Долг: все' },
+          { id: 'with', l: 'С долгом' },
+          { id: 'without', l: 'Без долга' },
+        ].map(f => (
+          <button
+            key={f.id}
+            onClick={() => setFilterDebt(f.id as typeof filterDebt)}
+            className="ab"
+            style={{
+              padding: '5px 10px',
+              fontSize: 11,
+              background: filterDebt === f.id ? 'rgba(255,69,69,.12)' : '#0C1C0F',
+              color: filterDebt === f.id ? '#FF4545' : '#8FB897',
+              border: `1px solid ${filterDebt === f.id ? 'rgba(255,69,69,.3)' : '#162B1A'}`,
+            }}
+          >{f.l}</button>
+        ))}
+        {[
+          { id: 'all', l: 'Карта: все' },
+          { id: 'with', l: 'С картой' },
+          { id: 'without', l: 'Без карты' },
+        ].map(f => (
+          <button
+            key={f.id}
+            onClick={() => setFilterCard(f.id as typeof filterCard)}
+            className="ab"
+            style={{
+              padding: '5px 10px',
+              fontSize: 11,
+              background: filterCard === f.id ? 'rgba(255,184,0,.12)' : '#0C1C0F',
+              color: filterCard === f.id ? '#FFB800' : '#8FB897',
+              border: `1px solid ${filterCard === f.id ? 'rgba(255,184,0,.3)' : '#162B1A'}`,
+            }}
+          >{f.l}</button>
+        ))}
+        {[
+          { id: 'all', l: 'Статус: все' },
+          { id: 'active', l: 'Активные' },
+          { id: 'blocked', l: 'Заблок.' },
+        ].map(f => (
+          <button
+            key={f.id}
+            onClick={() => setFilterBlocked(f.id as typeof filterBlocked)}
+            className="ab"
+            style={{
+              padding: '5px 10px',
+              fontSize: 11,
+              background: filterBlocked === f.id ? 'rgba(31,215,96,.12)' : '#0C1C0F',
+              color: filterBlocked === f.id ? '#1FD760' : '#8FB897',
+              border: `1px solid ${filterBlocked === f.id ? 'rgba(31,215,96,.3)' : '#162B1A'}`,
+            }}
+          >{f.l}</button>
+        ))}
+      </div>
+
       <div className="ac">
         <table className="at">
-          <thead><tr><th>Клиент</th><th>Карта</th><th>Уровень</th><th>Заказов</th><th>Потрачено</th><th>Долг</th><th>Бонусы</th><th>Последний</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Клиент</th>
+              <th>Тип</th>
+              <th>Карта</th>
+              <th>Уровень</th>
+              <th>Заказов</th>
+              <th>Потрачено</th>
+              <th>Долг</th>
+              <th>Бонусы</th>
+              <th>Последний</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody>
-            {CLIENTS.map(c=>(
-              <tr key={c.id}>
-                <td><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:32,height:32,borderRadius:'50%',background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:12,fontWeight:900,color:'#030B05',flexShrink:0}}>{c.name.charAt(0)}</div><div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:11,color:'#8FB897'}}>{c.phone}</div></div></div></td>
-                <td><span className="ub" style={{fontSize:11,fontWeight:800,color:'#FFB800'}}>{c.card}</span></td>
-                <td><Badge v={c.level} c={LVC[c.level]||'#8FB897'}/></td>
-                <td style={{fontWeight:600}}>{c.orders}</td>
-                <td><span className="ub" style={{fontSize:12,fontWeight:700}}>{c.spent.toLocaleString()} ЅМ</span></td>
-                <td style={{color:c.debt>0?'#FF4545':'#3D6645',fontWeight:c.debt>0?800:400}}>{c.debt>0?`${c.debt.toLocaleString()} ЅМ`:'—'}</td>
-                <td style={{color:'#FFB800',fontWeight:600}}>{c.bonus.toLocaleString()} ⭐</td>
-                <td style={{fontSize:11,color:'#3D6645'}}>{c.last}</td>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={10} style={{ textAlign: 'center', color: '#3D6645', padding: 28 }}>
+                  {search.trim() ? `Клиент «${search.trim()}» не найден` : 'Нет клиентов по выбранным фильтрам'}
+                </td>
               </tr>
-            ))}
+            ) : filtered.map(c => {
+              const seg = clientSegment(c);
+              return (
+                <tr key={c.id} style={c.blocked ? { opacity: .65 } : undefined}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: c.blocked ? 'linear-gradient(135deg,#662222,#FF4545)' : 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 12, fontWeight: 900, color: '#030B05', flexShrink: 0 }}>{c.name.charAt(0)}</div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}{c.blocked && <span style={{ marginLeft: 6, fontSize: 10, color: '#FF4545' }}>🚫</span>}</div>
+                        <div style={{ fontSize: 11, color: '#8FB897' }}>{c.phone}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><span style={{ fontSize: 11, color: '#8FB897' }}>{clientSegmentLabel(seg)}</span></td>
+                  <td>{c.card ? <span className="ub" style={{ fontSize: 11, fontWeight: 800, color: '#FFB800' }}>{c.card}</span> : <span style={{ color: '#3D6645' }}>—</span>}</td>
+                  <td><Badge v={c.level} c={LVC[c.level] || '#8FB897'} /></td>
+                  <td style={{ fontWeight: 600 }}>{c.orders}</td>
+                  <td><span className="ub" style={{ fontSize: 12, fontWeight: 700 }}>{c.spent.toLocaleString()} ЅМ</span></td>
+                  <td style={{ color: c.debt > 0 ? '#FF4545' : '#3D6645', fontWeight: c.debt > 0 ? 800 : 400 }}>{c.debt > 0 ? `${c.debt.toLocaleString()} ЅМ` : '—'}</td>
+                  <td style={{ color: '#FFB800', fontWeight: 600 }}>{c.bonus.toLocaleString()} ⭐</td>
+                  <td style={{ fontSize: 11, color: '#3D6645' }}>{c.lastLabel}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      <a href={`tel:${c.phone.replace(/\s/g, '')}`} className="ab abg" style={{ padding: '4px 9px', fontSize: 11, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>📱</a>
+                      <button onClick={() => setDetailId(c.id)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>👁</button>
+                      <button onClick={() => openEdit(c)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>✏️</button>
+                      <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
+                        {c.blocked ? 'Разблок' : 'Блок'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {showAdd && (
+        <div className="amod">
+          <div className="amodbg" onClick={closeModal} />
+          <div className="amodbox" style={{ maxWidth: 480 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{editId ? 'Редактировать клиента' : 'Добавить клиента'}</div>
+              <button onClick={closeModal} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <div style={{ fontSize: 10, color: '#3D6645', fontWeight: 700, letterSpacing: .3 }}>ПРОФИЛЬ КЛИЕНТА</div>
+              <NI lbl="ФИО *" val={form.name} set={v => setF('name', v)} ph="Имя Фамилия" />
+              <NI lbl="Телефон *" val={form.phone} set={v => setF('phone', v)} ph="+992 __ ___ __ __" />
+              <NI lbl="Email" val={form.email || ''} set={v => setF('email', v)} ph="email@example.com" />
+              <NI lbl="Адрес" val={form.addr || ''} set={v => setF('addr', v)} ph="ул. Ленина, 42" />
+              <div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Карта KAKAPO</div>
+                <select className="ai" value={form.card} onChange={e => setF('card', e.target.value)}>
+                  <option value="">— Без карты —</option>
+                  {form.card && !unlinkedCards.some(c => c.num === form.card) && (
+                    <option value={form.card}>{form.card} (текущая)</option>
+                  )}
+                  {unlinkedCards.map(c => (
+                    <option key={c.num} value={c.num}>{c.num}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 10, color: '#3D6645', marginTop: 4 }}>Привязка карты · уровень и бонусы — в разделе «Карты»</div>
+              </div>
+              {formLoyalty?.card && (
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,184,0,.06)', border: '1px solid rgba(255,184,0,.2)' }}>
+                  <div style={{ fontSize: 10, color: '#FFB800', fontWeight: 800, marginBottom: 8 }}>💳 ДАННЫЕ КАРТЫ (только просмотр)</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
+                    <div><span style={{ color: '#3D6645' }}>Уровень:</span> <strong>{formLoyalty.level || '—'}</strong></div>
+                    <div><span style={{ color: '#3D6645' }}>Бонусы:</span> <strong style={{ color: '#FFB800' }}>{formLoyalty.bonus.toLocaleString()} ⭐</strong></div>
+                    <div><span style={{ color: '#3D6645' }}>Лимит:</span> <strong>{formLoyalty.debtLimit > 0 ? `${formLoyalty.debtLimit} ЅМ` : 'Нет'}</strong></div>
+                    <div><span style={{ color: '#3D6645' }}>Долг:</span> <strong style={{ color: formLoyalty.debt > 0 ? '#FF4545' : '#8FB897' }}>{formLoyalty.debt > 0 ? `${formLoyalty.debt} ЅМ` : '—'}</strong></div>
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 10, background: '#0C1C0F', border: '1px solid #162B1A' }}>
+                <div style={{ fontSize: 12, fontWeight: 700 }}>Заблокирован</div>
+                <Tog on={form.blocked} set={() => setF('blocked', !form.blocked)} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Заметка администратора</div>
+                <textarea className="ai" value={form.note || ''} onChange={e => setF('note', e.target.value)} placeholder="Комментарий по клиенту" rows={2} style={{ resize: 'vertical' }} />
+              </div>
+              {formErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{formErr}</div>}
+              <button onClick={saveClient} className="ab abp" style={{ width: '100%', padding: 11 }}>
+                {editId ? '✓ Сохранить профиль' : '✓ Добавить клиента'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailClient && (
+        <div className="amod">
+          <div className="amodbg" onClick={() => setDetailId(null)} />
+          <div className="amodbox" style={{ maxWidth: 520 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{detailClient.name}</div>
+              <button onClick={() => setDetailId(null)} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+              {[
+                { l: 'ID', v: detailClient.id },
+                { l: 'Телефон', v: detailClient.phone },
+                { l: 'Email', v: detailClient.email || '—' },
+                { l: 'Адрес', v: detailClient.addr || '—' },
+                { l: 'Карта', v: detailClient.card || '—' },
+                { l: 'Уровень', v: detailClient.level },
+                { l: 'Тип клиента', v: clientSegmentLabel(clientSegment(detailClient)) },
+                { l: 'Статус', v: detailClient.blocked ? '🚫 Заблокирован' : '✓ Активен' },
+                { l: 'Регистрация', v: detailClient.createdAt || '—' },
+                { l: 'Последний заказ', v: detailClient.lastLabel },
+              ].map(row => (
+                <div key={row.l} style={{ padding: '8px 10px', borderRadius: 10, background: '#0C1C0F', border: '1px solid #162B1A' }}>
+                  <div style={{ fontSize: 10, color: '#3D6645', fontWeight: 700, marginBottom: 3 }}>{row.l}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{row.v}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 14 }}>
+              <StatCard l="Заказов" v={detailClient.orders} />
+              <StatCard l="Потрачено" v={`${detailClient.spent.toLocaleString()} ЅМ`} c="#1FD760" />
+              <StatCard l="Долг" v={detailClient.debt > 0 ? `${detailClient.debt.toLocaleString()} ЅМ` : '—'} c={detailClient.debt > 0 ? '#FF4545' : undefined} />
+              <StatCard l="Бонусы" v={`${detailClient.bonus.toLocaleString()} ⭐`} c="#FFB800" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
+              <StatCard l="🛒 Магазин" v={detailClient.marketOrders} />
+              <StatCard l="🍽 Рестораны" v={detailClient.restaurantOrders} />
+              <StatCard l="🔀 Смешанные" v={detailClient.mixedOrders} />
+            </div>
+            {detailClient.note && (
+              <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,184,0,.06)', border: '1px solid rgba(255,184,0,.2)', fontSize: 12, color: '#8FB897', marginBottom: 12 }}>
+                <strong style={{ color: '#FFB800' }}>Заметка:</strong> {detailClient.note}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => { setDetailId(null); openEdit(detailClient); }} className="ab abg" style={{ flex: 1 }}>✏️ Редактировать</button>
+              <a href={`tel:${detailClient.phone.replace(/\s/g, '')}`} className="ab abp" style={{ flex: 1, textDecoration: 'none', textAlign: 'center' }}>📱 Позвонить</a>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── КАРТЫ — UI helpers ─────────────────────────── */
+const CARD_LEVEL_RU: Record<ClientLevel, string> = { bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина' };
+
+function CardVisualMini({ num, level, clientName, status }: { num?: string; level?: string; clientName?: string; status?: CardStatus }) {
+  const lc = level && LVC[level as ClientLevel] ? LVC[level as ClientLevel] : '#FFB800';
+  return (
+    <div style={{
+      background: 'linear-gradient(145deg,#06180C,#0D2818,#071A0A)',
+      border: `1.5px solid ${status === 'unlinked' ? 'rgba(255,184,0,.4)' : 'rgba(31,215,96,.4)'}`,
+      borderRadius: 16,
+      padding: '20px 22px',
+      position: 'relative',
+      overflow: 'hidden',
+      boxShadow: '0 8px 32px rgba(0,0,0,.35)',
+    }}>
+      <div style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: '50%', background: `${lc}15` }} />
+      <div className="ub" style={{ fontSize: 9, color: '#1FD760', letterSpacing: 2.5, marginBottom: 12, opacity: .9 }}>KAKAPO LOYALTY CARD</div>
+      <div className="ub" style={{ fontSize: num ? 20 : 15, fontWeight: 900, color: '#FFB800', letterSpacing: 2, marginBottom: 10 }}>
+        {num || 'Новая карта'}
+      </div>
+      {clientName ? (
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#EBF5ED', marginBottom: 8 }}>{clientName}</div>
+      ) : status === 'unlinked' ? (
+        <div style={{ fontSize: 12, color: '#FFB800', opacity: .9 }}>⏳ Свободна — выберите клиента</div>
+      ) : null}
+      {level && <Badge v={CARD_LEVEL_RU[level as ClientLevel] || level} c={lc} />}
+    </div>
+  );
+}
+
+function CardLevelPicker({ value, onChange }: { value: ClientLevel; onChange: (v: ClientLevel) => void }) {
+  const icons: Record<ClientLevel, string> = { bronze: '🥉', silver: '🥈', gold: '🥇', platinum: '💎' };
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+      {CLIENT_LEVEL_OPTIONS.map(o => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className="ab"
+          style={{
+            padding: '12px 6px',
+            fontSize: 11,
+            fontWeight: 800,
+            color: LVC[o.id],
+            background: value === o.id ? `${LVC[o.id]}28` : '#0C1C0F',
+            border: `2px solid ${value === o.id ? LVC[o.id] : '#1D3822'}`,
+            borderRadius: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 5,
+            transform: value === o.id ? 'scale(1.02)' : 'none',
+          }}
+        >
+          <span style={{ fontSize: 18 }}>{icons[o.id]}</span>
+          {CARD_LEVEL_RU[o.id]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CardFormSection({ title, subtitle, children }: { title: string; subtitle?: string; children: any }) {
+  return (
+    <div style={{ background: '#0A140C', border: '1px solid #162B1A', borderRadius: 14, padding: '14px 16px' }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: '#1FD760', marginBottom: subtitle ? 4 : 10 }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 11, color: '#3D6645', marginBottom: 12, lineHeight: 1.45 }}>{subtitle}</div>}
+      {children}
+    </div>
+  );
+}
+
+function filterClientsByQuery(clients: AdminClient[], query: string): AdminClient[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return clients;
+  const qCompact = q.replace(/\s/g, '');
+  const qDigits = q.replace(/\D/g, '');
+  return clients.filter(c => {
+    const hay = `${c.name} ${c.phone} ${c.card} ${c.id} ${c.email || ''}`.toLowerCase();
+    const phoneOk = qDigits.length >= 3 && normalizePhone(c.phone).includes(qDigits.slice(-9));
+    return hay.includes(q) || hay.replace(/\s/g, '').includes(qCompact) || phoneOk;
+  });
+}
+
+function ClientSearchPicker({
+  clients,
+  selectedId,
+  onSelect,
+  onClear,
+  autoFocus,
+}: {
+  clients: AdminClient[];
+  selectedId: string;
+  onSelect: (clientId: string) => void;
+  onClear: () => void;
+  autoFocus?: boolean;
+}) {
+  const [q, setQ] = useState('');
+  const filtered = useMemo(() => filterClientsByQuery(clients, q), [clients, q]);
+  const selected = selectedId ? clients.find(c => c.id === selectedId) : null;
+  const qTrim = q.trim();
+  const showList = qTrim.length > 0;
+  const visible = filtered.slice(0, 40);
+  const hiddenCount = Math.max(0, filtered.length - visible.length);
+
+  return (
+    <div>
+      <div style={{ position: 'relative', marginBottom: 8 }}>
+        <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: .55, pointerEvents: 'none' }}>🔍</span>
+        <input
+          className="ai"
+          autoFocus={autoFocus}
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Имя, телефон, KAKAPO-0001…"
+          style={{ paddingLeft: 38, paddingRight: q ? 34 : 13 }}
+        />
+        {q && (
+          <button
+            type="button"
+            onClick={() => setQ('')}
+            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#8FB897', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 8, fontWeight: 700 }}>
+        {qTrim
+          ? `Найдено: ${filtered.length}`
+          : selected
+            ? 'Клиент выбран — нажмите «Сменить» чтобы выбрать другого'
+            : `В базе ${clients.length} клиентов — введите имя, телефон или KAKAPO-0001`}
+      </div>
+
+      {selected && !q.trim() && (
+        <div style={{ padding: '11px 13px', borderRadius: 12, background: 'rgba(31,215,96,.08)', border: '1px solid rgba(31,215,96,.25)', marginBottom: showList ? 10 : 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: '#1FD760', fontWeight: 800, fontSize: 13 }}>✓ {selected.name}</div>
+              <div style={{ color: '#8FB897', fontSize: 12, marginTop: 3 }}>{selected.phone}</div>
+              {selected.card && (
+                <div style={{ color: '#FFB800', fontSize: 11, marginTop: 5 }}>Карта: {selected.card}</div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => { onClear(); setQ(''); }}
+              className="ab"
+              style={{ flexShrink: 0, padding: '5px 10px', fontSize: 10, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}
+            >
+              Сменить
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showList && (
+        <div style={{
+          maxHeight: 220,
+          overflowY: 'auto',
+          borderRadius: 12,
+          border: '1px solid #162B1A',
+          background: '#060E08',
+        }}>
+          {visible.length === 0 ? (
+            <div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12, color: '#3D6645' }}>
+              {qTrim ? 'Никого не нашли — попробуйте другой телефон или имя' : 'Клиентов нет'}
+            </div>
+          ) : visible.map(c => {
+            const active = c.id === selectedId;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => { onSelect(c.id); setQ(''); }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '10px 13px',
+                  border: 'none',
+                  borderBottom: '1px solid #162B1A',
+                  background: active ? 'rgba(31,215,96,.12)' : 'transparent',
+                  cursor: 'pointer',
+                  transition: 'background .12s',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: active ? '#1FD760' : '#EBF5ED', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {c.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#8FB897', marginTop: 2 }}>{c.phone}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                    {c.card
+                      ? <span style={{ fontSize: 10, color: '#FFB800', fontWeight: 700 }}>{c.card}</span>
+                      : <span style={{ fontSize: 10, color: '#3D6645' }}>без карты</span>}
+                    {active && <span style={{ fontSize: 10, color: '#1FD760', fontWeight: 800 }}>✓</span>}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          {hiddenCount > 0 && (
+            <div style={{ padding: '8px 13px', fontSize: 10, color: '#3D6645', textAlign: 'center', borderTop: '1px solid #162B1A' }}>
+              Ещё {hiddenCount} — уточните поиск
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 /* ── КАРТЫ ──────────────────────────────────────── */
 function CardsPage() {
-  const [showGen,setShowGen]=useState(false);
-  const [genN,setGenN]=useState('10');
-  const [gened,setGened]=useState(false);
-  const SC2={active:{l:'Активна',c:'#1FD760'},unlinked:{l:'Не привязана',c:'#FFB800'},blocked:{l:'Заблок.',c:'#FF4545'}};
+  const stored = useCards();
+  const clients = useClients();
+  const { generateCards, unlinkCard, toggleBlock } = useCardStore();
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<'all' | CardStatus>('all');
+  const [detail, setDetail] = useState<AdminCard | null>(null);
+  const [showGen, setShowGen] = useState(false);
+  const [showCreateLink, setShowCreateLink] = useState(false);
+  const [showLink, setShowLink] = useState<AdminCard | null>(null);
+  const [genN, setGenN] = useState('1');
+  const [gened, setGened] = useState(false);
+  const [genLoading, setGenLoading] = useState(false);
+  const [genErr, setGenErr] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
+  const [genCreated, setGenCreated] = useState<AdminCard[]>([]);
+  const [linkForm, setLinkForm] = useState<CardLoyaltyForm>(emptyCardLoyaltyForm());
+  const [linkErr, setLinkErr] = useState('');
+
+  const cards = useMemo(() => mergeCardsWithClients(stored, clients), [stored, clients]);
+
+  const clientsForLink = useMemo(
+    () => clients.filter(c => !c.blocked),
+    [clients],
+  );
+
+  const linkClient = useMemo(() => {
+    if (linkForm.clientId) return clients.find(c => c.id === linkForm.clientId);
+    return lookupClientByPhone(linkForm.phone, clients);
+  }, [linkForm.clientId, linkForm.phone, clients]);
+
+  const pickClient = (clientId: string) => {
+    const c = clients.find(x => x.id === clientId);
+    if (!c) {
+      setLinkForm(prev => ({ ...prev, clientId: '', phone: '' }));
+      return;
+    }
+    setLinkForm(prev => ({
+      ...prev,
+      clientId: c.id,
+      phone: c.phone,
+      level: c.level || prev.level,
+      debtLimit: c.debtLimit ?? prev.debtLimit,
+      bonus: c.bonus ?? prev.bonus,
+      debt: c.debt ?? prev.debt,
+    }));
+  };
+
+  const filtered = useMemo(() => cards.filter(c =>
+    cardMatchesSearch(c, search) && (filter === 'all' || c.status === filter),
+  ), [cards, search, filter]);
+
+  const stats = useMemo(() => ({
+    total: cards.length,
+    active: cards.filter(c => c.status === 'active').length,
+    unlinked: cards.filter(c => c.status === 'unlinked').length,
+    blocked: cards.filter(c => c.status === 'blocked').length,
+  }), [cards]);
+
+  const genPreview = useMemo(() => previewCardRange(cards, Math.max(1, parseInt(genN, 10) || 1)), [cards, genN]);
+
+  const openLink = (card: AdminCard) => {
+    const client = findClientForCard(clients, card);
+    setLinkForm(cardLoyaltyFromCard(card, client));
+    setLinkErr('');
+    setShowLink(card);
+  };
+
+  const saveLink = () => {
+    if (!showLink) return;
+    try {
+      saveCardLoyalty(showLink, linkForm, showLink.status === 'unlinked' ? 'link' : 'edit');
+      setShowLink(null);
+    } catch (e) {
+      setLinkErr(e instanceof Error ? e.message : 'Ошибка сохранения');
+    }
+  };
+
+  const saveCreateLink = async () => {
+    setCreateLoading(true);
+    setLinkErr('');
+    try {
+      if (!linkForm.clientId && !linkForm.phone.trim()) {
+        throw new Error('Выберите клиента из списка');
+      }
+      await createAndLinkCard(linkForm);
+      setShowCreateLink(false);
+      setLinkForm(emptyCardLoyaltyForm());
+      setFilter('active');
+    } catch (e) {
+      setLinkErr(e instanceof Error ? e.message : 'Ошибка создания карты');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const doGenerate = async () => {
+    const n = Math.min(500, Math.max(1, parseInt(genN, 10) || 1));
+    setGenLoading(true);
+    setGenErr('');
+    try {
+      const created = await generateCards(n);
+      if (!created.length) throw new Error('Карты не созданы. Проверьте backend или перезагрузите страницу.');
+      setGenCreated(created);
+      setGened(true);
+      setFilter('unlinked');
+    } catch (e) {
+      setGenErr(e instanceof Error ? e.message : 'Ошибка генерации');
+    } finally {
+      setGenLoading(false);
+    }
+  };
+
+  const downloadCsv = () => {
+    const list = genCreated.length ? genCreated : cards.filter(c => c.status === 'unlinked');
+    const rows = [['num', 'status', 'issued'], ...list.map(c => [c.num, c.status, c.issued || ''])];
+    const csv = rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kakapo-cards-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const setLF = <K extends keyof CardLoyaltyForm>(key: K, val: CardLoyaltyForm[K]) =>
+    setLinkForm(prev => ({ ...prev, [key]: val }));
+
   return (
     <div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
-        <StatCard l="Всего карт" v={CARDS_DATA.length}/>
-        <StatCard l="Активных" v={CARDS_DATA.filter(c=>c.status==='active').length} c="#1FD760"/>
-        <StatCard l="Не привязано" v={CARDS_DATA.filter(c=>c.status==='unlinked').length} c="#FFB800"/>
-        <StatCard l="Заблокировано" v={CARDS_DATA.filter(c=>c.status==='blocked').length} c="#FF4545"/>
+      {/* Статистика — клик фильтрует список */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+        {[
+          { id: 'all', l: 'Всего карт', v: stats.total, c: '#EBF5ED', e: '💳' },
+          { id: 'active', l: 'Активные', v: stats.active, c: '#1FD760', e: '✅' },
+          { id: 'unlinked', l: 'Без клиента', v: stats.unlinked, c: '#FFB800', e: '🔗' },
+          { id: 'blocked', l: 'Заблокированы', v: stats.blocked, c: '#FF4545', e: '🚫' },
+        ].map(s => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setFilter(s.id as typeof filter)}
+            className="ac"
+            style={{
+              padding: '14px 16px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              border: filter === s.id ? `2px solid ${s.c}55` : '1px solid #162B1A',
+              background: filter === s.id ? `${s.c}0D` : undefined,
+              transition: 'all .15s',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: '#8FB897', fontWeight: 600 }}>{s.l}</span>
+              <span style={{ fontSize: 18 }}>{s.e}</span>
+            </div>
+            <div className="ub" style={{ fontSize: 24, fontWeight: 900, color: s.c }}>{s.v}</div>
+          </button>
+        ))}
       </div>
-      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
-        <button onClick={()=>setShowGen(true)} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>🃏 Генерировать карты</button>
+
+      {/* Главные действия */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, marginBottom: 16 }}>
+        <button
+          type="button"
+          onClick={() => { setShowCreateLink(true); setLinkForm(emptyCardLoyaltyForm()); setLinkErr(''); }}
+          style={{
+            background: 'linear-gradient(135deg,#0F8A3A,#1FD760)',
+            border: 'none',
+            borderRadius: 16,
+            padding: '20px 22px',
+            textAlign: 'left',
+            cursor: 'pointer',
+            color: '#030B05',
+            boxShadow: '0 4px 24px rgba(31,215,96,.25)',
+          }}
+        >
+          <div style={{ fontSize: 28, marginBottom: 8 }}>🎴</div>
+          <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 6 }}>Выдать карту клиенту</div>
+          <div style={{ fontSize: 12, opacity: .85, lineHeight: 1.5, fontWeight: 600 }}>
+            Создаётся новая KAKAPO-карта и сразу привязывается к выбранному клиенту
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setShowGen(true); setGened(false); setGenCreated([]); setGenErr(''); }}
+          style={{
+            background: '#0C1C0F',
+            border: '1.5px solid #162B1A',
+            borderRadius: 16,
+            padding: '20px 22px',
+            textAlign: 'left',
+            cursor: 'pointer',
+            color: '#EBF5ED',
+          }}
+        >
+          <div style={{ fontSize: 28, marginBottom: 8 }}>📦</div>
+          <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6, color: '#FFB800' }}>Пустые карты (пачка)</div>
+          <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.5 }}>
+            Сгенерировать карты без клиента — привязку сделаете позже кнопкой «Привязать»
+          </div>
+        </button>
       </div>
+
+      {/* Подсказка */}
+      <div style={{
+        display: 'flex',
+        gap: 16,
+        padding: '14px 18px',
+        marginBottom: 16,
+        borderRadius: 14,
+        background: 'rgba(59,142,240,.06)',
+        border: '1px solid rgba(59,142,240,.18)',
+        flexWrap: 'wrap',
+      }}>
+        {[
+          { n: '1', t: 'Выберите клиента', d: 'Из списка или по телефону' },
+          { n: '2', t: 'Настройте уровень', d: 'Бонусы, лимит долга' },
+          { n: '3', t: 'Готово!', d: 'Карта работает в приложении' },
+        ].map((step, i) => (
+          <div key={step.n} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: '1 1 160px' }}>
+            <div style={{
+              width: 26, height: 26, borderRadius: '50%', background: '#3B8EF0', color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 900, flexShrink: 0,
+            }}>{step.n}</div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#EBF5ED' }}>{step.t}</div>
+              <div style={{ fontSize: 11, color: '#8FB897' }}>{step.d}</div>
+            </div>
+            {i < 2 && <div style={{ display: 'none' }} />}
+          </div>
+        ))}
+      </div>
+
+      {/* Поиск и фильтры */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 360 }}>
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: .5 }}>🔍</span>
+          <input
+            className="ai"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Поиск: KAKAPO-0001, имя, телефон…"
+            style={{ paddingLeft: 38, paddingRight: search ? 34 : 13 }}
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#8FB897', cursor: 'pointer', fontSize: 16 }}>✕</button>
+          )}
+        </div>
+        {search.trim() && (
+          <span style={{ fontSize: 12, color: '#8FB897' }}>
+            Найдено: <strong style={{ color: '#1FD760' }}>{filtered.length}</strong>
+          </span>
+        )}
+      </div>
+
+      {/* Таблица */}
       <div className="ac">
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#8FB897' }}>
+            Список карт {filter !== 'all' && `· ${CARD_STATUS_LABELS[filter as CardStatus]?.l || filter}`}
+          </span>
+          <span style={{ fontSize: 11, color: '#3D6645' }}>{filtered.length} шт.</span>
+        </div>
         <table className="at">
-          <thead><tr><th>Номер карты</th><th>Клиент</th><th>Статус</th><th>Уровень</th><th>Бонусы</th><th>Лимит долга</th><th>Долг</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <th>Карта</th>
+              <th>Клиент</th>
+              <th>Статус</th>
+              <th>Уровень</th>
+              <th>Бонусы</th>
+              <th>Долг</th>
+              <th>Действие</th>
+            </tr>
+          </thead>
           <tbody>
-            {CARDS_DATA.map((c,i)=>{const s=SC2[c.status];return(
-              <tr key={i}>
-                <td><span className="ub" style={{fontSize:11,fontWeight:800,color:'#FFB800'}}>{c.num}</span></td>
-                <td style={{fontWeight:600}}>{c.client||<span style={{color:'#3D6645',fontStyle:'italic'}}>Не привязана</span>}</td>
-                <td><Badge v={s.l} c={s.c}/></td>
-                <td>{c.level?<Badge v={c.level} c={LVC[c.level]||'#8FB897'}/>:'—'}</td>
-                <td style={{color:'#FFB800',fontWeight:700}}>{c.bonus>0?`${c.bonus.toLocaleString()} ⭐`:'—'}</td>
-                <td style={{color:c.debtLimit>0?'#1FD760':'#3D6645'}}>{c.debtLimit>0?`${c.debtLimit.toLocaleString()} ЅМ`:'Нет'}</td>
-                <td style={{color:c.debt>0?'#FF4545':'#3D6645',fontWeight:c.debt>0?800:400}}>{c.debt>0?`${c.debt.toLocaleString()} ЅМ`:'—'}</td>
-                <td><div style={{display:'flex',gap:5}}>{c.status==='unlinked'&&<button className="ab abp" style={{padding:'4px 9px',fontSize:11}}>🔗</button>}{c.status==='active'&&<button className="ab abg" style={{padding:'4px 9px',fontSize:11}}>✏️</button>}{c.status!=='blocked'&&<button className="ab abd" style={{padding:'4px 9px',fontSize:11}}>🚫</button>}</div></td>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: 32 }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>💳</div>
+                  <div style={{ color: '#8FB897', fontWeight: 700, marginBottom: 4 }}>
+                    {search.trim() ? 'Ничего не найдено' : 'Карт пока нет'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#3D6645' }}>
+                    Нажмите «Выдать карту клиенту» чтобы начать
+                  </div>
+                </td>
               </tr>
-            );})}
+            ) : filtered.map(c => {
+              const s = CARD_STATUS_LABELS[c.status];
+              const overLimit = c.debtLimit > 0 && c.debt > c.debtLimit;
+              const isUnlinked = c.status === 'unlinked';
+              return (
+                <tr
+                  key={c.num}
+                  style={{
+                    opacity: c.status === 'blocked' ? .6 : 1,
+                    background: isUnlinked ? 'rgba(255,184,0,.04)' : undefined,
+                  }}
+                >
+                  <td>
+                    <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#FFB800', letterSpacing: .5 }}>{c.num}</div>
+                    <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>{c.phone || '—'}</div>
+                  </td>
+                  <td style={{ fontWeight: 600, maxWidth: 140 }}>
+                    {c.client || <span style={{ color: '#FFB800', fontSize: 12 }}>👤 Не привязана</span>}
+                  </td>
+                  <td><Badge v={s.l} c={s.c} /></td>
+                  <td>
+                    {c.level
+                      ? <Badge v={CARD_LEVEL_RU[c.level as ClientLevel] || c.level} c={LVC[c.level] || '#8FB897'} />
+                      : <span style={{ color: '#3D6645' }}>—</span>}
+                  </td>
+                  <td style={{ color: '#FFB800', fontWeight: 700, fontSize: 12 }}>
+                    {c.bonus > 0 ? `${c.bonus.toLocaleString()} ⭐` : '—'}
+                  </td>
+                  <td style={{ fontSize: 12 }}>
+                    {c.debt > 0 ? (
+                      <span style={{ color: overLimit ? '#FF4545' : '#FF8C8C', fontWeight: 700 }}>
+                        {c.debt.toLocaleString()} ЅМ{overLimit ? ' ⚠' : ''}
+                      </span>
+                    ) : <span style={{ color: '#3D6645' }}>—</span>}
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {isUnlinked ? (
+                        <button type="button" onClick={() => openLink(c)} className="ab abp" style={{ padding: '6px 12px', fontSize: 11, fontWeight: 800 }}>
+                          🔗 Привязать
+                        </button>
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => openLink(c)} className="ab abg" style={{ padding: '5px 10px', fontSize: 11 }} title="Настройки">⚙️</button>
+                          <button type="button" onClick={() => setDetail(c)} className="ab abg" style={{ padding: '5px 10px', fontSize: 11 }} title="Подробнее">👁</button>
+                          {c.status !== 'blocked' ? (
+                            <button type="button" onClick={() => toggleBlock(c.num)} className="ab abd" style={{ padding: '5px 10px', fontSize: 11 }} title="Блок">🚫</button>
+                          ) : (
+                            <button type="button" onClick={() => toggleBlock(c.num)} className="ab abg" style={{ padding: '5px 10px', fontSize: 11 }} title="Разблок">✓</button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      {showGen&&(
+
+      {detail && (
         <div className="amod">
-          <div className="amodbg" onClick={()=>{setShowGen(false);setGened(false);}}/>
-          <div className="amodbox" style={{maxWidth:360}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><div className="ub" style={{fontSize:14,fontWeight:800}}>Генерация карт</div><button onClick={()=>{setShowGen(false);setGened(false);}} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button></div>
-            {!gened?(<><div style={{marginBottom:12}}><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Количество карт</div><input className="ai" value={genN} onChange={e=>setGenN(e.target.value)} type="number" min="1" max="500"/></div><div style={{padding:'10px 12px',borderRadius:9,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',fontSize:12,color:'#8FB897',marginBottom:12}}>Будет создано: KAKAPO-{String(CARDS_DATA.length+1).padStart(4,'0')} – KAKAPO-{String(CARDS_DATA.length+Number(genN)).padStart(4,'0')}</div><button onClick={()=>setGened(true)} className="ab abp" style={{width:'100%',padding:11}}>🃏 Создать {genN} карт</button></>)
-            :(<div style={{textAlign:'center',padding:'10px 0'}}><div style={{fontSize:36,marginBottom:10}}>✅</div><div className="ub" style={{fontSize:14,fontWeight:800,color:'#1FD760',marginBottom:6}}>{genN} карт создано!</div><button className="ab abg" style={{width:'100%',padding:10,marginBottom:8}}>📄 Скачать PDF</button><button onClick={()=>{setShowGen(false);setGened(false);}} className="ab" style={{width:'100%',padding:9,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897'}}>Закрыть</button></div>)}
+          <div className="amodbg" onClick={() => setDetail(null)} />
+          <div className="amodbox" style={{ maxWidth: 480 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>Карточка клиента</div>
+              <button type="button" onClick={() => setDetail(null)} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+            <CardVisualMini num={detail.num} level={detail.level} clientName={detail.client || undefined} status={detail.status} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '16px 0' }}>
+              {[
+                { l: 'Статус', v: CARD_STATUS_LABELS[detail.status].l, c: CARD_STATUS_LABELS[detail.status].c },
+                { l: 'Телефон', v: detail.phone || '—', c: '#8FB897' },
+                { l: 'Бонусы', v: `${detail.bonus.toLocaleString()} ⭐`, c: '#FFB800' },
+                { l: 'Лимит долга', v: detail.debtLimit > 0 ? `${detail.debtLimit} ЅМ` : 'Нет', c: '#1FD760' },
+                { l: 'Долг', v: detail.debt > 0 ? `${detail.debt} ЅМ` : '—', c: detail.debt > 0 ? '#FF4545' : '#3D6645' },
+                { l: 'Выдана', v: detail.issued || '—', c: '#8FB897' },
+              ].map(row => (
+                <div key={row.l} style={{ background: '#0C1C0F', borderRadius: 12, padding: '11px 13px', border: '1px solid #162B1A' }}>
+                  <div style={{ fontSize: 10, color: '#3D6645', fontWeight: 700, marginBottom: 4 }}>{row.l}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: row.c }}>{row.v}</div>
+                </div>
+              ))}
+            </div>
+            {clientNoteForCard(detail, clients) && (
+              <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.2)', fontSize: 12, color: '#8FB897', marginBottom: 14 }}>
+                💬 {clientNoteForCard(detail, clients)}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => { setDetail(null); openLink(detail); }} className="ab abg" style={{ flex: 1, padding: 11 }}>⚙️ Настроить</button>
+              {detail.status !== 'unlinked' && (
+                <button type="button" onClick={() => { unlinkCard(detail.num); setDetail(null); }} className="ab abd" style={{ flex: 1, padding: 11 }}>🔓 Отвязать</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateLink && (
+        <div className="amod">
+          <div className="amodbg" onClick={() => !createLoading && setShowCreateLink(false)} />
+          <div className="amodbox" style={{ maxWidth: 460 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div>
+                <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>🎴 Выдать карту</div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>Новая карта + привязка к клиенту</div>
+              </div>
+              <button type="button" onClick={() => setShowCreateLink(false)} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+
+            <CardVisualMini
+              level={linkForm.level}
+              clientName={linkClient?.name}
+              status="unlinked"
+            />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
+              <CardFormSection title="👤 Шаг 1 — Кому выдаём?" subtitle="Найдите клиента по имени, телефону или номеру карты">
+                <ClientSearchPicker
+                  clients={clientsForLink}
+                  selectedId={linkForm.clientId}
+                  onSelect={pickClient}
+                  onClear={() => pickClient('')}
+                  autoFocus
+                />
+                {linkClient && linkClient.card && (
+                  <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.2)', fontSize: 11, color: '#FFB800' }}>
+                    ⚠ Старая карта {linkClient.card} будет заменена новой
+                  </div>
+                )}
+              </CardFormSection>
+
+              <CardFormSection title="⭐ Шаг 2 — Уровень и бонусы" subtitle="Можно изменить позже в настройках карты">
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 8, fontWeight: 700 }}>Уровень лояльности</div>
+                  <CardLevelPicker value={linkForm.level} onChange={v => setLF('level', v)} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                  <NI lbl="Лимит долга ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <NI lbl="Текущий долг ЅМ" val={String(linkForm.debt)} set={v => setLF('debt', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                </div>
+              </CardFormSection>
+
+              {linkErr && (
+                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.3)', fontSize: 12, color: '#FF4545', fontWeight: 700 }}>
+                  ⚠ {linkErr}
+                </div>
+              )}
+              <button type="button" onClick={saveCreateLink} disabled={createLoading || !linkForm.clientId} className="ab abp" style={{ width: '100%', padding: 14, fontSize: 14, fontWeight: 800, opacity: createLoading || !linkForm.clientId ? .6 : 1 }}>
+                {createLoading ? '⏳ Создаём карту…' : '✓ Выдать карту клиенту'}
+              </button>
+              {!linkForm.clientId && (
+                <div style={{ textAlign: 'center', fontSize: 11, color: '#3D6645' }}>Сначала выберите клиента ↑</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showLink && (
+        <div className="amod">
+          <div className="amodbg" onClick={() => setShowLink(null)} />
+          <div className="amodbox" style={{ maxWidth: 460 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div>
+                <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>
+                  {showLink.status === 'unlinked' ? '🔗 Привязать карту' : '⚙️ Настройки карты'}
+                </div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>{showLink.num}</div>
+              </div>
+              <button type="button" onClick={() => setShowLink(null)} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+
+            <CardVisualMini num={showLink.num} level={linkForm.level} clientName={linkClient?.name} status={showLink.status} />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
+              <CardFormSection title="👤 Клиент" subtitle={showLink.status === 'unlinked' ? 'Найдите клиента по имени или телефону' : 'Сменить привязку карты'}>
+                <ClientSearchPicker
+                  clients={clientsForLink}
+                  selectedId={linkForm.clientId}
+                  onSelect={pickClient}
+                  onClear={() => pickClient('')}
+                  autoFocus
+                />
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #162B1A' }}>
+                  <NI lbl="Или только телефон (если нет в списке)" val={linkForm.phone} set={v => setLF('phone', v)} ph="+992 93 456 78 90" />
+                </div>
+              </CardFormSection>
+
+              <CardFormSection title="⭐ Лояльность">
+                <div style={{ marginBottom: 12 }}>
+                  <CardLevelPicker value={linkForm.level} onChange={v => setLF('level', v)} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                  <NI lbl="Лимит ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <NI lbl="Долг ЅМ" val={String(linkForm.debt)} set={v => setLF('debt', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                </div>
+              </CardFormSection>
+
+              {linkErr && (
+                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.3)', fontSize: 12, color: '#FF4545', fontWeight: 700 }}>⚠ {linkErr}</div>
+              )}
+              <button type="button" onClick={saveLink} className="ab abp" style={{ width: '100%', padding: 14, fontSize: 14, fontWeight: 800 }}>
+                {showLink.status === 'unlinked' ? '✓ Привязать карту' : '✓ Сохранить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGen && (
+        <div className="amod">
+          <div className="amodbg" onClick={() => { if (!genLoading) { setShowGen(false); setGened(false); setGenCreated([]); } }} />
+          <div className="amodbox" style={{ maxWidth: 440 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div>
+                <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>📦 Пустые карты</div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>Для печати или выдачи на кассе</div>
+              </div>
+              <button type="button" onClick={() => { setShowGen(false); setGened(false); setGenCreated([]); }} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+            {!gened ? (
+              <>
+                <CardVisualMini status="unlinked" />
+                <div style={{ marginTop: 16 }}>
+                  <NI lbl="Сколько карт создать?" val={genN} set={setGenN} ph="1" type="number" />
+                </div>
+                <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.2)', fontSize: 12, color: '#8FB897', margin: '12px 0' }}>
+                  Номера: <strong style={{ color: '#FFB800' }}>{genPreview.from}</strong> → <strong style={{ color: '#FFB800' }}>{genPreview.to}</strong>
+                </div>
+                {genErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700, marginBottom: 10 }}>⚠ {genErr}</div>}
+                <button type="button" onClick={doGenerate} disabled={genLoading} className="ab abp" style={{ width: '100%', padding: 14, fontWeight: 800, opacity: genLoading ? .7 : 1 }}>
+                  {genLoading ? '⏳ Создаём…' : `✓ Создать ${Math.max(1, parseInt(genN, 10) || 1)} карт`}
+                </button>
+              </>
+            ) : (
+              <div>
+                <div style={{ textAlign: 'center', padding: '12px 0 16px' }}>
+                  <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+                  <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#1FD760' }}>{genCreated.length} карт готово!</div>
+                  <div style={{ fontSize: 12, color: '#8FB897', marginTop: 6 }}>Нажмите «Привязать» у нужной карты</div>
+                </div>
+                <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                  {genCreated.map(c => (
+                    <div key={c.num} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 12, background: '#0C1C0F', border: '1px solid #162B1A' }}>
+                      <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#FFB800' }}>{c.num}</span>
+                      <button type="button" onClick={() => { setShowGen(false); openLink(c); }} className="ab abp" style={{ padding: '6px 14px', fontSize: 11, fontWeight: 800 }}>🔗 Привязать</button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" onClick={downloadCsv} className="ab abg" style={{ width: '100%', padding: 11, marginBottom: 8 }}>📄 Скачать список (CSV)</button>
+                <button type="button" onClick={() => { setShowGen(false); setGened(false); setGenCreated([]); }} className="ab" style={{ width: '100%', padding: 10, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>Готово</button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1765,29 +3991,29 @@ function PromosPage() {
       {loading ? (
         <div style={{padding:24,textAlign:'center',color:'#8FB897'}}>Загрузка…</div>
       ) : (
-        <div style={{display:'flex',flexDirection:'column',gap:10}}>
-          {promos.map(p=>(
-            <div key={p.id} className="ac" style={{padding:'14px 16px',opacity:p.on?1:.6,transition:'opacity .2s'}}>
-              <div style={{display:'flex',alignItems:'center',gap:12}}>
-                <div style={{width:44,height:44,borderRadius:13,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{p.e}</div>
-                <div style={{flex:1}}>
+      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+        {promos.map(p=>(
+          <div key={p.id} className="ac" style={{padding:'14px 16px',opacity:p.on?1:.6,transition:'opacity .2s'}}>
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <div style={{width:44,height:44,borderRadius:13,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{p.e}</div>
+              <div style={{flex:1}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3,flexWrap:'wrap'}}>
                     <span style={{fontSize:14,fontWeight:800}}>{p.title}</span>
                     {discBadge(p)}
-                    <Badge v={p.cat} c={p.cat==='Рестораны'?'#FF8C00':'#3B8EF0'}/>
-                  </div>
-                  <div style={{fontSize:12,color:'#8FB897'}}>{p.sub}</div>
+                  <Badge v={p.cat} c={p.cat==='Рестораны'?'#FF8C00':'#3B8EF0'}/>
                 </div>
-                <div style={{display:'flex',alignItems:'center',gap:10}}>
-                  <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
+                  <div style={{fontSize:12,color:'#8FB897'}}>{p.sub}</div>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
                   <Tog on={p.on} set={()=>togglePromo(p)}/>
                   <button onClick={()=>openEdit(p)} className="ab abg" style={{padding:'5px 10px',fontSize:11}}>✏️</button>
                   <button onClick={()=>removePromo(p.id)} className="ab abd" style={{padding:'5px 10px',fontSize:11}}>🗑</button>
-                </div>
               </div>
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
+      </div>
       )}
 
       {showModal && (
@@ -1859,74 +4085,346 @@ function PromosPage() {
 }
 
 /* ── PUSH ────────────────────────────────────────── */
-function PushPage() {
-  const [title,setTitle]=useState('');
-  const [body,setBody]=useState('');
-  const [target,setTarget]=useState('all');
-  const [sent,setSent]=useState(false);
-  const [sending,setSending]=useState(false);
-  const doSend=()=>{if(!title||!body)return;setSending(true);setTimeout(()=>{setSending(false);setSent(true);},1400);setTimeout(()=>setSent(false),5000);};
-  const TARGETS=[{id:'all',l:'Все клиенты',n:1847},{id:'vip',l:'VIP клиенты',n:24},{id:'rest',l:'Посетители ресторанов',n:312},{id:'inactive',l:'Неактивные 30+ дней',n:234}];
-  const TEMPLATES=[{e:'🔥',t:'Акция дня!',b:'Скидки до 40% только сегодня!'},{e:'🍽',t:'Новый ресторан!',b:'Суши Яван теперь в KAKAPO!'},{e:'🎁',t:'Бонусы истекают',b:'Ваши бонусы сгорят через 3 дня.'},{e:'🚀',t:'Бесплатная доставка',b:'Сегодня доставляем бесплатно при любом заказе 🎉'}];
+function PushPreview({ title, body }: { title: string; body: string }) {
   return (
-    <div style={{display:'grid',gridTemplateColumns:'1.2fr 1fr',gap:18}}>
-      <div style={{display:'flex',flexDirection:'column',gap:14}}>
-        <div className="ac" style={{padding:20}}>
-          <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:16}}>Новое уведомление</div>
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Получатели</div>
-            {TARGETS.map(t=>(
-              <div key={t.id} onClick={()=>setTarget(t.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:10,background:target===t.id?'rgba(31,215,96,.08)':'#0C1C0F',border:`1.5px solid ${target===t.id?'rgba(31,215,96,.35)':'#162B1A'}`,cursor:'pointer',marginBottom:6}}>
-                <div style={{width:16,height:16,borderRadius:'50%',border:`2px solid ${target===t.id?'#1FD760':'#3D6645'}`,background:target===t.id?'#1FD760':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                  {target===t.id&&<svg width={8} height={8} viewBox="0 0 24 24" fill="none" stroke="#030B05" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+    <div style={{
+      padding: '14px 16px',
+      borderRadius: 16,
+      background: 'linear-gradient(145deg,#060E08,#0C1C0F)',
+      border: '1px solid #162B1A',
+      boxShadow: '0 8px 28px rgba(0,0,0,.35)',
+    }}>
+      <div style={{ fontSize: 9, color: '#3D6645', marginBottom: 10, fontWeight: 800, letterSpacing: 1 }}>ПРЕДПРОСМОТР · iOS / Android</div>
+      <div style={{ display: 'flex', gap: 11, alignItems: 'flex-start' }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: 11,
+          background: 'linear-gradient(135deg,#0F8A3A,#1FD760)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'Unbounded', fontSize: 15, fontWeight: 900, color: '#030B05', flexShrink: 0,
+          boxShadow: '0 4px 12px rgba(31,215,96,.3)',
+        }}>K</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 3, color: '#EBF5ED' }}>{title || 'Заголовок'}</div>
+          <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.5 }}>{body || 'Текст уведомления'}</div>
+          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>KAKAPO · сейчас</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PushToggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        width: 44, height: 24, borderRadius: 12, border: 'none', padding: 0, cursor: 'pointer',
+        background: on ? '#1FD760' : '#1D3822', position: 'relative', flexShrink: 0, transition: 'background .2s',
+      }}
+    >
+      <div style={{
+        position: 'absolute', top: 3, left: on ? 22 : 3, width: 18, height: 18,
+        borderRadius: '50%', background: 'white', transition: 'left .2s',
+        boxShadow: '0 1px 4px rgba(0,0,0,.25)',
+      }} />
+    </button>
+  );
+}
+
+function PushPage() {
+  const storedClients = useClients();
+  const apiOrders = useOrders(s => s.orders);
+  const history = usePushHistory();
+  const autoSettings = usePushAutoSettings();
+  const templates = usePushTemplates();
+  const setAutoEnabled = usePushStore(s => s.setAutoEnabled);
+
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [target, setTarget] = useState<PushSegmentId>('all');
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState('');
+  const [histSearch, setHistSearch] = useState('');
+
+  const pushClients = useMemo(
+    () => enrichClientsForPush(storedClients, apiOrders),
+    [storedClients, apiOrders],
+  );
+
+  const segmentCounts = useMemo(() => {
+    const counts: Record<PushSegmentId, number> = {} as Record<PushSegmentId, number>;
+    for (const seg of PUSH_SEGMENT_OPTIONS) counts[seg.id] = countSegment(pushClients, seg.id);
+    return counts;
+  }, [pushClients]);
+
+  const selectedRecipients = useMemo(
+    () => filterClientsBySegment(pushClients, target),
+    [pushClients, target],
+  );
+
+  const filteredHistory = useMemo(() => {
+    const q = histSearch.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter(h =>
+      `${h.title} ${h.body} ${h.segmentLabel}`.toLowerCase().includes(q),
+    );
+  }, [history, histSearch]);
+
+  const stats = useMemo(() => ({
+    totalClients: pushClients.filter(c => !c.blocked).length,
+    autoOn: autoSettings.filter(s => s.enabled).length,
+    sentTotal: history.reduce((s, h) => s + h.delivered, 0),
+    avgOpen: history.length
+      ? Math.round(history.reduce((s, h) => s + openRatePercent(h.opened, h.delivered), 0) / history.length)
+      : 0,
+  }), [pushClients, autoSettings, history]);
+
+  const doSend = async () => {
+    if (!title.trim() || !body.trim()) {
+      setSendErr('Заполните заголовок и текст');
+      return;
+    }
+    if (!selectedRecipients.length) {
+      setSendErr('В этой группе нет получателей');
+      return;
+    }
+    setSending(true);
+    setSendErr('');
+    try {
+      await sendPushCampaign({
+        title: title.trim(),
+        body: body.trim(),
+        segment: target,
+        recipients: selectedRecipients,
+        icon: '🔔',
+      });
+      setSent(true);
+      setTitle('');
+      setBody('');
+      setTimeout(() => setSent(false), 4000);
+    } catch (e) {
+      setSendErr(e instanceof Error ? e.message : 'Ошибка отправки');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const applyTemplate = (t: { title: string; body: string; segment?: PushSegmentId }) => {
+    setTitle(t.title);
+    setBody(t.body);
+    if (t.segment) setTarget(t.segment);
+    setSendErr('');
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+        {[
+          { l: 'Клиентов в базе', v: stats.totalClients, c: '#EBF5ED', e: '👥' },
+          { l: 'Отправлено всего', v: stats.sentTotal.toLocaleString(), c: '#1FD760', e: '📤' },
+          { l: 'Авто-уведомления', v: `${stats.autoOn}/${autoSettings.length}`, c: '#3B8EF0', e: '⚡' },
+          { l: 'Ср. открываемость', v: `${stats.avgOpen}%`, c: '#FFB800', e: '📊' },
+        ].map(s => (
+          <div key={s.l} className="ac" style={{ padding: '14px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: '#8FB897', fontWeight: 600 }}>{s.l}</span>
+              <span style={{ fontSize: 18 }}>{s.e}</span>
+            </div>
+            <div className="ub" style={{ fontSize: 22, fontWeight: 900, color: s.c }}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: 18 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="ac" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div className="ub" style={{ fontSize: 15, fontWeight: 900 }}>📣 Новая рассылка</div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 4 }}>Push попадёт в приложение клиента KAKAPO</div>
+              </div>
+              <Badge v={`${selectedRecipients.length} чел.`} c="#1FD760" />
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 8, fontWeight: 700 }}>Кому отправить</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {PUSH_SEGMENT_OPTIONS.map(seg => {
+                  const active = target === seg.id;
+                  const n = segmentCounts[seg.id] ?? 0;
+                  return (
+                    <button
+                      key={seg.id}
+                      type="button"
+                      onClick={() => setTarget(seg.id)}
+                      style={{
+                        textAlign: 'left', padding: '10px 12px', borderRadius: 12, cursor: 'pointer',
+                        background: active ? 'rgba(31,215,96,.1)' : '#0C1C0F',
+                        border: `1.5px solid ${active ? 'rgba(31,215,96,.4)' : '#162B1A'}`,
+                        transition: 'all .15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 16 }}>{seg.emoji}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: active ? '#1FD760' : '#EBF5ED' }}>{seg.label}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: '#3D6645', lineHeight: 1.4 }}>{seg.hint}</div>
+                      <div style={{ fontSize: 11, color: active ? '#1FD760' : '#8FB897', fontWeight: 800, marginTop: 6 }}>{n.toLocaleString()} чел.</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+              <NI lbl="Заголовок *" val={title} set={setTitle} ph="Акция дня!" />
+              <div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Текст *</div>
+                <textarea
+                  value={body}
+                  onChange={e => setBody(e.target.value)}
+                  placeholder="Скидки до 40% только сегодня!"
+                  style={{
+                    background: '#0C1C0F', border: '1.5px solid #162B1A', borderRadius: 10, color: '#EBF5ED',
+                    fontFamily: 'Nunito', fontSize: 13, resize: 'none', height: 88, outline: 'none', padding: '9px 13px', width: '100%',
+                  }}
+                />
+              </div>
+            </div>
+
+            {(title || body) && (
+              <div style={{ marginBottom: 14 }}>
+                <PushPreview title={title} body={body} />
+              </div>
+            )}
+
+            {sendErr && (
+              <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.3)', fontSize: 12, color: '#FF4545', fontWeight: 700, marginBottom: 12 }}>
+                ⚠ {sendErr}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={doSend}
+              disabled={sending || !title.trim() || !body.trim() || !selectedRecipients.length}
+              className="ab"
+              style={{
+                width: '100%', padding: 14, fontWeight: 800, fontSize: 14,
+                background: sent ? 'rgba(31,215,96,.15)' : 'linear-gradient(135deg,#17B34E,#1FD760)',
+                border: sent ? '1.5px solid rgba(31,215,96,.4)' : 'none',
+                color: sent ? '#1FD760' : '#030B05',
+                opacity: sending || !selectedRecipients.length ? .65 : 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              {sending ? '⏳ Отправляем…' : sent
+                ? (target === 'all' ? '✅ Отправлено всем в приложении!' : `✅ Доставлено ${selectedRecipients.length} клиентам`)
+                : (target === 'all' ? '📤 Отправить всем в приложении' : `📤 Отправить ${selectedRecipients.length} клиентам`)}
+            </button>
+          </div>
+
+          <div className="ac" style={{ padding: 18 }}>
+            <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>⚡ Быстрые шаблоны</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {templates.map(tpl => (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => applyTemplate(tpl)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12,
+                    background: '#0C1C0F', border: '1px solid #162B1A', cursor: 'pointer', textAlign: 'left', width: '100%',
+                  }}
+                >
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>{tpl.emoji}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#EBF5ED' }}>{tpl.title}</div>
+                    <div style={{ fontSize: 10, color: '#3D6645', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{tpl.body}</div>
+                  </div>
+                  <span style={{ fontSize: 10, color: '#1FD760', fontWeight: 800, flexShrink: 0 }}>Выбрать</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="ac" style={{ padding: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div className="ub" style={{ fontSize: 13, fontWeight: 800 }}>⚙️ Автоматические</div>
+              <span style={{ fontSize: 10, color: '#3D6645' }}>Связаны с заказами и картами</span>
+            </div>
+            {autoSettings.map((row, i) => (
+              <div
+                key={row.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0',
+                  borderBottom: i < autoSettings.length - 1 ? '1px solid #162B1A' : 'none',
+                }}
+              >
+                <span style={{ fontSize: 18, flexShrink: 0 }}>{row.icon}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: row.enabled ? '#EBF5ED' : '#8FB897' }}>{row.label}</div>
+                  <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>{row.description}</div>
                 </div>
-                <span style={{flex:1,fontSize:13,fontWeight:600,color:target===t.id?'#1FD760':'#EBF5ED'}}>{t.l}</span>
-                <span style={{fontSize:11,color:'#3D6645'}}>{t.n.toLocaleString()} чел.</span>
+                <PushToggle on={row.enabled} onToggle={() => setAutoEnabled(row.id, !row.enabled)} />
               </div>
             ))}
           </div>
-          <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
-            <NI lbl="Заголовок *" val={title} set={setTitle} ph="Краткий заголовок..."/>
-            <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Текст *</div><textarea value={body} onChange={e=>setBody(e.target.value)} placeholder="Текст сообщения..." style={{background:'#0C1C0F',border:'1.5px solid #162B1A',borderRadius:10,color:'#EBF5ED',fontFamily:'Nunito',fontSize:13,resize:'none',height:80,outline:'none',padding:'9px 13px',width:'100%'}}/></div>
+
+          <div className="ac" style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '13px 16px', borderBottom: '1px solid #162B1A', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div className="ub" style={{ fontSize: 13, fontWeight: 800 }}>📋 История</div>
+              <span style={{ fontSize: 10, color: '#3D6645' }}>{history.length} рассылок</span>
+            </div>
+            <div style={{ padding: '10px 14px', borderBottom: '1px solid #162B1A' }}>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: .5, fontSize: 13 }}>🔍</span>
+                <input
+                  className="ai"
+                  value={histSearch}
+                  onChange={e => setHistSearch(e.target.value)}
+                  placeholder="Поиск по заголовку…"
+                  style={{ paddingLeft: 34, fontSize: 12 }}
+                />
+              </div>
+            </div>
+            {filteredHistory.length === 0 ? (
+              <div style={{ padding: '28px 16px', textAlign: 'center', color: '#3D6645', fontSize: 12 }}>
+                {histSearch ? 'Ничего не найдено' : 'История пуста — отправьте первую рассылку'}
+              </div>
+            ) : filteredHistory.map((h, i) => {
+              const rate = openRatePercent(h.opened, h.delivered);
+              return (
+                <div key={h.id} style={{ padding: '12px 16px', borderBottom: i < filteredHistory.length - 1 ? '1px solid #162B1A' : 'none' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <span style={{ fontSize: 16 }}>{h.icon || '🔔'}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.title}</span>
+                    </div>
+                    <span style={{ fontSize: 10, color: '#3D6645', flexShrink: 0 }}>{formatPushTime(h.sentAt)}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 8, lineHeight: 1.45 }}>{h.body}</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ padding: '2px 8px', borderRadius: 7, fontSize: 10, fontWeight: 700, background: 'rgba(59,142,240,.1)', color: '#3B8EF0', border: '1px solid rgba(59,142,240,.2)' }}>{h.segmentLabel}</span>
+                    <span style={{ fontSize: 10, color: '#8FB897' }}>{h.delivered.toLocaleString()} доставлено</span>
+                    <span style={{ fontSize: 10, color: '#1FD760', fontWeight: 700 }}>{rate}% открыли</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          {(title||body)&&<div style={{marginBottom:14,padding:'11px 13px',borderRadius:12,background:'#0C1C0F',border:'1px solid #162B1A'}}>
-            <div style={{fontSize:9,color:'#3D6645',marginBottom:7,fontWeight:700}}>ПРЕДПРОСМОТР</div>
-            <div style={{display:'flex',gap:9,alignItems:'flex-start'}}>
-              <div style={{width:34,height:34,borderRadius:9,background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#030B05',flexShrink:0}}>K</div>
-              <div><div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{title||'Заголовок'}</div><div style={{fontSize:11,color:'#8FB897'}}>{body||'Текст'}</div><div style={{fontSize:10,color:'#3D6645',marginTop:3}}>KAKAPO · сейчас</div></div>
-            </div>
-          </div>}
-          <button onClick={doSend} className="ab" style={{width:'100%',padding:12,background:sent?'rgba(31,215,96,.15)':'linear-gradient(135deg,#17B34E,#1FD760)',border:sent?'1.5px solid rgba(31,215,96,.4)':'none',color:sent?'#1FD760':'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-            {sending?<div style={{width:18,height:18,borderRadius:'50%',border:'2.5px solid rgba(3,11,5,.3)',borderTopColor:'#030B05',animation:'spin 1s linear infinite'}}/>:sent?'✅ Отправлено!':'📤 Отправить'}
-          </button>
-        </div>
-        <div className="ac" style={{padding:18}}>
-          <div className="ub" style={{fontSize:13,fontWeight:800,marginBottom:12}}>Шаблоны</div>
-          {TEMPLATES.map((t,i)=>(
-            <div key={i} onClick={()=>{setTitle(t.t);setBody(t.b);}} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 11px',borderRadius:10,background:'#0C1C0F',border:'1px solid #162B1A',cursor:'pointer',marginBottom:6,transition:'border-color .15s'}} onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(31,215,96,.3)'} onMouseLeave={e=>e.currentTarget.style.borderColor='#162B1A'}>
-              <span style={{fontSize:20}}>{t.e}</span><div style={{flex:1}}><div style={{fontSize:12,fontWeight:700}}>{t.t}</div><div style={{fontSize:10,color:'#3D6645',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.b}</div></div><span style={{fontSize:11,color:'#1FD760',fontWeight:700,flexShrink:0}}>Выбрать</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div style={{display:'flex',flexDirection:'column',gap:14}}>
-        <div className="ac" style={{padding:18}}>
-          <div className="ub" style={{fontSize:13,fontWeight:800,marginBottom:14}}>Автоматические</div>
-          {[{l:'При принятии заказа',on:true},{l:'Курьер выехал',on:true},{l:'Заказ доставлен',on:true},{l:'Заказ из ресторана принят',on:true},{l:'Бонусы начислены',on:true},{l:'Акции дня (9:00)',on:false},{l:'Бонусы истекают',on:false}].map((r,i,arr)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 0',borderBottom:i<arr.length-1?'1px solid #162B1A':'none'}}>
-              <span style={{fontSize:12,fontWeight:600}}>{r.l}</span>
-              <div style={{width:40,height:22,borderRadius:11,background:r.on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}><div style={{position:'absolute',top:2,left:r.on?19:2,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s'}}/></div>
-            </div>
-          ))}
-        </div>
-        <div className="ac" style={{padding:18}}>
-          <div className="ub" style={{fontSize:13,fontWeight:800,marginBottom:12}}>История</div>
-          {[{t:'Молочная среда! −30%',to:'Все',n:1847,open:34,time:'Ср 10:00'},{t:'Флэш-распродажа!',to:'Gold+',n:390,open:58,time:'Вчера 12:00'},{t:'Новый ресторан!',to:'Все',n:1847,open:22,time:'Вс 09:00'}].map((h,i)=>(
-            <div key={i} style={{padding:'9px 0',borderBottom:i<2?'1px solid #162B1A':'none'}}>
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:12,fontWeight:700}}>{h.t}</span><span style={{fontSize:10,color:'#3D6645'}}>{h.time}</span></div>
-              <div style={{display:'flex',gap:8}}><span style={{fontSize:10,color:'#8FB897'}}>{h.to}</span><span style={{fontSize:10,color:'#8FB897'}}>{h.n} чел.</span><span style={{fontSize:10,color:'#1FD760',fontWeight:700}}>{h.open}% открыли</span></div>
-            </div>
-          ))}
+
+          <div style={{
+            padding: '14px 16px', borderRadius: 14,
+            background: 'rgba(59,142,240,.06)', border: '1px solid rgba(59,142,240,.18)',
+            fontSize: 11, color: '#8FB897', lineHeight: 1.55,
+          }}>
+            <strong style={{ color: '#3B8EF0' }}>Как это работает:</strong> рассылки и авто-push сохраняются в приложении клиента (экран «Уведомления»). Авто-события срабатывают при смене статуса заказа в админке, курьере и сборщике, а также при начислении бонусов на карту.
+          </div>
         </div>
       </div>
     </div>
@@ -1935,80 +4433,411 @@ function PushPage() {
 
 /* ── ФИНАНСЫ ────────────────────────────────────── */
 function FinancePage() {
-  const restRev  = RESTAURANTS.reduce((s,r)=>s+r.revenueMonth,0);
-  const restComm = RESTAURANTS.reduce((s,r)=>s+Math.round(r.revenueMonth*r.commission/100),0);
-  const shopRev  = 42600;
-  const total    = shopRev + restRev;
-  const DAYS=['1','3','5','7','9','11','13','15','16'];
-  const shopData=[1240,1890,1540,2100,1780,2340,2560,2920,3580];
-  const restData=[640,890,720,1100,980,1240,1380,1560,1890];
-  const maxV = Math.max(...shopData,...restData);
+  const apiOrders = useOrders(s => s.orders)
+  const apiRests = useRestaurants(s => s.restaurants)
+  const fetchRestaurants = useRestaurants(s => s.fetchRestaurants)
+  const couriers = useCourierTeam()
+  const assemblers = useAssemblerTeam()
+  const pricing = usePricingStore(s => s.pricing)
+  const roadKm = useOrderRoadKm(apiOrders)
+
+  const [tab, setTab] = useState<FinanceTab>('shop')
+  const [payouts, setPayouts] = useState<any[]>([])
+  const [localRests, setLocalRests] = useState(() => RESTAURANTS.map(r => ({ ...r, paidRevenueMonth: r.paidRevenueMonth ?? 0 })))
+  const [payTarget, setPayTarget] = useState<any>(null)
+  const [payMethod, setPayMethod] = useState('cash')
+  const [payNote, setPayNote] = useState('')
+  const [paySaving, setPaySaving] = useState(false)
+  const [payDone, setPayDone] = useState(false)
+  const [payError, setPayError] = useState('')
+  const [toast, setToast] = useState('')
+
+  const orders = useMemo(
+    () => prepareOrdersForFinance(USE_API ? apiOrders : [], USE_API ? undefined : ALL_ORDERS),
+    [apiOrders],
+  )
+  const restaurants = useMemo(() => {
+    if (USE_API && apiRests.length) return enrichRestaurants(apiRests, RESTAURANTS)
+    return localRests
+  }, [apiRests, localRests])
+
+  useEffect(() => {
+    if (USE_API) {
+      void api.getPayouts().then(setPayouts).catch(() => setPayouts([]))
+    }
+  }, [payDone])
+
+  const summary = useMemo(
+    () => buildFinanceSummary(orders, restaurants, couriers, assemblers, roadKm, pricing || DEFAULT_PRICING, payouts),
+    [orders, restaurants, couriers, assemblers, roadKm, pricing, payouts],
+  )
+
+  const maxChart = Math.max(1, ...summary.dailyChart.map(d => d.shop + d.restaurant))
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(''), 3500)
+  }
+
+  const openPayout = (r: any) => {
+    setPayTarget(r)
+    setPayMethod('cash')
+    setPayNote('')
+    setPayDone(false)
+    setPayError('')
+  }
+
+  const confirmPayout = async () => {
+    if (!payTarget || paySaving) return
+    const bal = restaurantBalance(payTarget)
+    if (bal.pendingNet <= 0) return
+    setPaySaving(true)
+    setPayError('')
+    try {
+      if (USE_API) {
+        const result = await api.createPayout(payTarget.id, { method: payMethod, note: payNote })
+        await fetchRestaurants()
+        const history = await api.getPayouts()
+        setPayouts(history)
+        setPayTarget({ ...payTarget, ...result.restaurant })
+      } else {
+        const updated = { revenueMonth: 0, paidRevenueMonth: 0, ordersMonth: 0 }
+        setLocalRests(rs => rs.map(r => r.id === payTarget.id ? { ...r, ...updated } : r))
+        setPayouts(h => [{
+          id: Date.now(),
+          restId: payTarget.id,
+          restName: payTarget.name,
+          emoji: payTarget.emoji,
+          amount: bal.pendingNet,
+          commission: bal.pendingCommission,
+          commissionPct: payTarget.commission,
+          revenue: bal.pendingGross,
+          method: payMethod,
+          note: payNote,
+          date: new Date().toLocaleString('ru-RU'),
+        }, ...h])
+      }
+      setPayDone(true)
+      showToast(`✅ Выплата ${payTarget.name.split(' ')[0]} — ${formatSm(bal.pendingNet)}`)
+    } catch (e: any) {
+      setPayError(e?.message || 'Ошибка выплаты')
+    } finally {
+      setPaySaving(false)
+    }
+  }
+
+  const exportExcel = () => {
+    if (tab === 'restaurants') {
+      downloadCsv('kakapo-finance-restaurants.csv',
+        ['Ресторан', 'Выручка', 'Комиссия %', 'KAKAPO получает', 'К выплате', 'Заказов'],
+        summary.restaurants.map(r => [
+          r.name, r.balance.totalGross, r.commission,
+          r.balance.pendingCommission + r.balance.paidCommission,
+          r.balance.pendingNet, r.ordersMonth,
+        ]))
+    } else if (tab === 'couriers') {
+      downloadCsv('kakapo-finance-couriers.csv',
+        ['Курьер', 'Доставок', 'Заработок ЅМ', 'Рейтинг'],
+        summary.couriers.map(c => [c.name, c.deliveries, c.earnings, c.rating]))
+    } else if (tab === 'assemblers') {
+      downloadCsv('kakapo-finance-assemblers.csv',
+        ['Сборщик', 'Собрано', 'Заработок ЅМ', 'Ср. время'],
+        summary.assemblers.map(a => [a.name, a.assembled, a.earnings, `${a.avgTimeMin} мин`]))
+    } else {
+      downloadCsv('kakapo-finance-shop.csv',
+        ['День', 'Магазин ЅМ', 'Рестораны ЅМ', 'Итого ЅМ'],
+        summary.dailyChart.map(d => [d.label, d.shop, d.restaurant, d.total]))
+    }
+    showToast('📊 Excel файл скачан')
+  }
+
+  const exportPdf = () => {
+    let rows = ''
+    if (tab === 'restaurants') {
+      rows = `<table><thead><tr><th>Ресторан</th><th>Выручка</th><th>%</th><th>KAKAPO</th><th>К выплате</th></tr></thead><tbody>${
+        summary.restaurants.map(r => `<tr><td>${r.emoji} ${r.name}</td><td>${formatSm(r.balance.totalGross)}</td><td>${r.commission}%</td><td>${formatSm(r.balance.pendingCommission + r.balance.paidCommission)}</td><td>${formatSm(r.balance.pendingNet)}</td></tr>`).join('')
+      }</tbody></table>`
+    } else if (tab === 'couriers') {
+      rows = `<table><thead><tr><th>Курьер</th><th>Доставок</th><th>Заработок</th></tr></thead><tbody>${
+        summary.couriers.map(c => `<tr><td>${c.name}</td><td>${c.deliveries}</td><td>${formatSm(c.earnings)}</td></tr>`).join('')
+      }</tbody></table>`
+    } else if (tab === 'assemblers') {
+      rows = `<table><thead><tr><th>Сборщик</th><th>Заказов</th><th>Заработок</th></tr></thead><tbody>${
+        summary.assemblers.map(a => `<tr><td>${a.name}</td><td>${a.assembled}</td><td>${formatSm(a.earnings)}</td></tr>`).join('')
+      }</tbody></table>`
+    } else {
+      rows = `<p>Выручка: ${formatSm(summary.shop.revenue)} · Заказов: ${summary.shop.orders} · Средний чек: ${formatSm(summary.shop.avgCheck)}</p>
+      <table><thead><tr><th>День</th><th>Магазин</th><th>Рестораны</th></tr></thead><tbody>${
+        summary.dailyChart.map(d => `<tr><td>${d.label}</td><td>${formatSm(d.shop)}</td><td>${formatSm(d.restaurant)}</td></tr>`).join('')
+      }</tbody></table>`
+    }
+    printFinanceReport(`KAKAPO — Финансы (${FINANCE_TAB_OPTIONS.find(t => t.id === tab)?.label})`, rows)
+  }
+
+  const statCards = tab === 'shop' ? [
+    { l: 'Выручка магазина', v: formatSm(summary.shop.revenue), c: '#1FD760', e: '🛒' },
+    { l: 'Заказов доставлено', v: summary.shop.orders, c: '#3B8EF0', e: '📦' },
+    { l: 'Средний чек', v: formatSm(summary.shop.avgCheck), c: '#00D4C8', e: '🧾' },
+    { l: 'Доставка (сбор)', v: formatSm(summary.shop.deliveryFees), c: '#FFB800', e: '🛵' },
+  ] : tab === 'restaurants' ? [
+    { l: 'Рестораны/мес', v: formatSm(summary.restaurantGross), c: '#FF8C00', e: '🍽' },
+    { l: 'Комиссия KAKAPO', v: formatSm(summary.restaurantCommission), c: '#FFB800', e: '💰' },
+    { l: 'К выплате', v: formatSm(summary.restaurantPendingNet), c: '#1FD760', e: '💸' },
+    { l: 'Итого оборот', v: formatSm(summary.totalTurnover), c: '#3B8EF0', e: '📈' },
+  ] : tab === 'couriers' ? [
+    { l: 'Курьеров', v: summary.couriers.length, c: '#3B8EF0', e: '🛵' },
+    { l: 'Доставок', v: summary.couriers.reduce((s, c) => s + c.deliveries, 0), c: '#1FD760', e: '📦' },
+    { l: 'Выплаты курьерам', v: formatSm(summary.couriers.reduce((s, c) => s + c.earnings, 0)), c: '#FFB800', e: '💰' },
+    { l: 'Ср. за доставку', v: formatSm(summary.couriers.length ? Math.round(summary.couriers.reduce((s, c) => s + c.earnings, 0) / Math.max(1, summary.couriers.reduce((s, c) => s + c.deliveries, 0))) : 0), c: '#9B6DFF', e: '📊' },
+  ] : [
+    { l: 'Сборщиков', v: summary.assemblers.length, c: '#9B6DFF', e: '📦' },
+    { l: 'Собрано заказов', v: summary.assemblers.reduce((s, a) => s + a.assembled, 0), c: '#1FD760', e: '🛒' },
+    { l: 'Выплаты сборщикам', v: formatSm(summary.assemblers.reduce((s, a) => s + a.earnings, 0)), c: '#FFB800', e: '💰' },
+    { l: 'За заказ', v: '3 ЅМ', c: '#3B8EF0', e: '🧾' },
+  ]
+
   return (
     <div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:22}}>
-        <StatCard l="Магазин/мес" v={`${shopRev.toLocaleString()} ЅМ`} c="#1FD760" e="🛒"/>
-        <StatCard l="Рестораны/мес" v={`${restRev.toLocaleString()} ЅМ`} c="#FF8C00" e="🍽"/>
-        <StatCard l="Комиссия KAKAPO" v={`${restComm.toLocaleString()} ЅМ`} c="#FFB800" e="💰"/>
-        <StatCard l="Итого оборот" v={`${total.toLocaleString()} ЅМ`} c="#3B8EF0" e="📈"/>
+      {toast && (
+        <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 9999, padding: '12px 18px', borderRadius: 12, background: 'rgba(31,215,96,.15)', border: '1px solid rgba(31,215,96,.35)', color: '#1FD760', fontSize: 13, fontWeight: 700, boxShadow: '0 8px 32px rgba(0,0,0,.4)' }}>
+          {toast}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {FINANCE_TAB_OPTIONS.map(t => (
+          <button key={t.id} type="button" onClick={() => setTab(t.id)} className="ab"
+            style={{ padding: '8px 14px', fontSize: 12, background: tab === t.id ? 'rgba(31,215,96,.12)' : '#0C1C0F', border: `1.5px solid ${tab === t.id ? 'rgba(31,215,96,.35)' : '#162B1A'}`, color: tab === t.id ? '#1FD760' : '#8FB897', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {t.icon} {t.label}
+          </button>
+        ))}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1.5fr 1fr',gap:18,marginBottom:16}}>
-        <div className="ac" style={{padding:20}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-            <div className="ub" style={{fontSize:14,fontWeight:800}}>Выручка по дням</div>
-            <div style={{display:'flex',gap:12}}>
-              {[{c:'#1FD760',l:'Магазин'},{c:'#FF8C00',l:'Рестораны'}].map((l,i)=>(
-                <div key={i} style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:10,height:10,borderRadius:3,background:l.c}}/><span style={{fontSize:11,color:'#8FB897'}}>{l.l}</span></div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 22 }}>
+        {statCards.map((s, i) => <StatCard key={i} l={s.l} v={s.v} c={s.c} e={s.e} />)}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 18, marginBottom: 16 }}>
+        <div className="ac" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>Выручка по дням</div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              {[{ c: '#1FD760', l: 'Магазин' }, { c: '#FF8C00', l: 'Рестораны' }].map((l, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 3, background: l.c }} />
+                  <span style={{ fontSize: 11, color: '#8FB897' }}>{l.l}</span>
+                </div>
               ))}
             </div>
           </div>
-          <div style={{display:'flex',gap:5,alignItems:'flex-end',height:120}}>
-            {DAYS.map((d,i)=>(
-              <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
-                <div style={{width:'100%',display:'flex',flexDirection:'column',gap:2}}>
-                  <div style={{width:'100%',borderRadius:'3px 3px 0 0',background:'#1FD760',height:`${Math.round(shopData[i]/maxV*90)}px`,opacity:.85}}/>
-                  <div style={{width:'100%',borderRadius:'3px 3px 0 0',background:'#FF8C00',height:`${Math.round(restData[i]/maxV*60)}px`,opacity:.85}}/>
+          <div style={{ display: 'flex', gap: 5, alignItems: 'flex-end', height: 120 }}>
+            {summary.dailyChart.map((d, i) => (
+              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ width: '100%', borderRadius: '3px 3px 0 0', background: '#1FD760', height: `${Math.round(d.shop / maxChart * 90)}px`, opacity: .85, minHeight: d.shop ? 2 : 0 }} />
+                  <div style={{ width: '100%', borderRadius: '3px 3px 0 0', background: '#FF8C00', height: `${Math.round(d.restaurant / maxChart * 60)}px`, opacity: .85, minHeight: d.restaurant ? 2 : 0 }} />
                 </div>
-                <div style={{fontSize:9,color:'#3D6645'}}>{d}</div>
+                <div style={{ fontSize: 9, color: '#3D6645' }}>{d.label}</div>
               </div>
             ))}
           </div>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          <div className="ac" style={{padding:16}}>
-            <div className="ub" style={{fontSize:13,fontWeight:800,marginBottom:12}}>Выплаты ресторанам</div>
-            {RESTAURANTS.map(r=>(
-              <div key={r.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #162B1A'}}>
-                <div style={{display:'flex',alignItems:'center',gap:7}}><span style={{fontSize:16}}>{r.emoji}</span><span style={{fontSize:12,fontWeight:600}}>{r.name.split(' ')[0]}</span></div>
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <span className="ub" style={{fontSize:11,fontWeight:700,color:'#FFB800'}}>{Math.round(r.revenueMonth*(1-r.commission/100)).toLocaleString()} ЅМ</span>
-                  <button className="ab" style={{padding:'3px 8px',fontSize:10,background:'rgba(255,184,0,.1)',border:'1px solid rgba(255,184,0,.3)',color:'#FFB800'}}>Выплатить</button>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {tab === 'restaurants' && (
+            <div className="ac" style={{ padding: 16 }}>
+              <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>Выплаты ресторанам</div>
+              {summary.restaurants.filter(r => r.balance.pendingNet > 0).map(r => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #162B1A' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ fontSize: 16 }}>{r.emoji}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{r.name.split(' ')[0]}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="ub" style={{ fontSize: 11, fontWeight: 700, color: '#FFB800' }}>{formatSm(r.balance.pendingNet)}</span>
+                    <button type="button" onClick={() => openPayout(restaurants.find(x => x.id === r.id) || r)} className="ab"
+                      style={{ padding: '3px 8px', fontSize: 10, background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)', color: '#FFB800' }}>Выплатить</button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-          <div style={{display:'flex',gap:8}}>
-            <button className="ab abg" style={{flex:1,padding:11,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>📊 Excel</button>
-            <button className="ab abg" style={{flex:1,padding:11,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>📄 PDF</button>
+              ))}
+              {!summary.restaurants.some(r => r.balance.pendingNet > 0) && (
+                <div style={{ fontSize: 12, color: '#3D6645', padding: '12px 0' }}>Все выплаты закрыты ✓</div>
+              )}
+            </div>
+          )}
+
+          {tab === 'couriers' && (
+            <div className="ac" style={{ padding: 16 }}>
+              <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>Заработок курьеров</div>
+              {summary.couriers.slice(0, 5).map(c => (
+                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #162B1A' }}>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>🛵 {c.name.split(' ')[0]}</span>
+                  <span className="ub" style={{ fontSize: 11, color: '#3B8EF0', fontWeight: 700 }}>{formatSm(c.earnings)}</span>
+                </div>
+              ))}
+              <Link href="/courier" style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#1FD760', fontWeight: 700, textDecoration: 'none' }}>→ Открыть приложение курьера</Link>
+            </div>
+          )}
+
+          {tab === 'assemblers' && (
+            <div className="ac" style={{ padding: 16 }}>
+              <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>Заработок сборщиков</div>
+              {summary.assemblers.slice(0, 5).map(a => (
+                <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #162B1A' }}>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>📦 {a.name.split(' ')[0]}</span>
+                  <span className="ub" style={{ fontSize: 11, color: '#9B6DFF', fontWeight: 700 }}>{formatSm(a.earnings)}</span>
+                </div>
+              ))}
+              <Link href="/assembler" style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#1FD760', fontWeight: 700, textDecoration: 'none' }}>→ Открыть приложение сборщика</Link>
+            </div>
+          )}
+
+          {tab === 'shop' && (
+            <div className="ac" style={{ padding: 16 }}>
+              <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>Связанные приложения</div>
+              {[
+                { href: '/store', icon: '🛒', label: 'Магазин — заказы клиентов' },
+                { href: '/restaurant', icon: '🍽', label: 'Кабинет ресторана — выручка' },
+                { href: '/courier', icon: '🛵', label: 'Курьер — доставки' },
+                { href: '/assembler', icon: '📦', label: 'Сборщик — сбор заказов' },
+              ].map(l => (
+                <Link key={l.href} href={l.href} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #162B1A', fontSize: 12, color: '#8FB897', textDecoration: 'none' }}>
+                  <span>{l.icon}</span><span>{l.label}</span><span style={{ marginLeft: 'auto', color: '#1FD760' }}>→</span>
+                </Link>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={exportExcel} className="ab abg" style={{ flex: 1, padding: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>📊 Excel</button>
+            <button type="button" onClick={exportPdf} className="ab abg" style={{ flex: 1, padding: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>📄 PDF</button>
           </div>
         </div>
       </div>
-      <div className="ac">
-        <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',fontWeight:800,fontSize:13}}>Детализация комиссий</div>
-        <table className="at">
-          <thead><tr><th>Ресторан</th><th>Выручка</th><th>%</th><th>KAKAPO получает</th><th>К выплате</th></tr></thead>
-          <tbody>{RESTAURANTS.map(r=>(
-            <tr key={r.id}>
-              <td><div style={{display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:18}}>{r.emoji}</span><span style={{fontWeight:700}}>{r.name}</span></div></td>
-              <td><span className="ub" style={{fontSize:12}}>{r.revenueMonth.toLocaleString()} ЅМ</span></td>
-              <td><Badge v={`${r.commission}%`} c="#FF4545"/></td>
-              <td><span className="ub" style={{fontSize:12,color:'#1FD760',fontWeight:900}}>{Math.round(r.revenueMonth*r.commission/100).toLocaleString()} ЅМ</span></td>
-              <td><span className="ub" style={{fontSize:12,fontWeight:700}}>{Math.round(r.revenueMonth*(1-r.commission/100)).toLocaleString()} ЅМ</span></td>
-            </tr>
-          ))}</tbody>
-        </table>
+
+      <div className="ac" style={{ marginBottom: 16 }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', fontWeight: 800, fontSize: 13 }}>
+          {tab === 'restaurants' ? 'Детализация комиссий' : tab === 'couriers' ? 'Детализация курьеров' : tab === 'assemblers' ? 'Детализация сборщиков' : 'Доставленные заказы магазина'}
+        </div>
+        {tab === 'restaurants' && (
+          <table className="at">
+            <thead><tr><th>Ресторан</th><th>Выручка</th><th>%</th><th>KAKAPO получает</th><th>К выплате</th><th></th></tr></thead>
+            <tbody>{summary.restaurants.map(r => (
+              <tr key={r.id}>
+                <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 18 }}>{r.emoji}</span><span style={{ fontWeight: 700 }}>{r.name}</span></div></td>
+                <td><span className="ub" style={{ fontSize: 12 }}>{formatSm(r.balance.totalGross)}</span></td>
+                <td><Badge v={`${r.commission}%`} c="#FF4545" /></td>
+                <td><span className="ub" style={{ fontSize: 12, color: '#1FD760', fontWeight: 900 }}>{formatSm(r.balance.pendingCommission + r.balance.paidCommission)}</span></td>
+                <td><span className="ub" style={{ fontSize: 12, fontWeight: 700 }}>{formatSm(r.balance.pendingNet)}</span></td>
+                <td>{r.balance.pendingNet > 0 && (
+                  <button type="button" onClick={() => openPayout(restaurants.find(x => x.id === r.id) || r)} className="ab"
+                    style={{ padding: '4px 10px', fontSize: 10, background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)', color: '#FFB800' }}>Выплатить</button>
+                )}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+        {tab === 'couriers' && (
+          <table className="at">
+            <thead><tr><th>Курьер</th><th>Транспорт</th><th>Доставок</th><th>Заработок</th><th>Рейтинг</th></tr></thead>
+            <tbody>{summary.couriers.map(c => (
+              <tr key={c.id}>
+                <td style={{ fontWeight: 700 }}>🛵 {c.name}</td>
+                <td>{vehicleLabel(c.vehicle as any)}</td>
+                <td>{c.deliveries}</td>
+                <td><span className="ub" style={{ color: '#3B8EF0', fontWeight: 800 }}>{formatSm(c.earnings)}</span></td>
+                <td>⭐ {c.rating}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+        {tab === 'assemblers' && (
+          <table className="at">
+            <thead><tr><th>Сборщик</th><th>Собрано</th><th>За заказ</th><th>Заработок</th><th>Ср. время</th></tr></thead>
+            <tbody>{summary.assemblers.map(a => (
+              <tr key={a.id}>
+                <td style={{ fontWeight: 700 }}>📦 {a.name}</td>
+                <td>{a.assembled}</td>
+                <td>3 ЅМ</td>
+                <td><span className="ub" style={{ color: '#9B6DFF', fontWeight: 800 }}>{formatSm(a.earnings)}</span></td>
+                <td>{a.avgTimeMin} мин</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+        {tab === 'shop' && (
+          <table className="at">
+            <thead><tr><th>День</th><th>Магазин</th><th>Рестораны</th><th>Итого</th></tr></thead>
+            <tbody>{summary.dailyChart.filter(d => d.total > 0).slice(-10).reverse().map(d => (
+              <tr key={d.day}>
+                <td>{d.label}</td>
+                <td><span className="ub" style={{ color: '#1FD760' }}>{formatSm(d.shop)}</span></td>
+                <td><span className="ub" style={{ color: '#FF8C00' }}>{formatSm(d.restaurant)}</span></td>
+                <td><span className="ub" style={{ fontWeight: 800 }}>{formatSm(d.total)}</span></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
       </div>
+
+      {summary.recentPayouts.length > 0 && (
+        <div className="ac">
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', fontWeight: 800, fontSize: 13 }}>История выплат ресторанам</div>
+          <table className="at">
+            <thead><tr><th>Дата</th><th>Ресторан</th><th>Сумма</th><th>Комиссия</th><th>Способ</th></tr></thead>
+            <tbody>{summary.recentPayouts.slice(0, 8).map(p => (
+              <tr key={p.id}>
+                <td style={{ fontSize: 12, color: '#8FB897' }}>{p.date}</td>
+                <td>{p.emoji} {p.restName}</td>
+                <td><span className="ub" style={{ color: '#1FD760', fontWeight: 800 }}>{formatSm(p.amount)}</span></td>
+                <td style={{ color: '#FFB800' }}>{formatSm(p.commission)}</td>
+                <td>{p.method === 'cash' ? '💵 Наличные' : p.method === 'card' ? '💳 Карта' : p.method}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+
+      {payTarget && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => !paySaving && setPayTarget(null)}>
+          <div className="ac" style={{ width: '100%', maxWidth: 420, padding: 24 }} onClick={e => e.stopPropagation()}>
+            {payDone ? (
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
+                <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#1FD760', marginBottom: 8 }}>Выплата проведена</div>
+                <div style={{ fontSize: 13, color: '#8FB897', marginBottom: 20 }}>{payTarget.name} · {formatSm(restaurantBalance(payTarget).pendingNet)}</div>
+                <button type="button" onClick={() => setPayTarget(null)} className="ab abp" style={{ width: '100%', padding: 12 }}>Закрыть</button>
+              </div>
+            ) : (
+              <>
+                <div className="ub" style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>Выплата ресторану</div>
+                <div style={{ fontSize: 13, color: '#8FB897', marginBottom: 16 }}>{payTarget.emoji} {payTarget.name}</div>
+                <div style={{ padding: 14, borderRadius: 12, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.2)', marginBottom: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#8FB897' }}>К выплате (нетто)</div>
+                  <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: '#FFB800' }}>{formatSm(restaurantBalance(payTarget).pendingNet)}</div>
+                  <div style={{ fontSize: 11, color: '#3D6645', marginTop: 4 }}>Комиссия KAKAPO: {formatSm(restaurantBalance(payTarget).pendingCommission)}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  {[{ id: 'cash', l: '💵 Наличные' }, { id: 'card', l: '💳 Карта' }, { id: 'transfer', l: '🏦 Перевод' }].map(m => (
+                    <button key={m.id} type="button" onClick={() => setPayMethod(m.id)} className="ab"
+                      style={{ flex: 1, padding: 10, fontSize: 11, background: payMethod === m.id ? 'rgba(31,215,96,.12)' : '#0C1C0F', border: `1px solid ${payMethod === m.id ? 'rgba(31,215,96,.35)' : '#162B1A'}`, color: payMethod === m.id ? '#1FD760' : '#8FB897' }}>{m.l}</button>
+                  ))}
+                </div>
+                <textarea className="ai" placeholder="Комментарий (необязательно)" value={payNote} onChange={e => setPayNote(e.target.value)} rows={2} style={{ width: '100%', marginBottom: 12, resize: 'none' }} />
+                {payError && <div style={{ fontSize: 12, color: '#FF4545', marginBottom: 10 }}>{payError}</div>}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="button" onClick={() => setPayTarget(null)} className="ab" style={{ flex: 1, padding: 12, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>Отмена</button>
+                  <button type="button" onClick={confirmPayout} disabled={paySaving || restaurantBalance(payTarget).pendingNet <= 0} className="ab abp"
+                    style={{ flex: 2, padding: 12, opacity: paySaving ? .7 : 1 }}>{paySaving ? '⏳…' : '✅ Подтвердить выплату'}</button>
+                </div>
+                <Link href="/restaurant" style={{ display: 'block', textAlign: 'center', marginTop: 14, fontSize: 11, color: '#FF8C00', textDecoration: 'none' }}>→ Кабинет ресторана увидит обновлённую выручку</Link>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
-  );
+  )
 }
 
 /* ── НАСТРОЙКИ ──────────────────────────────────── */
@@ -2201,116 +5030,389 @@ function DashboardPage({setPage}) {
 /* ── BANNERS ─────────────────────────────────────── */
 /* ── ТАРИФ ДОСТАВКИ ─────────────────────────────── */
 function TariffPage() {
-  const pricing = usePricingStore(s => s.pricing);
-  const setPricing = usePricingStore(s => s.setPricing);
-  const [t, setT] = useState({ ...DEFAULT_PRICING, ...pricing });
-  const [saved, setSaved] = useState(false);
-  const [testDist,   setTestDist]   = useState('3.4');
-  const [testWeight, setTestWeight] = useState('8.5');
+  const apiOrders = useOrders(s => s.orders)
+  const couriers = useCourierTeam()
+  const pricing = usePricingStore(s => s.pricing)
+  const setPricing = usePricingStore(s => s.setPricing)
+  const roadKm = useOrderRoadKm(apiOrders)
 
-  const save = () => { setPricing(t); setSaved(true); setTimeout(()=>setSaved(false), 2500); };
+  const [tab, setTab] = useState<TariffTab>('shop')
+  const [t, setT] = useState(() => normalizePricing({ ...DEFAULT_PRICING, ...pricing }))
+  const [saved, setSaved] = useState(false)
+  const [saveErr, setSaveErr] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [testDist, setTestDist] = useState('3.4')
+  const [testWeight, setTestWeight] = useState('8.5')
+  const [testAmount, setTestAmount] = useState('65')
 
-  const NF = ({lbl, fld, unit, hint}: {lbl:string, fld:keyof typeof t, unit:string, hint:string}) => (
-    <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'16px'}}>
-      <div style={{fontSize:11,color:'#8FB897',fontWeight:700,marginBottom:4}}>{lbl}</div>
-      <div style={{display:'flex',alignItems:'center',gap:10}}>
-        <input type="number" className="ai" style={{width:100,textAlign:'center',fontSize:18,fontWeight:900}}
-          value={t[fld]} onChange={e=>setT(v=>({...v,[fld]:parseFloat(e.target.value)||0}))}/>
-        <span style={{fontSize:13,color:'#3D6645',fontWeight:700}}>{unit}</span>
-      </div>
-      <div style={{fontSize:10,color:'#3D6645',marginTop:6}}>{hint}</div>
-    </div>
-  );
+  useEffect(() => {
+    setT(normalizePricing({ ...DEFAULT_PRICING, ...pricing }))
+  }, [pricing])
 
-  const dist   = parseFloat(testDist)   || 0;
-  const weight = parseFloat(testWeight) || 0;
-  const fee    = calcDeliveryFee(dist, weight, t);
-  const extra  = dist > t.baseDist ? Math.ceil((dist - t.baseDist) * t.perKm) : 0;
-  const heavy  = weight > t.heavyKg;
+  const orders = useMemo(
+    () => prepareOrdersForFinance(USE_API ? apiOrders : [], USE_API ? undefined : ALL_ORDERS),
+    [apiOrders],
+  )
+
+  const stats = useMemo(() => buildTariffStats(orders, t, roadKm), [orders, t, roadKm])
+  const courierStats = useMemo(() => courierTariffSummary(orders, couriers, t, roadKm), [orders, couriers, t, roadKm])
+  const previews = useMemo(() => previewOrdersForTab(orders, t, roadKm, tab), [orders, t, roadKm, tab])
+
+  const dist = parseFloat(testDist) || 0
+  const weight = parseFloat(testWeight) || 0
+  const amount = parseFloat(testAmount) || 0
+  const preview = useMemo(() => calcPreview(t, dist, weight, amount), [t, dist, weight, amount])
+
+  const dirty = JSON.stringify(t) !== JSON.stringify(normalizePricing({ ...DEFAULT_PRICING, ...pricing }))
+
+  const save = async () => {
+    const err = validatePricing(t)
+    if (err) { setSaveErr(err); return }
+    setSaving(true)
+    setSaveErr('')
+    try {
+      const normalized = normalizePricing(t)
+      if (USE_API) {
+        const savedPricing = await api.updatePricing(normalized)
+        usePricingStore.setState({ pricing: normalizePricing({ ...DEFAULT_PRICING, ...savedPricing }) })
+        try {
+          if (typeof BroadcastChannel !== 'undefined') {
+            new BroadcastChannel('kakapo-pricing').postMessage({ type: 'update', pricing: savedPricing })
+          }
+        } catch { /* ignore */ }
+      } else {
+        setPricing(normalized)
+      }
+      setT(normalized)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e: any) {
+      setSaveErr(e?.message || 'Не удалось сохранить')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const applyPreset = (config: typeof DEFAULT_PRICING) => {
+    setT(normalizePricing(config))
+    setSaveErr('')
+  }
+
+  const resetDefaults = () => {
+    setT({ ...DEFAULT_PRICING })
+    setSaveErr('')
+  }
+
+  const updateField = (key: keyof typeof t, raw: string) => {
+    const num = parseFloat(raw)
+    setT(v => ({ ...v, [key]: Number.isFinite(num) ? num : 0 }))
+    setSaveErr('')
+  }
+
+  const tabColor = TARIFF_TAB_OPTIONS.find(x => x.id === tab)?.color || '#1FD760'
 
   return (
-    <div style={{maxWidth:700}}>
+    <div>
+      {/* вкладки */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+        {TARIFF_TAB_OPTIONS.map(opt => (
+          <button key={opt.id} type="button" onClick={() => setTab(opt.id)} className="btn"
+            style={{
+              padding: '8px 14px', fontSize: 12, borderRadius: 12,
+              background: tab === opt.id ? `${opt.color}18` : '#0C1C0F',
+              border: `1.5px solid ${tab === opt.id ? `${opt.color}55` : '#162B1A'}`,
+              color: tab === opt.id ? opt.color : '#8FB897',
+              display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700,
+            }}>
+            {opt.icon} {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* KPI */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+        <StatCard l="Базовая стоимость" v={`${t.base} ЅМ`} c="#1FD760" e="💰" />
+        <StatCard l="Ср. доставка" v={formatSm(stats.avgDelivery)} c="#3B8EF0" e="📊" sub={`${stats.deliveredCount} заказов`} />
+        <StatCard l="Бесплатных" v={stats.freeCount} c="#FFB800" e="🎁" sub={t.freeFrom ? `от ${t.freeFrom} ЅМ` : 'отключено'} />
+        <StatCard l="Доход доставки" v={formatSm(stats.totalDeliveryRevenue)} c={tabColor} e="🛵" sub="доставленные" />
+      </div>
+
       {/* формула */}
-      <div style={{background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.2)',borderRadius:16,padding:'16px 18px',marginBottom:20,fontSize:13,color:'#8FB897',lineHeight:1.7}}>
-        <span style={{color:'#3B8EF0',fontWeight:800}}>Формула: </span>
-        Доставка = <b style={{color:'#EBF5ED'}}>База</b> + (расстояние − базовый км) × <b style={{color:'#EBF5ED'}}>за км</b> + надбавка за вес
-        <br/>Если расстояние ≤ базового — только базовая стоимость.
+      <div style={{
+        background: 'linear-gradient(135deg,rgba(59,142,240,.08),rgba(31,215,96,.06))',
+        border: '1px solid rgba(59,142,240,.25)', borderRadius: 18, padding: '18px 20px', marginBottom: 20,
+        fontSize: 13, color: '#8FB897', lineHeight: 1.75,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 22 }}>📐</span>
+          <span className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#3B8EF0' }}>Формула доставки KAKAPO</span>
+        </div>
+        Доставка = <b style={{ color: '#EBF5ED' }}>База ({t.base} ЅМ)</b> + (км − {t.baseDist}) × <b style={{ color: '#EBF5ED' }}>{t.perKm} ЅМ</b>
+        {t.heavyExtra > 0 && <> + надбавка <b style={{ color: '#FFB800' }}>{t.heavyExtra} ЅМ</b> за груз &gt; {t.heavyKg} кг</>}
+        {t.freeFrom ? <> · <b style={{ color: '#1FD760' }}>0 ЅМ</b> при заказе от {t.freeFrom} ЅМ</> : null}
+        <div style={{ marginTop: 10, fontSize: 11, color: '#3D6645' }}>
+          🔒 Доставленные заказы сохраняют стоимость навсегда. Новый тариф действует только на заказы после сохранения.
+        </div>
       </div>
 
-      {/* поля */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
-        <NF lbl="Базовая стоимость" fld="base"       unit="ЅМ"  hint="Минимальная цена доставки"/>
-        <NF lbl="Бесплатный радиус" fld="baseDist"   unit="км"  hint="До этого расстояния — только базовая цена"/>
-        <NF lbl="За каждый доп. км" fld="perKm"      unit="ЅМ/км" hint="Добавляется за каждый км сверх базового"/>
-        <NF lbl="Порог тяжёлого груза" fld="heavyKg" unit="кг"  hint="Если вес заказа превышает — надбавка"/>
-        <NF lbl="Надбавка за тяжёлый груз" fld="heavyExtra" unit="ЅМ" hint="Добавляется если вес > порога"/>
-        <NF lbl="Бесплатная доставка от" fld="freeFrom" unit="ЅМ" hint="0 = отключено · сумма заказа для бесплатной доставки"/>
-      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 18, marginBottom: 20 }}>
+        {/* поля тарифа */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>⚙️ Параметры тарифа</div>
+            {dirty && <span style={{ fontSize: 10, color: '#FFB800', fontWeight: 700 }}>● есть изменения</span>}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            {TARIFF_FIELD_META.map(f => (
+              <div key={f.key} style={{
+                background: 'linear-gradient(160deg,#091508,#0C1C0F)', border: '1px solid #162B1A',
+                borderRadius: 16, padding: '16px 18px', transition: 'border-color .2s',
+              }}>
+                <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 6 }}>{f.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input type="number" step={f.step || 1} className="ai"
+                    style={{ width: '100%', textAlign: 'center', fontSize: 20, fontWeight: 900, fontFamily: 'Unbounded, sans-serif' }}
+                    value={t[f.key] ?? 0}
+                    onChange={e => updateField(f.key, e.target.value)} />
+                  <span style={{ fontSize: 12, color: '#3D6645', fontWeight: 700, whiteSpace: 'nowrap' }}>{f.unit}</span>
+                </div>
+                <div style={{ fontSize: 10, color: '#3D6645', marginTop: 8, lineHeight: 1.4 }}>{f.hint}</div>
+              </div>
+            ))}
+          </div>
 
-      {/* калькулятор */}
-      <div style={{background:'#091508',border:'1.5px solid rgba(31,215,96,.3)',borderRadius:16,padding:'18px',marginBottom:20}}>
-        <div style={{fontWeight:800,fontSize:13,marginBottom:14,display:'flex',alignItems:'center',gap:8}}>
-          🧮 Калькулятор
-          <span style={{fontSize:11,color:'#3D6645',fontWeight:500}}>проверьте как работает тариф</span>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 8 }}>⚡ Быстрые шаблоны</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              {TARIFF_PRESETS.map(p => (
+                <button key={p.id} type="button" onClick={() => applyPreset(p.config)} className="btn"
+                  style={{
+                    flex: 1, padding: '12px 10px', borderRadius: 14, textAlign: 'left',
+                    background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897',
+                  }}>
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>{p.emoji}</div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#EBF5ED' }}>{p.label}</div>
+                  <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>{p.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button type="button" onClick={resetDefaults} className="ab"
+              style={{ flex: 1, padding: 12, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>
+              ↩️ Сбросить
+            </button>
+            <button type="button" onClick={save} disabled={saving} className="ab abp"
+              style={{ flex: 2, padding: 12, fontSize: 14, opacity: saving ? .7 : 1 }}>
+              {saved ? '✓ Сохранено!' : saving ? '⏳ Сохраняем…' : '💾 Сохранить тариф'}
+            </button>
+          </div>
+          {saveErr && <div style={{ marginTop: 10, fontSize: 12, color: '#FF4545' }}>{saveErr}</div>}
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
-          <div>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Расстояние (км)</div>
-            <input type="number" className="ai" value={testDist} onChange={e=>setTestDist(e.target.value)} placeholder="3.4"/>
+
+        {/* калькулятор */}
+        <div style={{
+          background: 'linear-gradient(160deg,rgba(31,215,96,.06),#091508)',
+          border: `1.5px solid rgba(31,215,96,.28)`, borderRadius: 20, padding: 20,
+        }}>
+          <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+            🧮 Калькулятор
           </div>
-          <div>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Вес заказа (кг)</div>
-            <input type="number" className="ai" value={testWeight} onChange={e=>setTestWeight(e.target.value)} placeholder="8.5"/>
+          <div style={{ fontSize: 11, color: '#3D6645', marginBottom: 16 }}>Проверьте тариф до сохранения</div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+            {[
+              { lbl: 'Расстояние (км)', val: testDist, set: setTestDist, ph: '3.4' },
+              { lbl: 'Вес заказа (кг)', val: testWeight, set: setTestWeight, ph: '8.5' },
+              { lbl: 'Сумма заказа (ЅМ)', val: testAmount, set: setTestAmount, ph: '65' },
+            ].map(f => (
+              <div key={f.lbl}>
+                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>{f.lbl}</div>
+                <input type="number" className="ai" value={f.val} onChange={e => f.set(e.target.value)} placeholder={f.ph} />
+              </div>
+            ))}
           </div>
-        </div>
-        <div style={{background:'#06100A',borderRadius:12,padding:'14px 16px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-            <span style={{fontSize:12,color:'#8FB897'}}>База (до {t.baseDist} км)</span>
-            <span style={{fontSize:12,fontWeight:700}}>{t.base} ЅМ</span>
+
+          <div style={{ background: '#06100A', borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
+            {preview.breakdown.map((line, i) => (
+              <div key={i} style={{ fontSize: 12, color: line.startsWith('✅') ? '#1FD760' : '#8FB897', marginBottom: 5 }}>{line}</div>
+            ))}
+            <div style={{
+              borderTop: '1px dashed rgba(31,215,96,.35)', paddingTop: 12, marginTop: 8,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <span style={{ fontSize: 14, fontWeight: 800, color: '#1FD760' }}>
+                {preview.isFree ? '🎁 Бесплатно' : '💵 Итого'}
+              </span>
+              <span className="ub" style={{ fontSize: 26, fontWeight: 900, color: preview.isFree ? '#1FD760' : '#1FD760' }}>
+                {preview.full.total} ЅМ
+              </span>
+            </div>
+            {!preview.isFree && preview.feeOnly !== preview.full.total && (
+              <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>Без учёта суммы заказа: {preview.feeOnly} ЅМ</div>
+            )}
           </div>
-          {extra > 0 && (
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-              <span style={{fontSize:12,color:'#8FB897'}}>+ {(dist-t.baseDist).toFixed(1)} км × {t.perKm} ЅМ</span>
-              <span style={{fontSize:12,fontWeight:700,color:'#FFB800'}}>+{extra} ЅМ</span>
+
+          {tab === 'couriers' && (
+            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.2)', fontSize: 12, color: '#8FB897' }}>
+              🛵 Курьер получит ≈ <b style={{ color: '#3B8EF0' }}>{preview.full.total} ЅМ</b> за эту доставку
             </div>
           )}
-          {heavy && (
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-              <span style={{fontSize:12,color:'#FFB800'}}>⚖️ Тяжёлый груз ({weight} кг {'>'} {t.heavyKg} кг)</span>
-              <span style={{fontSize:12,fontWeight:700,color:'#FFB800'}}>+{t.heavyExtra} ЅМ</span>
-            </div>
-          )}
-          <div style={{borderTop:'1px dashed rgba(31,215,96,.3)',paddingTop:10,marginTop:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-            <span style={{fontSize:14,fontWeight:800,color:'#1FD760'}}>💵 Итого доставка</span>
-            <span style={{fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:'#1FD760'}}>{fee} ЅМ</span>
-          </div>
         </div>
       </div>
 
-      <button onClick={save} className="ab abp" style={{width:'100%',padding:13,fontSize:14}}>
-        {saved ? '✓ Сохранено!' : '💾 Сохранить тариф'}
-      </button>
+      {/* контекст вкладки + связи */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginBottom: 20 }}>
+        <div className="ac" style={{ padding: 18 }}>
+          <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12, color: tabColor }}>
+            {TARIFF_TAB_OPTIONS.find(x => x.id === tab)?.icon} Контекст: {TARIFF_TAB_OPTIONS.find(x => x.id === tab)?.label}
+          </div>
+          {tab === 'shop' && (
+            <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.7 }}>
+              Клиент в <b style={{ color: '#1FD760' }}>магазине</b> видит стоимость доставки при выборе адреса на карте (OSRM).
+              Тариф применяется к заказам типа market и mixed.
+            </div>
+          )}
+          {tab === 'restaurants' && (
+            <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.7 }}>
+              В <b style={{ color: '#FF8C00' }}>ресторанах</b> deliveryFee добавляется к сумме блюд. Комиссия KAKAPO считается отдельно в разделе Финансы.
+            </div>
+          )}
+          {tab === 'couriers' && (
+            <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.7 }}>
+              <b style={{ color: '#3B8EF0' }}>{courierStats.activeCouriers}</b> курьеров онлайн ·
+              <b style={{ color: '#3B8EF0' }}> {courierStats.deliveries}</b> доставок ·
+              заработок <b style={{ color: '#FFB800' }}>{formatSm(courierStats.totalEarnings)}</b>
+              (≈ {formatSm(courierStats.avgPerDelivery)} / заказ)
+            </div>
+          )}
+          {tab === 'assemblers' && (
+            <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.7 }}>
+              Тариф доставки <b>не влияет</b> на сборщиков. Их оплата фиксирована — <b style={{ color: '#9B6DFF' }}>3 ЅМ</b> за собранный заказ магазина (см. Финансы).
+            </div>
+          )}
+        </div>
+
+        <div className="ac" style={{ padding: 18 }}>
+          <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>🔗 Связанные приложения</div>
+          {TAB_CONNECTIONS[tab].map(link => (
+            <Link key={link.href} href={link.href}
+              style={{ display: 'block', padding: '10px 0', borderBottom: '1px solid #162B1A', textDecoration: 'none' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1FD760' }}>{link.label} →</div>
+              <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>{link.desc}</div>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* превью заказов */}
+      <div className="ac">
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 800, fontSize: 13 }}>📋 Расчёт по реальным заказам</span>
+          <span style={{ fontSize: 11, color: '#3D6645' }}>тариф: {t.base} + км × {t.perKm}</span>
+        </div>
+        <table className="at">
+          <thead>
+            <tr>
+              <th>Заказ</th><th>Клиент</th><th>км</th><th>кг</th><th>Сумма</th><th>Доставка</th><th>Статус</th>
+            </tr>
+          </thead>
+          <tbody>
+            {previews.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign: 'center', color: '#3D6645', padding: 24 }}>Нет заказов для этой вкладки</td></tr>
+            )}
+            {previews.map(p => (
+              <tr key={p.id}>
+                <td><span className="ub" style={{ fontSize: 11, fontWeight: 800 }}>{p.id}</span></td>
+                <td style={{ fontSize: 12 }}>{p.client}</td>
+                <td>{p.km}</td>
+                <td>{p.weight}</td>
+                <td>{formatSm(p.orderTotal)}</td>
+                <td>
+                  <span className="ub" style={{ fontWeight: 800, color: p.isFree ? '#1FD760' : '#FFB800' }}>
+                    {p.isFree ? 'Бесплатно' : `${p.fee} ЅМ`}
+                  </span>
+                  {p.locked && <div style={{ fontSize: 9, color: '#3D6645', marginTop: 2 }}>🔒 зафиксировано</div>}
+                </td>
+                <td><Badge v={p.status === 'delivered' ? 'доставлен' : p.status} c={p.status === 'delivered' ? '#1FD760' : '#FFB800'} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
-  );
+  )
 }
 
 /* ── ТОЧКИ ЗАБОРА ───────────────────────────────── */
 function PickupsPage() {
   const list = usePickupStore(s => s.pickups);
   const setPickups = usePickupStore(s => s.setPickups);
+  const updatePickup = usePickupStore(s => s.updatePickup);
   const [modal,  setModal]  = useState<any>(null);
   const [form,   setForm]   = useState<any>({});
+  const [showMap, setShowMap] = useState(true);
+  const [saveErr, setSaveErr] = useState('');
+  const [mapConfirmed, setMapConfirmed] = useState(false);
 
   const storeList = list.filter(p => p.type === 'store');
   const restList  = list.filter(p => p.type === 'rest');
 
-  const openAdd = () => { setForm({e:'🏪',color:'#1FD760',type:'store',active:true}); setModal('add'); };
-  const openEdit = (p:any) => { if (p.type !== 'store') return; setForm({...p}); setModal('edit'); };
+  const openAdd = () => {
+    setForm({ e:'🏪', color:'#1FD760', type:'store', active:true, lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng });
+    setSaveErr('');
+    setShowMap(true);
+    setMapConfirmed(false);
+    setModal('add');
+  };
+  const openEdit = (p:any) => {
+    if (p.type !== 'store') return;
+    setForm({ ...p, lat: p.lat, lng: p.lng });
+    setSaveErr('');
+    setShowMap(true);
+    setMapConfirmed(true);
+    setModal('edit');
+  };
+  const closeModal = () => { setModal(null); setSaveErr(''); setShowMap(false); };
+
+  const pickOnMap = (r: { lat: number; lng: number; address: string }) => {
+    setForm((f: any) => ({
+      ...f,
+      lat: r.lat,
+      lng: r.lng,
+      addr: f.addr?.trim() ? f.addr : r.address,
+    }));
+    setMapConfirmed(true);
+    setSaveErr('');
+  };
+
   const save = () => {
-    const row = { ...form, type:'store', lat: parseFloat(form.lat) || 0, lng: parseFloat(form.lng) || 0 };
-    if (modal==='add') setPickups([...list,{...row,id:'store-'+Date.now()}]);
-    else setPickups(list.map(p=>p.id===form.id?{...row}:p));
-    setModal(null);
+    const lat = parseFloat(String(form.lat).replace(',', '.'));
+    const lng = parseFloat(String(form.lng).replace(',', '.'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setSaveErr('Выберите точку на карте и нажмите «Подтвердить точку»');
+      return;
+    }
+    if (!mapConfirmed) {
+      setSaveErr('Нажмите «Подтвердить точку» на карте перед сохранением');
+      return;
+    }
+    const patch = {
+      ...form,
+      type: 'store' as const,
+      lat,
+      lng,
+      active: form.active !== false,
+    };
+    if (modal === 'add') {
+      setPickups([...list, { ...patch, id: `store-${Date.now()}` }]);
+    } else if (USE_API) {
+      updatePickup(form.id, patch);
+    } else {
+      setPickups(list.map(p => (p.id === form.id ? { ...p, ...patch } : p)));
+    }
+    closeModal();
   };
   const del = (id:string) => setPickups(list.filter(p=>p.id!==id));
   const toggle = (id:string) => setPickups(list.map(p=>p.id===id?{...p,active:!p.active}:p));
@@ -2396,11 +5498,11 @@ function PickupsPage() {
 
       {modal && (
         <div className="amod">
-          <div className="amodbg" onClick={()=>setModal(null)}/>
-          <div className="amodbox" style={{maxWidth:460}}>
+          <div className="amodbg" onClick={closeModal}/>
+          <div className="amodbox" style={{maxWidth:520}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
               <div className="ub" style={{fontSize:14,fontWeight:800}}>{modal==='add'?'+ Точка магазина':'Редактировать магазин'}</div>
-              <button onClick={()=>setModal(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
+              <button onClick={closeModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
               <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:10}}>
@@ -2410,13 +5512,48 @@ function PickupsPage() {
               <FI lbl="Цвет (hex)" fld="color" ph="#1FD760"/>
               <FI lbl="Адрес" fld="addr" ph="ул. Ленина, 42"/>
               <FI lbl="Телефон" fld="phone" ph="+992 __ ___ __ __"/>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                <FI lbl="Широта (lat)" fld="lat" ph="38.3250" type="number"/>
-                <FI lbl="Долгота (lng)" fld="lng" ph="69.0250" type="number"/>
+              <div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                  <div style={{ fontSize:11, color:'#8FB897', fontWeight:700 }}>📍 Точка на карте *</div>
+                  <button type="button" onClick={() => setShowMap(v => !v)} className="ab" style={{ padding:'4px 10px', fontSize:11, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.3)', color:'#3B8EF0' }}>
+                    {showMap ? 'Скрыть карту' : 'Показать карту'}
+                  </button>
+                </div>
+                {showMap && (
+                  <div style={{ borderRadius:12, overflow:'hidden', border:'1px solid #162B1A', marginBottom:8 }}>
+                    <AddressMapPicker
+                      key={`pickup-map-${modal}-${form.id || 'new'}`}
+                      variant="admin"
+                      mapHeight={260}
+                      initial={
+                        form.lat != null && form.lng != null && Number(form.lat) && Number(form.lng)
+                          ? { lat: Number(form.lat), lng: Number(form.lng) }
+                          : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }
+                      }
+                      onSelect={pickOnMap}
+                    />
+                  </div>
+                )}
+                {mapConfirmed && (
+                  <div style={{ marginBottom:8, padding:'8px 12px', borderRadius:10, background:'rgba(31,215,96,.1)', border:'1px solid rgba(31,215,96,.3)', fontSize:11, color:'#1FD760', fontWeight:700 }}>
+                    ✓ Точка подтверждена · {Number(form.lat).toFixed(5)}, {Number(form.lng).toFixed(5)}
+                  </div>
+                )}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  <FI lbl="Широта (lat)" fld="lat" ph="38.3250" type="number"/>
+                  <FI lbl="Долгота (lng)" fld="lng" ph="69.0250" type="number"/>
+                </div>
+                {form.lat != null && form.lng != null && Number(form.lat) && Number(form.lng) && (
+                  <div style={{ marginTop:6, fontSize:10, color:'#1FD760', fontFamily:'monospace' }}>
+                    ✓ {Number(form.lat).toFixed(5)}, {Number(form.lng).toFixed(5)}
+                  </div>
+                )}
               </div>
-              <div style={{padding:'10px 12px',borderRadius:10,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.2)',fontSize:11,color:'#8FB897'}}>
-                💡 Координаты можно найти на <a href="https://www.openstreetmap.org" target="_blank" style={{color:'#3B8EF0'}}>openstreetmap.org</a> — правый клик → «Показать адрес»
-              </div>
+              {saveErr && (
+                <div style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.08)', border:'1px solid rgba(255,69,69,.25)', fontSize:12, color:'#FF4545' }}>
+                  {saveErr}
+                </div>
+              )}
               <button onClick={save} className="ab abp" style={{width:'100%',padding:11}}>✓ Сохранить</button>
             </div>
           </div>
@@ -2458,7 +5595,8 @@ function CourierOrdersPage() {
             {orders.map(o=>{
               const ss = SS[o.step] || SS.new;
               const km = roadKm[o.id];
-              const dlv = km != null ? calcDeliveryFee(km, o.weight, pricing) : null;
+              const mockOrder = { id: o.id, status: o.step === 'done' ? 'delivered' as const : 'delivering' as const, deliveryFee: o.deliveryFee, deliveryFeeLocked: o.step === 'done', total: o.sum, weightKg: o.weight, items: [] };
+              const dlv = resolveOrderDeliveryFee(mockOrder as import('@/lib/types').Order, pricing, roadKm);
               return (
                 <tr key={o.id}>
                   <td><div style={{fontWeight:800,color:'#3B8EF0',fontFamily:'Unbounded',fontSize:12}}>{o.id}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.time}</div></td>
@@ -2483,7 +5621,7 @@ function CourierOrdersPage() {
                   <td><div style={{fontSize:12,fontWeight:700}}>{o.client}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.addr}</div></td>
                   <td>
                     <div style={{fontSize:11,fontWeight:700,color:'#3B8EF0'}}>{kmLoading ? '…' : km != null ? formatKm(km) : '…'}</div>
-                    <div style={{fontSize:10,color:'#1FD760'}}>{dlv != null ? `${dlv} ЅМ доставка` : '…'}</div>
+                    <div style={{fontSize:10,color:'#1FD760'}}>{`${dlv} ЅМ доставка${o.step === 'done' ? ' 🔒' : ''}`}</div>
                   </td>
                   <td><span style={{fontFamily:'Unbounded',fontSize:12,fontWeight:800,color:'#FFB800'}}>{o.sum.toFixed(2)} ЅМ</span></td>
                   <td>
@@ -2673,10 +5811,20 @@ function AdminAppInner() {
   const { page, setPage } = useAppNavigation('dashboard');
   useEffect(() => {
     hydrateCourierStores();
+    void syncCourierStoresFromApi();
+    void syncCourierTeamFromApi();
+    hydrateAssemblerTeamStore();
+    void syncAssemblerTeamFromApi();
+    hydrateClientStore();
+    void syncClientsFromApi();
+    hydrateCardStore();
+    void syncCardsFromApi();
+    hydratePushStore();
+    void syncPushFromApi();
     useProductPhotos.getState().hydrate();
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка + комиссии ресторанов',settings:'GBS Market · Доставка · SMS · Карты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Стоимость доставки для клиентов · kakapo-courier'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS Market · Доставка · SMS · Карты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}

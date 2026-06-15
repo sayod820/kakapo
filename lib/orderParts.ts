@@ -3,6 +3,26 @@ import { restIdToPickupId } from './pickups'
 
 export type PartStatus = 'new' | 'assembling' | 'cooking' | 'done'
 
+/** Приводит items к массиву (строка из админ-таблицы, объект из API и т.д.) */
+export function coerceOrderItems(raw: unknown, total = 0, type: OrderType = 'market'): OrderItem[] {
+  if (Array.isArray(raw)) return raw as OrderItem[]
+  if (typeof raw === 'string' && raw.trim()) {
+    const names = raw.split(',').map(s => s.trim()).filter(Boolean)
+    if (!names.length) return []
+    const perItem = total > 0 ? Math.round(total / names.length) : 0
+    const source = type === 'restaurant' ? 'restaurant' as const : 'market' as const
+    return names.map(name => ({
+      e: '📦',
+      name: name.replace(/^[^\s]+\s/, ''),
+      qty: 1,
+      unit: 'шт',
+      price: perItem,
+      source,
+    }))
+  }
+  return []
+}
+
 export function isMarketItem(it: OrderItem): boolean {
   if (it.source === 'market') return true
   if (it.source === 'restaurant') return false
@@ -16,12 +36,14 @@ export function isRestItem(it: OrderItem, restId?: string): boolean {
   return false
 }
 
-export function getMarketItems(items: OrderItem[] = []): OrderItem[] {
-  return items.filter(isMarketItem)
+export function getMarketItems(items: OrderItem[] | unknown = []): OrderItem[] {
+  const list = Array.isArray(items) ? items : []
+  return list.filter(isMarketItem)
 }
 
-export function getRestItems(items: OrderItem[] = [], restId?: string): OrderItem[] {
-  return items.filter(it => isRestItem(it, restId))
+export function getRestItems(items: OrderItem[] | unknown = [], restId?: string): OrderItem[] {
+  const list = Array.isArray(items) ? items : []
+  return list.filter(it => isRestItem(it, restId))
 }
 
 export function getRestIdsFromOrder(o: Order): string[] {
@@ -33,12 +55,13 @@ export function getRestIdsFromOrder(o: Order): string[] {
 }
 
 export function inferOrderType(o: Pick<Order, 'type' | 'items'>): OrderType {
-  if (o.type === 'mixed') return 'mixed'
-  const market = getMarketItems(o.items).length > 0
-  const rest = getRestItems(o.items).length > 0
+  const market = getMarketItems(o.items || []).length > 0
+  const rest = getRestItems(o.items || []).length > 0
   if (market && rest) return 'mixed'
   if (rest) return 'restaurant'
-  return o.type === 'restaurant' ? 'restaurant' : 'market'
+  if (market) return 'market'
+  if (o.type === 'restaurant' || o.type === 'mixed' || o.type === 'market') return o.type
+  return 'market'
 }
 
 export function isMixedOrder(o: Order): boolean {
@@ -56,7 +79,13 @@ export function hasRestPart(o: Order, restId?: string): boolean {
 export function getMarketStatus(o: Order): PartStatus {
   if (o.marketStatus) return o.marketStatus
   if (!hasMarketPart(o)) return 'done'
+  const marketItemsList = getMarketItems(o.items)
+  if (marketItemsList.length > 0 && marketItemsList.every(it => it.done)) return 'done'
   if (o.status === 'assembler_done') return 'done'
+  // Чисто магазинный заказ: курьер уже принял → сборка завершена
+  if (inferOrderType(o) === 'market' && ['courier_picked', 'delivering', 'delivered'].includes(o.status)) {
+    return 'done'
+  }
   if (o.status === 'assembling') return 'assembling'
   return 'new'
 }
@@ -65,11 +94,13 @@ export function getRestPartStatus(o: Order, restId: string): PartStatus {
   const key = String(restId)
   if (o.restParts?.[key]) return o.restParts[key]
   if (!hasRestPart(o, key)) return 'done'
-  if (isMixedOrder(o)) return 'new'
-  if (o.status === 'ready' || o.status === 'assembler_done' || o.status === 'courier_picked' || o.status === 'delivering' || o.status === 'delivered') {
-    return 'done'
+  if (!isMixedOrder(o) || !hasMarketPart(o)) {
+    if (o.status === 'ready' || o.status === 'assembler_done' || o.status === 'courier_picked' || o.status === 'delivering' || o.status === 'delivered') {
+      return 'done'
+    }
+    if (o.status === 'cooking') return 'cooking'
+    return 'new'
   }
-  if (o.status === 'cooking') return 'cooking'
   return 'new'
 }
 
@@ -187,7 +218,12 @@ export function restPartToUiStatus(part: PartStatus): 'new' | 'cooking' | 'ready
 }
 
 export function normalizeOrder(raw: Order): Order {
-  const items = (raw.items || []).map(it => ({
+  const savedStatus = raw.status
+  const inferredType = inferOrderType({
+    ...raw,
+    items: coerceOrderItems(raw.items, Number(raw.total) || 0, raw.type),
+  })
+  const items = coerceOrderItems(raw.items, Number(raw.total) || 0, inferredType).map(it => ({
     ...it,
     source: it.source ?? (it.restId ? 'restaurant' as const : 'market' as const),
   }))
@@ -200,20 +236,17 @@ export function normalizeOrder(raw: Order): Order {
     restIds: restIds.length ? restIds : raw.restIds,
   }
 
-  if (type === 'mixed') {
-    if (hasMarketPart(order) && !order.marketStatus) {
-      order.marketStatus = raw.status === 'assembling' ? 'assembling' : raw.status === 'assembler_done' ? 'done' : 'new'
-    }
-    if (!order.restParts && restIds.length) {
-      order.restParts = Object.fromEntries(
-        restIds.map(id => [id, getRestPartStatus({ ...order, restParts: {} }, id)]),
-      ) as Record<string, PartStatus>
-    }
-    if (allPartsDone(order) && order.status !== 'delivered' && order.status !== 'cancelled' && order.status !== 'courier_picked' && order.status !== 'delivering') {
-      order.status = 'assembler_done'
-    }
+  if (type === 'mixed' && !order.restParts && restIds.length) {
+    order.restParts = Object.fromEntries(
+      restIds.map(id => [id, getRestPartStatus({ ...order, restParts: {} }, id)]),
+    ) as Record<string, PartStatus>
   }
 
+  if (hasMarketPart(order) && !order.marketStatus) {
+    order.marketStatus = getMarketStatus(order)
+  }
+
+  if (savedStatus) order.status = savedStatus
   return order
 }
 

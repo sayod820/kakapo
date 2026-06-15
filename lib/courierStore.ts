@@ -2,9 +2,10 @@
 import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
 import { DEFAULT_PRICING, type PricingConfig } from './courierData';
-import { DEFAULT_PICKUPS, pickupsToLocationMap, type PickupPoint, type PickupLocationMap, upsertRestaurantPickup, type RestaurantPickupSync } from './pickups';
+import { DEFAULT_PICKUPS, pickupsToLocationMap, type PickupPoint, type PickupLocationMap, upsertRestaurantPickup, type RestaurantPickupSync, restIdToPickupId } from './pickups';
 import { USE_API } from './config';
 import { api } from './api';
+import { hydrateCourierTeamStore, syncCourierTeamFromApi } from './courierTeamStore';
 
 const PRICING_KEY = 'kakapo-pricing';
 const PICKUPS_KEY = 'kakapo-pickups';
@@ -66,6 +67,11 @@ export const usePricingStore = create<PricingStore>((set, get) => ({
     const pricing = { ...s.pricing, ...p };
     if (!USE_API) saveJson(PRICING_KEY, pricing);
     else api.updatePricing(pricing).catch(console.error);
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        new BroadcastChannel('kakapo-pricing').postMessage({ type: 'update', pricing });
+      }
+    } catch { /* ignore */ }
     return { pricing };
   }),
 }));
@@ -90,6 +96,21 @@ export const usePickupStore = create<PickupStore>((set, get) => ({
   syncRestaurantPickup: data => set(s => {
     const pickups = upsertRestaurantPickup(s.pickups, data);
     if (!USE_API) saveJson(PICKUPS_KEY, pickups);
+    else {
+      const id = restIdToPickupId(data.restId);
+      const row = pickups.find(p => p.id === id);
+      if (row) {
+        api.updatePickup(id, {
+          lat: row.lat,
+          lng: row.lng,
+          addr: row.addr,
+          phone: row.phone,
+          name: row.name,
+          e: row.e,
+          active: row.active,
+        }).catch(console.error);
+      }
+    }
     return { pickups };
   }),
 }));
@@ -97,7 +118,25 @@ export const usePickupStore = create<PickupStore>((set, get) => ({
 export function usePricing() {
   const hydrate = usePricingStore(s => s.hydrate);
   const pricing = usePricingStore(s => s.pricing);
-  useEffect(() => { hydrate(); }, [hydrate]);
+  useEffect(() => {
+    hydrate();
+    let bc: BroadcastChannel | null = null;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === PRICING_KEY) hydrate();
+    };
+    window.addEventListener('storage', onStorage);
+    try {
+      bc = new BroadcastChannel('kakapo-pricing');
+      bc.onmessage = () => {
+        if (USE_API) void syncCourierStoresFromApi();
+        else hydrate();
+      };
+    } catch { /* ignore */ }
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      try { bc?.close(); } catch { /* ignore */ }
+    };
+  }, [hydrate]);
   return { pricing };
 }
 
@@ -117,6 +156,7 @@ export function usePickupLocations(): PickupLocationMap {
 export function hydrateCourierStores() {
   usePricingStore.getState().hydrate();
   usePickupStore.getState().hydrate();
+  hydrateCourierTeamStore();
 }
 
 /** Загрузить pickups + pricing с API (Render) */
@@ -126,7 +166,11 @@ export async function syncCourierStoresFromApi() {
     return;
   }
   try {
-    const [pickups, pricing] = await Promise.all([api.getPickups(), api.getPricing()]);
+    const [pickups, pricing] = await Promise.all([
+      api.getPickups(),
+      api.getPricing(),
+    ]);
+    await syncCourierTeamFromApi();
     usePickupStore.setState({ pickups, hydrated: true });
     usePricingStore.setState({ pricing: { ...DEFAULT_PRICING, ...pricing }, hydrated: true });
   } catch (e) {

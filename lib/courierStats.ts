@@ -1,6 +1,5 @@
-import { calcDeliveryFee, type PricingConfig } from './courierData'
-import { normalizeOrder } from './orderParts'
-import { mapSingleOrderForCourier } from './orderUiMap'
+import { resolveOrderDeliveryFee } from './deliveryFee'
+import type { PricingConfig } from './courierData'
 import type { Order } from './types'
 
 export const COURIER_NAME = 'Фирдавс Назаров'
@@ -22,11 +21,7 @@ export function courierDeliveryEarning(
   roadKm: Record<string, number>,
   tariff: PricingConfig,
 ): number {
-  const mapped = mapSingleOrderForCourier(normalizeOrder(order))
-  const km = roadKm[mapped.id] ?? order.distanceKm ?? null
-  if (km != null) return calcDeliveryFee(km, mapped.weight, tariff)
-  if (order.deliveryFee != null && order.deliveryFee > 0) return order.deliveryFee
-  return calcDeliveryFee(2, mapped.weight, tariff)
+  return resolveOrderDeliveryFee(order, tariff, roadKm)
 }
 
 export function formatSm(n: number): string {

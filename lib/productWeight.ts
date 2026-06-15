@@ -26,16 +26,26 @@ export function minWeight(p: Partial<Product>): number {
 }
 
 export function formatWeightGrams(grams: number): string {
-  if (grams >= 1000) {
-    const kg = grams / 1000
-    return `${Number.isInteger(kg) ? kg : kg.toFixed(1).replace(/\.0$/, '')} кг`
-  }
-  return `${grams} г`
+  return formatKgAmount(grams, false)
+}
+
+/** Кг из граммов: 100 г → «0.1» или «0.1 кг» */
+export function formatKgAmount(grams: number, compact = false): string {
+  if (!grams) return compact ? '0' : '0 кг'
+  const kg = grams / 1000
+  const s = Number.isInteger(kg) ? String(kg) : kg.toFixed(1).replace(/\.0$/, '')
+  return compact ? s : `${s} кг`
 }
 
 export function formatCartQty(p: Partial<Product>, qty: number): string {
   if (!qty) return '0'
   return isWeighted(p) ? formatWeightGrams(qty) : String(qty)
+}
+
+/** Компактное кол-во для степперов на карточках: 100 г → 0.1, 700 г → 0.7 */
+export function formatCartQtyStepper(p: Partial<Product>, qty: number): string {
+  if (!qty) return '0'
+  return isWeighted(p) ? formatKgAmount(qty, true) : String(qty)
 }
 
 export function formatPriceLabel(p: Partial<Product>): string {
@@ -83,4 +93,30 @@ export function estimateCartWeightKg(items: { p: Partial<Product>; qty: number }
     return s + qty * 0.35
   }, 0)
   return Math.max(0.3, kg)
+}
+
+/** Единицы для бейджа корзины: граммы → кг (700 г = 0.7), штуки — как есть */
+export function cartQtyUnits(p: Partial<Product> | null | undefined, qty: number): number {
+  if (!qty) return 0
+  if (p && isWeighted(p)) return qty / 1000
+  return qty
+}
+
+export function sumCartUnits(
+  cart: Record<string | number, number>,
+  prods: Partial<Product>[] = [],
+): number {
+  const byId = new Map(prods.map(p => [String(p.id), p]))
+  return Object.entries(cart).reduce((sum, [id, qty]) => {
+    const p = byId.get(String(id))
+    return sum + cartQtyUnits(p, qty)
+  }, 0)
+}
+
+/** Формат числа на бейдже корзины: 1.7, 2, 3.5 */
+export function formatCartBadgeCount(total: number): string {
+  if (!total) return '0'
+  if (Number.isInteger(total)) return String(total)
+  const s = total.toFixed(1)
+  return s.endsWith('.0') ? s.slice(0, -2) : s
 }

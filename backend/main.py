@@ -87,8 +87,12 @@ def _save_order_row(row: OrderRow, order_dict: dict) -> OrderRow:
         row.client_json = json_dump(order_dict["client"])
     if "items" in order_dict:
         row.items_json = json_dump(order_dict["items"])
+    if "courier" in order_dict:
+        row.courier_json = json_dump(order_dict["courier"]) if order_dict["courier"] else None
+    if "assembler" in order_dict:
+        row.assembler_json = json_dump(order_dict["assembler"]) if order_dict["assembler"] else None
     extra = json_load(row.extra_json, {})
-    for key in ("pickupIds", "restIds", "marketStatus", "restParts", "distanceKm", "durationMin", "weightKg"):
+    for key in ("pickupIds", "restIds", "marketStatus", "restParts", "distanceKm", "durationMin", "weightKg", "pickedUpIds", "courierRoute", "deliveredAt"):
         if key in order_dict:
             extra[key] = order_dict[key]
     row.extra_json = json_dump(extra)

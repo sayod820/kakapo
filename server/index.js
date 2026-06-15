@@ -3,14 +3,24 @@ import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
 import { loadDb, saveDb } from './db.js'
-import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS } from './seed.js'
+import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, DEFAULT_REVIEWS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
 import {
   applyStatusPatch,
+  inferType,
   isAssemblerOrder,
   isCourierSync,
+  isCourierMapSync,
+  marketItems,
+  restItems,
 } from './ordersLogic.js'
+import { creditDeliveredOrder, processPayout, getPendingBalance } from './restaurantStats.js'
+import { lockOrderDeliveryFee } from './deliveryFee.js'
 
 const PORT = Number(process.env.PORT) || 8000
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean)
 const db = seedIfEmpty()
 
 function persist() {
@@ -27,8 +37,68 @@ function ensurePromos() {
 }
 ensurePromos()
 
+function ensureCouriers() {
+  if (!Array.isArray(db.couriers)) db.couriers = []
+  if (!db.couriers.length) {
+    db.couriers = COURIERS.map(c => ({ ...c }))
+    persist()
+  }
+}
+ensureCouriers()
+
+function ensureAssemblers() {
+  if (!Array.isArray(db.assemblers)) db.assemblers = []
+  if (!db.assemblers.length) {
+    db.assemblers = ASSEMBLERS.map(a => ({ ...a }))
+    persist()
+  }
+}
+ensureAssemblers()
+
+function ensureClients() {
+  if (!Array.isArray(db.clients)) db.clients = []
+  if (!db.clients.length) {
+    db.clients = DEFAULT_CLIENTS.map(c => ({ ...c }))
+    persist()
+  }
+}
+ensureClients()
+
+function ensureCards() {
+  if (!Array.isArray(db.cards)) db.cards = []
+  if (!db.cards.length) {
+    db.cards = DEFAULT_CARDS.map(c => ({ ...c }))
+    persist()
+  }
+}
+ensureCards()
+
+function ensurePayouts() {
+  if (!Array.isArray(db.payouts)) db.payouts = []
+  if (!db._seq.payout) db._seq.payout = db.payouts.length
+  for (const r of db.restaurants || []) {
+    if (r.paidRevenueMonth == null) r.paidRevenueMonth = 0
+  }
+}
+ensurePayouts()
+
+function ensureReviews() {
+  if (!Array.isArray(db.reviews)) db.reviews = []
+  if (!db._seq.review) db._seq.review = db.reviews.length
+  if (!db.reviews.length) {
+    db.reviews = DEFAULT_REVIEWS.map(r => ({ ...r }))
+    db._seq.review = DEFAULT_REVIEWS.length
+    persist()
+  }
+}
+ensureReviews()
+
 const app = express()
-app.use(cors())
+app.use(cors({
+  origin: CORS_ORIGINS.length === 1 && CORS_ORIGINS[0] === '*'
+    ? true
+    : CORS_ORIGINS,
+}))
 app.use(express.json({ limit: '2mb' }))
 
 const clients = new Set()
@@ -40,11 +110,42 @@ function broadcast(event, order) {
   }
 }
 
+function broadcastReview(review) {
+  const msg = JSON.stringify({ event: 'review_update', review })
+  for (const ws of clients) {
+    if (ws.readyState === 1) ws.send(msg)
+  }
+}
+
+function broadcastNotification(notification) {
+  const msg = JSON.stringify({ event: 'notification', notification })
+  for (const ws of clients) {
+    if (ws.readyState === 1) ws.send(msg)
+  }
+}
+
+function phoneKey(phone) {
+  return (phone || '').replace(/\D/g, '').slice(-9)
+}
+
+function ensureNotifications() {
+  if (!Array.isArray(db.notifications)) {
+    db.notifications = []
+    persist()
+  }
+}
+ensureNotifications()
+
 function nowTime() {
   return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'kakapo-api', local: true }))
+app.get('/health', (_req, res) => res.json({
+  ok: true,
+  service: 'kakapo-api',
+  version: '2.2-node',
+  dataDir: process.env.DATA_DIR || 'data',
+}))
 
 app.get('/', (_req, res) => {
   res.type('html').send(`<!DOCTYPE html>
@@ -162,7 +263,7 @@ app.get('/orders', (req, res) => {
   res.json(orders)
 })
 app.get('/orders/assembler', (_req, res) => res.json(db.orders.filter(isAssemblerOrder)))
-app.get('/orders/courier', (_req, res) => res.json(db.orders.filter(isCourierSync)))
+app.get('/orders/courier', (_req, res) => res.json(db.orders.filter(isCourierMapSync)))
 app.get('/orders/:id', (req, res) => {
   const o = db.orders.find(x => x.id === req.params.id)
   if (!o) return res.status(404).json({ detail: 'Заказ не найден' })
@@ -171,7 +272,7 @@ app.get('/orders/:id', (req, res) => {
 app.post('/orders', (req, res) => {
   const body = req.body
   const client = body.client || { name: body.client_name, phone: body.client_phone, addr: body.address, lat: body.lat, lng: body.lng }
-  const otype = body.type || 'market'
+  const otype = inferType({ type: body.type, items: body.items || [] })
   const order = {
     id: nextOrderId(db),
     type: otype,
@@ -179,6 +280,7 @@ app.post('/orders', (req, res) => {
     createdAt: nowTime(),
     total: body.total || 0,
     deliveryFee: body.deliveryFee || 0,
+    deliveryFeeLocked: body.deliveryFeeLocked === true || body.deliveryFee != null,
     comment: body.comment || '',
     priority: body.priority || 'normal',
     client,
@@ -203,7 +305,13 @@ app.post('/orders', (req, res) => {
 app.patch('/orders/:id/status', (req, res) => {
   const idx = db.orders.findIndex(o => o.id === req.params.id)
   if (idx < 0) return res.status(404).json({ detail: 'Заказ не найден' })
-  db.orders[idx] = applyStatusPatch({ ...db.orders[idx] }, req.body)
+  const prev = db.orders[idx]
+  const updated = applyStatusPatch({ ...prev }, req.body)
+  if (updated.status === 'delivered' && prev.status !== 'delivered') {
+    lockOrderDeliveryFee(updated, db.settings.pricing)
+    creditDeliveredOrder(db, updated)
+  }
+  db.orders[idx] = updated
   persist()
   broadcast('order_update', db.orders[idx])
   res.json(db.orders[idx])
@@ -218,9 +326,44 @@ app.get('/restaurants/:id', (req, res) => {
 app.patch('/restaurants/:id/toggle', (req, res) => {
   const r = db.restaurants.find(x => x.id === req.params.id)
   if (!r) return res.status(404).json({ detail: 'Не найдено' })
+  if (r.blocked) return res.status(403).json({ detail: 'Ресторан заблокирован' })
   r.open = !r.open
   persist()
   res.json(r)
+})
+app.patch('/restaurants/:id', (req, res) => {
+  const r = db.restaurants.find(x => x.id === req.params.id)
+  if (!r) return res.status(404).json({ detail: 'Не найдено' })
+  for (const k of ['name', 'cuisine', 'address', 'phone', 'email', 'open', 'blocked', 'hours']) {
+    if (req.body[k] !== undefined) r[k] = req.body[k]
+  }
+  persist()
+  res.json(r)
+})
+app.patch('/restaurants/:id/block', (req, res) => {
+  const r = db.restaurants.find(x => x.id === req.params.id)
+  if (!r) return res.status(404).json({ detail: 'Не найдено' })
+  const blocked = req.body.blocked === true
+  r.blocked = blocked
+  r.open = blocked ? false : true
+  const REST_TO_PICKUP = { 'R-01': 'rest1', 'R-02': 'rest2', 'R-03': 'rest3', 'R-04': 'rest4' }
+  const pickupId = REST_TO_PICKUP[r.id] ?? `rest${r.id.replace(/^R-0?/, '')}`
+  const pu = db.pickups.find(p => p.id === pickupId)
+  if (pu) pu.active = !blocked
+  persist()
+  res.json(r)
+})
+app.post('/restaurants/:id/payout', (req, res) => {
+  const result = processPayout(db, req.params.id, req.body)
+  if (result.error) return res.status(result.status || 400).json({ detail: result.error })
+  persist()
+  res.json(result)
+})
+app.get('/payouts', (req, res) => {
+  const restId = req.query.restId
+  let list = db.payouts || []
+  if (restId) list = list.filter(p => p.restId === restId)
+  res.json(list)
 })
 app.patch('/restaurants/:id/commission', (req, res) => {
   const r = db.restaurants.find(x => x.id === req.params.id)
@@ -249,6 +392,141 @@ app.patch('/pickups/:id', (req, res) => {
   res.json(p)
 })
 
+function normalizeCourierRow(raw) {
+  const vehicle = ['moto', 'bike', 'car'].includes(raw.vehicle) ? raw.vehicle : 'moto'
+  return {
+    ...raw,
+    vehicle,
+    maxActiveOrders: Math.max(1, Math.min(5, Number(raw.maxActiveOrders) || 1)),
+    blocked: !!raw.blocked,
+    rating: Number(raw.rating) || 5,
+    orders: Number(raw.orders) || 0,
+    today: Number(raw.today) || 0,
+    week: Number(raw.week) || 0,
+    num: raw.num || '—',
+    otp: raw.otp || '1234',
+  }
+}
+
+app.get('/couriers', (_req, res) => res.json(db.couriers || []))
+app.post('/couriers', (req, res) => {
+  if (!db.couriers) db.couriers = []
+  const nums = db.couriers.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+  const n = (nums.length ? Math.max(...nums) : 0) + 1
+  const row = normalizeCourierRow({
+    id: `C-${String(n).padStart(2, '0')}`,
+    rating: 5,
+    orders: 0,
+    today: 0,
+    week: 0,
+    status: 'offline',
+    ...req.body,
+  })
+  db.couriers.push(row)
+  persist()
+  res.json(row)
+})
+app.patch('/couriers/:id', (req, res) => {
+  const c = (db.couriers || []).find(x => x.id === req.params.id)
+  if (!c) return res.status(404).json({ detail: 'Курьер не найден' })
+  Object.assign(c, normalizeCourierRow({ ...c, ...req.body, id: c.id }))
+  persist()
+  res.json(c)
+})
+
+function normalizeAssemblerRow(raw) {
+  const status = raw.status === 'working' || raw.status === 'available' ? raw.status : 'offline'
+  return {
+    ...raw,
+    status,
+    ordersToday: Number(raw.ordersToday) || 0,
+    ordersTotal: Number(raw.ordersTotal) || 0,
+    week: Number(raw.week) || 0,
+    avgTimeMin: Math.max(1, Number(raw.avgTimeMin) || 8),
+    rating: Number(raw.rating) || 5,
+    blocked: !!raw.blocked,
+    otp: raw.otp || '5678',
+  }
+}
+
+app.get('/assemblers', (_req, res) => res.json(db.assemblers || []))
+app.post('/assemblers', (req, res) => {
+  if (!db.assemblers) db.assemblers = []
+  const nums = db.assemblers.map(a => parseInt(String(a.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+  const n = (nums.length ? Math.max(...nums) : 0) + 1
+  const row = normalizeAssemblerRow({
+    id: `A-${String(n).padStart(2, '0')}`,
+    rating: 5,
+    ordersToday: 0,
+    ordersTotal: 0,
+    week: 0,
+    avgTimeMin: 8,
+    status: 'offline',
+    ...req.body,
+  })
+  db.assemblers.push(row)
+  persist()
+  res.json(row)
+})
+app.patch('/assemblers/:id', (req, res) => {
+  const a = (db.assemblers || []).find(x => x.id === req.params.id)
+  if (!a) return res.status(404).json({ detail: 'Сборщик не найден' })
+  Object.assign(a, normalizeAssemblerRow({ ...a, ...req.body, id: a.id }))
+  persist()
+  res.json(a)
+})
+
+function normalizeClientRow(raw) {
+  const level = ['bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : 'bronze'
+  return {
+    id: raw.id,
+    name: raw.name || '',
+    phone: raw.phone || '',
+    email: raw.email || '',
+    addr: raw.addr || '',
+    card: raw.card || '',
+    level,
+    orders: Number(raw.orders) || 0,
+    spent: Number(raw.spent) || 0,
+    debt: Number(raw.debt) || 0,
+    bonus: Number(raw.bonus) || 0,
+    debtLimit: Number(raw.debtLimit) || 0,
+    blocked: !!raw.blocked,
+    note: raw.note || '',
+    createdAt: raw.createdAt,
+    lastOrderAt: raw.lastOrderAt,
+  }
+}
+
+app.get('/clients', (_req, res) => res.json(db.clients || []))
+app.post('/clients', (req, res) => {
+  if (!db.clients) db.clients = []
+  const nums = db.clients.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+  const n = (nums.length ? Math.max(...nums) : 0) + 1
+  const row = normalizeClientRow({
+    id: `U-${String(n).padStart(2, '0')}`,
+    level: 'bronze',
+    orders: 0,
+    spent: 0,
+    debt: 0,
+    bonus: 0,
+    debtLimit: 0,
+    blocked: false,
+    createdAt: new Date().toISOString().slice(0, 10),
+    ...req.body,
+  })
+  db.clients.push(row)
+  persist()
+  res.json(row)
+})
+app.patch('/clients/:id', (req, res) => {
+  const c = (db.clients || []).find(x => x.id === req.params.id)
+  if (!c) return res.status(404).json({ detail: 'Клиент не найден' })
+  Object.assign(c, normalizeClientRow({ ...c, ...req.body, id: c.id }))
+  persist()
+  res.json(c)
+})
+
 app.get('/settings/pricing', (_req, res) => res.json(db.settings.pricing))
 app.patch('/settings/pricing', (req, res) => {
   db.settings.pricing = { ...db.settings.pricing, ...req.body }
@@ -256,14 +534,260 @@ app.patch('/settings/pricing', (req, res) => {
   res.json(db.settings.pricing)
 })
 
-app.get('/cards', (_req, res) => res.json(db.cards))
-app.post('/cards/generate', (req, res) => res.json({ ok: true, count: Number(req.query.count) || 1 }))
-app.get('/reviews', (_req, res) => res.json(db.reviews))
-app.post('/reviews', (req, res) => {
-  db.reviews.push({ id: ++db._seq.review, ...req.body })
+app.get('/cards', (_req, res) => res.json(db.cards || []))
+
+function normalizePhoneDigits(phone) {
+  return String(phone || '').replace(/\D/g, '').slice(-9)
+}
+
+function normalizeCardRow(raw) {
+  const status = ['active', 'unlinked', 'blocked'].includes(raw.status) ? raw.status : 'unlinked'
+  const level = ['bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : (raw.level || '')
+  return {
+    num: String(raw.num || '').toUpperCase(),
+    client: raw.client || '',
+    phone: raw.phone || '',
+    clientId: raw.clientId,
+    status,
+    level,
+    bonus: Number(raw.bonus) || 0,
+    debtLimit: Number(raw.debtLimit) || 0,
+    debt: Number(raw.debt) || 0,
+    issued: raw.issued || new Date().toISOString().slice(0, 10),
+    note: raw.note || '',
+  }
+}
+
+function syncClientFromCardRow(card) {
+  if (!Array.isArray(db.clients)) return
+  if (card.status === 'unlinked') {
+    const prev = db.clients.find(x => x.card === card.num)
+    if (prev) prev.card = ''
+    return
+  }
+  const phone = card.phone
+  if (!phone) return
+  const client = db.clients.find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
+  if (!client) return
+  client.card = card.num
+  if (card.client) client.name = card.client
+  if (card.level) client.level = card.level
+  client.bonus = Number(card.bonus) || 0
+  client.debt = Number(card.debt) || 0
+  client.debtLimit = Number(card.debtLimit) || 0
+  client.blocked = card.status === 'blocked'
+}
+
+app.post('/cards/generate', (req, res) => {
+  const count = Math.min(500, Math.max(1, Number(req.query.count) || 1))
+  if (!db.cards) db.cards = []
+  const created = []
+  for (let i = 0; i < count; i++) {
+    const nums = db.cards.map(c => parseInt(String(c.num).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+    const n = (nums.length ? Math.max(...nums) : 0) + 1
+    const num = `KAKAPO-${String(n).padStart(4, '0')}`
+    const row = normalizeCardRow({
+      num,
+      client: '',
+      phone: '',
+      status: 'unlinked',
+      level: '',
+      bonus: 0,
+      debtLimit: 0,
+      debt: 0,
+    })
+    db.cards.push(row)
+    created.push(row)
+  }
   persist()
-  res.json(req.body)
+  res.json({ ok: true, count: created.length, cards: created })
 })
+
+app.patch('/cards/:num', (req, res) => {
+  const num = decodeURIComponent(req.params.num).toUpperCase()
+  const card = (db.cards || []).find(x => x.num === num)
+  if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+  if (req.body.unlink) {
+    const prevClient = db.clients?.find(x => x.card === num)
+    if (prevClient) prevClient.card = ''
+    Object.assign(card, normalizeCardRow({
+      num,
+      client: '',
+      phone: '',
+      status: 'unlinked',
+      level: '',
+      bonus: 0,
+      debt: 0,
+      debtLimit: 0,
+    }))
+  } else {
+    Object.assign(card, normalizeCardRow({ ...card, ...req.body, num }))
+    syncClientFromCardRow(card)
+  }
+  persist()
+  res.json(card)
+})
+
+app.get('/reviews', (req, res) => {
+  let list = db.reviews || []
+  if (req.query.restId) list = list.filter(r => r.restId === req.query.restId)
+  res.json(list)
+})
+app.post('/reviews', (req, res) => {
+  if (!req.body.restId) return res.status(400).json({ detail: 'Укажите ресторан' })
+  const dup = req.body.orderId
+    ? (db.reviews || []).find(r => r.orderId && r.orderId === String(req.body.orderId))
+    : null
+  if (dup) return res.status(400).json({ detail: 'Отзыв по этому заказу уже оставлен' })
+  const review = createReviewRecord(db, req.body)
+  persist()
+  broadcastReview(review)
+  res.json(review)
+})
+app.patch('/reviews/:id', (req, res) => {
+  const rev = (db.reviews || []).find(r => String(r.id) === String(req.params.id))
+  if (!rev) return res.status(404).json({ detail: 'Отзыв не найден' })
+  if (req.body.status != null) rev.status = req.body.status
+  if (req.body.restSeen != null) rev.restSeen = req.body.restSeen === true
+  if (req.body.restNotified != null) rev.restNotified = req.body.restNotified === true
+  if (req.body.urgent != null) rev.urgent = req.body.urgent === true
+  if (req.body.adminReply != null) rev.adminReply = String(req.body.adminReply).trim()
+  if (req.body.restReply != null) rev.restReply = String(req.body.restReply).trim()
+  persist()
+  broadcastReview(rev)
+  res.json(rev)
+})
+function ensurePush() {
+  if (!db.push) {
+    db.push = { autoSettings: [], history: [] }
+    persist()
+  }
+}
+ensurePush()
+
+app.get('/push', (_req, res) => {
+  ensurePush()
+  res.json(db.push)
+})
+
+app.patch('/push/settings', (req, res) => {
+  ensurePush()
+  if (Array.isArray(req.body.autoSettings)) {
+    db.push.autoSettings = req.body.autoSettings
+  }
+  persist()
+  res.json(db.push)
+})
+
+app.post('/push/send', (req, res) => {
+  ensurePush()
+  const campaign = {
+    ...req.body,
+    sentAt: req.body.sentAt || new Date().toISOString(),
+    id: req.body.id || `push-${Date.now()}`,
+  }
+  db.push.history = [campaign, ...(db.push.history || [])].slice(0, 50)
+  persist()
+  res.json(campaign)
+})
+
+app.get('/notifications', (req, res) => {
+  ensureNotifications()
+  const key = phoneKey(String(req.query.phone || ''))
+  let list = db.notifications || []
+  if (key) {
+    list = list.filter(n => !n.targetPhone || n.targetPhone === key)
+  }
+  res.json(list.slice(0, 80))
+})
+
+app.post('/notifications/deliver', (req, res) => {
+  ensureNotifications()
+  const raw = Array.isArray(req.body.items) ? req.body.items : (req.body.title ? [req.body] : [])
+  const created = raw.map((item, i) => ({
+    id: item.id || `n-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+    read: !!item.read,
+    icon: item.icon || '🔔',
+    title: String(item.title || ''),
+    body: String(item.body || ''),
+    time: item.time || nowTime(),
+    color: item.color || 'var(--gr)',
+    action: item.action,
+    orderId: item.orderId,
+    reviewId: item.reviewId,
+    broadcast: item.broadcast === true,
+    targetPhone: item.broadcast ? undefined : (item.targetPhone ? phoneKey(item.targetPhone) : undefined),
+    sentAt: item.sentAt || new Date().toISOString(),
+  })).filter(n => n.title && n.body)
+
+  if (created.length) {
+    db.notifications.unshift(...created)
+    db.notifications = db.notifications.slice(0, 500)
+    persist()
+    for (const n of created) broadcastNotification(n)
+  }
+  res.json({ ok: true, count: created.length, items: created })
+})
+
+app.patch('/notifications/read-all', (req, res) => {
+  ensureNotifications()
+  const key = phoneKey(String(req.query.phone || req.body.phone || ''))
+  db.notifications = (db.notifications || []).map(n => {
+    if (!key) return { ...n, read: true }
+    if (!n.targetPhone || n.targetPhone === key) return { ...n, read: true }
+    return n
+  })
+  persist()
+  res.json({ ok: true })
+})
+
+app.patch('/notifications/:id/read', (req, res) => {
+  ensureNotifications()
+  const n = (db.notifications || []).find(x => x.id === req.params.id)
+  if (!n) return res.status(404).json({ detail: 'Не найдено' })
+  n.read = true
+  persist()
+  res.json(n)
+})
+
+app.get('/finance/summary', (_req, res) => {
+  const delivered = (db.orders || []).filter(o => o.status === 'delivered')
+  const shopRevenue = delivered.reduce((s, o) => {
+    const items = marketItems(o.items || [])
+    if (items.length) {
+      return s + items.reduce((a, it) => a + (Number(it.price) || 0) * (Number(it.qty) || 1), 0)
+    }
+    if (inferType(o) === 'market') return s + Math.max(0, Number(o.total) || 0)
+    return s
+  }, 0)
+  const shopOrders = delivered.filter(o => inferType(o) !== 'restaurant').length
+  const restaurants = (db.restaurants || []).map(r => ({
+    id: r.id,
+    name: r.name,
+    emoji: r.emoji,
+    commission: r.commission,
+    ordersMonth: r.ordersMonth || 0,
+    revenueMonth: r.revenueMonth || 0,
+    paidRevenueMonth: r.paidRevenueMonth || 0,
+    balance: getPendingBalance(r),
+  }))
+  const restaurantGross = restaurants.reduce((s, r) => s + (r.revenueMonth || 0), 0)
+  const restaurantCommission = restaurants.reduce((s, r) => s + r.balance.pendingCommission + r.balance.paidCommission, 0)
+  const restaurantPendingNet = restaurants.reduce((s, r) => s + r.balance.pendingNet, 0)
+  res.json({
+    shopRevenue,
+    shopOrders,
+    shopDeliveryFees: delivered.reduce((s, o) => s + (Number(o.deliveryFee) || 0), 0),
+    restaurantGross,
+    restaurantCommission,
+    restaurantPendingNet,
+    totalTurnover: shopRevenue + restaurantGross,
+    restaurants,
+    payouts: (db.payouts || []).slice(0, 50),
+    ordersDelivered: delivered.length,
+  })
+})
+
 app.get('/admin/dashboard', (_req, res) => {
   res.json({
     ordersToday: db.orders.length,
@@ -290,8 +814,9 @@ httpServer.on('upgrade', (req, socket, head) => {
   })
 })
 
-httpServer.listen(PORT, () => {
-  console.log(`\n✅ KAKAPO Backend: http://localhost:${PORT}`)
-  console.log(`   База: server/data/kakapo.json`)
-  console.log(`   Health: http://localhost:${PORT}/health\n`)
+httpServer.listen(PORT, '0.0.0.0', () => {
+  const dataPath = process.env.DATA_DIR ? `${process.env.DATA_DIR}/kakapo.json` : 'data/kakapo.json'
+  console.log(`\n✅ KAKAPO Backend: http://0.0.0.0:${PORT}`)
+  console.log(`   База: ${dataPath}`)
+  console.log(`   Health: http://0.0.0.0:${PORT}/health\n`)
 })

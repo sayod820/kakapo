@@ -3,20 +3,25 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const DB_FILE = join(__dirname, 'data', 'kakapo.json')
+const DATA_DIR = process.env.DATA_DIR || join(__dirname, 'data')
+const DB_FILE = join(DATA_DIR, 'kakapo.json')
 
 const DEFAULT = {
   products: [],
   restaurants: [],
   orders: [],
   pickups: [],
+  couriers: [],
+  assemblers: [],
+  clients: [],
   settings: { pricing: { base: 10, baseDist: 2.5, perKm: 3, heavyKg: 50, heavyExtra: 10, freeFrom: 0 } },
   users: [],
   cards: [],
   reviews: [],
   categories: [],
   promos: [],
-  _seq: { order: 4832, product: 12, category: 2, review: 0, promo: 7 },
+  payouts: [],
+  _seq: { order: 4832, product: 12, category: 2, review: 0, promo: 7, payout: 0 },
 }
 
 let cache = null

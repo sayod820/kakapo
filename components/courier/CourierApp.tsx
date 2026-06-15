@@ -1,12 +1,16 @@
 'use client'
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, STORE_LOCATION } from '@/lib/courierData'
+import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, COURIER_MAP_VIEW } from '@/lib/courierData'
+import { resolveOrderDeliveryFee, buildDeliveryFeePatch } from '@/lib/deliveryFee'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
+import { useCourierTeam } from '@/lib/courierTeamStore'
+import { countCourierActiveOrders, isMyCourierOrder, resolveCourierProfile, vehicleIcon } from '@/lib/courierTeam'
+import { reloadCourierTeamStore, syncCourierTeamFromApi } from '@/lib/courierTeamStore'
 import { DEMO_COURIER_ORDERS } from '@/lib/demoOrders'
 import { buildCourierStats, COURIER_NAME, COURIER_PHONE, formatSm } from '@/lib/courierStats'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { useOrders, USE_API } from '@/lib/store'
-import { mapOrdersForCourier, mapSingleOrderForCourier, isCourierReadyOrder } from '@/lib/orderUiMap'
+import { mapOrdersForCourier, mapOrdersForCourierMap, mapSingleOrderForCourier, isCourierMapOrder, isCourierFullyReadyOrder } from '@/lib/orderUiMap'
 import { normalizeOrder, buildCourierRoute, getAllPickupIds, getReadyUnpickedPickupIds, formatCourierWaitingMessage } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation, readSessionFlag, writeSessionFlag } from '@/lib/useAppNavigation'
@@ -54,9 +58,13 @@ function kmStr(km: number | null): string {
   return km != null ? formatKm(km, false) : '…';
 }
 
-function orderDelivery(o: { id: string; weight: number }, roadKm: Record<string, number>, TARIFF = DEFAULT_PRICING): number | null {
-  const km = getOrderKm(o, roadKm);
-  return km != null ? calcDelivery(km, o.weight, TARIFF) : null;
+function orderDelivery(
+  o: { id: string; weight: number; status?: string; deliveryFee?: number; deliveryFeeLocked?: boolean; total?: number; distanceKm?: number; items?: unknown[]; weightKg?: number },
+  roadKm: Record<string, number>,
+  TARIFF = DEFAULT_PRICING,
+): number | null {
+  const fee = resolveOrderDeliveryFee(o as import('@/lib/types').Order, TARIFF, roadKm)
+  return fee
 }
 
 function isMapAlive(map: any): boolean {
@@ -68,13 +76,15 @@ function isMapAlive(map: any): boolean {
   }
 }
 
-function safeFitBounds(map: any, bounds: any) {
+function applyDefaultMapView(map: any) {
   if (!isMapAlive(map)) return;
   try {
     map.stop();
-    const center = bounds.getCenter();
-    const zoom = Math.min(map.getBoundsZoom(bounds, false), 18);
-    map.setView(center, zoom, { animate: false, reset: true });
+    map.setView(
+      [COURIER_MAP_VIEW.lat, COURIER_MAP_VIEW.lng],
+      COURIER_MAP_VIEW.zoom,
+      { animate: false, reset: true },
+    );
   } catch { /* карта уже уничтожена */ }
 }
 
@@ -88,9 +98,6 @@ function destroyMap(map: any, container?: HTMLDivElement | null) {
   } catch {}
   if (container) delete (container as any)._leaflet_id;
 }
-
-/* Центр карты по умолчанию (г. Яван) — без GPS курьера */
-const MAP_CENTER = { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng };
 
 /** Разводит маркеры с одинаковыми координатами, чтобы все заказы были видны на карте */
 function spreadOrderCoords<T extends { id: string; lat: number; lng: number }>(orders: T[]) {
@@ -178,20 +185,19 @@ function buildPickupsMap(list: PickupPoint[]) {
 /* ─────────────────────────────────────────────────────
     РЕАЛЬНАЯ КАРТА OpenStreetMap + Leaflet
 ───────────────────────────────────────────────────── */
-function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 280, TARIFF = DEFAULT_PRICING, roadKm = {}, sheetOpen = false, courierPos = null, onEnableLocation, locationLoading = false, locationError = '', PICKUPS = {}, pickupLocations = {} }: {
+function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 280, TARIFF = DEFAULT_PRICING, roadKm = {}, sheetOpen = false, courierPos = null, onEnableLocation, locationLoading = false, locationError = '', PICKUPS = {}, pickupLocations = {}, myDeliveryList = false }: {
   orders: typeof DEMO_COURIER_ORDERS; selected: any; onSelect: (o: any) => void; height?: number; pickupIdx?: number; step?: string; TARIFF?: typeof DEFAULT_PRICING; roadKm?: Record<string, number>; sheetOpen?: boolean
   courierPos?: { lat: number; lng: number } | null; onEnableLocation?: () => void; locationLoading?: boolean; locationError?: string
   PICKUPS?: Record<string, { id: string; name: string; addr: string; phone: string; e: string; color: string; lat: number; lng: number }>
   pickupLocations?: import('@/lib/pickups').PickupLocationMap
+  /** Список «Мои доставки» — только маркеры заказов (клиенты), без точек забора */
+  myDeliveryList?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<any>(null);
   const mapGenRef    = useRef(0);
   const markersRef   = useRef<any[]>([]);
   const routesRef    = useRef<any[]>([]);
-  const fitTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastFitKeyRef = useRef('');
-  const routeFitKeyRef = useRef('');
   const roadKmRef = useRef(roadKm);
   const courierPosRef = useRef(courierPos);
   const pickupLocRef = useRef(pickupLocations);
@@ -200,16 +206,6 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
   useEffect(() => { roadKmRef.current = roadKm; }, [roadKm]);
   useEffect(() => { courierPosRef.current = courierPos; }, [courierPos]);
   useEffect(() => { pickupLocRef.current = pickupLocations; }, [pickupLocations]);
-
-  const scheduleFit = (bounds: any, fitKey: string) => {
-    if (routeFitKeyRef.current === fitKey) return;
-    routeFitKeyRef.current = fitKey;
-    if (fitTimerRef.current) clearTimeout(fitTimerRef.current);
-    fitTimerRef.current = setTimeout(() => {
-      fitTimerRef.current = null;
-      if (isMapAlive(mapRef.current)) safeFitBounds(mapRef.current, bounds);
-    }, 80);
-  };
 
   /* подключаем Leaflet CSS один раз */
   useEffect(() => {
@@ -241,8 +237,8 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       });
 
       const map = L.map(containerRef.current!, {
-        center: [MAP_CENTER.lat, MAP_CENTER.lng],
-        zoom: 15,
+        center: [COURIER_MAP_VIEW.lat, COURIER_MAP_VIEW.lng],
+        zoom: COURIER_MAP_VIEW.zoom,
         zoomControl: false,
         attributionControl: false,
         zoomAnimation: false,
@@ -254,6 +250,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       mapRef.current = map;
       map.whenReady(() => {
         if (cancelled || gen !== mapGenRef.current) return;
+        applyDefaultMapView(map);
         setReady(true);
       });
     });
@@ -261,7 +258,6 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     return () => {
       cancelled = true;
       mapGenRef.current += 1;
-      if (fitTimerRef.current) { clearTimeout(fitTimerRef.current); fitTimerRef.current = null; }
       routesRef.current.forEach(r => { try { r.remove(); } catch {} });
       routesRef.current = [];
       markersRef.current.forEach(m => { try { m.remove(); } catch {} });
@@ -307,11 +303,31 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       const coords = spreadOrderCoords(orders)
       orders.forEach((o, i) => {
         const isSel = selected?.id === o.id;
+        const isWaiting = !myDeliveryList && o.mapStatus === 'waiting';
+        const isPreparing = !myDeliveryList && o.mapStatus === 'preparing';
         const pos = coords.get(o.id) || { lat: o.lat, lng: o.lng };
         const sz = isSel ? 44 : 36;
         const label = i + 1;
+        const pinBg = isSel
+          ? 'linear-gradient(135deg,#1E5BB5,#3B8EF0)'
+          : isWaiting
+            ? 'linear-gradient(135deg,#4A5568,#8FB897)'
+          : isPreparing
+            ? 'linear-gradient(135deg,#B8860B,#FFB800)'
+            : myDeliveryList
+              ? 'linear-gradient(135deg,#1E5BB5,#3B8EF0)'
+              : 'linear-gradient(135deg,#0F8A3A,#1FD760)';
+        const pinShadow = isSel
+          ? '0 4px 16px rgba(59,142,240,.6)'
+          : isWaiting
+            ? '0 3px 12px rgba(143,184,151,.45)'
+          : isPreparing
+            ? '0 3px 12px rgba(255,184,0,.5)'
+            : myDeliveryList
+              ? '0 3px 12px rgba(59,142,240,.45)'
+              : '0 3px 12px rgba(31,215,96,.5)';
         const icon = mkIcon(
-          `<div style="width:${sz}px;height:${sz}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${isSel?'linear-gradient(135deg,#1E5BB5,#3B8EF0)':'linear-gradient(135deg,#7a2020,#FF4545)'};display:flex;align-items:center;justify-content:center;box-shadow:${isSel?'0 4px 16px rgba(59,142,240,.6)':'0 3px 12px rgba(255,69,69,.5)'};border:2px solid rgba(255,255,255,.25)"><span style="transform:rotate(45deg);font-size:${isSel?16:13}px;font-weight:900;color:#fff">${label}</span></div>`,
+          `<div style="width:${sz}px;height:${sz}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${pinBg};display:flex;align-items:center;justify-content:center;box-shadow:${pinShadow};border:2px solid rgba(255,255,255,.25)"><span style="transform:rotate(45deg);font-size:${isSel?16:13}px;font-weight:900;color:#fff">${label}</span></div>`,
           sz, sz, sz/2, sz
         );
         const m = L.marker([pos.lat, pos.lng], { icon, zIndexOffset: isSel ? 800 : 100 }).addTo(map);
@@ -319,7 +335,8 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         const km = getOrderKm(o, roadKmRef.current);
         const kmLabel = km != null ? formatKm(km) : '… км';
         const dlv = km != null ? calcDelivery(km, o.weight, TARIFF) : '…';
-        m.bindTooltip(`${o.client} · ${kmLabel} · доставка ${dlv} ЅМ`, { direction:'top', offset:[0,-sz] });
+        const statusHint = myDeliveryList ? '' : isWaiting ? ' · ещё не собирается' : isPreparing ? ' · готовится' : ' · можно забирать';
+        m.bindTooltip(`${o.id} · ${o.client}${statusHint} · ${kmLabel} · ${dlv} ЅМ`, { direction:'top', offset:[0,-sz] });
         markersRef.current.push(m);
       });
 
@@ -333,29 +350,14 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
           L.marker([pos.lat, pos.lng], { icon: courierIcon, zIndexOffset: 1000 }).addTo(map)
         );
       }
-
-      if (!step && orders.length) {
-        const fitKey = orders.map(o => o.id).join(',') + (pos ? `:${pos.lat.toFixed(4)}` : '');
-        if (lastFitKeyRef.current !== fitKey) {
-          lastFitKeyRef.current = fitKey;
-          const bounds: [number, number][] = orders.map(o => {
-            const c = coords.get(o.id) || { lat: o.lat, lng: o.lng };
-            return [c.lat, c.lng];
-          });
-          if (pos) bounds.push([pos.lat, pos.lng]);
-          scheduleFit(L.latLngBounds(bounds), `orders:${fitKey}`);
-        }
-      }
     });
-  }, [ready, orders, selected, pickupIdx, step, onSelect, TARIFF, courierPos]);
+  }, [ready, orders, selected, pickupIdx, step, onSelect, TARIFF, courierPos, myDeliveryList]);
 
   /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
   useEffect(() => {
     if (!ready || !isMapAlive(mapRef.current) || !selected?.pickupIds || !step) return;
     const gen = mapGenRef.current;
     let cancelled = false;
-    const selId = selected.id as string;
-    const deliveryFitKey = `delivery:${selId}`;
 
     import('leaflet').then(async L => {
       routesRef.current.forEach(r => { try { r.remove(); } catch {} });
@@ -389,10 +391,6 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
           );
         }
       }
-
-      if (delivery.geometry.length >= 2) {
-        scheduleFit(L.latLngBounds(delivery.geometry), deliveryFitKey);
-      }
     });
 
     return () => {
@@ -402,10 +400,6 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     };
   }, [ready, selected, pickupIdx, step, sheetOpen, courierPos, pickupLocations]);
 
-  useEffect(() => {
-    if (!selected) routeFitKeyRef.current = '';
-  }, [selected]);
-
   const displayKm = selected ? getOrderKm(selected, roadKm) : null;
 
   return (
@@ -414,7 +408,25 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       {!sheetOpen && (
         <div style={{ position:'absolute', top:12, left:12, padding:'7px 12px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid rgba(59,142,240,.3)', zIndex:999, pointerEvents:'none' }}>
           <div className="ub" style={{ fontSize:17, fontWeight:900, color:'#3B8EF0' }}>{orders.length}</div>
-          <div style={{ fontSize:9, color:'#8FB897' }}>заказов рядом</div>
+          <div style={{ fontSize:9, color:'#8FB897' }}>на карте</div>
+        </div>
+      )}
+      {!sheetOpen && orders.length > 0 && myDeliveryList && (
+        <div style={{ position:'absolute', top:12, right:12, padding:'8px 10px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid #162B1A', zIndex:999, pointerEvents:'none', display:'flex', alignItems:'center', gap:6, fontSize:10, color:'#8FB897' }}>
+          <span style={{ width:10, height:10, borderRadius:'50% 50% 50% 0', transform:'rotate(-45deg)', background:'#3B8EF0', flexShrink:0 }}/>
+          Адрес доставки
+        </div>
+      )}
+      {!sheetOpen && orders.length > 0 && !myDeliveryList && !step && (
+        <div style={{ position:'absolute', top:12, right:12, padding:'8px 10px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid #162B1A', zIndex:999, pointerEvents:'none', display:'flex', flexDirection:'column', gap:5 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, color:'#8FB897' }}>
+            <span style={{ width:10, height:10, borderRadius:'50% 50% 50% 0', transform:'rotate(-45deg)', background:'#FFB800', flexShrink:0 }}/>
+            Готовится
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, color:'#8FB897' }}>
+            <span style={{ width:10, height:10, borderRadius:'50% 50% 50% 0', transform:'rotate(-45deg)', background:'#1FD760', flexShrink:0 }}/>
+            Можно забирать
+          </div>
         </div>
       )}
       {!sheetOpen && displayKm != null && (
@@ -462,14 +474,28 @@ function CourierAppInner() {
   useApiSync('courier');
   const { page: tab, navigate: setTab } = useAppNavigation('orders');
   const TARIFF = useTariff();
+  const couriers = useCourierTeam();
+  const courierProfile = useMemo(
+    () => resolveCourierProfile(couriers, COURIER_PHONE),
+    [couriers],
+  );
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
   const markPickupDone = useOrders(s => s.markPickupDone);
   const setCourierRoute = useOrders(s => s.setCourierRoute);
   const ORDERS = useMemo(
     () => {
+      if (!USE_API && !apiOrders.length) {
+        return DEMO_COURIER_ORDERS.filter(o => o.mapStatus === 'ready' && o.pickupIds.length > 0)
+      }
+      return mapOrdersForCourier(apiOrders.filter(isCourierFullyReadyOrder))
+    },
+    [apiOrders]
+  );
+  const MAP_ORDERS = useMemo(
+    () => {
       if (!USE_API && !apiOrders.length) return DEMO_COURIER_ORDERS
-      return mapOrdersForCourier(apiOrders.filter(isCourierReadyOrder))
+      return mapOrdersForCourierMap(apiOrders.filter(isCourierMapOrder))
     },
     [apiOrders]
   );
@@ -478,75 +504,142 @@ function CourierAppInner() {
   const PICKUPS = buildPickupsMap(pickupsList);
   const [logged,    setLogged]    = useState(() => readSessionFlag('courier'));
   useEffect(() => { writeSessionFlag('courier', logged); }, [logged]);
-  const { roadKm, loading: kmLoading } = useOrderRoadKm(ORDERS, logged);
+  const { pos: courierPos, loading: locationLoading, error: locationError, enable: enableLocation, disable: disableLocation, enabled: locationEnabled } = useCourierLocation();
+  const [status,    setStatus]    = useState('available');
+  const [selected,  setSelected]  = useState<any>(null);
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
+  const [orderSteps, setOrderSteps] = useState<Record<string, { step: 'toPickup' | 'toClient' | 'done'; pickupIdx: number }>>({});
+  const [localPickedUp, setLocalPickedUp] = useState<Record<string, string[]>>({});
+  const [localPickupRoute, setLocalPickupRoute] = useState<Record<string, string[]>>({});
+  const [routePicker, setRoutePicker] = useState<any>(null);
+
+  const myActiveOrders = useMemo(() => {
+    return apiOrders
+      .filter(o => isMyCourierOrder(o, courierProfile))
+      .map(raw => {
+        const pickedUpIds = [...new Set([...(raw.pickedUpIds || []), ...(localPickedUp[raw.id] || [])])]
+        const courierRoute = localPickupRoute[raw.id] ?? raw.courierRoute
+        return mapSingleOrderForCourier({ ...normalizeOrder(raw), pickedUpIds, courierRoute })
+      })
+  }, [apiOrders, courierProfile, localPickedUp, localPickupRoute]);
+
+  const myActiveOrderIds = useMemo(() => new Set(myActiveOrders.map(o => o.id)), [myActiveOrders]);
+
+  const active = useMemo(() => {
+    if (!detailOrderId) return null
+    return myActiveOrders.find(o => o.id === detailOrderId) ?? null
+  }, [detailOrderId, myActiveOrders]);
+
+  const step = detailOrderId ? (orderSteps[detailOrderId]?.step ?? 'toPickup') : 'toPickup'
+  const pickupIdx = detailOrderId ? (orderSteps[detailOrderId]?.pickupIdx ?? 0) : 0
+
+  const patchOrderProgress = (id: string, patch: Partial<{ step: 'toPickup' | 'toClient' | 'done'; pickupIdx: number }>) => {
+    setOrderSteps(prev => ({
+      ...prev,
+      [id]: { step: 'toPickup', pickupIdx: 0, ...prev[id], ...patch },
+    }))
+  }
+
+  const openDeliveryDetail = (orderId: string) => {
+    const raw = apiOrders.find(o => o.id === orderId)
+    if (raw && !orderSteps[orderId]) {
+      patchOrderProgress(orderId, {
+        step: raw.status === 'delivering' ? 'toClient' : 'toPickup',
+        pickupIdx: 0,
+      })
+    }
+    setDetailOrderId(orderId)
+  }
+
+  const goToDeliveryList = () => setDetailOrderId(null)
+  const ordersForRoadKm = useMemo(() => {
+    const extra = myActiveOrders.filter(o => !MAP_ORDERS.some(m => m.id === o.id))
+    return extra.length ? [...MAP_ORDERS, ...extra] : MAP_ORDERS
+  }, [MAP_ORDERS, myActiveOrders]);
+  const { roadKm, loading: kmLoading } = useOrderRoadKm(ordersForRoadKm, logged);
   const courierStats = useMemo(
     () => buildCourierStats(apiOrders, roadKm, TARIFF),
     [apiOrders, roadKm, TARIFF],
   );
-  const { pos: courierPos, loading: locationLoading, error: locationError, enable: enableLocation, disable: disableLocation, enabled: locationEnabled } = useCourierLocation();
-  const [status,    setStatus]    = useState('available');
-  const [selected,  setSelected]  = useState<any>(null);
-  const [activeId,   setActiveId]   = useState<string | null>(null);
-  const [localPickedUp, setLocalPickedUp] = useState<Record<string, string[]>>({});
-  const [localPickupRoute, setLocalPickupRoute] = useState<Record<string, string[]>>({});
-  const [routePicker, setRoutePicker] = useState<any>(null);
-  const active = useMemo(() => {
-    if (!activeId) return null
-    const raw = apiOrders.find(o => o.id === activeId)
-    if (!raw) return null
-    const pickedUpIds = [...new Set([...(raw.pickedUpIds || []), ...(localPickedUp[activeId] || [])])]
-    const courierRoute = localPickupRoute[activeId] ?? raw.courierRoute
-    return mapSingleOrderForCourier({ ...normalizeOrder(raw), pickedUpIds, courierRoute })
-  }, [activeId, apiOrders, localPickedUp, localPickupRoute]);
   const waitingForPickup = !!(active && !active.pickupIds.length && active.pendingParts?.length);
-  const [step,       setStep]       = useState<'toPickup'|'toClient'|'done'>('toPickup');
-  const [pickupIdx,  setPickupIdx]  = useState(0);
   const [completed,  setCompleted]  = useState<string[]>([]);
   const [otp,       setOtp]       = useState(['','','','']);
   const [err,       setErr]       = useState('');
+  const [acceptErr, setAcceptErr] = useState('');
   const [load,      setLoad]      = useState(false);
 
-  useEffect(() => { hydrateCourierStores(); }, []);
+  useEffect(() => {
+    hydrateCourierStores();
+    void syncCourierTeamFromApi();
+    const syncTeam = () => {
+      reloadCourierTeamStore();
+      void syncCourierTeamFromApi();
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'kakapo-couriers') reloadCourierTeamStore();
+    };
+    window.addEventListener('focus', syncTeam);
+    window.addEventListener('storage', onStorage);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') syncTeam();
+    });
+    return () => {
+      window.removeEventListener('focus', syncTeam);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
 
   useEffect(() => {
-    if (activeId || !USE_API) return
-    const inProgress = apiOrders.find(o => o.status === 'courier_picked' || o.status === 'delivering')
-    if (inProgress) {
-      setActiveId(inProgress.id)
-      if (inProgress.courierRoute?.length) {
-        setLocalPickupRoute(prev => ({ ...prev, [inProgress.id]: inProgress.courierRoute! }))
-      }
-      setStatus('busy')
-      setTab('active')
-      setStep(inProgress.status === 'delivering' ? 'toClient' : 'toPickup')
-    }
-  }, [apiOrders, activeId]);
+    if (!USE_API) return
+    if (myActiveOrders.length) setStatus('busy')
+    else if (!detailOrderId) setStatus('available')
+  }, [myActiveOrders.length, detailOrderId]);
 
   const verify = () => {
     if (otp.join('').length < 4) return;
+    if (courierProfile?.blocked) {
+      setErr('Аккаунт заблокирован. Обратитесь к администратору.');
+      return;
+    }
     setLoad(true);
-    setTimeout(()=>{
-      if (otp.join('') === '1234') setLogged(true);
-      else { setErr('Неверный код · Демо: 1234'); setOtp(['','','','']); }
+    setTimeout(() => {
+      const code = courierProfile?.otp || '1234';
+      if (otp.join('') === code) setLogged(true);
+      else { setErr(`Неверный код · Демо: ${code}`); setOtp(['', '', '', '']); }
       setLoad(false);
     }, 700);
   };
 
+  const canAcceptMore = () => {
+    if (courierProfile.blocked) return { ok: false, msg: 'Аккаунт заблокирован администратором' };
+    const max = courierProfile.maxActiveOrders;
+    const active = countCourierActiveOrders(apiOrders, { name: courierProfile.name, phone: COURIER_PHONE });
+    if (active >= max) {
+      return { ok: false, msg: `Лимит: ${active}/${max} заказ(ов) одновременно` };
+    }
+    return { ok: true, max, active };
+  };
+
   const confirmAccept = async (o: any, route: string[]) => {
     setLocalPickupRoute(prev => ({ ...prev, [o.id]: route }));
-    setActiveId(o.id);
+    patchOrderProgress(o.id, { step: 'toPickup', pickupIdx: 0 });
     setStatus('busy');
-    setStep('toPickup');
-    setPickupIdx(0);
     setSelected(null);
     setRoutePicker(null);
+    setDetailOrderId(null);
     setTab('active');
     void setCourierRoute(o.id, route);
     await updateStatus(o.id, 'courier_picked', { courier: { name: COURIER.name, phone: COURIER_PHONE } });
   };
 
   const accept = (o: any) => {
-    if (!o.pickupIds?.length) return;
+    if (o.mapStatus === 'waiting' || o.mapStatus === 'preparing' || !o.pickupIds?.length) return;
+    const gate = canAcceptMore();
+    if (!gate.ok) {
+      setAcceptErr(gate.msg);
+      return;
+    }
+    setAcceptErr('');
     const raw = apiOrders.find(x => x.id === o.id);
     const order = raw ? normalizeOrder(raw) : null;
     const allStops = order ? getAllPickupIds(order) : o.pickupIds;
@@ -563,13 +656,13 @@ function CourierAppInner() {
   };
 
   const chooseFirstPickup = (pid: string) => {
-    if (!activeId) return;
-    const raw = apiOrders.find(o => o.id === activeId);
+    if (!detailOrderId) return;
+    const raw = apiOrders.find(o => o.id === detailOrderId);
     if (!raw) return;
     const route = buildCourierRoute(pid, normalizeOrder(raw));
-    setLocalPickupRoute(prev => ({ ...prev, [activeId]: route }));
-    setPickupIdx(0);
-    void setCourierRoute(activeId, route);
+    setLocalPickupRoute(prev => ({ ...prev, [detailOrderId]: route }));
+    patchOrderProgress(detailOrderId, { pickupIdx: 0 });
+    void setCourierRoute(detailOrderId, route);
   };
 
   const pickRouteAndAccept = (firstPid: string) => {
@@ -581,36 +674,52 @@ function CourierAppInner() {
     void confirmAccept(routePicker.order, route);
   };
   const finish = async () => {
+    if (!detailOrderId) return;
     const deliveredAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    if (activeId) {
-      await updateStatus(activeId, 'delivered', {
-        courier: { name: COURIER.name, phone: COURIER_PHONE },
-        deliveredAt,
-      });
-      setCompleted(c => [...c, activeId]);
-      setLocalPickedUp(prev => {
-        const next = { ...prev };
-        delete next[activeId];
-        return next;
-      });
-      setLocalPickupRoute(prev => {
-        const next = { ...prev };
-        delete next[activeId];
-        return next;
-      });
+    const finishedId = detailOrderId;
+    const raw = apiOrders.find(o => o.id === finishedId);
+    const feePatch = raw
+      ? buildDeliveryFeePatch(normalizeOrder(raw), TARIFF, roadKm)
+      : { deliveryFee: (active ? orderDelivery(active, roadKm, TARIFF) : 0) ?? 0, deliveryFeeLocked: true as const };
+    await updateStatus(finishedId, 'delivered', {
+      courier: { name: COURIER.name, phone: COURIER_PHONE },
+      deliveredAt,
+      ...feePatch,
+    });
+    setCompleted(c => [...c, finishedId]);
+    setLocalPickedUp(prev => {
+      const next = { ...prev };
+      delete next[finishedId];
+      return next;
+    });
+    setLocalPickupRoute(prev => {
+      const next = { ...prev };
+      delete next[finishedId];
+      return next;
+    });
+    setOrderSteps(prev => {
+      const next = { ...prev };
+      delete next[finishedId];
+      return next;
+    });
+    setDetailOrderId(null);
+    const remaining = myActiveOrders.filter(o => o.id !== finishedId).length;
+    if (remaining) {
+      setStatus('busy');
+      setTab('active');
+    } else {
+      setStatus('available');
+      setTab('earnings');
     }
-    setActiveId(null);
-    setStatus('available');
-    setTab('earnings');
   };
   const nextStop = () => {
-    if (!active || !activeId) return;
+    if (!active || !detailOrderId) return;
     const currentPid = active.pickupIds[pickupIdx];
     if (!currentPid) return;
 
     const nextPicked = [...new Set([...(active.pickedUpIds || []), currentPid])];
     setLocalPickedUp(prev => ({ ...prev, [active.id]: nextPicked }));
-    setPickupIdx(0);
+    patchOrderProgress(detailOrderId, { pickupIdx: 0 });
 
     void markPickupDone(active.id, currentPid);
 
@@ -619,18 +728,23 @@ function CourierAppInner() {
     const mapped = mapSingleOrderForCourier({ ...normalizeOrder(raw), pickedUpIds: nextPicked });
 
     if (mapped.pickupIds.length > 0) {
-      setStep('toPickup');
+      patchOrderProgress(detailOrderId, { step: 'toPickup' });
     } else if (mapped.pendingParts?.length) {
-      setStep('toPickup');
+      patchOrderProgress(detailOrderId, { step: 'toPickup' });
     } else {
-      setStep('toClient');
+      patchOrderProgress(detailOrderId, { step: 'toClient' });
       void updateStatus(active.id, 'delivering');
     }
   };
 
+  const mapOrders = MAP_ORDERS.filter(o =>
+    !completed.includes(o.id) &&
+    !myActiveOrderIds.has(o.id),
+  );
+
   const available = ORDERS.filter(o =>
     !completed.includes(o.id) &&
-    o.id !== activeId &&
+    !myActiveOrderIds.has(o.id) &&
     o.pickupIds.length > 0,
   );
 
@@ -679,7 +793,12 @@ function CourierAppInner() {
             <div className="ub" style={{ fontSize:14, fontWeight:900 }}>{COURIER.name}</div>
             <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:1 }}>
               <div style={{ width:6, height:6, borderRadius:'50%', background:status==='available'?'#1FD760':status==='busy'?'#FFB800':'#3D6645', animation:'pulse 2s infinite' }}/>
-              <span style={{ fontSize:10, color:'#8FB897' }}>{status==='available'?'Свободен':status==='busy'?'В заказе':'Офлайн'} · {COURIER.vehicle}</span>
+              <span style={{ fontSize:10, color:'#8FB897' }}>
+                {status==='available'?'Свободен':status==='busy'?'В заказе':'Офлайн'}
+                {' · '}
+                {courierProfile ? `${vehicleIcon(courierProfile.vehicle)} ${courierProfile.num}` : COURIER.vehicle}
+                {courierProfile && ` · до ${courierProfile.maxActiveOrders} зак.`}
+              </span>
             </div>
           </div>
           <div style={{ textAlign:'right' }}>
@@ -716,7 +835,7 @@ function CourierAppInner() {
             ) : (
               <>
                 <div style={{ margin:'12px 0 0' }}>
-                  <LeafletMap key="orders-map" orders={available} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} />
+                  <LeafletMap key="orders-map" orders={mapOrders} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} />
                 </div>
 
                 {/* BOTTOM SHEET — детали заказа, фиксированный оверлей */}
@@ -731,7 +850,18 @@ function CourierAppInner() {
 
                       {/* ID + сумма доставки */}
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-                        <div className="ub" style={{ fontSize:14, fontWeight:900, color:'#3B8EF0' }}>{selected.id}</div>
+                        <div>
+                          <div className="ub" style={{ fontSize:14, fontWeight:900, color:'#3B8EF0' }}>{selected.id}</div>
+                          {selected.mapStatus === 'waiting' && (
+                            <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:'rgba(143,184,151,.12)', color:'#8FB897', border:'1px solid rgba(143,184,151,.35)' }}>📦 Ещё не собирается</span>
+                          )}
+                          {selected.mapStatus === 'preparing' && (
+                            <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:'rgba(255,184,0,.12)', color:'#FFB800', border:'1px solid rgba(255,184,0,.35)' }}>⏳ Готовится</span>
+                          )}
+                          {selected.mapStatus === 'ready' && (
+                            <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:'rgba(31,215,96,.12)', color:'#1FD760', border:'1px solid rgba(31,215,96,.35)' }}>✓ Можно забирать</span>
+                          )}
+                        </div>
                         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                           <span style={{ padding:'4px 10px', borderRadius:10, fontSize:10, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>
                             🛣 {getOrderKm(selected, roadKm) != null ? formatKm(getOrderKm(selected, roadKm)!) : '…'}
@@ -745,6 +875,16 @@ function CourierAppInner() {
 
                       {/* маршрут: точки забора → клиент */}
                       <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:14, padding:'12px 14px', marginBottom:12 }}>
+                        {selected.mapStatus === 'waiting' && (
+                          <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(143,184,151,.08)', border:'1px solid rgba(143,184,151,.3)', marginBottom:10, fontSize:12, color:'#8FB897', fontWeight:700 }}>
+                            📦 Заказ ещё не собирается — ждём сборщика
+                          </div>
+                        )}
+                        {selected.mapStatus === 'preparing' && !selected.pickupIds.length && (
+                          <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(255,184,0,.08)', border:'1px solid rgba(255,184,0,.3)', marginBottom:10, fontSize:12, color:'#FFB800', fontWeight:700 }}>
+                            ⏳ Заказ готовится — точки забора появятся, когда всё будет готово
+                          </div>
+                        )}
                         {selected.pickupIds.map((pid:string, pi:number) => {
                           const pk = PICKUPS[pid]||PICKUPS.store;
                           return (
@@ -840,11 +980,30 @@ function CourierAppInner() {
                       {/* кнопки */}
                       <div style={{ display:'flex', gap:8 }}>
                         <button onClick={()=>setSelected(null)} className="btn" style={{ padding:'14px 18px', borderRadius:14, background:'#162B1A', border:'none', color:'#8FB897', fontWeight:700, fontSize:14 }}>✕</button>
+                        {selected.mapStatus === 'waiting' ? (
+                          <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(143,184,151,.1)', border:'1px solid rgba(143,184,151,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#8FB897' }}>
+                            📦 Заказ ещё не собирается
+                          </div>
+                        ) : selected.mapStatus === 'preparing' || !selected.pickupIds?.length ? (
+                          <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(255,184,0,.1)', border:'1px solid rgba(255,184,0,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#FFB800' }}>
+                            ⏳ Ожидаем готовность заказа
+                          </div>
+                        ) : !canAcceptMore().ok ? (
+                          <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.35)', textAlign:'center', fontSize:12, fontWeight:700, color:'#FF4545' }}>
+                            {canAcceptMore().msg}
+                          </div>
+                        ) : (
                         <button onClick={()=>accept(selected)} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
                           <span>✓ Принять заказ</span>
                           <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>наличными {(() => { const d = orderDelivery(selected, roadKm, TARIFF); return d != null ? `${(selected.sum + d).toFixed(2)} ЅМ` : '…'; })()}</span>
                         </button>
+                        )}
                       </div>
+                      {acceptErr && (
+                        <div style={{ marginTop:8, padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'#FF4545', textAlign:'center' }}>
+                          {acceptErr}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -880,7 +1039,7 @@ function CourierAppInner() {
                 <div style={{ padding:'18px 18px 0' }}>
                   <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
                     Доступные заказы
-                    <span style={{ padding:'2px 8px', borderRadius:8, fontSize:11, fontWeight:800, background:'rgba(255,69,69,.12)', color:'#FF4545', border:'1px solid rgba(255,69,69,.28)' }}>{available.length}</span>
+                    <span style={{ padding:'2px 8px', borderRadius:8, fontSize:11, fontWeight:800, background:'rgba(31,215,96,.12)', color:'#1FD760', border:'1px solid rgba(31,215,96,.28)' }}>{available.length}</span>
                     {kmLoading && <span style={{ fontSize:10, color:'#3D6645', fontWeight:600 }}>· считаем км…</span>}
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
@@ -888,7 +1047,7 @@ function CourierAppInner() {
                       <div style={{ textAlign:'center', padding:'28px 16px', color:'#8FB897', background:'#091508', border:'1px solid #162B1A', borderRadius:16 }}>
                         <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
                         <div style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>Нет доступных заказов</div>
-                        <div style={{ fontSize:11, color:'#3D6645' }}>{active ? 'Активная доставка на вкладке «Доставка»' : 'Новые появятся после оформления в магазине'}</div>
+                        <div style={{ fontSize:11, color:'#3D6645' }}>{myActiveOrders.length ? `${myActiveOrders.length} в доставке — вкладка «Доставка»` : 'Новые появятся после оформления в магазине'}</div>
                       </div>
                     )}
                     {available.map((o,idx)=>{
@@ -937,6 +1096,13 @@ function CourierAppInner() {
         {tab==='active' && (
           active ? (
             <div>
+              <div style={{ padding:'12px 18px 0', display:'flex', alignItems:'center', gap:10 }}>
+                <button type="button" onClick={goToDeliveryList} className="btn" style={{ width:38, height:38, borderRadius:12, background:'#0C1C0F', border:'1px solid #162B1A', color:'#8FB897', fontSize:16 }}>←</button>
+                <div style={{ flex:1 }}>
+                  <div className="ub" style={{ fontSize:14, fontWeight:800 }}>Заказ {active.id}</div>
+                  <div style={{ fontSize:11, color:'#3D6645' }}>Назад к списку доставок</div>
+                </div>
+              </div>
               <LeafletMap key="active-map" orders={[active]} selected={active} onSelect={()=>{}} height={250} pickupIdx={pickupIdx} step={step} TARIFF={TARIFF} roadKm={roadKm} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations}/>
               <div style={{ padding:'16px 18px 110px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
@@ -1146,8 +1312,76 @@ function CourierAppInner() {
                   </div>
                   );
                 })()}
-                {step==='toClient' && <button onClick={()=>setStep('done')} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
+                {step==='toClient' && <button onClick={() => detailOrderId && patchOrderProgress(detailOrderId, { step: 'done' })} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
                 {step==='done'     && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {(() => { const d = orderDelivery(active, roadKm, TARIFF); return d != null ? `${(active.sum + d).toFixed(2)} ЅМ` : '…'; })()}</button>}
+              </div>
+            </div>
+          ) : myActiveOrders.length ? (
+            <div>
+              <LeafletMap
+                key="delivery-list-map"
+                orders={myActiveOrders}
+                selected={null}
+                onSelect={(o) => openDeliveryDetail(o.id)}
+                height={240}
+                TARIFF={TARIFF}
+                roadKm={roadKm}
+                courierPos={courierPos}
+                onEnableLocation={enableLocation}
+                locationLoading={locationLoading}
+                locationError={locationError}
+                PICKUPS={PICKUPS}
+                pickupLocations={pickupLocations}
+                myDeliveryList
+              />
+              <div style={{ padding:'16px 18px 110px' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <div>
+                  <div className="ub" style={{ fontSize:16, fontWeight:900 }}>Мои доставки</div>
+                  <div style={{ fontSize:12, color:'#8FB897', marginTop:2 }}>{myActiveOrders.length} из {courierProfile.maxActiveOrders} заказов</div>
+                </div>
+                <div style={{ padding:'8px 12px', borderRadius:12, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.25)' }}>
+                  <span style={{ fontSize:11, fontWeight:800, color:'#3B8EF0' }}>Нажмите заказ →</span>
+                </div>
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {myActiveOrders.map((o, idx) => {
+                  const raw = apiOrders.find(x => x.id === o.id)
+                  const dlv = orderDelivery(o, roadKm, TARIFF)
+                  const km = getOrderKm(o, roadKm)
+                  const prog = orderSteps[o.id]
+                  const statusLabel = prog?.step === 'done'
+                    ? 'На месте'
+                    : raw?.status === 'delivering' || prog?.step === 'toClient'
+                      ? 'К клиенту'
+                      : !o.pickupIds.length && o.pendingParts?.length
+                        ? 'Ожидание'
+                        : 'Забор'
+                  const statusColor = statusLabel === 'К клиенту' ? '#3B8EF0' : statusLabel === 'На месте' ? '#1FD760' : statusLabel === 'Ожидание' ? '#FFB800' : '#FF8C00'
+                  return (
+                    <button key={o.id} type="button" onClick={() => openDeliveryDetail(o.id)} className="btn"
+                      style={{ background:'#091508', border:'1.5px solid #162B1A', borderRadius:16, padding:'14px 15px', textAlign:'left' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                          <div style={{ width:34, height:34, borderRadius:10, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Unbounded', fontSize:12, fontWeight:900, color:'white' }}>{idx + 1}</div>
+                          <div>
+                            <div className="ub" style={{ fontSize:14, fontWeight:800, color:'#3B8EF0' }}>{o.id}</div>
+                            <div style={{ fontSize:11, color:'#8FB897' }}>{o.client}</div>
+                          </div>
+                        </div>
+                        <div style={{ textAlign:'right' }}>
+                          <div className="ub" style={{ fontSize:16, fontWeight:900, color:'#1FD760' }}>{dlv ?? '…'} ЅМ</div>
+                          <div style={{ fontSize:9, color:'#3D6645' }}>{km != null ? formatKm(km) : '…'}</div>
+                        </div>
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                        <div style={{ fontSize:11, color:'#8FB897', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📍 {o.addr}</div>
+                        <span style={{ padding:'3px 9px', borderRadius:8, fontSize:10, fontWeight:800, background:`${statusColor}18`, color:statusColor, border:`1px solid ${statusColor}44`, flexShrink:0 }}>{statusLabel}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
               </div>
             </div>
           ) : (
@@ -1209,10 +1443,14 @@ function CourierAppInner() {
         {/* NAV */}
         <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'rgba(3,11,5,.97)', backdropFilter:'blur(26px)', borderTop:'1px solid #162B1A', padding:'8px 18px 18px', display:'flex', justifyContent:'space-around', zIndex:90 }}>
           {([['orders','📋','Заказы'],['active','🛵','Доставка'],['earnings','💰','Заработок']] as const).map(([id,icon,label])=>(
-            <button key={id} onClick={()=>setTab(id)} className="btn" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, padding:'5px 18px', borderRadius:11, background:tab===id?'rgba(59,142,240,.12)':'transparent', border:`1.5px solid ${tab===id?'rgba(59,142,240,.3)':'transparent'}`, position:'relative' }}>
+            <button key={id} onClick={() => { if (id === 'active') setDetailOrderId(null); setTab(id); }} className="btn" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, padding:'5px 18px', borderRadius:11, background:tab===id?'rgba(59,142,240,.12)':'transparent', border:`1.5px solid ${tab===id?'rgba(59,142,240,.3)':'transparent'}`, position:'relative' }}>
               <span style={{ fontSize:20 }}>{icon}</span>
               <span style={{ fontSize:10, fontWeight:tab===id?800:600, color:tab===id?'#3B8EF0':'#3D6645' }}>{label}</span>
-              {id==='active' && active && <div style={{ position:'absolute', top:2, right:12, width:8, height:8, borderRadius:'50%', background:'#FFB800', animation:'pulse 1.5s infinite' }}/>}
+              {id==='active' && myActiveOrders.length > 0 && (
+                <div style={{ position:'absolute', top:2, right:10, minWidth:16, height:16, padding:'0 4px', borderRadius:999, background:'#FFB800', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:900, color:'#030B05' }}>
+                  {myActiveOrders.length}
+                </div>
+              )}
             </button>
           ))}
         </nav>

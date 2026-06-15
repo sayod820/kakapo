@@ -1,10 +1,9 @@
 'use client'
 import { useEffect, useRef } from 'react'
 import { USE_API } from './config'
-import { useProducts, useRestaurants, useOrders, mergeOrderFields } from './store'
+import { useProducts, useRestaurants, useOrders, mergeOrderFields, applyAdminPins } from './store'
 import { syncCourierStoresFromApi } from './courierStore'
 import { useWebSocket } from './ws'
-import { normalizeOrder } from './orderParts'
 
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog'
 
@@ -22,21 +21,26 @@ export function useApiSync(mode: SyncMode = 'all') {
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
     if (!USE_API) return
+    if (msg.order) {
+      const pins = useOrders.getState().orderAdminPins
+      const pin = pins[msg.order.id]
+      const order = pin
+        ? { ...msg.order, ...pin, status: pin.status ?? msg.order.status }
+        : msg.order
+      useOrders.setState(s => {
+        const exists = s.orders.some(o => o.id === order.id)
+        const next = exists
+          ? s.orders.map(o => o.id === order.id ? mergeOrderFields(o, order, pin) : o)
+          : [order, ...s.orders]
+        return { orders: applyAdminPins(next, pins) }
+      })
+      return
+    }
     const orders = useOrders.getState()
     if (mode === 'assembler') orders.fetchAssemblerOrders()
     else if (mode === 'courier') orders.fetchCourierOrders()
     else if (mode === 'restaurant') orders.fetchRestaurantOrders()
     else if (mode === 'all') orders.fetchOrders()
-    if (msg.order) {
-      const normalized = normalizeOrder(msg.order)
-      useOrders.setState(s => {
-        const exists = s.orders.some(o => o.id === normalized.id)
-        const next = exists
-          ? s.orders.map(o => o.id === normalized.id ? mergeOrderFields(o, normalized) : o)
-          : [normalized, ...s.orders]
-        return { orders: next }
-      })
-    }
   })
 
   useEffect(() => {

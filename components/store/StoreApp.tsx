@@ -6,13 +6,29 @@ import { hydrateCourierStores } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
+import { productCatSlug } from "@/lib/enrichCatalog";
 import { useOrders, USE_API, useRestaurants } from "@/lib/store";
+import { api } from "@/lib/api";
 import { enrichRestaurants } from "@/lib/enrichCatalog";
 import { mapOrdersForClient } from "@/lib/orderUiMap";
 import { useApiSync } from "@/lib/useApiSync";
+import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
+import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
+import { loadStoreUser, resolveStoreUserByPhone, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
+import { loadClientReviewMap, phoneDigits } from "@/lib/clientReviews";
+import {
+  getUnreadNotificationCount,
+  loadClientNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  subscribeClientNotifications,
+  subscribeNotificationChannel,
+  syncClientNotificationsFromApi,
+} from "@/lib/clientNotifications";
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
-import { isWeighted, formatCartQty, calcLineTotal, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg } from "@/lib/productWeight";
+import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
+import type { Review } from "@/lib/types";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
@@ -131,9 +147,9 @@ const Toast = ({ msg }) => !msg ? null : (
 );
 
 const Nav = ({ page, go }) => (
-  <nav style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"8px 18px 16px", display:"flex", justifyContent:"space-around", zIndex:80 }}>
+  <nav style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"8px 18px calc(16px + env(safe-area-inset-bottom, 0px))", display:"flex", justifyContent:"space-around", zIndex:200 }}>
     {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => (
-      <button key={item.id} onClick={() => go(item.id)} className="btn"
+      <button key={item.id} type="button" onClick={() => go(item.id)} className="btn"
         style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"6px 12px", borderRadius:12, background:page===item.id?"rgba(31,215,96,.09)":"transparent", border:`1.5px solid ${page===item.id?"rgba(31,215,96,.22)":"transparent"}`, color:page===item.id?"var(--gr)":"var(--t3)" }}>
         <Ic n={item.icon} s={20} c={page===item.id?"var(--gr)":"var(--t3)"}/>
         <span style={{ fontSize:9, fontWeight:page===item.id?800:600 }}>{item.label}</span>
@@ -142,8 +158,42 @@ const Nav = ({ page, go }) => (
   </nav>
 );
 
+/** Компактная плавающая кнопка корзины */
+const FloatingCartBtn = ({ count, onClick, label = "В корзину" }) => (
+  <div style={{ position:"fixed", bottom:82, left:0, right:0, zIndex:90, display:"flex", justifyContent:"center", pointerEvents:"none", animation:"fadeUp .35s cubic-bezier(.16,1,.3,1)" }}>
+    <button
+      type="button"
+      onClick={onClick}
+      className="btn"
+      style={{
+        pointerEvents:"auto",
+        display:"inline-flex",
+        alignItems:"center",
+        gap:6,
+        padding:"6px 12px 6px 7px",
+        borderRadius:999,
+        background:"linear-gradient(135deg,#0F7A38 0%,#1FD760 100%)",
+        border:"1px solid rgba(255,255,255,.14)",
+        boxShadow:"0 3px 12px rgba(31,215,96,.26), inset 0 1px 0 rgba(255,255,255,.16)",
+        maxWidth:"calc(100% - 44px)",
+      }}
+    >
+      <div style={{
+        minWidth:19, height:19, padding:"0 5px", borderRadius:999,
+        background:"rgba(0,0,0,.28)", border:"1px solid rgba(255,255,255,.1)",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white", flexShrink:0,
+      }}>{count}</div>
+      <span style={{ fontSize:12, fontWeight:800, color:"white", whiteSpace:"nowrap", letterSpacing:"-.01em" }}>{label}</span>
+      <Ic n="arr" s={11} c="rgba(255,255,255,.85)"/>
+    </button>
+  </div>
+);
+
 const Header = ({ title, back, go, cart }) => {
-  const qty = Object.values(cart||{}).reduce((a,b)=>a+b,0);
+  const { prods } = useLiveCatalog();
+  const qty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
+  const qtyNum = sumCartUnits(cart || {}, prods);
   return (
     <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
       <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
@@ -170,9 +220,9 @@ const Header = ({ title, back, go, cart }) => {
         <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
           <Ic n="search" s={17} c="var(--t2)"/>
         </button>
-        <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:qty>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${qty>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:qty>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
-          <Ic n="cart" s={17} c={qty>0?"white":"var(--t2)"}/>
-          {qty>0 && <div style={{ position:"absolute", top:-6, right:-6, width:17, height:17, borderRadius:"50%", background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{qty}</div>}
+        <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:qtyNum>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${qtyNum>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:qtyNum>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
+          <Ic n="cart" s={17} c={qtyNum>0?"white":"var(--t2)"}/>
+          {qtyNum>0 && <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{qty}</div>}
         </button>
       </div>
     </header>
@@ -225,6 +275,27 @@ const CATS = [
   {id:"sweet_k", e:"🍬",label:"Конфеты",                count:35, color:"#F472B6",bg:"linear-gradient(145deg,#2A0818,#4A1028)", parentId:"sweet"},
   {id:"sweet_h", e:"🥜",label:"Орехи и сухофрукты",    count:18, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"sweet"},
 ];
+
+function productsInCategory(prods, catId, subCatId = null) {
+  return prods.filter(p => {
+    const slug = productCatSlug(p);
+    if (subCatId) return slug === subCatId;
+    if (catId) {
+      return slug === catId || CATS.filter(c => c.parentId === catId).some(sub => sub.id === slug);
+    }
+    return true;
+  });
+}
+
+function formatProductCount(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return `${n} товаров`;
+  if (mod10 === 1) return `${n} товар`;
+  if (mod10 >= 2 && mod10 <= 4) return `${n} товара`;
+  return `${n} товаров`;
+}
+
 const RESTAURANTS = [
   {
     id:'R-01', name:'Чайхона Оромгох',   emoji:'🍖', rating:4.8, reviews:312,
@@ -334,8 +405,42 @@ const OSTATUS = {
   cancelled:       {l:"Отменён",       c:"var(--red)"},
 };
 
-function phoneDigits(v: string) {
-  return (v || '').replace(/\D/g, '').slice(-9);
+function ClientReviewBlock({ review, orderId, embedded }: { review: Review; orderId?: string; embedded?: boolean }) {
+  const hasReply = !!(review.adminReply || review.restReply);
+  return (
+    <div style={embedded ? undefined : { padding: 14, borderRadius: 15, background: "rgba(255,184,0,.06)", border: "1px solid rgba(255,184,0,.22)", marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        {!embedded && <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gd)" }}>⭐ Ваш отзыв{orderId ? ` · ${orderId}` : ''}</div>}
+        {embedded && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--t2)" }}>Ваша оценка</div>}
+        <span style={{ fontSize: 10, color: "var(--t3)" }}>{review.date}</span>
+      </div>
+      <div style={{ display: "flex", gap: 2, marginBottom: 8 }}>
+        {[1, 2, 3, 4, 5].map(s => (
+          <span key={s} style={{ fontSize: 14, color: s <= review.rating ? "#FFB800" : "var(--b2)" }}>★</span>
+        ))}
+      </div>
+      {review.text && (
+        <div style={{ fontSize: 13, color: "var(--t1)", lineHeight: 1.55, marginBottom: hasReply ? 12 : 0, padding: "10px 12px", background: "var(--l3)", borderRadius: 10, border: "1px solid var(--b1)" }}>
+          {review.text}
+        </div>
+      )}
+      {review.adminReply && (
+        <div style={{ fontSize: 12, color: "var(--blue)", marginBottom: review.restReply ? 8 : 0, padding: "10px 12px", background: "rgba(59,142,240,.08)", borderRadius: 10, border: "1px solid rgba(59,142,240,.2)", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 4, color: "var(--blue)" }}>💬 Ответ KAKAPO</div>
+          {review.adminReply}
+        </div>
+      )}
+      {review.restReply && (
+        <div style={{ fontSize: 12, color: "var(--gr)", padding: "10px 12px", background: "rgba(31,215,96,.08)", borderRadius: 10, border: "1px solid rgba(31,215,96,.2)", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 4, color: "var(--gr)" }}>🍽 Ответ ресторана</div>
+          {review.restReply}
+        </div>
+      )}
+      {!hasReply && (
+        <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 8 }}>Ожидаем ответ от ресторана или поддержки</div>
+      )}
+    </div>
+  );
 }
 
 /** Повтор заказа — товары и блюда в корзину */
@@ -396,7 +501,7 @@ function fillCartFromOrder(
 const FAQ = [
   {q:"Как быстро доставляют заказ?",         a:"45 минут по всему г. Яван. В часы пик до 60 минут. Придёт SMS когда курьер выедет."},
   {q:"Стоимость доставки?",                  a:"5 ЅМ. Бесплатно при заказе от 30 ЅМ. VIP клиентам — всегда бесплатно."},
-  {q:"Какие способы оплаты?",                a:"Наличными курьеру, карты Visa/HUMO/Mastercard, Kaspi QR, бонусами."},
+  {q:"Какие способы оплаты?",                a:"Наличными курьеру, карты Visa/Mastercard, бонусами."},
   {q:"Как работает бонусная программа?",     a:"Bronze 1%, Silver 2%, Gold 3%, Platinum 5% кешбэк. 1 бонус = 1 ЅМ."},
   {q:"Как стать VIP клиентом?",              a:"30+ заказов, нет долгов, 5 отзывов и верификация. Даёт кредитный лимит до 500 ЅМ."},
   {q:"Как отменить заказ?",                  a:"В течение 5 минут в разделе 'Мои заказы'. После сборки — только по телефону."},
@@ -445,7 +550,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
         ) : (
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.28)", borderRadius:12, padding:"4px 8px" }}>
             <button onClick={e => { e.stopPropagation(); onRm(p.id); }} className="btn" style={{ width:28, height:28, borderRadius:8, background:"rgba(31,215,96,.15)", color:"var(--gr)", fontSize:17 }}>−</button>
-            <span className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--gr)" }}>{qty}</span>
+            <span className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--gr)" }}>{formatCartQtyStepper(p, qty)}</span>
             <button onClick={add} className="btn" style={{ width:28, height:28, borderRadius:8, background:"rgba(31,215,96,.15)", color:"var(--gr)", fontSize:17 }}>+</button>
           </div>
         )}
@@ -510,7 +615,6 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
                 <div className="ub" style={{ fontSize:12, fontWeight:900, color:"white", marginBottom:2, lineHeight:1.3 }}>{r.name}</div>
                 <div style={{ fontSize:10, color:"rgba(255,255,255,.6)", marginBottom:8 }}>{r.cuisine}</div>
                 <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-                  <span style={{ padding:"2px 7px", borderRadius:7, fontSize:9, fontWeight:800, background:"rgba(0,0,0,.4)", color:"rgba(255,255,255,.8)" }}>⏱ {r.deliveryMin} мин</span>
                   <span style={{ padding:"2px 7px", borderRadius:7, fontSize:9, fontWeight:800, background:"rgba(0,0,0,.4)", color:"rgba(255,255,255,.8)" }}>★ {r.rating}</span>
                 </div>
               </div>
@@ -542,18 +646,18 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
 };
 
 const CatalogPage = ({ go, cart }) => {
-  const { restaurants } = useLiveCatalog();
+  const { prods, restaurants } = useLiveCatalog();
   return (
   <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart}/>
     <div style={{ padding:"16px 18px 100px" }}>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
         {[{e:"💸",t:"Акции",s:"До 40%",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Топ продаж",c:"var(--org)",to:"promos"},{e:"✨",t:"Новинки",s:"Только что",c:"var(--blue)",to:"promos"},{e:"🌿",t:"Органик",s:"Без ГМО",c:"#34D399",to:"promos"}].map((p,i) => (
-          <div key={i} onClick={() => go(p.to)} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.05}s both` }}>
+          <button key={i} type="button" onClick={() => go(p.to)} className="btn" style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.05}s both`, textAlign:"left" }}>
             <div style={{ fontSize:28, marginBottom:8 }}>{p.e}</div>
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:p.c, marginBottom:2 }}>{p.t}</div>
             <div style={{ fontSize:10, color:"var(--t3)" }}>{p.s}</div>
-          </div>
+          </button>
         ))}
         <div onClick={() => go("restaurants")} style={{ background:"linear-gradient(135deg,#1A0808,#3A1010)", border:"1px solid rgba(255,125,59,.25)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:"fadeUp .4s cubic-bezier(.16,1,.3,1) .2s both", gridColumn:"span 2" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -582,7 +686,7 @@ const CatalogPage = ({ go, cart }) => {
             <div style={{ padding:"16px 14px" }}>
               <div style={{ fontSize:36, marginBottom:8 }}>{c.e}</div>
               <div className="ub" style={{ fontSize:13, fontWeight:800, color:"#fff", marginBottom:4 }}>{c.label}</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", marginBottom:10 }}>{c.count} товаров</div>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", marginBottom:10 }}>{formatProductCount(productsInCategory(prods, c.id).length)}</div>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <span style={{ fontSize:11, fontWeight:700, color:c.color }}>Смотреть</span>
                 <Ic n="arr" s={13} c={c.color}/>
@@ -605,12 +709,9 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const cat = CATS.find(c => c.id === params?.cat) || CATS[0];
   const subCats = CATS.filter(c => c.parentId === cat.id);
   const hasSubCats = subCats.length > 0;
-  const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
-  let items = prods.filter(p => {
-    if(subCat) return p.cat === subCat;
-    if(params?.cat) return p.cat === params.cat || CATS.filter(c=>c.parentId===params.cat).some(sub=>sub.id===p.cat);
-    return true;
-  });
+  const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
+  const totalQtyNum = sumCartUnits(cart, prods);
+  let items = productsInCategory(prods, params?.cat, subCat);
   if (search) items = items.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
   if (sort === "cheap") items = [...items].sort((a,b) => a.price - b.price);
   else if (sort === "exp") items = [...items].sort((a,b) => b.price - a.price);
@@ -623,11 +724,11 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           <div style={{ width:36, height:36, borderRadius:10, background:cat.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cat.e}</div>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:15, fontWeight:800 }}>{cat.label}</div>
-            <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{items.length} товаров</div>
+            <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{formatProductCount(items.length)}</div>
           </div>
-          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:totalQty>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${totalQty>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:totalQty>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
-            <Ic n="cart" s={17} c={totalQty>0?"white":"var(--t2)"}/>
-            {totalQty>0 && <div style={{ position:"absolute", top:-6, right:-6, width:17, height:17, borderRadius:"50%", background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>}
+          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:totalQtyNum>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${totalQtyNum>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:totalQtyNum>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
+            <Ic n="cart" s={17} c={totalQtyNum>0?"white":"var(--t2)"}/>
+            {totalQtyNum>0 && <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>}
           </button>
         </div>
         <div style={{ padding:"0 18px 10px", position:"relative" }}>
@@ -700,7 +801,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
                     ) : (
                       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.28)", borderRadius:10, padding:"4px 6px" }}>
                         <button onClick={e => { e.stopPropagation(); onRm(p.id); }} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(31,215,96,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>−</button>
-                        <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{qty}</span>
+                        <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{formatCartQtyStepper(p, qty)}</span>
                         <button onClick={e => { e.stopPropagation(); onAdd(p.id); }} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(31,215,96,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>+</button>
                       </div>
                     )}
@@ -711,13 +812,8 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           </div>
         )}
       </div>
-      {totalQty > 0 && (
-        <div style={{ position:"fixed", bottom:82, left:"50%", transform:"translateX(-50%)", zIndex:90, animation:"fadeUp .3s ease" }}>
-          <button onClick={() => go("cart")} className="btn" style={{ background:"linear-gradient(135deg,var(--gr2),var(--gr))", borderRadius:50, padding:"12px 22px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 10px 36px rgba(31,215,96,.55)" }}>
-            <div style={{ background:"rgba(0,0,0,.28)", borderRadius:"50%", width:26, height:26, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:11, fontWeight:900, color:"white" }}>{totalQty}</div>
-            <span className="ub" style={{ fontSize:13, fontWeight:800, color:"white" }}>Корзина</span>
-          </button>
-        </div>
+      {totalQtyNum > 0 && (
+        <FloatingCartBtn count={totalQty} onClick={() => go("cart")} label="Корзина" />
       )}
       <Nav page="catalog" go={go}/>
     </div>
@@ -776,9 +872,12 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const [myRating, setMyRating] = useState(0);
   const photo = useProductPhotos(s => s.photos[p.id]);
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
-  const related = prods.filter(x => x.cat === p.cat && x.id !== p.id).slice(0,4);
+  const pCat = productCatSlug(p);
+  const related = prods.filter(x => productCatSlug(x) === pCat && x.id !== p.id).slice(0, 4);
+  const cartBadge = formatCartBadgeCount(sumCartUnits(cart, prods));
+  const cartBadgeNum = sumCartUnits(cart, prods);
   const weighted = isWeighted(p);
-  const qtyLabel = weighted ? formatCartQty(p, qty) : qty;
+  const qtyLabel = weighted ? formatCartQtyStepper(p, qty) : qty;
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
   return (
@@ -791,7 +890,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           </button>
           <button onClick={() => go("cart")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"rgba(3,11,5,.75)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="cart" s={18} c="var(--t1)"/>
-            {Object.values(cart).reduce((a,b)=>a+b,0)>0 && <div style={{ position:"absolute", top:-4, right:-4, width:16, height:16, borderRadius:"50%", background:"var(--gr)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:8, fontWeight:900, color:"var(--bg)" }}>{Object.values(cart).reduce((a,b)=>a+b,0)}</div>}
+            {cartBadgeNum>0 && <div style={{ position:"absolute", top:-4, right:-4, minWidth:16, height:16, padding:"0 3px", borderRadius:999, background:"var(--gr)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:8, fontWeight:900, color:"var(--bg)" }}>{cartBadge}</div>}
           </button>
         </div>
       </div>
@@ -808,7 +907,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         <div style={{ position:"absolute", bottom:0, left:0, right:0, height:80, background:"linear-gradient(transparent,var(--bg))" }}/>
       </div>
       <div style={{ padding:"0 18px 140px" }}>
-        <div style={{ fontSize:11, color:"var(--t3)", marginBottom:10 }}>{CATS.find(c=>c.id===p.cat)?.label}</div>
+        <div style={{ fontSize:11, color:"var(--t3)", marginBottom:10 }}>{CATS.find(c => c.id === pCat)?.label || p.catLabel || p.cat}</div>
         <div className="ub" style={{ fontSize:22, fontWeight:900, lineHeight:1.2, marginBottom:10 }}>{p.name}</div>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
           <Stars r={p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({p.rv} отзывов)</span>
@@ -952,7 +1051,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
           <button onClick={() => go("catalog")} className="btn" style={{ padding:"14px 32px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:14 }}>Перейти в каталог</button>
         </div>
       ) : (
-        <div style={{ padding:"14px 18px 160px" }}>
+        <div style={{ padding:"14px 18px calc(120px + env(safe-area-inset-bottom, 0px))" }}>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
             {items.map(p => {
               const disc2 = p.old ? Math.round((1-p.price/p.old)*100) : 0;
@@ -970,7 +1069,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
                         <button onClick={() => (isWeighted(p) ? p.qty <= (p.minWeight || 100) : p.qty===1) ? onDel(p.id) : onRm(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:(!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100)) ? "var(--red)" : "var(--gr)", background:"transparent", fontSize:16 }}>
                           {((!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100))) ? <Ic n="trash" s={13} c="var(--red)"/> : "−"}
                         </button>
-                        <span className="ub" style={{ minWidth:36, textAlign:"center", fontSize:12, fontWeight:800, color:"var(--gr)" }}>{isWeighted(p) ? formatCartQty(p, p.qty) : p.qty}</span>
+                        <span className="ub" style={{ minWidth:36, textAlign:"center", fontSize:12, fontWeight:800, color:"var(--gr)" }}>{isWeighted(p) ? formatCartQtyStepper(p, p.qty) : p.qty}</span>
                         <button onClick={() => onAdd(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--gr)", background:"transparent", fontSize:18 }}>+</button>
                       </div>
                     </div>
@@ -1003,24 +1102,28 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
         </div>
       )}
       {items.length > 0 && (
-        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px 28px" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-            <div><div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div><div style={{ display:"flex", alignItems:"baseline", gap:5 }}><span className="ub" style={{ fontSize:26, fontWeight:900 }}>{total.toFixed(2)}</span><span style={{ fontSize:14, color:"var(--gd)", fontWeight:800 }}>ЅМ</span></div></div>
+        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:210, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(16px + env(safe-area-inset-bottom, 0px))" }}>
+          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div>
+              <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
+                <span className="ub" style={{ fontSize:22, fontWeight:900 }}>{total.toFixed(2)}</span>
+                <span style={{ fontSize:13, color:"var(--gd)", fontWeight:800 }}>ЅМ</span>
+              </div>
+            </div>
+            <button onClick={() => go("checkout")} className="btn" style={{ flex:2, padding:"14px 12px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
+              <Ic n="bag" s={18} c="white"/>Оформить · {tqty} шт
+            </button>
           </div>
-          <button onClick={() => go("checkout")} className="btn" style={{ width:"100%", padding:"15px", fontSize:15, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-            <Ic n="bag" s={20} c="white"/>Оформить заказ · {tqty} товаров
-          </button>
         </div>
       )}
-      <Nav page="catalog" go={go}/>
     </div>
   );
 };
 
 const CHECKOUT_PAYS = [
   { id: 'cash', icon: '💵', label: 'Наличными', sub: 'Курьеру' },
-  { id: 'card', icon: '💳', label: 'Карта', sub: 'Visa/HUMO' },
-  { id: 'kaspi', icon: '📱', label: 'Kaspi QR', sub: 'Приложение' },
+  { id: 'card', icon: '💳', label: 'Карта', sub: 'Visa/Mastercard' },
   { id: 'bonus', icon: '⭐', label: 'Бонусами', sub: '73 бонуса' },
 ];
 const CHECKOUT_TIMES = [
@@ -1395,10 +1498,17 @@ const AuthPage = ({ go, setUser }) => {
     const code = otp.join("");
     if (code.length < 4) return;
     setLoad(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       setLoad(false);
-      if (code === "1234") { if (mode==="register") setStep("name"); else { setUser({name:"Диловар",phone,level:"gold",bonus:1240}); go("profile"); } }
-      else { setOtp(["","","",""]); refs[0].current?.focus(); }
+      if (code === "1234") {
+        if (mode === "register") setStep("name");
+        else {
+          const resolved = await resolveStoreUserByPhone(phone, "Диловар");
+          saveStoreUser(resolved);
+          setUser(resolved);
+          go("profile");
+        }
+      } else { setOtp(["","","",""]); refs[0].current?.focus(); }
     }, 900);
   };
   const handleOtp = (i, v) => {
@@ -1408,7 +1518,17 @@ const AuthPage = ({ go, setUser }) => {
   const handleKey = (i, e) => {
     if (e.key==="Backspace" && !otp[i] && i>0) { refs[i-1].current?.focus(); const d=[...otp]; d[i-1]=""; setOtp(d); }
   };
-  const saveName = () => { if (!uname.trim()) return; setLoad(true); setTimeout(() => { setLoad(false); setUser({name:uname,phone,level:"bronze",bonus:100}); go("profile"); }, 800); };
+  const saveName = () => {
+    if (!uname.trim()) return;
+    setLoad(true);
+    setTimeout(async () => {
+      setLoad(false);
+      const resolved = await resolveStoreUserByPhone(phone, uname.trim());
+      saveStoreUser({ ...resolved, name: uname.trim() });
+      setUser({ ...resolved, name: uname.trim() });
+      go("profile");
+    }, 800);
+  };
 
   const Spinner = () => <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/>;
 
@@ -1507,6 +1627,29 @@ const AuthPage = ({ go, setUser }) => {
 const ProfilePage = ({ go, user, setUser }) => {
   const [notif, setNotif] = useState(true);
   const [showQR, setShowQR] = useState(false);
+  const apiOrders = useOrders(s => s.orders);
+  const [reviewStats, setReviewStats] = useState({ count: 0, withReplies: 0 });
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+
+  useEffect(() => {
+    const phone = getActiveClientPhone(user);
+    const refreshNotifs = () => setUnreadNotifs(getUnreadNotificationCount(!USE_API, phone));
+    refreshNotifs();
+    const unsub = subscribeClientNotifications(refreshNotifs);
+    const unsubCh = subscribeNotificationChannel(refreshNotifs);
+    return () => { unsub(); unsubCh(); };
+  }, [user?.phone]);
+
+  useEffect(() => {
+    if (!USE_API || !user) return;
+    loadClientReviewMap(apiOrders, user).then(map => {
+      const list = Object.values(map);
+      setReviewStats({
+        count: list.length,
+        withReplies: list.filter(r => r.adminReply || r.restReply).length,
+      });
+    }).catch(() => {});
+  }, [apiOrders, user]);
   if (!user) return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
       <div style={{ fontSize:60, marginBottom:16, animation:"float 3s ease-in-out infinite" }}>👤</div>
@@ -1525,7 +1668,11 @@ const ProfilePage = ({ go, user, setUser }) => {
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>Профиль</div>
           <button onClick={()=>go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="bell" s={17} c="var(--t2)"/>
-            <div style={{ position:"absolute", top:8, right:8, width:7, height:7, borderRadius:"50%", background:"var(--red)", border:"1.5px solid var(--bg)" }}/>
+            {unreadNotifs > 0 && (
+              <div style={{ position:"absolute", top:6, right:6, minWidth:16, height:16, padding:"0 4px", borderRadius:8, background:"var(--red)", border:"1.5px solid var(--bg)", fontSize:9, fontWeight:800, color:"white", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                {unreadNotifs > 9 ? '9+' : unreadNotifs}
+              </div>
+            )}
           </button>
         </div>
       </header>
@@ -1577,7 +1724,12 @@ const ProfilePage = ({ go, user, setUser }) => {
           )}
         </div>
         {[
-          {title:"Покупки",items:[{icon:"bag",l:"Мои заказы",s:"34 заказа",c:"var(--gr)",to:"orders"},{icon:"heart",l:"Избранное",s:"12 товаров",c:"var(--red)"},{icon:"star",l:"Отзывы",s:"8 отзывов",c:"var(--gd)"}]},
+          {title:"Покупки",items:[
+            {icon:"bag",l:"Мои заказы",s:"34 заказа",c:"var(--gr)",to:"orders"},
+            {icon:"bell",l:"Уведомления",s:unreadNotifs ? `${unreadNotifs} новых` : "Ответы на отзывы и заказы",c:"var(--blue)",to:"notifs",badge:unreadNotifs},
+            {icon:"heart",l:"Избранное",s:"12 товаров",c:"var(--red)"},
+            {icon:"star",l:"Отзывы",s:reviewStats.count ? `${reviewStats.count} отзыв${reviewStats.count===1?'':reviewStats.count<5?'а':'ов'}${reviewStats.withReplies ? ' · есть ответы' : ''}` : "Оставьте отзыв после доставки",c:"var(--gd)",to:"reviews",badge:reviewStats.withReplies},
+          ]},
           {title:"VIP",items:[{icon:"crown",l:"VIP Профиль",s:"Platinum · кредит · менеджер",c:"var(--gd)",to:"vip"},{icon:"zap",l:"Мои привилегии",s:"8 VIP преимуществ",c:"var(--pur)"}]},
           {title:"Настройки",items:[{icon:"bell",l:"Уведомления",s:"Push, SMS",c:"var(--gd)",tog:true,tv:notif,ts:setNotif},{icon:"map",l:"Адреса доставки",s:"2 адреса",c:"var(--blue)",to:"addresses"},{icon:"shield",l:"Конфиденциальность",c:"var(--sky)"},{icon:"help",l:"Помощь / FAQ",c:"var(--gr)",to:"faq"},{icon:"info",l:"О KAKAPO",s:"История, магазины, команда",c:"var(--sky)",to:"about"}]},
           {title:"Ещё",items:[{icon:"repeat",l:"Реферальная программа",s:"Пригласи друга — получи бонусы",c:"var(--gr)",to:"referral"},{icon:"msg",l:"Чат с поддержкой",s:"Онлайн · г. Яван",c:"var(--blue)",to:"chat"}]},
@@ -1591,14 +1743,19 @@ const ProfilePage = ({ go, user, setUser }) => {
                 <div key={i} onClick={() => item.to && go(item.to)} style={{ display:"flex", alignItems:"center", gap:13, padding:"14px 15px", borderBottom:i<sec.items.length-1?"1px solid var(--b1)":"none", cursor:"pointer" }}>
                   <div style={{ width:36, height:36, borderRadius:10, background:`${item.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={item.icon} s={17} c={item.c}/></div>
                   <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700 }}>{item.l}</div>{item.s&&<div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>{item.s}</div>}</div>
-                  {item.tog ? <div className={`toggle ${item.tv?"on":""}`} onClick={e => { e.stopPropagation(); item.ts(v=>!v); }}><div className="toggle-dot"/></div> : <Ic n="arr" s={15} c="var(--t3)"/>}
+                  {item.tog ? <div className={`toggle ${item.tv?"on":""}`} onClick={e => { e.stopPropagation(); item.ts(v=>!v); }}><div className="toggle-dot"/></div> : (
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      {item.badge ? <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon==="bell"?"rgba(255,69,69,.12)":"rgba(59,142,240,.12)", color:item.icon==="bell"?"var(--red)":"var(--blue)", border:`1px solid ${item.icon==="bell"?"rgba(255,69,69,.25)":"rgba(59,142,240,.25)"}` }}>{item.icon==="bell" ? String(item.badge) : "ответ"}</span> : null}
+                      <Ic n="arr" s={15} c="var(--t3)"/>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
         ))}
         <div className="card">
-          <div onClick={() => setUser(null)} style={{ display:"flex", alignItems:"center", gap:13, padding:"14px 15px", cursor:"pointer" }}>
+          <div onClick={() => { saveStoreUser(null); setUser(null); }} style={{ display:"flex", alignItems:"center", gap:13, padding:"14px 15px", cursor:"pointer" }}>
             <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,69,69,.14)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="logout" s={17} c="var(--red)"/></div>
             <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:"var(--red)" }}>Выйти из аккаунта</div></div>
           </div>
@@ -1622,11 +1779,50 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
   }, [apiOrders, user?.phone]);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
-  const [reviewed, setReviewed] = useState({});
+  const [reviewed, setReviewed] = useState<Record<string, Review>>({});
   const [rating, setRating] = useState(0);
+  const [reviewText, setReviewText] = useState("");
   const [showRev, setShowRev] = useState(null);
   const [step, setStep] = useState(1);
   useEffect(() => { if (step < 3) { const t = setTimeout(() => setStep(s => s+1), 8000); return () => clearTimeout(t); } }, [step]);
+  useEffect(() => {
+    if (!USE_API) return;
+    loadClientReviewMap(apiOrders, user).then(setReviewed).catch(() => {});
+    const id = setInterval(() => {
+      loadClientReviewMap(apiOrders, user).then(setReviewed).catch(() => {});
+    }, 12000);
+    return () => clearInterval(id);
+  }, [apiOrders, user?.phone, user?.name]);
+  const submitReview = async () => {
+    if (!showRev || rating <= 0) return;
+    const raw = apiOrders.find(o => o.id === showRev.id);
+    const restId = showRev.restId || raw?.restId || raw?.items?.find(it => it.restId)?.restId;
+    if (USE_API) {
+      if (!restId) {
+        showToast?.("Отзыв доступен только для заказов из ресторана");
+        return;
+      }
+      try {
+        const created = await api.createReview({
+          orderId: showRev.id,
+          restId,
+          client: user?.name || raw?.client?.name || showRev.phone || "Клиент",
+          rating,
+          text: reviewText.trim() || `${"★".repeat(rating)}`,
+        });
+        setReviewed(r => ({ ...r, [showRev.id]: created }));
+      } catch (e) {
+        showToast?.(e?.message || "Не удалось отправить отзыв");
+        return;
+      }
+    }
+    if (!USE_API) setReviewed(r => ({ ...r, [showRev.id]: { id: Date.now(), restId: restId || '', client: user?.name || 'Клиент', rating, text: reviewText, date: 'Сегодня', status: 'new' } as Review }));
+    setShowRev(null);
+    setRating(0);
+    setReviewText("");
+    showToast?.("⭐ Спасибо! Ресторан получил ваш отзыв");
+  };
+  const canReview = (o) => o.status === "delivered" && !reviewed[o.id] && (USE_API ? !!o.restId : true);
   const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
   const ST = OSTATUS;
 
@@ -1727,12 +1923,12 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
           <button type="button" onClick={() => repeatOrder(selected)} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
             <Ic n="repeat" s={16} c="white"/>Повторить заказ
           </button>
-          {selected.status==="delivered" && !reviewed[selected.id] && (
-            <button onClick={() => { setShowRev(selected); setRating(0); }} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+          {canReview(selected) && (
+            <button onClick={() => { setShowRev(selected); setRating(0); setReviewText(""); }} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
               <Ic n="star" s={16} c="var(--gd)"/>Оставить отзыв
             </button>
           )}
-          {reviewed[selected.id] && <div style={{ padding:"13px", borderRadius:15, background:"rgba(31,215,96,.07)", border:"1px solid rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", gap:7, fontSize:13, fontWeight:700, color:"var(--gr)" }}><Ic n="check" s={15} c="var(--gr)" w={2.5}/>Отзыв оставлен — спасибо!</div>}
+          {reviewed[selected.id] && <ClientReviewBlock review={reviewed[selected.id]} orderId={selected.id} />}
         </div>
       </div>
       {showRev && (
@@ -1744,10 +1940,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
             <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:10 }}>
               {[1,2,3,4,5].map(i => <svg key={i} width={36} height={36} viewBox="0 0 24 24" style={{ cursor:"pointer" }} onClick={() => setRating(i)}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=rating?"#FFB800":"rgba(255,184,0,.12)"} stroke="#FFB800" strokeWidth={1}/></svg>)}
             </div>
-            <div style={{ textAlign:"center", fontSize:14, color:"var(--gd)", fontWeight:700, marginBottom:16, minHeight:22 }}>
+            <div style={{ textAlign:"center", fontSize:14, color:"var(--gd)", fontWeight:700, marginBottom:12, minHeight:22 }}>
               {["","😤 Плохо","😕 Так себе","😐 Нормально","😊 Хорошо","🤩 Отлично!"][rating]}
             </div>
-            <button onClick={() => { if(rating>0){setReviewed(r=>({...r,[showRev.id]:true}));setShowRev(null);setRating(0);} }} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0?1:.5 }}>
+            <textarea className="inp" value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder="Комментарий (необязательно)…" rows={3} style={{ width:"100%", marginBottom:14, resize:"vertical" }}/>
+            <button onClick={submitReview} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0?1:.5 }}>
               <Ic n="star" s={16} c="white"/>Отправить отзыв
             </button>
           </div>
@@ -1811,7 +2008,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
                   {o.status==="delivering" && o.trackable && <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="map" s={13} c="white"/>Отследить</button>}
-                  {o.status==="delivered" && !reviewed[o.id] && <button className="btn" onClick={e=>{e.stopPropagation();setShowRev(o);setRating(0);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd)"/>Отзыв</button>}
+                  {canReview(o) && <button className="btn" onClick={e=>{e.stopPropagation();setShowRev(o);setRating(0);setReviewText("");}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd)"/>Отзыв</button>}
                   <button type="button" className="btn" onClick={e=>{e.stopPropagation();repeatOrder(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="repeat" s={13} c="var(--t2)"/>Повторить</button>
                 </div>
                 {o.cancelReason && <div style={{ marginTop:9, padding:"7px 10px", borderRadius:9, background:"rgba(255,69,69,.07)", border:"1px solid rgba(255,69,69,.2)", fontSize:11, color:"var(--red)" }}>ℹ️ {o.cancelReason}</div>}
@@ -1829,14 +2026,118 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
             <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:10 }}>
               {[1,2,3,4,5].map(i => <svg key={i} width={36} height={36} viewBox="0 0 24 24" style={{ cursor:"pointer" }} onClick={() => setRating(i)}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=rating?"#FFB800":"rgba(255,184,0,.12)"} stroke="#FFB800" strokeWidth={1}/></svg>)}
             </div>
-            <div style={{ textAlign:"center", fontSize:14, color:"var(--gd)", fontWeight:700, marginBottom:16 }}>{["","😤","😕","😐","😊","🤩 Отлично!"][rating]}</div>
-            <button onClick={() => { if(rating>0){setReviewed(r=>({...r,[showRev.id]:true}));setShowRev(null);setRating(0);} }} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0?1:.5 }}>
+            <div style={{ textAlign:"center", fontSize:14, color:"var(--gd)", fontWeight:700, marginBottom:12 }}>{["","😤","😕","😐","😊","🤩 Отлично!"][rating]}</div>
+            <textarea className="inp" value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder="Комментарий…" rows={3} style={{ width:"100%", marginBottom:14, resize:"vertical" }}/>
+            <button onClick={submitReview} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0?1:.5 }}>
               <Ic n="star" s={16} c="white"/>Отправить
             </button>
           </div>
         </div>
       )}
       <Nav page="orders" go={go}/>
+    </div>
+  );
+};
+
+const ClientReviewsPage = ({ go, user }) => {
+  const apiOrders = useOrders(s => s.orders);
+  const { restaurants } = useLiveCatalog();
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    if (!user || !USE_API) {
+      setReviews([]);
+      setLoading(false);
+      return;
+    }
+    try {
+      const map = await loadClientReviewMap(apiOrders, user);
+      setReviews(Object.values(map).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    } catch {
+      setReviews([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiOrders, user]);
+
+  useEffect(() => {
+    refresh();
+    if (!USE_API || !user) return;
+    const id = setInterval(refresh, 12000);
+    return () => clearInterval(id);
+  }, [refresh, user]);
+
+  if (!user) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
+        <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Войдите, чтобы видеть отзывы</div>
+        <button onClick={() => go("auth")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white" }}>Войти</button>
+        <Nav page="profile" go={go}/>
+      </div>
+    );
+  }
+
+  const withReplies = reviews.filter(r => r.adminReply || r.restReply).length;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.96)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+        <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => go("profile")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Ic n="arrL" s={17} c="var(--t2)"/>
+          </button>
+          <div style={{ flex: 1 }}>
+            <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Мои отзывы</div>
+            <div style={{ fontSize: 10, color: "var(--t2)", marginTop: 1 }}>
+              {loading ? "Загрузка…" : withReplies ? `${withReplies} с ответами` : `${reviews.length} отзывов`}
+            </div>
+          </div>
+        </div>
+      </header>
+      <div style={{ padding: "16px 18px 100px" }}>
+        {loading && (
+          <div style={{ textAlign: "center", padding: 40, color: "var(--t3)", fontSize: 13 }}>Загрузка отзывов…</div>
+        )}
+        {!loading && reviews.length === 0 && (
+          <div style={{ textAlign: "center", padding: "48px 20px" }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
+            <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>Пока нет отзывов</div>
+            <div style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, marginBottom: 20 }}>
+              После доставки заказа из ресторана вы сможете оценить блюда и получить ответ от ресторана
+            </div>
+            <button onClick={() => go("orders")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white", fontSize: 13 }}>
+              Перейти к заказам
+            </button>
+          </div>
+        )}
+        {!loading && reviews.map((rev, i) => {
+          const rest = restaurants.find(r => r.id === rev.restId);
+          return (
+            <div key={rev.id} className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 12, animation: `fadeUp .4s ease ${i * .06}s both` }}>
+              <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800 }}>{rest?.name || rev.restName || "Ресторан"}</div>
+                  {rev.orderId && <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>Заказ {rev.orderId}</div>}
+                </div>
+                {(rev.adminReply || rev.restReply) && (
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 8, background: "rgba(59,142,240,.12)", color: "var(--blue)", border: "1px solid rgba(59,142,240,.25)" }}>Есть ответ</span>
+                )}
+              </div>
+              <div style={{ padding: "14px 15px" }}>
+                <ClientReviewBlock review={rev} embedded />
+                {rev.orderId && (
+                  <button onClick={() => go("orders")} className="btn" style={{ width: "100%", marginTop: 4, padding: 10, fontSize: 12, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", color: "var(--t2)" }}>
+                    Открыть заказ {rev.orderId}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Nav page="profile" go={go}/>
     </div>
   );
 };
@@ -1852,8 +2153,13 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
   const pad = n => String(n).padStart(2,"0");
   const b = BANNERS[bi];
   const copy = code => { setCopied(code); setTimeout(() => setCopied(null), 2000); };
-  const FLASH = prods.filter(p => p.old).map(p => ({ ...p, now:p.price, was:p.old, stock:((p.id * 37) % 56) + 5 })).slice(0,5);
-  const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
+  const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const FLASH = prods
+    .filter(p => num(p.old) > num(p.price))
+    .map(p => ({ ...p, price: num(p.price), old: num(p.old), now: num(p.price), was: num(p.old), stock: ((Number(p.id) * 37) % 56) + 5 }))
+    .slice(0, 5);
+  const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
+  const totalQtyNum = sumCartUnits(cart, prods);
   return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
@@ -1863,9 +2169,9 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
           <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
             <Ic n="search" s={17} c="var(--t2)"/>
           </button>
-          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:totalQty>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${totalQty>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:totalQty>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
-            <Ic n="cart" s={17} c={totalQty>0?"white":"var(--t2)"}/>
-            {totalQty>0 && <div style={{ position:"absolute", top:-6, right:-6, width:17, height:17, borderRadius:"50%", background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>}
+          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:totalQtyNum>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${totalQtyNum>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:totalQtyNum>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
+            <Ic n="cart" s={17} c={totalQtyNum>0?"white":"var(--t2)"}/>
+            {totalQtyNum>0 && <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>}
           </button>
         </div>
         <div className="hscroll" style={{ padding:"0 18px 10px", gap:6 }}>
@@ -1919,7 +2225,7 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
             </div>
             <div className="hscroll">
               {FLASH.map(p => {
-                const qty=cart[p.id]||0, disc=Math.round((1-p.price/p.old)*100);
+                const qty=cart[p.id]||0, disc=p.old > 0 ? Math.round((1-p.price/p.old)*100) : 0;
                 return (
                   <div key={p.id} style={{ width:148, flexShrink:0, background:"var(--l2)", border:"1.5px solid rgba(255,69,69,.25)", borderRadius:16, overflow:"hidden", display:"flex", flexDirection:"column" }}>
                     <div style={{ height:96, background:"linear-gradient(145deg,#180808,#2A1010)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, position:"relative" }}>
@@ -1938,7 +2244,7 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
                       {qty===0 ? <button onClick={() => onAdd(p.id)} className="btn" style={{ width:"100%", padding:"8px", fontSize:11, borderRadius:10, background:"linear-gradient(135deg,#CC2A2A,var(--red))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><Ic n="plus" s={11} c="white" w={2.5}/>В корзину</button> :
                         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(255,69,69,.1)", border:"1px solid rgba(255,69,69,.28)", borderRadius:10, padding:"4px 7px" }}>
                           <button onClick={() => onRm(p.id)} className="btn" style={{ width:26, height:26, borderRadius:7, background:"rgba(255,69,69,.18)", color:"var(--red)", fontSize:15, fontWeight:700 }}>−</button>
-                          <span className="ub" style={{ fontSize:12, fontWeight:900, color:"var(--red)" }}>{qty}</span>
+                          <span className="ub" style={{ fontSize:12, fontWeight:900, color:"var(--red)" }}>{formatCartQtyStepper(p, qty)}</span>
                           <button onClick={() => onAdd(p.id)} className="btn" style={{ width:26, height:26, borderRadius:7, background:"rgba(255,69,69,.18)", color:"var(--red)", fontSize:15, fontWeight:700 }}>+</button>
                         </div>}
                     </div>
@@ -1995,14 +2301,8 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
           </div>
         )}
       </div>
-      {totalQty > 0 && (
-        <div style={{ position:"fixed", bottom:82, left:"50%", transform:"translateX(-50%)", zIndex:90, animation:"fadeUp .3s ease" }}>
-          <button onClick={() => go("cart")} className="btn" style={{ display:"flex", alignItems:"center", gap:10, padding:"13px 22px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", border:"none", boxShadow:"0 8px 24px rgba(31,215,96,.45)" }}>
-            <div style={{ background:"rgba(0,0,0,.28)", borderRadius:"50%", width:26, height:26, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:11, fontWeight:900, color:"white" }}>{totalQty}</div>
-            <span style={{ fontSize:14, fontWeight:800, color:"white", fontFamily:"Nunito" }}>Перейти в корзину</span>
-            <Ic n="arr" s={16} c="white"/>
-          </button>
-        </div>
+      {totalQtyNum > 0 && (
+        <FloatingCartBtn count={totalQty} onClick={() => go("cart")} />
       )}
       <Nav page="promos" go={go}/>
     </div>
@@ -2017,7 +2317,8 @@ const SearchPage = ({ go, cart, onAdd, onRm }) => {
     return () => clearTimeout(t);
   }, []);
   const results = query.trim() ? prods.filter(p => p.name.toLowerCase().includes(query.toLowerCase())) : [];
-  const totalQty = Object.values(cart).reduce((a,b) => a+b, 0);
+  const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
+  const totalQtyNum = sumCartUnits(cart, prods);
   return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
@@ -2028,9 +2329,9 @@ const SearchPage = ({ go, cart, onAdd, onRm }) => {
             <input ref={iRef} className="inp" value={query} onChange={e => setQuery(e.target.value)} placeholder="Поиск в KAKAPO..." style={{ paddingLeft:36, paddingRight:query?32:14, width:"100%", fontSize:14 }}/>
             {query && <button onClick={() => setQuery("")} className="btn" style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", width:20, height:20, borderRadius:5, background:"rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="x" s={11} c="var(--t2)"/></button>}
           </div>
-          {totalQty>0 && <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", flexShrink:0 }}>
+          {totalQtyNum>0 && <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", flexShrink:0 }}>
             <Ic n="cart" s={17} c="white"/>
-            <div style={{ position:"absolute", top:-6, right:-6, width:17, height:17, borderRadius:"50%", background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>
+            <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>
           </button>}
         </div>
       </header>
@@ -2085,7 +2386,7 @@ const SearchPage = ({ go, cart, onAdd, onRm }) => {
                       {qty===0 ? <button onClick={e=>{e.stopPropagation();onAdd(p.id);}} className="btn" style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,var(--gr2),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="plus" s={16} c="white" w={2.5}/></button> :
                         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.28)", borderRadius:10, padding:"4px 6px" }}>
                           <button onClick={e=>{e.stopPropagation();onRm(p.id);}} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(31,215,96,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>−</button>
-                          <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{qty}</span>
+                          <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{formatCartQtyStepper(p, qty)}</span>
                           <button onClick={e=>{e.stopPropagation();onAdd(p.id);}} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(31,215,96,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>+</button>
                         </div>}
                     </div>
@@ -4439,25 +4740,46 @@ const CourierDashPage = ({go}) => {
     </div>
   );
 };
-const NotifPage = ({go}) => {
-  const [notifs, setNotifs] = useState([
-    {id:1,read:false,icon:'🛵',title:'Курьер выехал',   body:'Фирдавс едет к вам · ~12 мин',      time:'14:23',color:'var(--blue)'},
-    {id:2,read:false,icon:'⭐',title:'Начислены бонусы',body:'+49 бонусов за заказ K-4832',         time:'14:20',color:'var(--gd)'},
-    {id:3,read:true, icon:'🎉',title:'Акция дня!',      body:'Скидка 30% на молочное до 22:00',     time:'10:00',color:'var(--gr)'},
-    {id:4,read:true, icon:'✅',title:'Заказ доставлен', body:'Заказ K-4821 успешно доставлен',      time:'Вчера',color:'var(--gr)'},
-    {id:5,read:true, icon:'💳',title:'Карта привязана', body:'Карта KAKAPO-0042 привязана к аккаунту',time:'2 дня назад',color:'var(--gd)'},
-    {id:6,read:true, icon:'🎁',title:'+100 бонусов',    body:'Приветственный бонус за регистрацию', time:'3 дня назад',color:'var(--gd)'},
-    {id:7,read:true, icon:'🔥',title:'Хиты недели',     body:'Брокколи, Говядина и ещё 5 товаров со скидкой',time:'5 дней назад',color:'var(--red)'},
-  ]);
+const NotifPage = ({go, user}) => {
+  const phone = getActiveClientPhone(user);
+  const [notifs, setNotifs] = useState(() => loadClientNotifications(!USE_API, phone));
 
-  const markAll = () => setNotifs(ns => ns.map(n=>({...n,read:true})));
-  const unread  = notifs.filter(n=>!n.read).length;
+  useEffect(() => {
+    const refresh = async () => {
+      const list = USE_API
+        ? await syncClientNotificationsFromApi(phone)
+        : loadClientNotifications(!USE_API, phone);
+      setNotifs(list);
+    };
+    refresh();
+    const unsub = subscribeClientNotifications(refresh);
+    const unsubCh = subscribeNotificationChannel(refresh);
+    return () => { unsub(); unsubCh(); };
+  }, [phone]);
+
+  const markAll = async () => {
+    setNotifs(prev => prev.map(n => ({ ...n, read: true })));
+    await markAllNotificationsRead(phone);
+    const list = USE_API
+      ? await syncClientNotificationsFromApi(phone)
+      : loadClientNotifications(false, phone);
+    setNotifs(list);
+  };
+
+  const openNotif = (n) => {
+    markNotificationRead(n.id);
+    setNotifs(loadClientNotifications(!USE_API, phone));
+    if (n.action === 'reviews') go('reviews');
+    else if (n.action === 'orders') go('orders');
+  };
+
+  const unread = notifs.filter(n => !n.read).length;
 
   return (
     <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
       <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('home')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{flex:1}}>
             <div className="ub" style={{fontSize:17,fontWeight:900}}>Уведомления</div>
             {unread>0&&<div style={{fontSize:10,color:'var(--red)',marginTop:1}}>{unread} непрочитанных</div>}
@@ -4466,8 +4788,19 @@ const NotifPage = ({go}) => {
         </div>
       </header>
       <div style={{padding:'14px 18px 100px',display:'flex',flexDirection:'column',gap:8}}>
+        {notifs.length === 0 && (
+          <div style={{ textAlign:'center', padding:'48px 20px', color:'var(--t3)', fontSize:13 }}>
+            <div style={{ fontSize:40, marginBottom:10 }}>🔔</div>
+            Пока нет уведомлений
+            {!phone && (
+              <div style={{ marginTop: 12, fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>
+                Войдите с телефоном из CRM — тогда push-рассылки будут приходить сюда
+              </div>
+            )}
+          </div>
+        )}
         {notifs.map((n,i)=>(
-          <div key={n.id} onClick={()=>setNotifs(ns=>ns.map(x=>x.id===n.id?{...x,read:true}:x))}
+          <div key={n.id} onClick={()=>openNotif(n)}
             style={{display:'flex',gap:12,padding:'14px 16px',background:n.read?'var(--l2)':'rgba(31,215,96,.06)',border:`1px solid ${n.read?'var(--b1)':'rgba(31,215,96,.2)'}`,borderRadius:16,cursor:'pointer',animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both`}}>
             <div style={{width:42,height:42,borderRadius:13,background:`${n.color}14`,border:`1px solid ${n.color}25`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>{n.icon}</div>
             <div style={{flex:1}}>
@@ -4476,6 +4809,9 @@ const NotifPage = ({go}) => {
                 <span style={{fontSize:10,color:'var(--t3)',flexShrink:0,marginLeft:8}}>{n.time}</span>
               </div>
               <div style={{fontSize:12,color:'var(--t2)',lineHeight:1.5}}>{n.body}</div>
+              {n.action === 'reviews' && !n.read && (
+                <div style={{ fontSize:10, color:'var(--gr)', fontWeight:700, marginTop:6 }}>Нажмите, чтобы открыть отзывы →</div>
+              )}
             </div>
             {!n.read&&<div style={{width:8,height:8,borderRadius:'50%',background:'var(--gr)',marginTop:4,flexShrink:0,animation:'pulse 2s infinite'}}/>}
           </div>
@@ -5309,15 +5645,17 @@ const AdminChatSupportPage = ({go}) => {
 };
 
 const RestaurantsPage = ({go, cart, onAdd}) => {
-  const { restaurants } = useLiveCatalog();
+  const { restaurants, prods } = useLiveCatalog();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
-  const totalQty = Object.values(cart||{}).reduce((a,b)=>a+b,0);
+  const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
+  const totalQtyNum = sumCartUnits(cart || {}, prods);
 
   const filtered = restaurants.filter(r => {
     const q = search.toLowerCase();
-    return (!search || r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.tags.some(t=>t.toLowerCase().includes(q)))
-      && (filter==='all' || (filter==='open'&&r.open) || (filter==='fast'&&r.deliveryMin<=30));
+    return !r.blocked
+      && (!search || r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.tags.some(t=>t.toLowerCase().includes(q)))
+      && (filter==='all' || (filter==='open'&&r.open));
   });
 
   return (
@@ -5326,9 +5664,9 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:40,height:40,borderRadius:12,background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'var(--bg)',animation:'glow 3s ease-in-out infinite',boxShadow:'0 4px 16px rgba(31,215,96,.4)',flexShrink:0}}>K</div>
           <div className="ub" style={{flex:1,fontSize:16,fontWeight:900}}>Рестораны</div>
-          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQty>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQty>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQty>0?'0 4px 14px rgba(31,215,96,.4)':'none'}}>
-            <Ic n="cart" s={17} c={totalQty>0?'white':'var(--t2)'}/>
-            {totalQty>0&&<div style={{position:'absolute',top:-6,right:-6,width:17,height:17,borderRadius:'50%',background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
+          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQtyNum>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQtyNum>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQtyNum>0?'0 4px 14px rgba(31,215,96,.4)':'none'}}>
+            <Ic n="cart" s={17} c={totalQtyNum>0?'white':'var(--t2)'}/>
+            {totalQtyNum>0&&<div style={{position:'absolute',top:-6,right:-6,minWidth:17,height:17,padding:'0 4px',borderRadius:999,background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
           </button>
         </div>
         <div style={{padding:'0 18px 10px',position:'relative'}}>
@@ -5336,7 +5674,7 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
           <input className="inp" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Ресторан или кухня..." style={{paddingLeft:38,width:'100%'}}/>
         </div>
         <div className="hscroll" style={{padding:'0 18px 12px',gap:6}}>
-          {[{id:'all',l:'Все'},{id:'open',l:'🟢 Открыты'},{id:'fast',l:'⚡ До 30 мин'}].map(f=>(
+          {[{id:'all',l:'Все'},{id:'open',l:'🟢 Открыты'}].map(f=>(
             <button key={f.id} onClick={()=>setFilter(f.id)} className={`chip ${filter===f.id?'on':''}`}>{f.l}</button>
           ))}
         </div>
@@ -5370,16 +5708,12 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
                 <div style={{fontSize:56,animation:'float 3s ease-in-out infinite',filter:'drop-shadow(0 4px 12px rgba(0,0,0,.5))'}}>{r.emoji}</div>
                 {!r.open&&<div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:'white'}}>🔴 Закрыто</div>}
               </div>
-              <div style={{padding:'12px 16px',display:'flex',gap:14,alignItems:'center'}}>
+              <div style={{padding:'12px 16px',display:'flex',alignItems:'center'}}>
                 <div style={{display:'flex',alignItems:'center',gap:4}}>
                   <span style={{color:'var(--gd)',fontSize:14}}>★</span>
                   <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800}}>{r.rating}</span>
                   <span style={{fontSize:11,color:'var(--t3)'}}>({r.reviews})</span>
                 </div>
-                <div style={{width:1,height:16,background:'var(--b1)'}}/>
-                <div style={{fontSize:12,color:'var(--t2)'}}>⏱ {r.deliveryMin} мин</div>
-                <div style={{width:1,height:16,background:'var(--b1)'}}/>
-                <div style={{fontSize:12,color:'var(--t2)'}}>📍 от {r.minOrder} ЅМ</div>
               </div>
             </div>
           ))}
@@ -5399,10 +5733,11 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
 };
 
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
-  const { restaurants } = useLiveCatalog();
+  const { restaurants, prods } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(r?.categories?.[0] || '');
-  const totalQty = Object.values(cart||{}).reduce((a,b)=>a+b,0);
+  const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
+  const totalQtyNum = sumCartUnits(cart || {}, prods);
 
   useEffect(() => {
     if (r?.categories?.length) setActiveCat(r.categories[0]);
@@ -5433,9 +5768,9 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
               <span style={{fontSize:10,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'● Открыто':'● Закрыто'}</span>
             </div>
           </div>
-          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQty>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQty>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQty>0?'0 4px 14px rgba(31,215,96,.4)':'none',flexShrink:0}}>
-            <Ic n="cart" s={17} c={totalQty>0?'white':'var(--t2)'}/>
-            {totalQty>0&&<div style={{position:'absolute',top:-6,right:-6,width:17,height:17,borderRadius:'50%',background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
+          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQtyNum>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQtyNum>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQtyNum>0?'0 4px 14px rgba(31,215,96,.4)':'none',flexShrink:0}}>
+            <Ic n="cart" s={17} c={totalQtyNum>0?'white':'var(--t2)'}/>
+            {totalQtyNum>0&&<div style={{position:'absolute',top:-6,right:-6,minWidth:17,height:17,padding:'0 4px',borderRadius:999,background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
           </button>
         </div>
         <div className="hscroll" style={{padding:'0 18px 10px',gap:6}}>
@@ -5458,19 +5793,6 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
             <span style={{fontSize:12,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'🟢 Открыто':'🔴 Закрыто'}</span>
           </div>
         </div>
-      </div>
-
-      <div style={{padding:'12px 18px',background:'var(--l2)',borderBottom:'1px solid var(--b1)',display:'flex',gap:24,justifyContent:'center'}}>
-        {[
-          {e:'⏱',l:'Доставка',v:`${r.deliveryMin} мин`},
-          {e:'💰',l:'Мин. заказ',v:`${r.minOrder} ЅМ`},
-        ].map((s,i)=>(
-          <div key={i} style={{textAlign:'center'}}>
-            <div style={{fontSize:16,marginBottom:2}}>{s.e}</div>
-            <div style={{fontSize:11,color:'var(--t3)',marginBottom:1}}>{s.l}</div>
-            <div style={{fontSize:12,fontWeight:700,color:'var(--t1)'}}>{s.v}</div>
-          </div>
-        ))}
       </div>
 
       {!r.open && (
@@ -5524,14 +5846,8 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
         })}
       </div>
 
-      {totalQty>0&&(
-        <div style={{ position:"fixed", bottom:88, left:"50%", transform:"translateX(-50%)", zIndex:90, animation:"fadeUp .3s ease" }}>
-          <button onClick={() => go("cart")} className="btn" style={{ display:"flex", alignItems:"center", gap:10, padding:"13px 22px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", border:"none", boxShadow:"0 8px 24px rgba(31,215,96,.45)" }}>
-            <div style={{ background:"rgba(0,0,0,.28)", borderRadius:"50%", width:26, height:26, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:11, fontWeight:900, color:"white" }}>{totalQty}</div>
-            <span style={{ fontSize:14, fontWeight:800, color:"white", fontFamily:"Nunito" }}>Перейти в корзину</span>
-            <Ic n="arr" s={16} c="white"/>
-          </button>
-        </div>
+      {totalQtyNum>0&&(
+        <FloatingCartBtn count={totalQty} onClick={() => go("cart")} />
       )}
       <Nav page="home" go={go}/>
     </div>
@@ -6101,7 +6417,7 @@ const AdminPartnersPage = ({go}) => {
             ))}
             <div style={{marginBottom:12,marginTop:4}}>
               <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Способ выплаты</div>
-              <select className="ai"><option>💵 Наличными</option><option>🏦 Перевод</option><option>📱 Kaspi / HUMO</option></select>
+              <select className="ai"><option>💵 Наличными</option><option>🏦 Перевод</option></select>
             </div>
             <button onClick={()=>setShowPay(null)} className="ab abp" style={{width:'100%',padding:12}}>✓ Подтвердить выплату</button>
           </div>
@@ -6290,8 +6606,15 @@ function KakapoAppInner() {
   const [cart,   setCart]   = useState({});
   const [cartMeta, setCartMeta] = useState({});
   const [wished, setWished] = useState({});
-  const [user,   setUser]   = useState(null);
+  const [user,   setUser]   = useState(() => loadStoreUser());
   const [toast,  setToast]  = useState(null);
+
+  useEffect(() => {
+    if (user) saveStoreUser(user)
+  }, [user])
+
+  useClientReviewNotifSync(user);
+  useClientNotificationSync(user);
 
   useEffect(() => {
     hydrateCourierStores();
@@ -6353,7 +6676,7 @@ function KakapoAppInner() {
     setCartMeta({});
   }, []);
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast };
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user };
 
   const render = () => {
     switch (page) {
@@ -6366,6 +6689,7 @@ function KakapoAppInner() {
       case "auth":             return <AuthPage          {...shared} setUser={setUser}/>;
       case "profile":          return <ProfilePage       {...shared} user={user} setUser={setUser}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
+      case "reviews":          return <ClientReviewsPage   go={go} user={user}/>;
       case "promos":           return <PromosPage        {...shared}/>;
       case "search":           return <SearchPage        {...shared}/>;
       case "faq":              return <FAQPage           {...shared}/>;

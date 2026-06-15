@@ -1,0 +1,135 @@
+'use client'
+import { create } from 'zustand'
+import { USE_API } from './config'
+import { api } from './api'
+import {
+  DEFAULT_ADMIN_COURIERS,
+  normalizeCourier,
+  type AdminCourier,
+} from './courierTeam'
+
+const COURIERS_KEY = 'kakapo-couriers'
+
+function loadCouriers(): AdminCourier[] {
+  if (typeof window === 'undefined') return DEFAULT_ADMIN_COURIERS
+  try {
+    const raw = localStorage.getItem(COURIERS_KEY)
+    if (!raw) return DEFAULT_ADMIN_COURIERS
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_ADMIN_COURIERS
+    return parsed.map(c => normalizeCourier(c))
+  } catch {
+    return DEFAULT_ADMIN_COURIERS
+  }
+}
+
+function saveCouriers(list: AdminCourier[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(COURIERS_KEY, JSON.stringify(list))
+  } catch { /* quota */ }
+}
+
+function mergeCourierLists(primary: AdminCourier[], secondary: AdminCourier[]): AdminCourier[] {
+  const byId = new Map<string, AdminCourier>()
+  for (const c of secondary) byId.set(c.id, normalizeCourier(c))
+  for (const c of primary) {
+    const prev = byId.get(c.id)
+    byId.set(c.id, normalizeCourier(prev ? { ...prev, ...c, id: c.id } : c))
+  }
+  return Array.from(byId.values())
+}
+
+function nextCourierId(list: AdminCourier[]): string {
+  const nums = list.map(c => parseInt(c.id.replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+  const n = (nums.length ? Math.max(...nums) : 0) + 1
+  return `C-${String(n).padStart(2, '0')}`
+}
+
+interface CourierTeamStore {
+  couriers: AdminCourier[]
+  hydrated: boolean
+  hydrate: () => void
+  reload: () => void
+  setCouriers: (list: AdminCourier[]) => void
+  addCourier: (data: Omit<AdminCourier, 'id' | 'orders' | 'today' | 'week' | 'rating'>) => AdminCourier
+  updateCourier: (id: string, patch: Partial<AdminCourier>) => void
+  toggleBlock: (id: string) => void
+  fetchFromApi: () => Promise<void>
+}
+
+export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
+  couriers: DEFAULT_ADMIN_COURIERS,
+  hydrated: false,
+  hydrate: () => {
+    set({ couriers: loadCouriers(), hydrated: true })
+  },
+  reload: () => {
+    set({ couriers: loadCouriers() })
+  },
+  setCouriers: list => {
+    const couriers = list.map(c => normalizeCourier(c))
+    saveCouriers(couriers)
+    set({ couriers })
+  },
+  addCourier: data => {
+    const couriers = get().couriers
+    const row = normalizeCourier({
+      ...data,
+      id: nextCourierId(couriers),
+      rating: 5,
+      orders: 0,
+      today: 0,
+      week: 0,
+    })
+    const next = [...couriers, row]
+    saveCouriers(next)
+    if (USE_API) api.createCourier(row).catch(console.error)
+    set({ couriers: next })
+    return row
+  },
+  updateCourier: (id, patch) => set(s => {
+    const couriers = s.couriers.map(c => (c.id === id ? normalizeCourier({ ...c, ...patch, id }) : c))
+    saveCouriers(couriers)
+    if (USE_API) api.updateCourier(id, patch).catch(console.error)
+    return { couriers }
+  }),
+  toggleBlock: id => {
+    const c = get().couriers.find(x => x.id === id)
+    if (!c) return
+    get().updateCourier(id, { blocked: !c.blocked, status: !c.blocked ? 'offline' : c.status })
+  },
+  fetchFromApi: async () => {
+    const local = loadCouriers()
+    if (!USE_API) {
+      set({ couriers: local, hydrated: true })
+      return
+    }
+    try {
+      const apiList = await api.getCouriers()
+      const remote = apiList.length ? apiList.map(c => normalizeCourier(c)) : DEFAULT_ADMIN_COURIERS
+      const couriers = mergeCourierLists(local, remote)
+      saveCouriers(couriers)
+      set({ couriers, hydrated: true })
+    } catch (e) {
+      console.error(e)
+      set({ couriers: local, hydrated: true })
+    }
+  },
+}))
+
+export function useCourierTeam() {
+  return useCourierTeamStore(s => s.couriers)
+}
+
+export async function syncCourierTeamFromApi() {
+  await useCourierTeamStore.getState().fetchFromApi()
+}
+
+export function hydrateCourierTeamStore() {
+  useCourierTeamStore.getState().hydrate()
+}
+
+export function reloadCourierTeamStore() {
+  useCourierTeamStore.getState().reload()
+}

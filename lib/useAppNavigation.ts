@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
 const PAGE_KEY = 'p'
@@ -18,25 +18,68 @@ function buildQuery(defaultPage: string, page: string, params: NavParams): strin
   return qs ? `?${qs}` : ''
 }
 
+function readFromLocation(defaultPage: string): { page: string; params: Record<string, string> } {
+  if (typeof window === 'undefined') return { page: defaultPage, params: {} }
+  const sp = new URLSearchParams(window.location.search)
+  const page = sp.get(PAGE_KEY) || defaultPage
+  const params: Record<string, string> = {}
+  sp.forEach((v, k) => {
+    if (k !== PAGE_KEY) params[k] = v
+  })
+  return { page, params }
+}
+
+function readFromSearchParams(
+  searchParams: URLSearchParams,
+  defaultPage: string,
+): { page: string; params: Record<string, string> } {
+  const page = searchParams.get(PAGE_KEY) || defaultPage
+  const params: Record<string, string> = {}
+  searchParams.forEach((v, k) => {
+    if (k !== PAGE_KEY) params[k] = v
+  })
+  return { page, params }
+}
+
 /** Синхронизация внутренней страницы с URL (?p=...) — после F5 остаётесь на том же экране */
 export function useAppNavigation(defaultPage: string) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
-  const page = searchParams.get(PAGE_KEY) || defaultPage
+  const [page, setPageState] = useState(() => {
+    if (typeof window !== 'undefined') return readFromLocation(defaultPage).page
+    return defaultPage
+  })
+  const [params, setParamsState] = useState<Record<string, string>>(() => {
+    if (typeof window !== 'undefined') return readFromLocation(defaultPage).params
+    return {}
+  })
 
-  const params = useMemo(() => {
-    const out: Record<string, string> = {}
-    searchParams.forEach((v, k) => {
-      if (k !== PAGE_KEY) out[k] = v
-    })
-    return out
-  }, [searchParams])
+  useEffect(() => {
+    const next = readFromSearchParams(searchParams, defaultPage)
+    setPageState(next.page)
+    setParamsState(next.params)
+  }, [searchParams, defaultPage])
 
   const navigate = useCallback((nextPage: string, nextParams: NavParams = {}) => {
+    const nextParamsRecord: Record<string, string> = {}
+    for (const [k, v] of Object.entries(nextParams)) {
+      if (k !== PAGE_KEY && v != null && v !== '') nextParamsRecord[k] = String(v)
+    }
+
+    setPageState(nextPage)
+    setParamsState(nextParamsRecord)
+
     const qs = buildQuery(defaultPage, nextPage, nextParams)
-    router.replace(`${pathname}${qs}`, { scroll: false })
+    const url = `${pathname}${qs}`
+
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(window.history.state, '', url)
+    }
+
+    router.replace(url, { scroll: false })
+
     if (typeof window !== 'undefined') window.scrollTo(0, 0)
   }, [router, pathname, defaultPage])
 

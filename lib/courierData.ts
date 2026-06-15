@@ -11,6 +11,13 @@ export const STORE_LOCATION = {
   addr: 'ул. Ленина, 42',
 };
 
+/** Фиксированный вид карты — центр г. Яван, несколько кварталов (как в выборе точки) */
+export const COURIER_MAP_VIEW = {
+  lat: 38.3185,
+  lng: 69.0320,
+  zoom: 14,
+} as const;
+
 /** Координаты точек забора по умолчанию (синхрон с lib/pickups.ts) */
 export const PICKUP_LOCATIONS: PickupLocationMap = pickupsToLocationMap(DEFAULT_PICKUPS);
 
@@ -31,7 +38,8 @@ export function buildOrderRoutePoints(
   locations: PickupLocationMap = PICKUP_LOCATIONS
 ): { lat: number; lng: number }[] {
   const fallback = locations.store ?? { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng, name: STORE_LOCATION.name };
-  const points = order.pickupIds.map(id => {
+  const pickupIds = order.pickupIds?.length ? order.pickupIds : ['store'];
+  const points = pickupIds.map(id => {
     const p = locations[id] ?? fallback;
     return { lat: p.lat, lng: p.lng };
   });
@@ -67,7 +75,8 @@ export async function fetchOrdersRoadKm<T extends { id: string; pickupIds: strin
         const km = await fetchOrderRoadKm(o, locations);
         return [o.id, km] as const;
       } catch {
-        const first = locations[o.pickupIds[0] ?? 'store'] ?? locations.store;
+        const pids = o.pickupIds?.length ? o.pickupIds : ['store'];
+        const first = locations[pids[0] ?? 'store'] ?? locations.store;
         return [o.id, roundRouteKm(calcDistanceKm(
           first?.lat ?? STORE_LOCATION.lat,
           first?.lng ?? STORE_LOCATION.lng,

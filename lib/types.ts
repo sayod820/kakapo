@@ -38,6 +38,8 @@ export interface Order {
   pickupIds?: string[]
   distanceKm?: number
   deliveryFee?: number
+  /** Зафиксированная стоимость доставки — не пересчитывается при смене тарифа */
+  deliveryFeeLocked?: boolean
   durationMin?: number
   weightKg?: number
   /** Статус части магазина в смешанном заказе */
@@ -93,12 +95,56 @@ export interface Restaurant {
   email: string
   commission: number
   open: boolean
+  blocked?: boolean
   rating: number
   reviews: number
   ordersMonth: number
   revenueMonth: number
+  /** Валовая выручка, уже выплаченная частями в текущем периоде */
+  paidRevenueMonth?: number
   img: string
   menu: MenuItem[]
+}
+
+export interface RestaurantPayout {
+  id: number
+  restId: string
+  restName: string
+  emoji?: string
+  partial?: boolean
+  revenueTotal?: number
+  revenuePaid?: number
+  revenue: number
+  revenueRemaining?: number
+  orders?: number
+  commission: number
+  commissionPct: number
+  amount: number
+  netRemaining?: number
+  paidNetBefore?: number
+  paidGrossBefore?: number
+  method: string
+  note?: string
+  date: string
+  createdAt?: string
+}
+
+export interface Review {
+  id: number
+  restId: string
+  restName?: string
+  orderId?: string
+  client: string
+  rating: number
+  text: string
+  date: string
+  status: 'new' | 'read'
+  restSeen?: boolean
+  restNotified?: boolean
+  urgent?: boolean
+  adminReply?: string
+  restReply?: string
+  createdAt?: string
 }
 
 export interface MenuItem {
@@ -122,6 +168,11 @@ export interface Courier {
   rating: number
   orders: number
   today: number
+  num?: string
+  week?: number
+  maxActiveOrders?: number
+  blocked?: boolean
+  otp?: string
 }
 
 export interface Assembler {

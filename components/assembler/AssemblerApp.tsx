@@ -5,6 +5,7 @@ import { mapOrdersForAssembler } from '@/lib/orderUiMap'
 import { isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { ASSEMBLER_NAME } from '@/lib/courierStats'
 import { useAppNavigation } from '@/lib/useAppNavigation'
+import { useApiSync } from '@/lib/useApiSync'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import Link from 'next/link'
 // ─── KAKAPO Assembler App ────────────────────────
@@ -39,7 +40,7 @@ const ASSEMBLER = {name:'Камола Юсупова', pin:'5678', avatar:'К'};
 
 const ORDERS_DATA = [
   {
-    id:'K-4832', time:'14:23', priority:'urgent',
+    id:'K-4832', time:'14:23', priority:'urgent', queue:'new',
     client:{name:'Диловар Рахимов', phone:'+992 93 456 78 90', addr:'ул. Ленина, 42, кв. 15'},
     courier:{name:'Фирдавс Назаров', phone:'+992 93 111 22 33'},
     comment:'Пожалуйста побыстрее, жду гостей',
@@ -52,7 +53,7 @@ const ORDERS_DATA = [
     ]
   },
   {
-    id:'K-4829', time:'13:55', priority:'normal',
+    id:'K-4829', time:'13:55', priority:'normal', queue:'new',
     client:{name:'Мадина Олимова', phone:'+992 93 321 65 43', addr:'ул. Сомони, 8, кв. 3'},
     courier:{name:'Рустам Холов', phone:'+992 91 333 44 55'},
     comment:'',
@@ -64,7 +65,7 @@ const ORDERS_DATA = [
     ]
   },
   {
-    id:'K-4825', time:'13:20', priority:'normal',
+    id:'K-4825', time:'13:20', priority:'normal', queue:'assembling',
     client:{name:'Зафар Мирзоев', phone:'+992 91 654 32 10', addr:'мкр. Мирный, 5'},
     courier:{name:'Баходур Кодиров', phone:'+992 90 222 33 44'},
     comment:'Без лука в салате',
@@ -145,7 +146,7 @@ function AssemblerAppInner() {
     if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
       await completeMarketPart(orderId);
     } else if (USE_API) {
-      await updateStatus(orderId, 'assembler_done', { assembler: { name: ASSEMBLER_NAME } });
+      await updateStatus(orderId, 'assembler_done', { assembler: { name: ASSEMBLER_NAME }, marketStatus: 'done' });
     }
     setCompletedIds(ids=>[...ids, orderId]);
     setOrders(os=>os.filter(o=>o.id!==orderId));
@@ -231,12 +232,16 @@ function BottomNav({page, onPage, newCount}) {
    DASHBOARD
 ══════════════════════════════════════════════════════ */
 function DashboardPage({orders, completed, onStart, onPage}) {
-  const urgent = orders.filter(o=>o.priority==='urgent');
-  const normal = orders.filter(o=>o.priority==='normal');
+  const newQueue = orders.filter(o => o.queue === 'new');
+  const inProgress = orders.filter(o => o.queue !== 'new');
+  const urgentNew = newQueue.filter(o => o.priority === 'urgent');
+  const normalNew = newQueue.filter(o => o.priority !== 'urgent');
+  const urgentProgress = inProgress.filter(o => o.priority === 'urgent');
+  const normalProgress = inProgress.filter(o => o.priority !== 'urgent');
 
-  const PCard = ({order, i}) => {
+  const PCard = ({order, i, isNew}) => {
     const doneCount = order.items.filter(it=>it.done).length;
-    const pct = Math.round(doneCount/order.items.length*100);
+    const pct = order.items.length ? Math.round(doneCount/order.items.length*100) : 0;
     return (
       <div className="card" style={{overflow:'hidden',animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.08}s both`}}>
         {/* Priority banner */}
@@ -246,6 +251,11 @@ function DashboardPage({orders, completed, onStart, onPage}) {
               <div style={{position:'absolute',inset:0,borderRadius:'50%',background:'#FF4545',animation:'ping 1.5s ease-out infinite',opacity:.5}}/>
             </div>
             <span style={{fontSize:11,fontWeight:800,color:'#FF4545'}}>⚡ Срочно — курьер ждёт</span>
+          </div>
+        )}
+        {isNew && order.priority !== 'urgent' && (
+          <div style={{padding:'7px 16px',background:'rgba(255,69,69,.08)',borderBottom:'1px solid rgba(255,69,69,.18)',display:'flex',alignItems:'center',gap:7}}>
+            <span style={{fontSize:11,fontWeight:800,color:'#FF4545'}}>🆕 Новый заказ</span>
           </div>
         )}
         <div style={{padding:'15px 16px'}}>
@@ -266,7 +276,7 @@ function DashboardPage({orders, completed, onStart, onPage}) {
           </div>
 
           {/* Progress if started */}
-          {pct>0&&(
+          {!isNew && pct>0&&(
             <div style={{marginBottom:12}}>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
                 <span style={{fontSize:11,color:'#8FB897'}}>Прогресс сборки</span>
@@ -310,7 +320,7 @@ function DashboardPage({orders, completed, onStart, onPage}) {
           {/* Action */}
           <button onClick={()=>onStart(order.id)} className="btn"
             style={{width:'100%',padding:13,borderRadius:14,background:`linear-gradient(135deg,#6B3FD4,#9B6DFF)`,border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-            {pct>0?`▶ Продолжить сборку (${doneCount}/${order.items.length})`:'▶ Начать сборку'}
+            {isNew ? '▶ Начать сборку' : pct>0 ? `▶ Продолжить сборку (${doneCount}/${order.items.length})` : '▶ Продолжить сборку'}
           </button>
         </div>
       </div>
@@ -349,28 +359,38 @@ function DashboardPage({orders, completed, onStart, onPage}) {
             <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,marginBottom:8,color:'#9B6DFF'}}>Все заказы собраны!</div>
             <div style={{fontSize:13,color:'#8FB897'}}>Ожидайте новых заказов</div>
           </div>
-        ):(
+        ) : (
           <>
-            {urgent.length>0&&(
-              <div style={{marginBottom:16}}>
-                <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:10,color:'#FF4545'}}>⚡ Срочные</div>
-                <div style={{display:'flex',flexDirection:'column',gap:12}}>
-                  {urgent.map((o,i)=><PCard key={o.id} order={o} i={i}/>)}
+            {newQueue.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#FF4545' }}>🆕 Новые заказы ({newQueue.length})</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {[...urgentNew, ...normalNew].map((o, i) => <PCard key={o.id} order={o} i={i} isNew />)}
                 </div>
               </div>
             )}
-            {normal.length>0&&(
+            {inProgress.length > 0 && (
               <div>
-                {urgent.length>0&&<div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:10,color:'#8FB897',marginTop:8}}>Обычные</div>}
-                <div style={{display:'flex',flexDirection:'column',gap:12}}>
-                  {normal.map((o,i)=><PCard key={o.id} order={o} i={i+urgent.length}/>)}
-                </div>
+                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#9B6DFF', marginTop: newQueue.length ? 8 : 0 }}>🛒 В сборке ({inProgress.length})</div>
+                {urgentProgress.length > 0 && (
+                  <div style={{ marginBottom:12 }}>
+                    <div style={{ fontSize:11, fontWeight:800, marginBottom:8, color:'#FF4545' }}>⚡ Срочные</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                      {urgentProgress.map((o, i) => <PCard key={o.id} order={o} i={i} />)}
+                    </div>
+                  </div>
+                )}
+                {normalProgress.length > 0 && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                    {normalProgress.map((o, i) => <PCard key={o.id} order={o} i={i + urgentProgress.length} />)}
+                  </div>
+                )}
               </div>
             )}
           </>
         )}
       </div>
-      <BottomNav page="dashboard" onPage={onPage} newCount={urgent.length}/>
+      <BottomNav page="dashboard" onPage={onPage} newCount={newQueue.length}/>
     </div>
   );
 }

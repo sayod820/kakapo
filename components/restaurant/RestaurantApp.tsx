@@ -1,12 +1,14 @@
 'use client'
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useOrders, useRestaurants, useAuth, USE_API } from '@/lib/store'
 import { mapOrdersForRestaurant } from '@/lib/orderUiMap'
-import { isMixedOrder, normalizeOrder } from '@/lib/orderParts'
+import { hasRestPart, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichRestaurants } from '@/lib/enrichCatalog'
+import { api } from '@/lib/api'
+import type { Review } from '@/lib/types'
 import Link from 'next/link'
 // ─── KAKAPO Restaurant App ───────────────────────
 /* ══════════════════════════════════════════════════════
@@ -119,7 +121,17 @@ function RestaurantAppInner() {
     [apiOrders, rest]
   );
   const [orders,  setOrders]  = useState(DEMO_ORDERS);
-  const [newOrder,setNewOrder]= useState(false);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [alertOrder, setAlertOrder] = useState<any>(null);
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => new Set());
+  const seenNewOrderIds = useRef<Set<string>>(new Set());
+  const ordersBootstrapped = useRef(false);
+
+  const orderAlertLine = (o: any) => {
+    const names = (o.items || []).map((it: any) => it.name).slice(0, 3);
+    const tail = (o.items?.length || 0) > 3 ? '…' : '';
+    return `${o.client} · ${o.total} ЅМ · ${names.join(' + ')}${tail}`;
+  };
 
   const isOpen = rest ? (typeof rest.open === 'boolean' ? rest.open : (rest.isOpen ?? true)) : true;
 
@@ -147,12 +159,47 @@ function RestaurantAppInner() {
     setOrders(mappedOrders);
   }, [mappedOrders]);
 
-  // Simulate new order notification
+  const loadReviews = useCallback(async () => {
+    if (!rest?.id || !USE_API) return;
+    try {
+      setReviews(await api.getReviews(rest.id));
+    } catch {
+      setReviews([]);
+    }
+  }, [rest?.id]);
+
   useEffect(() => {
-    if(!partner) return;
-    const t = setTimeout(() => setNewOrder(true), 8000);
-    return () => clearTimeout(t);
-  }, [partner]);
+    loadReviews();
+    if (!USE_API) return;
+    const id = setInterval(loadReviews, 12000);
+    return () => clearInterval(id);
+  }, [loadReviews]);
+
+  const unseenReviews = reviews.filter(r => !r.restSeen).length;
+
+  useEffect(() => {
+    const newOrders = orders.filter(o => o.status === 'new');
+
+    if (!ordersBootstrapped.current) {
+      newOrders.forEach(o => seenNewOrderIds.current.add(o.id));
+      ordersBootstrapped.current = true;
+      return;
+    }
+
+    for (const o of newOrders) {
+      if (!seenNewOrderIds.current.has(o.id) && !dismissedAlerts.has(o.id)) {
+        seenNewOrderIds.current.add(o.id);
+        setAlertOrder(o);
+        break;
+      }
+    }
+  }, [orders, dismissedAlerts]);
+
+  useEffect(() => {
+    if (!alertOrder) return;
+    const current = orders.find(o => o.id === alertOrder.id);
+    if (!current || current.status !== 'new') setAlertOrder(null);
+  }, [orders, alertOrder]);
 
   const login = async (email, pass) => {
     if (USE_API) {
@@ -185,11 +232,11 @@ function RestaurantAppInner() {
 
   const updateOrderStatus = async (id, status) => {
     const raw = apiOrders.find(o => o.id === id);
-    const mixed = raw && rest && isMixedOrder(normalizeOrder(raw));
-    if (USE_API && mixed) {
+    const normalized = raw ? normalizeOrder(raw) : null;
+    const restPart = !!(normalized && rest && hasRestPart(normalized, rest.id));
+    if (USE_API && restPart && status !== 'delivered') {
       if (status === 'cooking') await updateRestPart(id, rest.id, 'cooking');
       else if (status === 'ready') await updateRestPart(id, rest.id, 'done');
-      else if (status === 'delivered') await updateStatusApi(id, 'delivered');
       else await updateRestPart(id, rest.id, 'new');
     } else if (USE_API) {
       await updateStatusApi(id, status);
@@ -210,16 +257,19 @@ function RestaurantAppInner() {
     setMenu(m => m.filter(dish => dish.id!==id));
   };
 
-  const acceptNewOrder = () => {
-    const o = {
-      id:`K-${4840+Math.floor(Math.random()*10)}`,
-      time: new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),
-      client:'Зафар М.', phone:'+992 93 500 11 22',
-      items:[{e:'🍲',name:'Шурпо',qty:1,price:12},{e:'🥟',name:'Манты',qty:2,price:16}],
-      total:44, status:'new', addr:'ул. Ленина, 18', comment:'Побыстрее пожалуйста'
-    };
-    setOrders(os=>[o,...os]);
-    setNewOrder(false);
+  const acceptAlertOrder = async () => {
+    if (!alertOrder) return;
+    await updateOrderStatus(alertOrder.id, 'cooking');
+    setAlertOrder(null);
+  };
+
+  const dismissAlertOrder = () => {
+    if (!alertOrder) return;
+    const id = alertOrder.id;
+    const nextDismissed = new Set([...dismissedAlerts, id]);
+    setDismissedAlerts(nextDismissed);
+    const next = orders.find(o => o.status === 'new' && o.id !== id && !nextDismissed.has(o.id));
+    setAlertOrder(next || null);
   };
 
   if(!rest) return null;
@@ -229,25 +279,26 @@ function RestaurantAppInner() {
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05',position:'relative'}}>
         {/* New order notification */}
-        {newOrder && (
+        {alertOrder && (
           <div style={{position:'fixed',top:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:999,padding:'14px 18px',background:'linear-gradient(135deg,#0F3020,#1A5030)',borderBottom:'2px solid var(--gr)',animation:'ring .8s ease',display:'flex',alignItems:'center',gap:12}}>
             <div style={{fontSize:28,animation:'ring 1s ease infinite'}}>🔔</div>
-            <div style={{flex:1}}>
+            <div style={{flex:1,minWidth:0}}>
               <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--gr)'}}>Новый заказ!</div>
-              <div style={{fontSize:11,color:'rgba(255,255,255,.7)',marginTop:1}}>Зафар М. · 44 ЅМ · Шурпо + Манты</div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,.7)',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{orderAlertLine(alertOrder)}</div>
             </div>
-            <div style={{display:'flex',gap:8}}>
-              <button onClick={acceptNewOrder} className="btn" style={{padding:'8px 14px',borderRadius:11,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:13}}>Принять</button>
-              <button onClick={()=>setNewOrder(false)} className="btn" style={{padding:'8px 12px',borderRadius:11,background:'rgba(255,69,69,.2)',border:'1px solid rgba(255,69,69,.4)',color:'var(--red)',fontFamily:'Nunito',fontWeight:700,fontSize:13}}>✕</button>
+            <div style={{display:'flex',gap:8,flexShrink:0}}>
+              <button onClick={acceptAlertOrder} className="btn" style={{padding:'8px 14px',borderRadius:11,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:13}}>Принять</button>
+              <button onClick={dismissAlertOrder} className="btn" style={{padding:'8px 12px',borderRadius:11,background:'rgba(255,69,69,.2)',border:'1px solid rgba(255,69,69,.4)',color:'var(--red)',fontFamily:'Nunito',fontWeight:700,fontSize:13}}>✕</button>
             </div>
           </div>
         )}
 
-        {page==='dashboard' && <DashboardPage rest={rest} orders={orders} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout} newOrder={newOrder}/>}
-        {page==='orders'    && <OrdersPage    rest={rest} orders={orders} onUpdate={updateOrderStatus} onPage={setPage}/>}
-        {page==='menu'      && <MenuPage      rest={rest} menu={menu} onToggle={toggleDish} onAdd={addDish} onRemove={removeDish} onPage={setPage}/>}
-        {page==='stats'     && <StatsPage     rest={rest} orders={orders} onPage={setPage}/>}
-        {page==='settings'  && <SettingsPage  rest={rest} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout}/>}
+        {page==='dashboard' && <DashboardPage rest={rest} orders={orders} reviews={reviews} unseenReviews={unseenReviews} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout} hasAlert={!!alertOrder}/>}
+        {page==='orders'    && <OrdersPage    rest={rest} orders={orders} reviewBadge={unseenReviews} onUpdate={updateOrderStatus} onPage={setPage}/>}
+        {page==='menu'      && <MenuPage      rest={rest} menu={menu} reviewBadge={unseenReviews} onToggle={toggleDish} onAdd={addDish} onRemove={removeDish} onPage={setPage}/>}
+        {page==='reviews'   && <ReviewsPage   rest={rest} reviews={reviews} reviewBadge={unseenReviews} onRefresh={loadReviews} onPage={setPage} onMarkSeen={async (id) => { if (USE_API) await api.updateReview(id, { restSeen: true }); setReviews(rs => rs.map(r => r.id === id ? { ...r, restSeen: true } : r)); }}/>}
+        {page==='stats'     && <StatsPage     rest={rest} orders={orders} reviewBadge={unseenReviews} onPage={setPage}/>}
+        {page==='settings'  && <SettingsPage  rest={rest} isOpen={isOpen} reviewBadge={unseenReviews} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout}/>}
       </div>
     </>
   );
@@ -351,12 +402,12 @@ function Header({
 /* ══════════════════════════════════════════════════════
    BOTTOM NAV (shared)
 ══════════════════════════════════════════════════════ */
-function BottomNav({page, onPage, newOrders}) {
+function BottomNav({page, onPage, newOrders, reviewBadge}) {
   const items = [
     {id:'dashboard',icon:'📊',label:'Главная'},
     {id:'orders',   icon:'📦',label:'Заказы',  badge:newOrders},
     {id:'menu',     icon:'🍽', label:'Меню'},
-    {id:'stats',    icon:'📈',label:'Статистика'},
+    {id:'reviews',  icon:'⭐', label:'Отзывы', badge:reviewBadge},
     {id:'settings', icon:'⚙️', label:'Настройки'},
   ];
   return (
@@ -376,17 +427,27 @@ function BottomNav({page, onPage, newOrders}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({rest, orders, isOpen, onToggleOpen, onPage, onLogout, newOrder}) {
+function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOpen, onPage, onLogout, hasAlert}) {
   const todayOrders   = orders.filter(o=>o.status!=='delivered');
   const doneToday     = orders.filter(o=>o.status==='delivered').length;
   const revenue       = orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+o.total,0);
   const newOrders     = orders.filter(o=>o.status==='new').length;
+  const avgReview     = reviews.length ? (reviews.reduce((s,r)=>s+r.rating,0)/reviews.length).toFixed(1) : rest?.rating;
 
   return (
-    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
+    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90,paddingTop:hasAlert?72:0}}>
       <Header rest={rest} isOpen={isOpen} onToggleOpen={onToggleOpen} onPage={onPage} onLogout={onLogout}/>
 
       <div style={{padding:'16px 18px'}}>
+        {unseenReviews>0&&(
+          <div onClick={()=>onPage('reviews')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',borderRadius:16,background:'rgba(255,184,0,.08)',border:'1.5px solid rgba(255,184,0,.35)',marginBottom:16,cursor:'pointer',animation:'fadeUp .4s ease'}}>
+            <div style={{fontSize:24}}>⭐</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:800,color:'#FFB800'}}>{unseenReviews} новых отзывов от клиентов</div>
+              <div style={{fontSize:11,color:'#8FB897',marginTop:1}}>Нажмите чтобы прочитать и ответить</div>
+            </div>
+          </div>
+        )}
         {/* Alert new orders */}
         {newOrders>0&&(
           <div onClick={()=>onPage('orders')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',borderRadius:16,background:'rgba(255,69,69,.08)',border:'1.5px solid rgba(255,69,69,.35)',marginBottom:16,cursor:'pointer',animation:'fadeUp .4s ease'}}>
@@ -420,14 +481,14 @@ function DashboardPage({rest, orders, isOpen, onToggleOpen, onPage, onLogout, ne
         </div>
 
         {/* Revenue today */}
-        <div style={{background:'linear-gradient(135deg,#071A0A,#0F3018)',border:'1px solid rgba(31,215,96,.2)',borderRadius:18,padding:'18px',marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div onClick={()=>onPage('stats')} style={{cursor:'pointer',background:'linear-gradient(135deg,#071A0A,#0F3018)',border:'1px solid rgba(31,215,96,.2)',borderRadius:18,padding:'18px',marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div>
             <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Выручка сегодня</div>
             <div style={{fontFamily:'Unbounded',fontSize:30,fontWeight:900,color:'#1FD760'}}>{revenue} <span style={{fontSize:16,color:'#FFB800'}}>ЅМ</span></div>
             <div style={{fontSize:11,color:'#3D6645',marginTop:4}}>Комиссия KAKAPO ({rest?.commission}%): <span style={{color:'#FF4545'}}>−{Math.round(revenue*rest?.commission/100)} ЅМ</span></div>
           </div>
           <div style={{textAlign:'right'}}>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:4}}>Ваш доход</div>
+            <div style={{fontSize:11,color:'#8FB897',marginBottom:4}}>Ваш доход · ★ {avgReview}</div>
             <div style={{fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:'#FFB800'}}>{Math.round(revenue*(1-rest?.commission/100))} ЅМ</div>
           </div>
         </div>
@@ -462,7 +523,7 @@ function DashboardPage({rest, orders, isOpen, onToggleOpen, onPage, onLogout, ne
         )}
       </div>
 
-      <BottomNav page="dashboard" onPage={onPage} newOrders={newOrders}/>
+      <BottomNav page="dashboard" onPage={onPage} newOrders={newOrders} reviewBadge={unseenReviews}/>
     </div>
   );
 }
@@ -470,7 +531,7 @@ function DashboardPage({rest, orders, isOpen, onToggleOpen, onPage, onLogout, ne
 /* ══════════════════════════════════════════════════════
    ЗАКАЗЫ
 ══════════════════════════════════════════════════════ */
-function OrdersPage({rest, orders, onUpdate, onPage}) {
+function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
   const [filter, setFilter] = useState('active');
   const newOrders = orders.filter(o=>o.status==='new').length;
 
@@ -574,7 +635,7 @@ function OrdersPage({rest, orders, onUpdate, onPage}) {
         )}
       </div>
 
-      <BottomNav page="orders" onPage={onPage} newOrders={orders.filter(o=>o.status==='new').length}/>
+      <BottomNav page="orders" onPage={onPage} newOrders={orders.filter(o=>o.status==='new').length} reviewBadge={reviewBadge}/>
     </div>
   );
 }
@@ -582,7 +643,7 @@ function OrdersPage({rest, orders, onUpdate, onPage}) {
 /* ══════════════════════════════════════════════════════
    МЕНЮ
 ══════════════════════════════════════════════════════ */
-function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage}) {
+function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 0}) {
   const [activeCat, setActiveCat] = useState(rest?.categories[0]||'');
   const [showAdd,   setShowAdd]   = useState(false);
   const [editItem,  setEditItem]  = useState(null);
@@ -738,7 +799,102 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage}) {
         </div>
       )}
 
-      <BottomNav page="menu" onPage={onPage} newOrders={0}/>
+      <BottomNav page="menu" onPage={onPage} newOrders={0} reviewBadge={reviewBadge}/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════
+   ОТЗЫВЫ
+══════════════════════════════════════════════════════ */
+function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge = 0 }) {
+  const [replyId, setReplyId] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const Stars = ({ n }: { n: number }) => (
+    <span>{[1, 2, 3, 4, 5].map(i => <span key={i} style={{ color: i <= n ? '#FFB800' : '#1D3822', fontSize: 14 }}>★</span>)}</span>
+  );
+
+  const saveReply = async (id: number) => {
+    if (USE_API) {
+      try {
+        await api.updateReview(id, { restReply: replyText, restSeen: true });
+      } catch { return; }
+    }
+    setReplyId(null);
+    setReplyText('');
+    onRefresh();
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#030B05', paddingBottom: 90 }}>
+      <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Отзывы клиентов"/>
+      <div style={{ padding: '14px 18px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+          {[
+            { l: 'Всего', v: reviews.length, c: '#EBF5ED' },
+            { l: 'Новых', v: reviews.filter(r => !r.restSeen).length, c: '#FF4545' },
+            { l: 'Рейтинг', v: reviews.length ? `${(reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)} ★` : `${rest?.rating} ★`, c: '#FFB800' },
+          ].map((s, i) => (
+            <div key={i} style={{ background: '#091508', border: '1px solid #162B1A', borderRadius: 14, padding: '12px', textAlign: 'center' }}>
+              <div style={{ fontSize: 10, color: '#8FB897', marginBottom: 4 }}>{s.l}</div>
+              <div style={{ fontFamily: 'Unbounded', fontSize: 16, fontWeight: 900, color: s.c }}>{s.v}</div>
+            </div>
+          ))}
+        </div>
+        {reviews.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#8FB897' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
+            <div style={{ fontFamily: 'Unbounded', fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Пока нет отзывов</div>
+            <div style={{ fontSize: 12 }}>Клиенты смогут оценить заказ после доставки</div>
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {reviews.map((rev, i) => (
+            <div key={rev.id} onClick={() => !rev.restSeen && onMarkSeen(rev.id)} style={{ background: '#091508', border: `1.5px solid ${!rev.restSeen ? 'rgba(255,184,0,.35)' : rev.rating <= 2 ? 'rgba(255,69,69,.3)' : '#162B1A'}`, borderRadius: 16, padding: '14px 16px', animation: `fadeUp .4s ease ${i * .05}s both` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 13, fontWeight: 900, color: '#030B05' }}>{rev.client.charAt(0)}</div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{rev.client}</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 2 }}>
+                      <Stars n={rev.rating} />
+                      <span style={{ fontSize: 10, color: '#3D6645' }}>{rev.date}</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                  {!rev.restSeen && <span style={{ fontSize: 9, fontWeight: 800, color: '#FFB800', background: 'rgba(255,184,0,.12)', padding: '2px 7px', borderRadius: 6 }}>НОВЫЙ</span>}
+                  {rev.urgent && <span style={{ fontSize: 9, fontWeight: 800, color: '#FF4545', background: 'rgba(255,69,69,.12)', padding: '2px 7px', borderRadius: 6 }}>СРОЧНО</span>}
+                  {rev.orderId && <span style={{ fontSize: 10, color: '#3D6645' }}>{rev.orderId}</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: 13, color: '#EBF5ED', lineHeight: 1.55, padding: '10px 12px', background: '#0C1C0F', borderRadius: 10, border: '1px solid #162B1A', marginBottom: 10 }}>
+                "{rev.text || 'Без комментария'}"
+              </div>
+              {rev.adminReply && (
+                <div style={{ fontSize: 11, color: '#3B8EF0', marginBottom: 8, padding: '8px 10px', background: 'rgba(59,142,240,.08)', borderRadius: 8 }}>💬 KAKAPO: {rev.adminReply}</div>
+              )}
+              {rev.restReply && (
+                <div style={{ fontSize: 11, color: '#1FD760', marginBottom: 8, padding: '8px 10px', background: 'rgba(31,215,96,.08)', borderRadius: 8 }}>✓ Ваш ответ: {rev.restReply}</div>
+              )}
+              {replyId === rev.id ? (
+                <div onClick={e => e.stopPropagation()}>
+                  <textarea className="inp" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Ответ клиенту…" rows={2} style={{ marginBottom: 8, resize: 'vertical' }} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => saveReply(rev.id)} className="btn" style={{ flex: 1, padding: '10px', borderRadius: 11, background: 'linear-gradient(135deg,#17B34E,#1FD760)', border: 'none', color: '#030B05', fontWeight: 800, fontSize: 12 }}>Отправить</button>
+                    <button onClick={() => { setReplyId(null); setReplyText(''); }} className="btn" style={{ padding: '10px 14px', borderRadius: 11, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', fontSize: 12 }}>✕</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={e => { e.stopPropagation(); setReplyId(rev.id); setReplyText(rev.restReply || ''); onMarkSeen(rev.id); }} className="btn" style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(59,142,240,.1)', border: '1px solid rgba(59,142,240,.3)', color: '#3B8EF0', fontSize: 12, fontWeight: 700 }}>
+                  💬 Ответить клиенту
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      <BottomNav page="reviews" onPage={onPage} newOrders={0} reviewBadge={reviewBadge}/>
     </div>
   );
 }
@@ -746,7 +902,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage}) {
 /* ══════════════════════════════════════════════════════
    СТАТИСТИКА
 ══════════════════════════════════════════════════════ */
-function StatsPage({rest, orders, onPage}) {
+function StatsPage({rest, orders, onPage, reviewBadge = 0}) {
   const delivered = orders.filter(o=>o.status==='delivered');
   const revenue   = delivered.reduce((s,o)=>s+o.total,0);
   const commission= Math.round(revenue*rest?.commission/100);
@@ -824,7 +980,7 @@ function StatsPage({rest, orders, onPage}) {
         </div>
       </div>
 
-      <BottomNav page="stats" onPage={onPage} newOrders={0}/>
+      <BottomNav page="stats" onPage={onPage} newOrders={0} reviewBadge={reviewBadge}/>
     </div>
   );
 }
@@ -832,7 +988,7 @@ function StatsPage({rest, orders, onPage}) {
 /* ══════════════════════════════════════════════════════
    НАСТРОЙКИ
 ══════════════════════════════════════════════════════ */
-function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout}) {
+function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout, reviewBadge = 0}) {
   const [notifs, setNotifs] = useState(true);
   const [sound,  setSound]  = useState(true);
 
@@ -909,7 +1065,7 @@ function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout}) {
         </button>
       </div>
 
-      <BottomNav page="settings" onPage={onPage} newOrders={0}/>
+      <BottomNav page="settings" onPage={onPage} newOrders={0} reviewBadge={reviewBadge}/>
     </div>
   );
 }

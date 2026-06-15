@@ -40,6 +40,44 @@ const PICKUPS = [
   { id: 'rest3', type: 'rest', e: '🍣', color: '#3B8EF0', name: 'Суши Яван', addr: 'ул. Сомони, 8', phone: '+992 91 333-44-55', lat: 38.315, lng: 69.032, active: true },
 ]
 
+export const COURIERS = [
+  { id: 'C-01', name: 'Фирдавс Назаров', phone: '+992 93 111 22 33', vehicle: 'moto', num: 'TJ 1234 AA', status: 'busy', rating: 4.9, orders: 342, today: 42, week: 310, maxActiveOrders: 1, blocked: false, otp: '1234' },
+  { id: 'C-02', name: 'Баходур Кодиров', phone: '+992 90 222 33 44', vehicle: 'bike', num: '—', status: 'available', rating: 4.7, orders: 187, today: 28, week: 195, maxActiveOrders: 1, blocked: false, otp: '1234' },
+  { id: 'C-03', name: 'Рустам Холов', phone: '+992 91 333 44 55', vehicle: 'car', num: 'TJ 5678 BB', status: 'available', rating: 4.8, orders: 521, today: 56, week: 420, maxActiveOrders: 2, blocked: false, otp: '1234' },
+  { id: 'C-04', name: 'Зубайр Рахимов', phone: '+992 88 444 55 66', vehicle: 'moto', num: 'TJ 9012 CC', status: 'offline', rating: 4.6, orders: 98, today: 0, week: 145, maxActiveOrders: 1, blocked: false, otp: '1234' },
+]
+
+export const ASSEMBLERS = [
+  { id: 'A-01', name: 'Камола Юсупова', phone: '+992 93 500 11 22', status: 'working', ordersToday: 12, ordersTotal: 840, week: 56, avgTimeMin: 7, rating: 4.9, blocked: false, otp: '5678' },
+  { id: 'A-02', name: 'Шахло Рахимова', phone: '+992 93 500 33 44', status: 'available', ordersToday: 8, ordersTotal: 612, week: 41, avgTimeMin: 9, rating: 4.7, blocked: false, otp: '5678' },
+  { id: 'A-03', name: 'Зарина Холова', phone: '+992 93 500 55 66', status: 'offline', ordersToday: 0, ordersTotal: 290, week: 0, avgTimeMin: 8, rating: 4.5, blocked: false, otp: '5678' },
+]
+
+export const DEFAULT_CLIENTS = [
+  { id: 'U-01', name: 'Диловар Рахимов', phone: '+992 93 456 78 90', email: '', addr: 'ул. Ленина, 42', card: 'KAKAPO-0001', level: 'platinum', orders: 87, spent: 3420, debt: 1200, bonus: 4850, debtLimit: 3000, blocked: false, createdAt: '2024-01-12' },
+  { id: 'U-02', name: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', email: '', addr: 'ул. Сомони, 12', card: 'KAKAPO-0042', level: 'gold', orders: 43, spent: 1890, debt: 0, bonus: 1240, debtLimit: 1000, blocked: false, createdAt: '2024-03-05' },
+  { id: 'U-03', name: 'Бахром Каримов', phone: '+992 88 789 01 23', email: '', addr: 'мкр. Мирный, 5', card: 'KAKAPO-0118', level: 'silver', orders: 28, spent: 980, debt: 0, bonus: 560, debtLimit: 0, blocked: false, createdAt: '2024-06-18' },
+  { id: 'U-04', name: 'Зафар Мирзоев', phone: '+992 91 654 32 10', email: '', addr: 'ул. Рудаки, 8', card: 'KAKAPO-0234', level: 'gold', orders: 56, spent: 2340, debt: 4500, bonus: 2100, debtLimit: 2000, blocked: false, createdAt: '2023-11-02' },
+  { id: 'U-05', name: 'Мадина Оразова', phone: '+992 93 321 65 43', email: '', addr: 'ул. Ленина, 18', card: '', level: 'silver', orders: 12, spent: 640, debt: 0, bonus: 120, debtLimit: 0, blocked: false, createdAt: '2025-01-20' },
+  { id: 'U-06', name: 'Рустам Давлатов', phone: '+992 90 445 23 11', email: '', addr: 'ул. Сомони, 5', card: 'KAKAPO-0055', level: 'gold', orders: 34, spent: 1560, debt: 0, bonus: 890, debtLimit: 0, blocked: true, createdAt: '2024-08-09', note: 'Злоупотребление возвратами' },
+]
+
+export const DEFAULT_CARDS = [
+  { num: 'KAKAPO-0001', client: 'Диловар Рахимов', phone: '+992 93 456 78 90', status: 'active', level: 'platinum', bonus: 4850, debtLimit: 3000, debt: 1200 },
+  { num: 'KAKAPO-0042', client: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', status: 'active', level: 'gold', bonus: 1240, debtLimit: 1000, debt: 0 },
+  { num: 'KAKAPO-0118', client: 'Бахром Каримов', phone: '+992 88 789 01 23', status: 'active', level: 'silver', bonus: 560, debtLimit: 0, debt: 0 },
+  { num: 'KAKAPO-0099', client: '', phone: '', status: 'unlinked', level: '', bonus: 0, debtLimit: 0, debt: 0 },
+  { num: 'KAKAPO-0234', client: 'Зафар Мирзоев', phone: '+992 91 654 32 10', status: 'active', level: 'gold', bonus: 2100, debtLimit: 2000, debt: 4500 },
+  { num: 'KAKAPO-0055', client: 'Рустам Давлатов', phone: '+992 90 445 23 11', status: 'blocked', level: 'gold', bonus: 890, debtLimit: 0, debt: 0 },
+]
+
+export const DEFAULT_REVIEWS = [
+  { id: 1, restId: 'R-01', restName: 'Чайхона Оромгох', client: 'Зафар М.', rating: 2, text: 'Долго ждали, еда была холодная', date: '16 мая', status: 'new', restSeen: false, restNotified: true, urgent: true, orderId: '' },
+  { id: 2, restId: 'R-02', restName: 'Пицца Яван', client: 'Лола К.', rating: 5, text: 'Отличная пицца! Быстро доставили', date: '15 мая', status: 'read', restSeen: true, restNotified: true, urgent: false, orderId: '' },
+  { id: 3, restId: 'R-01', restName: 'Чайхона Оромгох', client: 'Нилуфар С.', rating: 1, text: 'Неправильный заказ привезли', date: '14 мая', status: 'new', restSeen: false, restNotified: true, urgent: true, orderId: '' },
+  { id: 4, restId: 'R-03', restName: 'Суши Яван', client: 'Бахром Т.', rating: 4, text: 'Вкусные роллы, но немного дорого', date: '13 мая', status: 'read', restSeen: true, restNotified: true, urgent: false, orderId: '' },
+]
+
 export const DEFAULT_PROMOS = [
   { id: 1, e: '🥛', title: 'Молочная среда', sub: 'Скидка 30% на молочное', disc: 30, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Среда' },
   { id: 2, e: '🥩', title: 'Мясные выходные', sub: 'Скидка 25% на мясо и птицу', disc: 25, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Сб–Вс' },
@@ -57,6 +95,10 @@ export function seedIfEmpty() {
   db.products = PRODUCTS
   db.restaurants = RESTAURANTS
   db.pickups = PICKUPS
+  db.couriers = COURIERS.map(c => ({ ...c }))
+  db.assemblers = ASSEMBLERS.map(a => ({ ...a }))
+  db.clients = DEFAULT_CLIENTS.map(c => ({ ...c }))
+  db.cards = DEFAULT_CARDS.map(c => ({ ...c }))
   db.users = [
     { id: 1, email: 'admin@kakapo.tj', password: 'admin123', role: 'admin', name: 'Админ KAKAPO' },
     { id: 2, email: 'chaihona@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Чайхона' },
@@ -67,6 +109,8 @@ export function seedIfEmpty() {
     { id: 2, name: 'Мясо', slug: 'meat', parent_id: null },
   ]
   db.promos = DEFAULT_PROMOS.map(p => ({ ...p }))
+  db.reviews = DEFAULT_REVIEWS.map(r => ({ ...r }))
+  db._seq.review = DEFAULT_REVIEWS.length
   db.orders = [{
     id: 'K-4832', type: 'market', status: 'assembling', createdAt: '14:23', total: 64.3, deliveryFee: 0, comment: '',
     client: { name: 'Диловар', phone: '+992 93 456 78 90', addr: 'ул. Ленина, 42' },

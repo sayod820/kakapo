@@ -1,9 +1,13 @@
 // ════════════════════════════════════════════════
 // KAKAPO — API клиент (связь с backend)
 // ════════════════════════════════════════════════
-import type { Order, Product, Restaurant, Category, Promo } from './types'
+import type { Order, Product, Restaurant, Category, Promo, RestaurantPayout, Review } from './types'
 import type { PickupPoint } from './pickups'
 import type { PricingConfig } from './courierData'
+import type { AdminCourier } from './courierTeam'
+import type { AdminAssembler } from './assemblerTeam'
+import type { AdminClient } from './clientCrm'
+import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
 
 // ── Хранение токена ──
@@ -167,9 +171,39 @@ export const api = {
   getRestaurants: () => request<Restaurant[]>('/restaurants'),
   getRestaurant: (id: string | number) => request<Restaurant>(`/restaurants/${id}`),
   toggleRestaurant: (id: string) => request(`/restaurants/${id}/toggle`, { method: 'PATCH' }),
+  updateRestaurant: (id: string, data: Partial<Restaurant>) =>
+    request<Restaurant>(`/restaurants/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  blockRestaurant: (id: string, blocked: boolean) =>
+    request<Restaurant>(`/restaurants/${id}/block`, { method: 'PATCH', body: JSON.stringify({ blocked }) }),
+  createPayout: (restId: string, data: { method?: string; note?: string; amount?: number }) =>
+    request<{ payout: RestaurantPayout; restaurant: Restaurant; balance?: { pendingNet: number } }>(`/restaurants/${restId}/payout`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getPayouts: (restId?: string) =>
+    request<RestaurantPayout[]>(`/payouts${restId ? `?restId=${encodeURIComponent(restId)}` : ''}`),
   setCommission: (id: string, commission: number) =>
     request(`/restaurants/${id}/commission?commission=${commission}`, { method: 'PATCH' }),
   toggleMenuStock: (itemId: number) => request(`/restaurants/menu/${itemId}/stock`, { method: 'PATCH' }),
+
+  // ── Курьеры ──
+  getCouriers: () => request<AdminCourier[]>('/couriers'),
+  createCourier: (data: Partial<AdminCourier>) =>
+    request<AdminCourier>('/couriers', { method: 'POST', body: JSON.stringify(data) }),
+  updateCourier: (id: string, data: Partial<AdminCourier>) =>
+    request<AdminCourier>(`/couriers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  getAssemblers: () => request<AdminAssembler[]>('/assemblers'),
+  createAssembler: (data: Partial<AdminAssembler>) =>
+    request<AdminAssembler>('/assemblers', { method: 'POST', body: JSON.stringify(data) }),
+  updateAssembler: (id: string, data: Partial<AdminAssembler>) =>
+    request<AdminAssembler>(`/assemblers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  getClients: () => request<AdminClient[]>('/clients'),
+  createClient: (data: Partial<AdminClient>) =>
+    request<AdminClient>('/clients', { method: 'POST', body: JSON.stringify(data) }),
+  updateClient: (id: string, data: Partial<AdminClient>) =>
+    request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Точки забора ──
   getPickups: () => request<PickupPoint[]>('/pickups'),
@@ -182,15 +216,41 @@ export const api = {
     request<PricingConfig>('/settings/pricing', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Карты ──
-  getCards: () => request<any[]>('/cards'),
-  generateCards: (count: number) => request(`/cards/generate?count=${count}`, { method: 'POST' }),
+  getCards: () => request<AdminCard[]>('/cards'),
+  generateCards: (count: number) =>
+    request<{ ok: boolean; count: number; cards: AdminCard[] }>(`/cards/generate?count=${count}`, { method: 'POST' }),
+  updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean }) =>
+    request<AdminCard>(`/cards/${encodeURIComponent(num)}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Отзывы ──
-  getReviews: () => request<any[]>('/reviews'),
-  createReview: (data: any) => request('/reviews', { method: 'POST', body: JSON.stringify(data) }),
+  getReviews: (restId?: string) =>
+    request<Review[]>(`/reviews${restId ? `?restId=${encodeURIComponent(restId)}` : ''}`),
+  createReview: (data: Partial<Review>) =>
+    request<Review>('/reviews', { method: 'POST', body: JSON.stringify(data) }),
+  updateReview: (id: number, data: Partial<Review>) =>
+    request<Review>(`/reviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Push ──
+  getPushState: () => request<{ autoSettings: import('./pushCrm').PushAutoSetting[]; history: import('./pushCrm').PushCampaign[] }>('/push'),
+  updatePushSettings: (data: { autoSettings: import('./pushCrm').PushAutoSetting[] }) =>
+    request('/push/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+  sendPushCampaign: (campaign: import('./pushCrm').PushCampaign) =>
+    request('/push/send', { method: 'POST', body: JSON.stringify(campaign) }),
+
+  getNotifications: (phone?: string) =>
+    request<import('./clientNotifications').ClientNotification[]>(
+      `/notifications${phone ? `?phone=${encodeURIComponent(phone)}` : ''}`,
+    ),
+  deliverNotifications: (items: import('./clientNotifications').ClientNotification[]) =>
+    request('/notifications/deliver', { method: 'POST', body: JSON.stringify({ items }) }),
+  markNotificationRead: (id: string) =>
+    request(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: (phone?: string) =>
+    request(`/notifications/read-all${phone ? `?phone=${encodeURIComponent(phone)}` : ''}`, { method: 'PATCH', body: JSON.stringify({ phone }) }),
 
   // ── Админ ──
   getDashboard: () => request<any>('/admin/dashboard'),
+  getFinanceSummary: () => request<any>('/finance/summary'),
 
   // ── Синхронизация ──
   syncWoo: () => request('/sync/woocommerce', { method: 'POST' }),

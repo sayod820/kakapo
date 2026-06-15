@@ -10,8 +10,10 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
 export type WSRole = 'client' | 'courier' | 'assembler' | 'restaurant' | 'admin'
 
 export interface WSMessage {
-  event: 'new_order' | 'order_update'
-  order: any
+  event: 'new_order' | 'order_update' | 'notification' | 'review_update'
+  order?: any
+  notification?: any
+  review?: any
 }
 
 export function useWebSocket(role: WSRole, onMessage: (msg: WSMessage) => void) {

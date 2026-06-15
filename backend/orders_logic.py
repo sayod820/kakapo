@@ -15,8 +15,6 @@ def _rest_items(items: list, rest_id: str | None = None) -> list:
 
 
 def infer_type(order: dict) -> str:
-    if order.get("type") == "mixed":
-        return "mixed"
     items = order.get("items") or []
     has_market = len(_market_items(items)) > 0
     has_rest = len(_rest_items(items)) > 0
@@ -117,18 +115,111 @@ def sync_mixed_status(order: dict) -> dict:
     return order
 
 
+def _collect_rest_ids(order: dict) -> list[str]:
+    ids = set()
+    if order.get("restId"):
+        ids.add(str(order["restId"]))
+    for rid in order.get("restIds") or []:
+        ids.add(str(rid))
+    for it in _rest_items(order.get("items") or []):
+        if it.get("restId"):
+            ids.add(str(it["restId"]))
+    return list(ids)
+
+
+def apply_admin_status_fields(order: dict, new_status: str) -> dict:
+    otype = infer_type(order)
+    order["status"] = new_status
+
+    if new_status not in ("courier_picked", "delivering", "delivered"):
+        order["courier"] = None
+        order["courierRoute"] = None
+        order["pickedUpIds"] = []
+
+    if new_status == "new":
+        order["assembler"] = None
+
+    items = order.get("items") or []
+    rest_ids = _collect_rest_ids(order)
+    has_m = len(_market_items(items)) > 0
+
+    if otype == "mixed":
+        if new_status in ("new", "cancelled"):
+            if has_m:
+                order["marketStatus"] = "new"
+            if rest_ids:
+                order["restParts"] = {rid: "new" for rid in rest_ids}
+            order["items"] = [{**it, "done": False} for it in items]
+        elif new_status == "assembling":
+            if has_m:
+                order["marketStatus"] = "assembling"
+            if rest_ids:
+                order["restParts"] = {rid: "new" for rid in rest_ids}
+            order["items"] = [{**it, "done": False} for it in items]
+        elif new_status == "cooking":
+            if has_m:
+                order["marketStatus"] = "new"
+            if rest_ids:
+                order["restParts"] = {rid: "cooking" for rid in rest_ids}
+            order["items"] = [{**it, "done": False} for it in items]
+        elif new_status == "ready":
+            if has_m:
+                order["marketStatus"] = "done"
+            if rest_ids:
+                order["restParts"] = {rid: "new" for rid in rest_ids}
+            order["items"] = [
+                {**it, "done": True} if _market_items([it]) else {**it, "done": False}
+                for it in items
+            ]
+        elif new_status == "assembler_done":
+            if has_m:
+                order["marketStatus"] = "done"
+            if rest_ids:
+                order["restParts"] = {rid: "done" for rid in rest_ids}
+            order["items"] = [{**it, "done": True} for it in items]
+        elif new_status in ("courier_picked", "delivering", "delivered"):
+            if has_m:
+                order["marketStatus"] = "done"
+            if rest_ids:
+                order["restParts"] = {rid: "done" for rid in rest_ids}
+            order["items"] = [{**it, "done": True} for it in items]
+    elif otype == "market":
+        if new_status in ("new", "cancelled", "assembling", "cooking"):
+            order["items"] = [{**it, "done": False} for it in items]
+        else:
+            order["items"] = [{**it, "done": True} for it in items]
+
+    return order
+
+
 def apply_status_patch(order: dict, body: dict) -> dict:
+    if body.get("adminOverride") and body.get("status"):
+        order = apply_admin_status_fields(order, body["status"])
+        if "courier" in body:
+            order["courier"] = body.get("courier")
+        if "assembler" in body:
+            order["assembler"] = body.get("assembler")
+        if body.get("deliveredAt") is not None:
+            order["deliveredAt"] = body.get("deliveredAt")
+        return order
+
     status = body.get("status")
     if body.get("marketStatus") is not None:
         order["marketStatus"] = body["marketStatus"]
     if body.get("restParts") is not None:
-        order["restParts"] = {** (order.get("restParts") or {}), **body["restParts"]}
+        order["restParts"] = {**(order.get("restParts") or {}), **body["restParts"]}
+    if body.get("items") is not None:
+        order["items"] = body["items"]
+    if "courier" in body:
+        order["courier"] = body.get("courier")
+    if "assembler" in body:
+        order["assembler"] = body.get("assembler")
+    if body.get("pickedUpIds") is not None:
+        order["pickedUpIds"] = body["pickedUpIds"]
 
     otype = infer_type(order)
-    if otype == "mixed":
-        order = sync_mixed_status(order)
-        if status and status not in ("new", "assembling", "assembler_done"):
-            order["status"] = status
-    elif status:
+    if status:
         order["status"] = status
+    elif otype == "mixed":
+        order = sync_mixed_status(order)
     return order
