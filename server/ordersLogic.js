@@ -90,7 +90,7 @@ export function isCourierReady(order) {
   const t = inferType(order)
   if (t === 'mixed') return anyPartDone(order) && ['ready', 'assembler_done'].includes(order.status)
   if (t === 'market') return order.status === 'assembler_done'
-  if (t === 'restaurant') return order.status === 'ready'
+  if (t === 'restaurant') return order.status === 'ready' || allPartsDone(order)
   return false
 }
 

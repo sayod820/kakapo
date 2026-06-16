@@ -455,9 +455,17 @@ export function mapOrdersForRestaurant(orders: Order[], restId: string) {
     .map(o => {
       const order = normalizeOrder(o)
       const restItems = getRestItems(order.items, restId)
-      const partStatus = isMixedOrder(order)
-        ? restPartToUiStatus(getRestPartStatus(order, restId))
-        : order.status
+      const partStatus = (() => {
+        if (isMixedOrder(order)) {
+          const part = getRestPartStatus(order, restId)
+          if (part === 'done') {
+            if (['courier_picked', 'delivering'].includes(order.status)) return order.status
+            return 'ready'
+          }
+          return restPartToUiStatus(part)
+        }
+        return order.status
+      })()
       return {
         id: order.id,
         time: order.createdAt || '',

@@ -544,7 +544,9 @@ function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
   const SC = {
     new:      {l:'Новый',     c:'#FF4545',  next:'cooking',  nextL:'✓ Принять и начать готовить'},
     cooking:  {l:'Готовится', c:'#FFB800',  next:'ready',    nextL:'✓ Готово — передать курьеру'},
-    ready:    {l:'Готово!',   c:'#1FD760',  next:'delivered',nextL:'✓ Курьер забрал'},
+    ready:    {l:'Готово!',   c:'#1FD760',  next:null,      nextL:'⏳ Ожидает курьера', waitCourier:true},
+    courier_picked: {l:'У курьера', c:'#3B8EF0', next:null, nextL:'🛵 Курьер забрал заказ', waitCourier:true},
+    delivering: {l:'Доставляется', c:'#3B8EF0', next:null, nextL:'🛵 Курьер везёт клиенту', waitCourier:true},
     delivered:{l:'Доставлен', c:'#3B8EF0',  next:null,       nextL:''},
   };
 
@@ -622,6 +624,11 @@ function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
                     {o.status==='new'&&(
                       <button onClick={()=>onUpdate(o.id,'delivered')} className="btn" style={{width:44,height:44,borderRadius:11,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',color:'#FF4545',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>✕</button>
                     )}
+                  </div>
+                )}
+                {s.waitCourier&&(
+                  <div style={{padding:'12px',borderRadius:13,background:'rgba(59,142,240,.08)',border:'1px solid rgba(59,142,240,.25)',fontSize:13,fontWeight:700,color:'#3B8EF0',textAlign:'center',fontFamily:'Nunito'}}>
+                    {s.nextL}
                   </div>
                 )}
               </div>
