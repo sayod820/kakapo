@@ -10,7 +10,7 @@ import { DEMO_COURIER_ORDERS } from '@/lib/demoOrders'
 import { buildCourierStats, COURIER_NAME, COURIER_PHONE, formatSm } from '@/lib/courierStats'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { useOrders, USE_API } from '@/lib/store'
-import { mapOrdersForCourier, mapOrdersForCourierMap, mapSingleOrderForCourier, isCourierMapOrder, isCourierFullyReadyOrder } from '@/lib/orderUiMap'
+import { mapOrdersForCourier, mapOrdersForCourierMap, mapSingleOrderForCourier, isCourierMapOrder, isCourierFullyReadyOrder, courierMapStatusLabel, courierWaitingBanner } from '@/lib/orderUiMap'
 import { normalizeOrder, buildCourierRoute, getAllPickupIds, getReadyUnpickedPickupIds, formatCourierWaitingMessage } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation, readSessionFlag, writeSessionFlag } from '@/lib/useAppNavigation'
@@ -300,6 +300,38 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         });
       }
 
+      /* точки забора на обзорной карте — ресторан/магазин как у магазина: жёлтый=готовится, цвет=можно забирать */
+      if (!myDeliveryList && !selected) {
+        orders.forEach((o) => {
+          (o.pendingParts || []).forEach((pp: { pickupId: string; label: string; status: string }) => {
+            const pk = PICKUPS[pp.pickupId] || PICKUPS.store;
+            if (!pk) return;
+            const sz = 28;
+            const icon = mkIcon(
+              `<div style="width:${sz}px;height:${sz}px;border-radius:8px;background:rgba(255,184,0,.12);border:2px dashed rgba(255,184,0,.55);display:flex;align-items:center;justify-content:center;font-size:14px">${pk.e}</div>`,
+              sz, sz, sz/2, sz/2
+            );
+            const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: 80 }).addTo(map);
+            m.bindTooltip(`${o.id} · ${pp.label} — ${pp.status}`, { direction: 'top', offset: [0, -sz/2] });
+            m.on('click', () => onSelect(o));
+            markersRef.current.push(m);
+          });
+          (o.pickupIds || []).forEach((pid: string) => {
+            const pk = PICKUPS[pid] || PICKUPS.store;
+            if (!pk) return;
+            const sz = 34;
+            const icon = mkIcon(
+              `<div style="width:${sz}px;height:${sz}px;border-radius:10px;background:${pk.color}33;border:2.5px solid ${pk.color};display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 0 14px ${pk.color}99">${pk.e}</div>`,
+              sz, sz, sz/2, sz/2
+            );
+            const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: 180 }).addTo(map);
+            m.bindTooltip(`${o.id} · ✓ ${pk.name} — можно забирать`, { direction: 'top', offset: [0, -sz/2] });
+            m.on('click', () => onSelect(o));
+            markersRef.current.push(m);
+          });
+        });
+      }
+
       const coords = spreadOrderCoords(orders)
       orders.forEach((o, i) => {
         const isSel = selected?.id === o.id;
@@ -335,7 +367,12 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         const km = getOrderKm(o, roadKmRef.current);
         const kmLabel = km != null ? formatKm(km) : '… км';
         const dlv = km != null ? calcDelivery(km, o.weight, TARIFF) : '…';
-        const statusHint = myDeliveryList ? '' : isWaiting ? ' · ещё не собирается' : isPreparing ? ' · готовится' : ' · можно забирать';
+        const kind = o.orderKind || (o.mixed ? 'mixed' : o.items?.some((it: any) => it.source === 'restaurant') ? 'restaurant' : 'market');
+        const statusHint = myDeliveryList ? '' : isWaiting
+          ? (kind === 'restaurant' ? ' · ждём ресторан' : kind === 'mixed' ? ' · ожидает' : ' · ещё не собирается')
+          : isPreparing
+            ? (kind === 'restaurant' ? ' · готовится на кухне' : ' · готовится')
+            : ' · можно забирать';
         m.bindTooltip(`${o.id} · ${o.client}${statusHint} · ${kmLabel} · ${dlv} ЅМ`, { direction:'top', offset:[0,-sz] });
         markersRef.current.push(m);
       });
@@ -758,25 +795,25 @@ function CourierAppInner() {
           <div style={{ fontSize:60, marginBottom:14 }}>🛵</div>
           <div className="ub" style={{ fontSize:22, fontWeight:900, color:'#3B8EF0', marginBottom:4 }}>Курьер KAKAPO</div>
           <div style={{ fontSize:13, color:'#8FB897' }}>Введите OTP код из SMS</div>
-        </div>
+      </div>
         <div style={{ width:'100%', maxWidth:340, background:'#091508', border:'1px solid #162B1A', borderRadius:22, padding:26 }}>
           {err && <div style={{ padding:'9px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'#FF4545', marginBottom:14, textAlign:'center' }}>⚠️ {err}</div>}
           <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:16 }}>
-            {otp.map((v,i)=>(
-              <input key={i} id={`o${i}`} value={v} type="tel" maxLength={1} inputMode="numeric"
+          {otp.map((v,i)=>(
+            <input key={i} id={`o${i}`} value={v} type="tel" maxLength={1} inputMode="numeric"
                 onChange={e=>{const d=[...otp];d[i]=e.target.value.replace(/\D/,'').slice(-1);setOtp(d);if(e.target.value&&i<3)(document.getElementById(`o${i+1}`) as HTMLInputElement)?.focus();}}
                 onKeyDown={e=>{if(e.key==='Backspace'&&!v&&i>0)(document.getElementById(`o${i-1}`) as HTMLInputElement)?.focus();}}
                 style={{ width:54, height:62, borderRadius:15, border:`2px solid ${v?'rgba(59,142,240,.5)':'#162B1A'}`, background:v?'rgba(59,142,240,.08)':'#0C1C0F', textAlign:'center', fontSize:26, fontWeight:900, color:'#EBF5ED', outline:'none' }}/>
-            ))}
-          </div>
+          ))}
+        </div>
           <div style={{ padding:'10px', borderRadius:10, background:'rgba(59,142,240,.06)', border:'1px solid rgba(59,142,240,.2)', fontSize:12, color:'#8FB897', marginBottom:14, textAlign:'center' }}>
             💡 Демо OTP: <span style={{ color:'#3B8EF0', fontWeight:800 }}>1 2 3 4</span>
-          </div>
+        </div>
           <button onClick={verify} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:otp.join('').length<4?.5:1 }}>
             {load ? <div style={{ width:18, height:18, borderRadius:'50%', border:'2.5px solid rgba(255,255,255,.3)', borderTopColor:'white', animation:'spin 1s linear infinite' }}/> : '🛵 Войти'}
-          </button>
-        </div>
+        </button>
       </div>
+    </div>
     </>
   );
 
@@ -799,12 +836,12 @@ function CourierAppInner() {
                 {courierProfile ? `${vehicleIcon(courierProfile.vehicle)} ${courierProfile.num}` : COURIER.vehicle}
                 {courierProfile && ` · до ${courierProfile.maxActiveOrders} зак.`}
               </span>
-            </div>
           </div>
+        </div>
           <div style={{ textAlign:'right' }}>
             <div style={{ fontSize:9, color:'#3D6645' }}>Сегодня</div>
             <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>
-          </div>
+        </div>
           <button
             type="button"
             onClick={locationEnabled ? disableLocation : enableLocation}
@@ -815,16 +852,16 @@ function CourierAppInner() {
           >
             {locationLoading ? '…' : '📍'}
           </button>
-        </header>
+      </header>
 
         {/* ═══ ВКЛАДКА ЗАКАЗЫ ═══ */}
-        {tab==='orders' && (
+      {tab==='orders' && (
           <div>
             <div style={{ display:'flex', gap:8, padding:'12px 18px 0' }}>
-              {([['available','Свободен','#1FD760'],['busy','В заказе','#FFB800'],['offline','Офлайн','#3D6645']] as const).map(([s,l,c])=>(
+            {([['available','Свободен','#1FD760'],['busy','В заказе','#FFB800'],['offline','Офлайн','#3D6645']] as const).map(([s,l,c])=>(
                 <button key={s} onClick={()=>setStatus(s)} className="btn" style={{ flex:1, padding:'9px 6px', borderRadius:11, fontSize:11, fontWeight:700, border:`1.5px solid ${status===s?c:'#162B1A'}`, background:status===s?c+'18':'#091508', color:status===s?c:'#8FB897' }}>{l}</button>
-              ))}
-            </div>
+            ))}
+          </div>
 
             {status==='offline' ? (
               <div style={{ textAlign:'center', padding:'70px 20px', color:'#8FB897' }}>
@@ -852,14 +889,15 @@ function CourierAppInner() {
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
                         <div>
                           <div className="ub" style={{ fontSize:14, fontWeight:900, color:'#3B8EF0' }}>{selected.id}</div>
-                          {selected.mapStatus === 'waiting' && (
-                            <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:'rgba(143,184,151,.12)', color:'#8FB897', border:'1px solid rgba(143,184,151,.35)' }}>📦 Ещё не собирается</span>
-                          )}
-                          {selected.mapStatus === 'preparing' && (
-                            <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:'rgba(255,184,0,.12)', color:'#FFB800', border:'1px solid rgba(255,184,0,.35)' }}>⏳ Готовится</span>
+                          {selected.mapStatus && selected.mapStatus !== 'ready' && (
+                            <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700,
+                              background: selected.mapStatus === 'waiting' ? 'rgba(143,184,151,.12)' : 'rgba(255,184,0,.12)',
+                              color: selected.mapStatus === 'waiting' ? '#8FB897' : '#FFB800',
+                              border: `1px solid ${selected.mapStatus === 'waiting' ? 'rgba(143,184,151,.35)' : 'rgba(255,184,0,.35)'}`,
+                            }}>{courierMapStatusLabel(selected.mapStatus, selected.orderKind || 'market')}</span>
                           )}
                           {selected.mapStatus === 'ready' && (
-                            <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:'rgba(31,215,96,.12)', color:'#1FD760', border:'1px solid rgba(31,215,96,.35)' }}>✓ Можно забирать</span>
+                            <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:'rgba(31,215,96,.12)', color:'#1FD760', border:'1px solid rgba(31,215,96,.35)' }}>{courierMapStatusLabel('ready', selected.orderKind || 'market')}</span>
                           )}
                         </div>
                         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
@@ -877,12 +915,12 @@ function CourierAppInner() {
                       <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:14, padding:'12px 14px', marginBottom:12 }}>
                         {selected.mapStatus === 'waiting' && (
                           <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(143,184,151,.08)', border:'1px solid rgba(143,184,151,.3)', marginBottom:10, fontSize:12, color:'#8FB897', fontWeight:700 }}>
-                            📦 Заказ ещё не собирается — ждём сборщика
+                            {courierWaitingBanner('waiting', selected.orderKind || 'market')}
                           </div>
                         )}
                         {selected.mapStatus === 'preparing' && !selected.pickupIds.length && (
                           <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(255,184,0,.08)', border:'1px solid rgba(255,184,0,.3)', marginBottom:10, fontSize:12, color:'#FFB800', fontWeight:700 }}>
-                            ⏳ Заказ готовится — точки забора появятся, когда всё будет готово
+                            {courierWaitingBanner('preparing', selected.orderKind || 'market')}
                           </div>
                         )}
                         {selected.pickupIds.map((pid:string, pi:number) => {
@@ -898,24 +936,27 @@ function CourierAppInner() {
                             </div>
                           );
                         })}
-                        {selected.pendingParts?.map((pp: { pickupId: string; label: string; status: string }, pi: number) => (
-                          <div key={`p-${pi}`} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8, opacity:0.65 }}>
-                            <div style={{ width:32, height:32, borderRadius:9, background:'rgba(255,184,0,.12)', border:'1.5px dashed rgba(255,184,0,.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>⏳</div>
+                        {selected.pendingParts?.map((pp: { pickupId: string; label: string; status: string }, pi: number) => {
+                          const pk = PICKUPS[pp.pickupId] || PICKUPS.store;
+                          return (
+                          <div key={`p-${pi}`} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8, opacity:0.75 }}>
+                            <div style={{ width:32, height:32, borderRadius:9, background:'rgba(255,184,0,.12)', border:'1.5px dashed rgba(255,184,0,.45)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{pk?.e || '⏳'}</div>
                             <div style={{ flex:1 }}>
-                              <div style={{ fontSize:10, color:'#FFB800', fontWeight:700 }}>{pp.label} — {pp.status}</div>
-                              <div style={{ fontSize:11, color:'#3D6645' }}>Появится на карте после готовности</div>
+                              <div style={{ fontSize:10, color:'#FFB800', fontWeight:700 }}>{pp.pickupId === 'store' ? 'Магазин' : 'Ресторан'} — {pp.status}</div>
+                              <div style={{ fontSize:11, color:'#3D6645' }}>{pk?.name || pp.label} · на карте пунктиром</div>
                             </div>
-                          </div>
-                        ))}
+              </div>
+                          );
+                        })}
                         <div style={{ display:'flex', alignItems:'center', gap:10, paddingTop:8, borderTop:'1px dashed #1D3822' }}>
                           <div style={{ width:32, height:32, borderRadius:9, background:'rgba(59,142,240,.12)', border:'1.5px solid rgba(59,142,240,.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>📍</div>
                           <div style={{ flex:1 }}>
                             <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>ДОСТАВИТЬ КЛИЕНТУ</div>
                             <div style={{ fontSize:13, fontWeight:700, color:'#EBF5ED' }}>{selected.client}</div>
                             <div style={{ fontSize:10, color:'#8FB897' }}>{selected.addr}</div>
-                          </div>
-                        </div>
-                      </div>
+          </div>
+          </div>
+            </div>
 
                       {/* теги */}
                       <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:12 }}>
@@ -967,46 +1008,46 @@ function CourierAppInner() {
                                 <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>{dlv ?? '…'} ЅМ</span>
                               </div>
                               <div style={{ borderTop:'1px dashed rgba(31,215,96,.3)', paddingTop:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                                <div>
+                    <div>
                                   <div style={{ fontSize:13, fontWeight:800, color:'#1FD760' }}>💵 НАЛИЧНЫМИ</div>
                                   <div style={{ fontSize:10, color:'#3D6645', marginTop:2 }}>взять с клиента</div>
-                                </div>
+                    </div>
                                 <span className="ub" style={{ fontSize:26, fontWeight:900, color:'#1FD760' }}>{total != null ? `${total.toFixed(2)} ЅМ` : '…'}</span>
-                              </div>
+                  </div>
                             </>
                           );
                         })()}
-                      </div>
+                    </div>
                       {/* кнопки */}
                       <div style={{ display:'flex', gap:8 }}>
                         <button onClick={()=>setSelected(null)} className="btn" style={{ padding:'14px 18px', borderRadius:14, background:'#162B1A', border:'none', color:'#8FB897', fontWeight:700, fontSize:14 }}>✕</button>
                         {selected.mapStatus === 'waiting' ? (
                           <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(143,184,151,.1)', border:'1px solid rgba(143,184,151,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#8FB897' }}>
                             📦 Заказ ещё не собирается
-                          </div>
+                    </div>
                         ) : selected.mapStatus === 'preparing' || !selected.pickupIds?.length ? (
                           <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(255,184,0,.1)', border:'1px solid rgba(255,184,0,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#FFB800' }}>
                             ⏳ Ожидаем готовность заказа
-                          </div>
+                  </div>
                         ) : !canAcceptMore().ok ? (
                           <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.35)', textAlign:'center', fontSize:12, fontWeight:700, color:'#FF4545' }}>
                             {canAcceptMore().msg}
-                          </div>
+                  </div>
                         ) : (
                         <button onClick={()=>accept(selected)} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
                           <span>✓ Принять заказ</span>
                           <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>наличными {(() => { const d = orderDelivery(selected, roadKm, TARIFF); return d != null ? `${(selected.sum + d).toFixed(2)} ЅМ` : '…'; })()}</span>
                         </button>
                         )}
-                      </div>
+                  </div>
                       {acceptErr && (
                         <div style={{ marginTop:8, padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'#FF4545', textAlign:'center' }}>
                           {acceptErr}
-                        </div>
+                </div>
                       )}
                     </div>
-                  </div>
-                )}
+                </div>
+              )}
 
                 {/* Выбор порядка забора при принятии */}
                 {routePicker && (
@@ -1033,7 +1074,7 @@ function CourierAppInner() {
                         })}
                       </div>
                     </div>
-                  </div>
+            </div>
                 )}
 
                 <div style={{ padding:'18px 18px 0' }}>
@@ -1088,32 +1129,32 @@ function CourierAppInner() {
                   </div>
                 </div>
               </>
-            )}
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
         {/* ═══ ВКЛАДКА АКТИВНАЯ ДОСТАВКА ═══ */}
-        {tab==='active' && (
+      {tab==='active' && (
           active ? (
-            <div>
+          <div>
               <div style={{ padding:'12px 18px 0', display:'flex', alignItems:'center', gap:10 }}>
                 <button type="button" onClick={goToDeliveryList} className="btn" style={{ width:38, height:38, borderRadius:12, background:'#0C1C0F', border:'1px solid #162B1A', color:'#8FB897', fontSize:16 }}>←</button>
                 <div style={{ flex:1 }}>
                   <div className="ub" style={{ fontSize:14, fontWeight:800 }}>Заказ {active.id}</div>
                   <div style={{ fontSize:11, color:'#3D6645' }}>Назад к списку доставок</div>
-                </div>
               </div>
+            </div>
               <LeafletMap key="active-map" orders={[active]} selected={active} onSelect={()=>{}} height={250} pickupIdx={pickupIdx} step={step} TARIFF={TARIFF} roadKm={roadKm} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations}/>
               <div style={{ padding:'16px 18px 110px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-                  <div>
+                <div>
                     <span className="ub" style={{ fontSize:16, fontWeight:900, color:'#3B8EF0' }}>{active.id}</span>
                     <div style={{ fontSize:12, color:'#8FB897', marginTop:2 }}>{active.client}</div>
-                  </div>
+                </div>
                   <div style={{ textAlign:'right' }}>
                     <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{orderDelivery(active, roadKm, TARIFF) ?? '…'} ЅМ</div>
                     <div style={{ fontSize:9, color:'#3D6645' }}>доставка · {getOrderKm(active, roadKm) != null ? `${formatKm(getOrderKm(active, roadKm)!)} забор→клиент` : '…'}</div>
-                  </div>
+              </div>
                 </div>
 
                 {/* ── ДИНАМИЧЕСКИЕ ШАГИ ── */}
@@ -1122,12 +1163,12 @@ function CourierAppInner() {
                     const pk = PICKUPS[pid] || PICKUPS.store;
                     const isAct = step === 'toPickup' && pickupIdx === i;
                     const isDone = step === 'toClient' || step === 'done' || (step === 'toPickup' && i < pickupIdx);
-                    return (
+                  return (
                       <div key={i} style={{ flex:1, textAlign:'center', position:'relative', minWidth:60 }}>
                         <div style={{ position:'absolute', top:18, left:'50%', width:'100%', height:2, background:isDone?pk.color:'#162B1A' }}/>
                         <div style={{ width:38, height:38, borderRadius:'50%', background:isAct?pk.color:isDone?pk.color+'33':'#0C1C0F', border:`2px solid ${isAct?pk.color:isDone?pk.color:'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1, animation:isAct?'glow 1.8s infinite':'none' }}>
                           {isDone ? '✓' : pk.e}
-                        </div>
+                    </div>
                         <div style={{ fontSize:9, fontWeight:isAct?700:400, color:isAct?pk.color:isDone?pk.color:'#3D6645', whiteSpace:'nowrap' }}>{pk.name.split(' ')[0]}</div>
                       </div>
                     );
@@ -1141,9 +1182,9 @@ function CourierAppInner() {
                         <div style={{ position:'absolute', top:18, left:'50%', width:'100%', height:2, background:isDone?'#1FD760':'#162B1A' }}/>
                         <div style={{ width:38, height:38, borderRadius:'50%', background:isAct?'#3B8EF0':isDone?'#1FD760':'#0C1C0F', border:`2px solid ${isAct?'#3B8EF0':isDone?'#1FD760':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1, animation:isAct?'glow 1.8s infinite':'none' }}>
                           {isDone ? '✓' : '🛵'}
-                        </div>
+              </div>
                         <div style={{ fontSize:9, fontWeight:isAct?700:400, color:isAct?'#3B8EF0':isDone?'#1FD760':'#3D6645' }}>К клиенту</div>
-                      </div>
+                </div>
                     );
                   })()}
                   {/* шаг «Готово» */}
@@ -1153,10 +1194,10 @@ function CourierAppInner() {
                       <div style={{ flex:1, textAlign:'center', position:'relative', minWidth:60 }}>
                         <div style={{ width:38, height:38, borderRadius:'50%', background:isDone?'#1FD760':'#0C1C0F', border:`2px solid ${isDone?'#1FD760':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1 }}>✓</div>
                         <div style={{ fontSize:9, color:isDone?'#1FD760':'#3D6645' }}>Готово</div>
-                      </div>
+                </div>
                     );
                   })()}
-                </div>
+              </div>
 
                 {/* Выбор следующей точки (если несколько готовы) */}
                 {step === 'toPickup' && !waitingForPickup && active.pickupIds.length > 1 && (
@@ -1173,8 +1214,8 @@ function CourierAppInner() {
                           </button>
                         );
                       })}
-                    </div>
-                  </div>
+                </div>
+              </div>
                 )}
 
                 {/* ── КАРТОЧКА МАРШРУТА ── */}
@@ -1382,26 +1423,26 @@ function CourierAppInner() {
                   )
                 })}
               </div>
-              </div>
             </div>
-          ) : (
+          </div>
+        ) : (
             <div style={{ textAlign:'center', padding:'80px 20px', color:'#8FB897' }}>
               <div style={{ fontSize:54, marginBottom:14 }}>🛵</div>
               <div className="ub" style={{ fontSize:16, fontWeight:800, marginBottom:6 }}>Нет активной доставки</div>
               <div style={{ fontSize:12, color:'#3D6645', marginBottom:20 }}>Примите заказ во вкладке «Заказы»</div>
               <button onClick={()=>setTab('orders')} className="btn" style={{ padding:'11px 22px', borderRadius:12, background:'rgba(59,142,240,.12)', border:'1.5px solid rgba(59,142,240,.3)', color:'#3B8EF0', fontWeight:700, fontSize:13 }}>← К заказам</button>
-            </div>
-          )
-        )}
+          </div>
+        )
+      )}
 
         {/* ═══ ВКЛАДКА ЗАРАБОТОК ═══ */}
-        {tab==='earnings' && (
+      {tab==='earnings' && (
           <div style={{ padding:'14px 18px' }}>
             <div style={{ background:'linear-gradient(135deg,#0A1828,#163050)', border:'1px solid rgba(59,142,240,.3)', borderRadius:20, padding:'22px', marginBottom:16, textAlign:'center' }}>
               <div style={{ fontSize:11, color:'#8FB897', marginBottom:6 }}>Доставки сегодня</div>
               <div className="ub" style={{ fontSize:40, fontWeight:900, color:'#1FD760', marginBottom:4 }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>
               <div style={{ fontSize:12, color:'#3B8EF0' }}>{courierStats.todayCount} {courierStats.todayCount === 1 ? 'доставка' : courierStats.todayCount >= 2 && courierStats.todayCount <= 4 ? 'доставки' : 'доставок'} · {courierStats.rating} ★</div>
-            </div>
+          </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:18 }}>
               {([
                 ['За неделю', `${formatSm(courierStats.weekEarnings)} ЅМ`, '#1FD760'],
@@ -1412,9 +1453,9 @@ function CourierAppInner() {
                 <div key={i} style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:14, padding:'15px', textAlign:'center' }}>
                   <div className="ub" style={{ fontSize:18, fontWeight:900, color:c, marginBottom:3 }}>{v}</div>
                   <div style={{ fontSize:10, color:'#3D6645' }}>{l}</div>
-                </div>
-              ))}
-            </div>
+              </div>
+            ))}
+          </div>
             <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:12 }}>История доставок</div>
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               {courierStats.history.length === 0 ? (
@@ -1434,15 +1475,15 @@ function CourierAppInner() {
                     <div className="ub" style={{ fontSize:12, fontWeight:800, color:'#1FD760' }}>+{formatSm(h.earning)} ЅМ</div>
                     <div style={{ fontSize:10, color:'#3D6645' }}>{h.time}</div>
                   </div>
-                </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
+      )}
 
         {/* NAV */}
         <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'rgba(3,11,5,.97)', backdropFilter:'blur(26px)', borderTop:'1px solid #162B1A', padding:'8px 18px 18px', display:'flex', justifyContent:'space-around', zIndex:90 }}>
-          {([['orders','📋','Заказы'],['active','🛵','Доставка'],['earnings','💰','Заработок']] as const).map(([id,icon,label])=>(
+        {([['orders','📋','Заказы'],['active','🛵','Доставка'],['earnings','💰','Заработок']] as const).map(([id,icon,label])=>(
             <button key={id} onClick={() => { if (id === 'active') setDetailOrderId(null); setTab(id); }} className="btn" style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, padding:'5px 18px', borderRadius:11, background:tab===id?'rgba(59,142,240,.12)':'transparent', border:`1.5px solid ${tab===id?'rgba(59,142,240,.3)':'transparent'}`, position:'relative' }}>
               <span style={{ fontSize:20 }}>{icon}</span>
               <span style={{ fontSize:10, fontWeight:tab===id?800:600, color:tab===id?'#3B8EF0':'#3D6645' }}>{label}</span>
@@ -1451,10 +1492,10 @@ function CourierAppInner() {
                   {myActiveOrders.length}
                 </div>
               )}
-            </button>
-          ))}
-        </nav>
-      </div>
+          </button>
+        ))}
+      </nav>
+    </div>
     </>
   );
 }

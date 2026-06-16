@@ -22,6 +22,8 @@ export interface DemoCourierOrder {
   items: { e: string; n: string; q: number; p: number; source?: string }[];
   /** waiting — ещё не собирается; preparing — готовится; ready — можно забирать */
   mapStatus?: 'waiting' | 'preparing' | 'ready';
+  /** market | restaurant | mixed — для подписей и цветов на карте */
+  orderKind?: 'market' | 'restaurant' | 'mixed';
 }
 
 export interface DemoAdminCourierOrder extends DemoCourierOrder {

@@ -1,4 +1,4 @@
-import type { Order, OrderStatus } from './types'
+import type { Order, OrderStatus, OrderType } from './types'
 import type { DemoCourierOrder } from './demoOrders'
 import {
   allPartsDone,
@@ -106,8 +106,43 @@ export function isCourierFullyReadyOrder(o: Order): boolean {
 export function getCourierMapStatus(o: Order): 'waiting' | 'preparing' | 'ready' {
   const order = normalizeOrder(o)
   if (isCourierFullyReadyOrder(order)) return 'ready'
+  const pending = getPendingPartsForCourier(order)
+  if (pending.length) {
+    const onlyWaiting = pending.every(p => p.status === 'Ожидает сборку' || p.status === 'Ожидает')
+    return onlyWaiting ? 'waiting' : 'preparing'
+  }
   if (order.status === 'new') return 'waiting'
   return 'preparing'
+}
+
+/** Подпись статуса на карте курьера — магазин и ресторан по-разному */
+export function courierMapStatusLabel(
+  status: 'waiting' | 'preparing' | 'ready',
+  kind: OrderType = 'market',
+): string {
+  if (status === 'ready') return '✓ Можно забирать'
+  if (status === 'preparing') {
+    if (kind === 'restaurant') return '⏳ Готовится на кухне'
+    if (kind === 'mixed') return '⏳ Готовится'
+    return '⏳ Собирается в магазине'
+  }
+  if (kind === 'restaurant') return '🍽 Ожидает ресторан'
+  if (kind === 'mixed') return '⏳ Ожидает магазин и ресторан'
+  return '📦 Ещё не собирается'
+}
+
+export function courierWaitingBanner(
+  status: 'waiting' | 'preparing',
+  kind: OrderType,
+): string {
+  if (status === 'preparing') {
+    if (kind === 'restaurant') return '⏳ Блюда готовятся на кухне — точка забора станет активной, когда ресторан отметит «Готово»'
+    if (kind === 'mixed') return '⏳ Ждём готовность всех частей заказа'
+    return '⏳ Товар собирается в магазине — точка забора появится после сборки'
+  }
+  if (kind === 'restaurant') return '🍽 Ресторан ещё не принял заказ — ждём подтверждения'
+  if (kind === 'mixed') return '⏳ Заказ только оформлен — ждём магазин и ресторан'
+  return '📦 Заказ ещё не собирается — ждём сборщика'
 }
 
 /** Заказ доступен курьеру (хотя бы одна часть готова) */
@@ -360,6 +395,7 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
     pickupIds: routePickupIds,
     mapPickupIds: routePickupIds,
     mixed: isMixedOrder(order),
+    orderKind: inferOrderType(order),
     pendingParts,
     pickedUpIds: order.pickedUpIds || [],
     mapStatus: getCourierMapStatus(order),
