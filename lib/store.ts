@@ -393,11 +393,15 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (!order) return
     const prev = normalizeOrder(order)
     const normalized = normalizeOrder(order)
+    const restKey = String(restId)
     const next = isMixedOrder(normalized)
       ? applyRestPartStatus(order, restId, partStatus)
       : {
         ...order,
         status: (partStatus === 'done' ? 'ready' : partStatus === 'cooking' ? 'cooking' : 'new') as OrderStatus,
+        ...(partStatus === 'done' || partStatus === 'cooking'
+          ? { restParts: { ...(order.restParts || {}), [restKey]: partStatus === 'done' ? 'done' : 'cooking' } }
+          : {}),
       }
     patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
     const nextOrder = get().orders.find(o => o.id === id)
@@ -409,7 +413,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       try {
         const extra = isMixedOrder(normalized)
           ? { restParts: next.restParts, marketStatus: next.marketStatus }
-          : undefined
+          : { restParts: next.restParts }
         const updated = await api.updateOrderStatus(id, next.status, extra)
         patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
       } catch (e) { console.error(e) }

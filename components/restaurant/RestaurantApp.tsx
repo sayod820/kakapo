@@ -234,6 +234,8 @@ function RestaurantAppInner() {
     const raw = apiOrders.find(o => o.id === id);
     const normalized = raw ? normalizeOrder(raw) : null;
     const restPart = !!(normalized && rest && hasRestPart(normalized, rest.id));
+    // Доставку подтверждает только курьер — ресторан не может закрыть заказ вручную
+    if (restPart && status === 'delivered') return;
     if (USE_API && restPart && status !== 'delivered') {
       if (status === 'cooking') await updateRestPart(id, rest.id, 'cooking');
       else if (status === 'ready') await updateRestPart(id, rest.id, 'done');

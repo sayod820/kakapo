@@ -95,11 +95,13 @@ export function isCourierFullyReadyOrder(o: Order): boolean {
   const order = normalizeOrder(o)
   if (order.status === 'delivered' || order.status === 'cancelled') return false
   if (['courier_picked', 'delivering'].includes(order.status)) return false
-  if (!allPartsDone(order)) return false
   const t = inferOrderType(order)
+  if (t === 'restaurant') {
+    return order.status === 'ready' || allRestPartsDone(order)
+  }
+  if (!allPartsDone(order)) return false
   if (t === 'mixed') return ['ready', 'assembler_done'].includes(order.status)
   if (t === 'market') return order.status === 'assembler_done'
-  if (t === 'restaurant') return order.status === 'ready'
   return false
 }
 
@@ -151,9 +153,11 @@ export function isCourierReadyOrder(o: Order): boolean {
   if (order.status === 'delivered' || order.status === 'cancelled') return false
   if (['courier_picked', 'delivering'].includes(order.status)) return false
   const t = inferOrderType(order)
+  if (t === 'restaurant') {
+    return order.status === 'ready' || allRestPartsDone(order)
+  }
   if (t === 'mixed') return anyPartDone(order) && (order.status === 'ready' || order.status === 'assembler_done')
   if (t === 'market') return order.status === 'assembler_done'
-  if (t === 'restaurant') return order.status === 'ready'
   return false
 }
 
@@ -389,6 +393,9 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
   if (!routePickupIds.length && isCourierReadyOrder(order)) {
     routePickupIds = getAllPickupIds(order).filter(pid => isPickupPointReady(order, pid))
   }
+  if (!routePickupIds.length && inferOrderType(order) === 'restaurant' && order.status === 'ready') {
+    routePickupIds = getAllPickupIds(order)
+  }
   const pendingParts = getPendingPartsForCourier(order)
   return {
     id: order.id,
@@ -438,8 +445,12 @@ export function mapOrdersForRestaurant(orders: Order[], restId: string) {
     .filter(o => {
       const order = normalizeOrder(o)
       if (!getRestItems(order.items, restId).length) return false
-      if (isMixedOrder(order)) return isRestPartActive(order, restId)
-      return getRestIdsFromOrder(order).includes(String(restId))
+      if (isMixedOrder(order)) {
+        const part = getRestPartStatus(order, restId)
+        if (part === 'done' && order.status !== 'delivered') return true
+        return isRestPartActive(order, restId)
+      }
+      return getRestIdsFromOrder(order).includes(String(restId)) && order.status !== 'delivered'
     })
     .map(o => {
       const order = normalizeOrder(o)
