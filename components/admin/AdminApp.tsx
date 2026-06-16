@@ -127,6 +127,7 @@ import { api } from '@/lib/api'
 import type { Promo } from '@/lib/types'
 import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
+import { formatKm, DEFAULT_PRICING } from '@/lib/courierData'
 import Link from 'next/link'
 
 const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
@@ -4439,7 +4440,7 @@ function FinancePage() {
   const couriers = useCourierTeam()
   const assemblers = useAssemblerTeam()
   const pricing = usePricingStore(s => s.pricing)
-  const roadKm = useOrderRoadKm(apiOrders)
+  const { roadKm } = useOrderRoadKm(apiOrders)
 
   const [tab, setTab] = useState<FinanceTab>('shop')
   const [payouts, setPayouts] = useState<any[]>([])
@@ -5034,7 +5035,7 @@ function TariffPage() {
   const couriers = useCourierTeam()
   const pricing = usePricingStore(s => s.pricing)
   const setPricing = usePricingStore(s => s.setPricing)
-  const roadKm = useOrderRoadKm(apiOrders)
+  const { roadKm } = useOrderRoadKm(apiOrders)
 
   const [tab, setTab] = useState<TariffTab>('shop')
   const [t, setT] = useState(() => normalizePricing({ ...DEFAULT_PRICING, ...pricing }))
