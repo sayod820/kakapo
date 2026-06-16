@@ -129,7 +129,12 @@ function loadAllNotifications(): ClientNotification[] {
 
 function saveClientNotifications(list: ClientNotification[]) {
   if (typeof window === 'undefined') return
-  try { localStorage.setItem(NOTIFS_KEY, JSON.stringify(list.slice(0, 200))) } catch { /* quota */ }
+  const trimmed = list.slice(0, 200)
+  try {
+    const prev = loadAllNotifications()
+    if (JSON.stringify(prev) === JSON.stringify(trimmed)) return
+    localStorage.setItem(NOTIFS_KEY, JSON.stringify(trimmed))
+  } catch { /* quota */ }
   emit()
 }
 
@@ -151,18 +156,32 @@ export function loadClientNotifications(useDemo = false, phone?: string): Client
   return useDemo ? filterForViewer(DEMO_NOTIFS, viewerPhone) : []
 }
 
+let syncInFlight: Promise<ClientNotification[]> | null = null
+let lastSyncAt = 0
+
 export async function syncClientNotificationsFromApi(phone?: string): Promise<ClientNotification[]> {
   const viewerPhone = resolveViewerPhone(phone)
   const queryPhone = phoneDigits(viewerPhone) || viewerPhone
   if (!USE_API) return loadClientNotifications(false, viewerPhone)
-  try {
-    const remote = await api.getNotifications(queryPhone || viewerPhone)
-    const merged = sortNotifications(mergeNotifications(loadAllNotifications(), remote))
-    saveClientNotifications(merged)
-    return filterForViewer(merged, viewerPhone)
-  } catch {
-    return loadClientNotifications(false, viewerPhone)
-  }
+
+  const now = Date.now()
+  if (syncInFlight && now - lastSyncAt < 2000) return syncInFlight
+
+  syncInFlight = (async () => {
+    try {
+      const remote = await api.getNotifications(queryPhone || viewerPhone)
+      const merged = sortNotifications(mergeNotifications(loadAllNotifications(), remote))
+      saveClientNotifications(merged)
+      return filterForViewer(merged, viewerPhone)
+    } catch {
+      return loadClientNotifications(false, viewerPhone)
+    } finally {
+      lastSyncAt = Date.now()
+      syncInFlight = null
+    }
+  })()
+
+  return syncInFlight
 }
 
 async function postNotificationsToApi(items: ClientNotification[]) {

@@ -4,13 +4,12 @@ import { useEffect } from 'react'
 import { USE_API } from './config'
 import {
   setCurrentClientPhone,
-  subscribeClientNotifications,
-  subscribeNotificationChannel,
   syncClientNotificationsFromApi,
   ingestNotificationFromServer,
 } from './clientNotifications'
 import { useWebSocket } from './ws'
 
+/** Фоновая синхронизация уведомлений — без подписки на emit (иначе бесконечный цикл API) */
 export function useClientNotificationSync(user?: { phone?: string; name?: string } | null) {
   useEffect(() => {
     if (user?.phone) setCurrentClientPhone(user.phone)
@@ -23,18 +22,19 @@ export function useClientNotificationSync(user?: { phone?: string; name?: string
   })
 
   useEffect(() => {
-    const phone = user?.phone
+    let cancelled = false
+
     const refresh = () => {
-      void syncClientNotificationsFromApi(phone)
+      if (cancelled) return
+      void syncClientNotificationsFromApi(user?.phone)
     }
+
     refresh()
-    const poll = setInterval(refresh, USE_API ? 3000 : 2000)
-    const unsubLocal = subscribeClientNotifications(refresh)
-    const unsubChannel = subscribeNotificationChannel(refresh)
+    // WebSocket уже шлёт push — polling реже, чтобы не перегружать браузер
+    const poll = setInterval(refresh, USE_API ? 30000 : 5000)
     return () => {
+      cancelled = true
       clearInterval(poll)
-      unsubLocal()
-      unsubChannel()
     }
   }, [user?.phone])
 }
