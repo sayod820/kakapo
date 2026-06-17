@@ -20,6 +20,7 @@ import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData }
 import { phoneDigits } from "@/lib/clientSession";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
+import { getLoyaltyProgress, LOYALTY_TIERS } from "@/lib/clientLoyalty";
 import {
   getUnreadNotificationCount,
   loadClientNotifications,
@@ -425,6 +426,107 @@ function ruCount(n: number, one: string, few: string, many: string) {
   if (mod10 === 1) return `${n} ${one}`
   if (mod10 >= 2 && mod10 <= 4) return `${n} ${few}`
   return `${n} ${many}`
+}
+
+function countClientSpent(apiOrders: import('@/lib/types').Order[], phone?: string) {
+  const mine = phoneDigits(phone || '')
+  if (!mine) return 0
+  const add = (list: { id: string; phone?: string; status: string; total?: number }[]) =>
+    list.filter(o => phoneDigits(o.phone || '') === mine && o.status === 'delivered')
+  if (USE_API) {
+    const sum = add(mapOrdersForClient(apiOrders)).reduce((s, o) => s + (o.total || 0), 0)
+    return Math.round(sum * 10) / 10
+  }
+  const byId = new Map<string, { total?: number }>()
+  add(mapOrdersForClient(apiOrders)).forEach(o => byId.set(o.id, o))
+  add(ORDERS_LIST).forEach(o => byId.set(o.id, o))
+  const sum = [...byId.values()].reduce((s, o) => s + (o.total || 0), 0)
+  return Math.round(sum * 10) / 10
+}
+
+function LoyaltyStatusCard({ loyalty, onVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void }) {
+  const { tier, nextTier, progressPct, remaining, spent, isVip, vipSteps, vipDoneCount } = loyalty
+  return (
+    <div className="card" style={{ padding: 14, marginBottom: 12, background: 'linear-gradient(145deg,var(--l2),var(--l1))', border: `1px solid ${tier.color}28` }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 22 }}>{tier.emoji}</span>
+          <div>
+            <div className="ub" style={{ fontSize: 13, fontWeight: 900, color: tier.color }}>{tier.label}</div>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 1 }}>Кешбэк {tier.cashback} · {tier.perk}</div>
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: 'var(--t1)' }}>{spent.toLocaleString()} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></div>
+          <div style={{ fontSize: 9, color: 'var(--t3)' }}>покупок</div>
+        </div>
+      </div>
+
+      {nextTier ? (
+        <>
+          <div style={{ height: 6, borderRadius: 3, background: 'var(--b1)', overflow: 'hidden', marginBottom: 6 }}>
+            <div style={{ height: '100%', width: `${progressPct}%`, borderRadius: 3, background: `linear-gradient(90deg,${tier.color},${nextTier.color})`, transition: 'width .4s ease' }} />
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--t2)', marginBottom: 12 }}>
+            До {nextTier.emoji} <span style={{ fontWeight: 700, color: nextTier.color }}>{nextTier.label}</span>
+            {' '}— ещё <span style={{ fontWeight: 700, color: 'var(--gr)' }}>{remaining.toLocaleString()} ЅМ</span>
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 10, color: 'var(--blue)', fontWeight: 700, marginBottom: 12 }}>✨ Максимальный уровень Platinum</div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, gap: 4 }}>
+        {LOYALTY_TIERS.map((t) => {
+          const reached = spent >= t.minSpent
+          const active = t.id === tier.id
+          return (
+            <div key={t.id} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+              <div style={{
+                width: '100%', height: 3, borderRadius: 2, marginBottom: 5,
+                background: reached ? t.color : 'var(--b1)',
+                opacity: active ? 1 : reached ? 0.7 : 0.35,
+              }} />
+              <div style={{ fontSize: 14, lineHeight: 1, marginBottom: 2 }}>{t.emoji}</div>
+              <div style={{ fontSize: 8, fontWeight: active ? 800 : 600, color: active ? t.color : reached ? 'var(--t2)' : 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.label}</div>
+              <div style={{ fontSize: 8, color: 'var(--t3)', marginTop: 1 }}>{t.minSpent > 0 ? `${t.minSpent}` : '0'}</div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div
+        onClick={onVip}
+        style={{
+          padding: '10px 12px', borderRadius: 12, cursor: 'pointer',
+          background: isVip ? 'linear-gradient(135deg,rgba(255,184,0,.15),rgba(255,184,0,.06))' : 'var(--l3)',
+          border: `1px solid ${isVip ? 'rgba(255,184,0,.35)' : 'var(--b1)'}`,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Ic n="crown" s={14} c="var(--gd)" />
+            <span className="ub" style={{ fontSize: 12, fontWeight: 900, color: isVip ? 'var(--gd)' : 'var(--t1)' }}>
+              {isVip ? 'VIP активен' : 'Путь к VIP'}
+            </span>
+          </div>
+          <span style={{ fontSize: 10, fontWeight: 800, color: isVip ? 'var(--gd)' : 'var(--t3)' }}>{vipDoneCount}/3</span>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {vipSteps.map(step => (
+            <div key={step.id} style={{
+              flex: 1, padding: '6px 4px', borderRadius: 8, textAlign: 'center',
+              background: step.done ? 'rgba(31,215,96,.1)' : 'rgba(0,0,0,.15)',
+              border: `1px solid ${step.done ? 'rgba(31,215,96,.25)' : 'var(--b1)'}`,
+            }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: step.done ? 'var(--gr)' : 'var(--t3)', marginBottom: 2 }}>{step.label}</div>
+              <div style={{ fontSize: 8, color: step.done ? 'var(--gr)' : 'var(--t2)' }}>{step.done ? '✓' : step.progress}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function countClientOrders(apiOrders: import('@/lib/types').Order[], phone?: string) {
@@ -1540,10 +1642,15 @@ const ProfilePage = ({ go, user, onLogout, wished }) => {
   const [unreadNotifs, setUnreadNotifs] = useState(0);
 
   const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
   const addrCount = useMemo(() => loadClientAddresses(user?.phone).length, [user?.phone]);
   const wishCount = useMemo(
     () => Object.keys(wished || {}).filter(id => wished[id]).length,
     [wished],
+  );
+  const loyalty = useMemo(
+    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level),
+    [spentTotal, orderCount, reviewStats.count, user?.level],
   );
 
   useEffect(() => {
@@ -1584,11 +1691,15 @@ const ProfilePage = ({ go, user, onLogout, wished }) => {
     </div>
   );
 
-  const lvlC = { bronze:"#CD7F32", silver:"#C0C0C0", gold:"var(--gd)", platinum:"var(--blue)" };
-  const lc = lvlC[user.level] || "var(--gd)";
-  const levelLabel = { bronze:"Бронза", silver:"Серебро", gold:"Золото", platinum:"Platinum" }[user.level] || user.level;
+  const lc = loyalty.tier.color;
+  const levelLabel = loyalty.tier.label;
 
   const menuItems = [
+    {
+      icon: "crown", l: loyalty.isVip ? "VIP профиль" : "VIP программа", c: "var(--gd)", to: "vip",
+      s: loyalty.isVip ? "Привилегии и кредитный лимит" : `Выполнено ${loyalty.vipDoneCount} из 3 условий`,
+      badge: loyalty.isVip ? "VIP" : undefined,
+    },
     {
       icon: "bag", l: "Мои заказы", c: "var(--gr)", to: "orders",
       s: orderCount ? ruCount(orderCount, "заказ", "заказа", "заказов") : "Пока нет заказов",
@@ -1640,7 +1751,7 @@ const ProfilePage = ({ go, user, onLogout, wished }) => {
             <div style={{ flex:1, minWidth:0 }}>
               <div className="ub" style={{ fontSize:15, fontWeight:900, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
               <div style={{ fontSize:12, color:"var(--t2)", marginBottom:5 }}>{user.phone}</div>
-              <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20, background:`${lc}18`, color:lc, border:`1px solid ${lc}35` }}>{levelLabel}</span>
+              <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20, background:`${lc}18`, color:lc, border:`1px solid ${lc}35` }}>{loyalty.tier.emoji} {levelLabel}</span>
             </div>
           </div>
           <div style={{ display:"flex", gap:8 }}>
@@ -1661,6 +1772,8 @@ const ProfilePage = ({ go, user, onLogout, wished }) => {
           </div>
         </div>
 
+        <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} />
+
         <div className="card" style={{ marginBottom:12 }}>
           {menuItems.map((item, i) => (
             <div
@@ -1677,8 +1790,8 @@ const ProfilePage = ({ go, user, onLogout, wished }) => {
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
                 {item.badge ? (
-                  <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(255,69,69,.12)" : "rgba(59,142,240,.12)", color:item.icon === "bell" ? "var(--red)" : "var(--blue)", border:`1px solid ${item.icon === "bell" ? "rgba(255,69,69,.25)" : "rgba(59,142,240,.25)"}` }}>
-                    {item.icon === "bell" ? String(item.badge) : "ответ"}
+                  <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(255,69,69,.12)" : item.icon === "crown" ? "rgba(255,184,0,.12)" : "rgba(59,142,240,.12)", color:item.icon === "bell" ? "var(--red)" : item.icon === "crown" ? "var(--gd)" : "var(--blue)", border:`1px solid ${item.icon === "bell" ? "rgba(255,69,69,.25)" : item.icon === "crown" ? "rgba(255,184,0,.3)" : "rgba(59,142,240,.25)"}` }}>
+                    {item.icon === "bell" ? String(item.badge) : item.badge === "VIP" ? "VIP" : "ответ"}
                   </span>
                 ) : null}
                 <Ic n="arr" s={14} c="var(--t3)"/>
