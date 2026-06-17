@@ -111,7 +111,27 @@ function AssemblerAppInner() {
   );
   const activeOrderId = page === 'collect' ? (params.order || null) : null;
 
-  const activeOrder = mapped.find(o => o.id === activeOrderId);
+  const activeOrder = useMemo(() => {
+    if (!activeOrderId) return null;
+    const fromList = mapped.find(o => o.id === activeOrderId);
+    if (fromList) return fromList;
+    const raw = apiOrders.find(o => o.id === activeOrderId);
+    if (!raw) return null;
+    const mappedOne = mapOrdersForAssembler([raw]);
+    return mappedOne[0] ?? null;
+  }, [activeOrderId, mapped, apiOrders]);
+
+  const openCollect = (id: string) => {
+    navigate('collect', { order: id });
+    const raw = apiOrders.find(o => o.id === id);
+    if (!USE_API || !raw) return;
+    const order = normalizeOrder(raw);
+    if (isMixedOrder(order)) {
+      if (getMarketStatus(order) === 'new') void startMarketPart(id);
+      return;
+    }
+    if (order.status === 'new') void updateStatus(id, 'assembling');
+  };
 
   const toggleItem = (orderId: string, itemId: number) => {
     void toggleItemStore(orderId, itemId);
@@ -135,23 +155,15 @@ function AssemblerAppInner() {
     return order.type === 'market' && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
   }).length, [apiOrders]);
 
-  if(page==='collect' && activeOrder) {
-    return <CollectPage order={activeOrder} onToggle={toggleItem} onComplete={completeOrder} onBack={()=>navigate('dashboard')}/>;
+  if (page === 'collect' && activeOrder) {
+    return <CollectPage order={activeOrder} onToggle={toggleItem} onComplete={completeOrder} onBack={() => navigate('dashboard')} />;
   }
 
   return (
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
-        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={async (id) => {
-          const raw = apiOrders.find(o => o.id === id);
-          if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
-            await startMarketPart(id);
-          } else if (USE_API) {
-            await updateStatus(id, 'assembling');
-          }
-          navigate('collect', { order: id });
-        }} onPage={setPage}/>}
+        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage}/>}
         {page==='history'   && <HistoryPage onPage={setPage}/>}
         {page==='stats'     && <StatsPage   onPage={setPage} completed={completedCount}/>}
       </div>

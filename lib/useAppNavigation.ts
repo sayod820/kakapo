@@ -57,7 +57,12 @@ export function useAppNavigation(defaultPage: string) {
   })
 
   useEffect(() => {
-    const next = readFromSearchParams(searchParams, defaultPage)
+    const fromUrl = readFromSearchParams(searchParams, defaultPage)
+    const fromWindow = readFromLocation(defaultPage)
+    // replaceState обновляет адрес сразу, searchParams в Next.js — с задержкой
+    const windowQs = typeof window !== 'undefined' ? window.location.search : ''
+    const urlQs = searchParams.toString()
+    const next = windowQs !== urlQs && fromWindow.page !== fromUrl.page ? fromWindow : fromUrl
     setPageState(next.page)
     setParamsState(next.params)
   }, [searchParams, defaultPage])
