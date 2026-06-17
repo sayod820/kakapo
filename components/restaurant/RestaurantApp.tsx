@@ -707,8 +707,10 @@ function categoryIcon(name: string) {
   return CATEGORY_ICONS[name] || '🍽'
 }
 
+const ALL_MENU_CAT = '__all__'
+
 function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenameCategory, onRemoveCategory, onPage, reviewBadge = 0}) {
-  const [activeCat, setActiveCat] = useState(rest?.categories[0] || '')
+  const [activeCat, setActiveCat] = useState(ALL_MENU_CAT)
   const [showAdd, setShowAdd] = useState(false)
   const [showAddCat, setShowAddCat] = useState(false)
   const [showRenameCat, setShowRenameCat] = useState(false)
@@ -724,23 +726,31 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
   const [photoErr, setPhotoErr] = useState('')
   const [formErr, setFormErr] = useState('')
 
-  const catMenu = menu.filter(m => m.cat === activeCat)
+  const categories = rest?.categories || []
+  const isAllView = activeCat === ALL_MENU_CAT
+  const displayMenu = isAllView ? menu : menu.filter(m => m.cat === activeCat)
+  const viewTitle = isAllView ? 'Все меню' : activeCat
+  const viewIcon = isAllView ? '📋' : categoryIcon(activeCat)
+  const defaultCat = categories[0] || ''
   const stopCount = menu.filter(m => !m.inStock).length
   const priceNum = Number(price)
   const canSave = name.trim().length > 0 && priceNum > 0
-  const categories = rest?.categories || []
   const availableSuggestions = CATEGORY_SUGGESTIONS.filter(s => !categories.includes(s))
 
   useEffect(() => {
+    if (activeCat === ALL_MENU_CAT) return
     if (!categories.length) return
-    if (!categories.includes(activeCat)) setActiveCat(categories[0])
+    if (!categories.includes(activeCat)) setActiveCat(ALL_MENU_CAT)
   }, [categories, activeCat])
 
-  const resetForm = (category = activeCat) => {
+  const resetForm = (category?: string) => {
+    const target = category && category !== ALL_MENU_CAT
+      ? category
+      : (activeCat !== ALL_MENU_CAT ? activeCat : defaultCat)
     setName('')
     setPrice('')
     setDesc('')
-    setCat(category)
+    setCat(target)
     setEmoji('🍽')
     setPhoto('')
     setPhotoErr('')
@@ -771,6 +781,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
   }
 
   const openRenameCategory = () => {
+    if (isAllView) return
     setRenameCatName(activeCat)
     setCatErr('')
     setShowRenameCat(true)
@@ -788,9 +799,9 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
   }
 
   const handleRemoveCategory = () => {
-    if (categories.length <= 1) return
+    if (isAllView || categories.length <= 1) return
     const ok = onRemoveCategory(activeCat)
-    if (ok) setActiveCat(categories.find(c => c !== activeCat) || categories[0])
+    if (ok) setActiveCat(ALL_MENU_CAT)
   }
 
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -808,8 +819,8 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
     if (!priceNum || priceNum <= 0) { setFormErr('Укажите цену больше 0'); return }
     onAdd({ e: emoji, name: name.trim(), desc: desc.trim(), price: priceNum, cat, inStock: true, popular: false, photo })
     setShowAdd(false)
-    resetForm(activeCat)
-    if (cat !== activeCat) setActiveCat(cat)
+    resetForm(isAllView ? defaultCat : activeCat)
+    if (cat !== activeCat && cat !== ALL_MENU_CAT) setActiveCat(cat)
   }
 
   return (
@@ -828,6 +839,33 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
 
       <div style={{padding:'16px 18px 0'}}>
         <div className="hscroll" style={{gap:10,padding:'4px 2px 12px'}}>
+          <button type="button" onClick={() => setActiveCat(ALL_MENU_CAT)} className="btn"
+            style={{
+              width:86,flexShrink:0,padding:'14px 10px 12px',borderRadius:18,textAlign:'center',
+              background:isAllView
+                ? 'linear-gradient(160deg,rgba(23,179,78,.22) 0%,rgba(31,215,96,.08) 100%)'
+                : 'linear-gradient(160deg,#0C1C0F 0%,#091508 100%)',
+              border:`1.5px solid ${isAllView ? 'rgba(31,215,96,.55)' : '#162B1A'}`,
+              boxShadow:isAllView ? '0 8px 28px rgba(31,215,96,.22), inset 0 1px 0 rgba(255,255,255,.06)' : 'none',
+              transform:isAllView ? 'translateY(-2px)' : 'none',
+              transition:'all .22s ease',
+            }}>
+            <div style={{fontSize:28,lineHeight:1,marginBottom:8}}>📋</div>
+            <div style={{
+              fontSize:11,fontWeight:800,color:isAllView ? '#1FD760' : '#8FB897',
+              lineHeight:1.2,marginBottom:6,
+            }}>
+              Все
+            </div>
+            <div style={{
+              display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:22,height:20,padding:'0 7px',
+              borderRadius:20,fontSize:10,fontWeight:800,
+              background:isAllView ? 'rgba(31,215,96,.2)' : '#162B1A',
+              color:isAllView ? '#1FD760' : '#3D6645',
+            }}>
+              {menu.length}
+            </div>
+          </button>
           {categories.map(c => {
             const count = menu.filter(m => m.cat === c).length
             const active = activeCat === c
@@ -898,16 +936,20 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,
                 boxShadow:'0 4px 16px rgba(31,215,96,.2)',
               }}>
-                {categoryIcon(activeCat)}
+                {viewIcon}
               </div>
               <div>
-                <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'#EBF5ED',marginBottom:3}}>{activeCat}</div>
+                <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'#EBF5ED',marginBottom:3}}>{viewTitle}</div>
                 <div style={{fontSize:12,color:'#8FB897'}}>
-                  {catMenu.length} {catMenu.length === 1 ? 'блюдо' : catMenu.length < 5 ? 'блюда' : 'блюд'}
-                  {catMenu.length === 0 && <span style={{color:'#3D6645'}}> · пока пусто</span>}
+                  {displayMenu.length} {displayMenu.length === 1 ? 'блюдо' : displayMenu.length < 5 ? 'блюда' : 'блюд'}
+                  {isAllView && categories.length > 0 && (
+                    <span style={{color:'#3D6645'}}> · {categories.length} {categories.length < 5 ? 'раздела' : 'разделов'}</span>
+                  )}
+                  {!isAllView && displayMenu.length === 0 && <span style={{color:'#3D6645'}}> · пока пусто</span>}
                 </div>
               </div>
             </div>
+            {!isAllView && (
             <div style={{display:'flex',gap:6,flexShrink:0}}>
               <button type="button" onClick={openRenameCategory} title="Переименовать" className="btn"
                 style={{
@@ -928,8 +970,9 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 </button>
               )}
             </div>
+            )}
           </div>
-          <button type="button" onClick={() => openAddForm(activeCat)} className="btn"
+          <button type="button" onClick={() => openAddForm(isAllView ? defaultCat : activeCat)} className="btn"
             style={{
               width:'100%',padding:13,borderRadius:14,
               background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',
@@ -938,25 +981,27 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
               boxShadow:'0 6px 22px rgba(31,215,96,.35)',
             }}>
             <span style={{fontSize:18,lineHeight:1}}>+</span>
-            Добавить блюдо в «{activeCat}»
+            {isAllView ? 'Добавить блюдо' : `Добавить блюдо в «${activeCat}»`}
           </button>
         </div>
       </div>
 
       <div style={{padding:'0 18px 20px'}}>
-        {catMenu.length === 0 ? (
+        {displayMenu.length === 0 ? (
           <div style={{
             padding:'28px 22px',borderRadius:18,textAlign:'center',
             background:'#091508',border:'1px solid #162B1A',
             animation:'fadeUp .4s ease both',
           }}>
-            <div style={{fontSize:44,marginBottom:10}}>{categoryIcon(activeCat)}</div>
+            <div style={{fontSize:44,marginBottom:10}}>{viewIcon}</div>
             <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,marginBottom:6,color:'#EBF5ED'}}>Пока нет блюд</div>
-            <div style={{fontSize:12,color:'#8FB897',lineHeight:1.55}}>Используйте зелёную кнопку выше</div>
+            <div style={{fontSize:12,color:'#8FB897',lineHeight:1.55}}>
+              {isAllView ? 'Добавьте первое блюдо в любой раздел' : 'Используйте зелёную кнопку выше'}
+            </div>
           </div>
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {catMenu.map((item, i) => (
+            {displayMenu.map((item, i) => (
               <div key={item.id} style={{
                 display:'flex',gap:12,padding:'14px 15px',
                 background:'linear-gradient(160deg,#0C1C0F 0%,#091508 100%)',
@@ -981,7 +1026,18 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                   )}
                 </div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:800,marginBottom:2}}>{item.name}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:2,flexWrap:'wrap'}}>
+                    <div style={{fontSize:13,fontWeight:800}}>{item.name}</div>
+                    {isAllView && (
+                      <button type="button" onClick={() => setActiveCat(item.cat)} className="btn"
+                        style={{
+                          padding:'2px 8px',borderRadius:20,fontSize:9,fontWeight:800,
+                          background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',color:'#1FD760',
+                        }}>
+                        {categoryIcon(item.cat)} {item.cat}
+                      </button>
+                    )}
+                  </div>
                   <div style={{fontSize:11,color:'#3D6645',marginBottom:5,lineHeight:1.4}}>{item.desc}</div>
                   <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900}}>
                     {item.price}<span style={{fontSize:10,color:'#FFB800',marginLeft:2}}>ЅМ</span>
