@@ -696,6 +696,17 @@ const CATEGORY_SUGGESTIONS = [
   'Пицца', 'Бургеры', 'Паста', 'Роллы', 'Десерты', 'Напитки', 'Кофе', 'Чай', 'Алкоголь', 'Соусы', 'Детское меню',
 ]
 
+const CATEGORY_ICONS: Record<string, string> = {
+  'Горячее': '🔥', 'Холодные': '🧊', 'Шашлык': '🥩', 'Салаты': '🥗', 'Супы': '🍲',
+  'Закуски': '🥟', 'Гарниры': '🍚', 'Пицца': '🍕', 'Бургеры': '🍔', 'Паста': '🍝',
+  'Роллы': '🍣', 'Десерты': '🍰', 'Напитки': '🥤', 'Кофе': '☕', 'Чай': '🍵',
+  'Алкоголь': '🍺', 'Соусы': '🫙', 'Детское меню': '🧒',
+}
+
+function categoryIcon(name: string) {
+  return CATEGORY_ICONS[name] || '🍽'
+}
+
 function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenameCategory, onRemoveCategory, onPage, reviewBadge = 0}) {
   const [activeCat, setActiveCat] = useState(rest?.categories[0] || '')
   const [showAdd, setShowAdd] = useState(false)
@@ -815,97 +826,144 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
         </div>
       )}
 
-      <div style={{padding:'14px 18px 0'}}>
-        <div style={{fontSize:10,color:'#3D6645',marginBottom:8,fontWeight:800,letterSpacing:.5,textTransform:'uppercase'}}>
-          Разделы меню
-        </div>
-        <div className="hscroll" style={{gap:6,marginBottom:10,paddingBottom:2}}>
+      <div style={{padding:'16px 18px 0'}}>
+        <div className="hscroll" style={{gap:10,padding:'4px 2px 12px'}}>
           {categories.map(c => {
             const count = menu.filter(m => m.cat === c).length
+            const active = activeCat === c
             return (
-              <button key={c} onClick={() => setActiveCat(c)} className="btn"
+              <button key={c} type="button" onClick={() => setActiveCat(c)} className="btn"
                 style={{
-                  padding:'8px 15px',borderRadius:50,fontSize:12,fontWeight:700,
-                  border:`1.5px solid ${activeCat === c ? 'rgba(31,215,96,.45)' : '#162B1A'}`,
-                  background:activeCat === c ? 'rgba(31,215,96,.14)' : '#0C1C0F',
-                  color:activeCat === c ? '#1FD760' : '#8FB897',whiteSpace:'nowrap',fontFamily:'Nunito',
-                  boxShadow:activeCat === c ? '0 4px 14px rgba(31,215,96,.15)' : 'none',
+                  width:86,flexShrink:0,padding:'14px 10px 12px',borderRadius:18,textAlign:'center',
+                  background:active
+                    ? 'linear-gradient(160deg,rgba(23,179,78,.22) 0%,rgba(31,215,96,.08) 100%)'
+                    : 'linear-gradient(160deg,#0C1C0F 0%,#091508 100%)',
+                  border:`1.5px solid ${active ? 'rgba(31,215,96,.55)' : '#162B1A'}`,
+                  boxShadow:active ? '0 8px 28px rgba(31,215,96,.22), inset 0 1px 0 rgba(255,255,255,.06)' : 'none',
+                  transform:active ? 'translateY(-2px)' : 'none',
+                  transition:'all .22s ease',
                 }}>
-                {c} ({count})
+                <div style={{fontSize:28,lineHeight:1,marginBottom:8,filter:active ? 'none' : 'grayscale(.25) opacity(.85)'}}>
+                  {categoryIcon(c)}
+                </div>
+                <div style={{
+                  fontSize:11,fontWeight:800,color:active ? '#1FD760' : '#8FB897',
+                  lineHeight:1.2,marginBottom:6,maxHeight:26,overflow:'hidden',
+                }}>
+                  {c}
+                </div>
+                <div style={{
+                  display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:22,height:20,padding:'0 7px',
+                  borderRadius:20,fontSize:10,fontWeight:800,
+                  background:active ? 'rgba(31,215,96,.2)' : '#162B1A',
+                  color:active ? '#1FD760' : '#3D6645',
+                }}>
+                  {count}
+                </div>
               </button>
             )
           })}
           <button type="button" onClick={openAddCategory} className="btn"
             style={{
-              padding:'8px 14px',borderRadius:50,fontSize:12,fontWeight:800,whiteSpace:'nowrap',
-              border:'1.5px dashed rgba(31,215,96,.45)',background:'rgba(31,215,96,.06)',color:'#1FD760',
-              fontFamily:'Nunito',flexShrink:0,
+              width:86,flexShrink:0,padding:'14px 10px 12px',borderRadius:18,textAlign:'center',
+              background:'rgba(31,215,96,.04)',border:'1.5px dashed rgba(31,215,96,.35)',
+              display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,
             }}>
-            + Раздел
+            <div style={{
+              width:36,height:36,borderRadius:12,background:'rgba(31,215,96,.12)',
+              border:'1px solid rgba(31,215,96,.25)',display:'flex',alignItems:'center',justifyContent:'center',
+              fontSize:22,color:'#1FD760',fontWeight:300,
+            }}>+</div>
+            <div style={{fontSize:11,fontWeight:800,color:'#1FD760'}}>Раздел</div>
           </button>
         </div>
-        <div style={{display:'flex',gap:8,marginBottom:14}}>
-          <button type="button" onClick={openRenameCategory} className="btn"
-            style={{padding:'6px 12px',borderRadius:10,fontSize:11,fontWeight:700,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897'}}>
-            ✏️ Переименовать
+
+        <div style={{
+          marginBottom:18,padding:'18px 18px 16px',borderRadius:22,position:'relative',overflow:'hidden',
+          background:'linear-gradient(135deg,rgba(15,48,32,.95) 0%,rgba(9,21,8,.98) 100%)',
+          border:'1px solid rgba(31,215,96,.28)',
+          boxShadow:'0 12px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05)',
+          animation:'fadeUp .35s ease both',
+        }}>
+          <div style={{
+            position:'absolute',top:-30,right:-20,width:120,height:120,borderRadius:'50%',
+            background:'radial-gradient(circle,rgba(31,215,96,.15) 0%,transparent 70%)',pointerEvents:'none',
+          }}/>
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:14,position:'relative'}}>
+            <div style={{display:'flex',gap:14,alignItems:'center'}}>
+              <div style={{
+                width:52,height:52,borderRadius:16,flexShrink:0,
+                background:'linear-gradient(135deg,rgba(31,215,96,.25),rgba(31,215,96,.08))',
+                border:'1px solid rgba(31,215,96,.35)',
+                display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,
+                boxShadow:'0 4px 16px rgba(31,215,96,.2)',
+              }}>
+                {categoryIcon(activeCat)}
+              </div>
+              <div>
+                <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'#EBF5ED',marginBottom:3}}>{activeCat}</div>
+                <div style={{fontSize:12,color:'#8FB897'}}>
+                  {catMenu.length} {catMenu.length === 1 ? 'блюдо' : catMenu.length < 5 ? 'блюда' : 'блюд'}
+                  {catMenu.length === 0 && <span style={{color:'#3D6645'}}> · пока пусто</span>}
+                </div>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:6,flexShrink:0}}>
+              <button type="button" onClick={openRenameCategory} title="Переименовать" className="btn"
+                style={{
+                  width:36,height:36,borderRadius:11,
+                  background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',
+                  color:'#8FB897',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',
+                }}>
+                ✏️
+              </button>
+              {categories.length > 1 && (
+                <button type="button" onClick={handleRemoveCategory} title="Удалить раздел" className="btn"
+                  style={{
+                    width:36,height:36,borderRadius:11,
+                    background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.22)',
+                    color:'#FF6969',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',
+                  }}>
+                  🗑
+                </button>
+              )}
+            </div>
+          </div>
+          <button type="button" onClick={() => openAddForm(activeCat)} className="btn"
+            style={{
+              width:'100%',padding:13,borderRadius:14,
+              background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',
+              color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14,
+              display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+              boxShadow:'0 6px 22px rgba(31,215,96,.35)',
+            }}>
+            <span style={{fontSize:18,lineHeight:1}}>+</span>
+            Добавить блюдо в «{activeCat}»
           </button>
-          {categories.length > 1 && (
-            <button type="button" onClick={handleRemoveCategory} className="btn"
-              style={{padding:'6px 12px',borderRadius:10,fontSize:11,fontWeight:700,background:'rgba(255,69,69,.06)',border:'1px solid rgba(255,69,69,.25)',color:'#FF6969'}}>
-              🗑 Удалить раздел
-            </button>
-          )}
         </div>
       </div>
 
       <div style={{padding:'0 18px 20px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-          <div>
-            <div style={{fontSize:15,fontWeight:800,color:'#EBF5ED',marginBottom:2}}>{activeCat}</div>
-            <div style={{fontSize:11,color:'#8FB897'}}>{catMenu.length} {catMenu.length === 1 ? 'блюдо' : catMenu.length < 5 ? 'блюда' : 'блюд'}</div>
-          </div>
-          <button onClick={() => openAddForm(activeCat)} className="btn"
-            style={{padding:'10px 16px',borderRadius:13,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:12,boxShadow:'0 6px 20px rgba(31,215,96,.3)'}}>
-            + Добавить
-          </button>
-        </div>
-
         {catMenu.length === 0 ? (
           <div style={{
-            padding:'36px 24px',borderRadius:20,textAlign:'center',
-            background:'linear-gradient(165deg,rgba(12,28,15,.6) 0%,rgba(9,21,8,.9) 100%)',
-            border:'1.5px dashed rgba(31,215,96,.25)',
+            padding:'28px 22px',borderRadius:18,textAlign:'center',
+            background:'#091508',border:'1px solid #162B1A',
             animation:'fadeUp .4s ease both',
           }}>
-            <div style={{
-              width:72,height:72,borderRadius:22,margin:'0 auto 16px',
-              background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',
-              display:'flex',alignItems:'center',justifyContent:'center',fontSize:36,
-            }}>🍽</div>
-            <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,marginBottom:8,color:'#EBF5ED'}}>
-              Раздел «{activeCat}» пуст
-            </div>
-            <div style={{fontSize:13,color:'#8FB897',lineHeight:1.55,marginBottom:22,maxWidth:280,margin:'0 auto 22px'}}>
-              Добавьте первое блюдо — клиенты увидят его в приложении КАКАПО
-            </div>
-            <button onClick={() => openAddForm(activeCat)} className="btn"
-              style={{
-                width:'100%',maxWidth:280,padding:14,borderRadius:16,
-                background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',
-                color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14,
-                boxShadow:'0 8px 24px rgba(31,215,96,.35)',
-              }}>
-              + Добавить первое блюдо
-            </button>
+            <div style={{fontSize:44,marginBottom:10}}>{categoryIcon(activeCat)}</div>
+            <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,marginBottom:6,color:'#EBF5ED'}}>Пока нет блюд</div>
+            <div style={{fontSize:12,color:'#8FB897',lineHeight:1.55}}>Используйте зелёную кнопку выше</div>
           </div>
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {catMenu.map((item, i) => (
               <div key={item.id} style={{
-                display:'flex',gap:12,padding:'13px 14px',background:'#091508',
-                border:`1.5px solid ${item.inStock ? '#162B1A' : 'rgba(255,69,69,.3)'}`,
-                borderRadius:15,animation:`fadeUp .35s ease ${i * .05}s both`,
-                opacity:item.inStock ? 1 : .7,
+                display:'flex',gap:12,padding:'14px 15px',
+                background:'linear-gradient(160deg,#0C1C0F 0%,#091508 100%)',
+                border:`1px solid ${item.inStock ? '#162B1A' : 'rgba(255,69,69,.35)'}`,
+                borderRadius:18,animation:`fadeUp .35s ease ${i * .05}s both`,
+                opacity:item.inStock ? 1 : .75,
+                boxShadow:'0 4px 20px rgba(0,0,0,.22)',
               }}>
                 <div style={{
                   width:68,height:68,borderRadius:14,background:'#0C1C0F',
@@ -1114,87 +1172,107 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
 
       {showAddCat && (
         <div style={{position:'fixed',inset:0,zIndex:310,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-          <div onClick={() => setShowAddCat(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
+          <div onClick={() => setShowAddCat(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.88)',backdropFilter:'blur(12px)'}}/>
           <div style={{
-            position:'relative',zIndex:1,width:'100%',maxWidth:480,
-            background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',
+            position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'85vh',overflowY:'auto',
+            background:'linear-gradient(180deg,#0a180d 0%,#06100A 100%)',
+            borderTop:'1px solid rgba(31,215,96,.2)',borderRadius:'28px 28px 0 0',
             padding:'22px 20px 40px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)',
           }}>
-            <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 18px'}}/>
-            <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Новый раздел</div>
-            <div style={{fontSize:12,color:'#8FB897',marginBottom:16,lineHeight:1.5}}>
-              Создайте категорию — она появится в строке «Горячее · Шашлык · …»
+            <div style={{width:44,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 20px'}}/>
+            <div style={{textAlign:'center',marginBottom:20}}>
+              <div style={{
+                width:56,height:56,borderRadius:18,margin:'0 auto 12px',
+                background:'linear-gradient(135deg,rgba(31,215,96,.25),rgba(31,215,96,.08))',
+                border:'1px solid rgba(31,215,96,.35)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,
+              }}>📂</div>
+              <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,marginBottom:4}}>Новый раздел</div>
+              <div style={{fontSize:12,color:'#8FB897',lineHeight:1.5}}>Выберите готовый или придумайте своё название</div>
             </div>
             {catErr && (
-              <div style={{padding:'10px 13px',borderRadius:11,marginBottom:12,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545'}}>
+              <div style={{padding:'10px 13px',borderRadius:12,marginBottom:14,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545',textAlign:'center'}}>
                 ⚠️ {catErr}
               </div>
             )}
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,color:'#8FB897',marginBottom:6,fontWeight:700}}>Название раздела *</div>
-              <input className="inp" value={newCatName} onChange={e => { setNewCatName(e.target.value); setCatErr('') }}
-                onKeyDown={e => e.key === 'Enter' && saveNewCategory()}
-                placeholder="Например: Закуски" autoFocus/>
-            </div>
             {availableSuggestions.length > 0 && (
               <div style={{marginBottom:18}}>
-                <div style={{fontSize:10,color:'#3D6645',marginBottom:8,fontWeight:700}}>Быстрый выбор</div>
-                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                  {availableSuggestions.slice(0, 12).map(s => (
+                <div style={{fontSize:10,color:'#3D6645',marginBottom:10,fontWeight:800,letterSpacing:.4,textTransform:'uppercase'}}>Популярные разделы</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
+                  {availableSuggestions.slice(0, 9).map(s => (
                     <button key={s} type="button" onClick={() => saveNewCategory(s)} className="btn"
                       style={{
-                        padding:'7px 12px',borderRadius:50,fontSize:11,fontWeight:700,
-                        background:'rgba(31,215,96,.08)',border:'1px solid rgba(31,215,96,.22)',color:'#1FD760',
+                        padding:'12px 8px',borderRadius:16,textAlign:'center',
+                        background:'#091508',border:'1px solid #162B1A',
                       }}>
-                      + {s}
+                      <div style={{fontSize:24,marginBottom:6}}>{categoryIcon(s)}</div>
+                      <div style={{fontSize:10,fontWeight:800,color:'#EBF5ED',lineHeight:1.2}}>{s}</div>
                     </button>
                   ))}
                 </div>
               </div>
             )}
-            <div style={{display:'flex',gap:10}}>
-              <button type="button" onClick={() => setShowAddCat(false)} className="btn"
-                style={{flex:1,padding:13,borderRadius:14,background:'#091508',border:'1px solid #162B1A',color:'#8FB897',fontWeight:700}}>
-                Отмена
-              </button>
-              <button type="button" onClick={() => saveNewCategory()} className="btn"
-                style={{flex:1,padding:13,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontWeight:800}}>
-                ✓ Создать
-              </button>
+            <div style={{marginBottom:18}}>
+              <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Своё название</div>
+              <input className="inp" value={newCatName} onChange={e => { setNewCatName(e.target.value); setCatErr('') }}
+                onKeyDown={e => e.key === 'Enter' && saveNewCategory()}
+                placeholder="Например: Закуски" autoFocus/>
             </div>
+            <button type="button" onClick={() => saveNewCategory()} className="btn"
+              style={{
+                width:'100%',padding:15,borderRadius:16,
+                background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontWeight:800,fontSize:15,
+                boxShadow:'0 8px 24px rgba(31,215,96,.35)',marginBottom:10,
+                opacity:newCatName.trim() ? 1 : .55,
+              }}>
+              ✓ Создать раздел
+            </button>
+            <button type="button" onClick={() => setShowAddCat(false)} className="btn"
+              style={{width:'100%',padding:12,borderRadius:14,background:'transparent',border:'none',color:'#8FB897',fontWeight:700,fontSize:13}}>
+              Отмена
+            </button>
           </div>
         </div>
       )}
 
       {showRenameCat && (
         <div style={{position:'fixed',inset:0,zIndex:310,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-          <div onClick={() => setShowRenameCat(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
+          <div onClick={() => setShowRenameCat(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.88)',backdropFilter:'blur(12px)'}}/>
           <div style={{
             position:'relative',zIndex:1,width:'100%',maxWidth:480,
-            background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',
+            background:'linear-gradient(180deg,#0a180d 0%,#06100A 100%)',
+            borderTop:'1px solid rgba(31,215,96,.2)',borderRadius:'28px 28px 0 0',
             padding:'22px 20px 40px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)',
           }}>
-            <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 18px'}}/>
-            <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Переименовать раздел</div>
-            <div style={{fontSize:12,color:'#8FB897',marginBottom:16}}>Сейчас: <span style={{color:'#1FD760',fontWeight:700}}>{activeCat}</span></div>
+            <div style={{width:44,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 20px'}}/>
+            <div style={{textAlign:'center',marginBottom:20}}>
+              <div style={{
+                width:56,height:56,borderRadius:18,margin:'0 auto 12px',
+                background:'linear-gradient(135deg,rgba(31,215,96,.25),rgba(31,215,96,.08))',
+                border:'1px solid rgba(31,215,96,.35)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,
+              }}>{categoryIcon(activeCat)}</div>
+              <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,marginBottom:4}}>Переименовать</div>
+              <div style={{fontSize:12,color:'#8FB897'}}>Сейчас: <span style={{color:'#1FD760',fontWeight:700}}>{activeCat}</span></div>
+            </div>
             {catErr && (
-              <div style={{padding:'10px 13px',borderRadius:11,marginBottom:12,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545'}}>
+              <div style={{padding:'10px 13px',borderRadius:12,marginBottom:14,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545',textAlign:'center'}}>
                 ⚠️ {catErr}
               </div>
             )}
             <input className="inp" value={renameCatName} onChange={e => { setRenameCatName(e.target.value); setCatErr('') }}
               onKeyDown={e => e.key === 'Enter' && saveRenameCategory()}
               placeholder="Новое название" autoFocus style={{marginBottom:18}}/>
-            <div style={{display:'flex',gap:10}}>
-              <button type="button" onClick={() => setShowRenameCat(false)} className="btn"
-                style={{flex:1,padding:13,borderRadius:14,background:'#091508',border:'1px solid #162B1A',color:'#8FB897',fontWeight:700}}>
-                Отмена
-              </button>
-              <button type="button" onClick={saveRenameCategory} className="btn"
-                style={{flex:1,padding:13,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontWeight:800}}>
-                ✓ Сохранить
-              </button>
-            </div>
+            <button type="button" onClick={saveRenameCategory} className="btn"
+              style={{
+                width:'100%',padding:15,borderRadius:16,
+                background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontWeight:800,fontSize:15,
+                boxShadow:'0 8px 24px rgba(31,215,96,.35)',marginBottom:10,
+              }}>
+              ✓ Сохранить
+            </button>
+            <button type="button" onClick={() => setShowRenameCat(false)} className="btn"
+              style={{width:'100%',padding:12,borderRadius:14,background:'transparent',border:'none',color:'#8FB897',fontWeight:700,fontSize:13}}>
+              Отмена
+            </button>
           </div>
         </div>
       )}
