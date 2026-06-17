@@ -2,6 +2,7 @@ import type { Order, OrderStatus, OrderType } from './types'
 import type { DemoCourierOrder } from './demoOrders'
 import {
   allPartsDone,
+  allRestPartsDone,
   anyPartDone,
   getAllPickupIds,
   getMarketItems,
