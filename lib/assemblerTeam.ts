@@ -104,3 +104,39 @@ export function findAssemblerByPhone(assemblers: AdminAssembler[], phone: string
     return d === digits || d.endsWith(digits.slice(-9))
   })
 }
+
+const STATUS_LABEL: Record<AssemblerStatus, string> = {
+  working: 'На смене',
+  available: 'Свободен',
+  offline: 'Не в сети',
+}
+
+export function assemblerStatusLabel(s: AssemblerStatus): string {
+  return STATUS_LABEL[s] ?? s
+}
+
+export function assemblerStatusIcon(s: AssemblerStatus): string {
+  if (s === 'working') return '🟢'
+  if (s === 'available') return '🟡'
+  return '⚫'
+}
+
+export function verifyAssemblerPin(
+  assemblers: AdminAssembler[],
+  code: string,
+  assemblerId?: string,
+): { ok: true; assembler: AdminAssembler } | { ok: false; error: string } {
+  if (assemblerId) {
+    const a = assemblers.find(x => x.id === assemblerId)
+    if (!a) return { ok: false, error: 'Сборщик не найден · проверьте раздел «Сборщики» в админке' }
+    if (a.blocked) return { ok: false, error: 'Доступ заблокирован администратором' }
+    const expected = a.otp || '5678'
+    if (String(code) !== expected) {
+      return { ok: false, error: `Неверный PIN · Демо: ${expected}` }
+    }
+    return { ok: true, assembler: a }
+  }
+  const match = assemblers.find(a => !a.blocked && (a.otp || '5678') === String(code))
+  if (!match) return { ok: false, error: 'Неверный PIN · Демо: 5678' }
+  return { ok: true, assembler: match }
+}

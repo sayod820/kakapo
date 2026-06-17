@@ -8,6 +8,9 @@ import { useAppNavigation } from '@/lib/useAppNavigation'
 import { useApiSync } from '@/lib/useApiSync'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import Link from 'next/link'
+import AssemblerLoginPage from '@/components/assembler/AssemblerLoginPage'
+import { useAssemblerTeam, hydrateAssemblerTeamStore } from '@/lib/assemblerTeamStore'
+import type { AdminAssembler } from '@/lib/assemblerTeam'
 // ─── КАКАПО Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
    КАКАПО СБОРЩИК — Приложение для сборки заказов
@@ -36,7 +39,6 @@ const CSS = `
 `;
 
 /* ── DEMO DATA ─────────────────────────────────── */
-const ASSEMBLER = {name:'Камола Юсупова', pin:'5678', avatar:'К'};
 
 const ORDERS_DATA = [
   {
@@ -98,8 +100,10 @@ export default function AssemblerApp() {
 
 function AssemblerAppInner() {
   useApiSync('assembler');
+  const assemblers = useAssemblerTeam();
   const [loggedIn, setLoggedIn] = useState(false);
-  const assemblerName = ASSEMBLER_NAME;
+  const [assemblerProfile, setAssemblerProfile] = useState<AdminAssembler | null>(null);
+  const assemblerName = assemblerProfile?.name ?? ASSEMBLER_NAME;
   const { page, navigate, params } = useAppNavigation('dashboard');
   const setPage = (p: string) => navigate(p);
   const apiOrders = useOrders(s => s.orders);
@@ -115,6 +119,10 @@ function AssemblerAppInner() {
   const activeOrderId = page === 'collect'
     ? (params.order || collectIdRef.current || null)
     : null;
+
+  useEffect(() => {
+    hydrateAssemblerTeamStore();
+  }, []);
 
   useEffect(() => {
     if (page !== 'collect') collectIdRef.current = null;
@@ -169,7 +177,10 @@ function AssemblerAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <LoginPage onLogin={() => setLoggedIn(true)} />
+        <AssemblerLoginPage
+          assemblers={assemblers}
+          onSuccess={a => { setAssemblerProfile(a); setLoggedIn(true); }}
+        />
       </>
     );
   }
@@ -203,50 +214,6 @@ function AssemblerAppInner() {
         {page==='stats'     && <StatsPage   onPage={setPage} completed={completedCount}/>}
       </div>
     </>
-  );
-}
-
-function LoginPage({ onLogin }: { onLogin: () => void }) {
-  const [pin, setPin] = useState(['', '', '', '']);
-  const [load, setLoad] = useState(false);
-  const [err, setErr] = useState('');
-
-  const verify = () => {
-    const code = pin.join('');
-    if (code.length < 4) return;
-    setLoad(true);
-    setTimeout(() => {
-      setLoad(false);
-      if (code === ASSEMBLER.pin) onLogin();
-      else { setErr('Неверный PIN · Демо: 5678'); setPin(['', '', '', '']); }
-    }, 700);
-  };
-
-  return (
-    <div style={{ minHeight:'100vh', background:'#030B05', maxWidth:480, margin:'0 auto', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24 }}>
-      <div style={{ textAlign:'center', marginBottom:28 }}>
-        <div style={{ fontSize:52, marginBottom:14 }}>📦</div>
-        <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#9B6DFF', marginBottom:4 }}>Сборщик КАКАПО</div>
-        <div style={{ fontSize:12, color:'#8FB897' }}>Введите PIN код</div>
-      </div>
-      <div style={{ width:'100%', maxWidth:340, background:'#091508', border:'1px solid #162B1A', borderRadius:20, padding:24 }}>
-        {err && <div style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'#FF4545', marginBottom:14 }}>⚠️ {err}</div>}
-        <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:14 }}>
-          {pin.map((v, i) => (
-            <input key={i} value={v} type="password" maxLength={1} inputMode="numeric"
-              onChange={e => { const d = [...pin]; d[i] = e.target.value.replace(/\D/, '').slice(-1); setPin(d); }}
-              style={{ width:52, height:60, borderRadius:14, border:`2px solid ${v ? 'rgba(155,109,255,.5)' : '#162B1A'}`, background:v ? 'rgba(155,109,255,.08)' : '#0C1C0F', textAlign:'center', fontFamily:'Unbounded', fontSize:24, fontWeight:900, color:'#EBF5ED', outline:'none' }} />
-          ))}
-        </div>
-        <div style={{ padding:'9px 12px', borderRadius:9, background:'rgba(155,109,255,.06)', border:'1px solid rgba(155,109,255,.2)', fontSize:11, color:'#8FB897', marginBottom:14, textAlign:'center' }}>
-          💡 Демо PIN: <span style={{ color:'#9B6DFF', fontWeight:700 }}>5 6 7 8</span>
-        </div>
-        <button type="button" onClick={verify} disabled={load || pin.join('').length < 4} className="btn"
-          style={{ width:'100%', padding:14, borderRadius:14, background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)', border:'none', color:'white', fontWeight:800, fontSize:15, opacity:pin.join('').length < 4 ? 0.5 : 1 }}>
-          {load ? '…' : '📦 Войти'}
-        </button>
-      </div>
-    </div>
   );
 }
 
