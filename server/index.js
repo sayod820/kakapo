@@ -280,7 +280,7 @@ app.post('/orders', (req, res) => {
     createdAt: nowTime(),
     total: body.total || 0,
     deliveryFee: body.deliveryFee || 0,
-    deliveryFeeLocked: body.deliveryFeeLocked === true || body.deliveryFee != null,
+    deliveryFeeLocked: body.deliveryFeeLocked === true || Number(body.deliveryFee) > 0,
     comment: body.comment || '',
     priority: body.priority || 'normal',
     client,

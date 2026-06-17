@@ -2,12 +2,13 @@ import { calcDeliveryFee, calcDeliveryPrice, type PricingConfig } from './courie
 import { normalizeOrder } from './orderParts'
 import type { Order } from './types'
 
-/** Заказ уже завершён или стоимость доставки зафиксирована при оформлении/доставке */
+/** Заказ уже завершён или стоимость доставки зафиксирована (не нулевая) */
 export function isOrderDeliveryFeeLocked(order: Order): boolean {
+  const saved = Math.max(0, Number(order.deliveryFee) || 0)
   return (
-    order.deliveryFeeLocked === true
-    || order.status === 'delivered'
+    order.status === 'delivered'
     || order.status === 'cancelled'
+    || (order.deliveryFeeLocked === true && saved > 0)
   )
 }
 
@@ -18,17 +19,11 @@ export function orderWeightKg(order: Order): number {
   return Math.max(1, Math.round(items.reduce((s, it) => s + (Number(it.qty) || 1) * 0.4, 10) * 10) / 10)
 }
 
-/** Стоимость доставки: для завершённых — только сохранённая сумма; для новых — текущий тариф */
-export function resolveOrderDeliveryFee(
-  order: Order,
+function computeLiveDeliveryFee(
+  o: Order,
   pricing: PricingConfig,
-  roadKm: Record<string, number> = {},
+  roadKm: Record<string, number>,
 ): number {
-  const o = normalizeOrder(order)
-  if (isOrderDeliveryFeeLocked(o)) {
-    return Math.max(0, Number(o.deliveryFee) || 0)
-  }
-
   const km = roadKm[o.id] ?? o.distanceKm ?? null
   const weight = orderWeightKg(o)
 
@@ -45,13 +40,33 @@ export function resolveOrderDeliveryFee(
   return calcDeliveryFee(2, weight, pricing)
 }
 
+/** Стоимость доставки: для завершённых — сохранённая сумма или пересчёт по тарифу, если была 0 */
+export function resolveOrderDeliveryFee(
+  order: Order,
+  pricing: PricingConfig,
+  roadKm: Record<string, number> = {},
+): number {
+  const o = normalizeOrder(order)
+  const saved = Math.max(0, Number(o.deliveryFee) || 0)
+
+  if (o.status === 'delivered' || o.status === 'cancelled') {
+    if (saved > 0) return saved
+    return computeLiveDeliveryFee(o, pricing, roadKm)
+  }
+
+  if (o.deliveryFeeLocked === true && saved > 0) return saved
+
+  return computeLiveDeliveryFee(o, pricing, roadKm)
+}
+
 export function buildDeliveryFeePatch(
   order: Order,
   pricing: PricingConfig,
   roadKm: Record<string, number> = {},
 ): { deliveryFee: number; deliveryFeeLocked: true } {
+  const o = normalizeOrder(order)
   return {
-    deliveryFee: resolveOrderDeliveryFee(order, pricing, roadKm),
+    deliveryFee: computeLiveDeliveryFee(o, pricing, roadKm),
     deliveryFeeLocked: true,
   }
 }

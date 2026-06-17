@@ -290,7 +290,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       items: prepared.items || data.items || [],
       total: data.total || 0,
       deliveryFee: data.deliveryFee,
-      deliveryFeeLocked: data.deliveryFee != null,
+      deliveryFeeLocked: Number(data.deliveryFee) > 0,
       pickupIds: data.pickupIds,
       weightKg: data.weightKg,
     } as Order)

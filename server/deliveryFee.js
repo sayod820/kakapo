@@ -29,27 +29,23 @@ export function orderWeightKg(order) {
 }
 
 export function isDeliveryFeeLocked(order) {
-  return order.deliveryFeeLocked === true
-    || order.status === 'delivered'
+  const saved = Math.max(0, Number(order.deliveryFee) || 0)
+  return order.status === 'delivered'
     || order.status === 'cancelled'
+    || (order.deliveryFeeLocked === true && saved > 0)
 }
 
 /** Зафиксировать стоимость доставки (при оформлении или при доставке) */
 export function lockOrderDeliveryFee(order, pricing) {
-  if (isDeliveryFeeLocked(order)) {
+  const saved = Math.max(0, Number(order.deliveryFee) || 0)
+  if (isDeliveryFeeLocked(order) && saved > 0) {
     order.deliveryFeeLocked = true
     return order
   }
 
-  const hasFee = order.deliveryFee != null && Number.isFinite(Number(order.deliveryFee))
-  if (!hasFee) {
-    const km = Number(order.distanceKm) || 2.5
-    const weight = orderWeightKg(order)
-    order.deliveryFee = calcDeliveryTotal(order.total, km, weight, pricing)
-  } else {
-    order.deliveryFee = Math.max(0, Number(order.deliveryFee))
-  }
-
+  const km = Number(order.distanceKm) || 2.5
+  const weight = orderWeightKg(order)
+  order.deliveryFee = calcDeliveryTotal(order.total, km, weight, pricing)
   order.deliveryFeeLocked = true
   return order
 }

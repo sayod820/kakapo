@@ -68,7 +68,8 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
     lng,
     total: Number(Number(raw.total ?? 0).toFixed(2)),
     deliveryFee: Number(Number(raw.deliveryFee ?? 0).toFixed(2)),
-    deliveryFeeLocked: raw.deliveryFee != null || raw.deliveryFeeLocked === true,
+    // Не блокируем пересчёт при placeholder 0 — сумма фиксируется при доставке курьером
+    deliveryFeeLocked: Number(raw.deliveryFee) > 0 && raw.deliveryFeeLocked === true,
     pickupIds: pickupIds.length ? pickupIds : ['store'],
     comment: String(raw.comment ?? ''),
     payment_method: String(raw.payment_method ?? raw.pay ?? 'cash'),
