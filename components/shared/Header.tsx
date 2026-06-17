@@ -48,7 +48,7 @@ export default function Header({
           <Link href={ROUTES.home} style={{ display:'flex', alignItems:'center', gap:10, textDecoration:'none', flexShrink:0 }}>
             <div style={{ width:40, height:40, borderRadius:12, background:'linear-gradient(135deg,var(--gr3),var(--gr))', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Unbounded, sans-serif', fontSize:17, fontWeight:900, color:'var(--bg)', animation:'glow 3s ease-in-out infinite', boxShadow:'0 4px 16px rgba(31,215,96,.4)' }}>K</div>
             <div>
-              <div style={{ fontFamily:'Unbounded, sans-serif', fontSize:16, fontWeight:900, background:'linear-gradient(135deg,var(--gr),var(--gd))', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>KAKAPO</div>
+              <div style={{ fontFamily:'Unbounded, sans-serif', fontSize:16, fontWeight:900, background:'linear-gradient(135deg,var(--gr),var(--gd))', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>КАКАПО</div>
               <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:1 }}>
                 <div style={{ width:5, height:5, borderRadius:'50%', background:'var(--gr)', animation:'pulse 2s infinite' }}/>
                 <span style={{ fontSize:10, color:'var(--t2)' }}>г. Яван · Доставка 45 мин</span>

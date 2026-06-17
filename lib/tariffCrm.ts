@@ -30,7 +30,7 @@ export const TARIFF_PRESETS: { id: string; label: string; desc: string; emoji: s
   {
     id: 'standard',
     label: 'Стандарт',
-    desc: 'Рекомендуемый тариф KAKAPO',
+    desc: 'Рекомендуемый тариф КАКАПО',
     emoji: '⭐',
     config: { ...DEFAULT_PRICING, freeFrom: 0 },
   },

@@ -51,7 +51,7 @@ RESTAURANTS = [
 ]
 
 PICKUPS = [
-    {"id": "store", "type": "store", "e": "🏪", "color": "#1FD760", "name": "KAKAPO Магазин", "addr": "ул. Ленина, 42", "phone": "+992 11 855-97-97", "lat": 38.3250, "lng": 69.0250, "active": True},
+    {"id": "store", "type": "store", "e": "🏪", "color": "#1FD760", "name": "КАКАПО Магазин", "addr": "ул. Ленина, 42", "phone": "+992 11 855-97-97", "lat": 38.3250, "lng": 69.0250, "active": True},
     {"id": "rest1", "type": "rest", "e": "🍖", "color": "#FF8C00", "name": "Чайхона Оромгох", "addr": "ул. Рудаки, 15", "phone": "+992 93 111-22-33", "lat": 38.3320, "lng": 69.0150, "active": True},
     {"id": "rest2", "type": "rest", "e": "🍕", "color": "#FF4545", "name": "Пицца Яван", "addr": "ул. Ленина, 28", "phone": "+992 90 222-33-44", "lat": 38.3230, "lng": 69.0300, "active": True},
     {"id": "rest3", "type": "rest", "e": "🍣", "color": "#3B8EF0", "name": "Суши Яван", "addr": "ул. Сомони, 8", "phone": "+992 91 333-44-55", "lat": 38.3150, "lng": 69.0320, "active": True},
@@ -86,7 +86,7 @@ def seed_if_empty(db: Session) -> None:
     db.add(SettingRow(key="pricing", value_json=json_dump(PRICING)))
 
     users = [
-        UserRow(email="admin@kakapo.tj", password="admin123", role="admin", name="Админ KAKAPO"),
+        UserRow(email="admin@kakapo.tj", password="admin123", role="admin", name="Админ КАКАПО"),
         UserRow(email="chaihona@kakapo.tj", password="rest123", role="restaurant", name="Чайхона"),
         UserRow(email="pizza@kakapo.tj", password="rest123", role="restaurant", name="Пицца Яван"),
         UserRow(phone="+992900000000", password="", role="client", name="Клиент"),
@@ -102,8 +102,8 @@ def seed_if_empty(db: Session) -> None:
     db.add_all(cats)
 
     cards = [
-        {"num": "KAKAPO-0001", "client": "Диловар Рахимов", "status": "active", "level": "platinum", "bonus": 4850},
-        {"num": "KAKAPO-0042", "client": "Нилуфар Хасанова", "status": "active", "level": "gold", "bonus": 1240},
+        {"num": "КАКАПО-0001", "client": "Диловар Рахимов", "status": "active", "level": "platinum", "bonus": 4850},
+        {"num": "КАКАПО-0042", "client": "Нилуфар Хасанова", "status": "active", "level": "gold", "bonus": 1240},
     ]
     for c in cards:
         db.add(CardRow(num=c["num"], data_json=json_dump(c)))

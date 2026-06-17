@@ -82,7 +82,7 @@ export function onOrderStatusChange(prev: Order, next: Order) {
     if (wasPending && isAccepted && next.type !== 'restaurant') {
       pushToPhone(phone, {
         title: 'Заказ принят',
-        body: `${orderId} принят в работу · KAKAPO ${next.type === 'mixed' ? 'Market' : 'Market'}`,
+        body: `${orderId} принят в работу · КАКАПО ${next.type === 'mixed' ? 'Market' : 'Market'}`,
         icon: '✅',
         action: 'orders',
         orderId,

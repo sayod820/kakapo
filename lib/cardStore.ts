@@ -210,7 +210,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
       const created: AdminCard[] = []
       for (let i = 0; i < n; i++) {
         created.push(normalizeCard({
-          num: `KAKAPO-${String(next).padStart(4, '0')}`,
+          num: `КАКАПО-${String(next).padStart(4, '0')}`,
           client: '',
           phone: '',
           status: 'unlinked',

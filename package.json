@@ -1,7 +1,7 @@
 {
   "name": "kakapo-tj",
   "version": "2.0.0",
-  "description": "KAKAPO Supermarket & Marketplace — г. Яван, Таджикистан",
+  "description": "КАКАПО Supermarket & Marketplace — г. Яван, Таджикистан",
   "private": true,
   "scripts": {
     "dev": "next dev",

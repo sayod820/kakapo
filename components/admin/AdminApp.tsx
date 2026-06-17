@@ -131,9 +131,9 @@ import { formatKm, DEFAULT_PRICING } from '@/lib/courierData'
 import Link from 'next/link'
 
 const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
-// ─── KAKAPO Admin App ────────────────────────────
+// ─── КАКАПО Admin App ────────────────────────────
 /* ══════════════════════════════════════════════════════
-   KAKAPO ADMIN — Единая панель управления
+   КАКАПО ADMIN — Единая панель управления
    Магазин + Рестораны + Курьеры + Сборщики
    г. Яван, Таджикистан
 ══════════════════════════════════════════════════════ */
@@ -306,7 +306,7 @@ function Layout({page,setPage,children,title,subtitle}) {
       <aside style={{width:205,flexShrink:0,background:'#06100A',borderRight:'1px solid #162B1A',display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto'}}>
         <div style={{padding:'16px 14px',borderBottom:'1px solid #162B1A',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
           <div style={{width:40,height:40,borderRadius:13,background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:16,fontWeight:900,color:'#030B05',flexShrink:0}}>K</div>
-          <div><div className="ub" style={{fontSize:14,fontWeight:900,color:'#1FD760'}}>KAKAPO</div><div style={{fontSize:9,color:'#3D6645'}}>Admin · г. Яван</div></div>
+          <div><div className="ub" style={{fontSize:14,fontWeight:900,color:'#1FD760'}}>КАКАПО</div><div style={{fontSize:9,color:'#3D6645'}}>Admin · г. Яван</div></div>
         </div>
         <nav style={{flex:1,padding:'8px',display:'flex',flexDirection:'column',gap:0}}>
           {NAV_GROUPS.map(g=>(
@@ -323,7 +323,7 @@ function Layout({page,setPage,children,title,subtitle}) {
           ))}
         </nav>
         <div style={{padding:'10px 14px 16px',borderTop:'1px solid #162B1A',fontSize:9,color:'#3D6645',flexShrink:0,lineHeight:1.6}}>
-          KAKAPO v2.0<br/>
+          КАКАПО v2.0<br/>
           🛒 Магазин · 🍽 Рестораны<br/>
           🛵 Курьеры · 🛒 Сборщики
         </div>
@@ -1637,7 +1637,7 @@ function PartnersPage() {
       <div className="ac">
         <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',fontWeight:800,fontSize:13}}>Комиссии за месяц</div>
         <table className="at">
-          <thead><tr><th>Ресторан</th><th>Выручка</th><th>Комиссия %</th><th>KAKAPO</th><th>Ресторан получает</th><th></th></tr></thead>
+          <thead><tr><th>Ресторан</th><th>Выручка</th><th>Комиссия %</th><th>КАКАПО</th><th>Ресторан получает</th><th></th></tr></thead>
           <tbody>
             {rests.map(r=>(
               <tr key={r.id}>
@@ -1758,7 +1758,7 @@ function PartnersPage() {
             {tab==='commission'&&(
               <div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
-                  {[{l:'Выручка/мес',v:`${sel.revenueMonth.toLocaleString()} ЅМ`,c:'#EBF5ED'},{l:`Комиссия ${sel.commission}%`,v:`${Math.round(sel.revenueMonth*sel.commission/100).toLocaleString()} ЅМ`,c:'#FF4545'},{l:'KAKAPO',v:`${Math.round(sel.revenueMonth*sel.commission/100).toLocaleString()} ЅМ`,c:'#1FD760'},{l:'Ресторан получает',v:`${Math.round(sel.revenueMonth*(1-sel.commission/100)).toLocaleString()} ЅМ`,c:'#FFB800'}].map((s,i)=>(
+                  {[{l:'Выручка/мес',v:`${sel.revenueMonth.toLocaleString()} ЅМ`,c:'#EBF5ED'},{l:`Комиссия ${sel.commission}%`,v:`${Math.round(sel.revenueMonth*sel.commission/100).toLocaleString()} ЅМ`,c:'#FF4545'},{l:'КАКАПО',v:`${Math.round(sel.revenueMonth*sel.commission/100).toLocaleString()} ЅМ`,c:'#1FD760'},{l:'Ресторан получает',v:`${Math.round(sel.revenueMonth*(1-sel.commission/100)).toLocaleString()} ЅМ`,c:'#FFB800'}].map((s,i)=>(
                     <div key={i} style={{background:'#0C1C0F',borderRadius:11,padding:'13px',border:'1px solid #162B1A'}}><div style={{fontSize:10,color:'#3D6645',marginBottom:5}}>{s.l}</div><div className="ub" style={{fontSize:18,fontWeight:900,color:s.c}}>{s.v}</div></div>
                   ))}
                 </div>
@@ -1832,7 +1832,7 @@ function PartnersPage() {
                   {[
                     {l:'Выручка за период',v:`${revenue.toLocaleString()} ЅМ`,c:'#EBF5ED'},
                     ...(paidGross > 0 ? [{l:'Уже выплачено',v:`−${paidNet.toLocaleString()} ЅМ`,c:'#FFB800'}] : []),
-                    {l:`Комиссия KAKAPO (${showPay.commission}%)`,v:`−${commissionAmt.toLocaleString()} ЅМ`,c:'#FF4545'},
+                    {l:`Комиссия КАКАПО (${showPay.commission}%)`,v:`−${commissionAmt.toLocaleString()} ЅМ`,c:'#FF4545'},
                     {l:'К выплате сейчас',v:`${net.toLocaleString()} ЅМ`,c:'#1FD760'},
                   ].map((row,i)=>(
                     <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'11px 14px',background:i===3||(paidGross===0&&i===2)?'rgba(31,215,96,.06)':'#0C1C0F',borderRadius:10,border:`1px solid ${i===3||(paidGross===0&&i===2)?'rgba(31,215,96,.25)':'#162B1A'}`,marginBottom:8}}>
@@ -2035,7 +2035,7 @@ function ReviewsPage() {
               </div>
               {rev.adminReply && (
                 <div style={{ fontSize: 12, color: '#3B8EF0', marginBottom: 10, padding: '8px 12px', background: 'rgba(59,142,240,.08)', borderRadius: 9, border: '1px solid rgba(59,142,240,.2)' }}>
-                  💬 KAKAPO: {rev.adminReply}
+                  💬 КАКАПО: {rev.adminReply}
                 </div>
               )}
               {rev.restReply && (
@@ -2045,7 +2045,7 @@ function ReviewsPage() {
               )}
               {replyId === rev.id ? (
                 <div style={{ marginBottom: 10 }}>
-                  <textarea className="ai" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Ответ клиенту от KAKAPO…" rows={2} style={{ marginBottom: 8, resize: 'vertical' }} />
+                  <textarea className="ai" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Ответ клиенту от КАКАПО…" rows={2} style={{ marginBottom: 8, resize: 'vertical' }} />
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => { patchReview(rev.id, { adminReply: replyText, status: 'read' }); setReplyId(null); setReplyText(''); }} className="ab abp" style={{ padding: '5px 12px', fontSize: 11 }}>Отправить ответ</button>
                     <button onClick={() => { setReplyId(null); setReplyText(''); }} className="ab" style={{ padding: '5px 12px', fontSize: 11 }}>Отмена</button>
@@ -2739,7 +2739,7 @@ function ClientsPage() {
               <NI lbl="Email" val={form.email || ''} set={v => setF('email', v)} ph="email@example.com" />
               <NI lbl="Адрес" val={form.addr || ''} set={v => setF('addr', v)} ph="ул. Ленина, 42" />
               <div>
-                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Карта KAKAPO</div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Карта КАКАПО</div>
                 <select className="ai" value={form.card} onChange={e => setF('card', e.target.value)}>
                   <option value="">— Без карты —</option>
                   {form.card && !unlinkedCards.some(c => c.num === form.card) && (
@@ -2849,7 +2849,7 @@ function CardVisualMini({ num, level, clientName, status }: { num?: string; leve
       boxShadow: '0 8px 32px rgba(0,0,0,.35)',
     }}>
       <div style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: '50%', background: `${lc}15` }} />
-      <div className="ub" style={{ fontSize: 9, color: '#1FD760', letterSpacing: 2.5, marginBottom: 12, opacity: .9 }}>KAKAPO LOYALTY CARD</div>
+      <div className="ub" style={{ fontSize: 9, color: '#1FD760', letterSpacing: 2.5, marginBottom: 12, opacity: .9 }}>КАКАПО LOYALTY CARD</div>
       <div className="ub" style={{ fontSize: num ? 20 : 15, fontWeight: 900, color: '#FFB800', letterSpacing: 2, marginBottom: 10 }}>
         {num || 'Новая карта'}
       </div>
@@ -2948,7 +2948,7 @@ function ClientSearchPicker({
           autoFocus={autoFocus}
           value={q}
           onChange={e => setQ(e.target.value)}
-          placeholder="Имя, телефон, KAKAPO-0001…"
+          placeholder="Имя, телефон, КАКАПО-0001…"
           style={{ paddingLeft: 38, paddingRight: q ? 34 : 13 }}
         />
         {q && (
@@ -2967,7 +2967,7 @@ function ClientSearchPicker({
           ? `Найдено: ${filtered.length}`
           : selected
             ? 'Клиент выбран — нажмите «Сменить» чтобы выбрать другого'
-            : `В базе ${clients.length} клиентов — введите имя, телефон или KAKAPO-0001`}
+            : `В базе ${clients.length} клиентов — введите имя, телефон или КАКАПО-0001`}
       </div>
 
       {selected && !q.trim() && (
@@ -3233,7 +3233,7 @@ function CardsPage() {
           <div style={{ fontSize: 28, marginBottom: 8 }}>🎴</div>
           <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 6 }}>Выдать карту клиенту</div>
           <div style={{ fontSize: 12, opacity: .85, lineHeight: 1.5, fontWeight: 600 }}>
-            Создаётся новая KAKAPO-карта и сразу привязывается к выбранному клиенту
+            Создаётся новая КАКАПО-карта и сразу привязывается к выбранному клиенту
           </div>
         </button>
         <button
@@ -3296,7 +3296,7 @@ function CardsPage() {
             className="ai"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Поиск: KAKAPO-0001, имя, телефон…"
+            placeholder="Поиск: КАКАПО-0001, имя, телефон…"
             style={{ paddingLeft: 38, paddingRight: search ? 34 : 13 }}
           />
           {search && (
@@ -4110,7 +4110,7 @@ function PushPreview({ title, body }: { title: string; body: string }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 3, color: '#EBF5ED' }}>{title || 'Заголовок'}</div>
           <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.5 }}>{body || 'Текст уведомления'}</div>
-          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>KAKAPO · сейчас</div>
+          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>КАКАПО · сейчас</div>
         </div>
       </div>
     </div>
@@ -4247,7 +4247,7 @@ function PushPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
                 <div className="ub" style={{ fontSize: 15, fontWeight: 900 }}>📣 Новая рассылка</div>
-                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 4 }}>Push попадёт в приложение клиента KAKAPO</div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 4 }}>Push попадёт в приложение клиента КАКАПО</div>
               </div>
               <Badge v={`${selectedRecipients.length} чел.`} c="#1FD760" />
             </div>
@@ -4533,7 +4533,7 @@ function FinancePage() {
   const exportExcel = () => {
     if (tab === 'restaurants') {
       downloadCsv('kakapo-finance-restaurants.csv',
-        ['Ресторан', 'Выручка', 'Комиссия %', 'KAKAPO получает', 'К выплате', 'Заказов'],
+        ['Ресторан', 'Выручка', 'Комиссия %', 'КАКАПО получает', 'К выплате', 'Заказов'],
         summary.restaurants.map(r => [
           r.name, r.balance.totalGross, r.commission,
           r.balance.pendingCommission + r.balance.paidCommission,
@@ -4558,7 +4558,7 @@ function FinancePage() {
   const exportPdf = () => {
     let rows = ''
     if (tab === 'restaurants') {
-      rows = `<table><thead><tr><th>Ресторан</th><th>Выручка</th><th>%</th><th>KAKAPO</th><th>К выплате</th></tr></thead><tbody>${
+      rows = `<table><thead><tr><th>Ресторан</th><th>Выручка</th><th>%</th><th>КАКАПО</th><th>К выплате</th></tr></thead><tbody>${
         summary.restaurants.map(r => `<tr><td>${r.emoji} ${r.name}</td><td>${formatSm(r.balance.totalGross)}</td><td>${r.commission}%</td><td>${formatSm(r.balance.pendingCommission + r.balance.paidCommission)}</td><td>${formatSm(r.balance.pendingNet)}</td></tr>`).join('')
       }</tbody></table>`
     } else if (tab === 'couriers') {
@@ -4575,7 +4575,7 @@ function FinancePage() {
         summary.dailyChart.map(d => `<tr><td>${d.label}</td><td>${formatSm(d.shop)}</td><td>${formatSm(d.restaurant)}</td></tr>`).join('')
       }</tbody></table>`
     }
-    printFinanceReport(`KAKAPO — Финансы (${FINANCE_TAB_OPTIONS.find(t => t.id === tab)?.label})`, rows)
+    printFinanceReport(`КАКАПО — Финансы (${FINANCE_TAB_OPTIONS.find(t => t.id === tab)?.label})`, rows)
   }
 
   const statCards = tab === 'shop' ? [
@@ -4585,7 +4585,7 @@ function FinancePage() {
     { l: 'Доставка (сбор)', v: formatSm(summary.shop.deliveryFees), c: '#FFB800', e: '🛵' },
   ] : tab === 'restaurants' ? [
     { l: 'Рестораны/мес', v: formatSm(summary.restaurantGross), c: '#FF8C00', e: '🍽' },
-    { l: 'Комиссия KAKAPO', v: formatSm(summary.restaurantCommission), c: '#FFB800', e: '💰' },
+    { l: 'Комиссия КАКАПО', v: formatSm(summary.restaurantCommission), c: '#FFB800', e: '💰' },
     { l: 'К выплате', v: formatSm(summary.restaurantPendingNet), c: '#1FD760', e: '💸' },
     { l: 'Итого оборот', v: formatSm(summary.totalTurnover), c: '#3B8EF0', e: '📈' },
   ] : tab === 'couriers' ? [
@@ -4725,7 +4725,7 @@ function FinancePage() {
         </div>
         {tab === 'restaurants' && (
           <table className="at">
-            <thead><tr><th>Ресторан</th><th>Выручка</th><th>%</th><th>KAKAPO получает</th><th>К выплате</th><th></th></tr></thead>
+            <thead><tr><th>Ресторан</th><th>Выручка</th><th>%</th><th>КАКАПО получает</th><th>К выплате</th><th></th></tr></thead>
             <tbody>{summary.restaurants.map(r => (
               <tr key={r.id}>
                 <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 18 }}>{r.emoji}</span><span style={{ fontWeight: 700 }}>{r.name}</span></div></td>
@@ -4819,7 +4819,7 @@ function FinancePage() {
                 <div style={{ padding: 14, borderRadius: 12, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.2)', marginBottom: 16, textAlign: 'center' }}>
                   <div style={{ fontSize: 11, color: '#8FB897' }}>К выплате (нетто)</div>
                   <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: '#FFB800' }}>{formatSm(restaurantBalance(payTarget).pendingNet)}</div>
-                  <div style={{ fontSize: 11, color: '#3D6645', marginTop: 4 }}>Комиссия KAKAPO: {formatSm(restaurantBalance(payTarget).pendingCommission)}</div>
+                  <div style={{ fontSize: 11, color: '#3D6645', marginTop: 4 }}>Комиссия КАКАПО: {formatSm(restaurantBalance(payTarget).pendingCommission)}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                   {[{ id: 'cash', l: '💵 Наличные' }, { id: 'card', l: '💳 Карта' }, { id: 'transfer', l: '🏦 Перевод' }].map(m => (
@@ -4846,7 +4846,7 @@ function FinancePage() {
 
 /* ── НАСТРОЙКИ ──────────────────────────────────── */
 const DEFAULT_STORE_INFO = {
-  name: 'KAKAPO',
+  name: 'КАКАПО',
   city: 'г. Яван, Таджикистан',
   address: 'ул. Ленина, 42',
   phone1: '+992 118 55-97-97',
@@ -4858,7 +4858,7 @@ const DEFAULT_STORE_INFO = {
 
 const SETTINGS_QUICK_LINKS = [
   { id: 'tariff', icon: '🚚', label: 'Тариф доставки', sub: 'Цены · км · курьеры · OSRM', color: '#3B8EF0' },
-  { id: 'cards', icon: '💳', label: 'Карты лояльности', sub: 'KAKAPO-XXXX · бонусы · долги', color: '#FFB800' },
+  { id: 'cards', icon: '💳', label: 'Карты лояльности', sub: 'КАКАПО-XXXX · бонусы · долги', color: '#FFB800' },
   { id: 'pickups', icon: '📍', label: 'Точки забора', sub: 'Магазин и рестораны · GPS', color: '#1FD760' },
   { id: 'push', icon: '🔔', label: 'Push уведомления', sub: 'Рассылки клиентам', color: '#9B6DFF' },
 ]
@@ -4994,7 +4994,7 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
           </div>
           <div style={{padding:'14px 16px',borderRadius:14,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.2)'}}>
             <div className="ub" style={{fontSize:12,fontWeight:800,color:'#1FD760',marginBottom:10}}>📋 Инструкция GBS Market</div>
-            {['1. Откройте GBS Market на кассовом компьютере','2. Настройки → Интеграции → API','3. Поставить ✓ "Активировать JSON API"','4. Скопируйте IP кассы','5. Вставьте IP выше и нажмите "Проверить"','6. Включите тумблер — начнётся синхронизация','','Синхронизируется:','• Товары по артикулу KAK-XXXX','• Продажи по карте KAKAPO-XXXX','• Долги VIP клиентов','• История покупок'].map((s,i)=><div key={i} style={{fontSize:11,color:s===''?undefined:s.startsWith('•')?'#FFB800':'#8FB897',marginBottom:4,lineHeight:1.5,fontWeight:s.startsWith('Синх')||s===''?700:400}}>{s}</div>)}
+            {['1. Откройте GBS Market на кассовом компьютере','2. Настройки → Интеграции → API','3. Поставить ✓ "Активировать JSON API"','4. Скопируйте IP кассы','5. Вставьте IP выше и нажмите "Проверить"','6. Включите тумблер — начнётся синхронизация','','Синхронизируется:','• Товары по артикулу KAK-XXXX','• Продажи по карте КАКАПО-XXXX','• Долги VIP клиентов','• История покупок'].map((s,i)=><div key={i} style={{fontSize:11,color:s===''?undefined:s.startsWith('•')?'#FFB800':'#8FB897',marginBottom:4,lineHeight:1.5,fontWeight:s.startsWith('Синх')||s===''?700:400}}>{s}</div>)}
           </div>
         </div>
       )}
@@ -5061,7 +5061,7 @@ function DashboardPage({setPage}) {
       </div>
       {/* Revenue */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
-        {[{l:'Выручка магазин/день',v:'3 580 ЅМ',c:'#1FD760',e:'🛒'},{l:'Выручка рестораны/мес',v:`${totalRestRev.toLocaleString()} ЅМ`,c:'#FF8C00',e:'🍽'},{l:'Комиссия KAKAPO',v:`${totalComm.toLocaleString()} ЅМ`,c:'#FFB800',e:'💰'},{l:'Клиентов всего',v:'1 847',c:'#00D4C8',e:'👥'}].map((s,i)=>(
+        {[{l:'Выручка магазин/день',v:'3 580 ЅМ',c:'#1FD760',e:'🛒'},{l:'Выручка рестораны/мес',v:`${totalRestRev.toLocaleString()} ЅМ`,c:'#FF8C00',e:'🍽'},{l:'Комиссия КАКАПО',v:`${totalComm.toLocaleString()} ЅМ`,c:'#FFB800',e:'💰'},{l:'Клиентов всего',v:'1 847',c:'#00D4C8',e:'👥'}].map((s,i)=>(
           <div key={i} className="ac" style={{padding:16}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><div style={{fontSize:11,color:'#8FB897',fontWeight:600}}>{s.l}</div><span style={{fontSize:20}}>{s.e}</span></div>
             <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:s.c}}>{s.v}</div>
@@ -5233,7 +5233,7 @@ function TariffPage() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
           <span style={{ fontSize: 22 }}>📐</span>
-          <span className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#3B8EF0' }}>Формула доставки KAKAPO</span>
+          <span className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#3B8EF0' }}>Формула доставки КАКАПО</span>
         </div>
         Доставка = <b style={{ color: '#EBF5ED' }}>База ({t.base} ЅМ)</b> + (км − {t.baseDist}) × <b style={{ color: '#EBF5ED' }}>{t.perKm} ЅМ</b>
         {t.heavyExtra > 0 && <> + надбавка <b style={{ color: '#FFB800' }}>{t.heavyExtra} ЅМ</b> за груз &gt; {t.heavyKg} кг</>}
@@ -5364,7 +5364,7 @@ function TariffPage() {
           )}
           {tab === 'restaurants' && (
             <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.7 }}>
-              В <b style={{ color: '#FF8C00' }}>ресторанах</b> deliveryFee добавляется к сумме блюд. Комиссия KAKAPO считается отдельно в разделе Финансы.
+              В <b style={{ color: '#FF8C00' }}>ресторанах</b> deliveryFee добавляется к сумме блюд. Комиссия КАКАПО считается отдельно в разделе Финансы.
             </div>
           )}
           {tab === 'couriers' && (
@@ -5595,7 +5595,7 @@ function PickupsPage() {
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
               <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:10}}>
                 <FI lbl="Эмодзи" fld="e" ph="🏪"/>
-                <FI lbl="Название *" fld="name" ph="KAKAPO Магазин"/>
+                <FI lbl="Название *" fld="name" ph="КАКАПО Магазин"/>
               </div>
               <FI lbl="Цвет (hex)" fld="color" ph="#1FD760"/>
               <FI lbl="Адрес" fld="addr" ph="ул. Ленина, 42"/>
@@ -5912,7 +5912,7 @@ function AdminAppInner() {
     useProductPhotos.getState().hydrate();
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}

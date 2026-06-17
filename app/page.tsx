@@ -15,7 +15,7 @@ export default function PortalPage() {
       {/* Logo */}
       <div style={{ textAlign:'center', marginBottom:40 }}>
         <div style={{ width:72, height:72, borderRadius:22, background:'linear-gradient(135deg,#0F8A3A,#1FD760)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Unbounded, sans-serif', fontSize:30, fontWeight:900, color:'#030B05', margin:'0 auto 16px', boxShadow:'0 8px 32px rgba(31,215,96,.4)' }}>K</div>
-        <div style={{ fontFamily:'Unbounded, sans-serif', fontSize:26, fontWeight:900, background:'linear-gradient(135deg,#1FD760,#FFB800)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text', marginBottom:6 }}>KAKAPO</div>
+        <div style={{ fontFamily:'Unbounded, sans-serif', fontSize:26, fontWeight:900, background:'linear-gradient(135deg,#1FD760,#FFB800)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text', marginBottom:6 }}>КАКАПО</div>
         <div style={{ fontSize:13, color:'#8FB897' }}>Супермаркет + Маркетплейс · г. Яван, Таджикистан</div>
       </div>
 
@@ -55,7 +55,7 @@ export default function PortalPage() {
       </div>
 
       <div style={{ marginTop:20, fontSize:10, color:'#1D3822', textAlign:'center', lineHeight:1.8 }}>
-        KAKAPO v2.0 · Next.js 14 · TypeScript · Zustand<br/>
+        КАКАПО v2.0 · Next.js 14 · TypeScript · Zustand<br/>
         kakapo.tj · г. Яван, Таджикистан
       </div>
     </div>

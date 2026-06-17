@@ -10,9 +10,9 @@ import { enrichRestaurants } from '@/lib/enrichCatalog'
 import { api } from '@/lib/api'
 import type { Review } from '@/lib/types'
 import Link from 'next/link'
-// ─── KAKAPO Restaurant App ───────────────────────
+// ─── КАКАПО Restaurant App ───────────────────────
 /* ══════════════════════════════════════════════════════
-   KAKAPO RESTAURANT — Приложение для партнёров
+   КАКАПО RESTAURANT — Приложение для партнёров
    Отдельное приложение для управления рестораном
    г. Яван, Таджикистан
 ══════════════════════════════════════════════════════ */
@@ -363,7 +363,7 @@ function LoginPage({onLogin}) {
       <div style={{minHeight:'100vh',background:'#030B05',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24,maxWidth:480,margin:'0 auto'}}>
         <div style={{textAlign:'center',marginBottom:32}}>
           <div style={{width:72,height:72,borderRadius:22,background:'linear-gradient(135deg,#0F3020,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:36,margin:'0 auto 14px',animation:'glow 3s ease-in-out infinite',boxShadow:'0 8px 28px rgba(31,215,96,.4)'}}>🍽</div>
-          <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,background:'linear-gradient(135deg,#1FD760,#FFB800)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text',marginBottom:4}}>KAKAPO Ресторан</div>
+          <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,background:'linear-gradient(135deg,#1FD760,#FFB800)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text',marginBottom:4}}>КАКАПО Ресторан</div>
           <div style={{fontSize:12,color:'#8FB897'}}>Кабинет партнёра · г. Яван</div>
         </div>
 
@@ -387,7 +387,7 @@ function LoginPage({onLogin}) {
             </button>
           </form>
         </div>
-        <div style={{marginTop:20,fontSize:11,color:'#3D6645',textAlign:'center'}}>KAKAPO Restaurant v1.0 · Только для партнёров</div>
+        <div style={{marginTop:20,fontSize:11,color:'#3D6645',textAlign:'center'}}>КАКАПО Restaurant v1.0 · Только для партнёров</div>
       </div>
     </>
   );
@@ -518,7 +518,7 @@ function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOp
           <div>
             <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Выручка сегодня</div>
             <div style={{fontFamily:'Unbounded',fontSize:30,fontWeight:900,color:'#1FD760'}}>{revenue} <span style={{fontSize:16,color:'#FFB800'}}>ЅМ</span></div>
-            <div style={{fontSize:11,color:'#3D6645',marginTop:4}}>Комиссия KAKAPO ({rest?.commission}%): <span style={{color:'#FF4545'}}>−{Math.round(revenue*rest?.commission/100)} ЅМ</span></div>
+            <div style={{fontSize:11,color:'#3D6645',marginTop:4}}>Комиссия КАКАПО ({rest?.commission}%): <span style={{color:'#FF4545'}}>−{Math.round(revenue*rest?.commission/100)} ЅМ</span></div>
           </div>
           <div style={{textAlign:'right'}}>
             <div style={{fontSize:11,color:'#8FB897',marginBottom:4}}>Ваш доход · ★ {avgReview}</div>
@@ -912,7 +912,7 @@ function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge
                 "{rev.text || 'Без комментария'}"
               </div>
               {rev.adminReply && (
-                <div style={{ fontSize: 11, color: '#3B8EF0', marginBottom: 8, padding: '8px 10px', background: 'rgba(59,142,240,.08)', borderRadius: 8 }}>💬 KAKAPO: {rev.adminReply}</div>
+                <div style={{ fontSize: 11, color: '#3B8EF0', marginBottom: 8, padding: '8px 10px', background: 'rgba(59,142,240,.08)', borderRadius: 8 }}>💬 КАКАПО: {rev.adminReply}</div>
               )}
               {rev.restReply && (
                 <div style={{ fontSize: 11, color: '#1FD760', marginBottom: 8, padding: '8px 10px', background: 'rgba(31,215,96,.08)', borderRadius: 8 }}>✓ Ваш ответ: {rev.restReply}</div>
@@ -973,7 +973,7 @@ function StatsPage({rest, orders, onPage, reviewBadge = 0}) {
               <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:'#1FD760'}}>{myShare} ЅМ</div>
             </div>
             <div style={{background:'rgba(255,69,69,.08)',borderRadius:12,padding:'12px',border:'1px solid rgba(255,69,69,.2)'}}>
-              <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Комиссия KAKAPO {rest?.commission}%</div>
+              <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Комиссия КАКАПО {rest?.commission}%</div>
               <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:'#FF4545'}}>{commission} ЅМ</div>
             </div>
           </div>
@@ -1091,11 +1091,11 @@ function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout, reviewBadge
         <div style={{background:'rgba(255,69,69,.06)',border:'1px solid rgba(255,69,69,.2)',borderRadius:16,padding:'16px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,color:'#FF4545',marginBottom:10}}>Условия договора</div>
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-            <span style={{fontSize:12,color:'#8FB897'}}>Комиссия KAKAPO</span>
+            <span style={{fontSize:12,color:'#8FB897'}}>Комиссия КАКАПО</span>
             <span style={{fontSize:13,fontWeight:800,color:'#FF4545'}}>{rest?.commission}%</span>
           </div>
           <div style={{fontSize:11,color:'#3D6645',lineHeight:1.6}}>
-            С каждого заказа KAKAPO удерживает {rest?.commission}% как комиссию за платформу, маркетинг и доставку. Вопросы: +992 118 55-97-97
+            С каждого заказа КАКАПО удерживает {rest?.commission}% как комиссию за платформу, маркетинг и доставку. Вопросы: +992 118 55-97-97
           </div>
         </div>
 

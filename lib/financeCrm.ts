@@ -285,7 +285,7 @@ th{background:#f5f5f5}
 @media print{body{padding:0}}
 </style></head><body>
 <h1>${title}</h1>
-<p>KAKAPO · ${new Date().toLocaleString('ru-RU')}</p>
+<p>КАКАПО · ${new Date().toLocaleString('ru-RU')}</p>
 ${htmlBody}
 <script>window.onload=function(){window.print()}</script>
 </body></html>`)

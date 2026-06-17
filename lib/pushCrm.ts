@@ -68,10 +68,10 @@ export const PUSH_SEGMENT_OPTIONS: { id: PushSegmentId; label: string; emoji: st
   { id: 'vip', label: 'VIP клиенты', emoji: '💎', hint: 'Platinum + кредитный лимит' },
   { id: 'gold_plus', label: 'Gold и выше', emoji: '🥇', hint: 'Gold и Platinum уровни' },
   { id: 'rest', label: 'Посетители ресторанов', emoji: '🍽', hint: 'Заказывали из ресторанов' },
-  { id: 'market', label: 'Покупатели магазина', emoji: '🛒', hint: 'Заказывали из KAKAPO Market' },
+  { id: 'market', label: 'Покупатели магазина', emoji: '🛒', hint: 'Заказывали из КАКАПО Market' },
   { id: 'inactive', label: 'Неактивные 30+ дней', emoji: '💤', hint: 'Давно не делали заказ' },
   { id: 'debt', label: 'Клиенты с долгом', emoji: '💳', hint: 'Есть непогашенный долг по карте' },
-  { id: 'no_card', label: 'Без карты', emoji: '🎴', hint: 'Ещё не получили KAKAPO-карту' },
+  { id: 'no_card', label: 'Без карты', emoji: '🎴', hint: 'Ещё не получили КАКАПО-карту' },
 ]
 
 export const PUSH_SEGMENT_LABELS: Record<PushSegmentId, string> = Object.fromEntries(
@@ -80,7 +80,7 @@ export const PUSH_SEGMENT_LABELS: Record<PushSegmentId, string> = Object.fromEnt
 
 export const DEFAULT_PUSH_TEMPLATES: PushTemplate[] = [
   { id: 't1', emoji: '🔥', title: 'Акция дня!', body: 'Скидки до 40% только сегодня! Заходите в приложение →', segment: 'all' },
-  { id: 't2', emoji: '🍽', title: 'Новый ресторан!', body: 'Суши Яван теперь в KAKAPO — доставка за 30 минут!' },
+  { id: 't2', emoji: '🍽', title: 'Новый ресторан!', body: 'Суши Яван теперь в КАКАПО — доставка за 30 минут!' },
   { id: 't3', emoji: '🎁', title: 'Бонусы истекают', body: 'Ваши бонусы сгорят через 3 дня. Потратьте их в магазине!', segment: 'gold_plus' },
   { id: 't4', emoji: '🚀', title: 'Бесплатная доставка', body: 'Сегодня доставляем бесплатно при любом заказе 🎉' },
   { id: 't5', emoji: '⭐', title: 'Оцените заказ', body: 'Расскажите как прошла доставка — нам важно ваше мнение!' },
@@ -125,7 +125,7 @@ export const DEFAULT_PUSH_HISTORY: PushCampaign[] = [
   {
     id: 'h-demo-3',
     title: 'Новый ресторан!',
-    body: 'Суши Яван теперь в KAKAPO',
+    body: 'Суши Яван теперь в КАКАПО',
     segment: 'all',
     segmentLabel: 'Все клиенты',
     icon: '🍽',

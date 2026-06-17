@@ -323,7 +323,7 @@ export function syncReviewReplyNotifications(reviews: Review[], ownerPhone?: str
     if (r.adminReply && r.adminReply !== prev.admin) {
       const n = makeNotification({
         icon: '💬',
-        title: 'Ответ KAKAPO на ваш отзыв',
+        title: 'Ответ КАКАПО на ваш отзыв',
         body: r.orderId
           ? `${r.restName || 'Ресторан'} · заказ ${r.orderId}: ${r.adminReply.slice(0, 100)}`
           : r.adminReply.slice(0, 120),

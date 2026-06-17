@@ -34,7 +34,7 @@ const RESTAURANTS = [
 ]
 
 const PICKUPS = [
-  { id: 'store', type: 'store', e: '🏪', color: '#1FD760', name: 'KAKAPO Магазин', addr: 'ул. Ленина, 42', phone: '+992 11 855-97-97', lat: 38.325, lng: 69.025, active: true },
+  { id: 'store', type: 'store', e: '🏪', color: '#1FD760', name: 'КАКАПО Магазин', addr: 'ул. Ленина, 42', phone: '+992 11 855-97-97', lat: 38.325, lng: 69.025, active: true },
   { id: 'rest1', type: 'rest', e: '🍖', color: '#FF8C00', name: 'Чайхона Оромгох', addr: 'ул. Рудаки, 15', phone: '+992 93 111-22-33', lat: 38.332, lng: 69.015, active: true },
   { id: 'rest2', type: 'rest', e: '🍕', color: '#FF4545', name: 'Пицца Яван', addr: 'ул. Ленина, 28', phone: '+992 90 222-33-44', lat: 38.323, lng: 69.03, active: true },
   { id: 'rest3', type: 'rest', e: '🍣', color: '#3B8EF0', name: 'Суши Яван', addr: 'ул. Сомони, 8', phone: '+992 91 333-44-55', lat: 38.315, lng: 69.032, active: true },
@@ -54,21 +54,21 @@ export const ASSEMBLERS = [
 ]
 
 export const DEFAULT_CLIENTS = [
-  { id: 'U-01', name: 'Диловар Рахимов', phone: '+992 93 456 78 90', email: '', addr: 'ул. Ленина, 42', card: 'KAKAPO-0001', level: 'platinum', orders: 87, spent: 3420, debt: 1200, bonus: 4850, debtLimit: 3000, blocked: false, createdAt: '2024-01-12' },
-  { id: 'U-02', name: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', email: '', addr: 'ул. Сомони, 12', card: 'KAKAPO-0042', level: 'gold', orders: 43, spent: 1890, debt: 0, bonus: 1240, debtLimit: 1000, blocked: false, createdAt: '2024-03-05' },
-  { id: 'U-03', name: 'Бахром Каримов', phone: '+992 88 789 01 23', email: '', addr: 'мкр. Мирный, 5', card: 'KAKAPO-0118', level: 'silver', orders: 28, spent: 980, debt: 0, bonus: 560, debtLimit: 0, blocked: false, createdAt: '2024-06-18' },
-  { id: 'U-04', name: 'Зафар Мирзоев', phone: '+992 91 654 32 10', email: '', addr: 'ул. Рудаки, 8', card: 'KAKAPO-0234', level: 'gold', orders: 56, spent: 2340, debt: 4500, bonus: 2100, debtLimit: 2000, blocked: false, createdAt: '2023-11-02' },
+  { id: 'U-01', name: 'Диловар Рахимов', phone: '+992 93 456 78 90', email: '', addr: 'ул. Ленина, 42', card: 'КАКАПО-0001', level: 'platinum', orders: 87, spent: 3420, debt: 1200, bonus: 4850, debtLimit: 3000, blocked: false, createdAt: '2024-01-12' },
+  { id: 'U-02', name: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', email: '', addr: 'ул. Сомони, 12', card: 'КАКАПО-0042', level: 'gold', orders: 43, spent: 1890, debt: 0, bonus: 1240, debtLimit: 1000, blocked: false, createdAt: '2024-03-05' },
+  { id: 'U-03', name: 'Бахром Каримов', phone: '+992 88 789 01 23', email: '', addr: 'мкр. Мирный, 5', card: 'КАКАПО-0118', level: 'silver', orders: 28, spent: 980, debt: 0, bonus: 560, debtLimit: 0, blocked: false, createdAt: '2024-06-18' },
+  { id: 'U-04', name: 'Зафар Мирзоев', phone: '+992 91 654 32 10', email: '', addr: 'ул. Рудаки, 8', card: 'КАКАПО-0234', level: 'gold', orders: 56, spent: 2340, debt: 4500, bonus: 2100, debtLimit: 2000, blocked: false, createdAt: '2023-11-02' },
   { id: 'U-05', name: 'Мадина Оразова', phone: '+992 93 321 65 43', email: '', addr: 'ул. Ленина, 18', card: '', level: 'silver', orders: 12, spent: 640, debt: 0, bonus: 120, debtLimit: 0, blocked: false, createdAt: '2025-01-20' },
-  { id: 'U-06', name: 'Рустам Давлатов', phone: '+992 90 445 23 11', email: '', addr: 'ул. Сомони, 5', card: 'KAKAPO-0055', level: 'gold', orders: 34, spent: 1560, debt: 0, bonus: 890, debtLimit: 0, blocked: true, createdAt: '2024-08-09', note: 'Злоупотребление возвратами' },
+  { id: 'U-06', name: 'Рустам Давлатов', phone: '+992 90 445 23 11', email: '', addr: 'ул. Сомони, 5', card: 'КАКАПО-0055', level: 'gold', orders: 34, spent: 1560, debt: 0, bonus: 890, debtLimit: 0, blocked: true, createdAt: '2024-08-09', note: 'Злоупотребление возвратами' },
 ]
 
 export const DEFAULT_CARDS = [
-  { num: 'KAKAPO-0001', client: 'Диловар Рахимов', phone: '+992 93 456 78 90', status: 'active', level: 'platinum', bonus: 4850, debtLimit: 3000, debt: 1200 },
-  { num: 'KAKAPO-0042', client: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', status: 'active', level: 'gold', bonus: 1240, debtLimit: 1000, debt: 0 },
-  { num: 'KAKAPO-0118', client: 'Бахром Каримов', phone: '+992 88 789 01 23', status: 'active', level: 'silver', bonus: 560, debtLimit: 0, debt: 0 },
-  { num: 'KAKAPO-0099', client: '', phone: '', status: 'unlinked', level: '', bonus: 0, debtLimit: 0, debt: 0 },
-  { num: 'KAKAPO-0234', client: 'Зафар Мирзоев', phone: '+992 91 654 32 10', status: 'active', level: 'gold', bonus: 2100, debtLimit: 2000, debt: 4500 },
-  { num: 'KAKAPO-0055', client: 'Рустам Давлатов', phone: '+992 90 445 23 11', status: 'blocked', level: 'gold', bonus: 890, debtLimit: 0, debt: 0 },
+  { num: 'КАКАПО-0001', client: 'Диловар Рахимов', phone: '+992 93 456 78 90', status: 'active', level: 'platinum', bonus: 4850, debtLimit: 3000, debt: 1200 },
+  { num: 'КАКАПО-0042', client: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', status: 'active', level: 'gold', bonus: 1240, debtLimit: 1000, debt: 0 },
+  { num: 'КАКАПО-0118', client: 'Бахром Каримов', phone: '+992 88 789 01 23', status: 'active', level: 'silver', bonus: 560, debtLimit: 0, debt: 0 },
+  { num: 'КАКАПО-0099', client: '', phone: '', status: 'unlinked', level: '', bonus: 0, debtLimit: 0, debt: 0 },
+  { num: 'КАКАПО-0234', client: 'Зафар Мирзоев', phone: '+992 91 654 32 10', status: 'active', level: 'gold', bonus: 2100, debtLimit: 2000, debt: 4500 },
+  { num: 'КАКАПО-0055', client: 'Рустам Давлатов', phone: '+992 90 445 23 11', status: 'blocked', level: 'gold', bonus: 890, debtLimit: 0, debt: 0 },
 ]
 
 export const DEFAULT_REVIEWS = [
@@ -100,7 +100,7 @@ export function seedIfEmpty() {
   db.clients = DEFAULT_CLIENTS.map(c => ({ ...c }))
   db.cards = DEFAULT_CARDS.map(c => ({ ...c }))
   db.users = [
-    { id: 1, email: 'admin@kakapo.tj', password: 'admin123', role: 'admin', name: 'Админ KAKAPO' },
+    { id: 1, email: 'admin@kakapo.tj', password: 'admin123', role: 'admin', name: 'Админ КАКАПО' },
     { id: 2, email: 'chaihona@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Чайхона' },
     { id: 3, email: 'pizza@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Пицца Яван' },
   ]

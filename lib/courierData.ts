@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════
-   KAKAPO — маршруты (OSRM) + расчёт доставки
+   КАКАПО — маршруты (OSRM) + расчёт доставки
 ══════════════════════════════════════════════════════ */
 
 import { DEFAULT_PICKUPS, pickupsToLocationMap, type PickupLocationMap } from './pickups';
@@ -7,7 +7,7 @@ import { DEFAULT_PICKUPS, pickupsToLocationMap, type PickupLocationMap } from '.
 export const STORE_LOCATION = {
   lat: 38.3250,
   lng: 69.0250,
-  name: 'KAKAPO Магазин',
+  name: 'КАКАПО Магазин',
   addr: 'ул. Ленина, 42',
 };
 

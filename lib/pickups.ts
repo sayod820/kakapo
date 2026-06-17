@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════
-   KAKAPO — точки забора (общие для всех приложений)
+   КАКАПО — точки забора (общие для всех приложений)
 ══════════════════════════════════════════════════════ */
 
 export interface PickupPoint {
@@ -18,7 +18,7 @@ export interface PickupPoint {
 export type PickupLocationMap = Record<string, { lat: number; lng: number; name: string }>;
 
 export const DEFAULT_PICKUPS: PickupPoint[] = [
-  { id: 'store', type: 'store', e: '🏪', color: '#1FD760', name: 'KAKAPO Магазин', addr: 'ул. Ленина, 42', phone: '+992 11 855-97-97', lat: 38.3250, lng: 69.0250, active: true },
+  { id: 'store', type: 'store', e: '🏪', color: '#1FD760', name: 'КАКАПО Магазин', addr: 'ул. Ленина, 42', phone: '+992 11 855-97-97', lat: 38.3250, lng: 69.0250, active: true },
   { id: 'rest1', type: 'rest', e: '🍖', color: '#FF8C00', name: 'Чайхона Оромгох', addr: 'ул. Рудаки, 15', phone: '+992 93 111-22-33', lat: 38.3320, lng: 69.0150, active: true },
   { id: 'rest2', type: 'rest', e: '🍕', color: '#FF4545', name: 'Пицца Яван', addr: 'ул. Ленина, 28', phone: '+992 90 222-33-44', lat: 38.3230, lng: 69.0300, active: true },
   { id: 'rest3', type: 'rest', e: '🍣', color: '#3B8EF0', name: 'Суши Яван', addr: 'ул. Сомони, 8', phone: '+992 91 333-44-55', lat: 38.3150, lng: 69.0320, active: true },

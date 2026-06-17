@@ -8,9 +8,9 @@ import { useAppNavigation } from '@/lib/useAppNavigation'
 import { useApiSync } from '@/lib/useApiSync'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import Link from 'next/link'
-// ─── KAKAPO Assembler App ────────────────────────
+// ─── КАКАПО Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
-   KAKAPO СБОРЩИК — Приложение для сборки заказов
+   КАКАПО СБОРЩИК — Приложение для сборки заказов
    г. Яван, Таджикистан · PIN: 5678
 ══════════════════════════════════════════════════════ */
 // React hooks imported above
@@ -226,7 +226,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
     <div style={{ minHeight:'100vh', background:'#030B05', maxWidth:480, margin:'0 auto', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24 }}>
       <div style={{ textAlign:'center', marginBottom:28 }}>
         <div style={{ fontSize:52, marginBottom:14 }}>📦</div>
-        <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#9B6DFF', marginBottom:4 }}>Сборщик KAKAPO</div>
+        <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#9B6DFF', marginBottom:4 }}>Сборщик КАКАПО</div>
         <div style={{ fontSize:12, color:'#8FB897' }}>Введите PIN код</div>
       </div>
       <div style={{ width:'100%', maxWidth:340, background:'#091508', border:'1px solid #162B1A', borderRadius:20, padding:24 }}>
@@ -677,7 +677,7 @@ function StatsPage({onPage, completed}) {
           <div style={{width:56,height:56,borderRadius:18,background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:'white',flexShrink:0,boxShadow:'0 6px 20px rgba(155,109,255,.4)'}}>{ASSEMBLER.avatar}</div>
           <div style={{flex:1}}>
             <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,marginBottom:2}}>{ASSEMBLER.name}</div>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Сборщик · KAKAPO Яван</div>
+            <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Сборщик · КАКАПО Яван</div>
             <div style={{display:'flex',gap:8}}>
               <span style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(31,215,96,.12)',color:'#1FD760',border:'1px solid rgba(31,215,96,.25)'}}>★ 4.9 рейтинг</span>
               <span style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(155,109,255,.12)',color:'#9B6DFF',border:'1px solid rgba(155,109,255,.25)'}}>Топ сборщик</span>

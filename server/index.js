@@ -149,11 +149,11 @@ app.get('/health', (_req, res) => res.json({
 
 app.get('/', (_req, res) => {
   res.type('html').send(`<!DOCTYPE html>
-<html lang="ru"><head><meta charset="utf-8"><title>KAKAPO API</title>
+<html lang="ru"><head><meta charset="utf-8"><title>КАКАПО API</title>
 <style>body{font-family:system-ui;background:#030B05;color:#EBF5ED;padding:40px;max-width:520px;margin:0 auto}
 h1{color:#1FD760}a{color:#1FD760}code{background:#0C1C0F;padding:2px 8px;border-radius:6px}</style></head>
 <body>
-<h1>✅ KAKAPO Backend работает</h1>
+<h1>✅ КАКАПО Backend работает</h1>
 <p>Это <strong>API сервер</strong>, не интерфейс приложения.</p>
 <p>Откройте <strong>frontend</strong> (в другом терминале: <code>npm run dev</code>):</p>
 <p><a href="http://localhost:3000">http://localhost:3000</a> — портал</p>
@@ -585,7 +585,7 @@ app.post('/cards/generate', (req, res) => {
   for (let i = 0; i < count; i++) {
     const nums = db.cards.map(c => parseInt(String(c.num).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
     const n = (nums.length ? Math.max(...nums) : 0) + 1
-    const num = `KAKAPO-${String(n).padStart(4, '0')}`
+    const num = `КАКАПО-${String(n).padStart(4, '0')}`
     const row = normalizeCardRow({
       num,
       client: '',
@@ -816,7 +816,7 @@ httpServer.on('upgrade', (req, socket, head) => {
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   const dataPath = process.env.DATA_DIR ? `${process.env.DATA_DIR}/kakapo.json` : 'data/kakapo.json'
-  console.log(`\n✅ KAKAPO Backend: http://0.0.0.0:${PORT}`)
+  console.log(`\n✅ КАКАПО Backend: http://0.0.0.0:${PORT}`)
   console.log(`   База: ${dataPath}`)
   console.log(`   Health: http://0.0.0.0:${PORT}/health\n`)
 })

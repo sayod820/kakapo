@@ -65,7 +65,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="KAKAPO API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="КАКАПО API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

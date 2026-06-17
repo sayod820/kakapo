@@ -60,7 +60,7 @@ export default function RouteMiniMap({
         L.polyline(geometry, { color: '#1FD760', weight: 4, opacity: 0.9 }).addTo(map);
         L.circleMarker(geometry[0], {
           radius: 8, color: '#1FD760', fillColor: '#1FD760', fillOpacity: 1,
-        }).addTo(map).bindTooltip('KAKAPO', { permanent: false });
+        }).addTo(map).bindTooltip('КАКАПО', { permanent: false });
         L.circleMarker(geometry[geometry.length - 1], {
           radius: 8, color: '#3B8EF0', fillColor: '#3B8EF0', fillOpacity: 1,
         }).addTo(map).bindTooltip('Клиент', { permanent: false });

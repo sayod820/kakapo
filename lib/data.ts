@@ -111,19 +111,19 @@ export const ASSEMBLERS: Assembler[] = [
 
 // ── КЛИЕНТЫ ──────────────────────────────────────
 export const CLIENTS: Client[] = [
-  {id:'U-01',name:'Диловар Рахимов',  phone:'+992 93 456 78 90',card:'KAKAPO-0001',level:'platinum',orders:87,spent:3420,debt:1200,bonus:4850},
-  {id:'U-02',name:'Нилуфар Хасанова', phone:'+992 90 123 45 67',card:'KAKAPO-0042',level:'gold',    orders:43,spent:1890,debt:0,   bonus:1240},
-  {id:'U-03',name:'Бахром Каримов',   phone:'+992 88 789 01 23',card:'KAKAPO-0118',level:'silver',  orders:28,spent:980, debt:0,   bonus:560},
-  {id:'U-04',name:'Зафар Мирзоев',    phone:'+992 91 654 32 10',card:'KAKAPO-0234',level:'gold',    orders:56,spent:2340,debt:4500,bonus:2100},
+  {id:'U-01',name:'Диловар Рахимов',  phone:'+992 93 456 78 90',card:'КАКАПО-0001',level:'platinum',orders:87,spent:3420,debt:1200,bonus:4850},
+  {id:'U-02',name:'Нилуфар Хасанова', phone:'+992 90 123 45 67',card:'КАКАПО-0042',level:'gold',    orders:43,spent:1890,debt:0,   bonus:1240},
+  {id:'U-03',name:'Бахром Каримов',   phone:'+992 88 789 01 23',card:'КАКАПО-0118',level:'silver',  orders:28,spent:980, debt:0,   bonus:560},
+  {id:'U-04',name:'Зафар Мирзоев',    phone:'+992 91 654 32 10',card:'КАКАПО-0234',level:'gold',    orders:56,spent:2340,debt:4500,bonus:2100},
 ]
 
 // ── КАРТЫ ────────────────────────────────────────
 export const DEMO_CARDS = [
-  {num:'KAKAPO-0001',client:'Диловар Рахимов',  status:'active', level:'platinum',bonus:4850,debtLimit:3000,debt:1200},
-  {num:'KAKAPO-0042',client:'Нилуфар Хасанова', status:'active', level:'gold',    bonus:1240,debtLimit:1000,debt:0},
-  {num:'KAKAPO-0118',client:'Бахром Каримов',   status:'active', level:'silver',  bonus:560, debtLimit:0,   debt:0},
-  {num:'KAKAPO-0099',client:'',                  status:'unlinked',level:'',       bonus:0,   debtLimit:0,   debt:0},
-  {num:'KAKAPO-0234',client:'Зафар Мирзоев',    status:'active', level:'gold',    bonus:2100,debtLimit:2000,debt:4500},
+  {num:'КАКАПО-0001',client:'Диловар Рахимов',  status:'active', level:'platinum',bonus:4850,debtLimit:3000,debt:1200},
+  {num:'КАКАПО-0042',client:'Нилуфар Хасанова', status:'active', level:'gold',    bonus:1240,debtLimit:1000,debt:0},
+  {num:'КАКАПО-0118',client:'Бахром Каримов',   status:'active', level:'silver',  bonus:560, debtLimit:0,   debt:0},
+  {num:'КАКАПО-0099',client:'',                  status:'unlinked',level:'',       bonus:0,   debtLimit:0,   debt:0},
+  {num:'КАКАПО-0234',client:'Зафар Мирзоев',    status:'active', level:'gold',    bonus:2100,debtLimit:2000,debt:4500},
 ]
 
 // ── CREDENTIALS ──────────────────────────────────

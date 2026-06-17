@@ -209,7 +209,7 @@ const Header = ({ title, back, go, cart }) => {
             <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
           ) : (
             <>
-              <div className="ub" style={{ fontSize:16, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>KAKAPO</div>
+              <div className="ub" style={{ fontSize:16, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>КАКАПО</div>
               <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:1 }}>
                 <div style={{ width:5, height:5, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>
                 <span style={{ fontSize:10, color:"var(--t2)" }}>г. Яван · Доставка 45 мин</span>
@@ -426,7 +426,7 @@ function ClientReviewBlock({ review, orderId, embedded }: { review: Review; orde
       )}
       {review.adminReply && (
         <div style={{ fontSize: 12, color: "var(--blue)", marginBottom: review.restReply ? 8 : 0, padding: "10px 12px", background: "rgba(59,142,240,.08)", borderRadius: 10, border: "1px solid rgba(59,142,240,.2)", lineHeight: 1.5 }}>
-          <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 4, color: "var(--blue)" }}>💬 Ответ KAKAPO</div>
+          <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 4, color: "var(--blue)" }}>💬 Ответ КАКАПО</div>
           {review.adminReply}
         </div>
       )}
@@ -1031,7 +1031,8 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
   const total = sub - disc;
   const tqty  = items.length;
   const applyPromo = () => {
-    if (promo.toUpperCase() === "KAKAPO10") { setPromoOk(true); setPromoErr(false); }
+    const p = promo.trim().toUpperCase()
+    if (p === "КАКАПО10" || p === "KAKAPO10") { setPromoOk(true); setPromoErr(false); }
     else { setPromoErr(true); setTimeout(() => setPromoErr(false), 2200); }
   };
   return (
@@ -1086,8 +1087,8 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
                 {promoOk ? <Ic n="check" s={16} c="white" w={2.5}/> : "Применить"}
               </button>
             </div>
-            {promoOk && <div style={{ marginTop:7, fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:5 }}><Ic n="check" s={11} c="var(--gr)" w={2.5}/>KAKAPO10 — скидка 10% применена!</div>}
-            {promoErr && <div style={{ marginTop:7, fontSize:11, color:"var(--red)", fontWeight:700 }}>✗ Неверный промокод. Попробуйте KAKAPO10</div>}
+            {promoOk && <div style={{ marginTop:7, fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:5 }}><Ic n="check" s={11} c="var(--gr)" w={2.5}/>КАКАПО10 — скидка 10% применена!</div>}
+            {promoErr && <div style={{ marginTop:7, fontSize:11, color:"var(--red)", fontWeight:700 }}>✗ Неверный промокод. Попробуйте КАКАПО10</div>}
           </div>
           <div className="card" style={{ padding:"16px", marginBottom:14 }}>
             {[{l:`Товары (${tqty} шт)`,v:`${sub.toFixed(2)} ЅМ`,c:"var(--t1)"},...(promoOk?[{l:"Промокод -10%",v:`−${disc.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[])].map((r,i) => (
@@ -1589,7 +1590,7 @@ const AuthPage = ({ go, setUser }) => {
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", padding:"40px 24px" }}>
       <div style={{ textAlign:"center", marginBottom:28 }}>
         <div style={{ width:68, height:68, borderRadius:20, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:28, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 8px 32px rgba(31,215,96,.4)", margin:"0 auto 14px" }}>K</div>
-        <div className="ub" style={{ fontSize:18, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>KAKAPO</div>
+        <div className="ub" style={{ fontSize:18, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>КАКАПО</div>
         <div style={{ fontSize:11, color:"var(--t2)", marginTop:3 }}>г. Яван, Таджикистан</div>
       </div>
       <div style={{ display:"flex", gap:0, background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:15, padding:4, marginBottom:24 }}>
@@ -1598,7 +1599,7 @@ const AuthPage = ({ go, setUser }) => {
         ))}
       </div>
       <div className="ub" style={{ fontSize:20, fontWeight:900, marginBottom:6 }}>{mode==="login"?"Добро пожаловать!":"Создать аккаунт"}</div>
-      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:22, lineHeight:1.6 }}>{mode==="login"?"Введите номер — пришлём SMS с кодом":"Создайте аккаунт KAKAPO Club"}</div>
+      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:22, lineHeight:1.6 }}>{mode==="login"?"Введите номер — пришлём SMS с кодом":"Создайте аккаунт КАКАПО Club"}</div>
       <div style={{ marginBottom:mode==="register"?14:20 }}>
         <div style={{ fontSize:11, color:"var(--t2)", marginBottom:7, fontWeight:700 }}>Номер телефона</div>
         <div style={{ position:"relative" }}>
@@ -1702,7 +1703,7 @@ const ProfilePage = ({ go, user, setUser }) => {
           {!showQR ? (
             <>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
-                <div><div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gr)", marginBottom:2 }}>KAKAPO</div><div style={{ fontSize:10, color:"var(--t3)" }}>Бонусная карта · г. Яван</div></div>
+                <div><div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gr)", marginBottom:2 }}>КАКАПО</div><div style={{ fontSize:10, color:"var(--t3)" }}>Бонусная карта · г. Яван</div></div>
                 <div style={{ width:38, height:38, borderRadius:11, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--bg)" }}>K</div>
               </div>
               <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:14 }}>
@@ -1731,7 +1732,7 @@ const ProfilePage = ({ go, user, setUser }) => {
             {icon:"star",l:"Отзывы",s:reviewStats.count ? `${reviewStats.count} отзыв${reviewStats.count===1?'':reviewStats.count<5?'а':'ов'}${reviewStats.withReplies ? ' · есть ответы' : ''}` : "Оставьте отзыв после доставки",c:"var(--gd)",to:"reviews",badge:reviewStats.withReplies},
           ]},
           {title:"VIP",items:[{icon:"crown",l:"VIP Профиль",s:"Platinum · кредит · менеджер",c:"var(--gd)",to:"vip"},{icon:"zap",l:"Мои привилегии",s:"8 VIP преимуществ",c:"var(--pur)"}]},
-          {title:"Настройки",items:[{icon:"bell",l:"Уведомления",s:"Push, SMS",c:"var(--gd)",tog:true,tv:notif,ts:setNotif},{icon:"map",l:"Адреса доставки",s:"2 адреса",c:"var(--blue)",to:"addresses"},{icon:"shield",l:"Конфиденциальность",c:"var(--sky)"},{icon:"help",l:"Помощь / FAQ",c:"var(--gr)",to:"faq"},{icon:"info",l:"О KAKAPO",s:"История, магазины, команда",c:"var(--sky)",to:"about"}]},
+          {title:"Настройки",items:[{icon:"bell",l:"Уведомления",s:"Push, SMS",c:"var(--gd)",tog:true,tv:notif,ts:setNotif},{icon:"map",l:"Адреса доставки",s:"2 адреса",c:"var(--blue)",to:"addresses"},{icon:"shield",l:"Конфиденциальность",c:"var(--sky)"},{icon:"help",l:"Помощь / FAQ",c:"var(--gr)",to:"faq"},{icon:"info",l:"О КАКАПО",s:"История, магазины, команда",c:"var(--sky)",to:"about"}]},
           {title:"Ещё",items:[{icon:"repeat",l:"Реферальная программа",s:"Пригласи друга — получи бонусы",c:"var(--gr)",to:"referral"},{icon:"msg",l:"Чат с поддержкой",s:"Онлайн · г. Яван",c:"var(--blue)",to:"chat"}]},
           {title:"Партнёрам",items:[{icon:"truck",l:"Кабинет курьера",s:"Доставка заказов",c:"var(--gr)",to:"courier_login"},{icon:"bag",l:"Кабинет сборщика",s:"Сборка заказов",c:"var(--pur)",to:"assembler_login"},{icon:"crown",l:"Кабинет ресторана",s:"Меню и заказы",c:"var(--org)",to:"partner_login"}]},
           {title:"Администратор",items:[{icon:"shield",l:"Панель управления",s:"Товары, заказы, карты, настройки",c:"var(--gd)",to:"admin_dash"}]},
@@ -1760,7 +1761,7 @@ const ProfilePage = ({ go, user, setUser }) => {
             <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:"var(--red)" }}>Выйти из аккаунта</div></div>
           </div>
         </div>
-        <div style={{ textAlign:"center", marginTop:14, fontSize:10, color:"var(--t3)" }}>KAKAPO v1.0.0 · г. Яван, Таджикистан</div>
+        <div style={{ textAlign:"center", marginTop:14, fontSize:10, color:"var(--t3)" }}>КАКАПО v1.0.0 · г. Яван, Таджикистан</div>
       </div>
       <Nav page="profile" go={go}/>
     </div>
@@ -2277,7 +2278,7 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
           <div>
             <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>🏷 Промокоды</div>
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
-              {[{code:"KAKAPO10",desc:"Скидка 10% на первый заказ",e:"🎉",expires:"31 мая"},{code:"YAVAN5",desc:"5 ЅМ для жителей Явана",e:"📍",expires:"30 мая"},{code:"SUMMER25",desc:"Летняя акция — скидка 25%",e:"☀️",expires:"1 июня"}].map(pc => (
+              {[{code:"КАКАПО10",desc:"Скидка 10% на первый заказ",e:"🎉",expires:"31 мая"},{code:"YAVAN5",desc:"5 ЅМ для жителей Явана",e:"📍",expires:"30 мая"},{code:"SUMMER25",desc:"Летняя акция — скидка 25%",e:"☀️",expires:"1 июня"}].map(pc => (
                 <div key={pc.code} style={{ background:"var(--l2)", border:"1.5px solid rgba(31,215,96,.2)", borderRadius:15, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
                   <div style={{ width:42, height:42, borderRadius:12, background:"rgba(31,215,96,.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{pc.e}</div>
                   <div style={{ flex:1 }}>
@@ -2326,7 +2327,7 @@ const SearchPage = ({ go, cart, onAdd, onRm }) => {
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1, position:"relative" }}>
             <div style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}><Ic n="search" s={15} c="var(--t3)"/></div>
-            <input ref={iRef} className="inp" value={query} onChange={e => setQuery(e.target.value)} placeholder="Поиск в KAKAPO..." style={{ paddingLeft:36, paddingRight:query?32:14, width:"100%", fontSize:14 }}/>
+            <input ref={iRef} className="inp" value={query} onChange={e => setQuery(e.target.value)} placeholder="Поиск в КАКАПО..." style={{ paddingLeft:36, paddingRight:query?32:14, width:"100%", fontSize:14 }}/>
             {query && <button onClick={() => setQuery("")} className="btn" style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", width:20, height:20, borderRadius:5, background:"rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="x" s={11} c="var(--t2)"/></button>}
           </div>
           {totalQtyNum>0 && <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", flexShrink:0 }}>
@@ -2418,7 +2419,7 @@ const FAQPage = ({ go }) => {
         </div>
       </header>
       <div style={{ padding:"16px 18px 100px" }}>
-        {!q && <div style={{ borderRadius:18, padding:"18px", marginBottom:20, background:"linear-gradient(135deg,#061A0C,#0F3020)", border:"1px solid rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}><div><div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:4 }}>Центр помощи</div><div style={{ fontSize:12, color:"var(--t2)" }}>Ответы на ваши вопросы о KAKAPO</div></div><div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>❓</div></div>}
+        {!q && <div style={{ borderRadius:18, padding:"18px", marginBottom:20, background:"linear-gradient(135deg,#061A0C,#0F3020)", border:"1px solid rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}><div><div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:4 }}>Центр помощи</div><div style={{ fontSize:12, color:"var(--t2)" }}>Ответы на ваши вопросы о КАКАПО</div></div><div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>❓</div></div>}
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {filtered.map((f,i) => (
             <div key={i} style={{ background:"var(--l2)", border:`1px solid ${open===i?"rgba(31,215,96,.3)":"var(--b1)"}`, borderRadius:16, overflow:"hidden", transition:"border-color .2s", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
@@ -2503,7 +2504,7 @@ const VIPPage = ({ go, user }) => {
                     <Ic n="crown" s={18} c="var(--bg)" w={2}/>
                   </div>
                   <div>
-                    <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>KAKAPO VIP</div>
+                    <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>КАКАПО VIP</div>
                     <div style={{ fontSize:9, color:"rgba(255,184,0,.6)" }}>PLATINUM MEMBER</div>
                   </div>
                 </div>
@@ -2687,9 +2688,9 @@ const AboutPage = ({ go }) => {
   ];
 
   const STORES = [
-    { name:"KAKAPO Главный",    addr:"ул. Ленина, 42",             hours:"08:00–22:00", phone:"+992 118 55-97-97", main:true },
-    { name:"KAKAPO Рынок",      addr:"Центральный рынок, блок 3",  hours:"08:00–20:00", phone:"+992 553 55-98-98", main:false },
-    { name:"KAKAPO Микрорайон", addr:"мкр. Мирный, 15",            hours:"09:00–21:00", phone:"+992 93 123 45 67", main:false },
+    { name:"КАКАПО Главный",    addr:"ул. Ленина, 42",             hours:"08:00–22:00", phone:"+992 118 55-97-97", main:true },
+    { name:"КАКАПО Рынок",      addr:"Центральный рынок, блок 3",  hours:"08:00–20:00", phone:"+992 553 55-98-98", main:false },
+    { name:"КАКАПО Микрорайон", addr:"мкр. Мирный, 15",            hours:"09:00–21:00", phone:"+992 93 123 45 67", main:false },
   ];
 
   const TEAM = [
@@ -2720,7 +2721,7 @@ const AboutPage = ({ go }) => {
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
-            <div className="ub" style={{ fontSize:17, fontWeight:900 }}>О KAKAPO</div>
+            <div className="ub" style={{ fontSize:17, fontWeight:900 }}>О КАКАПО</div>
             <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>г. Яван, Таджикистан · с 2019 года</div>
           </div>
           <button className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="share" s={17} c="var(--t2)"/></button>
@@ -2741,7 +2742,7 @@ const AboutPage = ({ go }) => {
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
                   <div style={{ width:52, height:52, borderRadius:16, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:22, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 4px 16px rgba(31,215,96,.4)" }}>K</div>
                   <div>
-                    <div className="ub" style={{ fontSize:20, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>KAKAPO</div>
+                    <div className="ub" style={{ fontSize:20, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>КАКАПО</div>
                     <div style={{ fontSize:11, color:"var(--t2)" }}>Ваш семейный супермаркет</div>
                   </div>
                 </div>
@@ -2922,7 +2923,7 @@ const AboutPage = ({ go }) => {
             <div style={{ background:"linear-gradient(135deg,#060C20,#0E1640)", border:"1px solid rgba(59,142,240,.2)", borderRadius:18, padding:"20px", textAlign:"center", marginBottom:16 }}>
               <div style={{ fontSize:36, marginBottom:10 }}>💼</div>
               <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:6 }}>Хотите к нам?</div>
-              <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.65, marginBottom:14 }}>Ищем ответственных и позитивных людей для работы в KAKAPO</div>
+              <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.65, marginBottom:14 }}>Ищем ответственных и позитивных людей для работы в КАКАПО</div>
               <button className="btn" style={{ padding:"12px 24px", fontSize:13, borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white" }}>Отправить резюме →</button>
             </div>
             <div className="card" style={{ padding:"16px" }}>
@@ -2998,7 +2999,7 @@ const AdminWrap = ({go, title, subtitle, children}) => {
       <div style={{width:'100%',maxWidth:380}}>
         <div style={{textAlign:'center',marginBottom:26}}>
           <div style={{width:60,height:60,borderRadius:18,background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:24,fontWeight:900,color:'#030B05',margin:'0 auto 12px',boxShadow:'0 8px 28px rgba(31,215,96,.4)'}}>K</div>
-          <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,background:'linear-gradient(135deg,#1FD760,#FFB800)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>KAKAPO Admin</div>
+          <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,background:'linear-gradient(135deg,#1FD760,#FFB800)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>КАКАПО Admin</div>
         </div>
         <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:20,padding:24}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:16}}>Вход в панель</div>
@@ -3024,7 +3025,7 @@ const AdminWrap = ({go, title, subtitle, children}) => {
       <aside style={{width:200,flexShrink:0,background:'#06100A',borderRight:'1px solid #162B1A',display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh'}}>
         <div style={{padding:'14px 12px',borderBottom:'1px solid #162B1A',display:'flex',alignItems:'center',gap:9}}>
           <div style={{width:36,height:36,borderRadius:11,background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'#030B05',flexShrink:0}}>K</div>
-          <div><div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#1FD760'}}>KAKAPO</div><div style={{fontSize:9,color:'#3D6645'}}>Admin Panel</div></div>
+          <div><div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#1FD760'}}>КАКАПО</div><div style={{fontSize:9,color:'#3D6645'}}>Admin Panel</div></div>
         </div>
         <nav style={{flex:1,padding:'8px',overflowY:'auto',display:'flex',flexDirection:'column',gap:1}}>
           {(() => {
@@ -3262,14 +3263,14 @@ const AdminProductsPage = ({go}) => {
   );
 };
 const CARDS_DATA = [
-  {num:'KAKAPO-0001',client:'Диловар Рахимов',  phone:'+992 93 456 78 90',status:'active',  level:'platinum',bonus:4850,debtLimit:3000,debt:1200,issued:'01.01.2022'},
-  {num:'KAKAPO-0042',client:'Нилуфар Хасанова', phone:'+992 90 123 45 67',status:'active',  level:'gold',    bonus:1240,debtLimit:1000,debt:0,   issued:'15.03.2023'},
-  {num:'KAKAPO-0118',client:'Бахром Каримов',   phone:'+992 88 789 01 23',status:'active',  level:'silver',  bonus:560, debtLimit:0,   debt:0,   issued:'10.06.2023'},
-  {num:'KAKAPO-0007',client:'Мадина Олимова',   phone:'+992 93 321 65 43',status:'active',  level:'bronze',  bonus:120, debtLimit:0,   debt:0,   issued:'22.09.2023'},
-  {num:'KAKAPO-0234',client:'Зафар Мирзоев',    phone:'+992 91 654 32 10',status:'active',  level:'gold',    bonus:2100,debtLimit:2000,debt:4500,issued:'05.02.2023'},
-  {num:'KAKAPO-0099',client:'',                 phone:'',                  status:'unlinked',level:'',       bonus:0,   debtLimit:0,   debt:0,   issued:'01.05.2024'},
-  {num:'KAKAPO-0100',client:'',                 phone:'',                  status:'unlinked',level:'',       bonus:0,   debtLimit:0,   debt:0,   issued:'01.05.2024'},
-  {num:'KAKAPO-0055',client:'Рустам Давлатов',  phone:'+992 90 445 23 11',status:'blocked', level:'gold',    bonus:2100,debtLimit:0,   debt:0,   issued:'10.11.2022'},
+  {num:'КАКАПО-0001',client:'Диловар Рахимов',  phone:'+992 93 456 78 90',status:'active',  level:'platinum',bonus:4850,debtLimit:3000,debt:1200,issued:'01.01.2022'},
+  {num:'КАКАПО-0042',client:'Нилуфар Хасанова', phone:'+992 90 123 45 67',status:'active',  level:'gold',    bonus:1240,debtLimit:1000,debt:0,   issued:'15.03.2023'},
+  {num:'КАКАПО-0118',client:'Бахром Каримов',   phone:'+992 88 789 01 23',status:'active',  level:'silver',  bonus:560, debtLimit:0,   debt:0,   issued:'10.06.2023'},
+  {num:'КАКАПО-0007',client:'Мадина Олимова',   phone:'+992 93 321 65 43',status:'active',  level:'bronze',  bonus:120, debtLimit:0,   debt:0,   issued:'22.09.2023'},
+  {num:'КАКАПО-0234',client:'Зафар Мирзоев',    phone:'+992 91 654 32 10',status:'active',  level:'gold',    bonus:2100,debtLimit:2000,debt:4500,issued:'05.02.2023'},
+  {num:'КАКАПО-0099',client:'',                 phone:'',                  status:'unlinked',level:'',       bonus:0,   debtLimit:0,   debt:0,   issued:'01.05.2024'},
+  {num:'КАКАПО-0100',client:'',                 phone:'',                  status:'unlinked',level:'',       bonus:0,   debtLimit:0,   debt:0,   issued:'01.05.2024'},
+  {num:'КАКАПО-0055',client:'Рустам Давлатов',  phone:'+992 90 445 23 11',status:'blocked', level:'gold',    bonus:2100,debtLimit:0,   debt:0,   issued:'10.11.2022'},
 ];
 const LVC = {bronze:'#CD7F32',silver:'#C0C0C0',gold:'#FFB800',platinum:'#3B8EF0'};
 
@@ -3298,7 +3299,7 @@ const AdminCardsPage = ({go}) => {
   };
 
   return (
-    <AdminWrap go={go} title="Карты" subtitle="Управление картами лояльности KAKAPO">
+    <AdminWrap go={go} title="Карты" subtitle="Управление картами лояльности КАКАПО">
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
         {[
           {l:'Всего карт',   v:CARDS_DATA.length,                                    c:'#1FD760'},
@@ -3365,7 +3366,7 @@ const AdminCardsPage = ({go}) => {
             </div>
             <div style={{background:'linear-gradient(135deg,#071A0A,#0F3018)',border:'1.5px solid rgba(31,215,96,.3)',borderRadius:14,padding:16,marginBottom:14,textAlign:'center',position:'relative',overflow:'hidden'}}>
               <div style={{position:'absolute',left:0,right:0,height:1,background:'linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)',animation:'scanLine 3s linear infinite'}}/>
-              <div style={{fontFamily:'Unbounded',fontSize:10,color:'#1FD760',marginBottom:8}}>KAKAPO LOYALTY CARD</div>
+              <div style={{fontFamily:'Unbounded',fontSize:10,color:'#1FD760',marginBottom:8}}>КАКАПО LOYALTY CARD</div>
               <div style={{width:80,height:80,margin:'0 auto 8px',background:'#030B05',borderRadius:8,display:'grid',gridTemplateColumns:'repeat(10,1fr)',gap:1,padding:6,border:'1px solid rgba(31,215,96,.2)'}}>
                 {Array.from({length:100},(_,idx)=>{const b=(idx<3||idx>96)||(idx%10===0||idx%10===9)||(Math.floor(idx/10)<3&&idx%10<3)||(Math.floor(idx/10)>6&&idx%10<3);return <div key={idx} style={{borderRadius:1,background:b?'#EBF5ED':'transparent'}}/>;})}
               </div>
@@ -3448,7 +3449,7 @@ const AdminCardsPage = ({go}) => {
                 </div>
                 <div style={{padding:'10px 13px',borderRadius:10,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',fontSize:12,color:'#8FB897',marginBottom:14}}>
                   <div style={{fontWeight:700,color:'#FFB800',marginBottom:4}}>Будет создано:</div>
-                  KAKAPO-{String(CARDS_DATA.length+1).padStart(4,'0')} – KAKAPO-{String(CARDS_DATA.length+Number(genN)).padStart(4,'0')}
+                  КАКАПО-{String(CARDS_DATA.length+1).padStart(4,'0')} – КАКАПО-{String(CARDS_DATA.length+Number(genN)).padStart(4,'0')}
                 </div>
                 <button onClick={()=>setGened(true)} className="ab abp" style={{width:'100%',padding:12}}>🃏 Сгенерировать {genN} карт</button>
               </>
@@ -3514,7 +3515,7 @@ const AdminSettingsPage = ({go}) => {
   ];
 
   return (
-    <AdminWrap go={go} title="Настройки" subtitle="Конфигурация и интеграции KAKAPO">
+    <AdminWrap go={go} title="Настройки" subtitle="Конфигурация и интеграции КАКАПО">
       <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap',alignItems:'center'}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} className="ab"
@@ -3705,7 +3706,7 @@ const AdminSettingsPage = ({go}) => {
         <div className="ac" style={{padding:20,maxWidth:520}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:18}}>Информация о магазине</div>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
-            {[{l:'Название',v:'KAKAPO'},{l:'Город',v:'г. Яван, Таджикистан'},{l:'Адрес',v:'ул. Ленина, 42'},{l:'Телефон 1',v:'+992 118 55-97-97'},{l:'Телефон 2',v:'+992 553 55-98-98'},{l:'Email',v:'kakapo.tj@gmail.com'},{l:'Telegram',v:'@kakapo_tj'},{l:'Instagram',v:'@kakapo.tj'}].map((r,i)=>(
+            {[{l:'Название',v:'КАКАПО'},{l:'Город',v:'г. Яван, Таджикистан'},{l:'Адрес',v:'ул. Ленина, 42'},{l:'Телефон 1',v:'+992 118 55-97-97'},{l:'Телефон 2',v:'+992 553 55-98-98'},{l:'Email',v:'kakapo.tj@gmail.com'},{l:'Telegram',v:'@kakapo_tj'},{l:'Instagram',v:'@kakapo.tj'}].map((r,i)=>(
               <NI key={i} lbl={r.l} val={r.v} set={()=>{}}/>
             ))}
           </div>
@@ -3796,7 +3797,7 @@ const AdminPromosPage = ({go}) => {
             <thead><tr><th>Промокод</th><th>Скидка</th><th>Использований</th><th>Действует до</th><th>Статус</th><th></th></tr></thead>
             <tbody>
               {[
-                {code:'KAKAPO10',disc:'10%',used:124,till:'31 мая',on:true},
+                {code:'КАКАПО10',disc:'10%',used:124,till:'31 мая',on:true},
                 {code:'YAVAN5',  disc:'5 ЅМ',used:89, till:'30 мая',on:true},
                 {code:'SUMMER25',disc:'25%',used:12, till:'1 июня', on:false},
               ].map((c,i)=>(
@@ -4070,7 +4071,7 @@ const AdminPushPage = ({go}) => {
                   <div style={{flex:1}}>
                     <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{title||'Заголовок'}</div>
                     <div style={{fontSize:11,color:'#8FB897',lineHeight:1.5}}>{body||'Текст сообщения'}</div>
-                    <div style={{fontSize:10,color:'#3D6645',marginTop:4}}>KAKAPO · сейчас</div>
+                    <div style={{fontSize:10,color:'#3D6645',marginTop:4}}>КАКАПО · сейчас</div>
                   </div>
                 </div>
               </div>
@@ -4260,11 +4261,11 @@ const AdminCouriersPage = ({go}) => {
 const AdminOrdersPage = ({go}) => {
   const SC={pending:{l:'Ожидает',c:'#FFB800'},assembling:{l:'Собирается',c:'#9B6DFF'},delivering:{l:'В пути',c:'#3B8EF0'},delivered:{l:'Доставлен',c:'#1FD760'},cancelled:{l:'Отменён',c:'#FF4545'}};
   const ORDERS=[
-    {id:'K-4832',client:'Диловар Р.',card:'KAKAPO-0042',total:64.30,status:'delivering',addr:'ул. Ленина, 42',time:'14:23'},
-    {id:'K-4831',client:'Нилуфар Х.',card:'KAKAPO-0118',total:28.50,status:'assembling',addr:'ул. Сомони, 12',time:'14:18'},
+    {id:'K-4832',client:'Диловар Р.',card:'КАКАПО-0042',total:64.30,status:'delivering',addr:'ул. Ленина, 42',time:'14:23'},
+    {id:'K-4831',client:'Нилуфар Х.',card:'КАКАПО-0118',total:28.50,status:'assembling',addr:'ул. Сомони, 12',time:'14:18'},
     {id:'K-4830',client:'Бахром К.', card:'—',          total:112.0,status:'delivered', addr:'мкр. Мирный, 5',time:'14:05'},
-    {id:'K-4829',client:'Мадина О.', card:'KAKAPO-0007',total:47.80,status:'delivered', addr:'ул. Ленина, 18',time:'13:55'},
-    {id:'K-4828',client:'Зафар М.',  card:'KAKAPO-0234',total:89.40,status:'cancelled', addr:'ул. Рудаки, 3', time:'13:40'},
+    {id:'K-4829',client:'Мадина О.', card:'КАКАПО-0007',total:47.80,status:'delivered', addr:'ул. Ленина, 18',time:'13:55'},
+    {id:'K-4828',client:'Зафар М.',  card:'КАКАПО-0234',total:89.40,status:'cancelled', addr:'ул. Рудаки, 3', time:'13:40'},
   ];
   const [search,setSearch]=useState('');
   const filtered=ORDERS.filter(o=>!search||o.id.toLowerCase().includes(search.toLowerCase())||o.client.toLowerCase().includes(search.toLowerCase()));
@@ -4298,10 +4299,10 @@ const AdminOrdersPage = ({go}) => {
 
 const AdminClientsPage = ({go}) => {
   const CLIENTS=[
-    {name:'Диловар Рахимов', phone:'+992 93 456 78 90',level:'platinum',orders:87,spent:3420,debt:1200,bonus:4850,card:'KAKAPO-0001'},
-    {name:'Нилуфар Хасанова',phone:'+992 90 123 45 67',level:'gold',    orders:43,spent:1890,debt:0,   bonus:1240,card:'KAKAPO-0042'},
-    {name:'Бахром Каримов',  phone:'+992 88 789 01 23',level:'silver',  orders:28,spent:980, debt:0,   bonus:560, card:'KAKAPO-0118'},
-    {name:'Зафар Мирзоев',   phone:'+992 91 654 32 10',level:'gold',    orders:56,spent:2340,debt:4500,bonus:2100,card:'KAKAPO-0234'},
+    {name:'Диловар Рахимов', phone:'+992 93 456 78 90',level:'platinum',orders:87,spent:3420,debt:1200,bonus:4850,card:'КАКАПО-0001'},
+    {name:'Нилуфар Хасанова',phone:'+992 90 123 45 67',level:'gold',    orders:43,spent:1890,debt:0,   bonus:1240,card:'КАКАПО-0042'},
+    {name:'Бахром Каримов',  phone:'+992 88 789 01 23',level:'silver',  orders:28,spent:980, debt:0,   bonus:560, card:'КАКАПО-0118'},
+    {name:'Зафар Мирзоев',   phone:'+992 91 654 32 10',level:'gold',    orders:56,spent:2340,debt:4500,bonus:2100,card:'КАКАПО-0234'},
   ];
   return (
     <AdminWrap go={go} title="Клиенты" subtitle="CRM — база клиентов и карты лояльности">
@@ -4362,7 +4363,7 @@ const CourierLoginPage = ({go}) => {
       </button>
       <div style={{textAlign:'center',marginBottom:28}}>
         <div style={{fontSize:52,marginBottom:14}}>🛵</div>
-        <div className="ub" style={{fontSize:20,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Курьер KAKAPO</div>
+        <div className="ub" style={{fontSize:20,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Курьер КАКАПО</div>
         <div style={{fontSize:12,color:'var(--t2)'}}>г. Яван, Таджикистан</div>
       </div>
       <div style={{width:'100%',maxWidth:360,background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:20,padding:24}}>
@@ -4438,8 +4439,8 @@ const CourierDashPage = ({go}) => {
   };
 
   const ORDERS = [
-    {id:'K-4831',client:'Нилуфар Х.',  phone:'+992 93 456-78-90',addr:'ул. Сомони, 12',   dist:3.4,earning:5, pay:'Карта',    type:'market',    pickupKey:'market', deliverKey:'client1', items:[{e:'🥛',n:'Молоко'},{e:'🧀',n:'Сыр'},{e:'☕',n:'Кофе'}],    pickupName:'KAKAPO Магазин'},
-    {id:'K-4835',client:'Рустам Д.',   phone:'+992 90 123-45-67',addr:'мкр. Мирный, 5',  dist:1.8,earning:3, pay:'Наличными', type:'market',    pickupKey:'market', deliverKey:'client2', items:[{e:'🥦',n:'Брокколи'},{e:'🍅',n:'Томаты'},{e:'🥩',n:'Говядина'}], pickupName:'KAKAPO Магазин'},
+    {id:'K-4831',client:'Нилуфар Х.',  phone:'+992 93 456-78-90',addr:'ул. Сомони, 12',   dist:3.4,earning:5, pay:'Карта',    type:'market',    pickupKey:'market', deliverKey:'client1', items:[{e:'🥛',n:'Молоко'},{e:'🧀',n:'Сыр'},{e:'☕',n:'Кофе'}],    pickupName:'КАКАПО Магазин'},
+    {id:'K-4835',client:'Рустам Д.',   phone:'+992 90 123-45-67',addr:'мкр. Мирный, 5',  dist:1.8,earning:3, pay:'Наличными', type:'market',    pickupKey:'market', deliverKey:'client2', items:[{e:'🥦',n:'Брокколи'},{e:'🍅',n:'Томаты'},{e:'🥩',n:'Говядина'}], pickupName:'КАКАПО Магазин'},
     {id:'K-4837',client:'Мадина О.',   phone:'+992 91 333-21-10',addr:'ул. Ленина, 18',   dist:4.1,earning:6, pay:'Карта',    type:'restaurant', pickupKey:'rest1',  deliverKey:'client3', items:[{e:'🍚',n:'Плов'},{e:'🥩',n:'Шашлык ×2'}],              pickupName:'Чайхона Оромгох'},
     {id:'K-4838',client:'Зафар М.',    phone:'+992 88 777-55-33',addr:'ул. Рудаки, 8',    dist:2.6,earning:4, pay:'Наличными', type:'restaurant', pickupKey:'rest2',  deliverKey:'client1', items:[{e:'🍕',n:'Пепперони'},{e:'🍕',n:'Маргарита'}],           pickupName:'Пицца Яван'},
     {id:'K-4840',client:'Бахром К.',   phone:'+992 93 555-12-34',addr:'ул. Навои, 3',     dist:3.0,earning:5, pay:'Карта',    type:'restaurant', pickupKey:'rest3',  deliverKey:'client2', items:[{e:'🌯',n:'Филадельфия ×2'},{e:'🌯',n:'Дракон'}],          pickupName:'Суши Яван'},
@@ -4538,7 +4539,7 @@ const CourierDashPage = ({go}) => {
             <Ic n="arrL" s={17} c="var(--t2)"/>
           </button>
           <div style={{flex:1}}>
-            <div className="ub" style={{fontSize:15,fontWeight:900}}>Курьер KAKAPO</div>
+            <div className="ub" style={{fontSize:15,fontWeight:900}}>Курьер КАКАПО</div>
             <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
               <div style={{width:6,height:6,borderRadius:'50%',background:SC[status].c,animation:'pulse 2s infinite'}}/>
               <span style={{fontSize:10,color:'var(--t2)'}}>{SC[status].l} · 🏍 TJ 1234 AA</span>
@@ -5029,7 +5030,7 @@ const AddressesPage = ({ go }) => {
 };
 const ReferralPage = ({go}) => {
   const [copied, setCopied] = useState(false);
-  const code = 'KAKAPO-D7F2';
+  const code = 'КАКАПО-D7F2';
   const stats = [{l:'Приглашено',v:'7',c:'var(--blue)'},{l:'Зарегистрировалось',v:'4',c:'var(--gr)'},{l:'Сделали заказ',v:'3',c:'var(--gd)'},{l:'Ваш заработок',v:'150 ⭐',c:'var(--gd)'}];
   const friends = [
     {name:'Нилуфар Х.',date:'12 мая',status:'ordered',bonus:50},
@@ -5158,7 +5159,7 @@ const ChatPage = ({go}) => {
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--bg)',flexShrink:0}}>K</div>
           <div style={{flex:1}}>
-            <div className="ub" style={{fontSize:14,fontWeight:800}}>Поддержка KAKAPO</div>
+            <div className="ub" style={{fontSize:14,fontWeight:800}}>Поддержка КАКАПО</div>
             <div style={{display:'flex',alignItems:'center',gap:4,marginTop:1}}>
               <div style={{width:6,height:6,borderRadius:'50%',background:'var(--gr)',animation:'pulse 2s infinite'}}/>
               <span style={{fontSize:10,color:'var(--gr)',fontWeight:700}}>Онлайн</span>
@@ -5229,7 +5230,7 @@ const AssemblerLoginPage = ({go}) => {
       </button>
       <div style={{textAlign:'center',marginBottom:28}}>
         <div style={{fontSize:52,marginBottom:14}}>🛒</div>
-        <div className="ub" style={{fontSize:20,fontWeight:900,color:'var(--pur)',marginBottom:4}}>Сборщик KAKAPO</div>
+        <div className="ub" style={{fontSize:20,fontWeight:900,color:'var(--pur)',marginBottom:4}}>Сборщик КАКАПО</div>
         <div style={{fontSize:12,color:'var(--t2)'}}>Введите PIN код</div>
       </div>
       <div style={{width:'100%',maxWidth:340,background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:20,padding:24}}>
@@ -5334,7 +5335,7 @@ const AssemblerDashPage = ({go}) => {
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('home')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{flex:1}}>
-            <div className="ub" style={{fontSize:16,fontWeight:900,color:'var(--pur)'}}>Сборщик KAKAPO</div>
+            <div className="ub" style={{fontSize:16,fontWeight:900,color:'var(--pur)'}}>Сборщик КАКАПО</div>
             <div style={{fontSize:10,color:'var(--t2)',marginTop:1}}>Новых заказов: {orders.length}</div>
           </div>
         </div>
@@ -5898,7 +5899,7 @@ const PartnerLoginPage = ({go}) => {
       <div style={{textAlign:'center',marginBottom:28}}>
         <div style={{fontSize:52,marginBottom:14}}>🍽</div>
         <div className="ub" style={{fontSize:20,fontWeight:900,marginBottom:4}}>Кабинет партнёра</div>
-        <div style={{fontSize:12,color:'var(--t2)'}}>KAKAPO Маркетплейс · г. Яван</div>
+        <div style={{fontSize:12,color:'var(--t2)'}}>КАКАПО Маркетплейс · г. Яван</div>
       </div>
       <div style={{width:'100%',maxWidth:360,background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:20,padding:24}}>
         {err&&<div style={{padding:'9px 12px',borderRadius:10,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'var(--red)',marginBottom:14}}>⚠️ {err}</div>}
@@ -6066,7 +6067,7 @@ const PartnerDashPage = ({go}) => {
                 {l:'Выручка за месяц',v:'14 280 ЅМ',c:'var(--gd)'},
                 {l:'Заказов за месяц',v:'312',       c:'var(--gr)'},
                 {l:'Средний чек',     v:'45.8 ЅМ',   c:'var(--blue)'},
-                {l:'Комиссия KAKAPO', v:`${rest.commission}%`,c:'var(--red)'},
+                {l:'Комиссия КАКАПО', v:`${rest.commission}%`,c:'var(--red)'},
               ].map((s,i)=>(
                 <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'16px 14px',textAlign:'center'}}>
                   <div style={{fontSize:10,color:'var(--t3)',marginBottom:6}}>{s.l}</div>
@@ -6235,7 +6236,7 @@ const AdminPartnersPage = ({go}) => {
       <div className="ac">
         <div style={{padding:'12px 16px',borderBottom:'1px solid #162B1A',fontWeight:800,fontSize:13}}>Комиссии за этот месяц</div>
         <table className="at">
-          <thead><tr><th>Ресторан</th><th>Выручка</th><th>Комиссия</th><th>KAKAPO</th><th>К выплате</th><th></th></tr></thead>
+          <thead><tr><th>Ресторан</th><th>Выручка</th><th>Комиссия</th><th>КАКАПО</th><th>К выплате</th><th></th></tr></thead>
           <tbody>
             {rests.map(r=>(
               <tr key={r.id}>
@@ -6355,7 +6356,7 @@ const AdminPartnersPage = ({go}) => {
                   {[
                     {l:'Выручка',v:`${sel.revenueMonth?.toLocaleString()||0} ЅМ`,c:'#EBF5ED'},
                     {l:'Комиссия',v:`${sel.commission}%`,c:'#FF4545'},
-                    {l:'KAKAPO получает',v:`${Math.round((sel.revenueMonth||0)*sel.commission/100).toLocaleString()} ЅМ`,c:'#1FD760'},
+                    {l:'КАКАПО получает',v:`${Math.round((sel.revenueMonth||0)*sel.commission/100).toLocaleString()} ЅМ`,c:'#1FD760'},
                     {l:'Ресторан получает',v:`${Math.round((sel.revenueMonth||0)*(1-sel.commission/100)).toLocaleString()} ЅМ`,c:'#FFB800'},
                   ].map((s,i)=>(
                     <div key={i} style={{background:'#0C1C0F',borderRadius:11,padding:'13px',border:'1px solid #162B1A'}}>
@@ -6408,7 +6409,7 @@ const AdminPartnersPage = ({go}) => {
             </div>
             {[
               {l:'Выручка',v:`${showPay.revenueMonth?.toLocaleString()||0} ЅМ`,c:'#EBF5ED'},
-              {l:`Комиссия KAKAPO (${showPay.commission}%)`,v:`−${Math.round((showPay.revenueMonth||0)*showPay.commission/100).toLocaleString()} ЅМ`,c:'#FF4545'},
+              {l:`Комиссия КАКАПО (${showPay.commission}%)`,v:`−${Math.round((showPay.revenueMonth||0)*showPay.commission/100).toLocaleString()} ЅМ`,c:'#FF4545'},
               {l:'К выплате',v:`${Math.round((showPay.revenueMonth||0)*(1-showPay.commission/100)).toLocaleString()} ЅМ`,c:'#1FD760'},
             ].map((r,i)=>(
               <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'10px 13px',background:'#0C1C0F',borderRadius:10,border:'1px solid #162B1A',marginBottom:8}}>
