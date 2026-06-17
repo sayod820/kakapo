@@ -116,11 +116,10 @@ function RestaurantAppInner() {
   const [partner, setPartner] = useState({email:'chaihona@kakapo.tj', name:'Чайхона Оромгох'});
   const [rest,    setRest]    = useState(DEMO_RESTAURANTS[0]);
   const [menu,    setMenu]    = useState(DEMO_RESTAURANTS[0].menu);
-  const mappedOrders = useMemo(
+  const orders = useMemo(
     () => (USE_API && rest ? mapOrdersForRestaurant(apiOrders, rest.id) : DEMO_ORDERS),
     [apiOrders, rest]
   );
-  const [orders,  setOrders]  = useState(DEMO_ORDERS);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [alertOrder, setAlertOrder] = useState<any>(null);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => new Set());
@@ -154,10 +153,6 @@ function RestaurantAppInner() {
       }
     }
   }, [apiRests, partner?.email]);
-
-  useEffect(() => {
-    setOrders(mappedOrders);
-  }, [mappedOrders]);
 
   const loadReviews = useCallback(async () => {
     if (!rest?.id || !USE_API) return;
@@ -243,7 +238,6 @@ function RestaurantAppInner() {
     } else if (USE_API) {
       await updateStatusApi(id, status);
     }
-    setOrders(os => os.map(o => o.id === id ? { ...o, status } : o));
   };
 
   const toggleDish = async (id) => {

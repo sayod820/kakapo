@@ -215,9 +215,11 @@ export function applyStatusPatch(order, body) {
   if (body.deliveryFee != null) order.deliveryFee = body.deliveryFee
   if (body.deliveryFeeLocked != null) order.deliveryFeeLocked = body.deliveryFeeLocked
   if (body.items != null) order.items = body.items
+  if ('courierAtClient' in body) order.courierAtClient = !!body.courierAtClient
 
   if (body.status) {
     order.status = body.status
+    if (body.status === 'delivered') order.courierAtClient = false
   } else if (!adminOverride && inferType(order) === 'mixed') {
     syncMixedStatus(order)
   }

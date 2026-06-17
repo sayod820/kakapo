@@ -11,7 +11,7 @@ import { buildCourierStats, COURIER_NAME, COURIER_PHONE, formatSm } from '@/lib/
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForCourier, mapOrdersForCourierMap, mapSingleOrderForCourier, isCourierMapOrder, isCourierFullyReadyOrder, courierMapStatusLabel, courierWaitingBanner } from '@/lib/orderUiMap'
-import { normalizeOrder, buildCourierRoute, getAllPickupIds, getReadyUnpickedPickupIds, formatCourierWaitingMessage } from '@/lib/orderParts'
+import { normalizeOrder, buildCourierRoute, getAllPickupIds, getReadyUnpickedPickupIds, getPendingPartsForCourier, formatCourierWaitingMessage, deriveCourierProgress } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation, readSessionFlag, writeSessionFlag } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -545,46 +545,32 @@ function CourierAppInner() {
   const [status,    setStatus]    = useState('available');
   const [selected,  setSelected]  = useState<any>(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
-  const [orderSteps, setOrderSteps] = useState<Record<string, { step: 'toPickup' | 'toClient' | 'done'; pickupIdx: number }>>({});
-  const [localPickedUp, setLocalPickedUp] = useState<Record<string, string[]>>({});
-  const [localPickupRoute, setLocalPickupRoute] = useState<Record<string, string[]>>({});
   const [routePicker, setRoutePicker] = useState<any>(null);
 
   const myActiveOrders = useMemo(() => {
     return apiOrders
       .filter(o => isMyCourierOrder(o, courierProfile))
-      .map(raw => {
-        const pickedUpIds = [...new Set([...(raw.pickedUpIds || []), ...(localPickedUp[raw.id] || [])])]
-        const courierRoute = localPickupRoute[raw.id] ?? raw.courierRoute
-        return mapSingleOrderForCourier({ ...normalizeOrder(raw), pickedUpIds, courierRoute })
-      })
-  }, [apiOrders, courierProfile, localPickedUp, localPickupRoute]);
+      .map(raw => mapSingleOrderForCourier(normalizeOrder(raw)))
+  }, [apiOrders, courierProfile]);
 
   const myActiveOrderIds = useMemo(() => new Set(myActiveOrders.map(o => o.id)), [myActiveOrders]);
+
+  const activeRaw = useMemo(() => {
+    if (!detailOrderId) return null
+    return apiOrders.find(o => o.id === detailOrderId) ?? null
+  }, [detailOrderId, apiOrders]);
 
   const active = useMemo(() => {
     if (!detailOrderId) return null
     return myActiveOrders.find(o => o.id === detailOrderId) ?? null
   }, [detailOrderId, myActiveOrders]);
 
-  const step = detailOrderId ? (orderSteps[detailOrderId]?.step ?? 'toPickup') : 'toPickup'
-  const pickupIdx = detailOrderId ? (orderSteps[detailOrderId]?.pickupIdx ?? 0) : 0
-
-  const patchOrderProgress = (id: string, patch: Partial<{ step: 'toPickup' | 'toClient' | 'done'; pickupIdx: number }>) => {
-    setOrderSteps(prev => ({
-      ...prev,
-      [id]: { step: 'toPickup', pickupIdx: 0, ...prev[id], ...patch },
-    }))
-  }
+  const { step, pickupIdx } = useMemo(() => {
+    if (!activeRaw) return { step: 'toPickup' as const, pickupIdx: 0 }
+    return deriveCourierProgress(normalizeOrder(activeRaw))
+  }, [activeRaw]);
 
   const openDeliveryDetail = (orderId: string) => {
-    const raw = apiOrders.find(o => o.id === orderId)
-    if (raw && !orderSteps[orderId]) {
-      patchOrderProgress(orderId, {
-        step: raw.status === 'delivering' ? 'toClient' : 'toPickup',
-        pickupIdx: 0,
-      })
-    }
     setDetailOrderId(orderId)
   }
 
@@ -599,7 +585,6 @@ function CourierAppInner() {
     [apiOrders, roadKm, TARIFF],
   );
   const waitingForPickup = !!(active && !active.pickupIds.length && active.pendingParts?.length);
-  const [completed,  setCompleted]  = useState<string[]>([]);
   const [otp,       setOtp]       = useState(['','','','']);
   const [err,       setErr]       = useState('');
   const [acceptErr, setAcceptErr] = useState('');
@@ -658,15 +643,13 @@ function CourierAppInner() {
   };
 
   const confirmAccept = async (o: any, route: string[]) => {
-    setLocalPickupRoute(prev => ({ ...prev, [o.id]: route }));
-    patchOrderProgress(o.id, { step: 'toPickup', pickupIdx: 0 });
     setStatus('busy');
     setSelected(null);
     setRoutePicker(null);
     setDetailOrderId(null);
     setTab('active');
-    void setCourierRoute(o.id, route);
-    await updateStatus(o.id, 'courier_picked', { courier: { name: COURIER.name, phone: COURIER_PHONE } });
+    await setCourierRoute(o.id, route);
+    await updateStatus(o.id, 'courier_picked', { courier: { name: COURIER.name, phone: COURIER_PHONE }, courierAtClient: false });
   };
 
   const accept = (o: any) => {
@@ -697,8 +680,6 @@ function CourierAppInner() {
     const raw = apiOrders.find(o => o.id === detailOrderId);
     if (!raw) return;
     const route = buildCourierRoute(pid, normalizeOrder(raw));
-    setLocalPickupRoute(prev => ({ ...prev, [detailOrderId]: route }));
-    patchOrderProgress(detailOrderId, { pickupIdx: 0 });
     void setCourierRoute(detailOrderId, route);
   };
 
@@ -721,23 +702,8 @@ function CourierAppInner() {
     await updateStatus(finishedId, 'delivered', {
       courier: { name: COURIER.name, phone: COURIER_PHONE },
       deliveredAt,
+      courierAtClient: false,
       ...feePatch,
-    });
-    setCompleted(c => [...c, finishedId]);
-    setLocalPickedUp(prev => {
-      const next = { ...prev };
-      delete next[finishedId];
-      return next;
-    });
-    setLocalPickupRoute(prev => {
-      const next = { ...prev };
-      delete next[finishedId];
-      return next;
-    });
-    setOrderSteps(prev => {
-      const next = { ...prev };
-      delete next[finishedId];
-      return next;
     });
     setDetailOrderId(null);
     const remaining = myActiveOrders.filter(o => o.id !== finishedId).length;
@@ -749,38 +715,25 @@ function CourierAppInner() {
       setTab('earnings');
     }
   };
-  const nextStop = () => {
-    if (!active || !detailOrderId) return;
-    const currentPid = active.pickupIds[pickupIdx];
+  const nextStop = async () => {
+    if (!active || !detailOrderId || !activeRaw) return;
+    const order = normalizeOrder(activeRaw);
+    const readyUnpicked = getReadyUnpickedPickupIds(order);
+    const currentPid = readyUnpicked[0];
     if (!currentPid) return;
 
-    const nextPicked = [...new Set([...(active.pickedUpIds || []), currentPid])];
-    setLocalPickedUp(prev => ({ ...prev, [active.id]: nextPicked }));
-    patchOrderProgress(detailOrderId, { pickupIdx: 0 });
+    await markPickupDone(active.id, currentPid);
 
-    void markPickupDone(active.id, currentPid);
+    const updated = normalizeOrder(useOrders.getState().orders.find(o => o.id === active.id) || activeRaw);
+    if (getReadyUnpickedPickupIds(updated).length) return;
+    if (getPendingPartsForCourier(updated).length) return;
 
-    const raw = apiOrders.find(o => o.id === active.id);
-    if (!raw) return;
-    const mapped = mapSingleOrderForCourier({ ...normalizeOrder(raw), pickedUpIds: nextPicked });
-
-    if (mapped.pickupIds.length > 0) {
-      patchOrderProgress(detailOrderId, { step: 'toPickup' });
-    } else if (mapped.pendingParts?.length) {
-      patchOrderProgress(detailOrderId, { step: 'toPickup' });
-    } else {
-      patchOrderProgress(detailOrderId, { step: 'toClient' });
-      void updateStatus(active.id, 'delivering');
-    }
+    await updateStatus(active.id, 'delivering', { courierAtClient: false });
   };
 
-  const mapOrders = MAP_ORDERS.filter(o =>
-    !completed.includes(o.id) &&
-    !myActiveOrderIds.has(o.id),
-  );
+  const mapOrders = MAP_ORDERS.filter(o => !myActiveOrderIds.has(o.id));
 
   const available = ORDERS.filter(o =>
-    !completed.includes(o.id) &&
     !myActiveOrderIds.has(o.id) &&
     o.pickupIds.length > 0,
   );
@@ -1353,7 +1306,7 @@ function CourierAppInner() {
                   </div>
                   );
                 })()}
-                {step==='toClient' && <button onClick={() => detailOrderId && patchOrderProgress(detailOrderId, { step: 'done' })} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
+                {step==='toClient' && <button onClick={() => detailOrderId && updateStatus(detailOrderId, 'delivering', { courierAtClient: true })} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
                 {step==='done'     && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {(() => { const d = orderDelivery(active, roadKm, TARIFF); return d != null ? `${(active.sum + d).toFixed(2)} ЅМ` : '…'; })()}</button>}
               </div>
             </div>
@@ -1390,7 +1343,7 @@ function CourierAppInner() {
                   const raw = apiOrders.find(x => x.id === o.id)
                   const dlv = orderDelivery(o, roadKm, TARIFF)
                   const km = getOrderKm(o, roadKm)
-                  const prog = orderSteps[o.id]
+                  const prog = raw ? deriveCourierProgress(normalizeOrder(raw)) : null
                   const statusLabel = prog?.step === 'done'
                     ? 'На месте'
                     : raw?.status === 'delivering' || prog?.step === 'toClient'

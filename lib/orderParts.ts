@@ -210,6 +210,37 @@ export function allPickupsCollected(o: Order): boolean {
   return getAllPickupIds(order).every(pid => (order.pickedUpIds || []).includes(pid))
 }
 
+export type CourierProgressStep = 'toPickup' | 'toClient' | 'done'
+
+/** Прогресс курьера — восстанавливается из сохранённых полей заказа */
+export function deriveCourierProgress(o: Order): { step: CourierProgressStep; pickupIdx: number } {
+  const order = normalizeOrder(o)
+  if (order.status === 'delivered') return { step: 'done', pickupIdx: 0 }
+  if (order.courierAtClient && order.status === 'delivering') return { step: 'done', pickupIdx: 0 }
+  if (order.status === 'delivering') return { step: 'toClient', pickupIdx: 0 }
+
+  const route = order.courierRoute?.length ? order.courierRoute : getAllPickupIds(order)
+  const picked = new Set(order.pickedUpIds || [])
+  const readyUnpicked = getReadyUnpickedPickupIds(order, route)
+
+  if (readyUnpicked.length) {
+    return { step: 'toPickup', pickupIdx: 0 }
+  }
+
+  for (let i = 0; i < route.length; i++) {
+    if (!picked.has(route[i])) {
+      const pending = getPendingPartsForCourier(order)
+      if (pending.length) return { step: 'toPickup', pickupIdx: 0 }
+    }
+  }
+
+  if (allPickupsCollected(order) || !getPendingPartsForCourier(order).length) {
+    return { step: 'toClient', pickupIdx: 0 }
+  }
+
+  return { step: 'toPickup', pickupIdx: 0 }
+}
+
 export function restPartToUiStatus(part: PartStatus): 'new' | 'cooking' | 'ready' | 'delivered' {
   if (part === 'new') return 'new'
   if (part === 'cooking') return 'cooking'

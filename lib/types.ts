@@ -52,6 +52,8 @@ export interface Order {
   courierRoute?: string[]
   /** Время завершения доставки (HH:MM) */
   deliveredAt?: string
+  /** Курьер на месте у клиента (перед подтверждением доставки) */
+  courierAtClient?: boolean
 }
 
 export type SellType = 'piece' | 'weight'

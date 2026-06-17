@@ -1,8 +1,8 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler } from '@/lib/orderUiMap'
-import { isMixedOrder, normalizeOrder } from '@/lib/orderParts'
+import { getMarketStatus, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { ASSEMBLER_NAME } from '@/lib/courierStats'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import { useApiSync } from '@/lib/useApiSync'
@@ -109,51 +109,31 @@ function AssemblerAppInner() {
     () => (USE_API ? mapOrdersForAssembler(apiOrders) : ORDERS_DATA),
     [apiOrders]
   );
-  const [orders, setOrders] = useState(mapped.map(o=>({...o, items:o.items.map(i=>({...i}))})));
-  const [completedIds,  setCompletedIds]  = useState<string[]>([]);
   const activeOrderId = page === 'collect' ? (params.order || null) : null;
 
-  useEffect(() => {
-    setOrders(prev => {
-      const doneMap = new Map<string, Map<number, boolean>>()
-      for (const o of prev) {
-        const m = new Map<number, boolean>()
-        o.items.forEach(it => m.set(it.id, !!it.done))
-        doneMap.set(o.id, m)
-      }
-      return mapped.map(o => ({
-        ...o,
-        items: o.items.map(it => ({
-          ...it,
-          done: doneMap.get(o.id)?.get(it.id) ?? it.done ?? false,
-        })),
-      }))
-    })
-  }, [mapped]);
+  const activeOrder = mapped.find(o => o.id === activeOrderId);
 
-  const activeOrder = orders.find(o=>o.id===activeOrderId);
-
-  const toggleItem = (orderId, itemId) => {
-    if (USE_API) toggleItemStore(orderId, itemId);
-    setOrders(os=>os.map(o=>o.id===orderId
-      ? {...o, items:o.items.map(it=>it.id===itemId?{...it,done:!it.done}:it)}
-      : o
-    ));
+  const toggleItem = (orderId: string, itemId: number) => {
+    void toggleItemStore(orderId, itemId);
   };
 
-  const completeOrder = async (orderId) => {
+  const completeOrder = async (orderId: string) => {
     const raw = apiOrders.find(o => o.id === orderId);
     if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
       await completeMarketPart(orderId);
     } else if (USE_API) {
       await updateStatus(orderId, 'assembler_done', { assembler: { name: ASSEMBLER_NAME }, marketStatus: 'done' });
     }
-    setCompletedIds(ids=>[...ids, orderId]);
-    setOrders(os=>os.filter(o=>o.id!==orderId));
     navigate('dashboard');
   };
 
-  const pending = orders.filter(o=>!completedIds.includes(o.id));
+  const pending = mapped;
+
+  const completedCount = useMemo(() => apiOrders.filter(o => {
+    const order = normalizeOrder(o)
+    if (isMixedOrder(order)) return getMarketStatus(order) === 'done'
+    return order.type === 'market' && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
+  }).length, [apiOrders]);
 
   if(page==='collect' && activeOrder) {
     return <CollectPage order={activeOrder} onToggle={toggleItem} onComplete={completeOrder} onBack={()=>navigate('dashboard')}/>;
@@ -163,18 +143,17 @@ function AssemblerAppInner() {
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
-        {page==='dashboard' && <DashboardPage orders={pending} completed={completedIds.length} onStart={async (id) => {
-          const order = orders.find(o => o.id === id);
+        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={async (id) => {
           const raw = apiOrders.find(o => o.id === id);
           if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
             await startMarketPart(id);
-          } else if (USE_API && order) {
+          } else if (USE_API) {
             await updateStatus(id, 'assembling');
           }
           navigate('collect', { order: id });
         }} onPage={setPage}/>}
         {page==='history'   && <HistoryPage onPage={setPage}/>}
-        {page==='stats'     && <StatsPage   onPage={setPage} completed={completedIds.length}/>}
+        {page==='stats'     && <StatsPage   onPage={setPage} completed={completedCount}/>}
       </div>
     </>
   );
