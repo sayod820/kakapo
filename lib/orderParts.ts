@@ -73,7 +73,23 @@ export function hasMarketPart(o: Order): boolean {
 }
 
 export function hasRestPart(o: Order, restId?: string): boolean {
-  return getRestItems(o.items, restId).length > 0
+  if (restId) {
+    const rid = String(restId)
+    if (getRestIdsFromOrder(o).includes(rid)) return true
+    return getRestItems(o.items, rid).length > 0
+  }
+  return getRestIdsFromOrder(o).length > 0 || getRestItems(o.items).length > 0
+}
+
+/** Позиции ресторана в заказе (с fallback на order.restId, если у items нет restId) */
+export function getRestItemsForOrder(o: Order, restId?: string): OrderItem[] {
+  const rid = restId ? String(restId) : undefined
+  const byItem = getRestItems(o.items, rid)
+  if (byItem.length) return byItem
+  if (rid && getRestIdsFromOrder(o).includes(rid)) {
+    return getRestItems(o.items)
+  }
+  return byItem
 }
 
 export function getMarketStatus(o: Order): PartStatus {

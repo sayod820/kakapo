@@ -154,6 +154,10 @@ export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOr
   }
 }
 
+function isRestaurantRoleOrder(o: Order): boolean {
+  return hasRestPart(normalizeOrder(o))
+}
+
 function mergeRoleOrders(
   current: Order[],
   remote: Order[],
@@ -164,7 +168,7 @@ function mergeRoleOrders(
   const localById = new Map(current.filter(belongsToRole).map(o => [o.id, o]))
   const outsideRole = current.filter(o => !belongsToRole(o))
   const localRoleOnly = USE_API
-    ? []
+    ? current.filter(o => belongsToRole(o) && !remoteIds.has(o.id) && o.status === 'delivered')
     : current.filter(o => belongsToRole(o) && !remoteIds.has(o.id))
   const mergedRemote = remote.map(o => {
     const local = localById.get(o.id)
@@ -255,7 +259,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (!USE_API) return
     try {
       const orders = await loadRestaurantOrdersFromApi()
-      patchOrders(set, get, s => mergeRoleOrders(s, orders, o => hasRestPart(normalizeOrder(o)), get().orderAdminPins))
+      patchOrders(set, get, s => mergeRoleOrders(s, orders, o => isRestaurantRoleOrder(normalizeOrder(o)), get().orderAdminPins))
     } catch (e) { console.error(e) }
   },
 

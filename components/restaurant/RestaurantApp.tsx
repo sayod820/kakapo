@@ -235,7 +235,9 @@ function RestaurantAppInner() {
     const restPart = !!(normalized && rest && hasRestPart(normalized, rest.id));
     // Доставку подтверждает только курьер — ресторан не может закрыть заказ вручную
     if (restPart && status === 'delivered') return;
-    if (USE_API && restPart && status !== 'delivered') {
+    if (USE_API && restPart && status === 'cancelled') {
+      await updateStatusApi(id, status);
+    } else if (USE_API && restPart && status !== 'delivered') {
       if (status === 'cooking') await updateRestPart(id, rest.id, 'cooking');
       else if (status === 'ready') await updateRestPart(id, rest.id, 'done');
       else await updateRestPart(id, rest.id, 'new');
@@ -463,7 +465,7 @@ function BottomNav({page, onPage, newOrders, reviewBadge}) {
    DASHBOARD
 ══════════════════════════════════════════════════════ */
 function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOpen, onPage, onLogout, hasAlert}) {
-  const todayOrders   = orders.filter(o=>o.status!=='delivered');
+  const todayOrders   = orders.filter(o=>o.status!=='delivered' && o.status!=='cancelled');
   const doneToday     = orders.filter(o=>o.status==='delivered').length;
   const revenue       = orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+o.total,0);
   const newOrders     = orders.filter(o=>o.status==='new').length;
@@ -571,8 +573,8 @@ function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
   const newOrders = orders.filter(o=>o.status==='new').length;
 
   const filtered = filter==='active'
-    ? orders.filter(o=>o.status!=='delivered')
-    : orders.filter(o=>o.status==='delivered');
+    ? orders.filter(o=>o.status!=='delivered' && o.status!=='cancelled')
+    : orders.filter(o=>o.status==='delivered').sort((a,b)=>String(b.time).localeCompare(String(a.time)));
 
   const SC = {
     new:      {l:'Новый',     c:'#FF4545',  next:'cooking',  nextL:'✓ Принять и начать готовить'},
@@ -655,7 +657,7 @@ function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
                       {s.nextL}
                     </button>
                     {o.status==='new'&&(
-                      <button onClick={()=>onUpdate(o.id,'delivered')} className="btn" style={{width:44,height:44,borderRadius:11,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',color:'#FF4545',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>✕</button>
+                      <button onClick={()=>onUpdate(o.id,'cancelled')} className="btn" style={{width:44,height:44,borderRadius:11,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',color:'#FF4545',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>✕</button>
                     )}
                   </div>
                 )}

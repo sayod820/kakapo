@@ -8,8 +8,10 @@ import {
   getMarketItems,
   getMarketStatus,
   getRestItems,
+  getRestItemsForOrder,
   getRestPartStatus,
   getRestIdsFromOrder,
+  hasRestPart,
   getCourierAcceptPickupIds,
   getPendingPartsForCourier,
   isMarketPartActive,
@@ -433,23 +435,27 @@ export function mapOrdersForCourier(orders: Order[]): import('./demoOrders').Dem
     .map(o => mapSingleOrderForCourier(o))
 }
 
-/** Ресторан — только блюда своего ресторана из заказа */
+/** Ресторан — только блюда своего ресторана из заказа (включая доставленные) */
 export function mapOrdersForRestaurant(orders: Order[], restId: string) {
+  const rid = String(restId)
   return orders
     .filter(o => {
       const order = normalizeOrder(o)
-      if (!getRestItems(order.items, restId).length) return false
+      if (order.status === 'cancelled') return false
+      if (!hasRestPart(order, rid)) return false
       if (isMixedOrder(order)) {
-        const part = getRestPartStatus(order, restId)
-        if (part === 'done' && order.status !== 'delivered') return true
-        return isRestPartActive(order, restId)
+        if (order.status === 'delivered') return true
+        const part = getRestPartStatus(order, rid)
+        if (part === 'done') return true
+        return isRestPartActive(order, rid)
       }
-      return getRestIdsFromOrder(order).includes(String(restId)) && order.status !== 'delivered'
+      return true
     })
     .map(o => {
       const order = normalizeOrder(o)
-      const restItems = getRestItems(order.items, restId)
+      const restItems = getRestItemsForOrder(order, rid)
       const partStatus = (() => {
+        if (order.status === 'delivered') return 'delivered' as const
         if (isMixedOrder(order)) {
           const part = getRestPartStatus(order, restId)
           if (part === 'done') {
