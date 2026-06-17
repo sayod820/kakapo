@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import dynamic from 'next/dynamic'
 import {
   findStoreClientByPhone,
   formatTjPhone,
@@ -9,6 +10,8 @@ import {
 } from '@/lib/clientSession'
 import { DEFAULT_ADMIN_CLIENTS, normalizePhone, phonesMatch } from '@/lib/clientCrm'
 import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
+
+const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
 
 const DEMO_OTP = '1234'
 
@@ -53,6 +56,8 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState(['', '', '', ''])
   const [reg, setReg] = useState({ firstName: '', lastName: '', addr: '', email: '' })
+  const [addrCoords, setAddrCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [mapOpen, setMapOpen] = useState(false)
   const [err, setErr] = useState('')
   const [load, setLoad] = useState(false)
   const [cd, setCd] = useState(0)
@@ -121,6 +126,8 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
         return
       }
       setReg({ firstName: '', lastName: '', addr: '', email: '' })
+      setAddrCoords(null)
+      setMapOpen(false)
       setStep('register')
     }, 450)
   }
@@ -152,6 +159,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const saveRegister = () => {
     if (!reg.firstName.trim()) { setErr('Укажите имя'); return }
     if (!reg.lastName.trim()) { setErr('Укажите фамилию'); return }
+    if (!addrCoords) { setErr('Укажите точку на карте'); setMapOpen(true); return }
     if (!reg.addr.trim()) { setErr('Укажите адрес доставки'); return }
     setErr('')
     setLoad(true)
@@ -482,9 +490,69 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
 
               <div style={{ marginBottom: 12 }}>
                 {fieldLabel('Адрес доставки *')}
-                <input className="sl-inp" value={reg.addr} onChange={e => setRegField('addr', e.target.value)}
-                  placeholder="ул. Ленина, 42, кв. 5"
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
+
+                {!mapOpen ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMapOpen(true)}
+                      className="sl-btn"
+                      style={{
+                        width: '100%', marginBottom: 10, padding: '13px 14px', borderRadius: 14,
+                        background: addrCoords ? 'rgba(31,215,96,.12)' : 'rgba(31,215,96,.08)',
+                        border: `1.5px solid ${addrCoords ? 'rgba(31,215,96,.45)' : 'rgba(31,215,96,.35)'}`,
+                        color: addrCoords ? '#1FD760' : '#8FB897',
+                        fontSize: 13, fontWeight: 700, textAlign: 'left',
+                      }}
+                    >
+                      {addrCoords ? '✓ Точка выбрана · изменить на карте' : '🗺 Указать точку на карте *'}
+                    </button>
+                    <input
+                      className="sl-inp"
+                      value={reg.addr}
+                      onChange={e => setRegField('addr', e.target.value)}
+                      placeholder="ул. Ленина, 42, кв. 5"
+                      style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: `1.5px solid ${addrCoords ? 'rgba(31,215,96,.45)' : '#162B1A'}`, color: '#EBF5ED', fontSize: 14 }}
+                    />
+                    {!addrCoords && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: '#FFB800', fontWeight: 600 }}>
+                        ⚠️ Нажмите «Указать точку на карте» — курьер увидит ваш дом
+                      </div>
+                    )}
+                    {addrCoords && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: '#1FD760', fontWeight: 600 }}>
+                        ✓ Точка: {addrCoords.lat.toFixed(5)}, {addrCoords.lng.toFixed(5)}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ padding: 12, borderRadius: 16, border: '1px solid rgba(31,215,96,.25)', background: 'rgba(31,215,96,.05)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#1FD760', marginBottom: 8 }}>
+                      Шаг · Подтвердите точку на карте
+                    </div>
+                    <AddressMapPicker
+                      key={`reg-map-${addrCoords?.lat ?? 'new'}-${addrCoords?.lng ?? 'new'}`}
+                      initial={addrCoords}
+                      variant="admin"
+                      hint="Нажмите на карту и подтвердите — адрес подставится автоматически"
+                      mapHeight={200}
+                      onSelect={({ lat, lng, address }) => {
+                        setAddrCoords({ lat, lng })
+                        setRegField('addr', address)
+                        setMapOpen(false)
+                        setErr('')
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMapOpen(false)}
+                      className="sl-btn"
+                      style={{ marginTop: 8, fontSize: 11, color: '#8FB897', background: 'transparent', fontWeight: 600 }}
+                    >
+                      ← Скрыть карту
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div style={{ marginBottom: 14 }}>
