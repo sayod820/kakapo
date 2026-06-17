@@ -9,9 +9,8 @@ import {
   getRestItems,
   getRestPartStatus,
   getRestIdsFromOrder,
-  getReadyUnpickedPickupIds,
+  getCourierAcceptPickupIds,
   getPendingPartsForCourier,
-  isPickupPointReady,
   isMarketPartActive,
   isMixedOrder,
   hasMarketPart,
@@ -389,13 +388,7 @@ export function mapOrdersForAssembler(orders: Order[]) {
 /** Один заказ → формат курьера (с учётом частичной готовности) */
 export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoCourierOrder {
   const order = normalizeOrder(o)
-  let routePickupIds = getReadyUnpickedPickupIds(order)
-  if (!routePickupIds.length && isCourierReadyOrder(order)) {
-    routePickupIds = getAllPickupIds(order).filter(pid => isPickupPointReady(order, pid))
-  }
-  if (!routePickupIds.length && inferOrderType(order) === 'restaurant' && order.status === 'ready') {
-    routePickupIds = getAllPickupIds(order)
-  }
+  const routePickupIds = getCourierAcceptPickupIds(order)
   const pendingParts = getPendingPartsForCourier(order)
   return {
     id: order.id,

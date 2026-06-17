@@ -11,7 +11,16 @@ import { buildCourierStats, COURIER_NAME, COURIER_PHONE, formatSm } from '@/lib/
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForCourier, mapOrdersForCourierMap, mapSingleOrderForCourier, isCourierMapOrder, isCourierFullyReadyOrder, courierMapStatusLabel, courierWaitingBanner } from '@/lib/orderUiMap'
-import { normalizeOrder, buildCourierRoute, getAllPickupIds, getReadyUnpickedPickupIds, getPendingPartsForCourier, formatCourierWaitingMessage, deriveCourierProgress } from '@/lib/orderParts'
+import {
+  normalizeOrder,
+  buildCourierRoute,
+  getAllPickupIds,
+  getReadyUnpickedPickupIds,
+  getCourierAcceptPickupIds,
+  getPendingPartsForCourier,
+  formatCourierWaitingMessage,
+  deriveCourierProgress,
+} from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation, readSessionFlag, writeSessionFlag } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -546,6 +555,14 @@ function CourierAppInner() {
   const [selected,  setSelected]  = useState<any>(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [routePicker, setRoutePicker] = useState<any>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+
+  const selectedLive = useMemo(() => {
+    if (!selected?.id) return null
+    return ORDERS.find(o => o.id === selected.id)
+      ?? MAP_ORDERS.find(o => o.id === selected.id)
+      ?? selected
+  }, [selected, ORDERS, MAP_ORDERS]);
 
   const myActiveOrders = useMemo(() => {
     return apiOrders
@@ -648,31 +665,53 @@ function CourierAppInner() {
     setRoutePicker(null);
     setDetailOrderId(null);
     setTab('active');
-    await setCourierRoute(o.id, route);
-    await updateStatus(o.id, 'courier_picked', { courier: { name: COURIER.name, phone: COURIER_PHONE }, courierAtClient: false });
+    await updateStatus(o.id, 'courier_picked', {
+      courier: { name: COURIER.name, phone: COURIER_PHONE },
+      courierRoute: route,
+      courierAtClient: false,
+    });
   };
 
-  const accept = (o: any) => {
-    if (o.mapStatus === 'waiting' || o.mapStatus === 'preparing' || !o.pickupIds?.length) return;
+  const accept = async (o: any) => {
+    if (acceptingId) return;
+    const raw = apiOrders.find(x => x.id === o.id);
+    const order = raw ? normalizeOrder(raw) : null;
+    const live = order ? mapSingleOrderForCourier(order) : o;
+
+    if (live.mapStatus === 'waiting' || live.mapStatus === 'preparing') {
+      setAcceptErr('Заказ ещё не готов — подождите ресторан');
+      return;
+    }
+
+    const ready = order ? getCourierAcceptPickupIds(order) : (o.pickupIds || []);
+    if (!ready.length) {
+      setAcceptErr('Синхронизация… попробуйте через секунду');
+      return;
+    }
+
     const gate = canAcceptMore();
     if (!gate.ok) {
       setAcceptErr(gate.msg);
       return;
     }
     setAcceptErr('');
-    const raw = apiOrders.find(x => x.id === o.id);
-    const order = raw ? normalizeOrder(raw) : null;
-    const allStops = order ? getAllPickupIds(order) : o.pickupIds;
-    const ready = order ? getReadyUnpickedPickupIds(order) : o.pickupIds;
+    const allStops = order ? getAllPickupIds(order) : ready;
 
     if (allStops.length > 1 && ready.length > 1) {
-      setRoutePicker({ order: o, ready, allStops });
+      setRoutePicker({ order: live, ready, allStops });
       return;
     }
     const route = ready.length === 1
       ? buildCourierRoute(ready[0], order || { items: [], type: 'mixed' } as any)
       : allStops;
-    void confirmAccept(o, route);
+    setAcceptingId(o.id);
+    try {
+      await confirmAccept(live, route);
+    } catch {
+      setAcceptErr('Не удалось принять заказ — попробуйте ещё раз');
+    } finally {
+      setAcceptingId(null);
+    }
   };
 
   const chooseFirstPickup = (pid: string) => {
@@ -683,13 +722,21 @@ function CourierAppInner() {
     void setCourierRoute(detailOrderId, route);
   };
 
-  const pickRouteAndAccept = (firstPid: string) => {
-    if (!routePicker) return;
+  const pickRouteAndAccept = async (firstPid: string) => {
+    if (!routePicker || acceptingId) return;
     const raw = apiOrders.find(o => o.id === routePicker.order.id);
     const route = raw
       ? buildCourierRoute(firstPid, normalizeOrder(raw))
       : [firstPid, ...routePicker.allStops.filter((x: string) => x !== firstPid)];
-    void confirmAccept(routePicker.order, route);
+    setAcceptingId(routePicker.order.id);
+    try {
+      await confirmAccept(routePicker.order, route);
+      setRoutePicker(null);
+    } catch {
+      setAcceptErr('Не удалось принять заказ — попробуйте ещё раз');
+    } finally {
+      setAcceptingId(null);
+    }
   };
   const finish = async () => {
     if (!detailOrderId) return;
@@ -974,11 +1021,11 @@ function CourierAppInner() {
                       {/* кнопки */}
                       <div style={{ display:'flex', gap:8 }}>
                         <button onClick={()=>setSelected(null)} className="btn" style={{ padding:'14px 18px', borderRadius:14, background:'#162B1A', border:'none', color:'#8FB897', fontWeight:700, fontSize:14 }}>✕</button>
-                        {selected.mapStatus === 'waiting' ? (
+                        {selectedLive?.mapStatus === 'waiting' ? (
                           <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(143,184,151,.1)', border:'1px solid rgba(143,184,151,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#8FB897' }}>
                             📦 Заказ ещё не собирается
                     </div>
-                        ) : selected.mapStatus === 'preparing' || !selected.pickupIds?.length ? (
+                        ) : !selectedLive || selectedLive.mapStatus === 'preparing' || !selectedLive.pickupIds?.length ? (
                           <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(255,184,0,.1)', border:'1px solid rgba(255,184,0,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#FFB800' }}>
                             ⏳ Ожидаем готовность заказа
                   </div>
@@ -987,9 +1034,9 @@ function CourierAppInner() {
                             {canAcceptMore().msg}
                   </div>
                         ) : (
-                        <button onClick={()=>accept(selected)} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-                          <span>✓ Принять заказ</span>
-                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>наличными {(() => { const d = orderDelivery(selected, roadKm, TARIFF); return d != null ? `${(selected.sum + d).toFixed(2)} ЅМ` : '…'; })()}</span>
+                        <button onClick={()=>void accept(selectedLive)} disabled={!!acceptingId} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:acceptingId ? '#162B1A' : 'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:acceptingId ? '#8FB897' : '#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:acceptingId ? 0.7 : 1 }}>
+                          <span>{acceptingId ? '⏳ Принимаем…' : '✓ Принять заказ'}</span>
+                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>наличными {(() => { const d = orderDelivery(selectedLive, roadKm, TARIFF); return d != null ? `${(selectedLive.sum + d).toFixed(2)} ЅМ` : '…'; })()}</span>
                         </button>
                         )}
                   </div>

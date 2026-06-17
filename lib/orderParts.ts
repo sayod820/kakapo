@@ -160,6 +160,19 @@ export function getReadyUnpickedPickupIds(o: Order, routeOrder?: string[]): stri
   return [...ready].sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999))
 }
 
+/** Точки забора для принятия заказа курьером (с fallback для ресторана) */
+export function getCourierAcceptPickupIds(o: Order): string[] {
+  const order = normalizeOrder(o)
+  let ids = getReadyUnpickedPickupIds(order)
+  if (!ids.length) {
+    ids = getAllPickupIds(order).filter(pid => isPickupPointReady(order, pid))
+  }
+  if (!ids.length && inferOrderType(order) === 'restaurant' && order.status === 'ready') {
+    ids = getAllPickupIds(order)
+  }
+  return ids
+}
+
 /** Маршрут: сначала выбранная точка, затем остальные */
 export function buildCourierRoute(firstPickupId: string, o: Order): string[] {
   const all = getAllPickupIds(normalizeOrder(o))

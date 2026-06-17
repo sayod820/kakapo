@@ -98,6 +98,17 @@ export type AdminOrderPin = Partial<Pick<Order,
   'status' | 'marketStatus' | 'restParts' | 'items' | 'courier' | 'assembler' | 'courierRoute' | 'pickedUpIds' | 'deliveredAt'
 >>
 
+const STATUS_RANK: Record<string, number> = {
+  new: 0, cooking: 1, assembling: 2, ready: 3, assembler_done: 3,
+  courier_picked: 4, delivering: 5, delivered: 6, cancelled: 6,
+}
+
+function mergeOrderStatus(local: OrderStatus, remote: OrderStatus): OrderStatus {
+  if (remote === 'delivered' || remote === 'cancelled') return remote
+  if (local === 'delivered' || local === 'cancelled') return local
+  return (STATUS_RANK[local] ?? 0) >= (STATUS_RANK[remote] ?? 0) ? local : remote
+}
+
 export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOrderPin): Order {
   if (adminPin) {
     const merged = { ...local, ...remote, ...adminPin, status: (adminPin.status ?? remote.status ?? local.status) as OrderStatus }
@@ -117,7 +128,9 @@ export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOr
     : (remote.courierRoute?.length ? remote.courierRoute : local.courierRoute)
   return {
     ...remote,
-    status: remote.status ?? local.status,
+    status: USE_API
+      ? mergeOrderStatus(local.status, remote.status ?? local.status)
+      : (remote.status ?? local.status),
     courier: useRemoteCourier ? remote.courier : local.courier,
     assembler: useRemoteAssembler ? remote.assembler : local.assembler,
     marketStatus: remote.marketStatus ?? local.marketStatus,
