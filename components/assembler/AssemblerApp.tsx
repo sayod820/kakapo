@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { useOrders, USE_API } from '@/lib/store'
+import { useOrders, useProducts, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler, mapCancelledOrdersForAssembler, mapSingleOrderForAssembler, buildAdminStatusPatch, isAssemblerCancelledVisible } from '@/lib/orderUiMap'
 import { getMarketStatus, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { ASSEMBLER_NAME } from '@/lib/courierStats'
@@ -11,6 +11,7 @@ import Link from 'next/link'
 import AssemblerLoginPage from '@/components/assembler/AssemblerLoginPage'
 import { useAssemblerTeam, hydrateAssemblerTeamStore } from '@/lib/assemblerTeamStore'
 import type { AdminAssembler } from '@/lib/assemblerTeam'
+import type { Product } from '@/lib/types'
 import { canAssemblerSeeOrder, isAssemblerOrderClaimed, orderHasAssemblerAssignment } from '@/lib/assemblerTeam'
 import { loadAssemblerSession, saveAssemblerSession, clearAssemblerSession, type AssemblerSession } from '@/lib/assemblerSession'
 // ─── КАКАПО Assembler App ────────────────────────
@@ -676,12 +677,41 @@ function phoneHref(phone?: string) {
   return digits.length >= 9 ? `tel:${digits}` : null;
 }
 
+type EditOrderItem = {
+  id: number
+  product_id?: number
+  art: string
+  e: string
+  name: string
+  qty: number
+  unit: string
+  price: number
+  done?: boolean
+}
+
+function productToEditItem(p: Product, qty = 1, id?: number): EditOrderItem {
+  return {
+    id: id ?? p.id,
+    product_id: p.id,
+    art: p.art,
+    e: p.e,
+    name: p.name,
+    qty,
+    unit: p.unit,
+    price: p.price,
+    done: false,
+  };
+}
+
 function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, onAcknowledgeCancel, onUpdateItems}) {
+  const products = useProducts(s => s.products);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [editItems, setEditItems] = useState(order.items);
+  const [editItems, setEditItems] = useState<EditOrderItem[]>(order.items);
   const [editNote, setEditNote] = useState(order.assemblerNote || '');
   const [saving, setSaving] = useState(false);
+  const [pickerMode, setPickerMode] = useState<'add' | number | null>(null);
+  const [productQuery, setProductQuery] = useState('');
   const doneCount = order.items.filter(it=>it.done).length;
   const allDone   = order.items.length > 0 && doneCount === order.items.length;
   const pct       = order.items.length ? Math.round(doneCount/order.items.length*100) : 0;
@@ -690,9 +720,68 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
   const itemsTotal = order.items.reduce((s,it)=>s+it.price*it.qty,0);
 
   useEffect(() => {
+    if (!showEdit) {
+      setPickerMode(null);
+      setProductQuery('');
+    }
+  }, [showEdit]);
+
+  useEffect(() => {
     setEditItems(order.items);
     setEditNote(order.assemblerNote || '');
+    setPickerMode(null);
+    setProductQuery('');
   }, [order.id, order.items, order.assemblerNote]);
+
+  const filteredProducts = useMemo(() => {
+    const q = productQuery.trim().toLowerCase();
+    const list = products;
+    if (!q) return list.slice(0, 24);
+    return list.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.art.toLowerCase().includes(q) ||
+      p.cat.toLowerCase().includes(q)
+    ).slice(0, 30);
+  }, [products, productQuery]);
+
+  const openAddPicker = () => {
+    setPickerMode('add');
+    setProductQuery('');
+  };
+
+  const openReplacePicker = (itemId: number) => {
+    setPickerMode(itemId);
+    setProductQuery('');
+  };
+
+  const closePicker = () => {
+    setPickerMode(null);
+    setProductQuery('');
+  };
+
+  const selectProduct = (p: Product) => {
+    if (pickerMode === 'add') {
+      setEditItems(prev => {
+        const idx = prev.findIndex(it => it.id === p.id || it.art === p.art);
+        if (idx >= 0) {
+          return prev.map((it, i) => i === idx ? { ...it, qty: it.qty + 1, done: false } : it);
+        }
+        const nextId = prev.length ? Math.max(...prev.map(it => it.id)) + 1 : p.id;
+        return [...prev, productToEditItem(p, 1, nextId)];
+      });
+    } else if (typeof pickerMode === 'number') {
+      const old = editItems.find(it => it.id === pickerMode);
+      setEditItems(prev => prev.map(it => {
+        if (it.id !== pickerMode) return it;
+        return { ...productToEditItem(p, old?.qty ?? 1, it.id), done: false };
+      }));
+    }
+    closePicker();
+  };
+
+  const replaceTarget = typeof pickerMode === 'number'
+    ? editItems.find(it => it.id === pickerMode)
+    : null;
 
   const changeQty = (itemId: number, delta: number) => {
     setEditItems(prev => prev.map(it => {
@@ -714,7 +803,10 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
     }
     setSaving(true);
     try {
-      await onUpdateItems(order.id, filtered, editNote.trim());
+      await onUpdateItems(order.id, filtered.map(it => ({
+        ...it,
+        product_id: it.product_id ?? products.find(p => p.id === it.id || p.art === it.art)?.id ?? it.id,
+      })), editNote.trim());
       setShowEdit(false);
     } finally {
       setSaving(false);
@@ -920,6 +1012,57 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
                 📞 Позвонить {order.client.name}
               </a>
             )}
+            {pickerMode !== null ? (
+              <div style={{marginBottom:16}}>
+                <button type="button" onClick={closePicker} className="btn"
+                  style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,padding:'8px 0',background:'none',border:'none',color:'#8FB897',fontSize:12,fontWeight:700}}>
+                  ← Назад к списку
+                </button>
+                <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,marginBottom:6,color:'#9B6DFF'}}>
+                  {pickerMode === 'add' ? 'Добавить товар' : 'Заменить товар'}
+                </div>
+                {replaceTarget && (
+                  <div style={{fontSize:11,color:'#8FB897',marginBottom:10,lineHeight:1.5}}>
+                    Вместо: <span style={{color:'#EBF5ED',fontWeight:700}}>{replaceTarget.e} {replaceTarget.name}</span>
+                  </div>
+                )}
+                <input
+                  value={productQuery}
+                  onChange={e => setProductQuery(e.target.value)}
+                  placeholder="Поиск по названию или артикулу…"
+                  autoFocus
+                  style={{width:'100%',padding:'12px 14px',borderRadius:12,background:'#091508',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:13,marginBottom:12,fontFamily:'Nunito'}}
+                />
+                <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'42vh',overflowY:'auto'}}>
+                  {filteredProducts.map(p => (
+                    <button key={p.id} type="button" onClick={() => selectProduct(p)} className="btn"
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'11px 12px',borderRadius:13,background:'#091508',border:'1px solid #162B1A',textAlign:'left',width:'100%'}}>
+                      <span style={{fontSize:26,flexShrink:0}}>{p.e}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:700,color:'#EBF5ED',marginBottom:2}}>{p.name}</div>
+                        <div style={{fontSize:10,color:'#8FB897'}}>{p.art} · {p.unit} · {p.price.toFixed(2)} ЅМ</div>
+                      </div>
+                      <div style={{textAlign:'right',flexShrink:0}}>
+                        <div style={{fontSize:10,color:p.stock > 0 ? '#1FD760' : '#FF6969',fontWeight:700}}>
+                          {p.stock > 0 ? `${p.stock} шт` : 'нет'}
+                        </div>
+                        <div style={{fontSize:16,color:'#9B6DFF',marginTop:2}}>+</div>
+                      </div>
+                    </button>
+                  ))}
+                  {!filteredProducts.length && (
+                    <div style={{padding:20,textAlign:'center',fontSize:12,color:'#8FB897'}}>
+                      Товар не найден — попробуйте другой запрос
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+            <>
+            <button type="button" onClick={openAddPicker} className="btn"
+              style={{width:'100%',padding:12,borderRadius:13,background:'rgba(155,109,255,.12)',border:'1.5px dashed rgba(155,109,255,.4)',color:'#9B6DFF',fontWeight:800,fontSize:13,marginBottom:14}}>
+              ➕ Добавить товар из каталога
+            </button>
             <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
               {editItems.map(item => (
                 <div key={item.id} style={{padding:'12px 14px',borderRadius:14,background:'#091508',border:'1px solid #162B1A'}}>
@@ -927,14 +1070,14 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
                     <span style={{fontSize:24}}>{item.e}</span>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{item.name}</div>
-                      <div style={{fontSize:10,color:'#8FB897'}}>{item.unit} · {(item.price * item.qty).toFixed(2)} ЅМ</div>
+                      <div style={{fontSize:10,color:'#8FB897'}}>{item.art} · {item.unit} · {(item.price * item.qty).toFixed(2)} ЅМ</div>
                     </div>
                     <button type="button" onClick={() => removeItem(item.id)} className="btn"
                       style={{width:30,height:30,borderRadius:10,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',color:'#FF6969',fontSize:14,flexShrink:0}}>
                       ✕
                     </button>
                   </div>
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
                     <span style={{fontSize:11,color:'#8FB897'}}>Количество</span>
                     <div style={{display:'flex',alignItems:'center',gap:10}}>
                       <button type="button" onClick={() => changeQty(item.id, -1)} className="btn"
@@ -944,11 +1087,15 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
                         style={{width:34,height:34,borderRadius:10,background:'#0C1C0F',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:18,fontWeight:700}}>+</button>
                     </div>
                   </div>
+                  <button type="button" onClick={() => openReplacePicker(item.id)} className="btn"
+                    style={{width:'100%',padding:9,borderRadius:10,background:'rgba(59,142,240,.08)',border:'1px solid rgba(59,142,240,.25)',color:'#3B8EF0',fontWeight:700,fontSize:11}}>
+                    ↔ Заменить на другой товар
+                  </button>
                 </div>
               ))}
               {!editItems.length && (
                 <div style={{padding:16,textAlign:'center',fontSize:12,color:'#8FB897',borderRadius:12,border:'1px dashed #1D3822'}}>
-                  Все товары удалены — добавьте хотя бы один или отмените заказ
+                  Все товары удалены — добавьте из каталога или отмените заказ
                 </div>
               )}
             </div>
@@ -965,6 +1112,8 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
                 {saving ? 'Сохранение…' : '✓ Сохранить'}
               </button>
             </div>
+            </>
+            )}
           </div>
         </div>
       )}
