@@ -418,6 +418,27 @@ const ORDER_STATUS_FILTERS = [
   { id: 'delivered', l: 'Готов', ic: 'check', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
 ];
 
+function ruCount(n: number, one: string, few: string, many: string) {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 14) return `${n} ${many}`
+  if (mod10 === 1) return `${n} ${one}`
+  if (mod10 >= 2 && mod10 <= 4) return `${n} ${few}`
+  return `${n} ${many}`
+}
+
+function countClientOrders(apiOrders: import('@/lib/types').Order[], phone?: string) {
+  const mine = phoneDigits(phone || '')
+  if (!mine) return 0
+  const fromApi = mapOrdersForClient(apiOrders).filter(o => phoneDigits(o.phone || '') === mine)
+  if (USE_API) return fromApi.length
+  const demoStatic = ORDERS_LIST.filter(o => phoneDigits(o.phone || '') === mine)
+  const byId = new Map<string, typeof fromApi[0]>()
+  fromApi.forEach(o => byId.set(o.id, o))
+  demoStatic.forEach(o => byId.set(o.id, o))
+  return byId.size
+}
+
 function ClientReviewBlock({ review, orderId, embedded }: { review: Review; orderId?: string; embedded?: boolean }) {
   const hasReply = !!(review.adminReply || review.restReply);
   return (
@@ -1513,12 +1534,17 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
   );
 };
 
-const ProfilePage = ({ go, user, setUser, onLogout }) => {
-  const [notif, setNotif] = useState(true);
-  const [showQR, setShowQR] = useState(false);
+const ProfilePage = ({ go, user, onLogout, wished }) => {
   const apiOrders = useOrders(s => s.orders);
   const [reviewStats, setReviewStats] = useState({ count: 0, withReplies: 0 });
   const [unreadNotifs, setUnreadNotifs] = useState(0);
+
+  const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const addrCount = useMemo(() => loadClientAddresses(user?.phone).length, [user?.phone]);
+  const wishCount = useMemo(
+    () => Object.keys(wished || {}).filter(id => wished[id]).length,
+    [wished],
+  );
 
   useEffect(() => {
     const phone = getActiveClientPhone(user);
@@ -1547,6 +1573,7 @@ const ProfilePage = ({ go, user, setUser, onLogout }) => {
       });
     }).catch(() => {});
   }, [apiOrders, user]);
+
   if (!user) return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
       <div style={{ fontSize:60, marginBottom:16, animation:"float 3s ease-in-out infinite" }}>👤</div>
@@ -1556,108 +1583,120 @@ const ProfilePage = ({ go, user, setUser, onLogout }) => {
       <Nav page="profile" go={go}/>
     </div>
   );
-  const lvlC = {bronze:"#CD7F32",silver:"#C0C0C0",gold:"var(--gd)",platinum:"var(--blue)"};
+
+  const lvlC = { bronze:"#CD7F32", silver:"#C0C0C0", gold:"var(--gd)", platinum:"var(--blue)" };
   const lc = lvlC[user.level] || "var(--gd)";
+  const levelLabel = { bronze:"Бронза", silver:"Серебро", gold:"Золото", platinum:"Platinum" }[user.level] || user.level;
+
+  const menuItems = [
+    {
+      icon: "bag", l: "Мои заказы", c: "var(--gr)", to: "orders",
+      s: orderCount ? ruCount(orderCount, "заказ", "заказа", "заказов") : "Пока нет заказов",
+    },
+    {
+      icon: "bell", l: "Уведомления", c: "var(--blue)", to: "notifs",
+      s: unreadNotifs ? `${unreadNotifs} новых` : "Нет новых",
+      badge: unreadNotifs || undefined,
+    },
+    {
+      icon: "star", l: "Отзывы", c: "var(--gd)", to: "reviews",
+      s: reviewStats.count
+        ? `${ruCount(reviewStats.count, "отзыв", "отзыва", "отзывов")}${reviewStats.withReplies ? " · есть ответы" : ""}`
+        : "После доставки заказа",
+      badge: reviewStats.withReplies || undefined,
+    },
+    {
+      icon: "map", l: "Адреса доставки", c: "var(--sky)", to: "addresses",
+      s: addrCount ? ruCount(addrCount, "адрес", "адреса", "адресов") : "Добавьте адрес",
+    },
+    {
+      icon: "help", l: "Помощь", c: "var(--t2)", to: "faq",
+      s: "FAQ и поддержка",
+    },
+  ];
+
   return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>Профиль</div>
-          <button onClick={()=>go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
+          <button onClick={() => go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="bell" s={17} c="var(--t2)"/>
             {unreadNotifs > 0 && (
               <div style={{ position:"absolute", top:6, right:6, minWidth:16, height:16, padding:"0 4px", borderRadius:8, background:"var(--red)", border:"1.5px solid var(--bg)", fontSize:9, fontWeight:800, color:"white", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                {unreadNotifs > 9 ? '9+' : unreadNotifs}
+                {unreadNotifs > 9 ? "9+" : unreadNotifs}
               </div>
             )}
           </button>
         </div>
       </header>
+
       <div style={{ padding:"16px 18px 110px" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:20 }}>
-          <div style={{ position:"relative", flexShrink:0 }}>
-            <div style={{ width:70, height:70, borderRadius:21, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:26, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 6px 20px rgba(31,215,96,.4)" }}>{user.name.charAt(0)}</div>
-            <button className="btn" style={{ position:"absolute", bottom:-4, right:-4, width:24, height:24, borderRadius:"50%", background:"var(--gr)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="camera" s={11} c="var(--bg)" w={2}/></button>
-            <div style={{ position:"absolute", top:-5, left:-5, padding:"2px 6px", borderRadius:8, background:lc, border:"2px solid var(--bg)", fontSize:8, fontWeight:900, color:"#1A1000", fontFamily:"Unbounded" }}>{user.level.toUpperCase()}</div>
+        <div className="card" style={{ padding:"16px", marginBottom:14, background:"linear-gradient(145deg,var(--l2) 0%,var(--l1) 100%)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+            <div style={{ width:56, height:56, borderRadius:16, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:22, fontWeight:900, color:"var(--bg)", flexShrink:0, boxShadow:"0 4px 16px rgba(31,215,96,.3)" }}>
+              {user.name.charAt(0)}
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div className="ub" style={{ fontSize:15, fontWeight:900, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
+              <div style={{ fontSize:12, color:"var(--t2)", marginBottom:5 }}>{user.phone}</div>
+              <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20, background:`${lc}18`, color:lc, border:`1px solid ${lc}35` }}>{levelLabel}</span>
+            </div>
           </div>
-          <div style={{ flex:1 }}>
-            <div className="ub" style={{ fontSize:16, fontWeight:900, marginBottom:3 }}>{user.name}</div>
-            <div style={{ fontSize:12, color:"var(--t2)", marginBottom:6 }}>{user.phone||"+992 93 ••• ••••"}</div>
-            <span style={{ fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:20, background:`${lc}18`, color:lc, border:`1px solid ${lc}35` }}>⭐ {user.level}</span>
+          <div style={{ display:"flex", gap:8 }}>
+            <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.2)", textAlign:"center" }}>
+              <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--gd)", lineHeight:1.1 }}>{(user.bonus || 0).toLocaleString()}</div>
+              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>бонусов</div>
+            </div>
+            <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center" }}>
+              <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--gr)", lineHeight:1.1 }}>{orderCount}</div>
+              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>{orderCount === 1 ? "заказ" : orderCount >= 2 && orderCount <= 4 ? "заказа" : "заказов"}</div>
+            </div>
+            {wishCount > 0 && (
+              <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(255,69,69,.08)", border:"1px solid rgba(255,69,69,.2)", textAlign:"center" }}>
+                <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--red)", lineHeight:1.1 }}>{wishCount}</div>
+                <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>в избранном</div>
+              </div>
+            )}
           </div>
         </div>
-        <div style={{ display:"flex", gap:10, marginBottom:20 }}>
-          {[{l:"Бонусов",v:(user.bonus||0).toLocaleString(),c:"var(--gd)"},{l:"Заказов",v:"34",c:"var(--gr)"},{l:"Сэкономил",v:"89 ЅМ",c:"var(--sky)"}].map((s,i) => (
-            <div key={i} style={{ flex:1, background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 10px", textAlign:"center" }}>
-              <div className="ub" style={{ fontSize:16, fontWeight:900, color:s.c, marginBottom:3 }}>{s.v}</div>
-              <div style={{ fontSize:10, color:"var(--t3)" }}>{s.l}</div>
+
+        <div className="card" style={{ marginBottom:12 }}>
+          {menuItems.map((item, i) => (
+            <div
+              key={item.to}
+              onClick={() => go(item.to)}
+              style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", borderBottom:i < menuItems.length - 1 ? "1px solid var(--b1)" : "none", cursor:"pointer" }}
+            >
+              <div style={{ width:34, height:34, borderRadius:10, background:`${item.c}14`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                <Ic n={item.icon} s={16} c={item.c}/>
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:700 }}>{item.l}</div>
+                {item.s && <div style={{ fontSize:11, color:"var(--t3)", marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.s}</div>}
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                {item.badge ? (
+                  <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(255,69,69,.12)" : "rgba(59,142,240,.12)", color:item.icon === "bell" ? "var(--red)" : "var(--blue)", border:`1px solid ${item.icon === "bell" ? "rgba(255,69,69,.25)" : "rgba(59,142,240,.25)"}` }}>
+                    {item.icon === "bell" ? String(item.badge) : "ответ"}
+                  </span>
+                ) : null}
+                <Ic n="arr" s={14} c="var(--t3)"/>
+              </div>
             </div>
           ))}
         </div>
-        <div onClick={() => setShowQR(v => !v)} style={{ borderRadius:22, overflow:"hidden", marginBottom:16, cursor:"pointer", background:"linear-gradient(135deg,#071A0A 0%,#0F3018 40%,#071A0A 100%)", border:"1.5px solid rgba(31,215,96,.25)", padding:"20px", position:"relative" }}>
-          <div style={{ position:"absolute", left:0, right:0, height:1, background:"linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)", animation:"scanLine 3s linear infinite" }}/>
-          {!showQR ? (
-            <>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
-                <div><div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gr)", marginBottom:2 }}>КАКАПО</div><div style={{ fontSize:10, color:"var(--t3)" }}>Бонусная карта · г. Яван</div></div>
-                <div style={{ width:38, height:38, borderRadius:11, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--bg)" }}>K</div>
-              </div>
-              <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:14 }}>
-                <span className="ub" style={{ fontSize:34, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>{(user.bonus||0).toLocaleString()}</span>
-                <span style={{ fontSize:14, color:"var(--gd)", fontWeight:700 }}>бонусов</span>
-              </div>
-              <div style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:10, background:"rgba(31,215,96,.12)", border:"1px solid rgba(31,215,96,.25)" }}>
-                <Ic n="info" s={13} c="var(--gr)"/><span style={{ fontSize:11, fontWeight:700, color:"var(--gr)" }}>Нажмите для QR-кода</span>
-              </div>
-            </>
-          ) : (
-            <div style={{ textAlign:"center" }}>
-              <div style={{ fontSize:11, color:"var(--t2)", marginBottom:12 }}>Покажите кассиру для списания бонусов</div>
-              <div style={{ width:120, height:120, margin:"0 auto 12px", background:"var(--bg)", borderRadius:12, display:"grid", gridTemplateColumns:"repeat(10,1fr)", gap:2, padding:8, border:"2px solid rgba(31,215,96,.2)" }}>
-                {Array.from({length:100},(_,i) => { const b=(i<3||i>96)||(i%10===0||i%10===9)||(Math.floor(i/10)<3&&i%10<3)||(Math.floor(i/10)>6&&i%10<3); return <div key={i} style={{ borderRadius:1, background:b?"var(--t1)":"transparent" }}/>; })}
-              </div>
-              <div className="ub" style={{ fontSize:11, color:"var(--t2)", letterSpacing:2 }}>•••• •••• 7654</div>
-            </div>
-          )}
-        </div>
-        {[
-          {title:"Покупки",items:[
-            {icon:"bag",l:"Мои заказы",s:"34 заказа",c:"var(--gr)",to:"orders"},
-            {icon:"bell",l:"Уведомления",s:unreadNotifs ? `${unreadNotifs} новых` : "Ответы на отзывы и заказы",c:"var(--blue)",to:"notifs",badge:unreadNotifs},
-            {icon:"heart",l:"Избранное",s:"12 товаров",c:"var(--red)"},
-            {icon:"star",l:"Отзывы",s:reviewStats.count ? `${reviewStats.count} отзыв${reviewStats.count===1?'':reviewStats.count<5?'а':'ов'}${reviewStats.withReplies ? ' · есть ответы' : ''}` : "Оставьте отзыв после доставки",c:"var(--gd)",to:"reviews",badge:reviewStats.withReplies},
-          ]},
-          {title:"VIP",items:[{icon:"crown",l:"VIP Профиль",s:"Platinum · кредит · менеджер",c:"var(--gd)",to:"vip"},{icon:"zap",l:"Мои привилегии",s:"8 VIP преимуществ",c:"var(--pur)"}]},
-          {title:"Настройки",items:[{icon:"bell",l:"Уведомления",s:"Push, SMS",c:"var(--gd)",tog:true,tv:notif,ts:setNotif},{icon:"map",l:"Адреса доставки",s:"2 адреса",c:"var(--blue)",to:"addresses"},{icon:"shield",l:"Конфиденциальность",c:"var(--sky)"},{icon:"help",l:"Помощь / FAQ",c:"var(--gr)",to:"faq"},{icon:"info",l:"О КАКАПО",s:"История, магазины, команда",c:"var(--sky)",to:"about"}]},
-          {title:"Ещё",items:[{icon:"repeat",l:"Реферальная программа",s:"Пригласи друга — получи бонусы",c:"var(--gr)",to:"referral"},{icon:"msg",l:"Чат с поддержкой",s:"Онлайн · г. Яван",c:"var(--blue)",to:"chat"}]},
-          {title:"Партнёрам",items:[{icon:"truck",l:"Кабинет курьера",s:"Доставка заказов",c:"var(--gr)",to:"courier_login"},{icon:"bag",l:"Кабинет сборщика",s:"Сборка заказов",c:"var(--pur)",to:"assembler_login"},{icon:"crown",l:"Кабинет ресторана",s:"Меню и заказы",c:"var(--org)",to:"partner_login"}]},
-          {title:"Администратор",items:[{icon:"shield",l:"Панель управления",s:"Товары, заказы, карты, настройки",c:"var(--gd)",to:"admin_dash"}]},
-        ].map((sec,si) => (
-          <div key={si} style={{ marginBottom:12 }}>
-            <div style={{ fontSize:11, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:8 }}>{sec.title}</div>
-            <div className="card">
-              {sec.items.map((item,i) => (
-                <div key={i} onClick={() => item.to && go(item.to)} style={{ display:"flex", alignItems:"center", gap:13, padding:"14px 15px", borderBottom:i<sec.items.length-1?"1px solid var(--b1)":"none", cursor:"pointer" }}>
-                  <div style={{ width:36, height:36, borderRadius:10, background:`${item.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={item.icon} s={17} c={item.c}/></div>
-                  <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700 }}>{item.l}</div>{item.s&&<div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>{item.s}</div>}</div>
-                  {item.tog ? <div className={`toggle ${item.tv?"on":""}`} onClick={e => { e.stopPropagation(); item.ts(v=>!v); }}><div className="toggle-dot"/></div> : (
-                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      {item.badge ? <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon==="bell"?"rgba(255,69,69,.12)":"rgba(59,142,240,.12)", color:item.icon==="bell"?"var(--red)":"var(--blue)", border:`1px solid ${item.icon==="bell"?"rgba(255,69,69,.25)":"rgba(59,142,240,.25)"}` }}>{item.icon==="bell" ? String(item.badge) : "ответ"}</span> : null}
-                      <Ic n="arr" s={15} c="var(--t3)"/>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+
         <div className="card">
-          <div onClick={() => onLogout?.()} style={{ display:"flex", alignItems:"center", gap:13, padding:"14px 15px", cursor:"pointer" }}>
-            <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,69,69,.14)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="logout" s={17} c="var(--red)"/></div>
-            <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:"var(--red)" }}>Выйти из аккаунта</div></div>
+          <div onClick={() => onLogout?.()} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
+            <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.12)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <Ic n="logout" s={16} c="var(--red)"/>
+            </div>
+            <div style={{ flex:1, fontSize:13, fontWeight:700, color:"var(--red)" }}>Выйти из аккаунта</div>
           </div>
         </div>
-        <div style={{ textAlign:"center", marginTop:14, fontSize:10, color:"var(--t3)" }}>КАКАПО v1.0.0 · г. Яван, Таджикистан</div>
+
+        <div style={{ textAlign:"center", marginTop:14, fontSize:10, color:"var(--t3)" }}>КАКАПО · г. Яван</div>
       </div>
       <Nav page="profile" go={go}/>
     </div>
@@ -6695,7 +6734,7 @@ function KakapoAppInner() {
       case "cart":             return <CartPage          {...shared} onDel={delItem}/>;
       case "checkout":         return <CheckoutPage      {...shared}/>;
       case "auth":             return <ClientLoginPage   go={go} setUser={setUser}/>;
-      case "profile":          return <ProfilePage       {...shared} user={user} setUser={setUser} onLogout={logout}/>;
+      case "profile":          return <ProfilePage       {...shared} user={user} onLogout={logout}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
       case "reviews":          return <ClientReviewsPage   go={go} user={user}/>;
       case "promos":           return <PromosPage        {...shared}/>;
