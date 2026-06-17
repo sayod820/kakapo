@@ -38,18 +38,20 @@ type RegAddress = {
   street: string
   apt: string
   floor: string
+  ent: string
   coords: { lat: number; lng: number } | null
   saved: boolean
 }
 
 function emptyRegAddress(): RegAddress {
-  return { street: '', apt: '', floor: '', coords: null, saved: false }
+  return { street: '', apt: '', floor: '', ent: '', coords: null, saved: false }
 }
 
-function formatRegAddress(a: Pick<RegAddress, 'street' | 'apt' | 'floor'>) {
+function formatRegAddress(a: Pick<RegAddress, 'street' | 'apt' | 'floor' | 'ent'>) {
   let s = a.street.trim()
   if (a.apt.trim()) s += `, кв. ${a.apt.trim()}`
   if (a.floor.trim()) s += `, этаж ${a.floor.trim()}`
+  if (a.ent.trim()) s += `, подъезд ${a.ent.trim()}`
   return s
 }
 
@@ -81,6 +83,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const [draftStreet, setDraftStreet] = useState('')
   const [draftApt, setDraftApt] = useState('')
   const [draftFloor, setDraftFloor] = useState('')
+  const [draftEnt, setDraftEnt] = useState('')
   const [draftCoords, setDraftCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [mapOpen, setMapOpen] = useState(false)
   const [addrErr, setAddrErr] = useState('')
@@ -189,11 +192,13 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
       setDraftStreet(savedAddr.street)
       setDraftApt(savedAddr.apt)
       setDraftFloor(savedAddr.floor)
+      setDraftEnt(savedAddr.ent)
       setDraftCoords(savedAddr.coords)
     } else {
       setDraftStreet('')
       setDraftApt('')
       setDraftFloor('')
+      setDraftEnt('')
       setDraftCoords(null)
     }
     setMapOpen(false)
@@ -214,6 +219,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
       street: draftStreet.trim(),
       apt: draftApt.trim(),
       floor: draftFloor.trim(),
+      ent: draftEnt.trim(),
       coords: draftCoords,
       saved: true,
     })
@@ -587,7 +593,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                     }}>
                     <div style={{ fontSize: 26, marginBottom: 4 }}>📍</div>
                     Добавить адрес
-                    <div style={{ fontSize: 11, color: '#3D6645', marginTop: 4, fontWeight: 600 }}>Карта · дом · квартира · этаж</div>
+                    <div style={{ fontSize: 11, color: '#3D6645', marginTop: 4, fontWeight: 600 }}>Карта · дом · квартира · этаж · подъезд</div>
                   </button>
                 )}
               </div>
@@ -646,7 +652,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
             <div style={{ width: 40, height: 4, borderRadius: 2, background: '#1D3822', margin: '0 auto 18px' }} />
             <div className="sl-ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 6, color: '#EBF5ED' }}>Адрес доставки</div>
             <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 16, lineHeight: 1.45 }}>
-              Сначала укажите точку на карте, затем заполните дом, квартиру и этаж
+              Сначала укажите точку на карте, затем заполните дом, квартиру, этаж и подъезд
             </div>
 
             {addrErr && (
@@ -708,6 +714,12 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                   {fieldLabel('Этаж')}
                   <input className="sl-inp" value={draftFloor} onChange={e => setDraftFloor(e.target.value)}
                     placeholder="3"
+                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  {fieldLabel('Подъезд')}
+                  <input className="sl-inp" value={draftEnt} onChange={e => setDraftEnt(e.target.value)}
+                    placeholder="2"
                     style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
                 </div>
               </div>
