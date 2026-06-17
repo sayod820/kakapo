@@ -209,9 +209,9 @@ function AssemblerAppInner() {
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
-        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage}/>}
+        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage} assemblerName={assemblerName}/>}
         {page==='history'   && <HistoryPage onPage={setPage}/>}
-        {page==='stats'     && <StatsPage   onPage={setPage} completed={completedCount}/>}
+        {page==='stats'     && <StatsPage onPage={setPage} completed={completedCount} assemblerName={assemblerName}/>}
       </div>
     </>
   );
@@ -268,7 +268,7 @@ function BottomNav({page, onPage, newCount}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({orders, completed, onStart, onPage}) {
+function DashboardPage({orders, completed, onStart, onPage, assemblerName}) {
   const newQueue = orders.filter(o => o.queue === 'new');
   const inProgress = orders.filter(o => o.queue !== 'new');
   const urgentNew = newQueue.filter(o => o.priority === 'urgent');
@@ -366,7 +366,7 @@ function DashboardPage({orders, completed, onStart, onPage}) {
 
   return (
     <div style={{minHeight:'100vh',paddingBottom:90}}>
-      <Header title="Сборщик" sub={`${ASSEMBLER.name} · ${orders.length} заказов`}
+      <Header title="Сборщик" sub={`${assemblerName} · ${orders.length} заказов`}
         right={
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:10,background:'rgba(155,109,255,.1)',border:'1px solid rgba(155,109,255,.25)'}}>
             <div style={{width:6,height:6,borderRadius:'50%',background:'#9B6DFF',animation:'pulse 2s infinite'}}/>
@@ -628,7 +628,8 @@ function HistoryPage({onPage}) {
 /* ══════════════════════════════════════════════════════
    СТАТИСТИКА
 ══════════════════════════════════════════════════════ */
-function StatsPage({onPage, completed}) {
+function StatsPage({onPage, completed, assemblerName}) {
+  const avatar = assemblerName?.charAt(0) || 'С';
   const totalToday  = completed + HISTORY_DATA.length;
   const totalItems  = 25 + completed*4;
   const WEEK = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
@@ -641,9 +642,9 @@ function StatsPage({onPage, completed}) {
       <div style={{padding:'14px 18px'}}>
         {/* Profile */}
         <div style={{display:'flex',alignItems:'center',gap:14,padding:'16px 18px',borderRadius:18,background:'linear-gradient(135deg,#0D0619,#1A0A30)',border:'1px solid rgba(155,109,255,.25)',marginBottom:18}}>
-          <div style={{width:56,height:56,borderRadius:18,background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:'white',flexShrink:0,boxShadow:'0 6px 20px rgba(155,109,255,.4)'}}>{ASSEMBLER.avatar}</div>
+          <div style={{width:56,height:56,borderRadius:18,background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:'white',flexShrink:0,boxShadow:'0 6px 20px rgba(155,109,255,.4)'}}>{avatar}</div>
           <div style={{flex:1}}>
-            <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,marginBottom:2}}>{ASSEMBLER.name}</div>
+            <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,marginBottom:2}}>{assemblerName}</div>
             <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Сборщик · КАКАПО Яван</div>
             <div style={{display:'flex',gap:8}}>
               <span style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(31,215,96,.12)',color:'#1FD760',border:'1px solid rgba(31,215,96,.25)'}}>★ 4.9 рейтинг</span>
