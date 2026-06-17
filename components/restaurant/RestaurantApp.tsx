@@ -659,43 +659,65 @@ function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
 /* ══════════════════════════════════════════════════════
    МЕНЮ
 ══════════════════════════════════════════════════════ */
+const FOOD_EMOJIS = ['🍖', '🍚', '🥩', '🍗', '🥗', '🍲', '🍜', '🍵', '🥟', '🍕', '🍔', '🍝', '🥤', '🌯', '🍣', '🥘', '🧁', '☕', '🍰', '🥙', '🍽', '🥛', '🧃', '🍺']
+
 function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 0}) {
-  const [activeCat, setActiveCat] = useState(rest?.categories[0]||'');
-  const [showAdd,   setShowAdd]   = useState(false);
-  const [editItem,  setEditItem]  = useState(null);
-  const [name,      setName]      = useState('');
-  const [price,     setPrice]     = useState('');
-  const [desc,      setDesc]      = useState('');
-  const [cat,       setCat]       = useState(rest?.categories[0]||'');
-  const [emoji,     setEmoji]     = useState('🍽');
-  const [photo,     setPhoto]     = useState('');
-  const [photoErr,  setPhotoErr]  = useState('');
+  const [activeCat, setActiveCat] = useState(rest?.categories[0] || '')
+  const [showAdd, setShowAdd] = useState(false)
+  const [name, setName] = useState('')
+  const [price, setPrice] = useState('')
+  const [desc, setDesc] = useState('')
+  const [cat, setCat] = useState(rest?.categories[0] || '')
+  const [emoji, setEmoji] = useState('🍽')
+  const [photo, setPhoto] = useState('')
+  const [photoErr, setPhotoErr] = useState('')
+  const [formErr, setFormErr] = useState('')
 
-  const catMenu = menu.filter(m=>m.cat===activeCat);
-  const stopCount = menu.filter(m=>!m.inStock).length;
+  const catMenu = menu.filter(m => m.cat === activeCat)
+  const stopCount = menu.filter(m => !m.inStock).length
+  const priceNum = Number(price)
+  const canSave = name.trim().length > 0 && priceNum > 0
 
-  const handlePhoto = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { setPhotoErr('Файл слишком большой (макс. 5 МБ)'); return; }
-    setPhotoErr('');
-    const reader = new FileReader();
-    reader.onload = (ev) => setPhoto(ev.target?.result as string);
-    reader.readAsDataURL(file);
-  };
+  const resetForm = (category = activeCat) => {
+    setName('')
+    setPrice('')
+    setDesc('')
+    setCat(category)
+    setEmoji('🍽')
+    setPhoto('')
+    setPhotoErr('')
+    setFormErr('')
+  }
+
+  const openAddForm = (category = activeCat) => {
+    resetForm(category)
+    setShowAdd(true)
+  }
+
+  const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { setPhotoErr('Файл слишком большой (макс. 5 МБ)'); return }
+    setPhotoErr('')
+    const reader = new FileReader()
+    reader.onload = (ev) => setPhoto(ev.target?.result as string)
+    reader.readAsDataURL(file)
+  }
 
   const save = () => {
-    if(!name||!price) return;
-    onAdd({e:emoji,name,desc,price:Number(price),cat,inStock:true,popular:false,photo});
-    setShowAdd(false); setName(''); setPrice(''); setDesc(''); setEmoji('🍽'); setPhoto(''); setPhotoErr('');
-  };
+    if (!name.trim()) { setFormErr('Укажите название блюда'); return }
+    if (!priceNum || priceNum <= 0) { setFormErr('Укажите цену больше 0'); return }
+    onAdd({ e: emoji, name: name.trim(), desc: desc.trim(), price: priceNum, cat, inStock: true, popular: false, photo })
+    setShowAdd(false)
+    resetForm(activeCat)
+    if (cat !== activeCat) setActiveCat(cat)
+  }
 
   return (
     <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
       <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Управление меню"/>
 
-      {/* Stop-list alert */}
-      {stopCount>0&&(
+      {stopCount > 0 && (
         <div style={{margin:'14px 18px 0',padding:'11px 14px',borderRadius:13,background:'rgba(255,69,69,.07)',border:'1px solid rgba(255,69,69,.25)',display:'flex',alignItems:'center',gap:10}}>
           <span style={{fontSize:20}}>⚠️</span>
           <div style={{flex:1}}>
@@ -705,110 +727,273 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 
         </div>
       )}
 
-      {/* Category tabs */}
       <div style={{padding:'14px 18px 0'}}>
         <div className="hscroll" style={{gap:6,marginBottom:14}}>
-          {(rest?.categories||[]).map(c=>(
-            <button key={c} onClick={()=>setActiveCat(c)} className="btn"
-              style={{padding:'8px 15px',borderRadius:50,fontSize:12,fontWeight:700,border:`1.5px solid ${activeCat===c?'rgba(31,215,96,.38)':'#162B1A'}`,background:activeCat===c?'rgba(31,215,96,.12)':'#0C1C0F',color:activeCat===c?'#1FD760':'#8FB897',whiteSpace:'nowrap',fontFamily:'Nunito'}}>
-              {c} ({menu.filter(m=>m.cat===c).length})
-            </button>
-          ))}
+          {(rest?.categories || []).map(c => {
+            const count = menu.filter(m => m.cat === c).length
+            return (
+              <button key={c} onClick={() => setActiveCat(c)} className="btn"
+                style={{
+                  padding:'8px 15px',borderRadius:50,fontSize:12,fontWeight:700,
+                  border:`1.5px solid ${activeCat === c ? 'rgba(31,215,96,.38)' : '#162B1A'}`,
+                  background:activeCat === c ? 'rgba(31,215,96,.12)' : '#0C1C0F',
+                  color:activeCat === c ? '#1FD760' : '#8FB897',whiteSpace:'nowrap',fontFamily:'Nunito',
+                }}>
+                {c} ({count})
+              </button>
+            )
+          })}
         </div>
       </div>
 
       <div style={{padding:'0 18px 20px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:700,color:'#8FB897'}}>{activeCat} · {catMenu.length} блюд</div>
-          <button onClick={()=>{setCat(activeCat);setShowAdd(true);}} className="btn" style={{padding:'8px 14px',borderRadius:11,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:700,fontSize:12}}>
-            + Добавить блюдо
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:800,color:'#EBF5ED',marginBottom:2}}>{activeCat}</div>
+            <div style={{fontSize:11,color:'#8FB897'}}>{catMenu.length} {catMenu.length === 1 ? 'блюдо' : catMenu.length < 5 ? 'блюда' : 'блюд'}</div>
+          </div>
+          <button onClick={() => openAddForm(activeCat)} className="btn"
+            style={{padding:'10px 16px',borderRadius:13,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:12,boxShadow:'0 6px 20px rgba(31,215,96,.3)'}}>
+            + Добавить
           </button>
         </div>
 
-        <div style={{display:'flex',flexDirection:'column',gap:10}}>
-          {catMenu.map((item,i)=>(
-            <div key={item.id} style={{display:'flex',gap:12,padding:'13px 14px',background:'#091508',border:`1.5px solid ${item.inStock?'#162B1A':'rgba(255,69,69,.3)'}`,borderRadius:15,animation:`fadeUp .35s ease ${i*.05}s both`,opacity:item.inStock?1:.7}}>
-              <div style={{width:68,height:68,borderRadius:14,background:'#0C1C0F',display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',overflow:'hidden',border:'1px solid #162B1A'}}>
-                {(item as any).photo
-                  ? <img src={(item as any).photo} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
-                  : <span style={{fontSize:30}}>{item.e}</span>
-                }
-                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.65)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,color:'#FF4545'}}>СТОП</div>}
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:800,marginBottom:2}}>{item.name}</div>
-                <div style={{fontSize:11,color:'#3D6645',marginBottom:5,lineHeight:1.4}}>{item.desc}</div>
-                <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900}}>{item.price}<span style={{fontSize:10,color:'#FFB800',marginLeft:2}}>ЅМ</span></div>
-              </div>
-              <div style={{display:'flex',flexDirection:'column',gap:7,alignItems:'flex-end'}}>
-                <button onClick={()=>onToggle(item.id)} className="btn"
-                  style={{padding:'5px 11px',borderRadius:9,fontSize:11,fontWeight:700,background:item.inStock?'rgba(31,215,96,.12)':'rgba(255,69,69,.12)',color:item.inStock?'#1FD760':'#FF4545',border:`1px solid ${item.inStock?'rgba(31,215,96,.3)':'rgba(255,69,69,.3)'}`}}>
-                  {item.inStock?'✓ Есть':'✕ Стоп'}
-                </button>
-                <button onClick={()=>onRemove(item.id)} className="btn" style={{padding:'4px 10px',borderRadius:8,fontSize:11,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.25)',color:'#FF4545'}}>🗑</button>
-              </div>
+        {catMenu.length === 0 ? (
+          <div style={{
+            padding:'36px 24px',borderRadius:20,textAlign:'center',
+            background:'linear-gradient(165deg,rgba(12,28,15,.6) 0%,rgba(9,21,8,.9) 100%)',
+            border:'1.5px dashed rgba(31,215,96,.25)',
+            animation:'fadeUp .4s ease both',
+          }}>
+            <div style={{
+              width:72,height:72,borderRadius:22,margin:'0 auto 16px',
+              background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',
+              display:'flex',alignItems:'center',justifyContent:'center',fontSize:36,
+            }}>🍽</div>
+            <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,marginBottom:8,color:'#EBF5ED'}}>
+              Раздел «{activeCat}» пуст
             </div>
-          ))}
-        </div>
+            <div style={{fontSize:13,color:'#8FB897',lineHeight:1.55,marginBottom:22,maxWidth:280,margin:'0 auto 22px'}}>
+              Добавьте первое блюдо — клиенты увидят его в приложении КАКАПО
+            </div>
+            <button onClick={() => openAddForm(activeCat)} className="btn"
+              style={{
+                width:'100%',maxWidth:280,padding:14,borderRadius:16,
+                background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',
+                color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14,
+                boxShadow:'0 8px 24px rgba(31,215,96,.35)',
+              }}>
+              + Добавить первое блюдо
+            </button>
+          </div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {catMenu.map((item, i) => (
+              <div key={item.id} style={{
+                display:'flex',gap:12,padding:'13px 14px',background:'#091508',
+                border:`1.5px solid ${item.inStock ? '#162B1A' : 'rgba(255,69,69,.3)'}`,
+                borderRadius:15,animation:`fadeUp .35s ease ${i * .05}s both`,
+                opacity:item.inStock ? 1 : .7,
+              }}>
+                <div style={{
+                  width:68,height:68,borderRadius:14,background:'#0C1C0F',
+                  display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,
+                  position:'relative',overflow:'hidden',border:'1px solid #162B1A',
+                }}>
+                  {(item as { photo?: string }).photo
+                    ? <img src={(item as { photo?: string }).photo} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                    : <span style={{fontSize:30}}>{item.e}</span>
+                  }
+                  {!item.inStock && (
+                    <div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.65)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,color:'#FF4545'}}>
+                      СТОП
+                    </div>
+                  )}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:800,marginBottom:2}}>{item.name}</div>
+                  <div style={{fontSize:11,color:'#3D6645',marginBottom:5,lineHeight:1.4}}>{item.desc}</div>
+                  <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900}}>
+                    {item.price}<span style={{fontSize:10,color:'#FFB800',marginLeft:2}}>ЅМ</span>
+                  </div>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:7,alignItems:'flex-end'}}>
+                  <button onClick={() => onToggle(item.id)} className="btn"
+                    style={{
+                      padding:'5px 11px',borderRadius:9,fontSize:11,fontWeight:700,
+                      background:item.inStock ? 'rgba(31,215,96,.12)' : 'rgba(255,69,69,.12)',
+                      color:item.inStock ? '#1FD760' : '#FF4545',
+                      border:`1px solid ${item.inStock ? 'rgba(31,215,96,.3)' : 'rgba(255,69,69,.3)'}`,
+                    }}>
+                    {item.inStock ? '✓ Есть' : '✕ Стоп'}
+                  </button>
+                  <button onClick={() => onRemove(item.id)} className="btn"
+                    style={{padding:'4px 10px',borderRadius:8,fontSize:11,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.25)',color:'#FF4545'}}>
+                    🗑
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Add modal */}
-      {showAdd&&(
+      {showAdd && (
         <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-          <div onClick={()=>setShowAdd(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
-          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',padding:'20px 20px 44px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
-            <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 18px'}}/>
-            <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:800,marginBottom:16}}>Добавить блюдо</div>
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              {/* Photo upload */}
-              <div>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:7,fontWeight:700}}>📷 Фото блюда</div>
+          <div onClick={() => setShowAdd(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
+          <div style={{
+            position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'92vh',
+            display:'flex',flexDirection:'column',
+            background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',
+            animation:'slideUp .4s cubic-bezier(.16,1,.3,1)',
+          }}>
+            <div style={{padding:'16px 20px 0',flexShrink:0}}>
+              <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 16px'}}/>
+              <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:4}}>
+                <div>
+                  <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:4}}>Новое блюдо</div>
+                  <div style={{fontSize:12,color:'#8FB897'}}>Заполните карточку — так её увидят клиенты</div>
+                </div>
+                <button type="button" onClick={() => setShowAdd(false)} className="btn"
+                  style={{width:34,height:34,borderRadius:11,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',fontSize:16}}>
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div style={{flex:1,overflowY:'auto',padding:'14px 20px 20px'}}>
+              {/* Preview */}
+              <div style={{marginBottom:18}}>
+                <div style={{fontSize:10,color:'#3D6645',marginBottom:8,fontWeight:800,letterSpacing:.5,textTransform:'uppercase'}}>Предпросмотр</div>
+                <div style={{
+                  display:'flex',gap:12,padding:'12px 14px',background:'#091508',
+                  border:'1.5px solid rgba(31,215,96,.25)',borderRadius:15,
+                }}>
+                  <div style={{
+                    width:60,height:60,borderRadius:13,background:'#0C1C0F',border:'1px solid #162B1A',
+                    display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0,
+                  }}>
+                    {photo
+                      ? <img src={photo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                      : <span style={{fontSize:28}}>{emoji}</span>
+                    }
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:800,marginBottom:2,color:name ? '#EBF5ED' : '#3D6645'}}>
+                      {name.trim() || 'Название блюда'}
+                    </div>
+                    <div style={{fontSize:10,color:'#3D6645',marginBottom:4,lineHeight:1.4}}>
+                      {desc.trim() || 'Краткое описание'}
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:priceNum > 0 ? '#1FD760' : '#3D6645'}}>
+                        {priceNum > 0 ? priceNum : '—'}<span style={{fontSize:9,color:'#FFB800'}}> ЅМ</span>
+                      </span>
+                      <span style={{fontSize:10,padding:'2px 8px',borderRadius:20,background:'rgba(31,215,96,.1)',color:'#1FD760',fontWeight:700}}>{cat}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {formErr && (
+                <div style={{padding:'10px 13px',borderRadius:11,marginBottom:14,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545'}}>
+                  ⚠️ {formErr}
+                </div>
+              )}
+
+              {/* Category chips */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Раздел меню *</div>
+                <div className="hscroll" style={{gap:6}}>
+                  {(rest?.categories || []).map(c => (
+                    <button key={c} type="button" onClick={() => setCat(c)} className="btn"
+                      style={{
+                        padding:'8px 14px',borderRadius:50,fontSize:12,fontWeight:700,whiteSpace:'nowrap',
+                        border:`1.5px solid ${cat === c ? 'rgba(31,215,96,.5)' : '#162B1A'}`,
+                        background:cat === c ? 'rgba(31,215,96,.15)' : '#0C1C0F',
+                        color:cat === c ? '#1FD760' : '#8FB897',
+                      }}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Photo */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>📷 Фото (необязательно)</div>
                 {photo ? (
-                  <div style={{position:'relative',width:'100%',height:170,borderRadius:14,overflow:'hidden',border:'1px solid #162B1A'}}>
+                  <div style={{position:'relative',width:'100%',height:160,borderRadius:14,overflow:'hidden',border:'1px solid #162B1A'}}>
                     <img src={photo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                    <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,rgba(0,0,0,.5) 0%,transparent 50%)'}}/>
-                    <button onClick={()=>setPhoto('')} style={{position:'absolute',top:8,right:8,width:30,height:30,borderRadius:'50%',background:'rgba(0,0,0,.75)',border:'1px solid rgba(255,255,255,.2)',color:'white',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
-                    <div style={{position:'absolute',bottom:10,left:12,fontSize:11,color:'rgba(255,255,255,.8)',fontWeight:700}}>✓ Фото добавлено</div>
+                    <button type="button" onClick={() => setPhoto('')} className="btn"
+                      style={{position:'absolute',top:8,right:8,width:32,height:32,borderRadius:'50%',background:'rgba(0,0,0,.75)',border:'1px solid rgba(255,255,255,.2)',color:'white',fontSize:14}}>
+                      ✕
+                    </button>
                   </div>
                 ) : (
-                  <label style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,width:'100%',height:120,borderRadius:14,border:'2px dashed #1D3822',background:'#0C1C0F',cursor:'pointer',transition:'all .2s'}}>
-                    <span style={{fontSize:30}}>📷</span>
-                    <span style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Нажмите чтобы добавить фото</span>
-                    <span style={{fontSize:10,color:'#3D6645'}}>JPG, PNG, WebP · до 5 МБ</span>
+                  <label className="btn" style={{
+                    display:'flex',alignItems:'center',justifyContent:'center',gap:10,
+                    width:'100%',padding:'16px',borderRadius:14,
+                    border:'2px dashed #1D3822',background:'#0C1C0F',cursor:'pointer',
+                  }}>
+                    <span style={{fontSize:22}}>📷</span>
+                    <div style={{textAlign:'left'}}>
+                      <div style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Загрузить фото</div>
+                      <div style={{fontSize:10,color:'#3D6645'}}>JPG, PNG · до 5 МБ</div>
+                    </div>
                     <input type="file" accept="image/*" onChange={handlePhoto} style={{display:'none'}}/>
                   </label>
                 )}
-                {photoErr&&<div style={{marginTop:5,fontSize:11,color:'#FF4545'}}>⚠️ {photoErr}</div>}
+                {photoErr && <div style={{marginTop:6,fontSize:11,color:'#FF4545'}}>⚠️ {photoErr}</div>}
               </div>
 
-              <div style={{display:'grid',gridTemplateColumns:'72px 1fr',gap:10}}>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div>
-                  <input className="inp" value={emoji} onChange={e=>setEmoji(e.target.value)} style={{textAlign:'center',fontSize:26,height:50}}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div>
-                  <input className="inp" value={name} onChange={e=>setName(e.target.value)} placeholder="Название блюда"/>
-                </div>
-              </div>
-              <div>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Состав / описание</div>
-                <input className="inp" value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Граммовка, состав, особенности..."/>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ) *</div>
-                  <input className="inp" value={price} onChange={e=>setPrice(e.target.value)} type="number" placeholder="0"/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Раздел меню</div>
-                  <select className="inp" value={cat} onChange={e=>setCat(e.target.value)} style={{cursor:'pointer'}}>
-                    {(rest?.categories||[]).map(c=><option key={c} value={c}>{c}</option>)}
-                  </select>
+              {/* Emoji picker */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Иконка блюда</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:6}}>
+                  {FOOD_EMOJIS.map(e => (
+                    <button key={e} type="button" onClick={() => setEmoji(e)} className="btn"
+                      style={{
+                        aspectRatio:'1',borderRadius:11,fontSize:22,
+                        background:emoji === e ? 'rgba(31,215,96,.18)' : '#0C1C0F',
+                        border:`1.5px solid ${emoji === e ? 'rgba(31,215,96,.5)' : '#162B1A'}`,
+                        display:'flex',alignItems:'center',justifyContent:'center',
+                      }}>
+                      {e}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <button onClick={save} className="btn" style={{padding:14,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14,opacity:name&&price?1:.5}}>
-                ✓ Добавить в меню
+
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:6,fontWeight:700}}>Название *</div>
+                <input className="inp" value={name} onChange={e => { setName(e.target.value); setFormErr('') }} placeholder="Например: Плов узбекский"/>
+              </div>
+
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:6,fontWeight:700}}>Состав / описание</div>
+                <textarea className="inp" value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Граммовка, состав, особенности…" style={{resize:'vertical',minHeight:64}}/>
+              </div>
+
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:6,fontWeight:700}}>Цена *</div>
+                <div style={{position:'relative'}}>
+                  <input className="inp" value={price} onChange={e => { setPrice(e.target.value); setFormErr('') }} type="number" min="1" placeholder="0" style={{paddingRight:48}}/>
+                  <span style={{position:'absolute',right:14,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:800,color:'#FFB800'}}>ЅМ</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{padding:'12px 20px 32px',borderTop:'1px solid #162B1A',flexShrink:0,background:'rgba(3,11,5,.97)'}}>
+              <button type="button" onClick={save} disabled={!canSave} className="btn"
+                style={{
+                  width:'100%',padding:15,borderRadius:16,
+                  background:canSave ? 'linear-gradient(135deg,#17B34E,#1FD760)' : '#162B1A',
+                  border:'none',color:canSave ? '#030B05' : '#3D6645',
+                  fontFamily:'Nunito',fontWeight:800,fontSize:15,
+                  boxShadow:canSave ? '0 8px 24px rgba(31,215,96,.35)' : 'none',
+                }}>
+                ✓ Добавить в «{cat}»
               </button>
             </div>
           </div>
@@ -817,7 +1002,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 
 
       <BottomNav page="menu" onPage={onPage} newOrders={0} reviewBadge={reviewBadge}/>
     </div>
-  );
+  )
 }
 
 /* ══════════════════════════════════════════════════════
