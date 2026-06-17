@@ -52,13 +52,6 @@ export async function findStoreClientByPhone(phone: string): Promise<AdminClient
   return loadStoredClients().find(c => phonesMatch(c.phone, phone)) || null
 }
 
-const USER_KEY = 'kakapo_store_user'
-const PHONE_KEY = 'kakapo_client_phone'
-
-export function phoneDigits(v: string) {
-  return normalizePhone(v)
-}
-
 export function loadStoreUser(): StoreUser | null {
   if (typeof window === 'undefined') return null
   try {
