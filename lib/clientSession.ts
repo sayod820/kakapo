@@ -31,8 +31,8 @@ export function formatTjPhone(raw: string): string {
   return `+992 ${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5, 7)} ${d.slice(7, 9)}`
 }
 
-export async function findStoreClientByPhone(phone: string): Promise<AdminClient | null> {
-  return findMergedClientByPhone(phone)
+export async function findStoreClientByPhone(phone: string, cardNum?: string): Promise<AdminClient | null> {
+  return findMergedClientByPhone(phone, cardNum)
 }
 
 export function loadStoreUser(): StoreUser | null {

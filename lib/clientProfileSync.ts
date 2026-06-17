@@ -33,29 +33,67 @@ export type CrmStoreUser = {
 }
 
 function loadLocalClients(): AdminClient[] {
-  if (typeof window === 'undefined') return DEFAULT_ADMIN_CLIENTS
+  if (typeof window === 'undefined') return USE_API ? [] : DEFAULT_ADMIN_CLIENTS
   try {
     const raw = localStorage.getItem(CLIENTS_KEY)
-    if (!raw) return DEFAULT_ADMIN_CLIENTS
+    if (!raw) return USE_API ? [] : DEFAULT_ADMIN_CLIENTS
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_ADMIN_CLIENTS
+    if (!Array.isArray(parsed) || !parsed.length) return USE_API ? [] : DEFAULT_ADMIN_CLIENTS
     return parsed.map(c => normalizeClient(c))
   } catch {
-    return DEFAULT_ADMIN_CLIENTS
+    return USE_API ? [] : DEFAULT_ADMIN_CLIENTS
   }
 }
 
 function loadLocalCards(): AdminCard[] {
-  if (typeof window === 'undefined') return DEFAULT_ADMIN_CARDS
+  if (typeof window === 'undefined') return USE_API ? [] : DEFAULT_ADMIN_CARDS
   try {
     const raw = localStorage.getItem(CARDS_KEY)
-    if (!raw) return DEFAULT_ADMIN_CARDS
+    if (!raw) return USE_API ? [] : DEFAULT_ADMIN_CARDS
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_ADMIN_CARDS
+    if (!Array.isArray(parsed) || !parsed.length) return USE_API ? [] : DEFAULT_ADMIN_CARDS
     return parsed.map(c => normalizeCard(c))
   } catch {
-    return DEFAULT_ADMIN_CARDS
+    return USE_API ? [] : DEFAULT_ADMIN_CARDS
   }
+}
+
+function mergeCrmClients(api: AdminClient[], local: AdminClient[]): AdminClient[] {
+  const byId = new Map<string, AdminClient>()
+  for (const c of api) byId.set(c.id, normalizeClient(c))
+  for (const c of local) {
+    const prev = byId.get(c.id)
+    byId.set(c.id, normalizeClient(prev
+      ? { ...prev, ...c, id: c.id, vip: !!(prev.vip || c.vip) }
+      : c))
+  }
+  for (const c of local) {
+    if (byId.has(c.id)) continue
+    const byPhone = [...byId.values()].find(x => phonesMatch(x.phone, c.phone))
+    if (byPhone) {
+      byId.set(byPhone.id, normalizeClient({
+        ...byPhone,
+        ...c,
+        id: byPhone.id,
+        vip: !!(byPhone.vip || c.vip),
+      }))
+    } else {
+      byId.set(c.id, normalizeClient(c))
+    }
+  }
+  return Array.from(byId.values())
+}
+
+function mergeCrmCards(api: AdminCard[], local: AdminCard[]): AdminCard[] {
+  const byNum = new Map<string, AdminCard>()
+  for (const c of api) byNum.set(c.num, normalizeCard(c))
+  for (const c of local) {
+    const prev = byNum.get(c.num)
+    byNum.set(c.num, normalizeCard(prev
+      ? { ...prev, ...c, num: c.num, vip: !!(prev.vip || c.vip) }
+      : c))
+  }
+  return Array.from(byNum.values())
 }
 
 function findLinkedCard(client: AdminClient, cards: AdminCard[]): AdminCard | null {
@@ -63,9 +101,27 @@ function findLinkedCard(client: AdminClient, cards: AdminCard[]): AdminCard | nu
     const byNum = cards.find(c => c.num === client.card)
     if (byNum && byNum.status !== 'unlinked') return normalizeCard(byNum)
   }
+  if (client.id) {
+    const byClientId = cards.find(c => c.clientId === client.id && c.status !== 'unlinked')
+    if (byClientId) return normalizeCard(byClientId)
+  }
   const byPhone = cards.find(
-    c => c.status === 'active' && c.phone && phonesMatch(c.phone, client.phone),
+    c => c.status !== 'unlinked' && c.phone && phonesMatch(c.phone, client.phone),
   )
+  return byPhone ? normalizeCard(byPhone) : null
+}
+
+function findBestCard(phone: string, cardNum: string | undefined, client: AdminClient | undefined, cards: AdminCard[]): AdminCard | null {
+  const num = cardNum?.trim().toUpperCase()
+  if (num) {
+    const byNum = cards.find(c => c.num === num && c.status !== 'unlinked')
+    if (byNum) return normalizeCard(byNum)
+  }
+  if (client) {
+    const linked = findLinkedCard(client, cards)
+    if (linked) return linked
+  }
+  const byPhone = cards.find(c => c.status !== 'unlinked' && c.phone && phonesMatch(c.phone, phone))
   return byPhone ? normalizeCard(byPhone) : null
 }
 
@@ -83,7 +139,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     bonus: card.bonus ?? base.bonus,
     debt: card.debt ?? base.debt,
     debtLimit: card.debtLimit ?? base.debtLimit,
-    vip: !!(card.vip ?? base.vip),
+    vip: !!(card.vip || base.vip),
     blocked: card.status === 'blocked' || base.blocked,
   })
 }
@@ -125,27 +181,26 @@ function buildClientFromCard(card: AdminCard): AdminClient {
 }
 
 async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard[] }> {
+  const localClients = loadLocalClients()
+  const localCards = loadLocalCards()
   if (USE_API) {
     try {
       const [clients, cards] = await Promise.all([api.getClients(), api.getCards()])
       return {
-        clients: clients.map(c => normalizeClient(c)),
-        cards: cards.map(c => normalizeCard(c)),
+        clients: mergeCrmClients(clients.map(c => normalizeClient(c)), localClients),
+        cards: mergeCrmCards(cards.map(c => normalizeCard(c)), localCards),
       }
     } catch { /* local fallback */ }
   }
-  return { clients: loadLocalClients(), cards: loadLocalCards() }
+  return { clients: localClients, cards: localCards }
 }
 
-export async function findMergedClientByPhone(phone: string): Promise<AdminClient | null> {
+export async function findMergedClientByPhone(phone: string, cardNum?: string): Promise<AdminClient | null> {
   const { clients, cards } = await loadCrmData()
   const client = clients.find(c => phonesMatch(c.phone, phone))
-  if (client) {
-    const card = findLinkedCard(client, cards)
-    return mergeClientWithCard(client, card)
-  }
-  const card = cards.find(c => c.status !== 'unlinked' && c.phone && phonesMatch(c.phone, phone))
-  if (card) return mergeClientWithCard(buildClientFromCard(card), normalizeCard(card))
+  const card = findBestCard(phone, cardNum, client, cards)
+  if (client) return mergeClientWithCard(client, card)
+  if (card) return mergeClientWithCard(buildClientFromCard(card), card)
   return null
 }
 
@@ -164,8 +219,7 @@ export async function findMergedClientByCard(cardNum: string): Promise<AdminClie
 }
 
 export async function fetchCrmStoreUser(phone: string, cardNum?: string): Promise<CrmStoreUser | null> {
-  let merged = await findMergedClientByPhone(phone)
-  if (!merged && cardNum) merged = await findMergedClientByCard(cardNum)
+  const merged = await findMergedClientByPhone(phone, cardNum)
   if (!merged) return null
   return crmToStoreUser(merged)
 }
