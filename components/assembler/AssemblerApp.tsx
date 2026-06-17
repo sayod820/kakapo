@@ -173,6 +173,12 @@ function AssemblerAppInner() {
     return order.type === 'market' && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
   }).length, [apiOrders]);
 
+  const logout = () => {
+    setLoggedIn(false);
+    setAssemblerProfile(null);
+    navigate('dashboard');
+  };
+
   if (!loggedIn) {
     return (
       <>
@@ -201,6 +207,7 @@ function AssemblerAppInner() {
         onToggle={toggleItem}
         onComplete={completeOrder}
         onBack={() => navigate('dashboard')}
+        onLogout={logout}
       />
     );
   }
@@ -209,9 +216,9 @@ function AssemblerAppInner() {
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
-        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage} assemblerName={assemblerName}/>}
-        {page==='history'   && <HistoryPage onPage={setPage}/>}
-        {page==='stats'     && <StatsPage onPage={setPage} completed={completedCount} assemblerName={assemblerName}/>}
+        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage} assemblerName={assemblerName} onLogout={logout}/>}
+        {page==='history'   && <HistoryPage onPage={setPage} onLogout={logout}/>}
+        {page==='stats'     && <StatsPage onPage={setPage} completed={completedCount} assemblerName={assemblerName} onLogout={logout}/>}
       </div>
     </>
   );
@@ -237,6 +244,26 @@ function Header({title, sub, showBack, onBack, right}) {
         {right}
       </div>
     </header>
+  );
+}
+
+function LogoutBtn({ onLogout }) {
+  return (
+    <button
+      type="button"
+      onClick={onLogout}
+      title="Выйти из аккаунта"
+      className="btn"
+      style={{
+        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+        border: '1.5px solid rgba(255,69,69,.35)',
+        background: 'rgba(255,69,69,.1)',
+        color: '#FF6969', fontSize: 14,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      ⎋
+    </button>
   );
 }
 
@@ -268,7 +295,7 @@ function BottomNav({page, onPage, newCount}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({orders, completed, onStart, onPage, assemblerName}) {
+function DashboardPage({orders, completed, onStart, onPage, assemblerName, onLogout}) {
   const newQueue = orders.filter(o => o.queue === 'new');
   const inProgress = orders.filter(o => o.queue !== 'new');
   const urgentNew = newQueue.filter(o => o.priority === 'urgent');
@@ -368,9 +395,12 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName}) {
     <div style={{minHeight:'100vh',paddingBottom:90}}>
       <Header title="Сборщик" sub={`${assemblerName} · ${orders.length} заказов`}
         right={
-          <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:10,background:'rgba(155,109,255,.1)',border:'1px solid rgba(155,109,255,.25)'}}>
-            <div style={{width:6,height:6,borderRadius:'50%',background:'#9B6DFF',animation:'pulse 2s infinite'}}/>
-            <span style={{fontSize:11,fontWeight:700,color:'#9B6DFF'}}>Онлайн</span>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:10,background:'rgba(155,109,255,.1)',border:'1px solid rgba(155,109,255,.25)'}}>
+              <div style={{width:6,height:6,borderRadius:'50%',background:'#9B6DFF',animation:'pulse 2s infinite'}}/>
+              <span style={{fontSize:11,fontWeight:700,color:'#9B6DFF'}}>Онлайн</span>
+            </div>
+            <LogoutBtn onLogout={onLogout} />
           </div>
         }
       />
@@ -435,7 +465,7 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName}) {
 /* ══════════════════════════════════════════════════════
    СБОРКА ЗАКАЗА
 ══════════════════════════════════════════════════════ */
-function CollectPage({order, onToggle, onComplete, onBack}) {
+function CollectPage({order, onToggle, onComplete, onBack, onLogout}) {
   const [showConfirm, setShowConfirm] = useState(false);
   const doneCount = order.items.filter(it=>it.done).length;
   const allDone   = doneCount === order.items.length;
@@ -457,6 +487,7 @@ function CollectPage({order, onToggle, onComplete, onBack}) {
             <div style={{fontSize:10,color:'#8FB897',marginTop:1}}>{order.client.name} · {doneCount}/{order.items.length} собрано</div>
           </div>
           <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,color:allDone?'#1FD760':'#9B6DFF'}}>{pct}%</div>
+          <LogoutBtn onLogout={onLogout} />
         </div>
         {/* Progress bar */}
         <div style={{height:5,background:'#162B1A',margin:'0 18px 12px'}}>
@@ -579,10 +610,10 @@ function CollectPage({order, onToggle, onComplete, onBack}) {
 /* ══════════════════════════════════════════════════════
    ИСТОРИЯ
 ══════════════════════════════════════════════════════ */
-function HistoryPage({onPage}) {
+function HistoryPage({onPage, onLogout}) {
   return (
     <div style={{minHeight:'100vh',paddingBottom:90}}>
-      <Header title="История сборок" sub="Сегодня" showBack onBack={()=>onPage('dashboard')}/>
+      <Header title="История сборок" sub="Сегодня" showBack onBack={()=>onPage('dashboard')} right={<LogoutBtn onLogout={onLogout} />}/>
       <div style={{padding:'14px 18px'}}>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:18}}>
           {[
@@ -628,7 +659,7 @@ function HistoryPage({onPage}) {
 /* ══════════════════════════════════════════════════════
    СТАТИСТИКА
 ══════════════════════════════════════════════════════ */
-function StatsPage({onPage, completed, assemblerName}) {
+function StatsPage({onPage, completed, assemblerName, onLogout}) {
   const avatar = assemblerName?.charAt(0) || 'С';
   const totalToday  = completed + HISTORY_DATA.length;
   const totalItems  = 25 + completed*4;
@@ -638,7 +669,7 @@ function StatsPage({onPage, completed, assemblerName}) {
 
   return (
     <div style={{minHeight:'100vh',paddingBottom:90}}>
-      <Header title="Статистика" sub="Моя эффективность" showBack onBack={()=>onPage('dashboard')}/>
+      <Header title="Статистика" sub="Моя эффективность" showBack onBack={()=>onPage('dashboard')} right={<LogoutBtn onLogout={onLogout} />}/>
       <div style={{padding:'14px 18px'}}>
         {/* Profile */}
         <div style={{display:'flex',alignItems:'center',gap:14,padding:'16px 18px',borderRadius:18,background:'linear-gradient(135deg,#0D0619,#1A0A30)',border:'1px solid rgba(155,109,255,.25)',marginBottom:18}}>
