@@ -41,7 +41,7 @@ export default function PortalPage() {
         <div style={{ fontFamily:'Unbounded, sans-serif', fontSize:11, fontWeight:800, color:'#1FD760', marginBottom:10 }}>ДЕМО-ДОСТУПЫ</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
           {[
-            ['🛒 Клиент OTP','1234'],
+            ['🛒 Клиент OTP','1234 · +992 93 456 78 90'],
             ['🛵 Курьер OTP','1234'],
             ['📦 Сборщик PIN','5678'],
             ['🍽 Ресторан OTP','1234 · +992 93 111 22 33'],

@@ -2,7 +2,7 @@
 
 import { api } from './api'
 import { USE_API } from './config'
-import { normalizePhone, phonesMatch, type AdminClient } from './clientCrm'
+import { normalizePhone, phonesMatch, DEFAULT_ADMIN_CLIENTS, type AdminClient } from './clientCrm'
 
 export type StoreUser = {
   name: string
@@ -61,6 +61,9 @@ export async function resolveStoreUserByPhone(phone: string, fallbackName?: stri
       const match = clients.find(c => phonesMatch(c.phone, phone))
       if (match) return storeUserFromClient(match)
     } catch { /* fallback below */ }
+  } else {
+    const match = DEFAULT_ADMIN_CLIENTS.find(c => phonesMatch(c.phone, phone))
+    if (match) return storeUserFromClient(match)
   }
   return {
     name: fallbackName || 'Клиент',

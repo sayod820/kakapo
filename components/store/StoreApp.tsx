@@ -15,6 +15,7 @@ import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { loadStoreUser, resolveStoreUserByPhone, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
+import { DEFAULT_ADMIN_CLIENTS, phonesMatch } from "@/lib/clientCrm";
 import { loadClientReviewMap, phoneDigits } from "@/lib/clientReviews";
 import {
   getUnreadNotificationCount,
@@ -1478,149 +1479,200 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
   );
 };
 const AuthPage = ({ go, setUser }) => {
-  const [step,  setStep]   = useState("phone");
-  const [mode,  setMode]   = useState("login");
-  const [phone, setPhone]  = useState("");
-  const [otp,   setOtp]    = useState(["","","",""]);
-  const [uname, setUname]  = useState("");
+  const [step, setStep] = useState("phone");
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState(["", "", "", ""]);
+  const [uname, setUname] = useState("");
+  const [err, setErr] = useState("");
   const [loading, setLoad] = useState(false);
-  const refs = [useRef(),useRef(),useRef(),useRef()];
+  const refs = [useRef(), useRef(), useRef(), useRef()];
+  const demoList = DEFAULT_ADMIN_CLIENTS.filter(c => !c.blocked && c.phone).slice(0, 3);
 
-  const [cd, setCd] = useState(30);
+  const [cd, setCd] = useState(0);
   useEffect(() => {
-    if (step !== "otp") return;
-    setCd(30);
-    const t = setInterval(() => setCd(c => c > 0 ? c - 1 : 0), 1000);
+    if (step !== "otp" || cd <= 0) return;
+    const t = setInterval(() => setCd(c => (c > 0 ? c - 1 : 0)), 1000);
     return () => clearInterval(t);
-  }, [step]);
+  }, [step, cd]);
 
-  const sendOtp = () => { if (!phone.trim()) return; setLoad(true); setTimeout(() => { setLoad(false); setStep("otp"); }, 1100); };
-  const verifyOtp = () => {
-    const code = otp.join("");
-    if (code.length < 4) return;
+  const pickDemo = (c) => {
+    setPhone(c.phone.replace(/^\+992\s?/, ""));
+    setErr("");
+  };
+
+  const finishLogin = async (resolved, displayName) => {
+    const user = displayName ? { ...resolved, name: displayName, bonus: resolved.bonus || (displayName ? 100 : resolved.bonus) } : resolved;
+    saveStoreUser(user);
+    setUser(user);
+    go("profile");
+  };
+
+  const sendOtp = () => {
+    if (!phone.trim()) { setErr("Введите номер телефона"); return; }
+    const blocked = DEFAULT_ADMIN_CLIENTS.find(c => phonesMatch(c.phone, phone) && c.blocked);
+    if (blocked) { setErr("Доступ заблокирован администратором"); return; }
+    setErr("");
+    setLoad(true);
+    setTimeout(() => {
+      setLoad(false);
+      setStep("otp");
+      setCd(30);
+      setOtp(["", "", "", ""]);
+      setTimeout(() => refs[0].current?.focus(), 120);
+    }, 800);
+  };
+
+  const verifyWithCode = (code) => {
+    if (code.length < 4 || loading) return;
+    setErr("");
     setLoad(true);
     setTimeout(async () => {
       setLoad(false);
-      if (code === "1234") {
-        if (mode === "register") setStep("name");
-        else {
-          const resolved = await resolveStoreUserByPhone(phone, "Диловар");
-          saveStoreUser(resolved);
-          setUser(resolved);
-          go("profile");
-        }
-      } else { setOtp(["","","",""]); refs[0].current?.focus(); }
-    }, 900);
+      if (code !== "1234") {
+        setErr("Неверный код · для демо: 1234");
+        setOtp(["", "", "", ""]);
+        refs[0].current?.focus();
+        return;
+      }
+      const resolved = await resolveStoreUserByPhone(phone);
+      if (!resolved.clientId && resolved.name === "Клиент") {
+        setStep("name");
+        return;
+      }
+      finishLogin(resolved);
+    }, 450);
   };
+
+  const verifyOtp = () => verifyWithCode(otp.join(""));
+
   const handleOtp = (i, v) => {
-    const d = [...otp]; d[i] = v.replace(/\D/,"").slice(-1); setOtp(d);
-    if (v && i < 3) refs[i+1].current?.focus();
+    const d = [...otp];
+    d[i] = v.replace(/\D/, "").slice(-1);
+    setOtp(d);
+    if (v && i < 3) refs[i + 1].current?.focus();
+    if (d.every(x => x) && d.join("").length === 4) {
+      setTimeout(() => verifyWithCode(d.join("")), 80);
+    }
   };
+
   const handleKey = (i, e) => {
-    if (e.key==="Backspace" && !otp[i] && i>0) { refs[i-1].current?.focus(); const d=[...otp]; d[i-1]=""; setOtp(d); }
+    if (e.key === "Backspace" && !otp[i] && i > 0) {
+      refs[i - 1].current?.focus();
+      const d = [...otp];
+      d[i - 1] = "";
+      setOtp(d);
+    }
   };
+
   const saveName = () => {
     if (!uname.trim()) return;
     setLoad(true);
     setTimeout(async () => {
       setLoad(false);
       const resolved = await resolveStoreUserByPhone(phone, uname.trim());
-      saveStoreUser({ ...resolved, name: uname.trim() });
-      setUser({ ...resolved, name: uname.trim() });
-      go("profile");
-    }, 800);
+      finishLogin({ ...resolved, bonus: resolved.bonus || 100 }, uname.trim());
+    }, 450);
   };
 
-  const Spinner = () => <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/>;
+  const Spinner = () => <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2.5px solid rgba(255,255,255,.3)", borderTopColor: "white", animation: "spin 1s linear infinite" }} />;
 
-  if (step==="name") return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", padding:"60px 24px 40px" }}>
-      <button onClick={() => setStep("otp")} className="btn" style={{ width:40, height:40, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:32 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-      <div style={{ textAlign:"center", marginBottom:28 }}>
-        <div style={{ fontSize:48, marginBottom:14 }}>👋</div>
-        <div className="ub" style={{ fontSize:21, fontWeight:900, marginBottom:6 }}>Как вас зовут?</div>
-        <div style={{ fontSize:13, color:"var(--t2)" }}>Укажите имя для персонального обслуживания</div>
+  if (step === "name") return (
+    <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", padding: "60px 24px 40px" }}>
+      <button onClick={() => setStep("otp")} className="btn" style={{ width: 40, height: 40, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 32 }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div style={{ fontSize: 48, marginBottom: 14 }}>👋</div>
+        <div className="ub" style={{ fontSize: 21, fontWeight: 900, marginBottom: 6 }}>Как вас зовут?</div>
+        <div style={{ fontSize: 13, color: "var(--t2)" }}>Новый номер — укажите имя для профиля</div>
       </div>
-      <div style={{ marginBottom:14 }}>
-        <div style={{ fontSize:11, color:"var(--t2)", marginBottom:7, fontWeight:700 }}>Ваше имя</div>
-        <input className="inp" value={uname} onChange={e=>setUname(e.target.value)} placeholder="Например: Диловар" style={{ width:"100%" }} autoFocus/>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: "var(--t2)", marginBottom: 7, fontWeight: 700 }}>Ваше имя</div>
+        <input className="inp" value={uname} onChange={e => setUname(e.target.value)} onKeyDown={e => e.key === "Enter" && saveName()} placeholder="Например: Диловар" style={{ width: "100%" }} autoFocus />
       </div>
-      <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:20 }}>
-        {["Диловар","Нилуфар","Баходур","Зулайхо","Жамшид","Мадина"].map(n => (
-          <button key={n} onClick={()=>setUname(n)} className="btn" style={{ padding:"7px 14px", borderRadius:50, fontSize:12, fontWeight:700, background:uname===n?"rgba(31,215,96,.14)":"var(--l2)", border:`1.5px solid ${uname===n?"rgba(31,215,96,.4)":"var(--b1)"}`, color:uname===n?"var(--gr)":"var(--t2)" }}>{n}</button>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+        {["Диловар", "Нилуфар", "Баходур", "Зулайхо", "Жамшид", "Мадина"].map(n => (
+          <button key={n} onClick={() => setUname(n)} className="btn" style={{ padding: "7px 14px", borderRadius: 50, fontSize: 12, fontWeight: 700, background: uname === n ? "rgba(31,215,96,.14)" : "var(--l2)", border: `1.5px solid ${uname === n ? "rgba(31,215,96,.4)" : "var(--b1)"}`, color: uname === n ? "var(--gr)" : "var(--t2)" }}>{n}</button>
         ))}
       </div>
-      <div style={{ padding:"14px", borderRadius:16, background:"rgba(255,184,0,.07)", border:"1px solid rgba(255,184,0,.25)", marginBottom:20, textAlign:"center" }}>
-        <div className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--gd)", marginBottom:4 }}>🎁 +100 приветственных бонусов!</div>
-        <div style={{ fontSize:11, color:"var(--t2)" }}>Начислим сразу после регистрации</div>
+      <div style={{ padding: "14px", borderRadius: 16, background: "rgba(255,184,0,.07)", border: "1px solid rgba(255,184,0,.25)", marginBottom: 20, textAlign: "center" }}>
+        <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: "var(--gd)", marginBottom: 4 }}>🎁 +100 приветственных бонусов!</div>
+        <div style={{ fontSize: 11, color: "var(--t2)" }}>Начислим сразу после регистрации</div>
       </div>
-      <button onClick={saveName} className="btn" style={{ padding:"15px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-        {loading ? <Spinner/> : <><span style={{ fontSize:18 }}>🚀</span>Зарегистрироваться</>}
+      <button onClick={saveName} className="btn" style={{ padding: "15px", fontSize: 14, borderRadius: 16, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        {loading ? <Spinner /> : <><span style={{ fontSize: 18 }}>🚀</span> Продолжить</>}
       </button>
     </div>
   );
 
-  if (step==="otp") return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", padding:"60px 24px 40px" }}>
-      <button onClick={() => setStep("phone")} className="btn" style={{ width:40, height:40, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", marginBottom:32 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-      <div style={{ textAlign:"center", marginBottom:28 }}>
-        <div style={{ fontSize:40, marginBottom:14 }}>💬</div>
-        <div className="ub" style={{ fontSize:21, fontWeight:900, marginBottom:6 }}>Введите код</div>
-        <div style={{ fontSize:13, color:"var(--t2)" }}>Отправили на <span style={{ color:"var(--gr)", fontWeight:700 }}>+992 {phone}</span></div>
+  if (step === "otp") return (
+    <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", padding: "60px 24px 40px" }}>
+      <button onClick={() => { setStep("phone"); setErr(""); }} className="btn" style={{ width: 40, height: 40, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 32 }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div style={{ fontSize: 40, marginBottom: 14 }}>💬</div>
+        <div className="ub" style={{ fontSize: 21, fontWeight: 900, marginBottom: 6 }}>Введите код из SMS</div>
+        <div style={{ fontSize: 13, color: "var(--t2)" }}>Отправили на <span style={{ color: "var(--gr)", fontWeight: 700 }}>+992 {phone}</span></div>
       </div>
-      <div style={{ display:"flex", gap:10, justifyContent:"center", marginBottom:10 }}>
-        {otp.map((v,i) => (
+      <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 10 }}>
+        {otp.map((v, i) => (
           <input key={i} ref={refs[i]} value={v} onChange={e => handleOtp(i, e.target.value)} onKeyDown={e => handleKey(i, e)} maxLength={1} inputMode="numeric"
-            style={{ width:52, height:60, borderRadius:16, border:`2px solid ${v?"rgba(31,215,96,.5)":"var(--b1)"}`, background:v?"rgba(31,215,96,.06)":"var(--l3)", textAlign:"center", fontFamily:"Unbounded", fontSize:24, fontWeight:900, color:"var(--t1)", outline:"none", transition:"all .15s" }}/>
+            style={{ width: 52, height: 60, borderRadius: 16, border: `2px solid ${err ? "rgba(255,69,69,.5)" : v ? "rgba(31,215,96,.5)" : "var(--b1)"}`, background: v ? "rgba(31,215,96,.06)" : "var(--l3)", textAlign: "center", fontFamily: "Unbounded", fontSize: 24, fontWeight: 900, color: "var(--t1)", outline: "none", transition: "all .15s" }} />
         ))}
       </div>
-      <div style={{ textAlign:"center", fontSize:11, color:"var(--t3)", marginBottom:20, padding:"7px 12px", borderRadius:10, background:"rgba(255,184,0,.06)", border:"1px solid rgba(255,184,0,.15)" }}>
-        💡 Для демо введите: <span style={{ color:"var(--gd)", fontWeight:800 }}>1 2 3 4</span>
-      </div>
-      <button onClick={verifyOtp} className="btn" style={{ padding:"15px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:16, opacity:otp.join("").length<4?.5:1 }}>
-        {loading ? <Spinner/> : <><Ic n="check" s={18} c="white" w={2.5}/>Подтвердить</>}
+      {err ? (
+        <div style={{ textAlign: "center", fontSize: 12, color: "var(--red)", marginBottom: 16, fontWeight: 700 }}>{err}</div>
+      ) : (
+        <div style={{ textAlign: "center", fontSize: 11, color: "var(--t3)", marginBottom: 20, padding: "7px 12px", borderRadius: 10, background: "rgba(255,184,0,.06)", border: "1px solid rgba(255,184,0,.15)" }}>
+          💡 Для демо введите: <span style={{ color: "var(--gd)", fontWeight: 800 }}>1 2 3 4</span>
+        </div>
+      )}
+      <button onClick={verifyOtp} disabled={loading || otp.join("").length < 4} className="btn" style={{ padding: "15px", fontSize: 14, borderRadius: 16, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 16, opacity: otp.join("").length < 4 ? .5 : 1 }}>
+        {loading ? <Spinner /> : <><Ic n="check" s={18} c="white" w={2.5} /> Подтвердить</>}
       </button>
-      <div style={{ textAlign:"center" }}>
-        {cd > 0 ? <span style={{ fontSize:12, color:"var(--t2)" }}>Повторить через <span style={{ color:"var(--gr)", fontWeight:700 }}>{cd}</span> сек</span> : <button onClick={() => setStep("phone")} className="btn" style={{ fontSize:13, color:"var(--gr)", background:"transparent", fontWeight:700 }}>🔄 Отправить повторно</button>}
+      <div style={{ textAlign: "center" }}>
+        {cd > 0 ? <span style={{ fontSize: 12, color: "var(--t2)" }}>Повторить через <span style={{ color: "var(--gr)", fontWeight: 700 }}>{cd}</span> сек</span> : <button onClick={sendOtp} className="btn" style={{ fontSize: 13, color: "var(--gr)", background: "transparent", fontWeight: 700 }}>🔄 Отправить повторно</button>}
       </div>
     </div>
   );
 
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", padding:"40px 24px" }}>
-      <div style={{ textAlign:"center", marginBottom:28 }}>
-        <div style={{ width:68, height:68, borderRadius:20, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:28, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 8px 32px rgba(31,215,96,.4)", margin:"0 auto 14px" }}>K</div>
-        <div className="ub" style={{ fontSize:18, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>КАКАПО</div>
-        <div style={{ fontSize:11, color:"var(--t2)", marginTop:3 }}>г. Яван, Таджикистан</div>
+    <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", padding: "40px 24px" }}>
+      <button onClick={() => go("profile")} className="btn" style={{ width: 40, height: 40, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div style={{ width: 68, height: 68, borderRadius: 20, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 28, fontWeight: 900, color: "var(--bg)", animation: "glow 3s ease-in-out infinite", boxShadow: "0 8px 32px rgba(31,215,96,.4)", margin: "0 auto 14px" }}>K</div>
+        <div className="ub" style={{ fontSize: 18, fontWeight: 900, background: "linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>КАКАПО</div>
+        <div style={{ fontSize: 11, color: "var(--t2)", marginTop: 3 }}>г. Яван, Таджикистан</div>
       </div>
-      <div style={{ display:"flex", gap:0, background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:15, padding:4, marginBottom:24 }}>
-        {[{id:"login",l:"Войти"},{id:"register",l:"Регистрация"}].map(m => (
-          <button key={m.id} onClick={() => setMode(m.id)} className="btn" style={{ flex:1, padding:"11px", borderRadius:12, fontSize:13, fontWeight:700, background:mode===m.id?"linear-gradient(135deg,var(--gr2),var(--gr))":"transparent", color:mode===m.id?"white":"var(--t2)", boxShadow:mode===m.id?"0 4px 16px rgba(31,215,96,.35)":"none" }}>{m.l}</button>
-        ))}
-      </div>
-      <div className="ub" style={{ fontSize:20, fontWeight:900, marginBottom:6 }}>{mode==="login"?"Добро пожаловать!":"Создать аккаунт"}</div>
-      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:22, lineHeight:1.6 }}>{mode==="login"?"Введите номер — пришлём SMS с кодом":"Создайте аккаунт КАКАПО Club"}</div>
-      <div style={{ marginBottom:mode==="register"?14:20 }}>
-        <div style={{ fontSize:11, color:"var(--t2)", marginBottom:7, fontWeight:700 }}>Номер телефона</div>
-        <div style={{ position:"relative" }}>
-          <div style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", display:"flex", alignItems:"center", gap:7, pointerEvents:"none", zIndex:2 }}>
-            <span style={{ fontSize:18 }}>🇹🇯</span><span style={{ fontSize:14, fontWeight:700, color:"var(--t2)" }}>+992</span><div style={{ width:1, height:16, background:"var(--b1)" }}/>
+      <div className="ub" style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Вход по номеру</div>
+      <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 22, lineHeight: 1.6 }}>Введите номер телефона — пришлём SMS с кодом подтверждения</div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: "var(--t2)", marginBottom: 7, fontWeight: 700 }}>Номер телефона</div>
+        <div style={{ position: "relative" }}>
+          <div style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", display: "flex", alignItems: "center", gap: 7, pointerEvents: "none", zIndex: 2 }}>
+            <span style={{ fontSize: 18 }}>🇹🇯</span><span style={{ fontSize: 14, fontWeight: 700, color: "var(--t2)" }}>+992</span><div style={{ width: 1, height: 16, background: "var(--b1)" }} />
           </div>
-          <input className="inp" value={phone} onChange={e=>setPhone(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendOtp()} placeholder="__ ___ __ __" type="tel" inputMode="numeric" style={{ paddingLeft:88, width:"100%", fontSize:16, letterSpacing:1 }}/>
+          <input className={`inp${err ? " inp-err" : ""}`} value={phone} onChange={e => { setPhone(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && sendOtp()} placeholder="93 456 78 90" type="tel" inputMode="numeric" style={{ paddingLeft: 88, width: "100%", fontSize: 16, letterSpacing: 1 }} autoFocus />
         </div>
+        {err && <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8, fontWeight: 700 }}>{err}</div>}
       </div>
-      {mode==="register" && <div style={{ padding:"12px 14px", borderRadius:12, background:"rgba(31,215,96,.07)", border:"1px solid rgba(31,215,96,.2)", marginBottom:16, display:"flex", gap:8, alignItems:"center" }}><span style={{ fontSize:16 }}>🎁</span><div style={{ fontSize:12, color:"var(--t2)" }}>За регистрацию начислим <span style={{ color:"var(--gd)", fontWeight:800 }}>100 бонусов</span></div></div>}
-      <button onClick={sendOtp} className="btn" style={{ padding:"15px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:20 }}>
-        {loading ? <Spinner/> : <><Ic n="msg" s={17} c="white"/>Получить код по SMS</>}
+      <button onClick={sendOtp} disabled={loading} className="btn" style={{ padding: "15px", fontSize: 14, borderRadius: 16, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 24 }}>
+        {loading ? <Spinner /> : <><Ic n="msg" s={17} c="white" /> Получить код по SMS</>}
       </button>
-      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}><div style={{ flex:1, height:1, background:"var(--b1)" }}/><span style={{ fontSize:11, color:"var(--t3)" }}>или</span><div style={{ flex:1, height:1, background:"var(--b1)" }}/></div>
-      <div style={{ display:"flex", gap:10 }}>
-        {[{l:"Telegram",e:"📱",c:"#29B6F6",bg:"rgba(0,136,204,.1)"},{l:"Google",e:"🔍",c:"#EF5350",bg:"rgba(234,67,53,.08)"}].map((s,i) => (
-          <button key={i} className="btn" style={{ flex:1, padding:"12px", borderRadius:14, background:s.bg, border:`1px solid ${s.c}25`, display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
-            <span style={{ fontSize:18 }}>{s.e}</span><span style={{ fontSize:13, fontWeight:700, color:s.c }}>{s.l}</span>
-          </button>
-        ))}
-      </div>
+      {demoList.length > 0 && (
+        <div style={{ padding: "16px", borderRadius: 16, background: "var(--l2)", border: "1px solid var(--b1)" }}>
+          <div style={{ fontSize: 11, color: "var(--t3)", fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", marginBottom: 10 }}>Демо-клиенты</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {demoList.map(c => (
+              <button key={c.id} onClick={() => pickDemo(c)} className="btn" style={{ padding: "12px 14px", borderRadius: 14, background: phonesMatch(c.phone, phone) ? "rgba(31,215,96,.1)" : "var(--l3)", border: `1px solid ${phonesMatch(c.phone, phone) ? "rgba(31,215,96,.35)" : "var(--b1)"}`, display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--t1)" }}>{c.name.split(" ")[0]}</div>
+                  <div style={{ fontSize: 11, color: "var(--t2)", marginTop: 2 }}>{c.phone}</div>
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "var(--gd)" }}>{c.bonus} б.</div>
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 10, textAlign: "center" }}>Код для демо: <span style={{ color: "var(--gd)", fontWeight: 800 }}>1234</span></div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1655,8 +1707,8 @@ const ProfilePage = ({ go, user, setUser }) => {
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
       <div style={{ fontSize:60, marginBottom:16, animation:"float 3s ease-in-out infinite" }}>👤</div>
       <div className="ub" style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Войдите в аккаунт</div>
-      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:24, lineHeight:1.6 }}>Чтобы видеть бонусы, заказы и персональные предложения</div>
-      <button onClick={() => go("auth")} className="btn" style={{ padding:"14px 32px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:14 }}>Войти или зарегистрироваться</button>
+      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:24, lineHeight:1.6 }}>Войдите по номеру телефона — бонусы, заказы и персональные предложения</div>
+      <button onClick={() => go("auth")} className="btn" style={{ padding:"14px 32px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:14, fontWeight:800 }}>📱 Войти по номеру телефона</button>
       <Nav page="profile" go={go}/>
     </div>
   );
