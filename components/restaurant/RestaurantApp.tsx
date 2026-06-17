@@ -43,6 +43,10 @@ const CSS = `
   @keyframes ping{0%{transform:scale(1);opacity:1;}100%{transform:scale(2.2);opacity:0;}}
   @keyframes slideUp{from{opacity:0;transform:translateY(24px);}to{opacity:1;transform:translateY(0);}}
   @keyframes ring{0%,100%{transform:rotate(0);}20%{transform:rotate(-15deg);}40%{transform:rotate(15deg);}60%{transform:rotate(-8deg);}80%{transform:rotate(8deg);}}
+  @keyframes alertEnter{0%{opacity:0;transform:translateX(-50%) translateY(-110%) scale(.94);}65%{opacity:1;transform:translateX(-50%) translateY(8px) scale(1.02);}85%{transform:translateX(-50%) translateY(-2px) scale(.995);}100%{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}}
+  @keyframes alertGlow{0%,100%{box-shadow:0 8px 32px rgba(31,215,96,.18),0 0 0 1px rgba(31,215,96,.35),inset 0 1px 0 rgba(255,255,255,.06);}50%{box-shadow:0 12px 40px rgba(31,215,96,.32),0 0 0 1.5px rgba(31,215,96,.55),inset 0 1px 0 rgba(255,255,255,.1);}}
+  @keyframes alertContentIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+  @keyframes alertShimmer{0%{background-position:200% center;}100%{background-position:-200% center;}}
 `;
 
 /* ── DEMO DATA ───────────────────────────────────── */
@@ -276,15 +280,50 @@ function RestaurantAppInner() {
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05',position:'relative'}}>
         {/* New order notification */}
         {alertOrder && (
-          <div style={{position:'fixed',top:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:999,padding:'14px 18px',background:'linear-gradient(135deg,#0F3020,#1A5030)',borderBottom:'2px solid var(--gr)',animation:'ring .8s ease',display:'flex',alignItems:'center',gap:12}}>
-            <div style={{fontSize:28,animation:'ring 1s ease infinite'}}>🔔</div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--gr)'}}>Новый заказ!</div>
-              <div style={{fontSize:11,color:'rgba(255,255,255,.7)',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{orderAlertLine(alertOrder)}</div>
+          <div
+            key={alertOrder.id}
+            style={{
+              position:'fixed',
+              top:12,
+              left:'50%',
+              transform:'translateX(-50%)',
+              width:'calc(100% - 24px)',
+              maxWidth:456,
+              zIndex:999,
+              padding:'14px 16px',
+              borderRadius:18,
+              background:'linear-gradient(135deg,rgba(15,48,32,.97),rgba(26,80,48,.97))',
+              backdropFilter:'blur(20px)',
+              WebkitBackdropFilter:'blur(20px)',
+              border:'1px solid rgba(31,215,96,.45)',
+              animation:'alertEnter .55s cubic-bezier(.22,1.2,.36,1) forwards, alertGlow 2.4s ease-in-out .55s infinite',
+              display:'flex',
+              alignItems:'center',
+              gap:12,
+              overflow:'hidden',
+            }}
+          >
+            <div style={{
+              position:'absolute',
+              inset:0,
+              background:'linear-gradient(105deg,transparent 40%,rgba(31,215,96,.12) 50%,transparent 60%)',
+              backgroundSize:'200% 100%',
+              animation:'alertShimmer 2.8s ease-in-out .3s 2',
+              pointerEvents:'none',
+            }}/>
+            <div style={{position:'relative',width:44,height:44,flexShrink:0,animation:'alertContentIn .4s ease .15s both'}}>
+              <div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(31,215,96,.15)',animation:'ping 1.8s ease-out infinite'}}/>
+              <div style={{position:'relative',width:44,height:44,borderRadius:14,background:'linear-gradient(135deg,rgba(31,215,96,.25),rgba(31,215,96,.08))',border:'1px solid rgba(31,215,96,.4)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,animation:'ring 1.2s ease-in-out .4s 3'}}>
+                🔔
+              </div>
             </div>
-            <div style={{display:'flex',gap:8,flexShrink:0}}>
-              <button onClick={acceptAlertOrder} className="btn" style={{padding:'8px 14px',borderRadius:11,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:13}}>Принять</button>
-              <button onClick={dismissAlertOrder} className="btn" style={{padding:'8px 12px',borderRadius:11,background:'rgba(255,69,69,.2)',border:'1px solid rgba(255,69,69,.4)',color:'var(--red)',fontFamily:'Nunito',fontWeight:700,fontSize:13}}>✕</button>
+            <div style={{flex:1,minWidth:0,animation:'alertContentIn .45s ease .22s both'}}>
+              <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'#1FD760',letterSpacing:'.02em'}}>Новый заказ!</div>
+              <div style={{fontSize:12,color:'rgba(255,255,255,.78)',marginTop:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{orderAlertLine(alertOrder)}</div>
+            </div>
+            <div style={{display:'flex',gap:8,flexShrink:0,animation:'alertContentIn .45s ease .32s both'}}>
+              <button onClick={acceptAlertOrder} className="btn" style={{padding:'9px 16px',borderRadius:12,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:13,boxShadow:'0 4px 16px rgba(31,215,96,.35)'}}>Принять</button>
+              <button onClick={dismissAlertOrder} className="btn" style={{width:38,height:38,borderRadius:12,background:'rgba(255,69,69,.12)',border:'1px solid rgba(255,69,69,.35)',color:'#FF6969',fontFamily:'Nunito',fontWeight:700,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
             </div>
           </div>
         )}
@@ -431,7 +470,7 @@ function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOp
   const avgReview     = reviews.length ? (reviews.reduce((s,r)=>s+r.rating,0)/reviews.length).toFixed(1) : rest?.rating;
 
   return (
-    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90,paddingTop:hasAlert?72:0}}>
+    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90,paddingTop:hasAlert?88:0}}>
       <Header rest={rest} isOpen={isOpen} onToggleOpen={onToggleOpen} onPage={onPage} onLogout={onLogout}/>
 
       <div style={{padding:'16px 18px'}}>
