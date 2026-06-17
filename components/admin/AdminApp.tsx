@@ -335,7 +335,7 @@ function Layout({page,setPage,children,title,subtitle}) {
             {subtitle&&<div style={{fontSize:11,color:'#8FB897',marginTop:1}}>{subtitle}</div>}
           </div>
           <div style={{display:'flex',gap:6}}>
-            {[{l:'Магазин',c:'#1FD760'},{l:'Рестораны',c:'#FF8C00'},{l:'Курьеры',c:'#3B8EF0'},{l:'Сборщики',c:'#9B6DFF'}].map((a,i)=>(
+            {page !== 'settings' && [{l:'Магазин',c:'#1FD760'},{l:'Рестораны',c:'#FF8C00'},{l:'Курьеры',c:'#3B8EF0'},{l:'Сборщики',c:'#9B6DFF'}].map((a,i)=>(
               <span key={i} style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:`${a.c}14`,color:a.c,border:`1px solid ${a.c}28`}}>{a.l}</span>
             ))}
           </div>
@@ -4845,43 +4845,152 @@ function FinancePage() {
 }
 
 /* ── НАСТРОЙКИ ──────────────────────────────────── */
-function SettingsPage() {
-  const [stab,setStab]=useState('gbs');
-  const [gbsOn,setGbsOn]=useState(false);
-  const [gbsIP,setGbsIP]=useState('http://192.168.1.100');
-  const [gbsPort,setGbsPort]=useState('8419');
-  const [gbsUser,setGbsUser]=useState('admin');
-  const [gbsPass,setGbsPass]=useState('202505290930');
-  const [testSt,setTestSt]=useState('');
-  const [basePr,setBasePr]=useState('5');
-  const [freeAm,setFreeAm]=useState('30');
-  const [perKm,setPerKm]=useState('1.5');
-  const [freeKm,setFreeKm]=useState('2');
-  const [smsP,setSmsP]=useState('smspro');
-  const [saved,setSaved]=useState(false);
-  const testConn=()=>{setTestSt('loading');setTimeout(()=>setTestSt('ok'),1800);setTimeout(()=>setTestSt(''),5000);};
-  const STABS=[{id:'gbs',l:'🔗 GBS Market'},{id:'delivery',l:'🚚 Доставка'},{id:'sms',l:'💬 SMS'},{id:'cards',l:'💳 Карты'},{id:'store',l:'🏪 Магазин'}];
+const DEFAULT_STORE_INFO = {
+  name: 'KAKAPO',
+  city: 'г. Яван, Таджикистан',
+  address: 'ул. Ленина, 42',
+  phone1: '+992 118 55-97-97',
+  phone2: '+992 553 55-98-98',
+  email: 'kakapo.tj@gmail.com',
+  telegram: '@kakapo_tj',
+  hours: '08:00 – 23:00',
+}
+
+const SETTINGS_QUICK_LINKS = [
+  { id: 'tariff', icon: '🚚', label: 'Тариф доставки', sub: 'Цены · км · курьеры · OSRM', color: '#3B8EF0' },
+  { id: 'cards', icon: '💳', label: 'Карты лояльности', sub: 'KAKAPO-XXXX · бонусы · долги', color: '#FFB800' },
+  { id: 'pickups', icon: '📍', label: 'Точки забора', sub: 'Магазин и рестораны · GPS', color: '#1FD760' },
+  { id: 'push', icon: '🔔', label: 'Push уведомления', sub: 'Рассылки клиентам', color: '#9B6DFF' },
+]
+
+function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
+  const [stab, setStab] = useState('gbs')
+  const [gbsOn, setGbsOn] = useState(false)
+  const [gbsIP, setGbsIP] = useState('http://192.168.1.100')
+  const [gbsPort, setGbsPort] = useState('8419')
+  const [gbsUser, setGbsUser] = useState('admin')
+  const [gbsPass, setGbsPass] = useState('')
+  const [testSt, setTestSt] = useState('')
+  const [smsP, setSmsP] = useState('smspro')
+  const [smsKey, setSmsKey] = useState('')
+  const [storeInfo, setStoreInfo] = useState(DEFAULT_STORE_INFO)
+  const [saved, setSaved] = useState(false)
+  const [saveErr, setSaveErr] = useState('')
+
+  useEffect(() => {
+    try {
+      const gbs = localStorage.getItem('kakapo_admin_gbs')
+      if (gbs) {
+        const p = JSON.parse(gbs)
+        if (typeof p.enabled === 'boolean') setGbsOn(p.enabled)
+        if (p.ip) setGbsIP(p.ip)
+        if (p.port) setGbsPort(p.port)
+        if (p.user) setGbsUser(p.user)
+        if (p.pass) setGbsPass(p.pass)
+      }
+      const sms = localStorage.getItem('kakapo_admin_sms')
+      if (sms) {
+        const p = JSON.parse(sms)
+        if (p.provider) setSmsP(p.provider)
+        if (p.apiKey) setSmsKey(p.apiKey)
+      }
+      const store = localStorage.getItem('kakapo_admin_store')
+      if (store) setStoreInfo({ ...DEFAULT_STORE_INFO, ...JSON.parse(store) })
+    } catch { /* private mode */ }
+  }, [])
+
+  const saveAll = () => {
+    try {
+      localStorage.setItem('kakapo_admin_gbs', JSON.stringify({
+        enabled: gbsOn, ip: gbsIP, port: gbsPort, user: gbsUser, pass: gbsPass,
+      }))
+      localStorage.setItem('kakapo_admin_sms', JSON.stringify({ provider: smsP, apiKey: smsKey }))
+      localStorage.setItem('kakapo_admin_store', JSON.stringify(storeInfo))
+      setSaveErr('')
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch {
+      setSaveErr('Не удалось сохранить настройки')
+    }
+  }
+
+  const testConn = async () => {
+    setTestSt('loading')
+    setSaveErr('')
+    try {
+      if (USE_API && gbsOn) await api.syncGBS()
+      else await new Promise(r => setTimeout(r, 1200))
+      setTestSt('ok')
+      setTimeout(() => setTestSt(''), 5000)
+    } catch {
+      setTestSt('err')
+      setTimeout(() => setTestSt(''), 4000)
+    }
+  }
+
+  const STABS = [
+    { id: 'gbs', l: '🔗 GBS Market' },
+    { id: 'sms', l: '💬 SMS / OTP' },
+    { id: 'store', l: '🏪 Контакты' },
+  ]
+
+  const patchStore = (key: keyof typeof DEFAULT_STORE_INFO, val: string) => {
+    setStoreInfo(s => ({ ...s, [key]: val }))
+  }
+
   return (
     <div>
-      <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap',alignItems:'center'}}>
-        {STABS.map(t=><button key={t.id} onClick={()=>setStab(t.id)} className="ab" style={{padding:'8px 14px',fontSize:12,background:stab===t.id?'rgba(31,215,96,.12)':'#0C1C0F',border:`1.5px solid ${stab===t.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:stab===t.id?'#1FD760':'#8FB897'}}>{t.l}</button>)}
-        <button onClick={()=>{setSaved(true);setTimeout(()=>setSaved(false),3000);}} className="ab abp" style={{marginLeft:'auto',padding:'8px 16px'}}>{saved?'✓ Сохранено!':'💾 Сохранить всё'}</button>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+        {SETTINGS_QUICK_LINKS.map(link => (
+          <button key={link.id} type="button" onClick={() => setPage(link.id)} className="btn ac"
+            style={{ padding: '14px 12px', textAlign: 'left', cursor: 'pointer', background: '#091508', border: `1px solid ${link.color}28` }}>
+            <div style={{ fontSize: 22, marginBottom: 6 }}>{link.icon}</div>
+            <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: link.color, marginBottom: 3 }}>{link.label}</div>
+            <div style={{ fontSize: 10, color: '#3D6645', lineHeight: 1.4 }}>{link.sub}</div>
+          </button>
+        ))}
       </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        {STABS.map(t => (
+          <button key={t.id} type="button" onClick={() => setStab(t.id)} className="ab"
+            style={{
+              padding: '8px 14px', fontSize: 12,
+              background: stab === t.id ? 'rgba(31,215,96,.12)' : '#0C1C0F',
+              border: `1.5px solid ${stab === t.id ? 'rgba(31,215,96,.35)' : '#162B1A'}`,
+              color: stab === t.id ? '#1FD760' : '#8FB897',
+            }}>
+            {t.l}
+          </button>
+        ))}
+        <button type="button" onClick={saveAll} className="ab abp" style={{ marginLeft: 'auto', padding: '8px 16px' }}>
+          {saved ? '✓ Сохранено!' : '💾 Сохранить'}
+        </button>
+      </div>
+
+      {saveErr && (
+        <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', fontSize: 12, color: '#FF4545' }}>
+          {saveErr}
+        </div>
+      )}
 
       {stab==='gbs'&&(
         <div style={{display:'grid',gridTemplateColumns:'1.3fr 1fr',gap:18}}>
           <div className="ac" style={{padding:20}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
               <div className="ub" style={{fontSize:14,fontWeight:800}}>JSON API · GBS Market</div>
-              <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:12,color:gbsOn?'#1FD760':'#3D6645',fontWeight:700}}>{gbsOn?'Активно':'Выкл.'}</span><Tog on={gbsOn} set={setGbsOn}/></div>
+              <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:12,color:gbsOn?'#1FD760':'#3D6645',fontWeight:700}}>{gbsOn?'Активно':'Выкл.'}</span><Tog on={gbsOn} set={() => setGbsOn(v => !v)}/></div>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 90px',gap:10}}><NI lbl="IP адрес кассы" val={gbsIP} set={setGbsIP} ph="http://192.168.1.100"/><NI lbl="Порт" val={gbsPort} set={setGbsPort} ph="8419"/></div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><NI lbl="Логин" val={gbsUser} set={setGbsUser}/><NI lbl="Пароль" val={gbsPass} set={setGbsPass} type="password" ph="••••••••••••"/></div>
             </div>
-            <button onClick={testConn} className="ab" style={{width:'100%',marginTop:14,padding:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0',display:'flex',alignItems:'center',justifyContent:'center',gap:8,fontSize:13}}>
-              {testSt==='loading'?<><div style={{width:16,height:16,borderRadius:'50%',border:'2px solid rgba(59,142,240,.3)',borderTopColor:'#3B8EF0',animation:'spin 1s linear infinite'}}/>Проверка...</>:testSt==='ok'?'✅ Соединение установлено!':'🔌 Проверить соединение'}
+            <button type="button" onClick={testConn} className="ab" style={{width:'100%',marginTop:14,padding:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0',display:'flex',alignItems:'center',justifyContent:'center',gap:8,fontSize:13}}>
+              {testSt==='loading'?<><div style={{width:16,height:16,borderRadius:'50%',border:'2px solid rgba(59,142,240,.3)',borderTopColor:'#3B8EF0',animation:'spin 1s linear infinite'}}/>Проверка...</>:testSt==='ok'?'✅ Соединение установлено!':testSt==='err'?'❌ Не удалось подключиться':'🔌 Проверить соединение'}
             </button>
+            <div style={{marginTop:12,fontSize:11,color:'#3D6645'}}>
+              Синхронизация товаров: <button type="button" onClick={() => setPage('products')} className="btn" style={{background:'none',border:'none',color:'#1FD760',fontWeight:700,cursor:'pointer',padding:0,fontSize:11}}>Товары → Синх. GBS</button>
+            </div>
           </div>
           <div style={{padding:'14px 16px',borderRadius:14,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.2)'}}>
             <div className="ub" style={{fontSize:12,fontWeight:800,color:'#1FD760',marginBottom:10}}>📋 Инструкция GBS Market</div>
@@ -4890,58 +4999,33 @@ function SettingsPage() {
         </div>
       )}
 
-      {stab==='delivery'&&(
-        <div className="ac" style={{padding:20,maxWidth:560}}>
-          <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:18}}>Настройки доставки</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:16}}>
-            <NI lbl="Базовая цена (ЅМ)" val={basePr} set={setBasePr} type="number" suf="ЅМ"/>
-            <NI lbl="Бесплатно от (ЅМ)" val={freeAm} set={setFreeAm} type="number" suf="ЅМ"/>
-            <NI lbl="Цена за 1 км" val={perKm} set={setPerKm} type="number" suf="ЅМ"/>
-            <NI lbl="Бесплатный радиус" val={freeKm} set={setFreeKm} type="number" suf="км"/>
-          </div>
-          <div style={{padding:'12px 14px',borderRadius:12,background:'rgba(255,184,0,.07)',border:'1px solid rgba(255,184,0,.2)',fontSize:12,color:'#8FB897',marginBottom:14}}>
-            💡 Пример: Заказ 25 ЅМ, расстояние 3.5 км → {basePr} + {(Math.max(0,3.5-Number(freeKm))*Number(perKm)).toFixed(2)} = <span style={{color:'#FFB800',fontWeight:700}}>{(Number(basePr)+Math.max(0,3.5-Number(freeKm))*Number(perKm)).toFixed(2)} ЅМ</span>
-          </div>
-          {[{l:'Часы пик 12:00–14:00 (×1.3)',on:true},{l:'Вечерний пик 17:00–20:00 (×1.5)',on:true},{l:'Ночная доставка (×2.0)',on:false}].map((r,i)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 0',borderBottom:i<2?'1px solid #162B1A':'none'}}>
-              <span style={{fontSize:13,fontWeight:600}}>{r.l}</span>
-              <div style={{width:40,height:22,borderRadius:11,background:r.on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}><div style={{position:'absolute',top:2,left:r.on?19:2,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s'}}/></div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {stab==='sms'&&(
-        <div className="ac" style={{padding:20,maxWidth:500}}>
-          <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:18}}>SMS провайдер (OTP авторизация)</div>
+        <div className="ac" style={{padding:20,maxWidth:520}}>
+          <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:6}}>SMS провайдер (OTP)</div>
+          <div style={{fontSize:11,color:'#3D6645',marginBottom:16}}>Для входа курьеров, сборщиков и партнёров. Тариф доставки — в разделе «Тариф доставки».</div>
           <div style={{display:'flex',gap:8,marginBottom:14}}>
-            {[{id:'smspro',l:'🇹🇯 SmsPro.tj'},{id:'eskiz',l:'🇺🇿 Eskiz'},{id:'twilio',l:'🌍 Twilio'}].map(p=><button key={p.id} onClick={()=>setSmsP(p.id)} className="ab" style={{flex:1,padding:'9px 6px',fontSize:12,background:smsP===p.id?'rgba(31,215,96,.12)':'#0C1C0F',border:`1.5px solid ${smsP===p.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:smsP===p.id?'#1FD760':'#8FB897'}}>{p.l}</button>)}
+            {[{id:'smspro',l:'🇹🇯 SmsPro.tj'},{id:'eskiz',l:'🇺🇿 Eskiz'},{id:'twilio',l:'🌍 Twilio'}].map(p=><button key={p.id} type="button" onClick={()=>setSmsP(p.id)} className="ab" style={{flex:1,padding:'9px 6px',fontSize:12,background:smsP===p.id?'rgba(31,215,96,.12)':'#0C1C0F',border:`1.5px solid ${smsP===p.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:smsP===p.id?'#1FD760':'#8FB897'}}>{p.l}</button>)}
           </div>
-          <NI lbl="API ключ" val="" set={()=>{}} ph="Вставь ключ от SmsPro.tj"/>
-          <div style={{marginTop:10,padding:'10px 13px',borderRadius:10,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.2)',fontSize:12,color:'#8FB897'}}>Для Таджикистана рекомендуем <span style={{color:'#3B8EF0',fontWeight:700}}>SmsPro.tj</span> — поддержка русского/таджикского языка</div>
-        </div>
-      )}
-
-      {stab==='cards'&&(
-        <div className="ac" style={{padding:20,maxWidth:500}}>
-          <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:18}}>Карты лояльности KAKAPO-XXXX</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
-            {[{l:'Бонус Bronze %',v:'1'},{l:'Бонус Silver %',v:'2'},{l:'Бонус Gold %',v:'3'},{l:'Бонус Platinum %',v:'5'}].map((r,i)=>(<div key={i}><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>{r.l}</div><input className="ai" defaultValue={r.v} type="number" style={{paddingRight:30}}/></div>))}
-          </div>
-          {[{l:'Бонусы за покупки в магазине',on:true},{l:'Бонусы за заказы в ресторанах',on:true},{l:'Бонус за первую привязку карты (100 ⭐)',on:true},{l:'Синхронизация долгов с GBS Market',on:true},{l:'Кредитный лимит для Gold/Platinum',on:true}].map((r,i,arr)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 0',borderBottom:i<arr.length-1?'1px solid #162B1A':'none'}}>
-              <span style={{fontSize:13,fontWeight:600}}>{r.l}</span>
-              <div style={{width:40,height:22,borderRadius:11,background:r.on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}><div style={{position:'absolute',top:2,left:r.on?19:2,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s'}}/></div>
-            </div>
-          ))}
+          <NI lbl="API ключ" val={smsKey} set={setSmsKey} ph="Вставь ключ от провайдера" type="password"/>
+          <div style={{marginTop:12,padding:'10px 13px',borderRadius:10,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.2)',fontSize:12,color:'#8FB897'}}>Для Таджикистана рекомендуем <span style={{color:'#3B8EF0',fontWeight:700}}>SmsPro.tj</span> — поддержка русского и таджикского языка</div>
         </div>
       )}
 
       {stab==='store'&&(
-        <div className="ac" style={{padding:20,maxWidth:500}}>
-          <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:18}}>Информация о магазине</div>
+        <div className="ac" style={{padding:20,maxWidth:520}}>
+          <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:6}}>Контакты магазина</div>
+          <div style={{fontSize:11,color:'#3D6645',marginBottom:16}}>Отображаются клиентам. Адреса точек забора — в разделе «Точки забора».</div>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
-            {[{l:'Название',v:'KAKAPO'},{l:'Город',v:'г. Яван, Таджикистан'},{l:'Адрес',v:'ул. Ленина, 42'},{l:'Телефон 1',v:'+992 118 55-97-97'},{l:'Телефон 2',v:'+992 553 55-98-98'},{l:'Email',v:'kakapo.tj@gmail.com'},{l:'Telegram',v:'@kakapo_tj'},{l:'Время работы',v:'08:00 – 23:00'}].map((r,i)=>(<NI key={i} lbl={r.l} val={r.v} set={()=>{}}/>))}
+            <NI lbl="Название" val={storeInfo.name} set={v => patchStore('name', v)}/>
+            <NI lbl="Город" val={storeInfo.city} set={v => patchStore('city', v)}/>
+            <NI lbl="Адрес магазина" val={storeInfo.address} set={v => patchStore('address', v)}/>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <NI lbl="Телефон 1" val={storeInfo.phone1} set={v => patchStore('phone1', v)}/>
+              <NI lbl="Телефон 2" val={storeInfo.phone2} set={v => patchStore('phone2', v)}/>
+            </div>
+            <NI lbl="Email" val={storeInfo.email} set={v => patchStore('email', v)}/>
+            <NI lbl="Telegram" val={storeInfo.telegram} set={v => patchStore('telegram', v)}/>
+            <NI lbl="Время работы" val={storeInfo.hours} set={v => patchStore('hours', v)}/>
           </div>
         </div>
       )}
@@ -5828,7 +5912,7 @@ function AdminAppInner() {
     useProductPhotos.getState().hydrate();
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS Market · Доставка · SMS · Карты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS Market · SMS · контакты магазина',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
@@ -5849,7 +5933,7 @@ function AdminAppInner() {
       {page==='tariff'     && <TariffPage/>}
       {page==='courierorders' && <CourierOrdersPage/>}
       {page==='finance'    && <FinancePage/>}
-      {page==='settings'   && <SettingsPage/>}
+      {page==='settings'   && <SettingsPage setPage={setPage}/>}
     </Layout>
   );
 }
