@@ -26,7 +26,7 @@ import {
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
-import type { PickupPoint } from '@/lib/pickups'
+import { resolveCourierPayment } from '@/lib/courierPayment'
 
 /* ══════════════════════════════════════════════════════
    КАКАПО КУРЬЕР — карта со всеми заказами + список
@@ -76,6 +76,74 @@ function orderDelivery(
 ): number | null {
   const fee = resolveOrderDeliveryFee(o as import('@/lib/types').Order, TARIFF, roadKm)
   return fee
+}
+
+function CourierPaymentFooter({
+  order,
+  dlv,
+  size = 'md',
+}: {
+  order: { sum: number; paymentMethod?: string; creditAmount?: number; cashDue?: number; pay?: string }
+  dlv: number | null
+  size?: 'md' | 'lg'
+}) {
+  const pm = resolveCourierPayment(
+    {
+      total: (order.cashDue ?? 0) + (order.creditAmount ?? order.sum),
+      deliveryFee: dlv ?? undefined,
+      creditAmount: order.creditAmount,
+      payment_method: order.paymentMethod,
+      pay: order.paymentMethod ?? order.pay,
+    },
+    dlv,
+  )
+  const amountSize = size === 'lg' ? 30 : 26
+  if (pm.isCredit) {
+    return (
+      <div style={{ borderTop: '1px dashed rgba(255,184,0,.35)', paddingTop: size === 'lg' ? 12 : 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#FFB800' }}>👑 В ДОЛГ (VIP)</div>
+            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>товары — уже на карте клиента</div>
+          </div>
+          <span className="ub" style={{ fontSize: amountSize - 6, fontWeight: 900, color: '#FFB800' }}>{pm.credit.toFixed(2)} ЅМ</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>💵 НАЛИЧНЫМИ</div>
+            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>только доставка</div>
+          </div>
+          <span className="ub" style={{ fontSize: amountSize, fontWeight: 900, color: '#1FD760' }}>{pm.cash.toFixed(2)} ЅМ</span>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div style={{ borderTop: '1px dashed rgba(31,215,96,.3)', paddingTop: size === 'lg' ? 12 : 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>💵 {pm.payLabel.toUpperCase()}</div>
+        <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>взять с клиента</div>
+      </div>
+      <span className="ub" style={{ fontSize: amountSize, fontWeight: 900, color: '#1FD760' }}>{dlv != null ? `${pm.cash.toFixed(2)}` : '…'} ЅМ</span>
+    </div>
+  )
+}
+
+function courierCashToCollect(
+  order: { sum: number; paymentMethod?: string; creditAmount?: number; cashDue?: number; pay?: string },
+  dlv: number | null,
+): string {
+  const pm = resolveCourierPayment(
+    {
+      total: (order.cashDue ?? 0) + (order.creditAmount ?? order.sum),
+      deliveryFee: dlv ?? undefined,
+      creditAmount: order.creditAmount,
+      payment_method: order.paymentMethod,
+      pay: order.paymentMethod ?? order.pay,
+    },
+    dlv,
+  )
+  return dlv != null ? `${pm.cash.toFixed(2)} ЅМ` : '…'
 }
 
 function isMapAlive(map: any): boolean {
@@ -950,14 +1018,13 @@ function CourierAppInner() {
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
                         {selected.items.map((it: any,i: number)=><span key={i} style={{ padding:'4px 9px', borderRadius:8, fontSize:11, background:'#091508', border:'1px solid #162B1A', color:'#8FB897' }}>{it.e} {it.n} ×{it.q}</span>)}
                       </div>
-                      {/* оплата: товары + доставка = наличными у клиента */}
+                      {/* оплата */}
                       <div style={{ background:'rgba(31,215,96,.07)', border:'1.5px solid rgba(31,215,96,.35)', borderRadius:14, padding:'13px 15px', marginBottom:16 }}>
                         {(() => {
                           const km = getOrderKm(selected, roadKm);
                           const dlv = orderDelivery(selected, roadKm, TARIFF);
                           const isHeavy = selected.weight > TARIFF.heavyKg;
                           const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
-                          const total = dlv != null ? selected.sum + dlv : null;
                           return (
                             <>
                               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
@@ -989,13 +1056,7 @@ function CourierAppInner() {
                                 <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>Доставка итого</span>
                                 <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>{dlv ?? '…'} ЅМ</span>
                               </div>
-                              <div style={{ borderTop:'1px dashed rgba(31,215,96,.3)', paddingTop:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <div>
-                                  <div style={{ fontSize:13, fontWeight:800, color:'#1FD760' }}>💵 НАЛИЧНЫМИ</div>
-                                  <div style={{ fontSize:10, color:'#3D6645', marginTop:2 }}>взять с клиента</div>
-                    </div>
-                                <span className="ub" style={{ fontSize:26, fontWeight:900, color:'#1FD760' }}>{total != null ? `${total.toFixed(2)} ЅМ` : '…'}</span>
-                  </div>
+                              <CourierPaymentFooter order={selected} dlv={dlv} />
                             </>
                           );
                         })()}
@@ -1018,7 +1079,7 @@ function CourierAppInner() {
                         ) : (
                         <button onClick={()=>void accept(selectedLive)} disabled={!!acceptingId} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:acceptingId ? '#162B1A' : 'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:acceptingId ? '#8FB897' : '#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:acceptingId ? 0.7 : 1 }}>
                           <span>{acceptingId ? '⏳ Принимаем…' : '✓ Принять заказ'}</span>
-                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>наличными {(() => { const d = orderDelivery(selectedLive, roadKm, TARIFF); return d != null ? `${(selectedLive.sum + d).toFixed(2)} ЅМ` : '…'; })()}</span>
+                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>{selectedLive?.paymentMethod === 'credit' ? 'наличными за доставку' : 'наличными'} {courierCashToCollect(selectedLive, orderDelivery(selectedLive, roadKm, TARIFF))}</span>
                         </button>
                         )}
                   </div>
@@ -1307,13 +1368,7 @@ function CourierAppInner() {
                         <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>Доставка итого</span>
                         <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>{dlv ?? '…'} ЅМ</span>
                       </div>
-                      <div style={{ borderTop:'1px dashed rgba(31,215,96,.3)', paddingTop:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <div>
-                          <div style={{ fontSize:13, fontWeight:800, color:'#1FD760' }}>💵 НАЛИЧНЫМИ</div>
-                          <div style={{ fontSize:10, color:'#3D6645', marginTop:2 }}>взять с клиента</div>
-                        </div>
-                        <div className="ub" style={{ fontSize:30, fontWeight:900, color:'#1FD760' }}>{dlv != null ? `${(active.sum + dlv).toFixed(2)} ` : '… '}<span style={{ fontSize:16 }}>ЅМ</span></div>
-                      </div>
+                      <CourierPaymentFooter order={active} dlv={dlv} size="lg" />
                     </div>
                   );
                 })()}
@@ -1336,7 +1391,7 @@ function CourierAppInner() {
                   );
                 })()}
                 {step==='toClient' && <button onClick={() => detailOrderId && updateStatus(detailOrderId, 'delivering', { courierAtClient: true })} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
-                {step==='done'     && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {(() => { const d = orderDelivery(active, roadKm, TARIFF); return d != null ? `${(active.sum + d).toFixed(2)} ЅМ` : '…'; })()}</button>}
+                {step==='done'     && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {courierCashToCollect(active, orderDelivery(active, roadKm, TARIFF))}</button>}
               </div>
             </div>
           ) : myActiveOrders.length ? (

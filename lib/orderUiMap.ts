@@ -1,4 +1,5 @@
 import type { Order, OrderStatus, OrderType } from './types'
+import { enrichCourierOrderPayment, mapCourierPayLabel } from './courierPayment'
 import type { DemoCourierOrder } from './demoOrders'
 import {
   allPartsDone,
@@ -424,7 +425,7 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
   const order = normalizeOrder(o)
   const routePickupIds = getCourierAcceptPickupIds(order)
   const pendingParts = getPendingPartsForCourier(order)
-  return {
+  const base = {
     id: order.id,
     pickupIds: routePickupIds,
     mapPickupIds: routePickupIds,
@@ -439,7 +440,7 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
     lat: order.client?.lat ?? 38.325,
     lng: order.client?.lng ?? 69.028,
     weight: Math.round((order.weightKg ?? Math.max(1, (order.items?.reduce((s, i) => s + i.qty, 0) || 1) * 0.4)) * 10) / 10,
-    pay: 'Наличными',
+    pay: mapCourierPayLabel(order),
     time: order.createdAt || '',
     sum: Math.max(0, order.total - (order.deliveryFee ?? 0)),
     items: (order.items || []).map(it => ({
@@ -450,6 +451,7 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
       source: it.source,
     })),
   }
+  return enrichCourierOrderPayment(base, order)
 }
 
 /** Все заказы на карте курьера (готовятся + готовые) */

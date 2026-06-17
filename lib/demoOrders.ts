@@ -17,6 +17,12 @@ export interface DemoCourierOrder {
   lng: number;
   weight: number;
   pay: string;
+  /** cash | card | credit */
+  paymentMethod?: string;
+  /** Товары в долг (VIP-кредит) */
+  creditAmount?: number;
+  /** Наличными у клиента (доставка или весь заказ) */
+  cashDue?: number;
   time: string;
   sum: number;
   items: { e: string; n: string; q: number; p: number; source?: string }[];

@@ -1771,11 +1771,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   });
   const total = sub;
   const credit = useMemo(() => getVipCreditState(user), [user?.vip, user?.debt, user?.debtLimit, user?.bonus, user?.blocked]);
-  const vipDelivery = !!user?.vip;
-  const effectiveDelivery = vipDelivery ? 0 : deliveryFee;
+  const useCreditPay = pay === 'credit';
+  const vipFreeDelivery = !!user?.vip && !useCreditPay;
+  const effectiveDelivery = vipFreeDelivery ? 0 : deliveryFee;
   const orderTotal = sub + effectiveDelivery;
   const bonusUsable = useBonus ? getBonusUsable(user, orderTotal) : 0;
   const payable = Math.max(0, Math.round((orderTotal - bonusUsable) * 100) / 100);
+  const creditGoods = useCreditPay ? Math.max(0, Math.round((payable - effectiveDelivery) * 100) / 100) : 0;
 
   const payOptions = useMemo(() => {
     const opts = [...CHECKOUT_PAYS_BASE];
@@ -1817,7 +1819,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const submit = async () => {
     if (!validate()) return;
     if (pay === 'credit') {
-      const check = canPayWithCredit(user, payable);
+      const check = canPayWithCredit(user, creditGoods);
       if (!check.ok) {
         setSubmitErr(check.reason || 'VIP-кредит недоступен');
         return;
@@ -1855,9 +1857,10 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       restIds,
       restId: restIds[0],
       restName: restIds[0] ? restaurants.find(r => r.id === restIds[0])?.name : undefined,
-      comment: pay === 'credit' ? 'Оплата VIP-кредитом' : bonusUsable > 0 ? `Списано бонусов: ${bonusUsable}` : '',
+      comment: pay === 'credit' ? 'VIP-кредит: товары в долг, доставка наличными' : bonusUsable > 0 ? `Списано бонусов: ${bonusUsable}` : '',
       payment_method: pay,
       pay,
+      creditAmount: useCreditPay ? creditGoods : undefined,
       vip: !!user?.vip,
     };
 
@@ -1873,12 +1876,12 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     if (order) {
       setOrderId(order.id);
       setCheckoutMode(orderType);
-      setPaidWithCredit(pay === 'credit' ? payable : 0);
+      setPaidWithCredit(pay === 'credit' ? creditGoods : 0);
       setBonusSpent(bonusUsable);
       try {
         const ph = user?.phone || formatTjPhone(phone);
         if (bonusUsable > 0) await spendBonus(ph, bonusUsable, order.id);
-        if (pay === 'credit') await chargeCredit(ph, payable, order.id);
+        if (pay === 'credit' && creditGoods > 0) await chargeCredit(ph, creditGoods, order.id);
         if (setUser) {
           const fresh = await refreshStoreUserAfterCredit(ph, user?.card);
           if (fresh) {
@@ -1912,7 +1915,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             : 'Сначала соберут заказ, затем назначат курьера. Отслеживание появится когда курьер примет заказ.'}
       </div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
-        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-кредит ${paidWithCredit.toFixed(2)} ЅМ` : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
+        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-долг ${paidWithCredit.toFixed(2)} ЅМ` + (bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : '') : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
             <div style={{ width:30, height:30, borderRadius:8, background:`${r.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={r.icon} s={14} c={r.c}/></div>
             <span style={{ fontSize:12, color:"var(--t2)", flex:1 }}>{r.l}</span>
@@ -1982,7 +1985,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             orderAmount={sub}
             pickupIds={pickupIds}
             onPriceChange={(price, dist, meta) => {
-              setDeliveryFee(vipDelivery ? 0 : price.total);
+              setDeliveryFee(price.total);
               setDeliveryKm(dist);
               setDeliveryMin(meta.durationMin);
               setClientLat(meta.lat);
@@ -1990,7 +1993,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               setAddrReady(true);
             }}
           />
-          {vipDelivery && addrReady && (
+          {vipFreeDelivery && addrReady && (
             <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', fontWeight: 700 }}>
               👑 VIP — доставка бесплатно
             </div>
@@ -2011,7 +2014,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           <CheckoutRadio items={payOptions} val={pay} set={setPay}/>
           {pay === 'credit' && (
             <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', lineHeight: 1.5 }}>
-              Сумма {payable.toFixed(2)} ЅМ будет добавлена к долгу. Остаток лимита после заказа: {(credit.available - payable).toLocaleString()} ЅМ
+              Товары {creditGoods.toFixed(2)} ЅМ — в долг на VIP-карту. Доставка {effectiveDelivery.toFixed(2)} ЅМ — наличными курьеру. Остаток лимита: {(credit.available - creditGoods).toLocaleString()} ЅМ
             </div>
           )}
         </div>
@@ -2038,7 +2041,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
                 <span>{effectiveDelivery.toFixed(2)} ЅМ</span>
               </div>
             )}
-            {vipDelivery && deliveryFee > 0 && (
+            {vipFreeDelivery && deliveryFee > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6 }}>
                 <span style={{ color: 'var(--t2)' }}>Доставка</span>
                 <span style={{ color: 'var(--gd)' }}>0 ЅМ · VIP</span>
@@ -2051,7 +2054,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, paddingTop: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0, borderTop: bonusUsable > 0 || effectiveDelivery > 0 ? '1px solid var(--b1)' : 'none' }}>
-              <span>{pay === 'credit' ? '👑 В кредит' : '💵 К оплате'}</span>
+              <span>{pay === 'credit' ? (effectiveDelivery > 0 ? '💵 Доставка + 👑 в долг' : '👑 В кредит') : '💵 К оплате'}</span>
               <span className="ub" style={{ color:"var(--gd)" }}>{payable.toFixed(2)} ЅМ</span>
             </div>
           </div>

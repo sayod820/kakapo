@@ -32,6 +32,11 @@ export interface Order {
   assemblerTeam?: { name: string; id?: string }[]
   items: OrderItem[]
   total: number
+  /** cash | card | credit (VIP-кредит: товары в долг, доставка наличными) */
+  payment_method?: string
+  pay?: string
+  /** Сумма товаров, списанная в VIP-долг */
+  creditAmount?: number
   comment?: string
   /** Заметка сборщика при изменении заказа */
   assemblerNote?: string

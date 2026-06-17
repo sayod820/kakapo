@@ -73,8 +73,17 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
     pickupIds: pickupIds.length ? pickupIds : ['store'],
     comment: String(raw.comment ?? ''),
     payment_method: String(raw.payment_method ?? raw.pay ?? 'cash'),
+    pay: String(raw.payment_method ?? raw.pay ?? 'cash'),
     priority: 'normal',
   }
+
+  const creditAmt = Number(raw.creditAmount)
+  if (raw.payment_method === 'credit' || raw.pay === 'credit') {
+    payload.creditAmount = Number.isFinite(creditAmt) && creditAmt >= 0
+      ? Number(creditAmt.toFixed(2))
+      : Number(Math.max(0, Number(payload.total) - Number(payload.deliveryFee)).toFixed(2))
+  }
+  if (raw.vip === true) payload.vip = true
 
   if (orderType === 'mixed') {
     if (raw.marketStatus) payload.marketStatus = raw.marketStatus

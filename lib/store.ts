@@ -295,6 +295,9 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       total: data.total || 0,
       deliveryFee: data.deliveryFee,
       deliveryFeeLocked: Number(data.deliveryFee) > 0,
+      payment_method: data.payment_method || data.pay || 'cash',
+      pay: data.payment_method || data.pay || 'cash',
+      creditAmount: data.creditAmount,
       pickupIds: data.pickupIds,
       weightKg: data.weightKg,
     } as Order)
