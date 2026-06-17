@@ -420,6 +420,7 @@ function OrderPersonSelect({ value, options, onChange, disabled = false, accent 
 function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onAssemblerChange, couriers, assemblers, statusBusy, courierBusy, assemblerBusy }) {
   if (!order) return null
   const st = adminStatusLabel(order.status)
+  const showAssembler = order.type === 'market' || order.type === 'mixed'
   const PART_LABELS = { new: 'Новый', assembling: 'Собирается', done: 'Готово', cooking: 'Готовится' }
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.72)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
@@ -444,6 +445,7 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
           </div>
           <div style={{ background:'#0C1C0F', borderRadius:12, padding:12, border:'1px solid #162B1A' }}>
             <div style={{ fontSize:10, color:'#3D6645', marginBottom:6, fontWeight:700 }}>КОМАНДА</div>
+            {showAssembler && (
             <div style={{ fontSize:12, marginBottom:8 }}>
               <div style={{ fontSize:10, color:'#3D6645', marginBottom:4 }}>Сборщик</div>
               {onAssemblerChange ? (
@@ -458,6 +460,7 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
                 <span style={{ color:'#9B6DFF', fontWeight:700 }}>{order.assembler}</span>
               )}
             </div>
+            )}
             <div style={{ fontSize:12 }}>
               <div style={{ fontSize:10, color:'#3D6645', marginBottom:4 }}>Курьер</div>
               {onCourierChange ? (
