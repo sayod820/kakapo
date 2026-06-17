@@ -29,6 +29,7 @@ export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[])
     bonus: card?.bonus ?? client.bonus,
     debt: card?.debt ?? client.debt,
     debtLimit: card?.debtLimit ?? client.debtLimit,
+    vip: !!(card?.vip ?? client.vip),
   }
 }
 
@@ -107,6 +108,7 @@ export function saveCardLoyalty(card: AdminCard, form: CardLoyaltyForm, mode: 'l
     debtLimit: Math.max(0, Number(form.debtLimit) || 0),
     bonus: Math.max(0, Number(form.bonus) || 0),
     debt: Math.max(0, Number(form.debt) || 0),
+    vip: !!form.vip,
   }
 
   if (!client) {

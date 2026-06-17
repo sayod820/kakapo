@@ -14,7 +14,7 @@ import { mapOrdersForClient } from "@/lib/orderUiMap";
 import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
-import { loadStoreUser, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
+import { loadStoreUser, saveStoreUser, getActiveClientPhone, findStoreClientByPhone, storeUserFromClient } from "@/lib/clientSession";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import { phoneDigits } from "@/lib/clientSession";
@@ -444,7 +444,7 @@ function countClientSpent(apiOrders: import('@/lib/types').Order[], phone?: stri
   return Math.round(sum * 10) / 10
 }
 
-function LoyaltyStatusCard({ loyalty, onVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void }) {
+function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
   const { tier, nextTier, progressPct, remaining, spent, isVip, vipSteps, vipDoneCount } = loyalty
   return (
     <div className="card" style={{ padding: 14, marginBottom: 12, background: 'linear-gradient(145deg,var(--l2),var(--l1))', border: `1px solid ${tier.color}28` }}>
@@ -510,8 +510,13 @@ function LoyaltyStatusCard({ loyalty, onVip }: { loyalty: ReturnType<typeof getL
               {isVip ? 'VIP активен' : 'Путь к VIP'}
             </span>
           </div>
-          <span style={{ fontSize: 10, fontWeight: 800, color: isVip ? 'var(--gd)' : 'var(--t3)' }}>{vipDoneCount}/3</span>
+          <span style={{ fontSize: 10, fontWeight: 800, color: isVip ? 'var(--gd)' : 'var(--t3)' }}>
+            {loyalty.vipDoneCount}/3
+          </span>
         </div>
+        {adminVip && isVip && (
+          <div style={{ fontSize: 10, color: 'var(--gd)', marginBottom: 8, fontWeight: 700 }}>✓ VIP включён администратором</div>
+        )}
         <div style={{ display: 'flex', gap: 6 }}>
           {vipSteps.map(step => (
             <div key={step.id} style={{
@@ -1636,7 +1641,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
   );
 };
 
-const ProfilePage = ({ go, user, onLogout, wished }) => {
+const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
   const apiOrders = useOrders(s => s.orders);
   const [reviewStats, setReviewStats] = useState({ count: 0, withReplies: 0 });
   const [unreadNotifs, setUnreadNotifs] = useState(0);
@@ -1649,9 +1654,21 @@ const ProfilePage = ({ go, user, onLogout, wished }) => {
     [wished],
   );
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level),
-    [spentTotal, orderCount, reviewStats.count, user?.level],
+    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level, user?.vip),
+    [spentTotal, orderCount, reviewStats.count, user?.level, user?.vip],
   );
+
+  useEffect(() => {
+    if (!user?.phone || !setUser) return
+    findStoreClientByPhone(user.phone).then(c => {
+      if (!c) return
+      const next = storeUserFromClient(c)
+      if (next.vip !== user.vip || next.bonus !== user.bonus || next.level !== user.level) {
+        saveStoreUser(next)
+        setUser(next)
+      }
+    }).catch(() => {})
+  }, [user?.phone])
 
   useEffect(() => {
     const phone = getActiveClientPhone(user);
@@ -1772,7 +1789,7 @@ const ProfilePage = ({ go, user, onLogout, wished }) => {
           </div>
         </div>
 
-        <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} />
+        <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
 
         <div className="card" style={{ marginBottom:12 }}>
           {menuItems.map((item, i) => (
@@ -6847,7 +6864,7 @@ function KakapoAppInner() {
       case "cart":             return <CartPage          {...shared} onDel={delItem}/>;
       case "checkout":         return <CheckoutPage      {...shared}/>;
       case "auth":             return <ClientLoginPage   go={go} setUser={setUser}/>;
-      case "profile":          return <ProfilePage       {...shared} user={user} onLogout={logout}/>;
+      case "profile":          return <ProfilePage       {...shared} user={user} setUser={setUser} onLogout={logout}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
       case "reviews":          return <ClientReviewsPage   go={go} user={user}/>;
       case "promos":           return <PromosPage        {...shared}/>;

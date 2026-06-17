@@ -15,6 +15,7 @@ export interface AdminCard {
   debt: number
   issued?: string
   note?: string
+  vip?: boolean
 }
 
 export const CARD_STATUS_LABELS: Record<CardStatus, { l: string; c: string }> = {
@@ -24,7 +25,7 @@ export const CARD_STATUS_LABELS: Record<CardStatus, { l: string; c: string }> = 
 }
 
 export const DEFAULT_ADMIN_CARDS: AdminCard[] = [
-  { num: 'КАКАПО-0001', client: 'Диловар Рахимов', phone: '+992 93 456 78 90', status: 'active', level: 'platinum', bonus: 4850, debtLimit: 3000, debt: 1200, issued: '2022-01-01' },
+  { num: 'КАКАПО-0001', client: 'Диловар Рахимов', phone: '+992 93 456 78 90', status: 'active', level: 'platinum', bonus: 4850, debtLimit: 3000, debt: 1200, issued: '2022-01-01', vip: true },
   { num: 'КАКАПО-0042', client: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', status: 'active', level: 'gold', bonus: 1240, debtLimit: 1000, debt: 0, issued: '2023-03-15' },
   { num: 'КАКАПО-0118', client: 'Бахром Каримов', phone: '+992 88 789 01 23', status: 'active', level: 'silver', bonus: 560, debtLimit: 0, debt: 0, issued: '2023-06-10' },
   { num: 'КАКАПО-0099', client: '', phone: '', status: 'unlinked', level: '', bonus: 0, debtLimit: 0, debt: 0, issued: '2024-05-01' },
@@ -51,6 +52,7 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     debt: Number(raw.debt) || 0,
     issued: raw.issued,
     note: raw.note || '',
+    vip: !!raw.vip,
   }
 }
 
@@ -77,10 +79,11 @@ export type CardLoyaltyForm = {
   debtLimit: number
   bonus: number
   debt: number
+  vip: boolean
 }
 
 export function emptyCardLoyaltyForm(): CardLoyaltyForm {
-  return { clientId: '', phone: '', level: 'bronze', debtLimit: 0, bonus: 0, debt: 0 }
+  return { clientId: '', phone: '', level: 'bronze', debtLimit: 0, bonus: 0, debt: 0, vip: false }
 }
 
 export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): CardLoyaltyForm {
@@ -91,6 +94,7 @@ export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): Card
     debtLimit: card.debtLimit ?? client?.debtLimit ?? 0,
     bonus: card.bonus ?? client?.bonus ?? 0,
     debt: card.debt ?? client?.debt ?? 0,
+    vip: !!(card.vip ?? client?.vip),
   }
 }
 
@@ -126,6 +130,7 @@ export function enrichCardWithClient(card: AdminCard, clients: AdminClient[]): A
     bonus: Math.max(card.bonus, client.bonus),
     debtLimit: client.debtLimit ?? card.debtLimit,
     debt: Math.max(card.debt, client.debt),
+    vip: !!(card.vip || client.vip),
     status,
   })
 }
@@ -150,6 +155,7 @@ export function mergeCardsWithClients(cards: AdminCard[], clients: AdminClient[]
         bonus: client.bonus,
         debtLimit: client.debtLimit,
         debt: client.debt,
+        vip: !!client.vip,
       }))
     }
   }

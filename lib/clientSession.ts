@@ -12,6 +12,7 @@ export type StoreUser = {
   clientId?: string
   email?: string
   addr?: string
+  vip?: boolean
 }
 
 const USER_KEY = 'kakapo_store_user'
@@ -87,6 +88,7 @@ export function storeUserFromClient(c: AdminClient): StoreUser {
     clientId: c.id,
     email: c.email || '',
     addr: c.addr || '',
+    vip: !!c.vip,
   }
 }
 

@@ -157,7 +157,7 @@ export function filterClientsBySegment(clients: PushClient[], segment: PushSegme
     const seg = clientSegment(c)
     switch (segment) {
       case 'vip':
-        return VIP_LEVELS.includes(c.level) || (c.debtLimit >= 2000 && c.level !== 'bronze')
+        return VIP_LEVELS.includes(c.level) || !!c.vip || (c.debtLimit >= 2000 && c.level !== 'bronze')
       case 'gold_plus':
         return GOLD_PLUS.includes(c.level)
       case 'rest':

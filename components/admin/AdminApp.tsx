@@ -3097,6 +3097,7 @@ function CardsPage() {
       debtLimit: c.debtLimit ?? prev.debtLimit,
       bonus: c.bonus ?? prev.bonus,
       debt: c.debt ?? prev.debt,
+      vip: !!c.vip,
     }));
   };
 
@@ -3365,7 +3366,12 @@ function CardsPage() {
                   <td><Badge v={s.l} c={s.c} /></td>
                   <td>
                     {c.level
-                      ? <Badge v={CARD_LEVEL_RU[c.level as ClientLevel] || c.level} c={LVC[c.level] || '#8FB897'} />
+                      ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <Badge v={CARD_LEVEL_RU[c.level as ClientLevel] || c.level} c={LVC[c.level] || '#8FB897'} />
+                          {c.vip && <Badge v="VIP" c="#FFB800" />}
+                        </div>
+                      )
                       : <span style={{ color: '#3D6645' }}>—</span>}
                   </td>
                   <td style={{ color: '#FFB800', fontWeight: 700, fontSize: 12 }}>
@@ -3420,6 +3426,7 @@ function CardsPage() {
                 { l: 'Бонусы', v: `${detail.bonus.toLocaleString()} ⭐`, c: '#FFB800' },
                 { l: 'Лимит долга', v: detail.debtLimit > 0 ? `${detail.debtLimit} ЅМ` : 'Нет', c: '#1FD760' },
                 { l: 'Долг', v: detail.debt > 0 ? `${detail.debt} ЅМ` : '—', c: detail.debt > 0 ? '#FF4545' : '#3D6645' },
+                { l: 'VIP', v: detail.vip ? '👑 Включён' : 'Выключен', c: detail.vip ? '#FFB800' : '#3D6645' },
                 { l: 'Выдана', v: detail.issued || '—', c: '#8FB897' },
               ].map(row => (
                 <div key={row.l} style={{ background: '#0C1C0F', borderRadius: 12, padding: '11px 13px', border: '1px solid #162B1A' }}>
@@ -3489,6 +3496,13 @@ function CardsPage() {
                 <div style={{ marginTop: 10 }}>
                   <NI lbl="Текущий долг ЅМ" val={String(linkForm.debt)} set={v => setLF('debt', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
+                    <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>Кредит, бесплатная доставка, привилегии</div>
+                  </div>
+                  <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
+                </div>
               </CardFormSection>
 
               {linkErr && (
@@ -3547,6 +3561,13 @@ function CardsPage() {
                 </div>
                 <div style={{ marginTop: 10 }}>
                   <NI lbl="Долг ЅМ" val={String(linkForm.debt)} set={v => setLF('debt', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
+                    <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>Включить или отключить VIP вручную</div>
+                  </div>
+                  <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
                 </div>
               </CardFormSection>
 

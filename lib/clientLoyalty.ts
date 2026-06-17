@@ -47,6 +47,7 @@ export function getLoyaltyProgress(
   orderCount: number,
   reviewCount: number,
   storedLevel?: ClientLevel,
+  adminVip?: boolean,
 ): LoyaltyProgress {
   const bySpent = suggestLevel(spent)
   let effectiveLevel = bySpent
@@ -94,6 +95,8 @@ export function getLoyaltyProgress(
     },
   ]
 
+  const autoVip = platinumOk && ordersOk && reviewsOk
+
   return {
     spent,
     level: effectiveLevel,
@@ -101,8 +104,8 @@ export function getLoyaltyProgress(
     nextTier,
     progressPct,
     remaining,
-    isVip: platinumOk && ordersOk && reviewsOk,
+    isVip: !!adminVip || autoVip,
     vipSteps,
-    vipDoneCount: vipSteps.filter(s => s.done).length,
+    vipDoneCount: adminVip ? vipSteps.length : vipSteps.filter(s => s.done).length,
   }
 }

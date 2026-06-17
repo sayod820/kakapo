@@ -492,6 +492,7 @@ function normalizeClientRow(raw) {
     bonus: Number(raw.bonus) || 0,
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
+    vip: !!raw.vip,
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
@@ -555,6 +556,7 @@ function normalizeCardRow(raw) {
     debt: Number(raw.debt) || 0,
     issued: raw.issued || new Date().toISOString().slice(0, 10),
     note: raw.note || '',
+    vip: !!raw.vip,
   }
 }
 
@@ -575,6 +577,7 @@ function syncClientFromCardRow(card) {
   client.bonus = Number(card.bonus) || 0
   client.debt = Number(card.debt) || 0
   client.debtLimit = Number(card.debtLimit) || 0
+  client.vip = !!card.vip
   client.blocked = card.status === 'blocked'
 }
 

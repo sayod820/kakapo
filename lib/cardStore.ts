@@ -57,6 +57,7 @@ function pushLoyaltyToClient(card: AdminCard) {
     bonus: card.bonus,
     debt: card.debt,
     debtLimit: card.debtLimit,
+    vip: !!card.vip,
     blocked: card.status === 'blocked',
   })
   if (card.bonus > prevBonus) {
@@ -88,6 +89,7 @@ interface CardStore {
     debtLimit: number
     bonus: number
     debt: number
+    vip?: boolean
   }) => void
   unlinkCard: (num: string) => void
   toggleBlock: (num: string) => void
@@ -142,6 +144,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
       bonus: client.bonus,
       debt: client.debt,
       debtLimit: client.debtLimit,
+      vip: !!client.vip,
     })
     useClientStore.getState().updateClient(client.id, { card: num })
   },
@@ -165,6 +168,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
       debtLimit: data.debtLimit,
       bonus: data.bonus,
       debt: data.debt,
+      vip: !!data.vip,
     })
     if (data.clientId) {
       useClientStore.getState().updateClient(data.clientId, {
@@ -173,6 +177,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
         debtLimit: data.debtLimit,
         bonus: data.bonus,
         debt: data.debt,
+        vip: !!data.vip,
       })
     }
   },
@@ -188,6 +193,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
         bonus: 0,
         debt: 0,
         debtLimit: 0,
+        vip: false,
       }) : c))
       saveCards(cards)
       return { cards }
