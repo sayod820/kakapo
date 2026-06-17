@@ -11,6 +11,7 @@ import Link from 'next/link'
 import AssemblerLoginPage from '@/components/assembler/AssemblerLoginPage'
 import { useAssemblerTeam, hydrateAssemblerTeamStore } from '@/lib/assemblerTeamStore'
 import type { AdminAssembler } from '@/lib/assemblerTeam'
+import { loadAssemblerSession, saveAssemblerSession, clearAssemblerSession, type AssemblerSession } from '@/lib/assemblerSession'
 // ─── КАКАПО Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
    КАКАПО СБОРЩИК — Приложение для сборки заказов
@@ -122,10 +123,17 @@ export default function AssemblerApp() {
 function AssemblerAppInner() {
   useApiSync('assembler');
   const assemblers = useAssemblerTeam();
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [assemblerProfile, setAssemblerProfile] = useState<AdminAssembler | null>(null);
+  const [session, setSession] = useState<AssemblerSession | null>(() => loadAssemblerSession());
   const [dismissedCancelled, setDismissedCancelled] = useState<Set<string>>(() => new Set());
-  const assemblerName = assemblerProfile?.name ?? ASSEMBLER_NAME;
+
+  const assemblerProfile = useMemo((): AdminAssembler | null => {
+    if (!session) return null;
+    const byId = assemblers.find(a => a.id === session.assemblerId);
+    const byName = assemblers.find(a => a.name === session.name);
+    return byId || byName || null;
+  }, [assemblers, session]);
+
+  const assemblerName = assemblerProfile?.name ?? session?.name ?? ASSEMBLER_NAME;
   const { page, navigate, params } = useAppNavigation('dashboard');
   const setPage = (p: string) => navigate(p);
   const apiOrders = useOrders(s => s.orders);
@@ -225,18 +233,23 @@ function AssemblerAppInner() {
   }).length, [apiOrders]);
 
   const logout = () => {
-    setLoggedIn(false);
-    setAssemblerProfile(null);
+    clearAssemblerSession();
+    setSession(null);
     navigate('dashboard');
   };
 
-  if (!loggedIn) {
+  if (!session || !assemblerProfile || assemblerProfile.blocked) {
+    if (session && assemblerProfile?.blocked) clearAssemblerSession();
     return (
       <>
         <style>{CSS}</style>
         <AssemblerLoginPage
           assemblers={assemblers}
-          onSuccess={a => { setAssemblerProfile(a); setLoggedIn(true); }}
+          onSuccess={a => {
+            const next = { assemblerId: a.id, name: a.name };
+            saveAssemblerSession(next);
+            setSession(next);
+          }}
         />
       </>
     );
