@@ -4,9 +4,6 @@ import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler } from '@/lib/orderUiMap'
 import { getMarketStatus, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { ASSEMBLER_NAME } from '@/lib/courierStats'
-import { useAssemblerTeam } from '@/lib/assemblerTeamStore'
-import PhoneOtpLogin from '@/components/shared/PhoneOtpLogin'
-import { loadStaffSession, clearStaffSession, type StaffSession } from '@/lib/appAuth'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import { useApiSync } from '@/lib/useApiSync'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -101,14 +98,8 @@ export default function AssemblerApp() {
 
 function AssemblerAppInner() {
   useApiSync('assembler');
-  const assemblers = useAssemblerTeam();
-  const [session, setSession] = useState<StaffSession | null>(() => loadStaffSession('assembler'));
-  const assemblerName = session?.name || ASSEMBLER_NAME;
-
-  const logout = () => {
-    clearStaffSession('assembler');
-    setSession(null);
-  };
+  const [loggedIn, setLoggedIn] = useState(false);
+  const assemblerName = ASSEMBLER_NAME;
   const { page, navigate, params } = useAppNavigation('dashboard');
   const setPage = (p: string) => navigate(p);
   const apiOrders = useOrders(s => s.orders);
@@ -174,21 +165,11 @@ function AssemblerAppInner() {
     return order.type === 'market' && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
   }).length, [apiOrders]);
 
-  if (!session) {
+  if (!loggedIn) {
     return (
       <>
         <style>{CSS}</style>
-        <PhoneOtpLogin
-          appTitle="Сборщик KAKAPO"
-          appSubtitle="Вход по номеру телефона · SMS-код"
-          icon="📦"
-          accent="#9B6DFF"
-          gradient="linear-gradient(135deg,#6B3FD4,#9B6DFF)"
-          role="assembler"
-          demoLists={{ assemblers }}
-          demoPhoneHint="+992 93 500 11 22 · Камола"
-          onSuccess={setSession}
-        />
+        <LoginPage onLogin={() => setLoggedIn(true)} />
       </>
     );
   }
@@ -217,11 +198,55 @@ function AssemblerAppInner() {
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
-        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage} assemblerName={assemblerName} onLogout={logout}/>}
+        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage}/>}
         {page==='history'   && <HistoryPage onPage={setPage}/>}
         {page==='stats'     && <StatsPage   onPage={setPage} completed={completedCount}/>}
       </div>
     </>
+  );
+}
+
+function LoginPage({ onLogin }: { onLogin: () => void }) {
+  const [pin, setPin] = useState(['', '', '', '']);
+  const [load, setLoad] = useState(false);
+  const [err, setErr] = useState('');
+
+  const verify = () => {
+    const code = pin.join('');
+    if (code.length < 4) return;
+    setLoad(true);
+    setTimeout(() => {
+      setLoad(false);
+      if (code === ASSEMBLER.pin) onLogin();
+      else { setErr('Неверный PIN · Демо: 5678'); setPin(['', '', '', '']); }
+    }, 700);
+  };
+
+  return (
+    <div style={{ minHeight:'100vh', background:'#030B05', maxWidth:480, margin:'0 auto', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div style={{ textAlign:'center', marginBottom:28 }}>
+        <div style={{ fontSize:52, marginBottom:14 }}>📦</div>
+        <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#9B6DFF', marginBottom:4 }}>Сборщик KAKAPO</div>
+        <div style={{ fontSize:12, color:'#8FB897' }}>Введите PIN код</div>
+      </div>
+      <div style={{ width:'100%', maxWidth:340, background:'#091508', border:'1px solid #162B1A', borderRadius:20, padding:24 }}>
+        {err && <div style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'#FF4545', marginBottom:14 }}>⚠️ {err}</div>}
+        <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:14 }}>
+          {pin.map((v, i) => (
+            <input key={i} value={v} type="password" maxLength={1} inputMode="numeric"
+              onChange={e => { const d = [...pin]; d[i] = e.target.value.replace(/\D/, '').slice(-1); setPin(d); }}
+              style={{ width:52, height:60, borderRadius:14, border:`2px solid ${v ? 'rgba(155,109,255,.5)' : '#162B1A'}`, background:v ? 'rgba(155,109,255,.08)' : '#0C1C0F', textAlign:'center', fontFamily:'Unbounded', fontSize:24, fontWeight:900, color:'#EBF5ED', outline:'none' }} />
+          ))}
+        </div>
+        <div style={{ padding:'9px 12px', borderRadius:9, background:'rgba(155,109,255,.06)', border:'1px solid rgba(155,109,255,.2)', fontSize:11, color:'#8FB897', marginBottom:14, textAlign:'center' }}>
+          💡 Демо PIN: <span style={{ color:'#9B6DFF', fontWeight:700 }}>5 6 7 8</span>
+        </div>
+        <button type="button" onClick={verify} disabled={load || pin.join('').length < 4} className="btn"
+          style={{ width:'100%', padding:14, borderRadius:14, background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)', border:'none', color:'white', fontWeight:800, fontSize:15, opacity:pin.join('').length < 4 ? 0.5 : 1 }}>
+          {load ? '…' : '📦 Войти'}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -276,7 +301,7 @@ function BottomNav({page, onPage, newCount}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({orders, completed, onStart, onPage, assemblerName = ASSEMBLER.name, onLogout}) {
+function DashboardPage({orders, completed, onStart, onPage}) {
   const newQueue = orders.filter(o => o.queue === 'new');
   const inProgress = orders.filter(o => o.queue !== 'new');
   const urgentNew = newQueue.filter(o => o.priority === 'urgent');
@@ -374,16 +399,11 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName = ASSE
 
   return (
     <div style={{minHeight:'100vh',paddingBottom:90}}>
-      <Header title="Сборщик" sub={`${assemblerName} · ${orders.length} заказов`}
+      <Header title="Сборщик" sub={`${ASSEMBLER.name} · ${orders.length} заказов`}
         right={
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:10,background:'rgba(155,109,255,.1)',border:'1px solid rgba(155,109,255,.25)'}}>
-              <div style={{width:6,height:6,borderRadius:'50%',background:'#9B6DFF',animation:'pulse 2s infinite'}}/>
-              <span style={{fontSize:11,fontWeight:700,color:'#9B6DFF'}}>Онлайн</span>
-            </div>
-            {onLogout && (
-              <button type="button" onClick={onLogout} className="btn" title="Выйти" style={{width:34,height:34,borderRadius:10,border:'1.5px solid rgba(255,69,69,.35)',background:'rgba(255,69,69,.1)',color:'#FF6969',fontSize:13}}>⎋</button>
-            )}
+          <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:10,background:'rgba(155,109,255,.1)',border:'1px solid rgba(155,109,255,.25)'}}>
+            <div style={{width:6,height:6,borderRadius:'50%',background:'#9B6DFF',animation:'pulse 2s infinite'}}/>
+            <span style={{fontSize:11,fontWeight:700,color:'#9B6DFF'}}>Онлайн</span>
           </div>
         }
       />

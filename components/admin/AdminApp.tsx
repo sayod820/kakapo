@@ -1,13 +1,11 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import { useOrders, useProducts, useRestaurants, useAuth, USE_API } from '@/lib/store'
+import { useOrders, useProducts, useRestaurants, USE_API } from '@/lib/store'
 import { mapOrdersForAdmin, ADMIN_STATUS_OPTIONS, adminStatusLabel, buildAdminStatusPatch, COURIER_ASSIGNED_STATUSES } from '@/lib/orderUiMap'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
-import AdminLoginPage from '@/components/shared/AdminLoginPage'
-import { isAdminLoggedIn, setAdminLoggedIn, loadAdminCredentials, saveAdminCredentials, DEFAULT_ADMIN } from '@/lib/appAuth'
 import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
 import { usePricingStore, usePickupStore, hydrateCourierStores, syncCourierStoresFromApi } from '@/lib/courierStore'
 import { useCourierTeamStore, useCourierTeam, syncCourierTeamFromApi } from '@/lib/courierTeamStore'
@@ -295,7 +293,7 @@ const NAV_GROUPS = [
   {g:'Система',   items:[{id:'settings',icon:'⚙️',l:'Настройки'}]},
 ];
 
-function Layout({page,setPage,children,title,subtitle,onLogout}) {
+function Layout({page,setPage,children,title,subtitle}) {
   const apiOrders = useOrders(s => s.orders);
   const orders = useMemo(
     () => (USE_API ? mapOrdersForAdmin(apiOrders) : ALL_ORDERS),
@@ -324,17 +322,10 @@ function Layout({page,setPage,children,title,subtitle,onLogout}) {
             </div>
           ))}
         </nav>
-        <div style={{padding:'10px 14px 16px',borderTop:'1px solid #162B1A',flexShrink:0}}>
-          {onLogout && (
-            <button type="button" onClick={onLogout} className="btn" style={{width:'100%',padding:'9px 11px',borderRadius:10,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.25)',color:'#FF4545',fontSize:12,fontWeight:700,marginBottom:10,cursor:'pointer'}}>
-              🚪 Выйти
-            </button>
-          )}
-          <div style={{fontSize:9,color:'#3D6645',lineHeight:1.6}}>
-            KAKAPO v2.0<br/>
-            🛒 Магазин · 🍽 Рестораны<br/>
-            🛵 Курьеры · 🛒 Сборщики
-          </div>
+        <div style={{padding:'10px 14px 16px',borderTop:'1px solid #162B1A',fontSize:9,color:'#3D6645',flexShrink:0,lineHeight:1.6}}>
+          KAKAPO v2.0<br/>
+          🛒 Магазин · 🍽 Рестораны<br/>
+          🛵 Курьеры · 🛒 Сборщики
         </div>
       </aside>
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
@@ -4883,10 +4874,6 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
   const [smsP, setSmsP] = useState('smspro')
   const [smsKey, setSmsKey] = useState('')
   const [storeInfo, setStoreInfo] = useState(DEFAULT_STORE_INFO)
-  const [ownerEmail, setOwnerEmail] = useState(DEFAULT_ADMIN.email)
-  const [ownerName, setOwnerName] = useState(DEFAULT_ADMIN.name)
-  const [ownerPass, setOwnerPass] = useState('')
-  const [ownerPass2, setOwnerPass2] = useState('')
   const [saved, setSaved] = useState(false)
   const [saveErr, setSaveErr] = useState('')
 
@@ -4909,45 +4896,16 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
       }
       const store = localStorage.getItem('kakapo_admin_store')
       if (store) setStoreInfo({ ...DEFAULT_STORE_INFO, ...JSON.parse(store) })
-      const creds = loadAdminCredentials()
-      setOwnerEmail(creds.email)
-      setOwnerName(creds.name)
-      if (USE_API) {
-        api.getAdminSettings().then(s => {
-          setOwnerEmail(s.email)
-          setOwnerName(s.name)
-        }).catch(() => {})
-      }
     } catch { /* private mode */ }
   }, [])
 
   const saveAll = async () => {
-    if (ownerPass && ownerPass !== ownerPass2) {
-      setSaveErr('Пароли владельца не совпадают')
-      return
-    }
     try {
-      const prevCreds = loadAdminCredentials()
-      const creds = {
-        email: ownerEmail.trim().toLowerCase(),
-        name: ownerName.trim() || 'Владелец KAKAPO',
-        password: ownerPass || prevCreds.password,
-      }
-      saveAdminCredentials(creds)
-      if (USE_API) {
-        await api.updateAdminSettings({
-          email: creds.email,
-          name: creds.name,
-          ...(ownerPass ? { password: ownerPass } : {}),
-        })
-      }
       localStorage.setItem('kakapo_admin_gbs', JSON.stringify({
         enabled: gbsOn, ip: gbsIP, port: gbsPort, user: gbsUser, pass: gbsPass,
       }))
       localStorage.setItem('kakapo_admin_sms', JSON.stringify({ provider: smsP, apiKey: smsKey }))
       localStorage.setItem('kakapo_admin_store', JSON.stringify(storeInfo))
-      setOwnerPass('')
-      setOwnerPass2('')
       setSaveErr('')
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -4971,7 +4929,6 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
   }
 
   const STABS = [
-    { id: 'owner', l: '🔐 Владелец' },
     { id: 'gbs', l: '🔗 GBS Market' },
     { id: 'sms', l: '💬 SMS / OTP' },
     { id: 'store', l: '🏪 Контакты' },
@@ -5014,21 +4971,6 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
       {saveErr && (
         <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', fontSize: 12, color: '#FF4545' }}>
           {saveErr}
-        </div>
-      )}
-
-      {stab === 'owner' && (
-        <div className="ac" style={{ padding: 20, maxWidth: 520 }}>
-          <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>Вход владельца (Admin)</div>
-          <div style={{ fontSize: 11, color: '#3D6645', marginBottom: 16 }}>
-            Логин и пароль для входа в админ-панель. Курьеры, рестораны и сборщики входят только по номеру телефона.
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <NI lbl="Email (логин)" val={ownerEmail} set={setOwnerEmail} ph="admin@kakapo.tj" />
-            <NI lbl="Имя владельца" val={ownerName} set={setOwnerName} ph="Владелец KAKAPO" />
-            <NI lbl="Новый пароль" val={ownerPass} set={setOwnerPass} type="password" ph="Оставьте пустым, чтобы не менять" />
-            <NI lbl="Повтор пароля" val={ownerPass2} set={setOwnerPass2} type="password" ph="••••••••" />
-          </div>
         </div>
       )}
 
@@ -5954,8 +5896,6 @@ export default function AdminApp() {
 
 function AdminAppInner() {
   useApiSync('all');
-  const authLogout = useAuth(s => s.logout);
-  const [adminLoggedIn, setAdminLoggedInState] = useState(() => isAdminLoggedIn());
   const { page, setPage } = useAppNavigation('dashboard');
   useEffect(() => {
     hydrateCourierStores();
@@ -5972,22 +5912,9 @@ function AdminAppInner() {
     useProductPhotos.getState().hydrate();
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'Владелец · GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
-  const handleAdminLogout = () => {
-    setAdminLoggedIn(false);
-    authLogout();
-    setAdminLoggedInState(false);
-  };
-  if (!adminLoggedIn) {
-    return (
-      <>
-        <style>{CSS}</style>
-        <AdminLoginPage onSuccess={() => setAdminLoggedInState(true)} />
-      </>
-    );
-  }
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты KAKAPO-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
-    <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} onLogout={handleAdminLogout}>
+    <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
       {page==='orders'     && <OrdersPage/>}
       {page==='products'   && <ProductsPage/>}

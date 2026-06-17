@@ -14,7 +14,6 @@ import {
   normalizeOrder,
   normalizeOrders,
 } from './orderParts'
-import { verifyAdminLocal, loadAdminCredentials } from './appAuth'
 import { ASSEMBLER_NAME } from './courierStats'
 import { onOrderStatusChange, onRestPartAccepted } from './pushService'
 
@@ -705,8 +704,8 @@ interface AuthStore {
   email: string
   hydrated: boolean
   hydrate: () => void
-  sendOTP: (phone: string, role = 'client') => Promise<boolean>
-  verifyOTP: (phone: string, code: string, role?: string) => Promise<boolean>
+  sendOTP: (phone: string) => Promise<boolean>
+  verifyOTP: (phone: string, code: string) => Promise<boolean>
   login: (email: string, password: string) => Promise<boolean>
   logout: () => void
 }
@@ -720,18 +719,18 @@ export const useAuth = create<AuthStore>((set) => ({
     else set({ hydrated: true })
   },
 
-  sendOTP: async (phone, role = 'client') => {
+  sendOTP: async (phone) => {
     if (!USE_API) return true
-    try { await api.sendOTP(phone, role); return true } catch { return false }
+    try { await api.sendOTP(phone); return true } catch { return false }
   },
 
-  verifyOTP: async (phone, code, role = 'client') => {
+  verifyOTP: async (phone, code) => {
     if (!USE_API) {
-      if (code === '1234') { set({ role: role || 'client', name: 'Демо' }); return true }
+      if (code === '1234') { set({ role: 'client', name: 'Демо' }); return true }
       return false
     }
     try {
-      const r = await api.verifyOTP(phone, code, role)
+      const r = await api.verifyOTP(phone, code)
       setToken(r.access_token)
       set({ token: r.access_token, role: r.role, userId: Number(r.user_id) || null, name: r.name })
       return true
@@ -739,15 +738,9 @@ export const useAuth = create<AuthStore>((set) => ({
   },
 
   login: async (email, password) => {
-    if (!USE_API) {
-      if (verifyAdminLocal(email, password)) {
-        set({ role: 'admin', name: loadAdminCredentials().name, email }); return true
-      }
-      return false
-    }
+    if (!USE_API) return false
     try {
       const r = await api.login(email, password)
-      if (r.role !== 'admin') return false
       setToken(r.access_token)
       set({ token: r.access_token, role: r.role, userId: r.user_id, name: r.name, email })
       return true

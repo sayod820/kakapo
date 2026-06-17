@@ -23,8 +23,6 @@ import {
 } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
-import PhoneOtpLogin from '@/components/shared/PhoneOtpLogin'
-import { loadStaffSession, clearStaffSession } from '@/lib/appAuth'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import type { PickupPoint } from '@/lib/pickups'
 
@@ -523,18 +521,12 @@ function CourierAppInner() {
   const { page: tab, navigate: setTab } = useAppNavigation('orders');
   const TARIFF = useTariff();
   const couriers = useCourierTeam();
-  const [session, setSession] = useState(() => loadStaffSession('courier'));
-
-  const logout = () => {
-    clearStaffSession('courier');
-    setSession(null);
-  };
-  const activePhone = session?.phone || COURIER_PHONE;
+  const activePhone = COURIER_PHONE;
   const courierProfile = useMemo(
     () => resolveCourierProfile(couriers, activePhone),
     [couriers, activePhone],
   );
-  const courierDisplayName = session?.name || courierProfile?.name || COURIER_NAME;
+  const courierDisplayName = courierProfile?.name || COURIER_NAME;
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
   const markPickupDone = useOrders(s => s.markPickupDone);
@@ -604,7 +596,7 @@ function CourierAppInner() {
     const extra = myActiveOrders.filter(o => !MAP_ORDERS.some(m => m.id === o.id))
     return extra.length ? [...MAP_ORDERS, ...extra] : MAP_ORDERS
   }, [MAP_ORDERS, myActiveOrders]);
-  const { roadKm, loading: kmLoading } = useOrderRoadKm(ordersForRoadKm, !!session);
+  const { roadKm, loading: kmLoading } = useOrderRoadKm(ordersForRoadKm, true);
   const courierStats = useMemo(
     () => buildCourierStats(apiOrders, roadKm, TARIFF),
     [apiOrders, roadKm, TARIFF],
@@ -775,25 +767,6 @@ function CourierAppInner() {
     o.pickupIds.length > 0,
   );
 
-  if (!session) {
-    return (
-      <>
-        <style>{CSS}</style>
-        <PhoneOtpLogin
-          appTitle="Курьер KAKAPO"
-          appSubtitle="Вход по номеру телефона · SMS-код"
-          icon="🛵"
-          accent="#3B8EF0"
-          gradient="linear-gradient(135deg,#1E5BB5,#3B8EF0)"
-          role="courier"
-          demoLists={{ couriers }}
-          demoPhoneHint="+992 93 111 22 33 · Фирдавс"
-          onSuccess={setSession}
-        />
-      </>
-    );
-  }
-
   return (
     <>
       <style>{CSS}</style>
@@ -819,15 +792,6 @@ function CourierAppInner() {
             <div style={{ fontSize:9, color:'#3D6645' }}>Сегодня</div>
             <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>
         </div>
-          <button
-            type="button"
-            onClick={logout}
-            title="Выйти"
-            className="btn"
-            style={{ width:36, height:36, borderRadius:10, flexShrink:0, border:'1.5px solid rgba(255,69,69,.35)', background:'rgba(255,69,69,.1)', color:'#FF6969', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}
-          >
-            ⎋
-          </button>
           <button
             type="button"
             onClick={locationEnabled ? disableLocation : enableLocation}

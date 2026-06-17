@@ -7,8 +7,6 @@ import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichRestaurants } from '@/lib/enrichCatalog'
-import PhoneOtpLogin from '@/components/shared/PhoneOtpLogin'
-import { loadStaffSession, clearStaffSession, phonesMatch, type StaffSession } from '@/lib/appAuth'
 import { api } from '@/lib/api'
 import type { Review } from '@/lib/types'
 import Link from 'next/link'
@@ -118,8 +116,6 @@ function RestaurantAppInner() {
   const apiRests = useRestaurants(s => s.restaurants);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
-  const [session, setSession] = useState<StaffSession | null>(() => loadStaffSession('restaurant'));
-  const [partner, setPartner] = useState<{ name: string; phone: string } | null>(null);
   const [rest, setRest] = useState<(typeof DEMO_RESTAURANTS)[0] | null>(null);
   const [menu, setMenu] = useState<(typeof DEMO_RESTAURANTS)[0]['menu']>([]);
   const orders = useMemo(
@@ -150,33 +146,35 @@ function RestaurantAppInner() {
   }, [rest?.id, toggleOpenApi, isOpen]);
 
   useEffect(() => {
-    if (!session) {
-      setRest(null);
-      setPartner(null);
-      return;
-    }
-    const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
-    const found = session.restaurantId
-      ? enriched.find(r => r.id === session.restaurantId)
-      : enriched.find(r => phonesMatch(String(r.phone || ''), session.phone));
-    if (found) {
-      setRest(found);
-      setMenu(found.menu);
-      setPartner({ name: found.name, phone: session.phone });
-      setPage('dashboard');
-    }
-  }, [session, apiRests, setPage]);
-
-  useEffect(() => {
-    if (USE_API && apiRests.length && partner?.phone) {
+    if (USE_API && apiRests.length && rest?.id) {
       const enriched = enrichRestaurants(apiRests, DEMO_RESTAURANTS);
-      const found = enriched.find(r => phonesMatch(String(r.phone || ''), partner.phone));
+      const found = enriched.find(r => r.id === rest.id);
       if (found) {
         setRest(found);
         setMenu(found.menu);
       }
     }
-  }, [apiRests, partner?.phone]);
+  }, [apiRests, rest?.id]);
+
+  const onLogin = (email: string, pass: string) => {
+    const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
+    const found = enriched.find(r =>
+      String(r.email || '').toLowerCase() === email.toLowerCase().trim()
+      && (r.pass === pass || (r as { pass?: string }).pass === pass)
+    ) || DEMO_RESTAURANTS.find(r =>
+      r.email.toLowerCase() === email.toLowerCase().trim() && r.pass === pass
+    );
+    if (!found) return false;
+    setRest(found);
+    setMenu(found.menu);
+    setPage('dashboard');
+    return true;
+  };
+
+  const logout = () => {
+    setRest(null);
+    setMenu([]);
+  };
 
   const loadReviews = useCallback(async () => {
     if (!rest?.id || !USE_API) return;
@@ -219,18 +217,6 @@ function RestaurantAppInner() {
     const current = orders.find(o => o.id === alertOrder.id);
     if (!current || current.status !== 'new') setAlertOrder(null);
   }, [orders, alertOrder]);
-
-  const bindRestaurantsForLogin = useMemo(() => {
-    const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
-    return enriched.map(r => ({ id: r.id, name: r.name, phone: String(r.phone || ''), otp: '1234' }));
-  }, [apiRests]);
-
-  const logout = () => {
-    clearStaffSession('restaurant');
-    setSession(null);
-    setPartner(null);
-    setRest(null);
-  };
 
   const updateOrderStatus = async (id, status) => {
     const raw = apiOrders.find(o => o.id === id);
@@ -277,26 +263,14 @@ function RestaurantAppInner() {
     setAlertOrder(next || null);
   };
 
-  if (!session) {
+  if (!rest) {
     return (
       <>
         <style>{CSS}</style>
-        <PhoneOtpLogin
-          appTitle="KAKAPO Ресторан"
-          appSubtitle="Кабинет партнёра · вход по номеру телефона"
-          icon="🍽"
-          accent="#1FD760"
-          gradient="linear-gradient(135deg,#17B34E,#1FD760)"
-          role="restaurant"
-          demoLists={{ restaurants: bindRestaurantsForLogin }}
-          demoPhoneHint="+992 93 111 22 33 · Чайхона"
-          onSuccess={setSession}
-        />
+        <LoginPage onLogin={onLogin} />
       </>
     );
   }
-
-  if (!rest) return null;
 
   return (
     <>
@@ -358,6 +332,62 @@ function RestaurantAppInner() {
         {page==='reviews'   && <ReviewsPage   rest={rest} reviews={reviews} reviewBadge={unseenReviews} onRefresh={loadReviews} onPage={setPage} onMarkSeen={async (id) => { if (USE_API) await api.updateReview(id, { restSeen: true }); setReviews(rs => rs.map(r => r.id === id ? { ...r, restSeen: true } : r)); }}/>}
         {page==='stats'     && <StatsPage     rest={rest} orders={orders} reviewBadge={unseenReviews} onPage={setPage}/>}
         {page==='settings'  && <SettingsPage  rest={rest} isOpen={isOpen} reviewBadge={unseenReviews} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout}/>}
+      </div>
+    </>
+  );
+}
+
+/* ══════════════════════════════════════════════════════
+   LOGIN
+══════════════════════════════════════════════════════ */
+function LoginPage({onLogin}) {
+  const [email, setEmail] = useState('');
+  const [pass,  setPass]  = useState('');
+  const [err,   setErr]   = useState('');
+  const [load,  setLoad]  = useState(false);
+
+  const submit = (e) => {
+    e.preventDefault(); setErr('');
+    if(!email||!pass){setErr('Заполните все поля');return;}
+    setLoad(true);
+    setTimeout(() => {
+      const ok = onLogin(email, pass);
+      if(!ok){setErr('Неверный email или пароль');}
+      setLoad(false);
+    },900);
+  };
+
+  return (
+    <>
+      <style>{CSS}</style>
+      <div style={{minHeight:'100vh',background:'#030B05',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24,maxWidth:480,margin:'0 auto'}}>
+        <div style={{textAlign:'center',marginBottom:32}}>
+          <div style={{width:72,height:72,borderRadius:22,background:'linear-gradient(135deg,#0F3020,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:36,margin:'0 auto 14px',animation:'glow 3s ease-in-out infinite',boxShadow:'0 8px 28px rgba(31,215,96,.4)'}}>🍽</div>
+          <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,background:'linear-gradient(135deg,#1FD760,#FFB800)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text',marginBottom:4}}>KAKAPO Ресторан</div>
+          <div style={{fontSize:12,color:'#8FB897'}}>Кабинет партнёра · г. Яван</div>
+        </div>
+
+        <div style={{width:'100%',maxWidth:380,background:'#091508',border:'1px solid #162B1A',borderRadius:22,padding:26}}>
+          <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:800,marginBottom:18}}>Войти в кабинет</div>
+          {err&&<div style={{padding:'10px 13px',borderRadius:11,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545',marginBottom:14}}>⚠️ {err}</div>}
+          <form onSubmit={submit} style={{display:'flex',flexDirection:'column',gap:13}}>
+            <div>
+              <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Email</div>
+              <input className="inp" value={email} onChange={e=>{setEmail(e.target.value);setErr('');}} type="email" placeholder="your@restaurant.tj" autoComplete="email"/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Пароль</div>
+              <input className="inp" value={pass} onChange={e=>{setPass(e.target.value);setErr('');}} type="password" placeholder="••••••••" autoComplete="current-password"/>
+            </div>
+            <div style={{padding:'10px 13px',borderRadius:10,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',fontSize:12,color:'#8FB897'}}>
+              💡 <span style={{color:'#FFB800',fontWeight:700}}>chaihona@kakapo.tj</span> / <span style={{color:'#FFB800',fontWeight:700}}>rest123</span>
+            </div>
+            <button type="submit" className="btn" style={{padding:14,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+              {load?<div style={{width:20,height:20,borderRadius:'50%',border:'2.5px solid rgba(3,11,5,.3)',borderTopColor:'#030B05',animation:'spin 1s linear infinite'}}/>:'🔑 Войти'}
+            </button>
+          </form>
+        </div>
+        <div style={{marginTop:20,fontSize:11,color:'#3D6645',textAlign:'center'}}>KAKAPO Restaurant v1.0 · Только для партнёров</div>
       </div>
     </>
   );
