@@ -277,7 +277,37 @@ function RestaurantAppInner() {
   };
 
   const removeDish = (id) => {
-    setMenu(m => m.filter(dish => dish.id!==id));
+    setMenu(m => m.filter(dish => dish.id !== id));
+  };
+
+  const addCategory = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || !rest) return false;
+    if (rest.categories.includes(trimmed)) return false;
+    setRest(r => r ? { ...r, categories: [...r.categories, trimmed] } : r);
+    return true;
+  };
+
+  const renameCategory = (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || !rest || trimmed === oldName) return false;
+    if (rest.categories.includes(trimmed)) return false;
+    setRest(r => r ? { ...r, categories: r.categories.map(c => c === oldName ? trimmed : c) } : r);
+    setMenu(m => m.map(d => d.cat === oldName ? { ...d, cat: trimmed } : d));
+    return true;
+  };
+
+  const removeCategory = (name: string) => {
+    if (!rest || rest.categories.length <= 1) return false;
+    const count = menu.filter(m => m.cat === name).length;
+    if (count > 0) {
+      const ok = window.confirm(`В разделе «${name}» ${count} блюд.\n\nУдалить раздел? Блюда перейдут в «${rest.categories.find(c => c !== name)}».`);
+      if (!ok) return false;
+      const fallback = rest.categories.find(c => c !== name)!;
+      setMenu(m => m.map(d => d.cat === name ? { ...d, cat: fallback } : d));
+    }
+    setRest(r => r ? { ...r, categories: r.categories.filter(c => c !== name) } : r);
+    return true;
   };
 
   const acceptAlertOrder = async () => {
@@ -360,7 +390,7 @@ function RestaurantAppInner() {
 
         {page==='dashboard' && <DashboardPage rest={rest} orders={orders} reviews={reviews} unseenReviews={unseenReviews} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout} hasAlert={!!alertOrder}/>}
         {page==='orders'    && <OrdersPage    rest={rest} orders={orders} reviewBadge={unseenReviews} onUpdate={updateOrderStatus} onPage={setPage}/>}
-        {page==='menu'      && <MenuPage      rest={rest} menu={menu} reviewBadge={unseenReviews} onToggle={toggleDish} onAdd={addDish} onRemove={removeDish} onPage={setPage}/>}
+        {page==='menu'      && <MenuPage rest={rest} menu={menu} reviewBadge={unseenReviews} onToggle={toggleDish} onAdd={addDish} onRemove={removeDish} onAddCategory={addCategory} onRenameCategory={renameCategory} onRemoveCategory={removeCategory} onPage={setPage}/>}
         {page==='reviews'   && <ReviewsPage   rest={rest} reviews={reviews} reviewBadge={unseenReviews} onRefresh={loadReviews} onPage={setPage} onMarkSeen={async (id) => { if (USE_API) await api.updateReview(id, { restSeen: true }); setReviews(rs => rs.map(r => r.id === id ? { ...r, restSeen: true } : r)); }}/>}
         {page==='stats'     && <StatsPage     rest={rest} orders={orders} reviewBadge={unseenReviews} onPage={setPage}/>}
         {page==='settings'  && <SettingsPage  rest={rest} isOpen={isOpen} reviewBadge={unseenReviews} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout}/>}
@@ -661,9 +691,19 @@ function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
 ══════════════════════════════════════════════════════ */
 const FOOD_EMOJIS = ['🍖', '🍚', '🥩', '🍗', '🥗', '🍲', '🍜', '🍵', '🥟', '🍕', '🍔', '🍝', '🥤', '🌯', '🍣', '🥘', '🧁', '☕', '🍰', '🥙', '🍽', '🥛', '🧃', '🍺']
 
-function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 0}) {
+const CATEGORY_SUGGESTIONS = [
+  'Горячее', 'Холодные', 'Шашлык', 'Салаты', 'Супы', 'Закуски', 'Гарниры',
+  'Пицца', 'Бургеры', 'Паста', 'Роллы', 'Десерты', 'Напитки', 'Кофе', 'Чай', 'Алкоголь', 'Соусы', 'Детское меню',
+]
+
+function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenameCategory, onRemoveCategory, onPage, reviewBadge = 0}) {
   const [activeCat, setActiveCat] = useState(rest?.categories[0] || '')
   const [showAdd, setShowAdd] = useState(false)
+  const [showAddCat, setShowAddCat] = useState(false)
+  const [showRenameCat, setShowRenameCat] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [renameCatName, setRenameCatName] = useState('')
+  const [catErr, setCatErr] = useState('')
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
   const [desc, setDesc] = useState('')
@@ -677,6 +717,13 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 
   const stopCount = menu.filter(m => !m.inStock).length
   const priceNum = Number(price)
   const canSave = name.trim().length > 0 && priceNum > 0
+  const categories = rest?.categories || []
+  const availableSuggestions = CATEGORY_SUGGESTIONS.filter(s => !categories.includes(s))
+
+  useEffect(() => {
+    if (!categories.length) return
+    if (!categories.includes(activeCat)) setActiveCat(categories[0])
+  }, [categories, activeCat])
 
   const resetForm = (category = activeCat) => {
     setName('')
@@ -692,6 +739,47 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 
   const openAddForm = (category = activeCat) => {
     resetForm(category)
     setShowAdd(true)
+  }
+
+  const openAddCategory = () => {
+    setNewCatName('')
+    setCatErr('')
+    setShowAddCat(true)
+  }
+
+  const saveNewCategory = (name?: string) => {
+    const value = (name ?? newCatName).trim()
+    if (!value) { setCatErr('Введите название раздела'); return }
+    if (categories.includes(value)) { setCatErr('Такой раздел уже есть'); return }
+    const ok = onAddCategory(value)
+    if (!ok) { setCatErr('Не удалось добавить раздел'); return }
+    setActiveCat(value)
+    setShowAddCat(false)
+    setNewCatName('')
+    setCatErr('')
+  }
+
+  const openRenameCategory = () => {
+    setRenameCatName(activeCat)
+    setCatErr('')
+    setShowRenameCat(true)
+  }
+
+  const saveRenameCategory = () => {
+    const value = renameCatName.trim()
+    if (!value) { setCatErr('Введите название'); return }
+    if (value !== activeCat && categories.includes(value)) { setCatErr('Такой раздел уже есть'); return }
+    const ok = onRenameCategory(activeCat, value)
+    if (!ok) { setCatErr('Не удалось переименовать'); return }
+    setActiveCat(value)
+    setShowRenameCat(false)
+    setCatErr('')
+  }
+
+  const handleRemoveCategory = () => {
+    if (categories.length <= 1) return
+    const ok = onRemoveCategory(activeCat)
+    if (ok) setActiveCat(categories.find(c => c !== activeCat) || categories[0])
   }
 
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -728,21 +816,45 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 
       )}
 
       <div style={{padding:'14px 18px 0'}}>
-        <div className="hscroll" style={{gap:6,marginBottom:14}}>
-          {(rest?.categories || []).map(c => {
+        <div style={{fontSize:10,color:'#3D6645',marginBottom:8,fontWeight:800,letterSpacing:.5,textTransform:'uppercase'}}>
+          Разделы меню
+        </div>
+        <div className="hscroll" style={{gap:6,marginBottom:10,paddingBottom:2}}>
+          {categories.map(c => {
             const count = menu.filter(m => m.cat === c).length
             return (
               <button key={c} onClick={() => setActiveCat(c)} className="btn"
                 style={{
                   padding:'8px 15px',borderRadius:50,fontSize:12,fontWeight:700,
-                  border:`1.5px solid ${activeCat === c ? 'rgba(31,215,96,.38)' : '#162B1A'}`,
-                  background:activeCat === c ? 'rgba(31,215,96,.12)' : '#0C1C0F',
+                  border:`1.5px solid ${activeCat === c ? 'rgba(31,215,96,.45)' : '#162B1A'}`,
+                  background:activeCat === c ? 'rgba(31,215,96,.14)' : '#0C1C0F',
                   color:activeCat === c ? '#1FD760' : '#8FB897',whiteSpace:'nowrap',fontFamily:'Nunito',
+                  boxShadow:activeCat === c ? '0 4px 14px rgba(31,215,96,.15)' : 'none',
                 }}>
                 {c} ({count})
               </button>
             )
           })}
+          <button type="button" onClick={openAddCategory} className="btn"
+            style={{
+              padding:'8px 14px',borderRadius:50,fontSize:12,fontWeight:800,whiteSpace:'nowrap',
+              border:'1.5px dashed rgba(31,215,96,.45)',background:'rgba(31,215,96,.06)',color:'#1FD760',
+              fontFamily:'Nunito',flexShrink:0,
+            }}>
+            + Раздел
+          </button>
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:14}}>
+          <button type="button" onClick={openRenameCategory} className="btn"
+            style={{padding:'6px 12px',borderRadius:10,fontSize:11,fontWeight:700,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897'}}>
+            ✏️ Переименовать
+          </button>
+          {categories.length > 1 && (
+            <button type="button" onClick={handleRemoveCategory} className="btn"
+              style={{padding:'6px 12px',borderRadius:10,fontSize:11,fontWeight:700,background:'rgba(255,69,69,.06)',border:'1px solid rgba(255,69,69,.25)',color:'#FF6969'}}>
+              🗑 Удалить раздел
+            </button>
+          )}
         </div>
       </div>
 
@@ -905,7 +1017,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 
               <div style={{marginBottom:16}}>
                 <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Раздел меню *</div>
                 <div className="hscroll" style={{gap:6}}>
-                  {(rest?.categories || []).map(c => (
+                  {categories.map(c => (
                     <button key={c} type="button" onClick={() => setCat(c)} className="btn"
                       style={{
                         padding:'8px 14px',borderRadius:50,fontSize:12,fontWeight:700,whiteSpace:'nowrap',
@@ -994,6 +1106,93 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onPage, reviewBadge = 
                   boxShadow:canSave ? '0 8px 24px rgba(31,215,96,.35)' : 'none',
                 }}>
                 ✓ Добавить в «{cat}»
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddCat && (
+        <div style={{position:'fixed',inset:0,zIndex:310,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+          <div onClick={() => setShowAddCat(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
+          <div style={{
+            position:'relative',zIndex:1,width:'100%',maxWidth:480,
+            background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',
+            padding:'22px 20px 40px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)',
+          }}>
+            <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 18px'}}/>
+            <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Новый раздел</div>
+            <div style={{fontSize:12,color:'#8FB897',marginBottom:16,lineHeight:1.5}}>
+              Создайте категорию — она появится в строке «Горячее · Шашлык · …»
+            </div>
+            {catErr && (
+              <div style={{padding:'10px 13px',borderRadius:11,marginBottom:12,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545'}}>
+                ⚠️ {catErr}
+              </div>
+            )}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:'#8FB897',marginBottom:6,fontWeight:700}}>Название раздела *</div>
+              <input className="inp" value={newCatName} onChange={e => { setNewCatName(e.target.value); setCatErr('') }}
+                onKeyDown={e => e.key === 'Enter' && saveNewCategory()}
+                placeholder="Например: Закуски" autoFocus/>
+            </div>
+            {availableSuggestions.length > 0 && (
+              <div style={{marginBottom:18}}>
+                <div style={{fontSize:10,color:'#3D6645',marginBottom:8,fontWeight:700}}>Быстрый выбор</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                  {availableSuggestions.slice(0, 12).map(s => (
+                    <button key={s} type="button" onClick={() => saveNewCategory(s)} className="btn"
+                      style={{
+                        padding:'7px 12px',borderRadius:50,fontSize:11,fontWeight:700,
+                        background:'rgba(31,215,96,.08)',border:'1px solid rgba(31,215,96,.22)',color:'#1FD760',
+                      }}>
+                      + {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{display:'flex',gap:10}}>
+              <button type="button" onClick={() => setShowAddCat(false)} className="btn"
+                style={{flex:1,padding:13,borderRadius:14,background:'#091508',border:'1px solid #162B1A',color:'#8FB897',fontWeight:700}}>
+                Отмена
+              </button>
+              <button type="button" onClick={() => saveNewCategory()} className="btn"
+                style={{flex:1,padding:13,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontWeight:800}}>
+                ✓ Создать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRenameCat && (
+        <div style={{position:'fixed',inset:0,zIndex:310,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+          <div onClick={() => setShowRenameCat(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
+          <div style={{
+            position:'relative',zIndex:1,width:'100%',maxWidth:480,
+            background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',
+            padding:'22px 20px 40px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)',
+          }}>
+            <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 18px'}}/>
+            <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Переименовать раздел</div>
+            <div style={{fontSize:12,color:'#8FB897',marginBottom:16}}>Сейчас: <span style={{color:'#1FD760',fontWeight:700}}>{activeCat}</span></div>
+            {catErr && (
+              <div style={{padding:'10px 13px',borderRadius:11,marginBottom:12,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545'}}>
+                ⚠️ {catErr}
+              </div>
+            )}
+            <input className="inp" value={renameCatName} onChange={e => { setRenameCatName(e.target.value); setCatErr('') }}
+              onKeyDown={e => e.key === 'Enter' && saveRenameCategory()}
+              placeholder="Новое название" autoFocus style={{marginBottom:18}}/>
+            <div style={{display:'flex',gap:10}}>
+              <button type="button" onClick={() => setShowRenameCat(false)} className="btn"
+                style={{flex:1,padding:13,borderRadius:14,background:'#091508',border:'1px solid #162B1A',color:'#8FB897',fontWeight:700}}>
+                Отмена
+              </button>
+              <button type="button" onClick={saveRenameCategory} className="btn"
+                style={{flex:1,padding:13,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontWeight:800}}>
+                ✓ Сохранить
               </button>
             </div>
           </div>
