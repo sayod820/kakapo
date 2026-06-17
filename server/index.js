@@ -561,7 +561,7 @@ function normalizeCardRow(raw) {
 }
 
 function syncClientFromCardRow(card) {
-  if (!Array.isArray(db.clients)) return
+  if (!Array.isArray(db.clients)) db.clients = []
   if (card.status === 'unlinked') {
     const prev = db.clients.find(x => x.card === card.num)
     if (prev) prev.card = ''
@@ -569,7 +569,27 @@ function syncClientFromCardRow(card) {
   }
   const phone = card.phone
   if (!phone) return
-  const client = db.clients.find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
+  let client = db.clients.find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
+  if (!client && card.status === 'active') {
+    const nums = db.clients.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+    const n = (nums.length ? Math.max(...nums) : 0) + 1
+    client = normalizeClientRow({
+      id: card.clientId || `U-${String(n).padStart(2, '0')}`,
+      name: card.client || 'Клиент',
+      phone,
+      card: card.num,
+      level: card.level || 'bronze',
+      bonus: card.bonus,
+      debt: card.debt,
+      debtLimit: card.debtLimit,
+      vip: !!card.vip,
+      blocked: card.status === 'blocked',
+      orders: 0,
+      spent: 0,
+      createdAt: new Date().toISOString().slice(0, 10),
+    })
+    db.clients.push(client)
+  }
   if (!client) return
   client.card = card.num
   if (card.client) client.name = card.client

@@ -22,7 +22,7 @@ export function useStoreProfileSync(
   const refresh = useCallback(async () => {
     const phone = userRef.current?.phone
     if (!phone) return
-    const next = await fetchCrmStoreUser(phone)
+    const next = await fetchCrmStoreUser(phone, userRef.current?.card)
     if (!next) return
     const cur = userRef.current
     if (!cur || !crmStoreUsersEqual(cur, next)) {
@@ -41,13 +41,18 @@ export function useStoreProfileSync(
     }
 
     run()
-    const poll = setInterval(run, USE_API ? 15000 : 3000)
+    const poll = setInterval(run, USE_API ? 8000 : 3000)
 
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'kakapo-cards' || e.key === 'kakapo-clients') run()
+      if (e.key === 'kakapo-cards' || e.key === 'kakapo-clients' || e.key === 'kakapo_store_user') run()
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') run()
     }
     window.addEventListener('storage', onStorage)
     window.addEventListener(CRM_SYNC_EVENT, run)
+    window.addEventListener('focus', run)
+    document.addEventListener('visibilitychange', onVisible)
 
     let bc: BroadcastChannel | null = null
     try {
@@ -60,6 +65,8 @@ export function useStoreProfileSync(
       clearInterval(poll)
       window.removeEventListener('storage', onStorage)
       window.removeEventListener(CRM_SYNC_EVENT, run)
+      window.removeEventListener('focus', run)
+      document.removeEventListener('visibilitychange', onVisible)
       bc?.close()
     }
   }, [user?.phone, refresh])

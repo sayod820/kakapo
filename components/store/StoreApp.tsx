@@ -16,6 +16,7 @@ import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
 import { loadStoreUser, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
+import { fetchCrmStoreUser, crmStoreUsersEqual } from "@/lib/clientProfileSync";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import { phoneDigits } from "@/lib/clientSession";
@@ -1995,6 +1996,18 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
     () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level, user?.vip),
     [spentTotal, orderCount, reviewStats.count, user?.level, user?.vip],
   );
+
+  useEffect(() => {
+    if (!user?.phone || !setUser) return
+    fetchCrmStoreUser(user.phone, user.card).then(next => {
+      if (!next) return
+      const merged = { ...user, ...next }
+      if (!crmStoreUsersEqual(user, merged)) {
+        saveStoreUser(merged)
+        setUser(merged)
+      }
+    }).catch(() => {})
+  }, [user?.phone, user?.card])
 
   useEffect(() => {
     const phone = getActiveClientPhone(user);

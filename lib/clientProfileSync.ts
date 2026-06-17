@@ -105,26 +105,67 @@ export function crmToStoreUser(c: AdminClient): CrmStoreUser {
   }
 }
 
-export async function findMergedClientByPhone(phone: string): Promise<AdminClient | null> {
+function buildClientFromCard(card: AdminCard): AdminClient {
+  return normalizeClient({
+    id: card.clientId || `CARD-${card.num.replace(/\W/g, '')}`,
+    name: card.client || 'Клиент',
+    phone: card.phone,
+    email: '',
+    addr: '',
+    card: card.num,
+    level: (card.level || 'bronze') as ClientLevel,
+    orders: 0,
+    spent: 0,
+    debt: card.debt,
+    bonus: card.bonus,
+    debtLimit: card.debtLimit,
+    blocked: card.status === 'blocked',
+    vip: !!card.vip,
+  })
+}
+
+async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard[] }> {
   if (USE_API) {
     try {
       const [clients, cards] = await Promise.all([api.getClients(), api.getCards()])
-      const client = clients.find(c => phonesMatch(c.phone, phone))
-      if (!client) return null
-      const card = findLinkedCard(normalizeClient(client), cards.map(c => normalizeCard(c)))
-      return mergeClientWithCard(normalizeClient(client), card)
+      return {
+        clients: clients.map(c => normalizeClient(c)),
+        cards: cards.map(c => normalizeCard(c)),
+      }
     } catch { /* local fallback */ }
   }
-  const clients = loadLocalClients()
-  const cards = loadLocalCards()
-  const client = clients.find(c => phonesMatch(c.phone, phone))
-  if (!client) return null
-  const card = findLinkedCard(client, cards)
-  return mergeClientWithCard(client, card)
+  return { clients: loadLocalClients(), cards: loadLocalCards() }
 }
 
-export async function fetchCrmStoreUser(phone: string): Promise<CrmStoreUser | null> {
-  const merged = await findMergedClientByPhone(phone)
+export async function findMergedClientByPhone(phone: string): Promise<AdminClient | null> {
+  const { clients, cards } = await loadCrmData()
+  const client = clients.find(c => phonesMatch(c.phone, phone))
+  if (client) {
+    const card = findLinkedCard(client, cards)
+    return mergeClientWithCard(client, card)
+  }
+  const card = cards.find(c => c.status !== 'unlinked' && c.phone && phonesMatch(c.phone, phone))
+  if (card) return mergeClientWithCard(buildClientFromCard(card), normalizeCard(card))
+  return null
+}
+
+export async function findMergedClientByCard(cardNum: string): Promise<AdminClient | null> {
+  const num = cardNum.trim().toUpperCase()
+  if (!num) return null
+  const { clients, cards } = await loadCrmData()
+  const card = cards.find(c => c.num === num && c.status !== 'unlinked')
+  if (!card) return null
+  const normalized = normalizeCard(card)
+  const client = card.clientId
+    ? clients.find(c => c.id === card.clientId)
+    : clients.find(c => c.card === num || (card.phone && phonesMatch(c.phone, card.phone)))
+  if (client) return mergeClientWithCard(client, normalized)
+  return mergeClientWithCard(buildClientFromCard(normalized), normalized)
+}
+
+export async function fetchCrmStoreUser(phone: string, cardNum?: string): Promise<CrmStoreUser | null> {
+  let merged = await findMergedClientByPhone(phone)
+  if (!merged && cardNum) merged = await findMergedClientByCard(cardNum)
   if (!merged) return null
   return crmToStoreUser(merged)
 }
