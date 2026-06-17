@@ -94,6 +94,27 @@ function resolveViewerPhone(explicit?: string): string {
   return explicit?.trim() || getCurrentClientPhone()
 }
 
+function viewerAccountId(explicitPhone?: string): string {
+  return phoneDigits(resolveViewerPhone(explicitPhone))
+}
+
+/** Личное уведомление — только с targetPhone, совпадающим с аккаунтом */
+export function notificationBelongsToAccount(
+  n: ClientNotification,
+  accountId?: string,
+): boolean {
+  if (n.broadcast) return false
+  const id = accountId || viewerAccountId()
+  const target = phoneDigits(n.targetPhone || '')
+  return !!id && !!target && target === id
+}
+
+function filterPersonalNotifications(list: ClientNotification[], phone?: string): ClientNotification[] {
+  const id = viewerAccountId(phone)
+  if (!id) return []
+  return list.filter(n => notificationBelongsToAccount(n, id))
+}
+
 function sortNotifications(list: ClientNotification[]): ClientNotification[] {
   return [...list].sort((a, b) => {
     const ta = new Date(a.sentAt || 0).getTime() || 0
@@ -104,7 +125,13 @@ function sortNotifications(list: ClientNotification[]): ClientNotification[] {
 
 function loadAccountNotifications(phone?: string): ClientNotification[] {
   const list = loadAccountJson<ClientNotification[]>(ACCOUNT_NS.notifications, [], phone)
-  return Array.isArray(list) ? list : []
+  if (!Array.isArray(list)) return []
+  const filtered = filterPersonalNotifications(list, phone)
+  if (filtered.length !== list.length) {
+    saveAccountJson(ACCOUNT_NS.notifications, filtered, phone)
+    emit()
+  }
+  return filtered
 }
 
 function saveAccountNotifications(list: ClientNotification[], phone?: string) {
@@ -130,19 +157,39 @@ function mergeNotifications(local: ClientNotification[], remote: ClientNotificat
 
 export function loadClientNotifications(useDemo = false, phone?: string): ClientNotification[] {
   const viewerPhone = resolveViewerPhone(phone)
-  if (typeof window === 'undefined') return useDemo ? DEMO_NOTIFS : []
+  const accountId = phoneDigits(viewerPhone)
+  if (typeof window === 'undefined') return useDemo && DEMO_PHONES.has(accountId) ? DEMO_NOTIFS : []
+  if (!accountId) return []
   const merged = loadMergedNotifications(viewerPhone)
   if (merged.length) return merged
-  if (useDemo && DEMO_PHONES.has(phoneDigits(viewerPhone))) return DEMO_NOTIFS
+  if (useDemo && DEMO_PHONES.has(accountId)) return DEMO_NOTIFS
   return []
 }
 
 let syncInFlight: Promise<ClientNotification[]> | null = null
 let lastSyncAt = 0
 
+function splitRemoteNotifications(remote: ClientNotification[], accountId: string) {
+  const personal: ClientNotification[] = []
+  const broadcast: ClientNotification[] = []
+  for (const n of remote) {
+    if (n.broadcast) broadcast.push(n)
+    else if (notificationBelongsToAccount(n, accountId)) personal.push(n)
+  }
+  return { personal, broadcast }
+}
+
+function mergeBroadcastNotifications(remote: ClientNotification[]) {
+  if (!remote.length) return
+  const local = loadBroadcastNotifications<ClientNotification>()
+  const merged = sortNotifications(mergeNotifications(local, remote))
+  saveBroadcastNotifications(merged)
+}
+
 export async function syncClientNotificationsFromApi(phone?: string): Promise<ClientNotification[]> {
   const viewerPhone = resolveViewerPhone(phone)
-  const queryPhone = phoneDigits(viewerPhone) || viewerPhone
+  const accountId = phoneDigits(viewerPhone)
+  if (!accountId) return []
   if (!USE_API) return loadClientNotifications(false, viewerPhone)
 
   const now = Date.now()
@@ -150,8 +197,10 @@ export async function syncClientNotificationsFromApi(phone?: string): Promise<Cl
 
   syncInFlight = (async () => {
     try {
-      const remote = await api.getNotifications(queryPhone || viewerPhone)
-      const merged = sortNotifications(mergeNotifications(loadAccountNotifications(viewerPhone), remote))
+      const remote = await api.getNotifications(accountId)
+      const { personal, broadcast } = splitRemoteNotifications(remote, accountId)
+      mergeBroadcastNotifications(broadcast)
+      const merged = sortNotifications(mergeNotifications(loadAccountNotifications(viewerPhone), personal))
       saveAccountNotifications(merged, viewerPhone)
       return loadMergedNotifications(viewerPhone)
     } catch {
@@ -250,14 +299,16 @@ export async function deliverClientPush(payload: {
   orderId?: string
   targetPhone?: string
 }) {
-  const notif = makeNotification(payload)
+  const target = phoneDigits(payload.targetPhone || '')
+  if (!target) return
+  const notif = makeNotification({ ...payload, targetPhone: target })
   if (USE_API) {
     await postNotificationsToApi([notif])
   }
-  const target = payload.targetPhone || getCurrentClientPhone()
-  const list = loadAccountNotifications(target)
-  list.unshift(notif)
-  saveAccountNotifications(list, target)
+  const list = loadAccountJson<ClientNotification[]>(ACCOUNT_NS.notifications, [], target)
+  const next = filterPersonalNotifications(Array.isArray(list) ? list : [], target)
+  next.unshift(notif)
+  saveAccountNotifications(next, target)
 }
 
 export async function deliverClientPushBatch(
@@ -297,19 +348,28 @@ export async function deliverClientPushBroadcast(
   saveBroadcastNotifications(withoutDup)
 }
 
-export function ingestNotificationFromServer(notification: ClientNotification) {
+export function ingestNotificationFromServer(
+  notification: ClientNotification,
+  viewerPhone?: string,
+) {
+  const viewerId = viewerAccountId(viewerPhone)
+  if (!viewerId) return
+
   if (notification.broadcast) {
     const list = loadBroadcastNotifications<ClientNotification>()
     if (list.some(n => n.id === notification.id)) return
     list.unshift(notification)
     saveBroadcastNotifications(list)
+    emit()
     return
   }
-  const target = notification.targetPhone || getCurrentClientPhone()
-  const list = loadAccountNotifications(target)
+
+  if (!notificationBelongsToAccount(notification, viewerId)) return
+
+  const list = loadAccountNotifications(viewerPhone)
   if (list.some(n => n.id === notification.id)) return
   list.unshift(notification)
-  saveAccountNotifications(list, target)
+  saveAccountNotifications(list, viewerPhone)
 }
 
 /** Создаёт уведомления при новых ответах на отзывы клиента */

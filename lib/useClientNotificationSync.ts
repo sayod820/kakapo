@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { USE_API } from './config'
 import {
   setCurrentClientPhone,
@@ -11,22 +11,31 @@ import { useWebSocket } from './ws'
 
 /** Фоновая синхронизация уведомлений — без подписки на emit (иначе бесконечный цикл API) */
 export function useClientNotificationSync(user?: { phone?: string; name?: string } | null) {
+  const userPhoneRef = useRef(user?.phone)
+  userPhoneRef.current = user?.phone
+
   useEffect(() => {
     if (user?.phone) setCurrentClientPhone(user.phone)
   }, [user?.phone])
 
-  useWebSocket('client', (msg: any) => {
+  const onWsMessage = useCallback((msg: { event?: string; notification?: unknown }) => {
     if (msg?.event === 'notification' && msg.notification) {
-      ingestNotificationFromServer(msg.notification)
+      ingestNotificationFromServer(
+        msg.notification as import('./clientNotifications').ClientNotification,
+        userPhoneRef.current,
+      )
     }
-  })
+  }, [])
+
+  useWebSocket('client', onWsMessage)
 
   useEffect(() => {
+    if (!user?.phone) return
     let cancelled = false
 
     const refresh = () => {
       if (cancelled) return
-      void syncClientNotificationsFromApi(user?.phone)
+      void syncClientNotificationsFromApi(user.phone)
     }
 
     refresh()

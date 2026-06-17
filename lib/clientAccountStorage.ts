@@ -88,7 +88,7 @@ export function migrateLegacyClientData(phone?: string) {
       if (legacyNotifs) {
         const all = JSON.parse(legacyNotifs) as Array<{ targetPhone?: string; broadcast?: boolean }>
         const mine = Array.isArray(all)
-          ? all.filter(n => n.broadcast || !n.targetPhone || phoneDigits(n.targetPhone) === id)
+          ? all.filter(n => !n.broadcast && !!n.targetPhone && phoneDigits(n.targetPhone) === id)
           : []
         if (mine.length) saveAccountJson(ACCOUNT_NS.notifications, mine, phone)
       }

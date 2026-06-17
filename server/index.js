@@ -695,9 +695,8 @@ app.get('/notifications', (req, res) => {
   ensureNotifications()
   const key = phoneKey(String(req.query.phone || ''))
   let list = db.notifications || []
-  if (key) {
-    list = list.filter(n => !n.targetPhone || n.targetPhone === key)
-  }
+  if (!key) return res.json([])
+  list = list.filter(n => n.broadcast === true || n.targetPhone === key)
   res.json(list.slice(0, 80))
 })
 
@@ -733,8 +732,8 @@ app.patch('/notifications/read-all', (req, res) => {
   ensureNotifications()
   const key = phoneKey(String(req.query.phone || req.body.phone || ''))
   db.notifications = (db.notifications || []).map(n => {
-    if (!key) return { ...n, read: true }
-    if (!n.targetPhone || n.targetPhone === key) return { ...n, read: true }
+    if (!key) return n
+    if (n.broadcast === true || n.targetPhone === key) return { ...n, read: true }
     return n
   })
   persist()
