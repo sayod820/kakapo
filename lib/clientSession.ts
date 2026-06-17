@@ -70,6 +70,7 @@ export function saveStoreUser(user: StoreUser | null) {
   try {
     if (!user) {
       localStorage.removeItem(USER_KEY)
+      localStorage.removeItem(PHONE_KEY)
     } else {
       localStorage.setItem(USER_KEY, JSON.stringify(user))
       localStorage.setItem(PHONE_KEY, user.phone.trim())

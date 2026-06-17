@@ -2,6 +2,13 @@ import type { Review } from './types'
 import { getActiveClientPhone, loadStoreUser, phoneDigits } from './clientSession'
 import { USE_API } from './config'
 import { api } from './api'
+import {
+  ACCOUNT_NS,
+  loadAccountJson,
+  saveAccountJson,
+  loadBroadcastNotifications,
+  saveBroadcastNotifications,
+} from './clientAccountStorage'
 
 export type ClientNotification = {
   id: string
@@ -19,9 +26,9 @@ export type ClientNotification = {
   broadcast?: boolean
 }
 
-const NOTIFS_KEY = 'kakapo_client_notifs'
-const REPLIES_SEEN_KEY = 'kakapo_review_replies_seen'
 const BC_NAME = 'kakapo-notifs'
+
+const DEMO_PHONES = new Set(['934567890', '901234567', '887890123'])
 
 type SeenReplies = Record<string, { admin?: string; rest?: string }>
 
@@ -50,9 +57,7 @@ export function subscribeClientNotifications(fn: Listener) {
 
 export function subscribeNotificationChannel(fn: Listener) {
   if (typeof window === 'undefined') return () => {}
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === NOTIFS_KEY) fn()
-  }
+  const onStorage = () => fn()
   window.addEventListener('storage', onStorage)
   let bc: BroadcastChannel | null = null
   try {
@@ -65,19 +70,12 @@ export function subscribeNotificationChannel(fn: Listener) {
   }
 }
 
-function loadSeenReplies(): SeenReplies {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem(REPLIES_SEEN_KEY)
-    return raw ? JSON.parse(raw) as SeenReplies : {}
-  } catch {
-    return {}
-  }
+function loadSeenReplies(phone?: string): SeenReplies {
+  return loadAccountJson<SeenReplies>(ACCOUNT_NS.reviewRepliesSeen, {}, phone)
 }
 
-function saveSeenReplies(seen: SeenReplies) {
-  if (typeof window === 'undefined') return
-  try { localStorage.setItem(REPLIES_SEEN_KEY, JSON.stringify(seen)) } catch { /* quota */ }
+function saveSeenReplies(seen: SeenReplies, phone?: string) {
+  saveAccountJson(ACCOUNT_NS.reviewRepliesSeen, seen, phone)
 }
 
 export function getCurrentClientPhone(): string {
@@ -104,38 +102,20 @@ function sortNotifications(list: ClientNotification[]): ClientNotification[] {
   })
 }
 
-function notificationVisible(n: ClientNotification, viewerPhone: string): boolean {
-  if (n.broadcast || !n.targetPhone) return true
-  const viewer = phoneDigits(viewerPhone)
-  if (!viewer) return false
-  return phoneDigits(n.targetPhone) === viewer
+function loadAccountNotifications(phone?: string): ClientNotification[] {
+  const list = loadAccountJson<ClientNotification[]>(ACCOUNT_NS.notifications, [], phone)
+  return Array.isArray(list) ? list : []
 }
 
-function filterForViewer(list: ClientNotification[], viewerPhone: string): ClientNotification[] {
-  return list.filter(n => notificationVisible(n, viewerPhone))
-}
-
-function loadAllNotifications(): ClientNotification[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(NOTIFS_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as ClientNotification[]
-      if (Array.isArray(parsed)) return parsed
-    }
-  } catch { /* ignore */ }
-  return []
-}
-
-function saveClientNotifications(list: ClientNotification[]) {
-  if (typeof window === 'undefined') return
-  const trimmed = list.slice(0, 200)
-  try {
-    const prev = loadAllNotifications()
-    if (JSON.stringify(prev) === JSON.stringify(trimmed)) return
-    localStorage.setItem(NOTIFS_KEY, JSON.stringify(trimmed))
-  } catch { /* quota */ }
+function saveAccountNotifications(list: ClientNotification[], phone?: string) {
+  saveAccountJson(ACCOUNT_NS.notifications, list.slice(0, 200), phone)
   emit()
+}
+
+function loadMergedNotifications(phone?: string): ClientNotification[] {
+  const personal = loadAccountNotifications(phone)
+  const broadcast = loadBroadcastNotifications<ClientNotification>()
+  return sortNotifications([...personal, ...broadcast])
 }
 
 function mergeNotifications(local: ClientNotification[], remote: ClientNotification[]): ClientNotification[] {
@@ -151,9 +131,10 @@ function mergeNotifications(local: ClientNotification[], remote: ClientNotificat
 export function loadClientNotifications(useDemo = false, phone?: string): ClientNotification[] {
   const viewerPhone = resolveViewerPhone(phone)
   if (typeof window === 'undefined') return useDemo ? DEMO_NOTIFS : []
-  const all = loadAllNotifications()
-  if (all.length) return filterForViewer(all, viewerPhone)
-  return useDemo ? filterForViewer(DEMO_NOTIFS, viewerPhone) : []
+  const merged = loadMergedNotifications(viewerPhone)
+  if (merged.length) return merged
+  if (useDemo && DEMO_PHONES.has(phoneDigits(viewerPhone))) return DEMO_NOTIFS
+  return []
 }
 
 let syncInFlight: Promise<ClientNotification[]> | null = null
@@ -170,9 +151,9 @@ export async function syncClientNotificationsFromApi(phone?: string): Promise<Cl
   syncInFlight = (async () => {
     try {
       const remote = await api.getNotifications(queryPhone || viewerPhone)
-      const merged = sortNotifications(mergeNotifications(loadAllNotifications(), remote))
-      saveClientNotifications(merged)
-      return filterForViewer(merged, viewerPhone)
+      const merged = sortNotifications(mergeNotifications(loadAccountNotifications(viewerPhone), remote))
+      saveAccountNotifications(merged, viewerPhone)
+      return loadMergedNotifications(viewerPhone)
     } catch {
       return loadClientNotifications(false, viewerPhone)
     } finally {
@@ -193,19 +174,30 @@ export function getUnreadNotificationCount(useDemo = false, phone?: string): num
   return loadClientNotifications(useDemo, phone).filter(n => !n.read).length
 }
 
-export function markNotificationRead(id: string) {
-  const list = loadAllNotifications().map(n => n.id === id ? { ...n, read: true } : n)
-  saveClientNotifications(list)
+export function markNotificationRead(id: string, phone?: string) {
+  const viewerPhone = resolveViewerPhone(phone)
+  const account = loadAccountNotifications(viewerPhone)
+  if (account.some(n => n.id === id)) {
+    saveAccountNotifications(account.map(n => n.id === id ? { ...n, read: true } : n), viewerPhone)
+  } else {
+    const bc = loadBroadcastNotifications<ClientNotification>()
+    if (bc.some(n => n.id === id)) {
+      saveBroadcastNotifications(bc.map(n => n.id === id ? { ...n, read: true } : n))
+    }
+  }
   if (USE_API) api.markNotificationRead(id).catch(console.error)
 }
 
 export async function markAllNotificationsRead(phone?: string) {
   const viewerPhone = resolveViewerPhone(phone)
-  const list = loadAllNotifications().map(n => {
-    if (!viewerPhone || notificationVisible(n, viewerPhone)) return { ...n, read: true }
-    return n
-  })
-  saveClientNotifications(list)
+  saveAccountNotifications(
+    loadAccountNotifications(viewerPhone).map(n => ({ ...n, read: true })),
+    viewerPhone,
+  )
+  saveBroadcastNotifications(
+    loadBroadcastNotifications<ClientNotification>().map(n => ({ ...n, read: true })),
+  )
+  emit()
   if (USE_API) {
     const queryPhone = phoneDigits(viewerPhone) || viewerPhone
     try {
@@ -262,9 +254,10 @@ export async function deliverClientPush(payload: {
   if (USE_API) {
     await postNotificationsToApi([notif])
   }
-  const list = loadAllNotifications()
+  const target = payload.targetPhone || getCurrentClientPhone()
+  const list = loadAccountNotifications(target)
   list.unshift(notif)
-  saveClientNotifications(list)
+  saveAccountNotifications(list, target)
 }
 
 export async function deliverClientPushBatch(
@@ -281,12 +274,16 @@ export async function deliverClientPushBatch(
   if (USE_API) {
     await postNotificationsToApi(batch)
   }
-  const list = loadAllNotifications()
-  list.unshift(...batch)
-  saveClientNotifications(list)
+  for (let i = 0; i < unique.length; i++) {
+    const phone = unique[i]
+    const notif = batch[i]
+    const list = loadAccountNotifications(phone)
+    list.unshift(notif)
+    saveAccountNotifications(list, phone)
+  }
 }
 
-/** Общая рассылка — видят все, кто открыл приложение (без привязки к телефону) */
+/** Общая рассылка — видят все клиенты */
 export async function deliverClientPushBroadcast(
   payload: { title: string; body: string; icon: string; action?: 'reviews' | 'orders'; campaignId?: string },
 ) {
@@ -294,23 +291,32 @@ export async function deliverClientPushBroadcast(
   if (USE_API) {
     await postNotificationsToApi([notif])
   }
-  const list = loadAllNotifications()
+  const list = loadBroadcastNotifications<ClientNotification>()
   const withoutDup = list.filter(n => n.id !== notif.id)
   withoutDup.unshift(notif)
-  saveClientNotifications(withoutDup)
+  saveBroadcastNotifications(withoutDup)
 }
 
 export function ingestNotificationFromServer(notification: ClientNotification) {
-  const list = loadAllNotifications()
+  if (notification.broadcast) {
+    const list = loadBroadcastNotifications<ClientNotification>()
+    if (list.some(n => n.id === notification.id)) return
+    list.unshift(notification)
+    saveBroadcastNotifications(list)
+    return
+  }
+  const target = notification.targetPhone || getCurrentClientPhone()
+  const list = loadAccountNotifications(target)
   if (list.some(n => n.id === notification.id)) return
   list.unshift(notification)
-  saveClientNotifications(list)
+  saveAccountNotifications(list, target)
 }
 
 /** Создаёт уведомления при новых ответах на отзывы клиента */
 export function syncReviewReplyNotifications(reviews: Review[], ownerPhone?: string) {
-  const seen = loadSeenReplies()
-  const notifs = loadAllNotifications()
+  const viewerPhone = ownerPhone || getCurrentClientPhone()
+  const seen = loadSeenReplies(viewerPhone)
+  const notifs = loadAccountNotifications(viewerPhone)
   let changed = false
   const nextSeen = { ...seen }
   const toDeliver: ClientNotification[] = []
@@ -363,12 +369,12 @@ export function syncReviewReplyNotifications(reviews: Review[], ownerPhone?: str
   }
 
   if (JSON.stringify(nextSeen) !== JSON.stringify(seen)) {
-    saveSeenReplies(nextSeen)
+    saveSeenReplies(nextSeen, viewerPhone)
   }
   if (changed) {
-    saveClientNotifications(notifs)
+    saveAccountNotifications(notifs, viewerPhone)
     void postNotificationsToApi(toDeliver)
   }
 
-  return notifs
+  return loadMergedNotifications(viewerPhone)
 }

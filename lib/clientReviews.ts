@@ -1,10 +1,10 @@
 import { api } from './api'
 import { USE_API } from './config'
 import type { Order, Review } from './types'
+import { ACCOUNT_NS, loadAccountJson, saveAccountJson } from './clientAccountStorage'
+import { phoneDigits } from './clientSession'
 
-export function phoneDigits(v: string) {
-  return (v || '').replace(/\D/g, '').slice(-9)
-}
+export { phoneDigits }
 
 export function getClientPhone(user?: { phone?: string } | null) {
   return phoneDigits(
@@ -21,11 +21,22 @@ export function getClientOrderIds(apiOrders: Order[], user?: { phone?: string; n
   return ids
 }
 
+export function loadLocalReviews(phone?: string): Record<string, Review> {
+  const map = loadAccountJson<Record<string, Review>>(ACCOUNT_NS.reviewsLocal, {}, phone)
+  return map && typeof map === 'object' ? map : {}
+}
+
+export function saveLocalReview(orderId: string, review: Review, phone?: string) {
+  const map = loadLocalReviews(phone)
+  map[String(orderId)] = review
+  saveAccountJson(ACCOUNT_NS.reviewsLocal, map, phone)
+}
+
 export async function loadClientReviewMap(
   apiOrders: Order[],
   user?: { phone?: string; name?: string } | null,
 ): Promise<Record<string, Review>> {
-  if (!USE_API) return {}
+  if (!USE_API) return loadLocalReviews(user?.phone || getClientPhone(user))
   const list = await api.getReviews()
   const orderIds = getClientOrderIds(apiOrders, user)
   const name = (user?.name || '').trim().toLowerCase()

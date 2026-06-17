@@ -15,8 +15,11 @@ import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { loadStoreUser, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
+import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
+import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
+import { phoneDigits } from "@/lib/clientSession";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
-import { loadClientReviewMap, phoneDigits } from "@/lib/clientReviews";
+import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import {
   getUnreadNotificationCount,
   loadClientNotifications,
@@ -390,10 +393,10 @@ const BANNERS = [
 ];
 
 const ORDERS_LIST = [
-  {id:"K-4832",date:"16 мая",time:"14:23",status:"delivering",eta:"~12 мин",items:[{e:"🥦",name:"Брокколи",qty:2,price:5.50},{e:"🥩",name:"Говядина",qty:1,price:38.0}],total:49.0,bonus:9,delivery:0,addr:"ул. Ленина, 42"},
-  {id:"K-4821",date:"15 мая",time:"11:05",status:"delivered", eta:null,    items:[{e:"🍅",name:"Томаты черри",qty:1,price:7.90},{e:"🧀",name:"Сыр",qty:1,price:18.50}],total:26.4,bonus:5,delivery:0,addr:"ул. Ленина, 42"},
-  {id:"K-4756",date:"10 мая",time:"16:48",status:"delivered", eta:null,    items:[{e:"🐟",name:"Лосось",qty:1,price:28.0},{e:"☕",name:"Кофе",qty:1,price:32.0}],total:60.0,bonus:11,delivery:0,addr:"ул. Сомони, 12"},
-  {id:"K-4701",date:"3 мая", time:"09:22",status:"cancelled", eta:null,    items:[{e:"🥚",name:"Яйца",qty:1,price:8.50}],total:13.5,bonus:0,delivery:5,addr:"ул. Ленина, 42",cancelReason:"Товар закончился"},
+  {id:"K-4832",phone:"+992 93 456 78 90",date:"16 мая",time:"14:23",status:"delivering",eta:"~12 мин",items:[{e:"🥦",name:"Брокколи",qty:2,price:5.50},{e:"🥩",name:"Говядина",qty:1,price:38.0}],total:49.0,bonus:9,delivery:0,addr:"ул. Ленина, 42"},
+  {id:"K-4821",phone:"+992 93 456 78 90",date:"15 мая",time:"11:05",status:"delivered", eta:null,    items:[{e:"🍅",name:"Томаты черри",qty:1,price:7.90},{e:"🧀",name:"Сыр",qty:1,price:18.50}],total:26.4,bonus:5,delivery:0,addr:"ул. Ленина, 42"},
+  {id:"K-4756",phone:"+992 90 123 45 67",date:"10 мая",time:"16:48",status:"delivered", eta:null,    items:[{e:"🐟",name:"Лосось",qty:1,price:28.0},{e:"☕",name:"Кофе",qty:1,price:32.0}],total:60.0,bonus:11,delivery:0,addr:"ул. Сомони, 12"},
+  {id:"K-4701",phone:"+992 93 456 78 90",date:"3 мая", time:"09:22",status:"cancelled", eta:null,    items:[{e:"🥚",name:"Яйца",qty:1,price:8.50}],total:13.5,bonus:0,delivery:5,addr:"ул. Ленина, 42",cancelReason:"Товар закончился"},
 ];
 
 const OSTATUS = {
@@ -1197,7 +1200,7 @@ function CheckoutSec({ icon, color, title }) {
   );
 }
 
-const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
+const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
   const { prods, restaurants } = useLiveCatalog();
   const createOrder = useOrders(s => s.createOrder);
   const [step,  setStep]  = useState("form");
@@ -1220,26 +1223,47 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
   const [clientLng, setClientLng] = useState(0);
   const [savedAddrs, setSavedAddrs] = useState([]);
 
-  // Загрузить сохранённые адреса из профиля + автозаполнить адрес по умолчанию
+  const clientPhone = user?.phone || getActiveClientPhone(user);
+
+  // Загрузить сохранённые адреса + автозаполнить адрес по умолчанию (только для текущего аккаунта)
   useEffect(() => {
+    if (!clientPhone) {
+      setSavedAddrs([]);
+      return;
+    }
     try {
-      const raw = localStorage.getItem('kakapo-client-addresses');
-      const list = raw ? JSON.parse(raw) : DEFAULT_ADDRESSES;
-      setSavedAddrs(list);
+      migrateLegacyClientData(clientPhone);
+      const list = loadClientAddresses(clientPhone);
+      if (list.length) setSavedAddrs(list);
       const def = list.find(a => a.def) || list[0];
-      if (def && !addr) {
-        setAddr(def.street);
-        if (def.lat && def.lng) {
-          setClientLat(def.lat); setClientLng(def.lng); setAddrReady(true);
+      if (def) {
+        setAddr(formatClientAddressLine(def));
+        if (def.lat != null && def.lng != null) {
+          setClientLat(def.lat);
+          setClientLng(def.lng);
+          setAddrReady(true);
         }
       }
-    } catch {}
-  }, []);
+    } catch { /* ignore */ }
+  }, [clientPhone]);
+
+  useEffect(() => {
+    if (user?.name && !name) setName(user.name)
+    if (user?.phone && !phone) {
+      setPhone(user.phone.replace(/^\+992\s?/, '').trim())
+    }
+  }, [user, name, phone])
 
   const pickSavedAddr = (a) => {
-    setAddr(a.street);
+    setAddr(formatClientAddressLine(a));
     setErrs(prev => ({ ...prev, addr: undefined }));
-    if (a.lat && a.lng) { setClientLat(a.lat); setClientLng(a.lng); setAddrReady(true); }
+    if (a.lat != null && a.lng != null) {
+      setClientLat(a.lat)
+      setClientLng(a.lng)
+      setAddrReady(true)
+    } else {
+      resetDelivery()
+    }
   };
 
   const prodItems = prods.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id] }));
@@ -1398,14 +1422,15 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
               <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>Сохранённые адреса</div>
               <div className="hscroll" style={{ gap:8 }}>
                 {savedAddrs.map(a => {
-                  const active = addr === a.street;
+                  const line = formatClientAddressLine(a);
+                  const active = addr === line;
                   return (
                     <button key={a.id} onClick={() => pickSavedAddr(a)} className="btn"
                       style={{ flexShrink:0, padding:"10px 14px", borderRadius:12, textAlign:"left",
                         border:`1.5px solid ${active ? "var(--gr)" : "var(--b1)"}`,
                         background: active ? "rgba(31,215,96,.1)" : "var(--l2)", minWidth:140 }}>
                       <div style={{ fontSize:12, fontWeight:800, color: active ? "var(--gr)" : "var(--t1)", marginBottom:2 }}>{a.label}</div>
-                      <div style={{ fontSize:11, color:"var(--t2)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:160 }}>{a.street}</div>
+                      <div style={{ fontSize:11, color:"var(--t2)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:160 }}>{line}</div>
                     </button>
                   );
                 })}
@@ -1479,7 +1504,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart }) => {
   );
 };
 
-const ProfilePage = ({ go, user, setUser }) => {
+const ProfilePage = ({ go, user, setUser, onLogout }) => {
   const [notif, setNotif] = useState(true);
   const [showQR, setShowQR] = useState(false);
   const apiOrders = useOrders(s => s.orders);
@@ -1496,7 +1521,15 @@ const ProfilePage = ({ go, user, setUser }) => {
   }, [user?.phone]);
 
   useEffect(() => {
-    if (!USE_API || !user) return;
+    if (!user) return;
+    if (!USE_API) {
+      const list = Object.values(loadLocalReviews(user.phone));
+      setReviewStats({
+        count: list.length,
+        withReplies: list.filter(r => r.adminReply || r.restReply).length,
+      });
+      return;
+    }
     loadClientReviewMap(apiOrders, user).then(map => {
       const list = Object.values(map);
       setReviewStats({
@@ -1610,7 +1643,7 @@ const ProfilePage = ({ go, user, setUser }) => {
           </div>
         ))}
         <div className="card">
-          <div onClick={() => { saveStoreUser(null); setUser(null); }} style={{ display:"flex", alignItems:"center", gap:13, padding:"14px 15px", cursor:"pointer" }}>
+          <div onClick={() => onLogout?.()} style={{ display:"flex", alignItems:"center", gap:13, padding:"14px 15px", cursor:"pointer" }}>
             <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,69,69,.14)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="logout" s={17} c="var(--red)"/></div>
             <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:"var(--red)" }}>Выйти из аккаунта</div></div>
           </div>
@@ -1625,12 +1658,14 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
   const apiOrders = useOrders(s => s.orders);
   const { prods, restaurants } = useLiveCatalog();
   const ordersList = useMemo(() => {
-    const all = USE_API ? mapOrdersForClient(apiOrders) : ORDERS_LIST;
-    if (!USE_API) return all;
-    const mine = phoneDigits(user?.phone || (typeof window !== 'undefined' ? localStorage.getItem('kakapo_client_phone') : '') || '');
-    if (!mine) return all;
-    const matched = all.filter(o => phoneDigits(o.phone || '') === mine);
-    return matched.length ? matched : all;
+    const mine = phoneDigits(user?.phone || getActiveClientPhone(user) || '');
+    if (!mine) return [];
+    const fromApi = mapOrdersForClient(apiOrders).filter(o => phoneDigits(o.phone || '') === mine);
+    if (USE_API) return fromApi;
+    const demoStatic = ORDERS_LIST.filter(o => phoneDigits(o.phone || '') === mine);
+    const byId = new Map<string, typeof fromApi[0]>();
+    [...fromApi, ...demoStatic].forEach(o => byId.set(o.id, o));
+    return Array.from(byId.values());
   }, [apiOrders, user?.phone]);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -1641,7 +1676,14 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
   const [step, setStep] = useState(1);
   useEffect(() => { if (step < 3) { const t = setTimeout(() => setStep(s => s+1), 8000); return () => clearTimeout(t); } }, [step]);
   useEffect(() => {
-    if (!USE_API) return;
+    if (!user?.phone) {
+      setReviewed({});
+      return;
+    }
+    if (!USE_API) {
+      setReviewed(loadLocalReviews(user.phone));
+      return;
+    }
     loadClientReviewMap(apiOrders, user).then(setReviewed).catch(() => {});
     const id = setInterval(() => {
       loadClientReviewMap(apiOrders, user).then(setReviewed).catch(() => {});
@@ -1671,7 +1713,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
         return;
       }
     }
-    if (!USE_API) setReviewed(r => ({ ...r, [showRev.id]: { id: Date.now(), restId: restId || '', client: user?.name || 'Клиент', rating, text: reviewText, date: 'Сегодня', status: 'new' } as Review }));
+    if (!USE_API) {
+      const created = { id: Date.now(), restId: restId || '', client: user?.name || 'Клиент', rating, text: reviewText, date: 'Сегодня', status: 'new' } as Review;
+      saveLocalReview(showRev.id, created, user?.phone);
+      setReviewed(r => ({ ...r, [showRev.id]: created }));
+    }
     setShowRev(null);
     setRating(0);
     setReviewText("");
@@ -1901,8 +1947,13 @@ const ClientReviewsPage = ({ go, user }) => {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!user || !USE_API) {
+    if (!user) {
       setReviews([]);
+      setLoading(false);
+      return;
+    }
+    if (!USE_API) {
+      setReviews(Object.values(loadLocalReviews(user.phone)).sort((a, b) => (b.date || '').localeCompare(a.date || '')));
       setLoading(false);
       return;
     }
@@ -4622,7 +4673,7 @@ const NotifPage = ({go, user}) => {
   };
 
   const openNotif = (n) => {
-    markNotificationRead(n.id);
+    markNotificationRead(n.id, phone);
     setNotifs(loadClientNotifications(!USE_API, phone));
     if (n.action === 'reviews') go('reviews');
     else if (n.action === 'orders') go('orders');
@@ -4677,15 +4728,17 @@ const NotifPage = ({go, user}) => {
   );
 };
 
-const ADDRESSES_STORAGE_KEY = 'kakapo-client-addresses';
-
 const DEFAULT_ADDRESSES = [
   { id: 1, label: '🏠 Дом', street: 'ул. Ленина, 42', apt: '15', floor: '3', ent: '2', comment: 'Домофон 15', def: true, lat: 38.3260, lng: 69.0280 },
   { id: 2, label: '💼 Работа', street: 'ул. Сомони, 12', apt: '', floor: '1', ent: '1', comment: '', def: false, lat: 38.3160, lng: 69.0340 },
 ];
 
-const AddressesPage = ({ go }) => {
-  const [addrs, setAddrs] = useState(DEFAULT_ADDRESSES);
+const AddressesPage = ({ go, user }) => {
+  const clientPhone = user?.phone || getActiveClientPhone(user);
+  const [addrs, setAddrs] = useState(() => {
+    const saved = loadClientAddresses(clientPhone);
+    return saved.length ? saved : (clientPhone ? [] : DEFAULT_ADDRESSES);
+  });
   const [showAdd, setShowAdd] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [street, setStreet] = useState('');
@@ -4698,20 +4751,16 @@ const AddressesPage = ({ go }) => {
   const [editId, setEditId] = useState<number | null>(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(ADDRESSES_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length) setAddrs(parsed);
-      }
-    } catch { /* ignore */ }
-  }, []);
+    if (!clientPhone) return;
+    migrateLegacyClientData(clientPhone);
+    const saved = loadClientAddresses(clientPhone);
+    if (saved.length) setAddrs(saved);
+  }, [clientPhone]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(ADDRESSES_STORAGE_KEY, JSON.stringify(addrs));
-    } catch { /* ignore */ }
-  }, [addrs]);
+    if (!clientPhone) return;
+    saveClientAddresses(addrs, clientPhone);
+  }, [addrs, clientPhone]);
 
   const resetForm = () => {
     setShowAdd(false);
@@ -6500,6 +6549,34 @@ function KakapoAppInner() {
     if (user) saveStoreUser(user)
   }, [user])
 
+  useEffect(() => {
+    if (!user?.phone) {
+      setCart({});
+      setCartMeta({});
+      setWished({});
+      return;
+    }
+    migrateLegacyClientData(user.phone);
+    setCart(loadAccountJson(ACCOUNT_NS.cart, {}, user.phone));
+    setCartMeta(loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone));
+    setWished(loadAccountJson(ACCOUNT_NS.wished, {}, user.phone));
+  }, [user?.phone]);
+
+  useEffect(() => {
+    if (!user?.phone) return;
+    saveAccountJson(ACCOUNT_NS.cart, cart, user.phone);
+  }, [cart, user?.phone]);
+
+  useEffect(() => {
+    if (!user?.phone) return;
+    saveAccountJson(ACCOUNT_NS.cartMeta, cartMeta, user.phone);
+  }, [cartMeta, user?.phone]);
+
+  useEffect(() => {
+    if (!user?.phone) return;
+    saveAccountJson(ACCOUNT_NS.wished, wished, user.phone);
+  }, [wished, user?.phone]);
+
   useClientReviewNotifSync(user);
   useClientNotificationSync(user);
 
@@ -6563,7 +6640,16 @@ function KakapoAppInner() {
     setCartMeta({});
   }, []);
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user };
+  const logout = useCallback(() => {
+    saveStoreUser(null);
+    setUser(null);
+    setCart({});
+    setCartMeta({});
+    setWished({});
+    go('profile');
+  }, [go]);
+
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user, onLogout: logout };
 
   const render = () => {
     switch (page) {
@@ -6574,7 +6660,7 @@ function KakapoAppInner() {
       case "cart":             return <CartPage          {...shared} onDel={delItem}/>;
       case "checkout":         return <CheckoutPage      {...shared}/>;
       case "auth":             return <ClientLoginPage   go={go} setUser={setUser}/>;
-      case "profile":          return <ProfilePage       {...shared} user={user} setUser={setUser}/>;
+      case "profile":          return <ProfilePage       {...shared} user={user} setUser={setUser} onLogout={logout}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
       case "reviews":          return <ClientReviewsPage   go={go} user={user}/>;
       case "promos":           return <PromosPage        {...shared}/>;

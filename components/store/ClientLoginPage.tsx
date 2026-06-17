@@ -10,6 +10,9 @@ import {
 } from '@/lib/clientSession'
 import { DEFAULT_ADMIN_CLIENTS, normalizePhone, phonesMatch } from '@/lib/clientCrm'
 import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
+import { formatClientAddressLine, setRegistrationDefaultAddress } from '@/lib/clientAddresses'
+import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
+import { setCurrentClientPhone } from '@/lib/clientNotifications'
 
 const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
 
@@ -45,14 +48,6 @@ type RegAddress = {
 
 function emptyRegAddress(): RegAddress {
   return { street: '', apt: '', floor: '', ent: '', coords: null, saved: false }
-}
-
-function formatRegAddress(a: Pick<RegAddress, 'street' | 'apt' | 'floor' | 'ent'>) {
-  let s = a.street.trim()
-  if (a.apt.trim()) s += `, кв. ${a.apt.trim()}`
-  if (a.floor.trim()) s += `, этаж ${a.floor.trim()}`
-  if (a.ent.trim()) s += `, подъезд ${a.ent.trim()}`
-  return s
 }
 
 type Step = 'phone' | 'otp' | 'register'
@@ -115,6 +110,8 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
 
   const finishLogin = (user: StoreUser) => {
     saveStoreUser(user)
+    setCurrentClientPhone(user.phone)
+    migrateLegacyClientData(user.phone)
     setUser(user)
     go('profile')
   }
@@ -242,7 +239,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
         name: fullName,
         phone: formattedPhone,
         email: reg.email.trim(),
-        addr: formatRegAddress(savedAddr),
+        addr: formatClientAddressLine(savedAddr),
         card: '',
         level: 'bronze',
         debt: 0,
@@ -250,6 +247,17 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
         debtLimit: 0,
         blocked: false,
       })
+      if (savedAddr.coords) {
+        setRegistrationDefaultAddress({
+          street: savedAddr.street,
+          apt: savedAddr.apt,
+          floor: savedAddr.floor,
+          ent: savedAddr.ent,
+          lat: savedAddr.coords.lat,
+          lng: savedAddr.coords.lng,
+          phone: formattedPhone,
+        })
+      }
       finishLogin(storeUserFromClient(newClient))
     }, 500)
   }
@@ -570,7 +578,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                       <span style={{ fontSize: 22 }}>📍</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 800, color: '#EBF5ED', marginBottom: 4 }}>
-                          {formatRegAddress(savedAddr)}
+                          {formatClientAddressLine(savedAddr)}
                         </div>
                         {savedAddr.coords && (
                           <div style={{ fontSize: 10, color: '#1FD760', fontWeight: 700 }}>
