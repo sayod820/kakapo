@@ -63,6 +63,19 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 @keyframes successPop{0%{transform:scale(.7);opacity:0;}60%{transform:scale(1.08);}100%{transform:scale(1);opacity:1;}}
 @keyframes slideUp{from{opacity:0;transform:translateY(32px);}to{opacity:1;transform:translateY(0);}}
 @keyframes cartPop{0%{transform:scale(1);}50%{transform:scale(1.06);}100%{transform:scale(1);}}
+@keyframes vipShimmer{0%{background-position:200% center;}100%{background-position:-200% center;}}
+@keyframes vipGlow{0%,100%{box-shadow:0 0 20px rgba(255,184,0,.25),0 0 40px rgba(255,184,0,.08);}50%{box-shadow:0 0 32px rgba(255,184,0,.55),0 0 64px rgba(255,184,0,.18);}}
+@keyframes tierPulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 var(--tier-glow);}50%{transform:scale(1.08);box-shadow:0 0 0 6px transparent;}}
+@keyframes levelUpPop{0%{opacity:0;transform:translateY(8px) scale(.92);}15%{opacity:1;transform:translateY(0) scale(1.02);}85%{opacity:1;transform:translateY(0) scale(1);}100%{opacity:0;transform:translateY(-6px) scale(.98);}}
+@keyframes sparkle{0%,100%{opacity:.25;transform:scale(1);}50%{opacity:.7;transform:scale(1.15);}}
+@keyframes progressShine{0%{transform:translateX(-100%);}100%{transform:translateX(200%);}}
+@keyframes crownFloat{0%,100%{transform:translateY(0) rotate(-3deg);}50%{transform:translateY(-3px) rotate(3deg);}}
+.loyalty-tier-card{position:relative;overflow:hidden;border-radius:20px;}
+.loyalty-tier-card::before{content:'';position:absolute;inset:0;opacity:.06;pointer-events:none;background:repeating-linear-gradient(45deg,transparent,transparent 10px,rgba(255,255,255,.15) 10px,rgba(255,255,255,.15) 11px);}
+.loyalty-vip-card{animation:vipGlow 3s ease-in-out infinite;}
+.loyalty-level-up{animation:levelUpPop 2.4s ease forwards;}
+.loyalty-tier-node-active{animation:tierPulse 2.2s ease-in-out infinite;}
+.loyalty-vip-shimmer{background:linear-gradient(105deg,transparent 30%,rgba(255,220,100,.35) 50%,transparent 70%);background-size:200% 100%;animation:vipShimmer 3s linear infinite;}
 .btn{font-family:'Nunito',sans-serif;font-weight:700;cursor:pointer;border:none;background:transparent;color:inherit;transition:all .22s cubic-bezier(.16,1,.3,1);}
 .btn:active{transform:scale(.96);}
 .card{background:var(--l2);border:1px solid var(--b1);border-radius:20px;overflow:hidden;transition:all .25s cubic-bezier(.16,1,.3,1);}
@@ -445,90 +458,273 @@ function countClientSpent(apiOrders: import('@/lib/types').Order[], phone?: stri
   return Math.round(sum * 10) / 10
 }
 
+const TIER_THEMES: Record<string, { bg: string; border: string; glow: string; accent: string; rail: string }> = {
+  bronze:   { bg: 'linear-gradient(145deg,#1a1008 0%,#0d0804 40%,#2a1810 100%)', border: 'rgba(205,127,50,.42)', glow: 'rgba(205,127,50,.35)', accent: '#CD7F32', rail: 'linear-gradient(90deg,#8B5A2B,#CD7F32)' },
+  silver:   { bg: 'linear-gradient(145deg,#141820 0%,#0a0d12 40%,#1e2430 100%)', border: 'rgba(192,192,192,.38)', glow: 'rgba(220,220,230,.28)', accent: '#D4D4DC', rail: 'linear-gradient(90deg,#888,#E0E0E8)' },
+  gold:     { bg: 'linear-gradient(145deg,#1f1600 0%,#120d00 40%,#2e2200 100%)', border: 'rgba(255,184,0,.48)', glow: 'rgba(255,184,0,.38)', accent: '#FFB800', rail: 'linear-gradient(90deg,#B8860B,#FFD700)' },
+  platinum: { bg: 'linear-gradient(145deg,#0a1428 0%,#060e1a 40%,#0f2040 100%)', border: 'rgba(59,142,240,.48)', glow: 'rgba(59,142,240,.38)', accent: '#3B8EF0', rail: 'linear-gradient(90deg,#2563EB,#60A5FA)' },
+  vip:      { bg: 'linear-gradient(145deg,#1a1000 0%,#0a0600 30%,#2a1a00 70%,#1a1000 100%)', border: 'rgba(255,184,0,.65)', glow: 'rgba(255,184,0,.55)', accent: '#FFD700', rail: 'linear-gradient(90deg,#E89E00,#FFE566,#E89E00)' },
+}
+
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
   const { tier, nextTier, progressPct, remaining, spent, isVip, vipSteps, vipDoneCount } = loyalty
-  return (
-    <div className="card" style={{ padding: 14, marginBottom: 12, background: 'linear-gradient(145deg,var(--l2),var(--l1))', border: `1px solid ${tier.color}28` }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 22 }}>{tier.emoji}</span>
-          <div>
-            <div className="ub" style={{ fontSize: 13, fontWeight: 900, color: tier.color }}>{tier.label}</div>
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 1 }}>Кешбэк {tier.cashback} · {tier.perk}</div>
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: 'var(--t1)' }}>{spent.toLocaleString()} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></div>
-          <div style={{ fontSize: 9, color: 'var(--t3)' }}>покупок</div>
-        </div>
-      </div>
+  const theme = isVip ? TIER_THEMES.vip : (TIER_THEMES[tier.id] || TIER_THEMES.bronze)
+  const prevTierRef = useRef(tier.id)
+  const [levelFlash, setLevelFlash] = useState<string | null>(null)
 
-      {nextTier ? (
-        <>
-          <div style={{ height: 6, borderRadius: 3, background: 'var(--b1)', overflow: 'hidden', marginBottom: 6 }}>
-            <div style={{ height: '100%', width: `${progressPct}%`, borderRadius: 3, background: `linear-gradient(90deg,${tier.color},${nextTier.color})`, transition: 'width .4s ease' }} />
-          </div>
-          <div style={{ fontSize: 10, color: 'var(--t2)', marginBottom: 12 }}>
-            До {nextTier.emoji} <span style={{ fontWeight: 700, color: nextTier.color }}>{nextTier.label}</span>
-            {' '}— ещё <span style={{ fontWeight: 700, color: 'var(--gr)' }}>{remaining.toLocaleString()} ЅМ</span>
-          </div>
-        </>
-      ) : (
-        <div style={{ fontSize: 10, color: 'var(--blue)', fontWeight: 700, marginBottom: 12 }}>✨ Максимальный уровень Platinum</div>
+  useEffect(() => {
+    if (prevTierRef.current !== tier.id) {
+      setLevelFlash(tier.label)
+      prevTierRef.current = tier.id
+      const t = setTimeout(() => setLevelFlash(null), 2400)
+      return () => clearTimeout(t)
+    }
+  }, [tier.id, tier.label])
+
+  const maxSpent = LOYALTY_TIERS[LOYALTY_TIERS.length - 1].minSpent
+  const overallPct = maxSpent > 0 ? Math.min(100, (spent / maxSpent) * 100) : 0
+
+  return (
+    <div
+      className={`loyalty-tier-card${isVip ? ' loyalty-vip-card' : ''}`}
+      style={{
+        padding: 16,
+        marginBottom: 12,
+        background: theme.bg,
+        border: `1.5px solid ${theme.border}`,
+        boxShadow: isVip ? `0 8px 32px ${theme.glow}, inset 0 1px 0 rgba(255,255,255,.06)` : `0 4px 24px ${theme.glow}`,
+        transition: 'border-color .5s ease, box-shadow .5s ease, background .5s ease',
+      }}
+    >
+      {isVip && (
+        <div className="loyalty-vip-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1, borderRadius: 20 }} />
+      )}
+      {[0, 1, 2].map(i => (
+        <div key={i} style={{
+          position: 'absolute', width: 4, height: 4, borderRadius: '50%', background: theme.accent,
+          opacity: .35, animation: `sparkle ${2 + i * 0.7}s ease-in-out infinite`, animationDelay: `${i * 0.4}s`,
+          top: `${12 + i * 28}%`, right: `${8 + i * 12}%`, pointerEvents: 'none', zIndex: 1,
+        }} />
+      ))}
+
+      {levelFlash && (
+        <div className="loyalty-level-up" style={{
+          position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 10,
+          padding: '6px 14px', borderRadius: 20, whiteSpace: 'nowrap',
+          background: `linear-gradient(135deg,${theme.accent}33,${theme.accent}18)`,
+          border: `1px solid ${theme.border}`, backdropFilter: 'blur(8px)',
+          fontSize: 11, fontWeight: 800, color: theme.accent,
+          boxShadow: `0 4px 20px ${theme.glow}`,
+        }}>
+          🎉 Новый уровень — {levelFlash}!
+        </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, gap: 4 }}>
-        {LOYALTY_TIERS.map((t) => {
-          const reached = spent >= t.minSpent
-          const active = t.id === tier.id
-          return (
-            <div key={t.id} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
-              <div style={{
-                width: '100%', height: 3, borderRadius: 2, marginBottom: 5,
-                background: reached ? t.color : 'var(--b1)',
-                opacity: active ? 1 : reached ? 0.7 : 0.35,
-              }} />
-              <div style={{ fontSize: 14, lineHeight: 1, marginBottom: 2 }}>{t.emoji}</div>
-              <div style={{ fontSize: 8, fontWeight: active ? 800 : 600, color: active ? t.color : reached ? 'var(--t2)' : 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.label}</div>
-              <div style={{ fontSize: 8, color: 'var(--t3)', marginTop: 1 }}>{t.minSpent > 0 ? `${t.minSpent}` : '0'}</div>
-            </div>
-          )
-        })}
-      </div>
-
-      <div
-        onClick={onVip}
-        style={{
-          padding: '10px 12px', borderRadius: 12, cursor: 'pointer',
-          background: isVip ? 'linear-gradient(135deg,rgba(255,184,0,.15),rgba(255,184,0,.06))' : 'var(--l3)',
-          border: `1px solid ${isVip ? 'rgba(255,184,0,.35)' : 'var(--b1)'}`,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Ic n="crown" s={14} c="var(--gd)" />
-            <span className="ub" style={{ fontSize: 12, fontWeight: 900, color: isVip ? 'var(--gd)' : 'var(--t1)' }}>
-              {isVip ? 'VIP активен' : 'Путь к VIP'}
-            </span>
-          </div>
-          <span style={{ fontSize: 10, fontWeight: 800, color: isVip ? 'var(--gd)' : 'var(--t3)' }}>
-            {loyalty.vipDoneCount}/3
-          </span>
-        </div>
-        {adminVip && isVip && (
-          <div style={{ fontSize: 10, color: 'var(--gd)', marginBottom: 8, fontWeight: 700 }}>✓ VIP включён администратором</div>
-        )}
-        <div style={{ display: 'flex', gap: 6 }}>
-          {vipSteps.map(step => (
-            <div key={step.id} style={{
-              flex: 1, padding: '6px 4px', borderRadius: 8, textAlign: 'center',
-              background: step.done ? 'rgba(31,215,96,.1)' : 'rgba(0,0,0,.15)',
-              border: `1px solid ${step.done ? 'rgba(31,215,96,.25)' : 'var(--b1)'}`,
+      <div style={{ position: 'relative', zIndex: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+              background: `linear-gradient(135deg,${theme.accent}33,${theme.accent}12)`,
+              border: `1.5px solid ${theme.border}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: `0 0 20px ${theme.glow}`,
+              fontSize: 22,
             }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: step.done ? 'var(--gr)' : 'var(--t3)', marginBottom: 2 }}>{step.label}</div>
-              <div style={{ fontSize: 8, color: step.done ? 'var(--gr)' : 'var(--t2)' }}>{step.done ? '✓' : step.progress}</div>
+              {isVip ? <span style={{ animation: 'crownFloat 2.5s ease-in-out infinite', display: 'inline-block' }}>👑</span> : tier.emoji}
             </div>
-          ))}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: theme.accent, letterSpacing: isVip ? 0.5 : 0 }}>
+                  {isVip ? 'VIP' : tier.label}
+                </div>
+                {isVip && (
+                  <span style={{
+                    fontSize: 8, fontWeight: 900, padding: '2px 6px', borderRadius: 6,
+                    background: 'linear-gradient(135deg,#FFD700,#FFB800)', color: '#1a1000',
+                    letterSpacing: 0.5, textTransform: 'uppercase',
+                  }}>Elite</span>
+                )}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--t2)' }}>
+                Кешбэк {tier.cashback} · {isVip ? 'Все привилегии' : tier.perk}
+              </div>
+            </div>
+          </div>
+          <div style={{
+            textAlign: 'right', padding: '6px 10px', borderRadius: 12,
+            background: 'rgba(0,0,0,.25)', border: `1px solid ${theme.border}`,
+          }}>
+            <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: 'var(--t1)', lineHeight: 1.1 }}>
+              {spent.toLocaleString()} <span style={{ fontSize: 9, color: theme.accent }}>ЅМ</span>
+            </div>
+            <div style={{ fontSize: 8, color: 'var(--t3)', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>покупок</div>
+          </div>
+        </div>
+
+        {nextTier && !isVip ? (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: 'var(--t2)' }}>Прогресс до {nextTier.emoji} {nextTier.label}</span>
+              <span className="ub" style={{ fontSize: 10, fontWeight: 800, color: theme.accent }}>{progressPct}%</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 4, background: 'rgba(0,0,0,.35)', overflow: 'hidden', position: 'relative', border: `1px solid ${theme.border}` }}>
+              <div style={{
+                height: '100%', width: `${progressPct}%`, borderRadius: 4,
+                background: theme.rail, transition: 'width .6s cubic-bezier(.16,1,.3,1)',
+                position: 'relative', overflow: 'hidden',
+              }}>
+                <div style={{
+                  position: 'absolute', inset: 0, width: '50%',
+                  background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent)',
+                  animation: 'progressShine 2s ease-in-out infinite',
+                }} />
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--t2)', marginTop: 6 }}>
+              Ещё <span style={{ fontWeight: 800, color: 'var(--gr)' }}>{remaining.toLocaleString()} ЅМ</span> до следующего уровня
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            fontSize: 11, fontWeight: 700, marginBottom: 14, padding: '8px 12px', borderRadius: 10,
+            background: `linear-gradient(90deg,${theme.accent}18,transparent)`,
+            border: `1px solid ${theme.border}`, color: theme.accent,
+          }}>
+            {isVip ? '✨ VIP-статус активен — максимальные привилегии' : `✨ Максимальный уровень ${tier.label}`}
+          </div>
+        )}
+
+        <div style={{ position: 'relative', marginBottom: 14, padding: '0 2px' }}>
+          <div style={{ position: 'absolute', top: 18, left: '10%', right: '10%', height: 3, borderRadius: 2, background: 'rgba(0,0,0,.4)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${overallPct}%`, background: theme.rail, borderRadius: 2, transition: 'width .6s ease' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
+            {LOYALTY_TIERS.map((t, i) => {
+              const reached = spent >= t.minSpent
+              const active = t.id === tier.id && !isVip
+              const vipActive = isVip && i === LOYALTY_TIERS.length - 1
+              const nodeColor = vipActive ? TIER_THEMES.vip.accent : (reached ? t.color : 'var(--b2)')
+              return (
+                <div key={t.id} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+                  <div
+                    className={active || vipActive ? 'loyalty-tier-node-active' : undefined}
+                    style={{
+                      width: active || vipActive ? 36 : 30,
+                      height: active || vipActive ? 36 : 30,
+                      borderRadius: '50%',
+                      margin: '0 auto 6px',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: active || vipActive ? 16 : 13,
+                      background: reached || vipActive
+                        ? `linear-gradient(135deg,${nodeColor}44,${nodeColor}18)`
+                        : 'var(--l3)',
+                      border: `2px solid ${reached || vipActive ? nodeColor : 'var(--b1)'}`,
+                      boxShadow: active || vipActive ? `0 0 16px ${nodeColor}66` : reached ? `0 0 8px ${nodeColor}33` : 'none',
+                      transition: 'all .35s ease',
+                      ['--tier-glow' as string]: `${nodeColor}44`,
+                    }}
+                  >
+                    {vipActive ? '👑' : reached && !active ? '✓' : t.emoji}
+                  </div>
+                  <div style={{
+                    fontSize: 8, fontWeight: active || vipActive ? 900 : 600,
+                    color: active || vipActive ? (vipActive ? TIER_THEMES.vip.accent : t.color) : reached ? 'var(--t2)' : 'var(--t3)',
+                    overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>{t.label}</div>
+                  <div style={{ fontSize: 7, color: 'var(--t3)', marginTop: 1 }}>{t.minSpent > 0 ? t.minSpent : '0'}</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div
+          onClick={onVip}
+          style={{
+            padding: isVip ? '14px 14px' : '12px 12px',
+            borderRadius: 14,
+            cursor: 'pointer',
+            position: 'relative',
+            overflow: 'hidden',
+            background: isVip
+              ? 'linear-gradient(135deg,rgba(255,184,0,.22),rgba(255,140,0,.08),rgba(255,184,0,.15))'
+              : 'rgba(0,0,0,.28)',
+            border: isVip ? '1.5px solid rgba(255,184,0,.55)' : `1px solid ${theme.border}`,
+            boxShadow: isVip ? '0 4px 24px rgba(255,184,0,.2), inset 0 1px 0 rgba(255,220,100,.15)' : 'none',
+            transition: 'all .3s ease',
+          }}
+        >
+          {isVip && <div className="loyalty-vip-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />}
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isVip ? 10 : 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: 8,
+                  background: isVip ? 'linear-gradient(135deg,#FFD700,#FFB800)' : 'rgba(255,184,0,.12)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: isVip ? '0 0 12px rgba(255,184,0,.5)' : 'none',
+                }}>
+                  <Ic n="crown" s={14} c={isVip ? '#1a1000' : 'var(--gd)'} />
+                </div>
+                <div>
+                  <span className="ub" style={{ fontSize: 13, fontWeight: 900, color: isVip ? '#FFD700' : 'var(--t1)', display: 'block' }}>
+                    {isVip ? 'VIP MEMBER' : 'Путь к VIP'}
+                  </span>
+                  {isVip && adminVip && (
+                    <span style={{ fontSize: 9, color: 'rgba(255,184,0,.75)', fontWeight: 600 }}>Назначен администратором</span>
+                  )}
+                </div>
+              </div>
+              <div style={{
+                padding: '4px 10px', borderRadius: 20,
+                background: isVip ? 'rgba(255,184,0,.25)' : 'rgba(255,255,255,.06)',
+                border: `1px solid ${isVip ? 'rgba(255,184,0,.4)' : 'var(--b1)'}`,
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 900, color: isVip ? '#FFD700' : 'var(--t3)' }}>
+                  {isVip ? '★ VIP ★' : `${vipDoneCount}/3`}
+                </span>
+              </div>
+            </div>
+            {!isVip && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                {vipSteps.map(step => {
+                  const pct = step.done ? 100 : (() => {
+                    const parts = step.progress.split('/')
+                    if (parts.length !== 2) return 0
+                    const cur = parseInt(parts[0].replace(/[^\d]/g, ''), 10) || 0
+                    const tot = parseInt(parts[1].replace(/[^\d]/g, ''), 10) || 1
+                    return (cur / tot) * 100
+                  })()
+                  return (
+                    <div key={step.id} style={{
+                      flex: 1, padding: '8px 4px', borderRadius: 10, textAlign: 'center',
+                      background: step.done ? 'rgba(31,215,96,.12)' : 'rgba(0,0,0,.2)',
+                      border: `1px solid ${step.done ? 'rgba(31,215,96,.35)' : 'var(--b1)'}`,
+                      position: 'relative', overflow: 'hidden',
+                    }}>
+                      {!step.done && (
+                        <div style={{ position: 'absolute', bottom: 0, left: 0, height: 2, width: `${Math.min(100, pct || 0)}%`, background: 'var(--gr)', borderRadius: 1, transition: 'width .4s ease' }} />
+                      )}
+                      <div style={{ fontSize: 9, fontWeight: 700, color: step.done ? 'var(--gr)' : 'var(--t3)', marginBottom: 3 }}>{step.label}</div>
+                      <div style={{ fontSize: 9, fontWeight: 800, color: step.done ? 'var(--gr)' : 'var(--t2)' }}>{step.done ? '✓ Готово' : step.progress}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {isVip && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {['🚀 Приоритет', '💳 Кредит', '🎁 Акции', '🌿 Доставка'].map((p, i) => (
+                  <div key={i} style={{
+                    flex: 1, fontSize: 8, fontWeight: 700, textAlign: 'center', padding: '6px 2px',
+                    borderRadius: 8, color: 'rgba(255,220,100,.9)',
+                    background: 'rgba(0,0,0,.25)', border: '1px solid rgba(255,184,0,.2)',
+                  }}>{p}</div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1699,6 +1895,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
 
   const lc = loyalty.tier.color;
   const levelLabel = loyalty.tier.label;
+  const profileTheme = loyalty.isVip ? TIER_THEMES.vip : (TIER_THEMES[loyalty.tier.id] || TIER_THEMES.bronze);
 
   const menuItems = [
     {
@@ -1749,13 +1946,38 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
       </header>
 
       <div style={{ padding:"16px 18px 110px" }}>
-        <div className="card" style={{ padding:"16px", marginBottom:14, background:"linear-gradient(145deg,var(--l2) 0%,var(--l1) 100%)" }}>
+        <div className="card" style={{
+          padding:"16px", marginBottom:14,
+          background: profileTheme.bg,
+          border: `1.5px solid ${profileTheme.border}`,
+          boxShadow: loyalty.isVip ? `0 6px 28px ${profileTheme.glow}` : `0 2px 16px ${profileTheme.glow}`,
+          transition: 'all .4s ease',
+        }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
-            <div style={{ width:56, height:56, borderRadius:16, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:22, fontWeight:900, color:"var(--bg)", flexShrink:0, boxShadow:"0 4px 16px rgba(31,215,96,.3)" }}>
-              {user.name.charAt(0)}
+            <div style={{
+              width:56, height:56, borderRadius:16, flexShrink:0, position:'relative',
+              background: loyalty.isVip
+                ? 'linear-gradient(135deg,#FFD700,#FFB800,#E89E00)'
+                : `linear-gradient(135deg,${profileTheme.accent},${profileTheme.accent}99)`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              boxShadow: loyalty.isVip ? '0 4px 20px rgba(255,184,0,.45)' : `0 4px 16px ${profileTheme.glow}`,
+            }}>
+              <span style={{ fontFamily:"Unbounded", fontSize:22, fontWeight:900, color: loyalty.isVip ? '#1a1000' : 'var(--bg)' }}>
+                {user.name.charAt(0)}
+              </span>
+              {loyalty.isVip && (
+                <div style={{
+                  position:'absolute', top:-4, right:-4, width:22, height:22, borderRadius:8,
+                  background:'linear-gradient(135deg,#FFD700,#FFB800)', border:'2px solid var(--bg)',
+                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:11,
+                  boxShadow:'0 2px 8px rgba(255,184,0,.5)', animation:'crownFloat 2.5s ease-in-out infinite',
+                }}>👑</div>
+              )}
             </div>
             <div style={{ flex:1, minWidth:0 }}>
-              <div className="ub" style={{ fontSize:15, fontWeight:900, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
+                <div className="ub" style={{ fontSize:15, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
+              </div>
               <div style={{ fontSize:12, color:"var(--t2)", marginBottom: user.card ? 2 : 5 }}>{user.phone}</div>
               {user.card && (
                 <div style={{ fontSize:11, color:"var(--t3)", marginBottom:5, display:"flex", alignItems:"center", gap:4 }}>
@@ -1763,7 +1985,15 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
                   {user.card}
                 </div>
               )}
-              <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20, background:`${lc}18`, color:lc, border:`1px solid ${lc}35` }}>{loyalty.tier.emoji} {levelLabel}</span>
+              <span style={{
+                fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20, display:'inline-flex', alignItems:'center', gap:4,
+                background: loyalty.isVip ? 'linear-gradient(135deg,rgba(255,184,0,.25),rgba(255,140,0,.12))' : `${lc}18`,
+                color: loyalty.isVip ? '#FFD700' : lc,
+                border: loyalty.isVip ? '1px solid rgba(255,184,0,.5)' : `1px solid ${lc}35`,
+                boxShadow: loyalty.isVip ? '0 0 12px rgba(255,184,0,.25)' : 'none',
+              }}>
+                {loyalty.isVip ? '👑 VIP' : loyalty.tier.emoji} {loyalty.isVip ? 'Elite' : levelLabel}
+              </span>
             </div>
           </div>
           <div style={{ display:"flex", gap:8 }}>
