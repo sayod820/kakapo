@@ -10,6 +10,9 @@ import { enrichRestaurants } from '@/lib/enrichCatalog'
 import { api } from '@/lib/api'
 import type { Review } from '@/lib/types'
 import Link from 'next/link'
+import RestaurantLoginPage from '@/components/restaurant/RestaurantLoginPage'
+import { loadRestaurantSession, clearRestaurantSession, saveRestaurantSession, type RestaurantSession } from '@/lib/restaurantSession'
+import type { RestaurantLoginProfile } from '@/lib/restaurantTeam'
 // ─── КАКАПО Restaurant App ───────────────────────
 /* ══════════════════════════════════════════════════════
    КАКАПО RESTAURANT — Приложение для партнёров
@@ -116,6 +119,7 @@ function RestaurantAppInner() {
   const apiRests = useRestaurants(s => s.restaurants);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
+  const [session, setSession] = useState<RestaurantSession | null>(() => loadRestaurantSession());
   const [rest, setRest] = useState<(typeof DEMO_RESTAURANTS)[0] | null>(null);
   const [menu, setMenu] = useState<(typeof DEMO_RESTAURANTS)[0]['menu']>([]);
   const orders = useMemo(
@@ -135,6 +139,36 @@ function RestaurantAppInner() {
   };
 
   const isOpen = rest ? (typeof rest.open === 'boolean' ? rest.open : (rest.isOpen ?? true)) : true;
+
+  const loginRestaurants = useMemo((): RestaurantLoginProfile[] => {
+    const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
+    return enriched
+      .filter(r => r.phone)
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone,
+        emoji: r.emoji || '🍽',
+        blocked: false,
+        otp: '1234',
+      }));
+  }, [apiRests]);
+
+  const applyRestaurant = useCallback((found: (typeof DEMO_RESTAURANTS)[0]) => {
+    setRest(found);
+    setMenu(found.menu);
+  }, []);
+
+  useEffect(() => {
+    if (!session || rest) return;
+    const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
+    const found = enriched.find(r => r.id === session.restId);
+    if (found) applyRestaurant(found);
+    else {
+      clearRestaurantSession();
+      setSession(null);
+    }
+  }, [session, apiRests, rest, applyRestaurant]);
 
   const toggleOpen = useCallback(async () => {
     if (!rest?.id) return;
@@ -156,22 +190,20 @@ function RestaurantAppInner() {
     }
   }, [apiRests, rest?.id]);
 
-  const onLogin = (email: string, pass: string) => {
+  const onLoginSuccess = (s: RestaurantSession) => {
+    saveRestaurantSession(s);
+    setSession(s);
     const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
-    const found = enriched.find(r =>
-      String(r.email || '').toLowerCase() === email.toLowerCase().trim()
-      && (r.pass === pass || (r as { pass?: string }).pass === pass)
-    ) || DEMO_RESTAURANTS.find(r =>
-      r.email.toLowerCase() === email.toLowerCase().trim() && r.pass === pass
-    );
-    if (!found) return false;
-    setRest(found);
-    setMenu(found.menu);
-    setPage('dashboard');
-    return true;
+    const found = enriched.find(r => r.id === s.restId);
+    if (found) {
+      applyRestaurant(found);
+      setPage('dashboard');
+    }
   };
 
   const logout = () => {
+    clearRestaurantSession();
+    setSession(null);
     setRest(null);
     setMenu([]);
   };
@@ -267,7 +299,7 @@ function RestaurantAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <LoginPage onLogin={onLogin} />
+        <RestaurantLoginPage restaurants={loginRestaurants} onSuccess={onLoginSuccess} />
       </>
     );
   }
@@ -332,62 +364,6 @@ function RestaurantAppInner() {
         {page==='reviews'   && <ReviewsPage   rest={rest} reviews={reviews} reviewBadge={unseenReviews} onRefresh={loadReviews} onPage={setPage} onMarkSeen={async (id) => { if (USE_API) await api.updateReview(id, { restSeen: true }); setReviews(rs => rs.map(r => r.id === id ? { ...r, restSeen: true } : r)); }}/>}
         {page==='stats'     && <StatsPage     rest={rest} orders={orders} reviewBadge={unseenReviews} onPage={setPage}/>}
         {page==='settings'  && <SettingsPage  rest={rest} isOpen={isOpen} reviewBadge={unseenReviews} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout}/>}
-      </div>
-    </>
-  );
-}
-
-/* ══════════════════════════════════════════════════════
-   LOGIN
-══════════════════════════════════════════════════════ */
-function LoginPage({onLogin}) {
-  const [email, setEmail] = useState('');
-  const [pass,  setPass]  = useState('');
-  const [err,   setErr]   = useState('');
-  const [load,  setLoad]  = useState(false);
-
-  const submit = (e) => {
-    e.preventDefault(); setErr('');
-    if(!email||!pass){setErr('Заполните все поля');return;}
-    setLoad(true);
-    setTimeout(() => {
-      const ok = onLogin(email, pass);
-      if(!ok){setErr('Неверный email или пароль');}
-      setLoad(false);
-    },900);
-  };
-
-  return (
-    <>
-      <style>{CSS}</style>
-      <div style={{minHeight:'100vh',background:'#030B05',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24,maxWidth:480,margin:'0 auto'}}>
-        <div style={{textAlign:'center',marginBottom:32}}>
-          <div style={{width:72,height:72,borderRadius:22,background:'linear-gradient(135deg,#0F3020,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:36,margin:'0 auto 14px',animation:'glow 3s ease-in-out infinite',boxShadow:'0 8px 28px rgba(31,215,96,.4)'}}>🍽</div>
-          <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,background:'linear-gradient(135deg,#1FD760,#FFB800)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text',marginBottom:4}}>КАКАПО Ресторан</div>
-          <div style={{fontSize:12,color:'#8FB897'}}>Кабинет партнёра · г. Яван</div>
-        </div>
-
-        <div style={{width:'100%',maxWidth:380,background:'#091508',border:'1px solid #162B1A',borderRadius:22,padding:26}}>
-          <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:800,marginBottom:18}}>Войти в кабинет</div>
-          {err&&<div style={{padding:'10px 13px',borderRadius:11,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545',marginBottom:14}}>⚠️ {err}</div>}
-          <form onSubmit={submit} style={{display:'flex',flexDirection:'column',gap:13}}>
-            <div>
-              <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Email</div>
-              <input className="inp" value={email} onChange={e=>{setEmail(e.target.value);setErr('');}} type="email" placeholder="your@restaurant.tj" autoComplete="email"/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Пароль</div>
-              <input className="inp" value={pass} onChange={e=>{setPass(e.target.value);setErr('');}} type="password" placeholder="••••••••" autoComplete="current-password"/>
-            </div>
-            <div style={{padding:'10px 13px',borderRadius:10,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',fontSize:12,color:'#8FB897'}}>
-              💡 <span style={{color:'#FFB800',fontWeight:700}}>chaihona@kakapo.tj</span> / <span style={{color:'#FFB800',fontWeight:700}}>rest123</span>
-            </div>
-            <button type="submit" className="btn" style={{padding:14,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-              {load?<div style={{width:20,height:20,borderRadius:'50%',border:'2.5px solid rgba(3,11,5,.3)',borderTopColor:'#030B05',animation:'spin 1s linear infinite'}}/>:'🔑 Войти'}
-            </button>
-          </form>
-        </div>
-        <div style={{marginTop:20,fontSize:11,color:'#3D6645',textAlign:'center'}}>КАКАПО Restaurant v1.0 · Только для партнёров</div>
       </div>
     </>
   );
