@@ -14,7 +14,8 @@ import { mapOrdersForClient } from "@/lib/orderUiMap";
 import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
-import { loadStoreUser, saveStoreUser, getActiveClientPhone, findStoreClientByPhone, storeUserFromClient } from "@/lib/clientSession";
+import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
+import { loadStoreUser, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import { phoneDigits } from "@/lib/clientSession";
@@ -1659,18 +1660,6 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
   );
 
   useEffect(() => {
-    if (!user?.phone || !setUser) return
-    findStoreClientByPhone(user.phone).then(c => {
-      if (!c) return
-      const next = storeUserFromClient(c)
-      if (next.vip !== user.vip || next.bonus !== user.bonus || next.level !== user.level) {
-        saveStoreUser(next)
-        setUser(next)
-      }
-    }).catch(() => {})
-  }, [user?.phone])
-
-  useEffect(() => {
     const phone = getActiveClientPhone(user);
     const refreshNotifs = () => setUnreadNotifs(getUnreadNotificationCount(!USE_API, phone));
     refreshNotifs();
@@ -1767,7 +1756,13 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
             </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div className="ub" style={{ fontSize:15, fontWeight:900, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
-              <div style={{ fontSize:12, color:"var(--t2)", marginBottom:5 }}>{user.phone}</div>
+              <div style={{ fontSize:12, color:"var(--t2)", marginBottom: user.card ? 2 : 5 }}>{user.phone}</div>
+              {user.card && (
+                <div style={{ fontSize:11, color:"var(--t3)", marginBottom:5, display:"flex", alignItems:"center", gap:4 }}>
+                  <Ic n="card" s={11} c="var(--t3)"/>
+                  {user.card}
+                </div>
+              )}
               <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20, background:`${lc}18`, color:lc, border:`1px solid ${lc}35` }}>{loyalty.tier.emoji} {levelLabel}</span>
             </div>
           </div>
@@ -2560,12 +2555,17 @@ const FAQPage = ({ go }) => {
 };
 const VIPPage = ({ go, user }) => {
   const [reserveModal, setReserveModal] = useState(false);
-  const creditUsed = 1200, creditLimit = 3000;
-  const creditPct  = Math.round((creditUsed / creditLimit) * 100);
+  const creditUsed = user?.debt ?? 0;
+  const creditLimit = user?.debtLimit ?? 0;
+  const creditPct = creditLimit > 0 ? Math.min(100, Math.round((creditUsed / creditLimit) * 100)) : 0;
+  const tier = LOYALTY_TIERS.find(t => t.id === user?.level) || LOYALTY_TIERS[0];
+  const cardLabel = user?.card
+    ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")
+    : "•••• •••• •••• —";
 
   const PERKS = [
     { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
-    { e:"💳", title:"Покупки в долг",          desc:`Кредитный лимит ${creditLimit.toLocaleString()} ЅМ. Платите потом.`, color:"var(--gd)" },
+    { e:"💳", title:"Покупки в долг",          desc:creditLimit > 0 ? `Кредитный лимит ${creditLimit.toLocaleString()} ЅМ. Платите потом.` : "Кредитный лимит назначается на уровне Platinum.", color:"var(--gd)" },
     { e:"📦", title:"Резерв товаров",           desc:"Зарезервируй нужные товары — они ждут тебя в магазине.", color:"var(--sky)" },
     { e:"👑", title:"Личный менеджер",          desc:"Диловар Р. — ваш персональный менеджер. Всегда на связи.", color:"var(--pur)" },
     { e:"🎁", title:"Закрытые акции",           desc:"Доступ к эксклюзивным VIP предложениям до публикации.", color:"var(--gr)" },
@@ -2593,11 +2593,13 @@ const VIPPage = ({ go, user }) => {
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:17, fontWeight:900 }}>VIP Профиль</div>
-            <div style={{ fontSize:10, color:"var(--gd)", marginTop:1, display:"flex", alignItems:"center", gap:4 }}><Ic n="crown" s={10} c="var(--gd)"/>Platinum · г. Яван</div>
+            <div style={{ fontSize:10, color:"var(--gd)", marginTop:1, display:"flex", alignItems:"center", gap:4 }}><Ic n="crown" s={10} c="var(--gd)"/>{tier.label}{user?.card ? ` · ${user.card}` : ""}</div>
           </div>
+          {user?.vip && (
           <div style={{ padding:"4px 12px", borderRadius:20, background:"linear-gradient(135deg,rgba(255,184,0,.2),rgba(255,184,0,.08))", border:"1px solid rgba(255,184,0,.4)" }}>
             <span className="ub" style={{ fontSize:11, fontWeight:900, color:"var(--gd)" }}>VIP</span>
           </div>
+          )}
         </div>
       </header>
 
@@ -2614,7 +2616,7 @@ const VIPPage = ({ go, user }) => {
                   </div>
                   <div>
                     <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>КАКАПО VIP</div>
-                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)" }}>PLATINUM MEMBER</div>
+                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)" }}>{tier.label.toUpperCase()} MEMBER</div>
                   </div>
                 </div>
               </div>
@@ -2624,7 +2626,7 @@ const VIPPage = ({ go, user }) => {
               </div>
             </div>
             <div className="ub" style={{ fontSize:20, letterSpacing:3, color:"var(--gd)", marginBottom:16, textShadow:"0 2px 12px rgba(255,184,0,.5)" }}>
-              •••• •••• •••• 7654
+              {cardLabel}
             </div>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
               <div>
@@ -2641,9 +2643,9 @@ const VIPPage = ({ go, user }) => {
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
           {[
-            { l:"Заказов",   v:"124",   c:"var(--gr)" },
-            { l:"Сэкономил", v:"890 ЅМ",c:"var(--blue)" },
-            { l:"Бонусов",   v:"8 900", c:"var(--gd)" },
+            { l:"Бонусов",   v:(user?.bonus ?? 0).toLocaleString(), c:"var(--gd)" },
+            { l:"Долг",      v:`${creditUsed.toLocaleString()} ЅМ`, c: creditUsed > 0 ? "var(--red)" : "var(--gr)" },
+            { l:"Лимит",     v:`${creditLimit.toLocaleString()} ЅМ`, c:"var(--blue)" },
           ].map((s,i) => (
             <div key={i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 10px", textAlign:"center" }}>
               <div className="ub" style={{ fontSize:15, fontWeight:900, color:s.c, marginBottom:3 }}>{s.v}</div>
@@ -2655,8 +2657,9 @@ const VIPPage = ({ go, user }) => {
         <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
             <div className="ub" style={{ fontSize:14, fontWeight:800 }}>💳 Кредитный лимит</div>
-            <span className="bdg b-gd">Активен</span>
+            <span className="bdg b-gd">{creditLimit > 0 ? (creditUsed >= creditLimit ? "Исчерпан" : "Активен") : "Не назначен"}</span>
           </div>
+          {creditLimit > 0 ? (<>
           <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
             <span style={{ fontSize:12, color:"var(--t2)" }}>Использовано</span>
             <span className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--red)" }}>{creditUsed.toLocaleString()} ЅМ</span>
@@ -2682,9 +2685,12 @@ const VIPPage = ({ go, user }) => {
               </div>
             ))}
           </div>
-          <button className="btn" style={{ width:"100%", marginTop:14, padding:"12px", borderRadius:13, background:"linear-gradient(135deg,var(--gd2),var(--gd))", color:"var(--bg)", fontSize:13, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
-            <Ic n="card" s={16} c="var(--bg)"/>Погасить долг — {creditUsed.toLocaleString()} ЅМ
+          <button className="btn" style={{ width:"100%", marginTop:14, padding:"12px", borderRadius:13, background:"linear-gradient(135deg,var(--gd2),var(--gd))", color:"var(--bg)", fontSize:13, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:7, opacity: creditUsed > 0 ? 1 : 0.5 }}>
+            <Ic n="card" s={16} c="var(--bg)"/>{creditUsed > 0 ? `Погасить долг — ${creditUsed.toLocaleString()} ЅМ` : "Долга нет"}
           </button>
+          </>) : (
+            <div style={{ fontSize:12, color:"var(--t3)", lineHeight:1.6 }}>Кредитный лимит назначается администратором в разделе «Карты».</div>
+          )}
         </div>
 
         <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
@@ -6783,6 +6789,7 @@ function KakapoAppInner() {
 
   useClientReviewNotifSync(user);
   useClientNotificationSync(user);
+  useStoreProfileSync(user, setUser);
 
   useEffect(() => {
     hydrateCourierStores();

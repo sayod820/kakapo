@@ -1,8 +1,7 @@
 'use client'
 
-import { api } from './api'
-import { USE_API } from './config'
-import { normalizePhone, phonesMatch, DEFAULT_ADMIN_CLIENTS, type AdminClient } from './clientCrm'
+import { normalizePhone, type AdminClient } from './clientCrm'
+import { crmToStoreUser, findMergedClientByPhone } from './clientProfileSync'
 
 export type StoreUser = {
   name: string
@@ -13,11 +12,14 @@ export type StoreUser = {
   email?: string
   addr?: string
   vip?: boolean
+  card?: string
+  debt?: number
+  debtLimit?: number
+  blocked?: boolean
 }
 
 const USER_KEY = 'kakapo_store_user'
 const PHONE_KEY = 'kakapo_client_phone'
-const CLIENTS_KEY = 'kakapo-clients'
 
 export function phoneDigits(v: string) {
   return normalizePhone(v)
@@ -29,28 +31,8 @@ export function formatTjPhone(raw: string): string {
   return `+992 ${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5, 7)} ${d.slice(7, 9)}`
 }
 
-function loadStoredClients(): AdminClient[] {
-  if (typeof window === 'undefined') return DEFAULT_ADMIN_CLIENTS
-  try {
-    const raw = localStorage.getItem(CLIENTS_KEY)
-    if (!raw) return DEFAULT_ADMIN_CLIENTS
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_ADMIN_CLIENTS
-    return parsed as AdminClient[]
-  } catch {
-    return DEFAULT_ADMIN_CLIENTS
-  }
-}
-
 export async function findStoreClientByPhone(phone: string): Promise<AdminClient | null> {
-  if (USE_API) {
-    try {
-      const clients = await api.getClients()
-      const match = clients.find(c => phonesMatch(c.phone, phone))
-      if (match) return match
-    } catch { /* local fallback */ }
-  }
-  return loadStoredClients().find(c => phonesMatch(c.phone, phone)) || null
+  return findMergedClientByPhone(phone)
 }
 
 export function loadStoreUser(): StoreUser | null {
@@ -80,16 +62,7 @@ export function saveStoreUser(user: StoreUser | null) {
 }
 
 export function storeUserFromClient(c: AdminClient): StoreUser {
-  return {
-    name: c.name,
-    phone: c.phone,
-    level: c.level,
-    bonus: c.bonus,
-    clientId: c.id,
-    email: c.email || '',
-    addr: c.addr || '',
-    vip: !!c.vip,
-  }
+  return crmToStoreUser(c)
 }
 
 export async function resolveStoreUserByPhone(phone: string, fallbackName?: string): Promise<StoreUser> {
