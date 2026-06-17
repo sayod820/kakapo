@@ -14,7 +14,7 @@ import { mapOrdersForClient } from "@/lib/orderUiMap";
 import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
-import { loadStoreUser, resolveStoreUserByPhone, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
+import { loadStoreUser, resolveStoreUserByPhone, saveStoreUser, getActiveClientPhone, storeUserFromClient } from "@/lib/clientSession";
 import { loadClientReviewMap, phoneDigits } from "@/lib/clientReviews";
 import {
   getUnreadNotificationCount,
@@ -1483,6 +1483,7 @@ const AuthPage = ({ go, setUser }) => {
   const [otp,   setOtp]    = useState(["","","",""]);
   const [uname, setUname]  = useState("");
   const [loading, setLoad] = useState(false);
+  const [err, setErr] = useState("");
   const refs = [useRef(),useRef(),useRef(),useRef()];
 
   const [cd, setCd] = useState(30);
@@ -1493,13 +1494,47 @@ const AuthPage = ({ go, setUser }) => {
     return () => clearInterval(t);
   }, [step]);
 
-  const sendOtp = () => { if (!phone.trim()) return; setLoad(true); setTimeout(() => { setLoad(false); setStep("otp"); }, 1100); };
-  const verifyOtp = () => {
+  const sendOtp = async () => {
+    if (!phone.trim()) { setErr("Введите номер телефона"); return; }
+    setErr("");
+    setLoad(true);
+    try {
+      if (USE_API) await api.sendOTP(phone, "client");
+      setStep("otp");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Не удалось отправить SMS");
+    } finally {
+      setLoad(false);
+    }
+  };
+
+  const verifyOtp = async () => {
     const code = otp.join("");
     if (code.length < 4) return;
+    setErr("");
     setLoad(true);
-    setTimeout(async () => {
-      setLoad(false);
+    try {
+      if (USE_API) {
+        if (mode === "register") {
+          if (code !== "1234") {
+            try { await api.verifyOTP(phone, code, "client"); } catch {
+              setErr("Неверный код · Демо: 1234");
+              setOtp(["","","",""]);
+              refs[0].current?.focus();
+              return;
+            }
+          }
+          setStep("name");
+          return;
+        }
+        const r = await api.verifyOTP(phone, code, "client");
+        const resolved = await resolveStoreUserByPhone(phone, r.name);
+        const user = { ...resolved, name: r.name, clientId: String(r.user_id) };
+        saveStoreUser(user);
+        setUser(user);
+        go("profile");
+        return;
+      }
       if (code === "1234") {
         if (mode === "register") setStep("name");
         else {
@@ -1508,9 +1543,20 @@ const AuthPage = ({ go, setUser }) => {
           setUser(resolved);
           go("profile");
         }
-      } else { setOtp(["","","",""]); refs[0].current?.focus(); }
-    }, 900);
+      } else {
+        setErr("Неверный код · Демо: 1234");
+        setOtp(["","","",""]);
+        refs[0].current?.focus();
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Неверный код");
+      setOtp(["","","",""]);
+      refs[0].current?.focus();
+    } finally {
+      setLoad(false);
+    }
   };
+
   const handleOtp = (i, v) => {
     const d = [...otp]; d[i] = v.replace(/\D/,"").slice(-1); setOtp(d);
     if (v && i < 3) refs[i+1].current?.focus();
@@ -1518,16 +1564,32 @@ const AuthPage = ({ go, setUser }) => {
   const handleKey = (i, e) => {
     if (e.key==="Backspace" && !otp[i] && i>0) { refs[i-1].current?.focus(); const d=[...otp]; d[i-1]=""; setOtp(d); }
   };
-  const saveName = () => {
+  const saveName = async () => {
     if (!uname.trim()) return;
+    setErr("");
     setLoad(true);
-    setTimeout(async () => {
-      setLoad(false);
+    try {
+      const fullPhone = phone.includes("+") ? phone : `+992 ${phone}`.trim();
+      if (USE_API) {
+        try {
+          const created = await api.createClient({ name: uname.trim(), phone: fullPhone });
+          const user = storeUserFromClient(created);
+          saveStoreUser(user);
+          setUser(user);
+          go("profile");
+          return;
+        } catch {
+          setErr("Не удалось создать аккаунт");
+          return;
+        }
+      }
       const resolved = await resolveStoreUserByPhone(phone, uname.trim());
       saveStoreUser({ ...resolved, name: uname.trim() });
       setUser({ ...resolved, name: uname.trim() });
       go("profile");
-    }, 800);
+    } finally {
+      setLoad(false);
+    }
   };
 
   const Spinner = () => <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/>;
@@ -1567,6 +1629,7 @@ const AuthPage = ({ go, setUser }) => {
         <div className="ub" style={{ fontSize:21, fontWeight:900, marginBottom:6 }}>Введите код</div>
         <div style={{ fontSize:13, color:"var(--t2)" }}>Отправили на <span style={{ color:"var(--gr)", fontWeight:700 }}>+992 {phone}</span></div>
       </div>
+      {err && <div style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'var(--red)', marginBottom:14, textAlign:'center' }}>⚠️ {err}</div>}
       <div style={{ display:"flex", gap:10, justifyContent:"center", marginBottom:10 }}>
         {otp.map((v,i) => (
           <input key={i} ref={refs[i]} value={v} onChange={e => handleOtp(i, e.target.value)} onKeyDown={e => handleKey(i, e)} maxLength={1} inputMode="numeric"
@@ -1599,6 +1662,7 @@ const AuthPage = ({ go, setUser }) => {
       </div>
       <div className="ub" style={{ fontSize:20, fontWeight:900, marginBottom:6 }}>{mode==="login"?"Добро пожаловать!":"Создать аккаунт"}</div>
       <div style={{ fontSize:13, color:"var(--t2)", marginBottom:22, lineHeight:1.6 }}>{mode==="login"?"Введите номер — пришлём SMS с кодом":"Создайте аккаунт KAKAPO Club"}</div>
+      {err && <div style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'var(--red)', marginBottom:14 }}>⚠️ {err}</div>}
       <div style={{ marginBottom:mode==="register"?14:20 }}>
         <div style={{ fontSize:11, color:"var(--t2)", marginBottom:7, fontWeight:700 }}>Номер телефона</div>
         <div style={{ position:"relative" }}>
@@ -4332,82 +4396,18 @@ const AdminClientsPage = ({go}) => {
     </AdminWrap>
   );
 };
-const CourierLoginPage = ({go}) => {
-  const [phone, setPhone] = useState('');
-  const [otp,   setOtp]   = useState(['','','','']);
-  const [step,  setStep]  = useState('phone');
-  const [load,  setLoad]  = useState(false);
-  const [err,   setErr]   = useState('');
-
-  const sendOtp = () => {
-    if (!phone.trim()) { setErr('Введите номер'); return; }
-    setLoad(true);
-    setTimeout(() => { setLoad(false); setStep('otp'); setErr(''); }, 900);
-  };
-  const verify = () => {
-    const code = otp.join('');
-    if (code.length < 4) return;
-    setLoad(true);
-    setTimeout(() => {
-      setLoad(false);
-      if (code === '1234') { window.location.href = '/courier'; return; }
-      else { setErr('Неверный код. Демо: 1234'); setOtp(['','','','']); }
-    }, 800);
-  };
-
+const StaffAppRedirect = ({ href, label }) => {
+  useEffect(() => { window.location.href = href; }, [href]);
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24}}>
-      <button onClick={()=>go('home')} className="btn" style={{position:'absolute',top:18,left:18,width:40,height:40,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-        <Ic n="arrL" s={17} c="var(--t2)"/>
-      </button>
-      <div style={{textAlign:'center',marginBottom:28}}>
-        <div style={{fontSize:52,marginBottom:14}}>🛵</div>
-        <div className="ub" style={{fontSize:20,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Курьер KAKAPO</div>
-        <div style={{fontSize:12,color:'var(--t2)'}}>г. Яван, Таджикистан</div>
-      </div>
-      <div style={{width:'100%',maxWidth:360,background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:20,padding:24}}>
-        {err&&<div style={{padding:'9px 12px',borderRadius:10,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'var(--red)',marginBottom:14}}>⚠️ {err}</div>}
-        {step==='phone' ? (
-          <>
-            <div className="ub" style={{fontSize:15,fontWeight:800,marginBottom:16}}>Вход для курьера</div>
-            <div style={{position:'relative',marginBottom:12}}>
-              <div style={{position:'absolute',left:13,top:'50%',transform:'translateY(-50%)',display:'flex',alignItems:'center',gap:7,pointerEvents:'none',zIndex:2}}>
-                <span style={{fontSize:18}}>🇹🇯</span>
-                <span style={{fontSize:14,fontWeight:700,color:'var(--t2)'}}>+992</span>
-                <div style={{width:1,height:16,background:'var(--b1)'}}/>
-              </div>
-              <input className="inp" value={phone} onChange={e=>{setPhone(e.target.value);setErr('');}} placeholder="__ ___ __ __" type="tel" inputMode="numeric" style={{paddingLeft:88,width:'100%',fontSize:16}}/>
-            </div>
-            <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',fontSize:11,color:'var(--t2)',marginBottom:14}}>
-              💡 Демо OTP: <span style={{color:'var(--gd)',fontWeight:700}}>1 2 3 4</span>
-            </div>
-            <button onClick={sendOtp} className="btn" style={{width:'100%',padding:14,borderRadius:14,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-              {load?<div style={{width:18,height:18,borderRadius:'50%',border:'2.5px solid rgba(3,11,5,.3)',borderTopColor:'#030B05',animation:'spin 1s linear infinite'}}/>:'💬 Получить SMS код'}
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={()=>{setStep('phone');setOtp(['','','','']);}} style={{background:'none',border:'none',color:'var(--t2)',fontSize:13,cursor:'pointer',marginBottom:14,fontFamily:'Nunito'}}>← Назад</button>
-            <div className="ub" style={{fontSize:15,fontWeight:800,marginBottom:6}}>Введите код</div>
-            <div style={{fontSize:12,color:'var(--t2)',marginBottom:16}}>Отправили на +992 {phone}</div>
-            <div style={{display:'flex',gap:10,justifyContent:'center',marginBottom:14}}>
-              {otp.map((v,i)=>(
-                <input key={i} id={"cotp"+i} value={v}
-                  onChange={e=>{const d=[...otp];d[i]=e.target.value.replace(/\D/,'').slice(-1);setOtp(d);if(e.target.value&&i<3)document.getElementById("cotp"+(i+1))?.focus();}}
-                  onKeyDown={e=>{if(e.key==='Backspace'&&!v&&i>0){document.getElementById("cotp"+(i-1))?.focus();const d=[...otp];d[i-1]='';setOtp(d);}}}
-                  maxLength={1} inputMode="numeric"
-                  style={{width:52,height:60,borderRadius:14,border:`2px solid ${v?'rgba(31,215,96,.5)':'var(--b1)'}`,background:v?'rgba(31,215,96,.07)':'var(--l3)',textAlign:'center',fontFamily:'Unbounded',fontSize:24,fontWeight:900,color:'var(--t1)',outline:'none'}}/>
-              ))}
-            </div>
-            <button onClick={verify} className="btn" style={{width:'100%',padding:14,borderRadius:14,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8,opacity:otp.join('').length<4?.5:1}}>
-              {load?<div style={{width:18,height:18,borderRadius:'50%',border:'2.5px solid rgba(3,11,5,.3)',borderTopColor:'#030B05',animation:'spin 1s linear infinite'}}/>:'✓ Войти'}
-            </button>
-          </>
-        )}
-      </div>
+    <div style={{ minHeight:'100vh', background:'var(--bg)', maxWidth:480, margin:'0 auto', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div style={{ fontSize:14, color:'var(--t2)' }}>Переход в {label}…</div>
     </div>
   );
 };
+
+const PartnerLoginPage = () => <StaffAppRedirect href="/restaurant" label="кабинет ресторана" />;
+const CourierLoginPage = () => <StaffAppRedirect href="/courier" label="кабинет курьера" />;
+const AssemblerLoginPage = () => <StaffAppRedirect href="/assembler" label="кабинет сборщика" />;
 
 const CourierDashRedirect = () => {
   useEffect(() => { window.location.href = '/courier'; }, []);
@@ -5205,53 +5205,6 @@ const ChatPage = ({go}) => {
     </div>
   );
 };
-const AssemblerLoginPage = ({go}) => {
-  const [pin,  setPin]   = useState(['','','','']);
-  const [load, setLoad]  = useState(false);
-  const [err,  setErr]   = useState('');
-
-  const verify = () => {
-    const code = pin.join('');
-    if(code.length<4) return;
-    setLoad(true);
-    setTimeout(()=>{
-      setLoad(false);
-      if(code==='5678') go('assembler_dash');
-      else {setErr('Неверный PIN. Демо: 5678'); setPin(['','','','']);}
-    },700);
-  };
-
-  return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24}}>
-      <button onClick={()=>go('home')} className="btn" style={{position:'absolute',top:18,left:18,width:40,height:40,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-        <Ic n="arrL" s={17} c="var(--t2)"/>
-      </button>
-      <div style={{textAlign:'center',marginBottom:28}}>
-        <div style={{fontSize:52,marginBottom:14}}>🛒</div>
-        <div className="ub" style={{fontSize:20,fontWeight:900,color:'var(--pur)',marginBottom:4}}>Сборщик KAKAPO</div>
-        <div style={{fontSize:12,color:'var(--t2)'}}>Введите PIN код</div>
-      </div>
-      <div style={{width:'100%',maxWidth:340,background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:20,padding:24}}>
-        {err&&<div style={{padding:'9px 12px',borderRadius:10,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'var(--red)',marginBottom:14}}>⚠️ {err}</div>}
-        <div style={{display:'flex',gap:10,justifyContent:'center',marginBottom:14}}>
-          {pin.map((v,i)=>(
-            <input key={i} id={"apin"+i} value={v} type="password"
-              onChange={e=>{const d=[...pin];d[i]=e.target.value.replace(/\D/,'').slice(-1);setPin(d);if(e.target.value&&i<3)document.getElementById("apin"+(i+1))?.focus();}}
-              onKeyDown={e=>{if(e.key==='Backspace'&&!v&&i>0){document.getElementById("apin"+(i-1))?.focus();const d=[...pin];d[i-1]='';setPin(d);}}}
-              maxLength={1} inputMode="numeric"
-              style={{width:52,height:60,borderRadius:14,border:`2px solid ${v?'rgba(155,109,255,.5)':'var(--b1)'}`,background:v?'rgba(155,109,255,.08)':'var(--l3)',textAlign:'center',fontFamily:'Unbounded',fontSize:24,fontWeight:900,color:'var(--t1)',outline:'none'}}/>
-          ))}
-        </div>
-        <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(155,109,255,.06)',border:'1px solid rgba(155,109,255,.2)',fontSize:11,color:'var(--t2)',marginBottom:14}}>
-          💡 Демо PIN: <span style={{color:'var(--pur)',fontWeight:700}}>5 6 7 8</span>
-        </div>
-        <button onClick={verify} className="btn" style={{width:'100%',padding:14,borderRadius:14,background:'linear-gradient(135deg,#6B3FD4,var(--pur))',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8,opacity:pin.join('').length<4?.5:1}}>
-          {load?<div style={{width:18,height:18,borderRadius:'50%',border:'2.5px solid rgba(255,255,255,.3)',borderTopColor:'white',animation:'spin 1s linear infinite'}}/>:'🛒 Войти'}
-        </button>
-      </div>
-    </div>
-  );
-};
 
 const AssemblerDashPage = ({go}) => {
   const [orders, setOrders] = useState([
@@ -5866,62 +5819,6 @@ const ASSEMBLERS_DATA = [
   {id:'A-03',name:'Мухаббат Алиева',phone:'+992 90 600 55 66',status:'break', ordersToday:7, avgTime:9, rating:4.8},
   {id:'A-04',name:'Зарина Каримова',phone:'+992 88 700 77 88',status:'offline',ordersToday:0, avgTime:0, rating:4.6},
 ];
-
-const PartnerLoginPage = ({go}) => {
-  const [email, setEmail] = useState('');
-  const [pass,  setPass]  = useState('');
-  const [err,   setErr]   = useState('');
-  const [load,  setLoad]  = useState(false);
-
-  const login = (e) => {
-    e.preventDefault(); setErr('');
-    if(!email||!pass){setErr('Заполните поля');return;}
-    setLoad(true);
-    setTimeout(()=>{
-      const user = PARTNER_USERS.find(u=>u.email.toLowerCase()===email.toLowerCase()&&u.pass===pass);
-      if(user){
-        try{localStorage.setItem('kp_partner',JSON.stringify(user));}catch{}
-        go('partner_dash');
-      } else {
-        setErr('Неверный email или пароль');
-      }
-      setLoad(false);
-    },800);
-  };
-
-  return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24}}>
-      <button onClick={()=>go('home')} className="btn" style={{position:'absolute',top:18,left:18,width:40,height:40,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-        <Ic n="arrL" s={17} c="var(--t2)"/>
-      </button>
-      <div style={{textAlign:'center',marginBottom:28}}>
-        <div style={{fontSize:52,marginBottom:14}}>🍽</div>
-        <div className="ub" style={{fontSize:20,fontWeight:900,marginBottom:4}}>Кабинет партнёра</div>
-        <div style={{fontSize:12,color:'var(--t2)'}}>KAKAPO Маркетплейс · г. Яван</div>
-      </div>
-      <div style={{width:'100%',maxWidth:360,background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:20,padding:24}}>
-        {err&&<div style={{padding:'9px 12px',borderRadius:10,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'var(--red)',marginBottom:14}}>⚠️ {err}</div>}
-        <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:16}}>Войти в кабинет</div>
-        <form onSubmit={login} style={{display:'flex',flexDirection:'column',gap:12}}>
-          <div>
-            <div style={{fontSize:11,color:'var(--t2)',marginBottom:5,fontWeight:700}}>Email</div>
-            <input className="inp" value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="your@restaurant.tj"/>
-          </div>
-          <div>
-            <div style={{fontSize:11,color:'var(--t2)',marginBottom:5,fontWeight:700}}>Пароль</div>
-            <input className="inp" value={pass} onChange={e=>setPass(e.target.value)} type="password" placeholder="••••••••"/>
-          </div>
-          <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',fontSize:11,color:'var(--t2)'}}>
-            💡 Демо: <span style={{color:'var(--gd)',fontWeight:700}}>chaihona@kakapo.tj</span> / <span style={{color:'var(--gd)',fontWeight:700}}>rest123</span>
-          </div>
-          <button type="submit" className="btn" style={{padding:13,borderRadius:14,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-            {load?<div style={{width:18,height:18,borderRadius:'50%',border:'2.5px solid rgba(255,255,255,.3)',borderTopColor:'white',animation:'spin 1s linear infinite'}}/>:'🔑 Войти в кабинет'}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-};
 
 const PartnerDashPage = ({go}) => {
   const apiRests = useRestaurants(s => s.restaurants);

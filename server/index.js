@@ -15,6 +15,7 @@ import {
 } from './ordersLogic.js'
 import { creditDeliveredOrder, processPayout, getPendingBalance } from './restaurantStats.js'
 import { lockOrderDeliveryFee } from './deliveryFee.js'
+import { verifyAdminLogin, verifyStaffOtp } from './authLogic.js'
 
 const PORT = Number(process.env.PORT) || 8000
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
@@ -167,16 +168,32 @@ h1{color:#1FD760}a{color:#1FD760}code{background:#0C1C0F;padding:2px 8px;border-
 </body></html>`)
 })
 
-app.post('/auth/otp/send', (_req, res) => res.json({ ok: true, demo: true }))
-app.post('/auth/otp/verify', (req, res) => {
-  if (String(req.body.code) !== '1234') return res.status(400).json({ detail: 'Неверный код · Демо: 1234' })
-  res.json({ access_token: 'demo-client-token', role: 'client', user_id: 1, name: 'Клиент' })
+app.post('/auth/otp/send', (req, res) => {
+  const phone = String(req.body.phone || '').trim()
+  const role = String(req.body.role || 'client')
+  if (!phone) return res.status(400).json({ detail: 'Укажите номер телефона' })
+  res.json({ ok: true, demo: true, role })
 })
+
+app.post('/auth/otp/verify', (req, res) => {
+  const phone = String(req.body.phone || '').trim()
+  const code = String(req.body.code || '')
+  const role = String(req.body.role || 'client')
+  if (!phone) return res.status(400).json({ detail: 'Укажите номер телефона' })
+  const result = verifyStaffOtp(db, phone, code, role)
+  if (result.error) return res.status(result.status || 400).json({ detail: result.error })
+  res.json(result)
+})
+
 app.post('/auth/login', (req, res) => {
-  const email = String(req.body.email || '').toLowerCase().trim()
-  const user = db.users.find(u => u.email === email && u.password === (req.body.password || ''))
+  const user = verifyAdminLogin(db, req.body.email, req.body.password)
   if (!user) return res.status(401).json({ detail: 'Неверный email или пароль' })
-  res.json({ access_token: `token-${user.role}-${user.id}`, role: user.role, user_id: user.id, name: user.name })
+  res.json({
+    access_token: `token-admin-${user.id}`,
+    role: 'admin',
+    user_id: user.id,
+    name: user.name,
+  })
 })
 
 app.get('/products', (_req, res) => res.json(db.products))
@@ -532,6 +549,30 @@ app.patch('/settings/pricing', (req, res) => {
   db.settings.pricing = { ...db.settings.pricing, ...req.body }
   persist()
   res.json(db.settings.pricing)
+})
+
+app.get('/settings/admin', (_req, res) => {
+  const admin = db.settings.admin || {}
+  res.json({
+    email: admin.email || 'admin@kakapo.tj',
+    name: admin.name || 'Владелец KAKAPO',
+    hasPassword: !!admin.password,
+  })
+})
+app.patch('/settings/admin', (req, res) => {
+  if (!db.settings.admin) db.settings.admin = {}
+  const prev = db.settings.admin
+  if (req.body.email != null) prev.email = String(req.body.email).toLowerCase().trim()
+  if (req.body.name != null) prev.name = String(req.body.name)
+  if (req.body.password != null && String(req.body.password).length > 0) {
+    prev.password = String(req.body.password)
+  }
+  persist()
+  res.json({
+    email: prev.email,
+    name: prev.name,
+    hasPassword: !!prev.password,
+  })
 })
 
 app.get('/cards', (_req, res) => res.json(db.cards || []))

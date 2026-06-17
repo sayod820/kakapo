@@ -102,14 +102,22 @@ async function createOrderViaAppRoute(data: unknown): Promise<Order> {
 // ════════════════════════════════════════════════
 export const api = {
   // ── Auth ──
-  sendOTP: (phone: string) =>
+  sendOTP: (phone: string, role = 'client') =>
     request<{ ok: boolean; demo: boolean }>('/auth/otp/send', {
-      method: 'POST', body: JSON.stringify({ phone }),
+      method: 'POST', body: JSON.stringify({ phone, role }),
     }),
 
-  verifyOTP: (phone: string, code: string) =>
-    request<{ access_token: string; role: string; user_id: number; name: string }>('/auth/otp/verify', {
-      method: 'POST', body: JSON.stringify({ phone, code }),
+  verifyOTP: (phone: string, code: string, role = 'client') =>
+    request<{
+      access_token: string
+      role: string
+      user_id: number | string
+      name: string
+      phone?: string
+      staff_id?: string
+      restaurant_id?: string
+    }>('/auth/otp/verify', {
+      method: 'POST', body: JSON.stringify({ phone, code, role }),
     }),
 
   login: (email: string, password: string) =>
@@ -214,6 +222,14 @@ export const api = {
   getPricing: () => request<PricingConfig>('/settings/pricing'),
   updatePricing: (data: Partial<PricingConfig>) =>
     request<PricingConfig>('/settings/pricing', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  getAdminSettings: () =>
+    request<{ email: string; name: string; hasPassword: boolean }>('/settings/admin'),
+
+  updateAdminSettings: (data: { email?: string; name?: string; password?: string }) =>
+    request<{ email: string; name: string; hasPassword: boolean }>('/settings/admin', {
+      method: 'PATCH', body: JSON.stringify(data),
+    }),
 
   // ── Карты ──
   getCards: () => request<AdminCard[]>('/cards'),

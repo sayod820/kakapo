@@ -4,6 +4,9 @@ import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler } from '@/lib/orderUiMap'
 import { getMarketStatus, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { ASSEMBLER_NAME } from '@/lib/courierStats'
+import { useAssemblerTeam } from '@/lib/assemblerTeamStore'
+import PhoneOtpLogin from '@/components/shared/PhoneOtpLogin'
+import { loadStaffSession, clearStaffSession, type StaffSession } from '@/lib/appAuth'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import { useApiSync } from '@/lib/useApiSync'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -98,6 +101,14 @@ export default function AssemblerApp() {
 
 function AssemblerAppInner() {
   useApiSync('assembler');
+  const assemblers = useAssemblerTeam();
+  const [session, setSession] = useState<StaffSession | null>(() => loadStaffSession('assembler'));
+  const assemblerName = session?.name || ASSEMBLER_NAME;
+
+  const logout = () => {
+    clearStaffSession('assembler');
+    setSession(null);
+  };
   const { page, navigate, params } = useAppNavigation('dashboard');
   const setPage = (p: string) => navigate(p);
   const apiOrders = useOrders(s => s.orders);
@@ -150,7 +161,7 @@ function AssemblerAppInner() {
     if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
       await completeMarketPart(orderId);
     } else if (USE_API) {
-      await updateStatus(orderId, 'assembler_done', { assembler: { name: ASSEMBLER_NAME }, marketStatus: 'done' });
+      await updateStatus(orderId, 'assembler_done', { assembler: { name: assemblerName }, marketStatus: 'done' });
     }
     navigate('dashboard');
   };
@@ -162,6 +173,25 @@ function AssemblerAppInner() {
     if (isMixedOrder(order)) return getMarketStatus(order) === 'done'
     return order.type === 'market' && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
   }).length, [apiOrders]);
+
+  if (!session) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <PhoneOtpLogin
+          appTitle="Сборщик KAKAPO"
+          appSubtitle="Вход по номеру телефона · SMS-код"
+          icon="📦"
+          accent="#9B6DFF"
+          gradient="linear-gradient(135deg,#6B3FD4,#9B6DFF)"
+          role="assembler"
+          demoLists={{ assemblers }}
+          demoPhoneHint="+992 93 500 11 22 · Камола"
+          onSuccess={setSession}
+        />
+      </>
+    );
+  }
 
   if (page === 'collect' && activeOrderId) {
     if (!activeOrder) {
@@ -187,7 +217,7 @@ function AssemblerAppInner() {
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
-        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage}/>}
+        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage} assemblerName={assemblerName} onLogout={logout}/>}
         {page==='history'   && <HistoryPage onPage={setPage}/>}
         {page==='stats'     && <StatsPage   onPage={setPage} completed={completedCount}/>}
       </div>
@@ -246,7 +276,7 @@ function BottomNav({page, onPage, newCount}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({orders, completed, onStart, onPage}) {
+function DashboardPage({orders, completed, onStart, onPage, assemblerName = ASSEMBLER.name, onLogout}) {
   const newQueue = orders.filter(o => o.queue === 'new');
   const inProgress = orders.filter(o => o.queue !== 'new');
   const urgentNew = newQueue.filter(o => o.priority === 'urgent');
@@ -344,11 +374,16 @@ function DashboardPage({orders, completed, onStart, onPage}) {
 
   return (
     <div style={{minHeight:'100vh',paddingBottom:90}}>
-      <Header title="Сборщик" sub={`${ASSEMBLER.name} · ${orders.length} заказов`}
+      <Header title="Сборщик" sub={`${assemblerName} · ${orders.length} заказов`}
         right={
-          <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:10,background:'rgba(155,109,255,.1)',border:'1px solid rgba(155,109,255,.25)'}}>
-            <div style={{width:6,height:6,borderRadius:'50%',background:'#9B6DFF',animation:'pulse 2s infinite'}}/>
-            <span style={{fontSize:11,fontWeight:700,color:'#9B6DFF'}}>Онлайн</span>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:10,background:'rgba(155,109,255,.1)',border:'1px solid rgba(155,109,255,.25)'}}>
+              <div style={{width:6,height:6,borderRadius:'50%',background:'#9B6DFF',animation:'pulse 2s infinite'}}/>
+              <span style={{fontSize:11,fontWeight:700,color:'#9B6DFF'}}>Онлайн</span>
+            </div>
+            {onLogout && (
+              <button type="button" onClick={onLogout} className="btn" title="Выйти" style={{width:34,height:34,borderRadius:10,border:'1.5px solid rgba(255,69,69,.35)',background:'rgba(255,69,69,.1)',color:'#FF6969',fontSize:13}}>⎋</button>
+            )}
           </div>
         }
       />

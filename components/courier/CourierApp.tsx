@@ -22,7 +22,9 @@ import {
   deriveCourierProgress,
 } from '@/lib/orderParts'
 import { useApiSync } from '@/lib/useApiSync'
-import { useAppNavigation, readSessionFlag, writeSessionFlag } from '@/lib/useAppNavigation'
+import { useAppNavigation } from '@/lib/useAppNavigation'
+import PhoneOtpLogin from '@/components/shared/PhoneOtpLogin'
+import { loadStaffSession, clearStaffSession } from '@/lib/appAuth'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import type { PickupPoint } from '@/lib/pickups'
 
@@ -521,10 +523,18 @@ function CourierAppInner() {
   const { page: tab, navigate: setTab } = useAppNavigation('orders');
   const TARIFF = useTariff();
   const couriers = useCourierTeam();
+  const [session, setSession] = useState(() => loadStaffSession('courier'));
+
+  const logout = () => {
+    clearStaffSession('courier');
+    setSession(null);
+  };
+  const activePhone = session?.phone || COURIER_PHONE;
   const courierProfile = useMemo(
-    () => resolveCourierProfile(couriers, COURIER_PHONE),
-    [couriers],
+    () => resolveCourierProfile(couriers, activePhone),
+    [couriers, activePhone],
   );
+  const courierDisplayName = session?.name || courierProfile?.name || COURIER_NAME;
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
   const markPickupDone = useOrders(s => s.markPickupDone);
@@ -548,8 +558,6 @@ function CourierAppInner() {
   const pickupsList = usePickups();
   const pickupLocations = usePickupLocations();
   const PICKUPS = buildPickupsMap(pickupsList);
-  const [logged,    setLogged]    = useState(() => readSessionFlag('courier'));
-  useEffect(() => { writeSessionFlag('courier', logged); }, [logged]);
   const { pos: courierPos, loading: locationLoading, error: locationError, enable: enableLocation, disable: disableLocation, enabled: locationEnabled } = useCourierLocation();
   const [status,    setStatus]    = useState('available');
   const [selected,  setSelected]  = useState<any>(null);
@@ -596,16 +604,13 @@ function CourierAppInner() {
     const extra = myActiveOrders.filter(o => !MAP_ORDERS.some(m => m.id === o.id))
     return extra.length ? [...MAP_ORDERS, ...extra] : MAP_ORDERS
   }, [MAP_ORDERS, myActiveOrders]);
-  const { roadKm, loading: kmLoading } = useOrderRoadKm(ordersForRoadKm, logged);
+  const { roadKm, loading: kmLoading } = useOrderRoadKm(ordersForRoadKm, !!session);
   const courierStats = useMemo(
     () => buildCourierStats(apiOrders, roadKm, TARIFF),
     [apiOrders, roadKm, TARIFF],
   );
   const waitingForPickup = !!(active && !active.pickupIds.length && active.pendingParts?.length);
-  const [otp,       setOtp]       = useState(['','','','']);
-  const [err,       setErr]       = useState('');
   const [acceptErr, setAcceptErr] = useState('');
-  const [load,      setLoad]      = useState(false);
 
   useEffect(() => {
     hydrateCourierStores();
@@ -634,25 +639,10 @@ function CourierAppInner() {
     else if (!detailOrderId) setStatus('available')
   }, [myActiveOrders.length, detailOrderId]);
 
-  const verify = () => {
-    if (otp.join('').length < 4) return;
-    if (courierProfile?.blocked) {
-      setErr('Аккаунт заблокирован. Обратитесь к администратору.');
-      return;
-    }
-    setLoad(true);
-    setTimeout(() => {
-      const code = courierProfile?.otp || '1234';
-      if (otp.join('') === code) setLogged(true);
-      else { setErr(`Неверный код · Демо: ${code}`); setOtp(['', '', '', '']); }
-      setLoad(false);
-    }, 700);
-  };
-
   const canAcceptMore = () => {
     if (courierProfile.blocked) return { ok: false, msg: 'Аккаунт заблокирован администратором' };
     const max = courierProfile.maxActiveOrders;
-    const active = countCourierActiveOrders(apiOrders, { name: courierProfile.name, phone: COURIER_PHONE });
+    const active = countCourierActiveOrders(apiOrders, { name: courierProfile.name, phone: activePhone });
     if (active >= max) {
       return { ok: false, msg: `Лимит: ${active}/${max} заказ(ов) одновременно` };
     }
@@ -666,7 +656,7 @@ function CourierAppInner() {
     setDetailOrderId(null);
     setTab('active');
     await updateStatus(o.id, 'courier_picked', {
-      courier: { name: COURIER.name, phone: COURIER_PHONE },
+      courier: { name: courierDisplayName, phone: activePhone },
       courierRoute: route,
       courierAtClient: false,
     });
@@ -747,7 +737,7 @@ function CourierAppInner() {
       ? buildDeliveryFeePatch(normalizeOrder(raw), TARIFF, roadKm)
       : { deliveryFee: (active ? orderDelivery(active, roadKm, TARIFF) : 0) ?? 0, deliveryFeeLocked: true as const };
     await updateStatus(finishedId, 'delivered', {
-      courier: { name: COURIER.name, phone: COURIER_PHONE },
+      courier: { name: courierDisplayName, phone: activePhone },
       deliveredAt,
       courierAtClient: false,
       ...feePatch,
@@ -785,37 +775,24 @@ function CourierAppInner() {
     o.pickupIds.length > 0,
   );
 
-  /* ── ЛОГИН ── */
-  if (!logged) return (
-    <>
-      <style>{CSS}</style>
-      <div style={{ minHeight:'100vh', background:'#030B05', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24, maxWidth:480, margin:'0 auto' }}>
-        <a href="/" style={{ position:'absolute', top:20, left:20, width:38, height:38, borderRadius:10, background:'#091508', border:'1px solid #162B1A', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', color:'#8FB897', fontSize:16 }}>←</a>
-        <div style={{ textAlign:'center', marginBottom:28 }}>
-          <div style={{ fontSize:60, marginBottom:14 }}>🛵</div>
-          <div className="ub" style={{ fontSize:22, fontWeight:900, color:'#3B8EF0', marginBottom:4 }}>Курьер KAKAPO</div>
-          <div style={{ fontSize:13, color:'#8FB897' }}>Введите OTP код из SMS</div>
-      </div>
-        <div style={{ width:'100%', maxWidth:340, background:'#091508', border:'1px solid #162B1A', borderRadius:22, padding:26 }}>
-          {err && <div style={{ padding:'9px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'#FF4545', marginBottom:14, textAlign:'center' }}>⚠️ {err}</div>}
-          <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:16 }}>
-          {otp.map((v,i)=>(
-            <input key={i} id={`o${i}`} value={v} type="tel" maxLength={1} inputMode="numeric"
-                onChange={e=>{const d=[...otp];d[i]=e.target.value.replace(/\D/,'').slice(-1);setOtp(d);if(e.target.value&&i<3)(document.getElementById(`o${i+1}`) as HTMLInputElement)?.focus();}}
-                onKeyDown={e=>{if(e.key==='Backspace'&&!v&&i>0)(document.getElementById(`o${i-1}`) as HTMLInputElement)?.focus();}}
-                style={{ width:54, height:62, borderRadius:15, border:`2px solid ${v?'rgba(59,142,240,.5)':'#162B1A'}`, background:v?'rgba(59,142,240,.08)':'#0C1C0F', textAlign:'center', fontSize:26, fontWeight:900, color:'#EBF5ED', outline:'none' }}/>
-          ))}
-        </div>
-          <div style={{ padding:'10px', borderRadius:10, background:'rgba(59,142,240,.06)', border:'1px solid rgba(59,142,240,.2)', fontSize:12, color:'#8FB897', marginBottom:14, textAlign:'center' }}>
-            💡 Демо OTP: <span style={{ color:'#3B8EF0', fontWeight:800 }}>1 2 3 4</span>
-        </div>
-          <button onClick={verify} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15, display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity:otp.join('').length<4?.5:1 }}>
-            {load ? <div style={{ width:18, height:18, borderRadius:'50%', border:'2.5px solid rgba(255,255,255,.3)', borderTopColor:'white', animation:'spin 1s linear infinite' }}/> : '🛵 Войти'}
-        </button>
-      </div>
-    </div>
-    </>
-  );
+  if (!session) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <PhoneOtpLogin
+          appTitle="Курьер KAKAPO"
+          appSubtitle="Вход по номеру телефона · SMS-код"
+          icon="🛵"
+          accent="#3B8EF0"
+          gradient="linear-gradient(135deg,#1E5BB5,#3B8EF0)"
+          role="courier"
+          demoLists={{ couriers }}
+          demoPhoneHint="+992 93 111 22 33 · Фирдавс"
+          onSuccess={setSession}
+        />
+      </>
+    );
+  }
 
   return (
     <>
@@ -827,7 +804,7 @@ function CourierAppInner() {
           <a href="/" style={{ width:36, height:36, borderRadius:10, background:'#0C1C0F', border:'1px solid #162B1A', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', color:'#8FB897', fontSize:15, flexShrink:0 }}>←</a>
           <div style={{ width:40, height:40, borderRadius:13, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>🛵</div>
           <div style={{ flex:1 }}>
-            <div className="ub" style={{ fontSize:14, fontWeight:900 }}>{COURIER.name}</div>
+            <div className="ub" style={{ fontSize:14, fontWeight:900 }}>{courierDisplayName}</div>
             <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:1 }}>
               <div style={{ width:6, height:6, borderRadius:'50%', background:status==='available'?'#1FD760':status==='busy'?'#FFB800':'#3D6645', animation:'pulse 2s infinite' }}/>
               <span style={{ fontSize:10, color:'#8FB897' }}>
@@ -842,6 +819,15 @@ function CourierAppInner() {
             <div style={{ fontSize:9, color:'#3D6645' }}>Сегодня</div>
             <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>
         </div>
+          <button
+            type="button"
+            onClick={logout}
+            title="Выйти"
+            className="btn"
+            style={{ width:36, height:36, borderRadius:10, flexShrink:0, border:'1.5px solid rgba(255,69,69,.35)', background:'rgba(255,69,69,.1)', color:'#FF6969', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}
+          >
+            ⎋
+          </button>
           <button
             type="button"
             onClick={locationEnabled ? disableLocation : enableLocation}

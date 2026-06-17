@@ -14,7 +14,10 @@ const DEFAULT = {
   couriers: [],
   assemblers: [],
   clients: [],
-  settings: { pricing: { base: 10, baseDist: 2.5, perKm: 3, heavyKg: 50, heavyExtra: 10, freeFrom: 0 } },
+  settings: {
+    pricing: { base: 10, baseDist: 2.5, perKm: 3, heavyKg: 50, heavyExtra: 10, freeFrom: 0 },
+    admin: { email: 'admin@kakapo.tj', password: 'admin123', name: 'Владелец KAKAPO' },
+  },
   users: [],
   cards: [],
   reviews: [],
