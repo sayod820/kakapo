@@ -28,6 +28,8 @@ export interface Order {
   client: { name: string; phone: string; addr: string; lat?: number; lng?: number }
   courier?: { name: string; phone: string } | null
   assembler?: { name: string } | null
+  /** Команда сборщиков на одном заказе */
+  assemblerTeam?: { name: string; id?: string }[]
   items: OrderItem[]
   total: number
   comment?: string

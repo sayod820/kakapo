@@ -72,6 +72,40 @@ export function matchesAssemblerAssignment(
   return an.startsWith(pFirst) || pn.startsWith(aFirst) || an.includes(pFirst)
 }
 
+export type AssemblerMember = { name: string; id?: string }
+
+export function getAssemblerTeam(order: { assemblerTeam?: AssemblerMember[]; assembler?: { name?: string } | null }): AssemblerMember[] {
+  if (order.assemblerTeam?.length) return order.assemblerTeam
+  if (order.assembler?.name) return [{ name: order.assembler.name }]
+  return []
+}
+
+export function mergeAssemblerTeam(
+  order: { assemblerTeam?: AssemblerMember[]; assembler?: { name?: string } | null },
+  member: AssemblerMember,
+): AssemblerMember[] {
+  const team = getAssemblerTeam(order)
+  if (team.some(m => (member.id && m.id === member.id) || m.name === member.name)) return team
+  return [...team, member]
+}
+
+export function isInAssemblerTeam(
+  order: { assemblerTeam?: AssemblerMember[]; assembler?: { name?: string } | null },
+  name: string,
+  id?: string,
+): boolean {
+  return getAssemblerTeam(order).some(m => (id && m.id === id) || m.name === name)
+}
+
+export function orderHasAssemblerAssignment(
+  order: { assemblerTeam?: AssemblerMember[]; assembler?: { name?: string } | null },
+  profile: Pick<AdminAssembler, 'name' | 'id'>,
+): boolean {
+  const team = getAssemblerTeam(order)
+  if (profile.id && team.some(m => m.id === profile.id)) return true
+  return team.some(m => matchesAssemblerAssignment(m, profile))
+}
+
 export function isAssemblerActiveOrder(o: Order): boolean {
   const order = normalizeOrder(o)
   if (isMixedOrder(order)) return getMarketStatus(order) === 'assembling'
@@ -82,7 +116,9 @@ export function countAssemblerActiveOrders(
   orders: Order[],
   profile: Pick<AdminAssembler, 'name' | 'phone'>,
 ): number {
-  return orders.filter(o => isAssemblerActiveOrder(o) && matchesAssemblerAssignment(o.assembler, profile)).length
+  return orders.filter(o => isAssemblerActiveOrder(o) && (
+    orderHasAssemblerAssignment(o, profile) || matchesAssemblerAssignment(o.assembler, profile)
+  )).length
 }
 
 export function countAssemblerCompletedOrders(
@@ -90,7 +126,7 @@ export function countAssemblerCompletedOrders(
   profile: Pick<AdminAssembler, 'name' | 'phone'>,
 ): number {
   return orders.filter(o => {
-    if (!matchesAssemblerAssignment(o.assembler, profile)) return false
+    if (!orderHasAssemblerAssignment(o, profile) && !matchesAssemblerAssignment(o.assembler, profile)) return false
     const st = o.status
     return ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(st)
       || (isMixedOrder(normalizeOrder(o)) && getMarketStatus(normalizeOrder(o)) === 'done')
