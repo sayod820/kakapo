@@ -5734,20 +5734,24 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
   );
 };
 
+const ALL_REST_MENU = '__all__';
+
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const { restaurants, prods } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
-  const [activeCat, setActiveCat] = useState(r?.categories?.[0] || '');
+  const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
   const totalQtyNum = sumCartUnits(cart || {}, prods);
 
   useEffect(() => {
-    if (r?.categories?.length) setActiveCat(r.categories[0]);
+    setActiveCat(ALL_REST_MENU);
   }, [r?.id]);
 
   if (!r) return null;
 
-  const menuByCat = r.menu.filter(item => item.cat === activeCat);
+  const isAllView = activeCat === ALL_REST_MENU;
+  const displayMenu = isAllView ? r.menu : r.menu.filter(item => item.cat === activeCat);
+  const sectionTitle = isAllView ? 'Все блюда' : activeCat;
 
   const addItem  = (item) => onAdd && onAdd(`R${r.id}_${item.id}`, item.price, item.name, item.e, r.id);
   const rmItem   = (item) => onRm  && onRm(`R${r.id}_${item.id}`);
@@ -5776,9 +5780,17 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           </button>
         </div>
         <div className="hscroll" style={{padding:'0 18px 10px',gap:6}}>
-          {r.categories.map(cat=>(
-            <button key={cat} onClick={()=>setActiveCat(cat)} className={`chip ${activeCat===cat?'on':''}`}>{cat}</button>
-          ))}
+          <button type="button" onClick={() => setActiveCat(ALL_REST_MENU)} className={`chip ${isAllView ? 'on' : ''}`}>
+            Все ({r.menu.length})
+          </button>
+          {r.categories.map(cat => {
+            const count = r.menu.filter(m => m.cat === cat).length;
+            return (
+              <button key={cat} type="button" onClick={() => setActiveCat(cat)} className={`chip ${activeCat === cat ? 'on' : ''}`}>
+                {cat} ({count})
+              </button>
+            );
+          })}
         </div>
       </header>
 
@@ -5805,8 +5817,19 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
       )}
 
       <div style={{padding:'14px 18px 160px',display:'flex',flexDirection:'column',gap:10}}>
-        <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,marginBottom:4,color:'var(--t2)'}}>{activeCat}</div>
-        {menuByCat.map((item,i)=>{
+        <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:4}}>
+          <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,color:'var(--t2)'}}>{sectionTitle}</div>
+          <div style={{fontSize:11,color:'var(--t3)'}}>
+            {displayMenu.length} {displayMenu.length === 1 ? 'блюдо' : displayMenu.length < 5 ? 'блюда' : 'блюд'}
+          </div>
+        </div>
+        {displayMenu.length === 0 ? (
+          <div style={{padding:'32px 20px',borderRadius:16,background:'var(--l2)',border:'1px solid var(--b1)',textAlign:'center'}}>
+            <div style={{fontSize:36,marginBottom:10}}>🍽</div>
+            <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:6}}>Пока нет блюд</div>
+            <div style={{fontSize:12,color:'var(--t3)'}}>В этом разделе меню пока пусто</div>
+          </div>
+        ) : displayMenu.map((item,i)=>{
           const qty = getQty(item);
           const disc = item.old ? Math.round((1-item.price/item.old)*100) : 0;
           return (
@@ -5818,7 +5841,15 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
                 {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'white'}}>Стоп</div>}
               </div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:14,fontWeight:700,marginBottom:3,lineHeight:1.3}}>{item.name}</div>
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:3,flexWrap:'wrap'}}>
+                  <div style={{fontSize:14,fontWeight:700,lineHeight:1.3}}>{item.name}</div>
+                  {isAllView && (
+                    <button type="button" onClick={() => setActiveCat(item.cat)} className="btn"
+                      style={{padding:'2px 8px',borderRadius:20,fontSize:9,fontWeight:800,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',color:'var(--gr)'}}>
+                      {item.cat}
+                    </button>
+                  )}
+                </div>
                 <div style={{fontSize:11,color:'var(--t3)',marginBottom:6,lineHeight:1.5}}>{item.desc}</div>
                 <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
                   <span style={{fontSize:10,color:'var(--t3)'}}>⏱ {item.time} мин</span>
