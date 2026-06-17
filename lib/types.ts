@@ -54,6 +54,8 @@ export interface Order {
   deliveredAt?: string
   /** Курьер на месте у клиента (перед подтверждением доставки) */
   courierAtClient?: boolean
+  /** Причина отмены заказа */
+  cancelReason?: string
 }
 
 export type SellType = 'piece' | 'weight'

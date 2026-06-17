@@ -354,38 +354,64 @@ export const ADMIN_STATUS_OPTIONS: OrderStatus[] = [
 
 export function isAssemblerOrder(o: Order): boolean {
   const order = normalizeOrder(o)
+  if (order.status === 'cancelled') return false
   if (isMixedOrder(order)) return isMarketPartActive(order)
   return order.type === 'market' && (order.status === 'new' || order.status === 'assembling')
+}
+
+/** Отменённый заказ с частью магазина — показываем сборщику до подтверждения */
+export function isAssemblerCancelledVisible(o: Order): boolean {
+  const order = normalizeOrder(o)
+  if (order.status !== 'cancelled') return false
+  const t = inferOrderType(order)
+  return t === 'market' || (t === 'mixed' && hasMarketPart(order))
+}
+
+function mapAssemblerOrderShape(o: Order) {
+  const order = normalizeOrder(o)
+  const marketItems = getMarketItems(order.items)
+  const ms = isMixedOrder(order) ? getMarketStatus(order) : order.status
+  const cancelled = order.status === 'cancelled'
+  return {
+    id: order.id,
+    time: order.createdAt || '',
+    priority: order.priority || 'normal',
+    mixed: isMixedOrder(order),
+    queue: cancelled ? 'cancelled' as const : (ms === 'new' ? 'new' as const : 'assembling' as const),
+    cancelled,
+    cancelReason: order.cancelReason || (cancelled ? 'Заказ отменён клиентом' : undefined),
+    client: { name: order.client.name, phone: order.client.phone, addr: order.client.addr },
+    courier: order.courier || { name: '—', phone: '' },
+    comment: order.comment || '',
+    items: marketItems.map((it, idx) => ({
+      id: it.id ?? it.product_id ?? idx + 1,
+      art: it.art || '',
+      e: it.e,
+      name: it.name,
+      qty: it.qty,
+      unit: it.unit,
+      price: it.price,
+      done: it.done ?? false,
+    })),
+  }
+}
+
+export function mapSingleOrderForAssembler(o: Order) {
+  return mapAssemblerOrderShape(o)
 }
 
 /** Сборщик — только товары магазина из заказа */
 export function mapOrdersForAssembler(orders: Order[]) {
   return orders
     .filter(isAssemblerOrder)
-    .map(o => {
-      const order = normalizeOrder(o)
-      const marketItems = getMarketItems(order.items)
-      return {
-        id: order.id,
-        time: order.createdAt || '',
-        priority: order.priority || 'normal',
-        mixed: isMixedOrder(order),
-        queue: (isMixedOrder(order) ? getMarketStatus(order) : order.status) === 'new' ? 'new' as const : 'assembling' as const,
-        client: { name: order.client.name, phone: order.client.phone, addr: order.client.addr },
-        courier: order.courier || { name: '—', phone: '' },
-        comment: order.comment || '',
-        items: marketItems.map((it, idx) => ({
-          id: it.id ?? it.product_id ?? idx + 1,
-          art: it.art || '',
-          e: it.e,
-          name: it.name,
-          qty: it.qty,
-          unit: it.unit,
-          price: it.price,
-          done: it.done ?? false,
-        })),
-      }
-    })
+    .map(mapAssemblerOrderShape)
+}
+
+/** Отменённые заказы магазина — для подтверждения сборщиком */
+export function mapCancelledOrdersForAssembler(orders: Order[]) {
+  return orders
+    .filter(isAssemblerCancelledVisible)
+    .map(mapAssemblerOrderShape)
 }
 
 /** Один заказ → формат курьера (с учётом частичной готовности) */

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useOrders, USE_API } from '@/lib/store'
-import { mapOrdersForAssembler } from '@/lib/orderUiMap'
+import { mapOrdersForAssembler, mapCancelledOrdersForAssembler, mapSingleOrderForAssembler, buildAdminStatusPatch, isAssemblerCancelledVisible } from '@/lib/orderUiMap'
 import { getMarketStatus, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { ASSEMBLER_NAME } from '@/lib/courierStats'
 import { useAppNavigation } from '@/lib/useAppNavigation'
@@ -17,6 +17,27 @@ import type { AdminAssembler } from '@/lib/assemblerTeam'
    г. Яван, Таджикистан · PIN: 5678
 ══════════════════════════════════════════════════════ */
 // React hooks imported above
+
+const DISMISSED_KEY = 'kakapo-assembler-dismissed';
+
+function loadDismissedCancelled(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = sessionStorage.getItem(DISMISSED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissedCancelled(ids: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...ids]));
+  } catch { /* private mode */ }
+}
 
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800;900&family=Nunito:wght@400;600;700;800&display=swap');
@@ -103,6 +124,7 @@ function AssemblerAppInner() {
   const assemblers = useAssemblerTeam();
   const [loggedIn, setLoggedIn] = useState(false);
   const [assemblerProfile, setAssemblerProfile] = useState<AdminAssembler | null>(null);
+  const [dismissedCancelled, setDismissedCancelled] = useState<Set<string>>(() => new Set());
   const assemblerName = assemblerProfile?.name ?? ASSEMBLER_NAME;
   const { page, navigate, params } = useAppNavigation('dashboard');
   const setPage = (p: string) => navigate(p);
@@ -115,6 +137,10 @@ function AssemblerAppInner() {
     () => (USE_API ? mapOrdersForAssembler(apiOrders) : ORDERS_DATA),
     [apiOrders]
   );
+  const cancelledOrders = useMemo(() => {
+    if (!USE_API) return [];
+    return mapCancelledOrdersForAssembler(apiOrders).filter(o => !dismissedCancelled.has(o.id));
+  }, [apiOrders, dismissedCancelled]);
   const collectIdRef = useRef<string | null>(null);
   const activeOrderId = page === 'collect'
     ? (params.order || collectIdRef.current || null)
@@ -122,6 +148,7 @@ function AssemblerAppInner() {
 
   useEffect(() => {
     hydrateAssemblerTeamStore();
+    setDismissedCancelled(loadDismissedCancelled());
   }, []);
 
   useEffect(() => {
@@ -134,9 +161,33 @@ function AssemblerAppInner() {
     if (fromList) return fromList;
     const raw = apiOrders.find(o => o.id === activeOrderId);
     if (!raw) return null;
+    if (isAssemblerCancelledVisible(raw)) return mapSingleOrderForAssembler(raw);
     const mappedOne = mapOrdersForAssembler([raw]);
     return mappedOne[0] ?? null;
   }, [activeOrderId, mapped, apiOrders]);
+
+  const dismissCancel = (orderId: string) => {
+    setDismissedCancelled(prev => {
+      const next = new Set([...prev, orderId]);
+      saveDismissedCancelled(next);
+      return next;
+    });
+    if (page === 'collect') navigate('dashboard');
+  };
+
+  const cancelOrder = async (orderId: string, reason: string) => {
+    if (!window.confirm(`Отменить заказ ${orderId}?\n\n${reason}`)) return;
+    const raw = apiOrders.find(o => o.id === orderId);
+    if (!raw) return;
+    const patch = buildAdminStatusPatch(normalizeOrder(raw), 'cancelled');
+    const { adminOverride: _ao, ...fields } = patch;
+    await updateStatus(orderId, 'cancelled', {
+      ...fields,
+      cancelReason: reason,
+      assembler: { name: assemblerName },
+    });
+    if (page === 'collect') navigate('dashboard');
+  };
 
   const openCollect = (id: string) => {
     collectIdRef.current = id;
@@ -208,6 +259,8 @@ function AssemblerAppInner() {
         onComplete={completeOrder}
         onBack={() => navigate('dashboard')}
         onLogout={logout}
+        onCancel={() => cancelOrder(activeOrderId, 'Отменено сборщиком')}
+        onAcknowledgeCancel={() => dismissCancel(activeOrderId)}
       />
     );
   }
@@ -216,7 +269,19 @@ function AssemblerAppInner() {
     <>
       <style>{CSS}</style>
       <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
-        {page==='dashboard' && <DashboardPage orders={pending} completed={completedCount} onStart={openCollect} onPage={setPage} assemblerName={assemblerName} onLogout={logout}/>}
+        {page==='dashboard' && (
+          <DashboardPage
+            orders={pending}
+            cancelledOrders={cancelledOrders}
+            completed={completedCount}
+            onStart={openCollect}
+            onPage={setPage}
+            assemblerName={assemblerName}
+            onLogout={logout}
+            onCancel={cancelOrder}
+            onAcknowledgeCancel={dismissCancel}
+          />
+        )}
         {page==='history'   && <HistoryPage onPage={setPage} onLogout={logout}/>}
         {page==='stats'     && <StatsPage onPage={setPage} completed={completedCount} assemblerName={assemblerName} onLogout={logout}/>}
       </div>
@@ -295,7 +360,7 @@ function BottomNav({page, onPage, newCount}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({orders, completed, onStart, onPage, assemblerName, onLogout}) {
+function DashboardPage({orders, cancelledOrders, completed, onStart, onPage, assemblerName, onLogout, onCancel, onAcknowledgeCancel}) {
   const newQueue = orders.filter(o => o.queue === 'new');
   const inProgress = orders.filter(o => o.queue !== 'new');
   const urgentNew = newQueue.filter(o => o.priority === 'urgent');
@@ -303,11 +368,21 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName, onLog
   const urgentProgress = inProgress.filter(o => o.priority === 'urgent');
   const normalProgress = inProgress.filter(o => o.priority !== 'urgent');
 
-  const PCard = ({order, i, isNew}) => {
+  const PCard = ({order, i, isNew, isCancelled}) => {
     const doneCount = order.items.filter(it=>it.done).length;
     const pct = order.items.length ? Math.round(doneCount/order.items.length*100) : 0;
     return (
-      <div className="card" style={{overflow:'hidden',animation:isNew ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.08}s both` : undefined}}>
+      <div className="card" style={{
+        overflow:'hidden',
+        animation:isNew ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.08}s both` : undefined,
+        border: isCancelled ? '1px solid rgba(255,69,69,.35)' : undefined,
+        opacity: isCancelled ? .92 : 1,
+      }}>
+        {isCancelled && (
+          <div style={{padding:'7px 16px',background:'rgba(255,69,69,.1)',borderBottom:'1px solid rgba(255,69,69,.25)',display:'flex',alignItems:'center',gap:7}}>
+            <span style={{fontSize:11,fontWeight:800,color:'#FF4545'}}>✕ Заказ отменён клиентом</span>
+          </div>
+        )}
         {/* Priority banner */}
         {order.priority==='urgent'&&(
           <div style={{padding:'7px 16px',background:'rgba(255,69,69,.09)',borderBottom:'1px solid rgba(255,69,69,.2)',display:'flex',alignItems:'center',gap:7}}>
@@ -371,6 +446,14 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName, onLog
             </div>
           )}
 
+          {isCancelled && order.cancelReason && (
+            <div style={{padding:'8px 12px',borderRadius:10,background:'rgba(255,69,69,.06)',border:'1px solid rgba(255,69,69,.22)',fontSize:12,color:'#FF6969',marginBottom:12}}>
+              ℹ️ {order.cancelReason}
+            </div>
+          )}
+
+          {!isCancelled && (
+          <>
           {/* Courier */}
           <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:11,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)',marginBottom:12}}>
             <span style={{fontSize:16}}>🛵</span>
@@ -383,9 +466,22 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName, onLog
 
           {/* Action */}
           <button onClick={()=>onStart(order.id)} className="btn"
-            style={{width:'100%',padding:13,borderRadius:14,background:`linear-gradient(135deg,#6B3FD4,#9B6DFF)`,border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+            style={{width:'100%',padding:13,borderRadius:14,background:`linear-gradient(135deg,#6B3FD4,#9B6DFF)`,border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:10}}>
             {isNew ? '▶ Начать сборку' : pct>0 ? `▶ Продолжить сборку (${doneCount}/${order.items.length})` : '▶ Продолжить сборку'}
           </button>
+          <button type="button" onClick={() => onCancel(order.id, 'Отменено сборщиком')} className="btn"
+            style={{width:'100%',padding:11,borderRadius:12,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.28)',color:'#FF6969',fontFamily:'Nunito',fontWeight:700,fontSize:12}}>
+            ✕ Отменить заказ
+          </button>
+          </>
+          )}
+
+          {isCancelled && (
+            <button type="button" onClick={() => onAcknowledgeCancel(order.id)} className="btn"
+              style={{width:'100%',padding:13,borderRadius:14,background:'rgba(255,69,69,.12)',border:'1.5px solid rgba(255,69,69,.35)',color:'#FF6969',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
+              ✓ Принять отмену — убрать из списка
+            </button>
+          )}
         </div>
       </div>
     );
@@ -420,7 +516,7 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName, onLog
           ))}
         </div>
 
-        {orders.length===0?(
+        {orders.length===0 && cancelledOrders.length===0 ?(
           <div style={{textAlign:'center',paddingTop:60,animation:'fadeIn .6s ease'}}>
             <div style={{fontSize:64,marginBottom:16,animation:'pulse 2s ease-in-out infinite'}}>🎉</div>
             <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,marginBottom:8,color:'#9B6DFF'}}>Все заказы собраны!</div>
@@ -428,6 +524,14 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName, onLog
           </div>
         ) : (
           <>
+            {cancelledOrders.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#FF4545' }}>✕ Отменены ({cancelledOrders.length})</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {cancelledOrders.map((o, i) => <PCard key={o.id} order={o} i={i} isCancelled />)}
+                </div>
+              </div>
+            )}
             {newQueue.length > 0 && (
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#FF4545' }}>🆕 Новые заказы ({newQueue.length})</div>
@@ -465,11 +569,12 @@ function DashboardPage({orders, completed, onStart, onPage, assemblerName, onLog
 /* ══════════════════════════════════════════════════════
    СБОРКА ЗАКАЗА
 ══════════════════════════════════════════════════════ */
-function CollectPage({order, onToggle, onComplete, onBack, onLogout}) {
+function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, onAcknowledgeCancel}) {
   const [showConfirm, setShowConfirm] = useState(false);
   const doneCount = order.items.filter(it=>it.done).length;
   const allDone   = doneCount === order.items.length;
   const pct       = Math.round(doneCount/order.items.length*100);
+  const isCancelled = !!order.cancelled;
 
 
 
@@ -497,6 +602,18 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout}) {
 
       {/* Order info */}
       <div style={{margin:'14px 18px 0'}}>
+        {isCancelled && (
+          <div style={{padding:'14px 16px',borderRadius:14,background:'rgba(255,69,69,.1)',border:'1.5px solid rgba(255,69,69,.35)',marginBottom:14,animation:'fadeUp .35s ease'}}>
+            <div style={{fontSize:14,fontWeight:800,color:'#FF6969',marginBottom:6}}>✕ Клиент отменил заказ</div>
+            <div style={{fontSize:12,color:'#8FB897',lineHeight:1.5,marginBottom:12}}>
+              {order.cancelReason || 'Сборку можно прекратить — заказ больше не нужен.'}
+            </div>
+            <button type="button" onClick={onAcknowledgeCancel} className="btn"
+              style={{width:'100%',padding:12,borderRadius:12,background:'rgba(255,69,69,.15)',border:'1px solid rgba(255,69,69,.4)',color:'#FF6969',fontWeight:800,fontSize:13}}>
+              ✓ Принять отмену — вернуться к заказам
+            </button>
+          </div>
+        )}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
           <div style={{padding:'11px 14px',borderRadius:13,background:'#091508',border:'1px solid #162B1A'}}>
             <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>📍 Клиент</div>
@@ -525,8 +642,8 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout}) {
       {/* Items list */}
       <div style={{padding:'0 18px 180px',display:'flex',flexDirection:'column',gap:10}}>
         {order.items.map((item,i)=>(
-          <div key={item.id} onClick={()=>onToggle(order.id, item.id)}
-            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:'pointer',transition:'background .2s, border-color .2s'}}>
+          <div key={item.id} onClick={() => !isCancelled && onToggle(order.id, item.id)}
+            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:isCancelled?'default':'pointer',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
             <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s'}}>
               {item.e}
               {item.done&&(
@@ -553,6 +670,12 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout}) {
 
       {/* Bottom action */}
       <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:90,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid #162B1A',padding:'13px 18px 28px'}}>
+        {isCancelled ? (
+          <div style={{padding:'12px',background:'rgba(255,69,69,.08)',borderRadius:13,border:'1px solid rgba(255,69,69,.25)',textAlign:'center',fontSize:12,color:'#FF6969',fontWeight:700}}>
+            Сборка остановлена — заказ отменён
+          </div>
+        ) : (
+        <>
         {/* Summary */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
           <div style={{fontSize:11,color:'#8FB897'}}>
@@ -564,13 +687,19 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout}) {
         </div>
         {allDone ? (
           <button onClick={()=>setShowConfirm(true)} className="btn"
-            style={{width:'100%',padding:14,borderRadius:16,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:10,boxShadow:'0 8px 24px rgba(31,215,96,.4)'}}>
+            style={{width:'100%',padding:14,borderRadius:16,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:10,boxShadow:'0 8px 24px rgba(31,215,96,.4)',marginBottom:10}}>
             ✅ Всё собрано — передать курьеру
           </button>
         ) : (
-          <div style={{padding:'12px',background:'#091508',borderRadius:13,border:'1px solid #162B1A',textAlign:'center',fontSize:12,color:'#8FB897'}}>
+          <div style={{padding:'12px',background:'#091508',borderRadius:13,border:'1px solid #162B1A',textAlign:'center',fontSize:12,color:'#8FB897',marginBottom:10}}>
             Отметьте каждый товар по мере сборки · Осталось: <span style={{color:'#9B6DFF',fontWeight:700}}>{order.items.length-doneCount} товаров</span>
           </div>
+        )}
+        <button type="button" onClick={onCancel} className="btn"
+          style={{width:'100%',padding:11,borderRadius:12,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.28)',color:'#FF6969',fontFamily:'Nunito',fontWeight:700,fontSize:12}}>
+          ✕ Отменить заказ
+        </button>
+        </>
         )}
       </div>
 
