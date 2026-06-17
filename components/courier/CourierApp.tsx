@@ -4,10 +4,12 @@ import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, 
 import { resolveOrderDeliveryFee, buildDeliveryFeePatch } from '@/lib/deliveryFee'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
 import { useCourierTeam } from '@/lib/courierTeamStore'
-import { countCourierActiveOrders, isMyCourierOrder, resolveCourierProfile, vehicleIcon } from '@/lib/courierTeam'
+import { countCourierActiveOrders, isMyCourierOrder, findCourierByPhone, vehicleIcon } from '@/lib/courierTeam'
 import { reloadCourierTeamStore, syncCourierTeamFromApi } from '@/lib/courierTeamStore'
+import { loadCourierSession, clearCourierSession, type CourierSession } from '@/lib/courierSession'
+import CourierLoginPage from '@/components/courier/CourierLoginPage'
 import { DEMO_COURIER_ORDERS } from '@/lib/demoOrders'
-import { buildCourierStats, COURIER_NAME, COURIER_PHONE, formatSm } from '@/lib/courierStats'
+import { buildCourierStats, COURIER_NAME, formatSm } from '@/lib/courierStats'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForCourier, mapOrdersForCourierMap, mapSingleOrderForCourier, isCourierMapOrder, isCourierFullyReadyOrder, courierMapStatusLabel, courierWaitingBanner } from '@/lib/orderUiMap'
@@ -521,12 +523,22 @@ function CourierAppInner() {
   const { page: tab, navigate: setTab } = useAppNavigation('orders');
   const TARIFF = useTariff();
   const couriers = useCourierTeam();
-  const activePhone = COURIER_PHONE;
-  const courierProfile = useMemo(
-    () => resolveCourierProfile(couriers, activePhone),
-    [couriers, activePhone],
-  );
-  const courierDisplayName = courierProfile?.name || COURIER_NAME;
+  const [session, setSession] = useState<CourierSession | null>(() => loadCourierSession());
+
+  const courierProfile = useMemo(() => {
+    if (!session) return null
+    const byId = couriers.find(c => c.id === session.courierId)
+    const byPhone = findCourierByPhone(couriers, session.phone)
+    return byId || byPhone || null
+  }, [couriers, session]);
+
+  const activePhone = session?.phone || '';
+  const courierDisplayName = courierProfile?.name || session?.name || COURIER_NAME;
+
+  const logout = () => {
+    clearCourierSession();
+    setSession(null);
+  };
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
   const markPickupDone = useOrders(s => s.markPickupDone);
@@ -565,6 +577,7 @@ function CourierAppInner() {
   }, [selected, ORDERS, MAP_ORDERS]);
 
   const myActiveOrders = useMemo(() => {
+    if (!courierProfile) return []
     return apiOrders
       .filter(o => isMyCourierOrder(o, courierProfile))
       .map(raw => mapSingleOrderForCourier(normalizeOrder(raw)))
@@ -597,10 +610,11 @@ function CourierAppInner() {
     return extra.length ? [...MAP_ORDERS, ...extra] : MAP_ORDERS
   }, [MAP_ORDERS, myActiveOrders]);
   const { roadKm, loading: kmLoading } = useOrderRoadKm(ordersForRoadKm, true);
-  const courierStats = useMemo(
-    () => buildCourierStats(apiOrders, roadKm, TARIFF),
-    [apiOrders, roadKm, TARIFF],
-  );
+  const courierStats = useMemo(() => {
+    const base = buildCourierStats(apiOrders, roadKm, TARIFF, courierDisplayName)
+    if (courierProfile) return { ...base, rating: courierProfile.rating }
+    return base
+  }, [apiOrders, roadKm, TARIFF, courierDisplayName, courierProfile]);
   const waitingForPickup = !!(active && !active.pickupIds.length && active.pendingParts?.length);
   const [acceptErr, setAcceptErr] = useState('');
 
@@ -767,6 +781,15 @@ function CourierAppInner() {
     o.pickupIds.length > 0,
   );
 
+  if (!session || !courierProfile) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <CourierLoginPage couriers={couriers} onSuccess={setSession} />
+      </>
+    );
+  }
+
   return (
     <>
       <style>{CSS}</style>
@@ -792,6 +815,15 @@ function CourierAppInner() {
             <div style={{ fontSize:9, color:'#3D6645' }}>Сегодня</div>
             <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>
         </div>
+          <button
+            type="button"
+            onClick={logout}
+            title="Выйти"
+            className="btn"
+            style={{ width:36, height:36, borderRadius:10, flexShrink:0, border:'1.5px solid rgba(255,69,69,.35)', background:'rgba(255,69,69,.1)', color:'#FF6969', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}
+          >
+            ⎋
+          </button>
           <button
             type="button"
             onClick={locationEnabled ? disableLocation : enableLocation}

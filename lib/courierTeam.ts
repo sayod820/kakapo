@@ -104,7 +104,27 @@ export function countCourierActiveOrders(
 
 export function findCourierByPhone(couriers: AdminCourier[], phone: string): AdminCourier | undefined {
   const digits = phone.replace(/\D/g, '')
-  return couriers.find(c => c.phone.replace(/\D/g, '') === digits || c.phone.replace(/\D/g, '').endsWith(digits.slice(-9)))
+  const tail = digits.slice(-9)
+  if (tail.length < 9) return undefined
+  return couriers.find(c => {
+    const cd = c.phone.replace(/\D/g, '')
+    return cd === digits || cd.endsWith(tail) || cd.slice(-9) === tail
+  })
+}
+
+export function verifyCourierOtp(
+  couriers: AdminCourier[],
+  phone: string,
+  code: string,
+): { ok: true; courier: AdminCourier } | { ok: false; error: string } {
+  const courier = findCourierByPhone(couriers, phone)
+  if (!courier) return { ok: false, error: 'Номер не найден · проверьте раздел «Курьеры» в админке' }
+  if (courier.blocked) return { ok: false, error: 'Доступ заблокирован администратором' }
+  const expected = courier.otp || '1234'
+  if (String(code) !== expected) {
+    return { ok: false, error: `Неверный код · Демо: ${expected}` }
+  }
+  return { ok: true, courier }
 }
 
 /** Профиль курьера: store → localStorage → демо-данные */
