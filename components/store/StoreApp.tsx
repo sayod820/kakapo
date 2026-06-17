@@ -15,8 +15,18 @@ import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
-import { loadStoreUser, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
+import { loadStoreUser, saveStoreUser, getActiveClientPhone, formatTjPhone } from "@/lib/clientSession";
 import { fetchCrmStoreUser, crmStoreUsersEqual } from "@/lib/clientProfileSync";
+import {
+  getVipCreditState,
+  canPayWithCredit,
+  chargeCredit,
+  spendBonus,
+  getBonusUsable,
+  loadDebtHistory,
+  repayCredit,
+  refreshStoreUserAfterCredit,
+} from "@/lib/clientVipCredit";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import { phoneDigits } from "@/lib/clientSession";
@@ -1602,10 +1612,9 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
   );
 };
 
-const CHECKOUT_PAYS = [
-  { id: 'cash', icon: '💵', label: 'Наличными', sub: 'Курьеру' },
-  { id: 'card', icon: '💳', label: 'Карта', sub: 'Visa/Mastercard' },
-  { id: 'bonus', icon: '⭐', label: 'Бонусами', sub: '73 бонуса' },
+const CHECKOUT_PAYS_BASE = [
+  { id: 'cash', icon: '💵', label: 'Наличными', sub: 'Курьеру при получении' },
+  { id: 'card', icon: '💳', label: 'Картой онлайн', sub: 'Visa / Mastercard' },
 ];
 const CHECKOUT_TIMES = [
   { id: 'asap', l: 'Как можно скорее', s: '~45 мин' },
@@ -1676,7 +1685,7 @@ function CheckoutSec({ icon, color, title }) {
   );
 }
 
-const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
+const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) => {
   const { prods, restaurants } = useLiveCatalog();
   const createOrder = useOrders(s => s.createOrder);
   const [step,  setStep]  = useState("form");
@@ -1685,11 +1694,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
   const [addr,  setAddr]  = useState("");
   const [pay,   setPay]   = useState("cash");
   const [time,  setTime]  = useState("asap");
-  const [bonus, setBonus] = useState(false);
+  const [useBonus, setUseBonus] = useState(false);
   const [errs,  setErrs]  = useState({});
   const [loading, setLoading] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
   const [orderId, setOrderId] = useState("");
+  const [paidWithCredit, setPaidWithCredit] = useState(0);
+  const [bonusSpent, setBonusSpent] = useState(0);
   const [checkoutMode, setCheckoutMode] = useState('market');
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryKm, setDeliveryKm] = useState(0);
@@ -1759,6 +1770,29 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
     restIds: [...new Set(restItems.map(r => r.restId).filter(Boolean))],
   });
   const total = sub;
+  const credit = useMemo(() => getVipCreditState(user), [user?.vip, user?.debt, user?.debtLimit, user?.bonus, user?.blocked]);
+  const vipDelivery = !!user?.vip;
+  const effectiveDelivery = vipDelivery ? 0 : deliveryFee;
+  const orderTotal = sub + effectiveDelivery;
+  const bonusUsable = useBonus ? getBonusUsable(user, orderTotal) : 0;
+  const payable = Math.max(0, Math.round((orderTotal - bonusUsable) * 100) / 100);
+
+  const payOptions = useMemo(() => {
+    const opts = [...CHECKOUT_PAYS_BASE];
+    if (credit.enabled && credit.available > 0) {
+      opts.push({
+        id: 'credit',
+        icon: '👑',
+        label: 'VIP-кредит',
+        sub: `В долг · доступно ${credit.available.toLocaleString()} ЅМ`,
+      });
+    }
+    return opts;
+  }, [credit.enabled, credit.available]);
+
+  useEffect(() => {
+    if (pay === 'credit' && !payOptions.some(p => p.id === 'credit')) setPay('cash');
+  }, [pay, payOptions]);
 
   const resetDelivery = () => {
     setAddrReady(false);
@@ -1782,6 +1816,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
   };
   const submit = async () => {
     if (!validate()) return;
+    if (pay === 'credit') {
+      const check = canPayWithCredit(user, payable);
+      if (!check.ok) {
+        setSubmitErr(check.reason || 'VIP-кредит недоступен');
+        return;
+      }
+    }
     setLoading(true);
     setSubmitErr("");
 
@@ -1805,8 +1846,8 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
           restId: p.restId,
         })),
       ],
-      total: Number(total.toFixed(2)),
-      deliveryFee: 0,
+      total: Number(payable.toFixed(2)),
+      deliveryFee: effectiveDelivery,
       pickupIds,
       distanceKm: deliveryKm > 0 ? Number(deliveryKm.toFixed(2)) : undefined,
       durationMin: deliveryMin > 0 ? Math.round(deliveryMin) : undefined,
@@ -1814,7 +1855,10 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
       restIds,
       restId: restIds[0],
       restName: restIds[0] ? restaurants.find(r => r.id === restIds[0])?.name : undefined,
-      comment: '',
+      comment: pay === 'credit' ? 'Оплата VIP-кредитом' : bonusUsable > 0 ? `Списано бонусов: ${bonusUsable}` : '',
+      payment_method: pay,
+      pay,
+      vip: !!user?.vip,
     };
 
     let order = null;
@@ -1829,6 +1873,22 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
     if (order) {
       setOrderId(order.id);
       setCheckoutMode(orderType);
+      setPaidWithCredit(pay === 'credit' ? payable : 0);
+      setBonusSpent(bonusUsable);
+      try {
+        const ph = user?.phone || formatTjPhone(phone);
+        if (bonusUsable > 0) await spendBonus(ph, bonusUsable, order.id);
+        if (pay === 'credit') await chargeCredit(ph, payable, order.id);
+        if (setUser) {
+          const fresh = await refreshStoreUserAfterCredit(ph, user?.card);
+          if (fresh) {
+            saveStoreUser({ ...user, ...fresh });
+            setUser({ ...user, ...fresh });
+          }
+        }
+      } catch (creditErr) {
+        console.error(creditErr);
+      }
       try { localStorage.setItem('kakapo_client_phone', phone); } catch { /* private mode */ }
       setStep('ok');
       onClearCart?.();
@@ -1852,7 +1912,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
             : 'Сначала соберут заказ, затем назначат курьера. Отслеживание появится когда курьер примет заказ.'}
       </div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
-        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"ул. Ленина, 42",c:"var(--sky)"},{icon:"star",l:"Бонусы",v:"+12 начислено",c:"var(--gd)"}].map((r,i) => (
+        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-кредит ${paidWithCredit.toFixed(2)} ЅМ` : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
             <div style={{ width:30, height:30, borderRadius:8, background:`${r.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={r.icon} s={14} c={r.c}/></div>
             <span style={{ fontSize:12, color:"var(--t2)", flex:1 }}>{r.l}</span>
@@ -1922,7 +1982,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
             orderAmount={sub}
             pickupIds={pickupIds}
             onPriceChange={(price, dist, meta) => {
-              setDeliveryFee(price.total);
+              setDeliveryFee(vipDelivery ? 0 : price.total);
               setDeliveryKm(dist);
               setDeliveryMin(meta.durationMin);
               setClientLat(meta.lat);
@@ -1930,6 +1990,11 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
               setAddrReady(true);
             }}
           />
+          {vipDelivery && addrReady && (
+            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', fontWeight: 700 }}>
+              👑 VIP — доставка бесплатно
+            </div>
+          )}
           {errs.addr && <div style={{ fontSize:11, color:"var(--red)", marginTop:6 }}>{errs.addr}</div>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
             <input className="inp" placeholder="Квартира" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
@@ -1943,22 +2008,51 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="card" color="var(--blue)" title="Оплата"/>
-          <CheckoutRadio items={CHECKOUT_PAYS} val={pay} set={setPay}/>
+          <CheckoutRadio items={payOptions} val={pay} set={setPay}/>
+          {pay === 'credit' && (
+            <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', lineHeight: 1.5 }}>
+              Сумма {payable.toFixed(2)} ЅМ будет добавлена к долгу. Остаток лимита после заказа: {(credit.available - payable).toLocaleString()} ЅМ
+            </div>
+          )}
         </div>
+        {(user?.bonus || 0) > 0 && (
         <div className="card" style={{ padding:"16px", marginBottom:13, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <span style={{ fontSize:20 }}>⭐</span>
-            <div><div style={{ fontSize:13, fontWeight:700 }}>Использовать бонусы</div><div style={{ fontSize:11, color:"var(--t3)" }}>Баланс: 73 бонуса</div></div>
+            <div><div style={{ fontSize:13, fontWeight:700 }}>Списать бонусы</div><div style={{ fontSize:11, color:"var(--t3)" }}>Баланс: {(user.bonus || 0).toLocaleString()} · до −{getBonusUsable(user, orderTotal)} ЅМ</div></div>
           </div>
-          <div className={`toggle ${bonus?"on":""}`} onClick={() => setBonus(v => !v)}><div className="toggle-dot"/></div>
+          <div className={`toggle ${useBonus?"on":""}`} onClick={() => setUseBonus(v => !v)}><div className="toggle-dot"/></div>
         </div>
+        )}
       </div>
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px 28px" }}>
         {addrReady && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800 }}>
-              <span>💵 К оплате</span>
-              <span className="ub" style={{ color:"var(--gd)" }}>{total.toFixed(2)} ЅМ</span>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0 }}>
+              <span style={{ color: 'var(--t2)' }}>Товары</span>
+              <span>{sub.toFixed(2)} ЅМ</span>
+            </div>
+            {effectiveDelivery > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6 }}>
+                <span style={{ color: 'var(--t2)' }}>Доставка</span>
+                <span>{effectiveDelivery.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            {vipDelivery && deliveryFee > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6 }}>
+                <span style={{ color: 'var(--t2)' }}>Доставка</span>
+                <span style={{ color: 'var(--gd)' }}>0 ЅМ · VIP</span>
+              </div>
+            )}
+            {bonusUsable > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6, color: 'var(--gd)' }}>
+                <span>Бонусы</span>
+                <span>−{bonusUsable} ЅМ</span>
+              </div>
+            )}
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, paddingTop: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0, borderTop: bonusUsable > 0 || effectiveDelivery > 0 ? '1px solid var(--b1)' : 'none' }}>
+              <span>{pay === 'credit' ? '👑 В кредит' : '💵 К оплате'}</span>
+              <span className="ub" style={{ color:"var(--gd)" }}>{payable.toFixed(2)} ЅМ</span>
             </div>
           </div>
         )}
@@ -1973,7 +2067,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user }) => {
           </div>
         )}
         <button onClick={submit} className="btn" style={{ width:"100%", padding:"15px", fontSize:15, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-          {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>{addrReady ? `Подтвердить · ${total.toFixed(2)} ЅМ` : "Подтвердить заказ"}</>}
+          {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>{addrReady ? `Подтвердить · ${payable.toFixed(2)} ЅМ` : "Подтвердить заказ"}</>}
         </button>
       </div>
     </div>
@@ -2938,8 +3032,10 @@ const FAQPage = ({ go }) => {
     </div>
   );
 };
-const VIPPage = ({ go, user }) => {
+const VIPPage = ({ go, user, setUser }) => {
   const [reserveModal, setReserveModal] = useState(false);
+  const [repayLoading, setRepayLoading] = useState(false);
+  const [repayErr, setRepayErr] = useState('');
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
@@ -2955,6 +3051,28 @@ const VIPPage = ({ go, user }) => {
   const cardLabel = user?.card
     ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")
     : "•••• •••• •••• —";
+  const debtHistory = useMemo(
+    () => (user?.phone ? loadDebtHistory(user.phone) : []),
+    [user?.phone, user?.debt, creditUsed],
+  );
+
+  const handleRepayDebt = async () => {
+    if (!user?.phone || creditUsed <= 0) return;
+    setRepayLoading(true);
+    setRepayErr('');
+    try {
+      await repayCredit(user.phone, creditUsed);
+      const fresh = await refreshStoreUserAfterCredit(user.phone, user.card);
+      if (fresh && setUser) {
+        saveStoreUser({ ...user, ...fresh });
+        setUser({ ...user, ...fresh });
+      }
+    } catch (e) {
+      setRepayErr(e instanceof Error ? e.message : 'Не удалось погасить долг');
+    } finally {
+      setRepayLoading(false);
+    }
+  };
 
   const PERKS = [
     { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
@@ -2972,12 +3090,16 @@ const VIPPage = ({ go, user }) => {
     { e:"🐟", name:"Лосось слабосолёный", qty:1, unit:"200 гр", price:28.00, till:"Завтра 12:00" },
   ];
 
-  const HISTORY = [
-    { date:"15 мая", desc:"Оплата долга",        amount:+500,  type:"pay" },
-    { date:"14 мая", desc:"Заказ K-4821",         amount:-240,  type:"debt" },
-    { date:"10 мая", desc:"Оплата долга",         amount:+1000, type:"pay" },
-    { date:"8 мая",  desc:"Заказ K-4756",         amount:-960,  type:"debt" },
-  ];
+  const HISTORY = debtHistory.length > 0
+    ? debtHistory.map(h => ({
+        date: h.date,
+        desc: h.desc,
+        amount: h.amount,
+        type: h.type === 'pay' ? 'pay' : 'debt',
+      }))
+    : creditUsed > 0
+      ? [{ date: 'Сейчас', desc: 'Текущий долг', amount: -creditUsed, type: 'debt' as const }]
+      : [];
 
   return (
     <div style={{
@@ -3088,9 +3210,16 @@ const VIPPage = ({ go, user }) => {
               </div>
             ))}
           </div>
-          <button className="btn" style={{ width:"100%", marginTop:14, padding:"12px", borderRadius:13, background:"linear-gradient(135deg,var(--gd2),var(--gd))", color:"var(--bg)", fontSize:13, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:7, opacity: creditUsed > 0 ? 1 : 0.5 }}>
-            <Ic n="card" s={16} c="var(--bg)"/>{creditUsed > 0 ? `Погасить долг — ${creditUsed.toLocaleString()} ЅМ` : "Долга нет"}
+          <button
+            onClick={handleRepayDebt}
+            disabled={creditUsed <= 0 || repayLoading}
+            className="btn"
+            style={{ width:"100%", marginTop:14, padding:"12px", borderRadius:13, background:"linear-gradient(135deg,var(--gd2),var(--gd))", color:"var(--bg)", fontSize:13, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:7, opacity: creditUsed > 0 && !repayLoading ? 1 : 0.5 }}
+          >
+            <Ic n="card" s={16} c="var(--bg)"/>
+            {repayLoading ? 'Обработка…' : creditUsed > 0 ? `Погасить долг — ${creditUsed.toLocaleString()} ЅМ` : "Долга нет"}
           </button>
+          {repayErr && <div style={{ marginTop: 8, fontSize: 11, color: 'var(--red)', textAlign: 'center' }}>{repayErr}</div>}
           </>) : (
             <div style={{ fontSize:12, color:"var(--t3)", lineHeight:1.6 }}>Кредитный лимит назначается администратором в разделе «Карты».</div>
           )}
@@ -7263,7 +7392,7 @@ function KakapoAppInner() {
     go('profile');
   }, [go]);
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user, onLogout: logout };
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user, setUser, onLogout: logout };
 
   const render = () => {
     switch (page) {
@@ -7280,7 +7409,7 @@ function KakapoAppInner() {
       case "promos":           return <PromosPage        {...shared}/>;
       case "search":           return <SearchPage        {...shared}/>;
       case "faq":              return <FAQPage           {...shared}/>;
-      case "vip":              return <VIPPage           {...shared} user={user}/>;
+      case "vip":              return <VIPPage           {...shared} user={user} setUser={setUser}/>;
       case "about":            return <AboutPage         {...shared}/>;
       case "admin_dash":       return <AdminDashPage     go={go}/>;
       case "admin_orders":     return <AdminOrdersPage   go={go}/>;

@@ -10,6 +10,7 @@ export const ACCOUNT_NS = {
   cartMeta: 'cart_meta',
   wished: 'wished',
   reviewsLocal: 'reviews_local',
+  debtHistory: 'debt_history',
 } as const
 
 export type AccountNs = (typeof ACCOUNT_NS)[keyof typeof ACCOUNT_NS]
