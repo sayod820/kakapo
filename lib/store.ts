@@ -1,6 +1,6 @@
 'use client'
 import { create } from 'zustand'
-import type { Order, OrderStatus, Product, Restaurant } from './types'
+import type { Order, OrderStatus, OrderItem, Product, Restaurant } from './types'
 import { INITIAL_ORDERS, PRODUCTS, RESTAURANTS } from './data'
 import { api, setToken, getToken } from './api'
 import { USE_API } from './config'
@@ -109,6 +109,18 @@ function mergeOrderStatus(local: OrderStatus, remote: OrderStatus): OrderStatus 
   return (STATUS_RANK[local] ?? 0) >= (STATUS_RANK[remote] ?? 0) ? local : remote
 }
 
+function mergeOrderItems(local: OrderItem[] = [], remote: OrderItem[] = []): OrderItem[] {
+  if (!remote.length) return local
+  if (!local.length) return remote
+  const localByKey = new Map(local.map((it, idx) => [String(it.id ?? it.product_id ?? idx + 1), it]))
+  return remote.map((rit, idx) => {
+    const key = String(rit.id ?? rit.product_id ?? idx + 1)
+    const lit = localByKey.get(key)
+    if (!lit) return rit
+    return { ...rit, done: !!(lit.done || rit.done) }
+  })
+}
+
 export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOrderPin): Order {
   if (adminPin) {
     const merged = { ...local, ...remote, ...adminPin, status: (adminPin.status ?? remote.status ?? local.status) as OrderStatus }
@@ -135,7 +147,7 @@ export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOr
     assembler: useRemoteAssembler ? remote.assembler : local.assembler,
     marketStatus: remote.marketStatus ?? local.marketStatus,
     restParts: remote.restParts ?? local.restParts,
-    items: remote.items?.length ? remote.items : local.items,
+    items: remote.items?.length ? mergeOrderItems(local.items, remote.items) : local.items,
     courierAtClient: remote.courierAtClient ?? local.courierAtClient,
     ...(pickedUpIds.length ? { pickedUpIds } : {}),
     ...(courierRoute != null ? { courierRoute } : { courierRoute: null }),
@@ -490,9 +502,13 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(orderId, order.status, { items })
-        patchOrders(set, get, s => s.map(o => o.id === orderId
-          ? normalizeOrder({ ...o, ...updated, items: updated.items ?? items })
-          : o))
+        const mergedItems = updated.items ?? items
+        patchOrders(set, get, s => s.map(o => {
+          if (o.id !== orderId) return o
+          const next = normalizeOrder({ ...o, ...updated, items: mergedItems })
+          const same = JSON.stringify(o.items) === JSON.stringify(next.items)
+          return same ? o : next
+        }))
       } catch (e) {
         console.error(e)
         patchOrders(set, get, s => s.map(o => o.id === orderId ? order : o))

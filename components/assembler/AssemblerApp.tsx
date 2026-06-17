@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useOrders, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler } from '@/lib/orderUiMap'
 import { getMarketStatus, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
@@ -109,7 +109,14 @@ function AssemblerAppInner() {
     () => (USE_API ? mapOrdersForAssembler(apiOrders) : ORDERS_DATA),
     [apiOrders]
   );
-  const activeOrderId = page === 'collect' ? (params.order || null) : null;
+  const collectIdRef = useRef<string | null>(null);
+  const activeOrderId = page === 'collect'
+    ? (params.order || collectIdRef.current || null)
+    : null;
+
+  useEffect(() => {
+    if (page !== 'collect') collectIdRef.current = null;
+  }, [page]);
 
   const activeOrder = useMemo(() => {
     if (!activeOrderId) return null;
@@ -122,6 +129,7 @@ function AssemblerAppInner() {
   }, [activeOrderId, mapped, apiOrders]);
 
   const openCollect = (id: string) => {
+    collectIdRef.current = id;
     navigate('collect', { order: id });
     const raw = apiOrders.find(o => o.id === id);
     if (!USE_API || !raw) return;
@@ -155,8 +163,24 @@ function AssemblerAppInner() {
     return order.type === 'market' && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
   }).length, [apiOrders]);
 
-  if (page === 'collect' && activeOrder) {
-    return <CollectPage order={activeOrder} onToggle={toggleItem} onComplete={completeOrder} onBack={() => navigate('dashboard')} />;
+  if (page === 'collect' && activeOrderId) {
+    if (!activeOrder) {
+      return (
+        <div style={{ minHeight:'100vh', background:'#030B05', maxWidth:480, margin:'0 auto' }}>
+          <style>{CSS}</style>
+          <Header title={activeOrderId} sub="Загрузка заказа…" showBack onBack={() => navigate('dashboard')} />
+        </div>
+      );
+    }
+    return (
+      <CollectPage
+        key={activeOrderId}
+        order={activeOrder}
+        onToggle={toggleItem}
+        onComplete={completeOrder}
+        onBack={() => navigate('dashboard')}
+      />
+    );
   }
 
   return (
@@ -234,7 +258,7 @@ function DashboardPage({orders, completed, onStart, onPage}) {
     const doneCount = order.items.filter(it=>it.done).length;
     const pct = order.items.length ? Math.round(doneCount/order.items.length*100) : 0;
     return (
-      <div className="card" style={{overflow:'hidden',animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.08}s both`}}>
+      <div className="card" style={{overflow:'hidden',animation:isNew ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.08}s both` : undefined}}>
         {/* Priority banner */}
         {order.priority==='urgent'&&(
           <div style={{padding:'7px 16px',background:'rgba(255,69,69,.09)',borderBottom:'1px solid rgba(255,69,69,.2)',display:'flex',alignItems:'center',gap:7}}>
@@ -449,7 +473,7 @@ function CollectPage({order, onToggle, onComplete, onBack}) {
       <div style={{padding:'0 18px 180px',display:'flex',flexDirection:'column',gap:10}}>
         {order.items.map((item,i)=>(
           <div key={item.id} onClick={()=>onToggle(order.id, item.id)}
-            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:'pointer',transition:'all .2s',animation:`fadeUp .4s ease ${i*.05}s both`}}>
+            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:'pointer',transition:'background .2s, border-color .2s'}}>
             <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s'}}>
               {item.e}
               {item.done&&(

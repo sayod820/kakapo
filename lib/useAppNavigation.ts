@@ -41,6 +41,13 @@ function readFromSearchParams(
   return { page, params }
 }
 
+function paramsEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ak = Object.keys(a)
+  const bk = Object.keys(b)
+  if (ak.length !== bk.length) return false
+  return ak.every(k => a[k] === b[k])
+}
+
 /** Синхронизация внутренней страницы с URL (?p=...) — после F5 остаётесь на том же экране */
 export function useAppNavigation(defaultPage: string) {
   const router = useRouter()
@@ -59,12 +66,11 @@ export function useAppNavigation(defaultPage: string) {
   useEffect(() => {
     const fromUrl = readFromSearchParams(searchParams, defaultPage)
     const fromWindow = readFromLocation(defaultPage)
-    // replaceState обновляет адрес сразу, searchParams в Next.js — с задержкой
     const windowQs = typeof window !== 'undefined' ? window.location.search : ''
     const urlQs = searchParams.toString()
     const next = windowQs !== urlQs && fromWindow.page !== fromUrl.page ? fromWindow : fromUrl
-    setPageState(next.page)
-    setParamsState(next.params)
+    setPageState(prev => (prev === next.page ? prev : next.page))
+    setParamsState(prev => (paramsEqual(prev, next.params) ? prev : next.params))
   }, [searchParams, defaultPage])
 
   const navigate = useCallback((nextPage: string, nextParams: NavParams = {}) => {
