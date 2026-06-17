@@ -409,6 +409,15 @@ const OSTATUS = {
   cancelled:       {l:"Отменён",       c:"var(--red)"},
 };
 
+const ORDER_STATUS_FILTERS = [
+  { id: 'all', l: 'Все', ic: null, c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
+  { id: 'assembling', l: 'Сборка', ic: 'bag', c: 'var(--pur)', activeBg: 'rgba(155,109,255,.11)', activeBd: 'rgba(155,109,255,.28)' },
+  { id: 'cooking', l: 'Кухня', ic: 'zap', c: 'var(--gd)', activeBg: 'rgba(255,184,0,.1)', activeBd: 'rgba(255,184,0,.28)' },
+  { id: 'waiting_courier', l: 'Ждём', ic: 'clock', c: 'var(--gd)', activeBg: 'rgba(255,184,0,.1)', activeBd: 'rgba(255,184,0,.28)' },
+  { id: 'delivering', l: 'Путь', ic: 'truck', c: 'var(--blue)', activeBg: 'rgba(59,142,240,.1)', activeBd: 'rgba(59,142,240,.28)' },
+  { id: 'delivered', l: 'Готов', ic: 'check', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
+];
+
 function ClientReviewBlock({ review, orderId, embedded }: { review: Review; orderId?: string; embedded?: boolean }) {
   const hasReply = !!(review.adminReply || review.restReply);
   return (
@@ -1862,10 +1871,36 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{ordersList.length} заказов</div></div>
         </div>
-        <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
-          {[{id:"all",l:"Все"},{id:"assembling",l:"📦 Сборка"},{id:"cooking",l:"👨‍🍳 Готовится"},{id:"waiting_courier",l:"⏳ Ждём курьера"},{id:"delivering",l:"🚀 В пути"},{id:"delivered",l:"✅ Доставлен"}].map(f => (
-            <button key={f.id} className={`chip ${filter===f.id?"on":""}`} onClick={() => setFilter(f.id)}>{f.l}</button>
-          ))}
+        <div className="hscroll" style={{ padding:"0 16px 10px", gap:5 }}>
+          {ORDER_STATUS_FILTERS.map(f => {
+            const on = filter === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                className="btn"
+                onClick={() => setFilter(f.id)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '5px 10px',
+                  borderRadius: 20,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  border: `1px solid ${on ? f.activeBd : 'var(--b1)'}`,
+                  background: on ? f.activeBg : 'var(--l2)',
+                  color: on ? f.c : 'var(--t2)',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  transition: 'all .18s',
+                }}
+              >
+                {f.ic && <Ic n={f.ic} s={11} c={on ? f.c : 'var(--t3)'} w={on ? 2.2 : 2} />}
+                {f.l}
+              </button>
+            );
+          })}
         </div>
       </header>
       {ordersList.some(o => o.status==="delivering" && o.trackable) && filter==="all" && (
