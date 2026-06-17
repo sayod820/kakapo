@@ -33,6 +33,8 @@ export interface Order {
   items: OrderItem[]
   total: number
   comment?: string
+  /** Заметка сборщика при изменении заказа */
+  assemblerNote?: string
   priority?: 'normal' | 'urgent'
   restId?: string
   restIds?: string[]

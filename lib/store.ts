@@ -217,6 +217,7 @@ interface OrdersStore {
   markPickupDone: (id: string, pickupId: string) => Promise<void>
   setCourierRoute: (id: string, route: string[]) => Promise<void>
   toggleItem: (orderId: string, itemId: number) => Promise<void>
+  updateOrderItems: (orderId: string, items: Order['items'], extra?: { assemblerNote?: string }) => Promise<void>
   getByStatus: (status: OrderStatus | OrderStatus[]) => Order[]
   getByType: (type: 'market' | 'restaurant') => Order[]
 }
@@ -538,6 +539,27 @@ export const useOrders = create<OrdersStore>((set, get) => ({
           const next = normalizeOrder({ ...o, ...updated, items: mergedItems })
           const same = JSON.stringify(o.items) === JSON.stringify(next.items)
           return same ? o : next
+        }))
+      } catch (e) {
+        console.error(e)
+        patchOrders(set, get, s => s.map(o => o.id === orderId ? order : o))
+      }
+    }
+  },
+
+  updateOrderItems: async (orderId, items, extra) => {
+    const order = get().orders.find(o => o.id === orderId)
+    if (!order) return
+    const itemsSubtotal = items.reduce((s, it) => s + it.price * it.qty, 0)
+    const total = Math.round((itemsSubtotal + (order.deliveryFee ?? 0)) * 100) / 100
+    const patch = { items, total, ...extra }
+    patchOrders(set, get, s => s.map(o => o.id === orderId ? { ...o, ...patch } : o))
+    if (USE_API) {
+      try {
+        const updated = await api.updateOrderStatus(orderId, order.status, patch)
+        patchOrders(set, get, s => s.map(o => {
+          if (o.id !== orderId) return o
+          return normalizeOrder({ ...o, ...updated, items: updated.items ?? items, total: updated.total ?? total })
         }))
       } catch (e) {
         console.error(e)

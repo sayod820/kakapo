@@ -127,6 +127,7 @@ function AssemblerAppInner() {
   const [session, setSession] = useState<AssemblerSession | null>(() => loadAssemblerSession());
   const [dismissedCancelled, setDismissedCancelled] = useState<Set<string>>(() => new Set());
   const [demoClaims, setDemoClaims] = useState<Record<string, string>>({});
+  const [demoEdits, setDemoEdits] = useState<Record<string, { items: typeof ORDERS_DATA[0]['items']; assemblerNote?: string }>>({});
 
   const assemblerProfile = useMemo((): AdminAssembler | null => {
     if (!session) return null;
@@ -144,6 +145,7 @@ function AssemblerAppInner() {
   const completeMarketPart = useOrders(s => s.completeMarketPart);
   const acceptAssemblerOrder = useOrders(s => s.acceptAssemblerOrder);
   const toggleItemStore = useOrders(s => s.toggleItem);
+  const updateOrderItemsStore = useOrders(s => s.updateOrderItems);
   const mapped = useMemo(() => {
     if (!assemblerProfile) return [];
     if (USE_API) {
@@ -156,9 +158,16 @@ function AssemblerAppInner() {
       const claimedBy = demoClaims[o.id] || o.claimedBy;
       const claimed = !!claimedBy || o.claimed;
       const queue = !claimed ? 'pool' as const : (o.queue === 'pool' || o.queue === 'new' ? 'accepted' as const : o.queue);
-      return { ...o, claimed, claimedBy, queue };
+      const edit = demoEdits[o.id];
+      return {
+        ...o,
+        ...(edit ? { items: edit.items, assemblerNote: edit.assemblerNote || '' } : {}),
+        claimed,
+        claimedBy,
+        queue,
+      };
     }).filter(o => !o.claimed || o.claimedBy === assemblerName);
-  }, [apiOrders, assemblerProfile, assemblerName, demoClaims]);
+  }, [apiOrders, assemblerProfile, assemblerName, demoClaims, demoEdits]);
   const cancelledOrders = useMemo(() => {
     if (!USE_API || !assemblerProfile) return [];
     return mapCancelledOrdersForAssembler(apiOrders)
@@ -271,6 +280,17 @@ function AssemblerAppInner() {
     void toggleItemStore(orderId, itemId);
   };
 
+  const updateOrderItems = async (orderId: string, items: import('@/lib/types').Order['items'], note?: string) => {
+    if (!USE_API) {
+      setDemoEdits(prev => ({
+        ...prev,
+        [orderId]: { items: items as typeof ORDERS_DATA[0]['items'], assemblerNote: note },
+      }));
+      return;
+    }
+    await updateOrderItemsStore(orderId, items, note ? { assemblerNote: note } : undefined);
+  };
+
   const completeOrder = async (orderId: string) => {
     const raw = apiOrders.find(o => o.id === orderId);
     if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
@@ -332,6 +352,7 @@ function AssemblerAppInner() {
         onLogout={logout}
         onCancel={() => cancelOrder(activeOrderId, 'Отменено сборщиком')}
         onAcknowledgeCancel={() => dismissCancel(activeOrderId)}
+        onUpdateItems={updateOrderItems}
       />
     );
   }
@@ -649,12 +670,56 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
 /* ══════════════════════════════════════════════════════
    СБОРКА ЗАКАЗА
 ══════════════════════════════════════════════════════ */
-function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, onAcknowledgeCancel}) {
+function phoneHref(phone?: string) {
+  if (!phone?.trim()) return null;
+  const digits = phone.replace(/[^\d+]/g, '');
+  return digits.length >= 9 ? `tel:${digits}` : null;
+}
+
+function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, onAcknowledgeCancel, onUpdateItems}) {
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editItems, setEditItems] = useState(order.items);
+  const [editNote, setEditNote] = useState(order.assemblerNote || '');
+  const [saving, setSaving] = useState(false);
   const doneCount = order.items.filter(it=>it.done).length;
-  const allDone   = doneCount === order.items.length;
-  const pct       = Math.round(doneCount/order.items.length*100);
+  const allDone   = order.items.length > 0 && doneCount === order.items.length;
+  const pct       = order.items.length ? Math.round(doneCount/order.items.length*100) : 0;
   const isCancelled = !!order.cancelled;
+  const clientPhone = phoneHref(order.client.phone);
+  const itemsTotal = order.items.reduce((s,it)=>s+it.price*it.qty,0);
+
+  useEffect(() => {
+    setEditItems(order.items);
+    setEditNote(order.assemblerNote || '');
+  }, [order.id, order.items, order.assemblerNote]);
+
+  const changeQty = (itemId: number, delta: number) => {
+    setEditItems(prev => prev.map(it => {
+      if (it.id !== itemId) return it;
+      const qty = Math.max(0, it.qty + delta);
+      return { ...it, qty };
+    }));
+  };
+
+  const removeItem = (itemId: number) => {
+    setEditItems(prev => prev.filter(it => it.id !== itemId));
+  };
+
+  const handleSaveEdit = async () => {
+    const filtered = editItems.filter(it => it.qty > 0);
+    if (!filtered.length) {
+      window.alert('В заказе должен остаться хотя бы один товар');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onUpdateItems(order.id, filtered, editNote.trim());
+      setShowEdit(false);
+    } finally {
+      setSaving(false);
+    }
+  };
 
 
 
@@ -694,11 +759,12 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
             </button>
           </div>
         )}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
           <div style={{padding:'11px 14px',borderRadius:13,background:'#091508',border:'1px solid #162B1A'}}>
             <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>📍 Клиент</div>
             <div style={{fontSize:12,fontWeight:700,marginBottom:1}}>{order.client.name}</div>
-            <div style={{fontSize:10,color:'#8FB897'}}>{order.client.addr}</div>
+            <div style={{fontSize:10,color:'#8FB897',marginBottom:order.client.phone?3:0}}>{order.client.addr}</div>
+            {order.client.phone && <div style={{fontSize:10,color:'#9B6DFF',fontWeight:700}}>{order.client.phone}</div>}
           </div>
           <div style={{padding:'11px 14px',borderRadius:13,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)'}}>
             <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>🛵 Курьер</div>
@@ -706,9 +772,32 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
             <div style={{fontSize:10,color:'#8FB897'}}>{order.courier.phone}</div>
           </div>
         </div>
+        {!isCancelled && (
+          <div style={{display:'flex',gap:10,marginBottom:14}}>
+            {clientPhone ? (
+              <a href={clientPhone} className="btn"
+                style={{flex:1,padding:'11px 12px',borderRadius:13,background:'rgba(31,215,96,.1)',border:'1.5px solid rgba(31,215,96,.35)',color:'#1FD760',fontWeight:800,fontSize:12,textDecoration:'none',display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+                📞 Позвонить клиенту
+              </a>
+            ) : (
+              <div style={{flex:1,padding:'11px 12px',borderRadius:13,background:'#091508',border:'1px solid #162B1A',color:'#3D6645',fontSize:11,textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                📞 Номер клиента не указан
+              </div>
+            )}
+            <button type="button" onClick={() => setShowEdit(true)} className="btn"
+              style={{flex:1,padding:'11px 12px',borderRadius:13,background:'rgba(155,109,255,.1)',border:'1.5px solid rgba(155,109,255,.35)',color:'#9B6DFF',fontWeight:800,fontSize:12}}>
+              ✏️ Изменить заказ
+            </button>
+          </div>
+        )}
         {order.comment&&(
           <div style={{padding:'9px 13px',borderRadius:11,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',fontSize:12,color:'#FFB800',marginBottom:14}}>
             💬 {order.comment}
+          </div>
+        )}
+        {order.assemblerNote&&(
+          <div style={{padding:'9px 13px',borderRadius:11,background:'rgba(155,109,255,.08)',border:'1px solid rgba(155,109,255,.25)',fontSize:12,color:'#9B6DFF',marginBottom:14}}>
+            📝 Изменения: {order.assemblerNote}
           </div>
         )}
         {order.priority==='urgent'&&(
@@ -759,7 +848,7 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
         {/* Summary */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
           <div style={{fontSize:11,color:'#8FB897'}}>
-            Итого: <span style={{fontWeight:700,color:'#FFB800'}}>{order.items.reduce((s,it)=>s+it.price*it.qty,0).toFixed(2)} ЅМ</span>
+            Итого: <span style={{fontWeight:700,color:'#FFB800'}}>{itemsTotal.toFixed(2)} ЅМ</span>
           </div>
           <div style={{fontSize:11,color:'#8FB897'}}>
             Собрано: <span style={{fontWeight:700,color:'#9B6DFF'}}>{doneCount}/{order.items.length}</span>
@@ -809,6 +898,73 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
               style={{width:'100%',padding:14,borderRadius:15,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
               🛵 Передал курьеру — завершить
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit order modal */}
+      {showEdit && (
+        <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+          <div onClick={() => !saving && setShowEdit(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
+          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'88vh',overflowY:'auto',background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',padding:'22px 20px 44px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
+            <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 20px'}}/>
+            <div style={{marginBottom:16}}>
+              <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Изменить заказ</div>
+              <div style={{fontSize:12,color:'#8FB897',lineHeight:1.5}}>
+                Позвоните клиенту и уточните количество, замену или удаление товара.
+              </div>
+            </div>
+            {clientPhone && (
+              <a href={clientPhone} className="btn"
+                style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,width:'100%',padding:12,borderRadius:13,background:'rgba(31,215,96,.1)',border:'1.5px solid rgba(31,215,96,.35)',color:'#1FD760',fontWeight:800,fontSize:13,textDecoration:'none',marginBottom:16}}>
+                📞 Позвонить {order.client.name}
+              </a>
+            )}
+            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+              {editItems.map(item => (
+                <div key={item.id} style={{padding:'12px 14px',borderRadius:14,background:'#091508',border:'1px solid #162B1A'}}>
+                  <div style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:10}}>
+                    <span style={{fontSize:24}}>{item.e}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{item.name}</div>
+                      <div style={{fontSize:10,color:'#8FB897'}}>{item.unit} · {(item.price * item.qty).toFixed(2)} ЅМ</div>
+                    </div>
+                    <button type="button" onClick={() => removeItem(item.id)} className="btn"
+                      style={{width:30,height:30,borderRadius:10,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',color:'#FF6969',fontSize:14,flexShrink:0}}>
+                      ✕
+                    </button>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                    <span style={{fontSize:11,color:'#8FB897'}}>Количество</span>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <button type="button" onClick={() => changeQty(item.id, -1)} className="btn"
+                        style={{width:34,height:34,borderRadius:10,background:'#0C1C0F',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:18,fontWeight:700}}>−</button>
+                      <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,color:'#9B6DFF',minWidth:24,textAlign:'center'}}>{item.qty}</span>
+                      <button type="button" onClick={() => changeQty(item.id, 1)} className="btn"
+                        style={{width:34,height:34,borderRadius:10,background:'#0C1C0F',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:18,fontWeight:700}}>+</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!editItems.length && (
+                <div style={{padding:16,textAlign:'center',fontSize:12,color:'#8FB897',borderRadius:12,border:'1px dashed #1D3822'}}>
+                  Все товары удалены — добавьте хотя бы один или отмените заказ
+                </div>
+              )}
+            </div>
+            <label style={{display:'block',fontSize:11,color:'#8FB897',marginBottom:8}}>Заметка об изменениях</label>
+            <textarea value={editNote} onChange={e => setEditNote(e.target.value)} rows={3} placeholder="Например: заменили молоко 1 л на 2 л, убрали сыр — нет в наличии"
+              style={{width:'100%',padding:'12px 14px',borderRadius:12,background:'#091508',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:13,resize:'vertical',marginBottom:16,fontFamily:'Nunito'}}/>
+            <div style={{display:'flex',gap:10}}>
+              <button type="button" onClick={() => setShowEdit(false)} disabled={saving} className="btn"
+                style={{flex:1,padding:13,borderRadius:14,background:'#091508',border:'1px solid #162B1A',color:'#8FB897',fontWeight:700,fontSize:13}}>
+                Отмена
+              </button>
+              <button type="button" onClick={handleSaveEdit} disabled={saving || !editItems.length} className="btn"
+                style={{flex:1,padding:13,borderRadius:14,background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)',border:'none',color:'white',fontWeight:800,fontSize:13,opacity:(saving || !editItems.length) ? 0.5 : 1}}>
+                {saving ? 'Сохранение…' : '✓ Сохранить'}
+              </button>
+            </div>
           </div>
         </div>
       )}

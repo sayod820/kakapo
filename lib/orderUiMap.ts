@@ -387,6 +387,7 @@ function mapAssemblerOrderShape(o: Order) {
     client: { name: order.client.name, phone: order.client.phone, addr: order.client.addr },
     courier: order.courier || { name: '—', phone: '' },
     comment: order.comment || '',
+    assemblerNote: order.assemblerNote || '',
     items: marketItems.map((it, idx) => ({
       id: it.id ?? it.product_id ?? idx + 1,
       art: it.art || '',
