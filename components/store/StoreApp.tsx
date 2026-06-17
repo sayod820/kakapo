@@ -165,17 +165,37 @@ const Toast = ({ msg }) => !msg ? null : (
   </div>
 );
 
-const Nav = ({ page, go }) => (
-  <nav style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"8px 18px calc(16px + env(safe-area-inset-bottom, 0px))", display:"flex", justifyContent:"space-around", zIndex:200 }}>
-    {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => (
+const Nav = ({ page, go, user: userProp }) => {
+  const syncedUser = userProp ?? loadStoreUser()
+  const { isVip } = resolveUserVip(syncedUser)
+  return (
+  <nav style={{
+    position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480,
+    background: isVip ? "rgba(10,8,2,.97)" : "rgba(3,11,5,.97)",
+    backdropFilter:"blur(26px)",
+    borderTop: isVip ? "1px solid rgba(255,184,0,.35)" : "1px solid var(--b1)",
+    boxShadow: isVip ? "0 -4px 24px rgba(255,184,0,.12)" : "none",
+    padding:"8px 18px calc(16px + env(safe-area-inset-bottom, 0px))", display:"flex", justifyContent:"space-around", zIndex:200,
+  }}>
+    {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => {
+      const isProfileVip = item.id === "profile" && isVip
+      const on = page === item.id
+      const activeColor = isProfileVip ? "#FFD700" : "var(--gr)"
+      const activeBg = isProfileVip ? "rgba(255,184,0,.12)" : "rgba(31,215,96,.09)"
+      const activeBorder = isProfileVip ? "rgba(255,184,0,.35)" : "rgba(31,215,96,.22)"
+      return (
       <button key={item.id} type="button" onClick={() => go(item.id)} className="btn"
-        style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"6px 12px", borderRadius:12, background:page===item.id?"rgba(31,215,96,.09)":"transparent", border:`1.5px solid ${page===item.id?"rgba(31,215,96,.22)":"transparent"}`, color:page===item.id?"var(--gr)":"var(--t3)" }}>
-        <Ic n={item.icon} s={20} c={page===item.id?"var(--gr)":"var(--t3)"}/>
-        <span style={{ fontSize:9, fontWeight:page===item.id?800:600 }}>{item.label}</span>
+        style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"6px 12px", borderRadius:12, background:on?activeBg:"transparent", border:`1.5px solid ${on?activeBorder:"transparent"}`, color:on?activeColor:"var(--t3)", position:"relative" }}>
+        {isProfileVip && (
+          <div style={{ position:"absolute", top:2, right:6, fontSize:9, animation:"crownFloat 2.5s ease-in-out infinite" }}>👑</div>
+        )}
+        <Ic n={item.icon} s={20} c={on?activeColor:"var(--t3)"}/>
+        <span style={{ fontSize:9, fontWeight:on?800:600 }}>{isProfileVip ? "VIP" : item.label}</span>
       </button>
-    ))}
+    )})}
   </nav>
-);
+  )
+}
 
 /** Компактная плавающая кнопка корзины */
 const FloatingCartBtn = ({ count, onClick, label = "В корзину" }) => (
@@ -209,29 +229,60 @@ const FloatingCartBtn = ({ count, onClick, label = "В корзину" }) => (
   </div>
 );
 
-const Header = ({ title, back, go, cart }) => {
+const Header = ({ title, back, go, cart, user: userProp }) => {
   const { prods } = useLiveCatalog();
+  const user = userProp ?? loadStoreUser()
+  const { isVip, theme } = resolveUserVip(user)
   const qty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
   const qtyNum = sumCartUnits(cart || {}, prods);
   return (
-    <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <header style={{
+      position:"sticky", top:0, zIndex:100,
+      background: isVip && !title ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)",
+      backdropFilter:"blur(24px)",
+      borderBottom: isVip && !title ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)",
+      boxShadow: isVip && !title ? "0 4px 24px rgba(255,184,0,.1)" : "none",
+    }}>
       <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
         {back ? (
           <button onClick={() => go(back)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
           </button>
         ) : (
-          <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:17, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 4px 16px rgba(31,215,96,.4)", flexShrink:0 }}>K</div>
+          <div style={{
+            width:40, height:40, borderRadius:12, position:"relative", flexShrink:0,
+            background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontFamily:"Unbounded", fontSize:17, fontWeight:900,
+            color: isVip ? "#1a1000" : "var(--bg)",
+            animation: isVip ? "vipGlow 3s ease-in-out infinite" : "glow 3s ease-in-out infinite",
+            boxShadow: isVip ? "0 4px 16px rgba(255,184,0,.45)" : "0 4px 16px rgba(31,215,96,.4)",
+          }}>
+            K
+            {isVip && <span style={{ position:"absolute", top:-4, right:-4, fontSize:10 }}>👑</span>}
+          </div>
         )}
-        <div style={{ flex:1 }}>
+        <div style={{ flex:1, minWidth:0 }}>
           {title ? (
-            <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
+              {isVip && <UserStatusBadge user={user} size="sm" />}
+            </div>
           ) : (
             <>
-              <div className="ub" style={{ fontSize:16, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>КАКАПО</div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <div className="ub" style={{
+                  fontSize:16, fontWeight:900,
+                  background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800)" : "linear-gradient(135deg,var(--gr),var(--gd))",
+                  WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
+                }}>КАКАПО{isVip ? " VIP" : ""}</div>
+                {isVip && user && <UserStatusBadge user={user} size="sm" />}
+              </div>
               <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:1 }}>
-                <div style={{ width:5, height:5, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>
-                <span style={{ fontSize:10, color:"var(--t2)" }}>г. Яван · Доставка 45 мин</span>
+                <div style={{ width:5, height:5, borderRadius:"50%", background: isVip ? "#FFD700" : "var(--gr)", animation:"pulse 2s infinite" }}/>
+                <span style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--t2)" }}>
+                  {isVip ? "VIP · Приоритетная доставка · г. Яван" : "г. Яван · Доставка 45 мин"}
+                </span>
               </div>
             </>
           )}
@@ -464,6 +515,80 @@ const TIER_THEMES: Record<string, { bg: string; border: string; glow: string; ac
   gold:     { bg: 'linear-gradient(145deg,#1f1600 0%,#120d00 40%,#2e2200 100%)', border: 'rgba(255,184,0,.48)', glow: 'rgba(255,184,0,.38)', accent: '#FFB800', rail: 'linear-gradient(90deg,#B8860B,#FFD700)' },
   platinum: { bg: 'linear-gradient(145deg,#0a1428 0%,#060e1a 40%,#0f2040 100%)', border: 'rgba(59,142,240,.48)', glow: 'rgba(59,142,240,.38)', accent: '#3B8EF0', rail: 'linear-gradient(90deg,#2563EB,#60A5FA)' },
   vip:      { bg: 'linear-gradient(145deg,#1a1000 0%,#0a0600 30%,#2a1a00 70%,#1a1000 100%)', border: 'rgba(255,184,0,.65)', glow: 'rgba(255,184,0,.55)', accent: '#FFD700', rail: 'linear-gradient(90deg,#E89E00,#FFE566,#E89E00)' },
+}
+
+type VipUserLike = { level?: string; vip?: boolean; name?: string; bonus?: number; card?: string } | null | undefined
+
+function resolveUserVip(user: VipUserLike) {
+  const tier = LOYALTY_TIERS.find(t => t.id === user?.level) || LOYALTY_TIERS[0]
+  const isVip = !!user?.vip
+  const theme = isVip ? TIER_THEMES.vip : (TIER_THEMES[user?.level || 'bronze'] || TIER_THEMES.bronze)
+  return { isVip, theme, tier, label: isVip ? 'VIP Elite' : tier.label }
+}
+
+function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm' | 'md' | 'lg' }) {
+  if (!user) return null
+  const { isVip, theme, tier, label } = resolveUserVip(user)
+  const sz = size === 'sm' ? { fontSize: 9, padding: '2px 8px' } : size === 'lg' ? { fontSize: 12, padding: '5px 14px' } : { fontSize: 10, padding: '3px 10px' }
+  return (
+    <span style={{
+      ...sz, fontWeight: 800, borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+      background: isVip ? 'linear-gradient(135deg,rgba(255,184,0,.28),rgba(255,140,0,.12))' : `${tier.color}18`,
+      color: isVip ? '#FFD700' : tier.color,
+      border: isVip ? '1px solid rgba(255,184,0,.55)' : `1px solid ${tier.color}35`,
+      boxShadow: isVip ? '0 0 14px rgba(255,184,0,.3)' : 'none',
+    }}>
+      {isVip ? '👑 VIP' : tier.emoji} {label}
+    </span>
+  )
+}
+
+function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => void }) {
+  const { isVip, theme } = resolveUserVip(user)
+  if (!user || !isVip) return null
+  const firstName = (user.name || 'Клиент').split(' ')[0]
+  return (
+    <div
+      onClick={() => go('vip')}
+      className="loyalty-vip-card"
+      style={{
+        marginBottom: 16, borderRadius: 20, overflow: 'hidden', cursor: 'pointer', position: 'relative',
+        background: theme.bg, border: `1.5px solid ${theme.border}`,
+        boxShadow: `0 8px 32px ${theme.glow}`,
+      }}
+    >
+      <div className="loyalty-vip-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,184,0,.2),transparent 70%)', filter: 'blur(16px)' }} />
+      <div style={{ position: 'relative', zIndex: 1, padding: '16px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 12,
+              background: 'linear-gradient(135deg,#FFD700,#FFB800)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 16px rgba(255,184,0,.45)', fontSize: 20,
+              animation: 'crownFloat 2.5s ease-in-out infinite',
+            }}>👑</div>
+            <div>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: '#FFD700', marginBottom: 2 }}>
+                Добро пожаловать, {firstName}!
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,220,100,.75)' }}>VIP MEMBER · все привилегии активны</div>
+            </div>
+          </div>
+          <UserStatusBadge user={user} size="sm" />
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {['🚀 Приоритет', '🌿 Доставка 0', '⭐ Кешбэк 5%', '💳 Кредит'].map((p, i) => (
+            <div key={i} style={{
+              flex: 1, textAlign: 'center', fontSize: 8, fontWeight: 700, padding: '6px 2px', borderRadius: 8,
+              color: 'rgba(255,220,100,.9)', background: 'rgba(0,0,0,.28)', border: '1px solid rgba(255,184,0,.22)',
+            }}>{p}</div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
@@ -897,15 +1022,31 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   );
 };
 
-const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
+const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const { prods, restaurants } = useLiveCatalog();
+  const apiOrders = useOrders(s => s.orders);
+  const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const loyalty = useMemo(
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip),
+    [spentTotal, orderCount, user?.level, user?.vip],
+  );
+  const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
+  const { isVip } = resolveUserVip(vipUser);
   const [bi, setBi] = useState(0);
   useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % BANNERS.length), 4000); return () => clearInterval(t); }, []);
   const b = BANNERS[bi];
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <Header go={go} cart={cart}/>
+    <div style={{
+      minHeight:"100vh",
+      background: isVip
+        ? "radial-gradient(ellipse 120% 40% at 50% -5%, rgba(255,184,0,.12) 0%, transparent 55%), var(--bg)"
+        : "var(--bg)",
+      maxWidth:480, margin:"0 auto",
+    }}>
+      <Header go={go} cart={cart} user={vipUser}/>
       <div style={{ padding:"14px 18px 100px" }}>
+        <HomeVipWelcome user={vipUser} go={go}/>
         <div style={{ borderRadius:22, overflow:"hidden", marginBottom:20, cursor:"pointer" }} onClick={() => go("promos")}>
           <div style={{ background:b.bg, padding:"22px 20px 18px", position:"relative", overflow:"hidden" }}>
             <div style={{ position:"absolute", left:0, right:0, height:1, background:`linear-gradient(90deg,transparent,${b.ac}55,transparent)`, animation:"scanLine 3s linear infinite" }}/>
@@ -978,16 +1119,16 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished }) => {
           <div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>🏷</div>
         </div>
       </div>
-      <Nav page="home" go={go}/>
+      <Nav page="home" go={go} user={vipUser}/>
     </div>
   );
 };
 
-const CatalogPage = ({ go, cart }) => {
+const CatalogPage = ({ go, cart, user }) => {
   const { prods, restaurants } = useLiveCatalog();
   return (
   <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-    <Header title="Каталог" go={go} cart={cart}/>
+    <Header title="Каталог" go={go} cart={cart} user={user}/>
     <div style={{ padding:"16px 18px 100px" }}>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
         {[{e:"💸",t:"Акции",s:"До 40%",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Топ продаж",c:"var(--org)",to:"promos"},{e:"✨",t:"Новинки",s:"Только что",c:"var(--blue)",to:"promos"},{e:"🌿",t:"Органик",s:"Без ГМО",c:"#34D399",to:"promos"}].map((p,i) => (
@@ -1889,7 +2030,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
       <div className="ub" style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Войдите в аккаунт</div>
       <div style={{ fontSize:13, color:"var(--t2)", marginBottom:24, lineHeight:1.6 }}>Войдите по номеру телефона — бонусы, заказы и персональные предложения</div>
       <button onClick={() => go("auth")} className="btn" style={{ padding:"14px 32px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:14, fontWeight:800 }}>📱 Войти по номеру телефона</button>
-      <Nav page="profile" go={go}/>
+      <Nav page="profile" go={go} user={user}/>
     </div>
   );
 
@@ -1987,12 +2128,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
               )}
               <span style={{
                 fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20, display:'inline-flex', alignItems:'center', gap:4,
-                background: loyalty.isVip ? 'linear-gradient(135deg,rgba(255,184,0,.25),rgba(255,140,0,.12))' : `${lc}18`,
-                color: loyalty.isVip ? '#FFD700' : lc,
-                border: loyalty.isVip ? '1px solid rgba(255,184,0,.5)' : `1px solid ${lc}35`,
-                boxShadow: loyalty.isVip ? '0 0 12px rgba(255,184,0,.25)' : 'none',
               }}>
-                {loyalty.isVip ? '👑 VIP' : loyalty.tier.emoji} {loyalty.isVip ? 'Elite' : levelLabel}
+                <UserStatusBadge user={{ ...user, vip: loyalty.isVip }} size="md" />
               </span>
             </div>
           </div>
@@ -2053,7 +2190,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
 
         <div style={{ textAlign:"center", marginTop:14, fontSize:10, color:"var(--t3)" }}>КАКАПО · г. Яван</div>
       </div>
-      <Nav page="profile" go={go}/>
+      <Nav page="profile" go={go} user={user}/>
     </div>
   );
 };
@@ -2254,7 +2391,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
           </div>
         </div>
       )}
-      <Nav page="orders" go={go}/>
+      <Nav page="orders" go={go} user={user}/>
     </div>
   );
 
@@ -2263,7 +2400,12 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
       <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{ordersList.length} заказов</div></div>
+          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div>
+            <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2, flexWrap:"wrap" }}>
+              <div style={{ fontSize:10, color:"var(--t2)" }}>{ordersList.length} заказов</div>
+              {user && resolveUserVip(user).isVip && <UserStatusBadge user={user} size="sm" />}
+            </div>
+          </div>
         </div>
         <div className="hscroll" style={{ padding:"0 16px 10px", gap:5 }}>
           {ORDER_STATUS_FILTERS.map(f => {
@@ -2364,7 +2506,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
           </div>
         </div>
       )}
-      <Nav page="orders" go={go}/>
+      <Nav page="orders" go={go} user={user}/>
     </div>
   );
 };
@@ -2409,7 +2551,7 @@ const ClientReviewsPage = ({ go, user }) => {
         <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
         <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Войдите, чтобы видеть отзывы</div>
         <button onClick={() => go("auth")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white" }}>Войти</button>
-        <Nav page="profile" go={go}/>
+        <Nav page="profile" go={go} user={user}/>
       </div>
     );
   }
@@ -2472,7 +2614,7 @@ const ClientReviewsPage = ({ go, user }) => {
           );
         })}
       </div>
-      <Nav page="profile" go={go}/>
+      <Nav page="profile" go={go} user={user}/>
     </div>
   );
 };
@@ -2785,10 +2927,18 @@ const FAQPage = ({ go }) => {
 };
 const VIPPage = ({ go, user }) => {
   const [reserveModal, setReserveModal] = useState(false);
+  const apiOrders = useOrders(s => s.orders);
+  const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const loyalty = useMemo(
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip),
+    [spentTotal, orderCount, user?.level, user?.vip],
+  );
+  const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
+  const { isVip, theme, tier } = resolveUserVip(vipUser)
   const creditUsed = user?.debt ?? 0;
   const creditLimit = user?.debtLimit ?? 0;
   const creditPct = creditLimit > 0 ? Math.min(100, Math.round((creditUsed / creditLimit) * 100)) : 0;
-  const tier = LOYALTY_TIERS.find(t => t.id === user?.level) || LOYALTY_TIERS[0];
   const cardLabel = user?.card
     ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")
     : "•••• •••• •••• —";
@@ -2817,19 +2967,29 @@ const VIPPage = ({ go, user }) => {
   ];
 
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div style={{
+      minHeight:"100vh",
+      background: isVip
+        ? "radial-gradient(ellipse 100% 35% at 50% 0%, rgba(255,184,0,.1) 0%, transparent 50%), var(--bg)"
+        : "var(--bg)",
+      maxWidth:480, margin:"0 auto",
+    }}>
+      <header style={{
+        position:"sticky", top:0, zIndex:100,
+        background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)",
+        backdropFilter:"blur(24px)",
+        borderBottom: isVip ? "1px solid rgba(255,184,0,.35)" : "1px solid var(--b1)",
+        boxShadow: isVip ? "0 4px 20px rgba(255,184,0,.12)" : "none",
+      }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
-            <div className="ub" style={{ fontSize:17, fontWeight:900 }}>VIP Профиль</div>
-            <div style={{ fontSize:10, color:"var(--gd)", marginTop:1, display:"flex", alignItems:"center", gap:4 }}><Ic n="crown" s={10} c="var(--gd)"/>{tier.label}{user?.card ? ` · ${user.card}` : ""}</div>
+            <div className="ub" style={{ fontSize:17, fontWeight:900, color: isVip ? "#FFD700" : "var(--t1)" }}>{isVip ? "VIP Профиль" : "VIP программа"}</div>
+            <div style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--gd)", marginTop:1, display:"flex", alignItems:"center", gap:4 }}>
+              <Ic n="crown" s={10} c={isVip ? "#FFD700" : "var(--gd)"}/>{isVip ? "VIP Elite" : tier.label}{user?.card ? ` · ${user.card}` : ""}
+            </div>
           </div>
-          {user?.vip && (
-          <div style={{ padding:"4px 12px", borderRadius:20, background:"linear-gradient(135deg,rgba(255,184,0,.2),rgba(255,184,0,.08))", border:"1px solid rgba(255,184,0,.4)" }}>
-            <span className="ub" style={{ fontSize:11, fontWeight:900, color:"var(--gd)" }}>VIP</span>
-          </div>
-          )}
+          {isVip && <UserStatusBadge user={vipUser} size="md" />}
         </div>
       </header>
 
@@ -3012,11 +3172,11 @@ const VIPPage = ({ go, user }) => {
         </div>
       )}
 
-      <Nav page="profile" go={go}/>
+      <Nav page="profile" go={go} user={vipUser}/>
     </div>
   );
 };
-const AboutPage = ({ go }) => {
+const AboutPage = ({ go, user }) => {
   const [tab, setTab] = useState("about");
   const [sent, setSent] = useState(false);
   const [name, setName] = useState("");
@@ -3293,7 +3453,7 @@ const AboutPage = ({ go }) => {
           </div>
         )}
       </div>
-      <Nav page="profile" go={go}/>
+      <Nav page="profile" go={go} user={user}/>
     </div>
   );
 };
@@ -5163,7 +5323,7 @@ const NotifPage = ({go, user}) => {
           </div>
         ))}
       </div>
-      <Nav page="profile" go={go}/>
+      <Nav page="profile" go={go} user={user}/>
     </div>
   );
 };
@@ -5367,11 +5527,11 @@ const AddressesPage = ({ go, user }) => {
           </div>
         </div>
       )}
-      <Nav page="profile" go={go}/>
+      <Nav page="profile" go={go} user={user}/>
     </div>
   );
 };
-const ReferralPage = ({go}) => {
+const ReferralPage = ({ go, user }) => {
   const [copied, setCopied] = useState(false);
   const code = 'КАКАПО-D7F2';
   const stats = [{l:'Приглашено',v:'7',c:'var(--blue)'},{l:'Зарегистрировалось',v:'4',c:'var(--gr)'},{l:'Сделали заказ',v:'3',c:'var(--gd)'},{l:'Ваш заработок',v:'150 ⭐',c:'var(--gd)'}];
@@ -5469,12 +5629,12 @@ const ReferralPage = ({go}) => {
           ))}
         </div>
       </div>
-      <Nav page="profile" go={go}/>
+      <Nav page="profile" go={go} user={user}/>
     </div>
   );
 };
 
-const ChatPage = ({go}) => {
+const ChatPage = ({ go, user }) => {
   const [msgs, setMsgs] = useState([
     {from:'support',text:'Здравствуйте! Чем могу помочь?',time:'14:00',read:true},
     {from:'me',     text:'Я хочу уточнить статус моего заказа K-4832',time:'14:01',read:true},
