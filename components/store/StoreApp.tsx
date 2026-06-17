@@ -14,8 +14,9 @@ import { mapOrdersForClient } from "@/lib/orderUiMap";
 import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
-import { loadStoreUser, resolveStoreUserByPhone, saveStoreUser, getActiveClientPhone } from "@/lib/clientSession";
-import { DEFAULT_ADMIN_CLIENTS, phonesMatch } from "@/lib/clientCrm";
+import { loadStoreUser, saveStoreUser, getActiveClientPhone, storeUserFromClient, findStoreClientByPhone, formatTjPhone } from "@/lib/clientSession";
+import { DEFAULT_ADMIN_CLIENTS, phonesMatch, normalizePhone } from "@/lib/clientCrm";
+import { useClientStore, hydrateClientStore } from "@/lib/clientStore";
 import { loadClientReviewMap, phoneDigits } from "@/lib/clientReviews";
 import {
   getUnreadNotificationCount,
@@ -1482,11 +1483,14 @@ const AuthPage = ({ go, setUser }) => {
   const [step, setStep] = useState("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState(["", "", "", ""]);
-  const [uname, setUname] = useState("");
+  const [reg, setReg] = useState({ firstName: "", lastName: "", addr: "", email: "" });
   const [err, setErr] = useState("");
   const [loading, setLoad] = useState(false);
   const refs = [useRef(), useRef(), useRef(), useRef()];
+  const addClient = useClientStore(s => s.addClient);
   const demoList = DEFAULT_ADMIN_CLIENTS.filter(c => !c.blocked && c.phone).slice(0, 3);
+
+  useEffect(() => { hydrateClientStore(); }, []);
 
   const [cd, setCd] = useState(0);
   useEffect(() => {
@@ -1500,8 +1504,7 @@ const AuthPage = ({ go, setUser }) => {
     setErr("");
   };
 
-  const finishLogin = async (resolved, displayName) => {
-    const user = displayName ? { ...resolved, name: displayName, bonus: resolved.bonus || (displayName ? 100 : resolved.bonus) } : resolved;
+  const finishLogin = (user) => {
     saveStoreUser(user);
     setUser(user);
     go("profile");
@@ -1509,17 +1512,19 @@ const AuthPage = ({ go, setUser }) => {
 
   const sendOtp = () => {
     if (!phone.trim()) { setErr("Введите номер телефона"); return; }
-    const blocked = DEFAULT_ADMIN_CLIENTS.find(c => phonesMatch(c.phone, phone) && c.blocked);
-    if (blocked) { setErr("Доступ заблокирован администратором"); return; }
-    setErr("");
-    setLoad(true);
-    setTimeout(() => {
-      setLoad(false);
-      setStep("otp");
-      setCd(30);
-      setOtp(["", "", "", ""]);
-      setTimeout(() => refs[0].current?.focus(), 120);
-    }, 800);
+    if (normalizePhone(phone).length < 9) { setErr("Введите полный номер (9 цифр)"); return; }
+    findStoreClientByPhone(phone).then(match => {
+      if (match?.blocked) { setErr("Доступ заблокирован администратором"); return; }
+      setErr("");
+      setLoad(true);
+      setTimeout(() => {
+        setLoad(false);
+        setStep("otp");
+        setCd(30);
+        setOtp(["", "", "", ""]);
+        setTimeout(() => refs[0].current?.focus(), 120);
+      }, 800);
+    });
   };
 
   const verifyWithCode = (code) => {
@@ -1534,12 +1539,18 @@ const AuthPage = ({ go, setUser }) => {
         refs[0].current?.focus();
         return;
       }
-      const resolved = await resolveStoreUserByPhone(phone);
-      if (!resolved.clientId && resolved.name === "Клиент") {
-        setStep("name");
+      const match = await findStoreClientByPhone(phone);
+      if (match) {
+        if (match.blocked) {
+          setErr("Доступ заблокирован администратором");
+          setOtp(["", "", "", ""]);
+          return;
+        }
+        finishLogin(storeUserFromClient(match));
         return;
       }
-      finishLogin(resolved);
+      setReg({ firstName: "", lastName: "", addr: "", email: "" });
+      setStep("register");
     }, 450);
   };
 
@@ -1564,41 +1575,73 @@ const AuthPage = ({ go, setUser }) => {
     }
   };
 
-  const saveName = () => {
-    if (!uname.trim()) return;
+  const setRegField = (key, val) => setReg(r => ({ ...r, [key]: val }));
+
+  const saveRegister = () => {
+    if (!reg.firstName.trim()) { setErr("Укажите имя"); return; }
+    if (!reg.lastName.trim()) { setErr("Укажите фамилию"); return; }
+    if (!reg.addr.trim()) { setErr("Укажите адрес доставки"); return; }
+    setErr("");
     setLoad(true);
-    setTimeout(async () => {
+    setTimeout(() => {
       setLoad(false);
-      const resolved = await resolveStoreUserByPhone(phone, uname.trim());
-      finishLogin({ ...resolved, bonus: resolved.bonus || 100 }, uname.trim());
-    }, 450);
+      const formattedPhone = formatTjPhone(phone);
+      const fullName = `${reg.firstName.trim()} ${reg.lastName.trim()}`;
+      const newClient = addClient({
+        name: fullName,
+        phone: formattedPhone,
+        email: reg.email.trim(),
+        addr: reg.addr.trim(),
+        card: "",
+        level: "bronze",
+        debt: 0,
+        bonus: 100,
+        debtLimit: 0,
+        blocked: false,
+      });
+      finishLogin(storeUserFromClient(newClient));
+    }, 500);
   };
 
   const Spinner = () => <div style={{ width: 18, height: 18, borderRadius: "50%", border: "2.5px solid rgba(255,255,255,.3)", borderTopColor: "white", animation: "spin 1s linear infinite" }} />;
 
-  if (step === "name") return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", padding: "60px 24px 40px" }}>
-      <button onClick={() => setStep("otp")} className="btn" style={{ width: 40, height: 40, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 32 }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
-      <div style={{ textAlign: "center", marginBottom: 28 }}>
-        <div style={{ fontSize: 48, marginBottom: 14 }}>👋</div>
-        <div className="ub" style={{ fontSize: 21, fontWeight: 900, marginBottom: 6 }}>Как вас зовут?</div>
-        <div style={{ fontSize: 13, color: "var(--t2)" }}>Новый номер — укажите имя для профиля</div>
+  const fieldLabel = (lbl) => (
+    <div style={{ fontSize: 11, color: "var(--t2)", marginBottom: 7, fontWeight: 700 }}>{lbl}</div>
+  );
+
+  if (step === "register") return (
+    <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", padding: "48px 24px 40px" }}>
+      <button onClick={() => { setStep("otp"); setErr(""); }} className="btn" style={{ width: 40, height: 40, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24 }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
+      <div style={{ textAlign: "center", marginBottom: 24 }}>
+        <div style={{ fontSize: 44, marginBottom: 12 }}>📝</div>
+        <div className="ub" style={{ fontSize: 21, fontWeight: 900, marginBottom: 6 }}>Заполните профиль</div>
+        <div style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.5 }}>Номер <span style={{ color: "var(--gr)", fontWeight: 700 }}>{formatTjPhone(phone)}</span> не найден — создайте аккаунт</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+        <div>
+          {fieldLabel("Имя *")}
+          <input className="inp" value={reg.firstName} onChange={e => setRegField("firstName", e.target.value)} placeholder="Диловар" style={{ width: "100%" }} autoFocus />
+        </div>
+        <div>
+          {fieldLabel("Фамилия *")}
+          <input className="inp" value={reg.lastName} onChange={e => setRegField("lastName", e.target.value)} placeholder="Рахимов" style={{ width: "100%" }} />
+        </div>
       </div>
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: "var(--t2)", marginBottom: 7, fontWeight: 700 }}>Ваше имя</div>
-        <input className="inp" value={uname} onChange={e => setUname(e.target.value)} onKeyDown={e => e.key === "Enter" && saveName()} placeholder="Например: Диловар" style={{ width: "100%" }} autoFocus />
+        {fieldLabel("Адрес доставки *")}
+        <input className="inp" value={reg.addr} onChange={e => setRegField("addr", e.target.value)} placeholder="ул. Ленина, 42, кв. 5" style={{ width: "100%" }} />
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
-        {["Диловар", "Нилуфар", "Баходур", "Зулайхо", "Жамшид", "Мадина"].map(n => (
-          <button key={n} onClick={() => setUname(n)} className="btn" style={{ padding: "7px 14px", borderRadius: 50, fontSize: 12, fontWeight: 700, background: uname === n ? "rgba(31,215,96,.14)" : "var(--l2)", border: `1.5px solid ${uname === n ? "rgba(31,215,96,.4)" : "var(--b1)"}`, color: uname === n ? "var(--gr)" : "var(--t2)" }}>{n}</button>
-        ))}
+      <div style={{ marginBottom: 16 }}>
+        {fieldLabel("Email (необязательно)")}
+        <input className="inp" value={reg.email} onChange={e => setRegField("email", e.target.value)} placeholder="example@mail.com" type="email" style={{ width: "100%" }} />
       </div>
-      <div style={{ padding: "14px", borderRadius: 16, background: "rgba(255,184,0,.07)", border: "1px solid rgba(255,184,0,.25)", marginBottom: 20, textAlign: "center" }}>
-        <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: "var(--gd)", marginBottom: 4 }}>🎁 +100 приветственных бонусов!</div>
+      <div style={{ padding: "14px", borderRadius: 16, background: "rgba(255,184,0,.07)", border: "1px solid rgba(255,184,0,.25)", marginBottom: 16, textAlign: "center" }}>
+        <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: "var(--gd)", marginBottom: 4 }}>🎁 +100 приветственных бонусов</div>
         <div style={{ fontSize: 11, color: "var(--t2)" }}>Начислим сразу после регистрации</div>
       </div>
-      <button onClick={saveName} className="btn" style={{ padding: "15px", fontSize: 14, borderRadius: 16, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-        {loading ? <Spinner /> : <><span style={{ fontSize: 18 }}>🚀</span> Продолжить</>}
+      {err && <div style={{ fontSize: 12, color: "var(--red)", marginBottom: 12, fontWeight: 700 }}>{err}</div>}
+      <button onClick={saveRegister} disabled={loading} className="btn" style={{ padding: "15px", fontSize: 14, borderRadius: 16, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        {loading ? <Spinner /> : <><span style={{ fontSize: 18 }}>✅</span> Создать аккаунт</>}
       </button>
     </div>
   );
@@ -1641,8 +1684,8 @@ const AuthPage = ({ go, setUser }) => {
         <div className="ub" style={{ fontSize: 18, fontWeight: 900, background: "linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>КАКАПО</div>
         <div style={{ fontSize: 11, color: "var(--t2)", marginTop: 3 }}>г. Яван, Таджикистан</div>
       </div>
-      <div className="ub" style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Вход по номеру</div>
-      <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 22, lineHeight: 1.6 }}>Введите номер телефона — пришлём SMS с кодом подтверждения</div>
+      <div className="ub" style={{ fontSize: 20, fontWeight: 900, marginBottom: 6 }}>Вход и регистрация</div>
+      <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 22, lineHeight: 1.6 }}>Один номер — для входа и создания аккаунта. Пришлём SMS с кодом.</div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 11, color: "var(--t2)", marginBottom: 7, fontWeight: 700 }}>Номер телефона</div>
         <div style={{ position: "relative" }}>
