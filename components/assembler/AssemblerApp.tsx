@@ -11,6 +11,7 @@ import Link from 'next/link'
 import AssemblerLoginPage from '@/components/assembler/AssemblerLoginPage'
 import { useAssemblerTeam, hydrateAssemblerTeamStore } from '@/lib/assemblerTeamStore'
 import type { AdminAssembler } from '@/lib/assemblerTeam'
+import { canAssemblerSeeOrder, isAssemblerOrderClaimed, orderHasAssemblerAssignment } from '@/lib/assemblerTeam'
 import { loadAssemblerSession, saveAssemblerSession, clearAssemblerSession, type AssemblerSession } from '@/lib/assemblerSession'
 // ─── КАКАПО Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
@@ -64,7 +65,7 @@ const CSS = `
 
 const ORDERS_DATA = [
   {
-    id:'K-4832', time:'14:23', priority:'urgent', queue:'new',
+    id:'K-4832', time:'14:23', priority:'urgent', queue:'pool', claimed:false,
     client:{name:'Диловар Рахимов', phone:'+992 93 456 78 90', addr:'ул. Ленина, 42, кв. 15'},
     courier:{name:'Фирдавс Назаров', phone:'+992 93 111 22 33'},
     comment:'Пожалуйста побыстрее, жду гостей',
@@ -77,7 +78,7 @@ const ORDERS_DATA = [
     ]
   },
   {
-    id:'K-4829', time:'13:55', priority:'normal', queue:'new',
+    id:'K-4829', time:'13:55', priority:'normal', queue:'pool', claimed:false,
     client:{name:'Мадина Олимова', phone:'+992 93 321 65 43', addr:'ул. Сомони, 8, кв. 3'},
     courier:{name:'Рустам Холов', phone:'+992 91 333 44 55'},
     comment:'',
@@ -89,7 +90,7 @@ const ORDERS_DATA = [
     ]
   },
   {
-    id:'K-4825', time:'13:20', priority:'normal', queue:'assembling',
+    id:'K-4825', time:'13:20', priority:'normal', queue:'assembling', claimed:true, claimedBy:'Камола Юсупова',
     client:{name:'Зафар Мирзоев', phone:'+992 91 654 32 10', addr:'мкр. Мирный, 5'},
     courier:{name:'Баходур Кодиров', phone:'+992 90 222 33 44'},
     comment:'Без лука в салате',
@@ -125,6 +126,7 @@ function AssemblerAppInner() {
   const assemblers = useAssemblerTeam();
   const [session, setSession] = useState<AssemblerSession | null>(() => loadAssemblerSession());
   const [dismissedCancelled, setDismissedCancelled] = useState<Set<string>>(() => new Set());
+  const [demoClaims, setDemoClaims] = useState<Record<string, string>>({});
 
   const assemblerProfile = useMemo((): AdminAssembler | null => {
     if (!session) return null;
@@ -140,15 +142,32 @@ function AssemblerAppInner() {
   const updateStatus = useOrders(s => s.updateStatus);
   const startMarketPart = useOrders(s => s.startMarketPart);
   const completeMarketPart = useOrders(s => s.completeMarketPart);
+  const acceptAssemblerOrder = useOrders(s => s.acceptAssemblerOrder);
   const toggleItemStore = useOrders(s => s.toggleItem);
-  const mapped = useMemo(
-    () => (USE_API ? mapOrdersForAssembler(apiOrders) : ORDERS_DATA),
-    [apiOrders]
-  );
+  const mapped = useMemo(() => {
+    if (!assemblerProfile) return [];
+    if (USE_API) {
+      return mapOrdersForAssembler(apiOrders).filter(o => {
+        const raw = apiOrders.find(r => r.id === o.id);
+        return raw && canAssemblerSeeOrder(normalizeOrder(raw), assemblerProfile);
+      });
+    }
+    return ORDERS_DATA.map(o => {
+      const claimedBy = demoClaims[o.id] || o.claimedBy;
+      const claimed = !!claimedBy || o.claimed;
+      const queue = !claimed ? 'pool' as const : (o.queue === 'pool' || o.queue === 'new' ? 'accepted' as const : o.queue);
+      return { ...o, claimed, claimedBy, queue };
+    }).filter(o => !o.claimed || o.claimedBy === assemblerName);
+  }, [apiOrders, assemblerProfile, assemblerName, demoClaims]);
   const cancelledOrders = useMemo(() => {
-    if (!USE_API) return [];
-    return mapCancelledOrdersForAssembler(apiOrders).filter(o => !dismissedCancelled.has(o.id));
-  }, [apiOrders, dismissedCancelled]);
+    if (!USE_API || !assemblerProfile) return [];
+    return mapCancelledOrdersForAssembler(apiOrders)
+      .filter(o => {
+        const raw = apiOrders.find(r => r.id === o.id);
+        return raw && canAssemblerSeeOrder(normalizeOrder(raw), assemblerProfile);
+      })
+      .filter(o => !dismissedCancelled.has(o.id));
+  }, [apiOrders, assemblerProfile, dismissedCancelled]);
   const collectIdRef = useRef<string | null>(null);
   const activeOrderId = page === 'collect'
     ? (params.order || collectIdRef.current || null)
@@ -197,17 +216,55 @@ function AssemblerAppInner() {
     if (page === 'collect') navigate('dashboard');
   };
 
-  const openCollect = (id: string) => {
-    collectIdRef.current = id;
-    navigate('collect', { order: id });
-    const raw = apiOrders.find(o => o.id === id);
-    if (!USE_API || !raw) return;
-    const order = normalizeOrder(raw);
-    if (isMixedOrder(order)) {
-      if (getMarketStatus(order) === 'new') void startMarketPart(id);
+  const acceptOrder = async (id: string) => {
+    if (!assemblerProfile) return;
+    if (!USE_API) {
+      const demo = ORDERS_DATA.find(o => o.id === id);
+      if (demo?.claimed && demo.claimedBy !== assemblerName) {
+        window.alert('Заказ уже принят другим сборщиком');
+        return;
+      }
+      setDemoClaims(prev => ({ ...prev, [id]: assemblerName }));
       return;
     }
-    if (order.status === 'new') void updateStatus(id, 'assembling');
+    const result = await acceptAssemblerOrder(id, { name: assemblerName, id: assemblerProfile.id });
+    if (!result.ok) {
+      window.alert(result.error);
+    }
+  };
+
+  const openCollect = (id: string) => {
+    const raw = apiOrders.find(o => o.id === id);
+    if (USE_API && raw && assemblerProfile) {
+      const order = normalizeOrder(raw);
+      if (!isAssemblerOrderClaimed(order)) {
+        window.alert('Сначала примите заказ');
+        return;
+      }
+      if (!orderHasAssemblerAssignment(order, assemblerProfile)) {
+        window.alert('Этот заказ принят другим сборщиком');
+        return;
+      }
+      if (isMixedOrder(order)) {
+        if (getMarketStatus(order) === 'new') void startMarketPart(id);
+      } else if (order.status === 'new') {
+        void updateStatus(id, 'assembling');
+      }
+    }
+    if (!USE_API) {
+      const demo = ORDERS_DATA.find(o => o.id === id);
+      const claimedBy = demoClaims[id] || demo?.claimedBy;
+      if (!claimedBy) {
+        window.alert('Сначала примите заказ');
+        return;
+      }
+      if (claimedBy !== assemblerName) {
+        window.alert('Этот заказ принят другим сборщиком');
+        return;
+      }
+    }
+    collectIdRef.current = id;
+    navigate('collect', { order: id });
   };
 
   const toggleItem = (orderId: string, itemId: number) => {
@@ -227,10 +284,11 @@ function AssemblerAppInner() {
   const pending = mapped;
 
   const completedCount = useMemo(() => apiOrders.filter(o => {
+    if (!assemblerProfile || !orderHasAssemblerAssignment(normalizeOrder(o), assemblerProfile)) return false
     const order = normalizeOrder(o)
     if (isMixedOrder(order)) return getMarketStatus(order) === 'done'
     return order.type === 'market' && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
-  }).length, [apiOrders]);
+  }).length, [apiOrders, assemblerProfile]);
 
   const logout = () => {
     clearAssemblerSession();
@@ -288,10 +346,10 @@ function AssemblerAppInner() {
             cancelledOrders={cancelledOrders}
             completed={completedCount}
             onStart={openCollect}
+            onAccept={acceptOrder}
             onPage={setPage}
             assemblerName={assemblerName}
             onLogout={logout}
-            onCancel={cancelOrder}
             onAcknowledgeCancel={dismissCancel}
           />
         )}
@@ -373,21 +431,22 @@ function BottomNav({page, onPage, newCount}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({orders, cancelledOrders, completed, onStart, onPage, assemblerName, onLogout, onCancel, onAcknowledgeCancel}) {
-  const newQueue = orders.filter(o => o.queue === 'new');
-  const inProgress = orders.filter(o => o.queue !== 'new');
-  const urgentNew = newQueue.filter(o => o.priority === 'urgent');
-  const normalNew = newQueue.filter(o => o.priority !== 'urgent');
-  const urgentProgress = inProgress.filter(o => o.priority === 'urgent');
-  const normalProgress = inProgress.filter(o => o.priority !== 'urgent');
+function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, onPage, assemblerName, onLogout, onAcknowledgeCancel}) {
+  const poolQueue = orders.filter(o => o.queue === 'pool' || !o.claimed);
+  const myQueue = orders.filter(o => o.claimed && o.queue !== 'pool');
+  const urgentPool = poolQueue.filter(o => o.priority === 'urgent');
+  const normalPool = poolQueue.filter(o => o.priority !== 'urgent');
+  const urgentMy = myQueue.filter(o => o.priority === 'urgent');
+  const normalMy = myQueue.filter(o => o.priority !== 'urgent');
 
-  const PCard = ({order, i, isNew, isCancelled}) => {
+  const PCard = ({order, i, isPool, isCancelled}) => {
     const doneCount = order.items.filter(it=>it.done).length;
     const pct = order.items.length ? Math.round(doneCount/order.items.length*100) : 0;
+    const isAccepted = order.queue === 'accepted';
     return (
       <div className="card" style={{
         overflow:'hidden',
-        animation:isNew ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.08}s both` : undefined,
+        animation:isPool ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.08}s both` : undefined,
         border: isCancelled ? '1px solid rgba(255,69,69,.35)' : undefined,
         opacity: isCancelled ? .92 : 1,
       }}>
@@ -405,9 +464,14 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onPage, ass
             <span style={{fontSize:11,fontWeight:800,color:'#FF4545'}}>⚡ Срочно — курьер ждёт</span>
           </div>
         )}
-        {isNew && order.priority !== 'urgent' && (
+        {isPool && order.priority !== 'urgent' && (
           <div style={{padding:'7px 16px',background:'rgba(255,69,69,.08)',borderBottom:'1px solid rgba(255,69,69,.18)',display:'flex',alignItems:'center',gap:7}}>
-            <span style={{fontSize:11,fontWeight:800,color:'#FF4545'}}>🆕 Новый заказ</span>
+            <span style={{fontSize:11,fontWeight:800,color:'#FF4545'}}>🆕 Новый заказ · свободен</span>
+          </div>
+        )}
+        {!isPool && !isCancelled && (
+          <div style={{padding:'7px 16px',background:'rgba(155,109,255,.08)',borderBottom:'1px solid rgba(155,109,255,.18)',display:'flex',alignItems:'center',gap:7}}>
+            <span style={{fontSize:11,fontWeight:800,color:'#9B6DFF'}}>✓ Принят · {order.claimedBy || assemblerName}</span>
           </div>
         )}
         <div style={{padding:'15px 16px'}}>
@@ -428,7 +492,7 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onPage, ass
           </div>
 
           {/* Progress if started */}
-          {!isNew && pct>0&&(
+          {!isPool && pct>0&&(
             <div style={{marginBottom:12}}>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
                 <span style={{fontSize:11,color:'#8FB897'}}>Прогресс сборки</span>
@@ -478,14 +542,17 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onPage, ass
           </div>
 
           {/* Action */}
-          <button onClick={()=>onStart(order.id)} className="btn"
-            style={{width:'100%',padding:13,borderRadius:14,background:`linear-gradient(135deg,#6B3FD4,#9B6DFF)`,border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:10}}>
-            {isNew ? '▶ Начать сборку' : pct>0 ? `▶ Продолжить сборку (${doneCount}/${order.items.length})` : '▶ Продолжить сборку'}
-          </button>
-          <button type="button" onClick={() => onCancel(order.id, 'Отменено сборщиком')} className="btn"
-            style={{width:'100%',padding:11,borderRadius:12,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.28)',color:'#FF6969',fontFamily:'Nunito',fontWeight:700,fontSize:12}}>
-            ✕ Отменить заказ
-          </button>
+          {isPool ? (
+            <button type="button" onClick={() => onAccept(order.id)} className="btn"
+              style={{width:'100%',padding:13,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+              ✓ Принять заказ
+            </button>
+          ) : (
+            <button onClick={()=>onStart(order.id)} className="btn"
+              style={{width:'100%',padding:13,borderRadius:14,background:`linear-gradient(135deg,#6B3FD4,#9B6DFF)`,border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+              {isAccepted ? '▶ Начать сборку' : pct>0 ? `▶ Продолжить сборку (${doneCount}/${order.items.length})` : '▶ Продолжить сборку'}
+            </button>
+          )}
           </>
           )}
 
@@ -545,28 +612,28 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onPage, ass
                 </div>
               </div>
             )}
-            {newQueue.length > 0 && (
+            {poolQueue.length > 0 && (
               <div style={{ marginBottom: 18 }}>
-                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#FF4545' }}>🆕 Новые заказы ({newQueue.length})</div>
+                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#FF4545' }}>🆕 Свободные заказы ({poolQueue.length})</div>
                 <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                  {[...urgentNew, ...normalNew].map((o, i) => <PCard key={o.id} order={o} i={i} isNew />)}
+                  {[...urgentPool, ...normalPool].map((o, i) => <PCard key={o.id} order={o} i={i} isPool />)}
                 </div>
               </div>
             )}
-            {inProgress.length > 0 && (
+            {myQueue.length > 0 && (
               <div>
-                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#9B6DFF', marginTop: newQueue.length ? 8 : 0 }}>🛒 В сборке ({inProgress.length})</div>
-                {urgentProgress.length > 0 && (
+                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#9B6DFF', marginTop: poolQueue.length ? 8 : 0 }}>📦 Мои заказы ({myQueue.length})</div>
+                {urgentMy.length > 0 && (
                   <div style={{ marginBottom:12 }}>
                     <div style={{ fontSize:11, fontWeight:800, marginBottom:8, color:'#FF4545' }}>⚡ Срочные</div>
                     <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                      {urgentProgress.map((o, i) => <PCard key={o.id} order={o} i={i} />)}
+                      {urgentMy.map((o, i) => <PCard key={o.id} order={o} i={i} />)}
                     </div>
                   </div>
                 )}
-                {normalProgress.length > 0 && (
+                {normalMy.length > 0 && (
                   <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                    {normalProgress.map((o, i) => <PCard key={o.id} order={o} i={i + urgentProgress.length} />)}
+                    {normalMy.map((o, i) => <PCard key={o.id} order={o} i={i + urgentMy.length} />)}
                   </div>
                 )}
               </div>
@@ -574,7 +641,7 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onPage, ass
           </>
         )}
       </div>
-      <BottomNav page="dashboard" onPage={onPage} newCount={newQueue.length}/>
+      <BottomNav page="dashboard" onPage={onPage} newCount={poolQueue.length}/>
     </div>
   );
 }

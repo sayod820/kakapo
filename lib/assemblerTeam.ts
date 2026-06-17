@@ -1,5 +1,5 @@
 import type { Order } from './types'
-import { getMarketStatus, isMixedOrder, normalizeOrder } from './orderParts'
+import { getMarketStatus, isMarketPartActive, isMixedOrder, normalizeOrder } from './orderParts'
 
 export type AssemblerStatus = 'working' | 'available' | 'offline'
 
@@ -98,12 +98,36 @@ export function isInAssemblerTeam(
 }
 
 export function orderHasAssemblerAssignment(
-  order: { assemblerTeam?: AssemblerMember[]; assembler?: { name?: string } | null },
+  order: { assemblerTeam?: AssemblerMember[]; assembler?: { name?: string; id?: string } | null },
   profile: Pick<AdminAssembler, 'name' | 'id'>,
 ): boolean {
+  if (profile.id && order.assembler?.id === profile.id) return true
+  if (order.assembler?.name && matchesAssemblerAssignment(order.assembler, profile)) return true
   const team = getAssemblerTeam(order)
   if (profile.id && team.some(m => m.id === profile.id)) return true
   return team.some(m => matchesAssemblerAssignment(m, profile))
+}
+
+export function isAssemblerOrderClaimed(
+  order: { assemblerTeam?: AssemblerMember[]; assembler?: { name?: string; id?: string } | null },
+): boolean {
+  return !!(order.assembler?.name || order.assembler?.id || order.assemblerTeam?.length)
+}
+
+/** Сборщик видит: свободные заказы в очереди или уже принятые им */
+export function canAssemblerSeeOrder(order: Order, profile: Pick<AdminAssembler, 'name' | 'id'>): boolean {
+  const o = normalizeOrder(order)
+  if (o.status === 'cancelled') {
+    if (!isAssemblerOrderClaimed(o)) return false
+    return orderHasAssemblerAssignment(o, profile)
+  }
+  if (isMixedOrder(o)) {
+    if (!isMarketPartActive(o)) return false
+  } else if (o.type !== 'market' || !['new', 'assembling'].includes(o.status)) {
+    return false
+  }
+  if (!isAssemblerOrderClaimed(o)) return true
+  return orderHasAssemblerAssignment(o, profile)
 }
 
 export function isAssemblerActiveOrder(o: Order): boolean {

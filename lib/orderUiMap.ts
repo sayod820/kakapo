@@ -372,12 +372,16 @@ function mapAssemblerOrderShape(o: Order) {
   const marketItems = getMarketItems(order.items)
   const ms = isMixedOrder(order) ? getMarketStatus(order) : order.status
   const cancelled = order.status === 'cancelled'
+  const claimed = !!(order.assembler?.name || order.assembler?.id)
+  const pool = !claimed && !cancelled && ms === 'new'
   return {
     id: order.id,
     time: order.createdAt || '',
     priority: order.priority || 'normal',
     mixed: isMixedOrder(order),
-    queue: cancelled ? 'cancelled' as const : (ms === 'new' ? 'new' as const : 'assembling' as const),
+    queue: cancelled ? 'cancelled' as const : pool ? 'pool' as const : (ms === 'new' ? 'accepted' as const : 'assembling' as const),
+    claimed,
+    claimedBy: order.assembler?.name,
     cancelled,
     cancelReason: order.cancelReason || (cancelled ? 'Заказ отменён клиентом' : undefined),
     client: { name: order.client.name, phone: order.client.phone, addr: order.client.addr },

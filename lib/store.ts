@@ -5,6 +5,7 @@ import { INITIAL_ORDERS, PRODUCTS, RESTAURANTS } from './data'
 import { api, setToken, getToken } from './api'
 import { USE_API } from './config'
 import { isCourierReadyOrder, isCourierSyncOrder, isCourierMapSyncOrder, isCourierRoleOrder, isAssemblerOrder, buildAdminStatusPatch } from './orderUiMap'
+import { isAssemblerOrderClaimed, orderHasAssemblerAssignment } from './assemblerTeam'
 import {
   applyMarketStatus,
   applyRestPartStatus,
@@ -145,6 +146,7 @@ export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOr
       : (remote.status ?? local.status),
     courier: useRemoteCourier ? remote.courier : local.courier,
     assembler: useRemoteAssembler ? remote.assembler : local.assembler,
+    assemblerTeam: remote.assemblerTeam?.length ? remote.assemblerTeam : local.assemblerTeam,
     marketStatus: remote.marketStatus ?? local.marketStatus,
     restParts: remote.restParts ?? local.restParts,
     items: remote.items?.length ? mergeOrderItems(local.items, remote.items) : local.items,
@@ -207,7 +209,8 @@ interface OrdersStore {
   updateStatus: (id: string, status: OrderStatus, extra?: Record<string, unknown>) => Promise<void>
   adminUpdateStatus: (id: string, status: OrderStatus) => Promise<void>
   adminAssignCourier: (id: string, courier: { name: string; phone: string } | null) => Promise<void>
-  adminAssignAssembler: (id: string, assembler: { name: string } | null) => Promise<void>
+  adminAssignAssembler: (id: string, assembler: { name: string; id?: string } | null) => Promise<void>
+  acceptAssemblerOrder: (id: string, member: { name: string; id?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   startMarketPart: (id: string) => Promise<void>
   completeMarketPart: (id: string) => Promise<void>
   updateRestPart: (id: string, restId: string, partStatus: 'new' | 'cooking' | 'done') => Promise<void>
@@ -383,6 +386,29 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         patchOrders(set, get, s => s.map(o => (o.id === id ? normalizeOrder({ ...o, ...updated }) : o)))
       } catch (e) { console.error(e) }
     }
+  },
+
+  acceptAssemblerOrder: async (id, member) => {
+    const order = get().orders.find(o => o.id === id)
+    if (!order) return { ok: false, error: 'Заказ не найден' }
+    const normalized = normalizeOrder(order)
+    if (isAssemblerOrderClaimed(normalized) && !orderHasAssemblerAssignment(normalized, member)) {
+      return { ok: false, error: 'Заказ уже принят другим сборщиком' }
+    }
+    const assembler = { name: member.name, ...(member.id ? { id: member.id } : {}) }
+    const next = { ...order, assembler }
+    patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
+    if (USE_API) {
+      try {
+        const updated = await api.updateOrderStatus(id, order.status, { assembler })
+        patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, assembler }) : o))
+      } catch (e) {
+        console.error(e)
+        if (order) patchOrders(set, get, s => s.map(o => o.id === id ? order : o))
+        return { ok: false, error: 'Не удалось принять заказ' }
+      }
+    }
+    return { ok: true }
   },
 
   startMarketPart: async (id) => {
