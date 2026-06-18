@@ -54,6 +54,7 @@ import {
   clientSegmentLabel,
   isNewThisMonth,
   normalizePhone,
+  phonesMatch,
   CLIENT_LEVEL_OPTIONS,
   type AdminClient,
   type ClientLevel,
@@ -287,7 +288,7 @@ const NAV_GROUPS = [
   {g:'Магазин',   items:[{id:'products',icon:'🥦',l:'Товары'},{id:'categories',icon:'📁',l:'Категории'},{id:'inventory',icon:'📋',l:'Склад'},{id:'promos',icon:'💸',l:'Акции'}]},
   {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'},{id:'pickups',icon:'📍',l:'Точки забора'}]},
   {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
-  {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'push',icon:'🔔',l:'Push'}]},
+  {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'debts',icon:'📒',l:'Долги VIP'},{id:'push',icon:'🔔',l:'Push'}]},
   {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
   {g:'Контент',   items:[{id:'banners',icon:'🖼',l:'Баннеры / Слайдеры'}]},
   {g:'Система',   items:[{id:'settings',icon:'⚙️',l:'Настройки'}]},
@@ -295,11 +296,17 @@ const NAV_GROUPS = [
 
 function Layout({page,setPage,children,title,subtitle}) {
   const apiOrders = useOrders(s => s.orders);
+  const storedCards = useCards();
+  const clients = useClients();
   const orders = useMemo(
     () => (USE_API ? mapOrdersForAdmin(apiOrders) : ALL_ORDERS),
     [apiOrders],
   );
   const newOrders = orders.filter(o => o.status === 'new').length;
+  const debtClients = useMemo(
+    () => mergeCardsWithClients(storedCards, clients).filter(c => c.status === 'active' && c.debt > 0).length,
+    [storedCards, clients],
+  );
   return (
     <div style={{display:'flex',minHeight:'100vh',background:'#030B05',fontFamily:'Nunito,sans-serif'}}>
       <style>{CSS}</style>
@@ -317,6 +324,7 @@ function Layout({page,setPage,children,title,subtitle}) {
                   style={{display:'flex',alignItems:'center',gap:9,padding:'9px 11px',borderRadius:10,background:page===n.id?'rgba(31,215,96,.14)':'transparent',border:`1px solid ${page===n.id?'rgba(31,215,96,.22)':'transparent'}`,color:page===n.id?'#1FD760':'#8FB897',fontSize:13,fontWeight:600,textAlign:'left',cursor:'pointer',width:'100%',position:'relative'}}>
                   <span style={{fontSize:16,flexShrink:0}}>{n.icon}</span>{n.l}
                   {n.id==='orders'&&newOrders>0&&<span style={{marginLeft:'auto',minWidth:18,height:18,padding:'0 5px',borderRadius:999,background:'#FF4545',fontSize:9,fontWeight:900,color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{newOrders > 99 ? '99+' : newOrders}</span>}
+                  {n.id==='debts'&&debtClients>0&&<span style={{marginLeft:'auto',minWidth:18,height:18,padding:'0 5px',borderRadius:999,background:'#FF8C00',fontSize:9,fontWeight:900,color:'#030B05',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{debtClients > 99 ? '99+' : debtClients}</span>}
                 </button>
               ))}
             </div>
@@ -3633,6 +3641,281 @@ function CardsPage() {
   );
 }
 
+/* ── ДОЛГИ VIP ──────────────────────────────────── */
+function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
+  const stored = useCards();
+  const clients = useClients();
+  const apiOrders = useOrders(s => s.orders);
+  const cards = useMemo(() => mergeCardsWithClients(stored, clients), [stored, clients]);
+
+  const creditCards = useMemo(
+    () => cards.filter(c => c.status === 'active' && (c.debt > 0 || c.debtLimit > 0)),
+    [cards],
+  );
+
+  const [filter, setFilter] = useState<'with_debt' | 'over_limit' | 'all'>('with_debt');
+  const [search, setSearch] = useState('');
+  const [detail, setDetail] = useState<AdminCard | null>(null);
+  const [debtVal, setDebtVal] = useState('0');
+  const [saveErr, setSaveErr] = useState('');
+  const [saveBusy, setSaveBusy] = useState(false);
+
+  const stats = useMemo(() => ({
+    totalDebt: creditCards.reduce((s, c) => s + c.debt, 0),
+    withDebt: creditCards.filter(c => c.debt > 0).length,
+    overLimit: creditCards.filter(c => c.debtLimit > 0 && c.debt > c.debtLimit).length,
+    creditClients: creditCards.length,
+  }), [creditCards]);
+
+  const filtered = useMemo(() => {
+    let list = creditCards;
+    if (filter === 'with_debt') list = list.filter(c => c.debt > 0);
+    if (filter === 'over_limit') list = list.filter(c => c.debtLimit > 0 && c.debt > c.debtLimit);
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter(c =>
+        c.num.toLowerCase().includes(q)
+        || c.client.toLowerCase().includes(q)
+        || c.phone.replace(/\s/g, '').includes(q.replace(/\s/g, '')),
+      );
+    }
+    return [...list].sort((a, b) => b.debt - a.debt);
+  }, [creditCards, filter, search]);
+
+  const creditOrders = useMemo(() => {
+    if (!detail?.phone) return [];
+    return apiOrders
+      .filter(o => (o.payment_method === 'credit' || o.pay === 'credit') && phonesMatch(o.client?.phone || '', detail.phone))
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+      .slice(0, 8);
+  }, [detail, apiOrders]);
+
+  const openDetail = (card: AdminCard) => {
+    setDetail(card);
+    setDebtVal(String(card.debt));
+    setSaveErr('');
+  };
+
+  const saveDebt = () => {
+    if (!detail) return;
+    setSaveBusy(true);
+    setSaveErr('');
+    try {
+      const client = findClientForCard(clients, detail);
+      const form = {
+        ...cardLoyaltyFromCard(detail, client),
+        debt: Math.max(0, parseFloat(debtVal) || 0),
+      };
+      saveCardLoyalty(detail, form, 'edit');
+      setDetail(null);
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'Не удалось сохранить');
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+        {[
+          { filter: 'with_debt' as const, l: 'С долгом', v: stats.withDebt, c: '#FF4545', e: '⚠️' },
+          { filter: 'with_debt' as const, l: 'Всего долг', v: `${stats.totalDebt.toLocaleString()} ЅМ`, c: '#FF8C00', e: '💰' },
+          { filter: 'over_limit' as const, l: 'Превышен лимит', v: stats.overLimit, c: '#FF4545', e: '🚫' },
+          { filter: 'all' as const, l: 'VIP-кредит', v: stats.creditClients, c: '#1FD760', e: '👑' },
+        ].map((s, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setFilter(s.filter)}
+            className="ac"
+            style={{
+              padding: '14px 16px', textAlign: 'left', cursor: 'pointer',
+              border: filter === s.filter && (i === 0 || i === 2 || i === 3) ? `2px solid ${s.c}55` : '1px solid #162B1A',
+              background: filter === s.filter && (i === 0 || i === 2 || i === 3) ? `${s.c}0D` : undefined,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: '#8FB897', fontWeight: 600 }}>{s.l}</span>
+              <span style={{ fontSize: 18 }}>{s.e}</span>
+            </div>
+            <div className="ub" style={{ fontSize: typeof s.v === 'number' ? 24 : 18, fontWeight: 900, color: s.c }}>{s.v}</div>
+          </button>
+        ))}
+      </div>
+
+      <div style={{
+        padding: '12px 16px', borderRadius: 12, marginBottom: 16,
+        background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.22)',
+        fontSize: 12, color: '#8FB897', lineHeight: 1.55,
+      }}>
+        💬 Клиенты погашают долг через <strong style={{ color: '#EBF5ED' }}>поддержку</strong> (звонок / Telegram).
+        После подтверждения оплаты уменьшите долг здесь или в разделе «Карты».
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320 }}>
+          <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>🔍</div>
+          <input
+            className="ai"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Карта · клиент · телефон"
+            style={{ paddingLeft: 38, width: '100%' }}
+          />
+        </div>
+        {[
+          { id: 'with_debt' as const, l: 'С долгом' },
+          { id: 'over_limit' as const, l: '⚠ Превышен лимит' },
+          { id: 'all' as const, l: 'Все с кредитом' },
+        ].map(f => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setFilter(f.id)}
+            className="ab"
+            style={{
+              padding: '7px 14px', fontSize: 12,
+              background: filter === f.id ? 'rgba(255,140,0,.12)' : '#0C1C0F',
+              border: `1.5px solid ${filter === f.id ? 'rgba(255,140,0,.35)' : '#162B1A'}`,
+              color: filter === f.id ? '#FF8C00' : '#8FB897',
+            }}
+          >
+            {f.l}
+          </button>
+        ))}
+      </div>
+
+      <div className="ac">
+        <table className="at">
+          <thead>
+            <tr>
+              <th>Карта</th>
+              <th>Клиент</th>
+              <th>Телефон</th>
+              <th>Долг</th>
+              <th>Лимит</th>
+              <th>Доступно</th>
+              <th>Статус</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '28px 14px', color: '#8FB897', fontSize: 13 }}>
+                  {filter === 'with_debt' ? 'Нет клиентов с долгом' : 'Нет записей по фильтру'}
+                </td>
+              </tr>
+            ) : filtered.map(c => {
+              const available = Math.max(0, c.debtLimit - c.debt);
+              const overLimit = c.debtLimit > 0 && c.debt > c.debtLimit;
+              return (
+                <tr key={c.num} onClick={() => openDetail(c)} style={{ cursor: 'pointer' }}>
+                  <td><span className="ub" style={{ fontSize: 11, color: '#FFB800', fontWeight: 800 }}>{c.num}</span></td>
+                  <td>
+                    <div style={{ fontWeight: 600, fontSize: 12 }}>{c.client || '—'}</div>
+                    {c.vip && <span style={{ fontSize: 9, color: '#FFB800', fontWeight: 800 }}>👑 VIP</span>}
+                  </td>
+                  <td style={{ fontSize: 11, color: '#8FB897' }}>{c.phone || '—'}</td>
+                  <td>
+                    <span className="ub" style={{ fontSize: 13, fontWeight: 900, color: c.debt > 0 ? '#FF4545' : '#3D6645' }}>
+                      {c.debt > 0 ? `${c.debt.toLocaleString()} ЅМ` : '—'}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: 12, color: '#8FB897' }}>{c.debtLimit > 0 ? `${c.debtLimit.toLocaleString()} ЅМ` : '—'}</td>
+                  <td style={{ fontSize: 12, color: available > 0 ? '#1FD760' : '#3D6645', fontWeight: 700 }}>
+                    {c.debtLimit > 0 ? `${available.toLocaleString()} ЅМ` : '—'}
+                  </td>
+                  <td>
+                    {overLimit ? (
+                      <Badge v="Превышен" c="#FF4545" />
+                    ) : c.debt > 0 ? (
+                      <Badge v="В долгу" c="#FF8C00" />
+                    ) : (
+                      <Badge v="Лимит есть" c="#1FD760" />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {detail && (
+        <div className="amod">
+          <div className="amodbg" onClick={() => setDetail(null)} />
+          <div className="amodbox" style={{ maxWidth: 480 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div className="ub" style={{ fontSize: 17, fontWeight: 900, color: '#FFB800' }}>{detail.num}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>{detail.client || '—'}</div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 2 }}>{detail.phone || '—'}</div>
+              </div>
+              <button type="button" onClick={() => setDetail(null)} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {[
+                { l: 'Долг', v: `${detail.debt.toLocaleString()} ЅМ`, c: '#FF4545' },
+                { l: 'Лимит', v: detail.debtLimit > 0 ? `${detail.debtLimit.toLocaleString()} ЅМ` : '—', c: '#1FD760' },
+                { l: 'Доступно', v: detail.debtLimit > 0 ? `${Math.max(0, detail.debtLimit - detail.debt).toLocaleString()} ЅМ` : '—', c: '#3B8EF0' },
+              ].map((row, i) => (
+                <div key={i} style={{ padding: '12px', borderRadius: 12, background: '#0C1C0F', border: '1px solid #162B1A', textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4, fontWeight: 700 }}>{row.l}</div>
+                  <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: row.c }}>{row.v}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ padding: '14px', borderRadius: 12, background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.22)', marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#FF8C00', marginBottom: 8 }}>Списать долг после оплаты</div>
+              <NI lbl="Новый долг ЅМ" val={debtVal} set={setDebtVal} ph="0" type="number" />
+              <div style={{ fontSize: 10, color: '#8FB897', marginTop: 8, lineHeight: 1.45 }}>
+                Уменьшите сумму после подтверждения оплаты через поддержку. Клиент увидит запись в приложении.
+              </div>
+            </div>
+
+            {creditOrders.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: '#3D6645', fontWeight: 800, marginBottom: 8, textTransform: 'uppercase' }}>Заказы в долг</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+                  {creditOrders.map(o => (
+                    <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: '#0C1C0F', borderRadius: 10, border: '1px solid #162B1A' }}>
+                      <div>
+                        <div className="ub" style={{ fontSize: 11, fontWeight: 800, color: '#1FD760' }}>{o.id}</div>
+                        <div style={{ fontSize: 10, color: '#3D6645' }}>{o.createdAt || '—'}</div>
+                      </div>
+                      <div className="ub" style={{ fontSize: 12, fontWeight: 900, color: '#FF8C00' }}>
+                        {(o.creditAmount ?? Math.max(0, o.total - (o.deliveryFee || 0))).toLocaleString()} ЅМ
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {saveErr && (
+              <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.3)', fontSize: 12, color: '#FF4545', fontWeight: 700, marginBottom: 12 }}>
+                ⚠ {saveErr}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setPage('cards')} className="ab" style={{ flex: 1, padding: 12, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', fontWeight: 700 }}>
+                💳 Карта
+              </button>
+              <button type="button" onClick={saveDebt} disabled={saveBusy} className="ab abp" style={{ flex: 2, padding: 12, fontWeight: 800, opacity: saveBusy ? .7 : 1 }}>
+                {saveBusy ? '⏳ Сохраняем…' : '✓ Сохранить долг'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── КАТЕГОРИИ ──────────────────────────────────── */
 function CategoriesPage() {
   const [cats, setCats] = useState([
@@ -5932,8 +6215,8 @@ function AdminAppInner() {
     void syncPushFromApi();
     useProductPhotos.getState().hydrate();
   }, []);
-  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
@@ -5948,6 +6231,7 @@ function AdminAppInner() {
       {page==='assemblers' && <AssemblersPage/>}
       {page==='clients'    && <ClientsPage/>}
       {page==='cards'      && <CardsPage/>}
+      {page==='debts'      && <DebtsPage setPage={setPage}/>}
       {page==='push'       && <PushPage/>}
       {page==='banners'    && <BannersPage/>}
       {page==='pickups'    && <PickupsPage/>}
