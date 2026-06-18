@@ -32,11 +32,9 @@ export interface Order {
   assemblerTeam?: { name: string; id?: string }[]
   items: OrderItem[]
   total: number
-  /** cash | transfer | credit (VIP-кредит: товары в долг, доставка наличными) */
+  /** cash | card | credit (VIP-кредит: товары в долг, доставка наличными) */
   payment_method?: string
   pay?: string
-  /** Для перевода: pending — ждём поступление, confirmed — магазин подтвердил */
-  paymentStatus?: 'pending' | 'confirmed'
   /** Сумма товаров, списанная в VIP-долг */
   creditAmount?: number
   comment?: string

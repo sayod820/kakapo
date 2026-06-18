@@ -284,7 +284,6 @@ app.post('/orders', (req, res) => {
     comment: body.comment || '',
     payment_method: body.payment_method || body.pay || 'cash',
     pay: body.payment_method || body.pay || 'cash',
-    paymentStatus: body.paymentStatus || (body.payment_method === 'transfer' || body.pay === 'transfer' ? 'pending' : 'confirmed'),
     creditAmount: body.creditAmount != null ? Number(body.creditAmount) : undefined,
     vip: body.vip === true,
     priority: body.priority || 'normal',

@@ -208,7 +208,6 @@ interface OrdersStore {
   addOrder: (order: Order) => void
   updateStatus: (id: string, status: OrderStatus, extra?: Record<string, unknown>) => Promise<void>
   adminUpdateStatus: (id: string, status: OrderStatus) => Promise<void>
-  adminConfirmPayment: (id: string) => Promise<void>
   adminAssignCourier: (id: string, courier: { name: string; phone: string } | null) => Promise<void>
   adminAssignAssembler: (id: string, assembler: { name: string; id?: string } | null) => Promise<void>
   acceptAssemblerOrder: (id: string, member: { name: string; id?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
@@ -298,7 +297,6 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       deliveryFeeLocked: Number(data.deliveryFee) > 0,
       payment_method: data.payment_method || data.pay || 'cash',
       pay: data.payment_method || data.pay || 'cash',
-      paymentStatus: data.paymentStatus,
       creditAmount: data.creditAmount,
       pickupIds: data.pickupIds,
       weightKg: data.weightKg,
@@ -367,27 +365,6 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       const nextPins = { ...get().orderAdminPins }
       delete nextPins[id]
       set({ orderAdminPins: nextPins })
-    }
-  },
-
-  adminConfirmPayment: async (id) => {
-    const order = get().orders.find(o => o.id === id)
-    if (!order) return
-    const prev = normalizeOrder(order)
-    const patch = { paymentStatus: 'confirmed' as const }
-    patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...patch } : o)))
-    const nextAfter = get().orders.find(o => o.id === id)
-    if (prev && nextAfter) onOrderStatusChange(prev, normalizeOrder(nextAfter))
-    if (USE_API) {
-      try {
-        const updated = await api.updateOrderStatus(id, order.status, patch)
-        patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...updated, ...patch } : o)))
-        const synced = get().orders.find(o => o.id === id)
-        if (prev && synced) onOrderStatusChange(prev, normalizeOrder(synced))
-      } catch (e) {
-        console.error(e)
-        patchOrders(set, get, s => s.map(o => (o.id === id ? prev : o)))
-      }
     }
   },
 

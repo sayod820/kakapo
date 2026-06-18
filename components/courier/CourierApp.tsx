@@ -118,17 +118,6 @@ function CourierPaymentFooter({
       </div>
     )
   }
-  if (pm.isTransfer) {
-    return (
-      <div style={{ borderTop: '1px dashed rgba(59,142,240,.35)', paddingTop: size === 'lg' ? 12 : 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#3B8EF0' }}>📱 ПЕРЕВОД</div>
-          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>оплачено заранее · 0 при получении</div>
-        </div>
-        <span className="ub" style={{ fontSize: amountSize - 4, fontWeight: 900, color: '#3B8EF0' }}>0 ЅМ</span>
-      </div>
-    )
-  }
   return (
     <div style={{ borderTop: '1px dashed rgba(31,215,96,.3)', paddingTop: size === 'lg' ? 12 : 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
@@ -155,15 +144,6 @@ function courierCashToCollect(
     dlv,
   )
   return dlv != null ? `${pm.cash.toFixed(2)} ЅМ` : '…'
-}
-
-function courierPayHint(
-  order: { paymentMethod?: string; pay?: string },
-  dlv: number | null,
-): string {
-  if (order.paymentMethod === 'transfer' || order.pay === 'Перевод') return 'перевод · 0 ЅМ'
-  if (order.paymentMethod === 'credit') return `наличными за доставку ${courierCashToCollect(order, dlv)}`
-  return `наличными ${courierCashToCollect(order, dlv)}`
 }
 
 function isMapAlive(map: any): boolean {
@@ -1099,7 +1079,7 @@ function CourierAppInner() {
                         ) : (
                         <button onClick={()=>void accept(selectedLive)} disabled={!!acceptingId} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:acceptingId ? '#162B1A' : 'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:acceptingId ? '#8FB897' : '#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:acceptingId ? 0.7 : 1 }}>
                           <span>{acceptingId ? '⏳ Принимаем…' : '✓ Принять заказ'}</span>
-                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>{courierPayHint(selectedLive, orderDelivery(selectedLive, roadKm, TARIFF))}</span>
+                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>{selectedLive?.paymentMethod === 'credit' ? 'наличными за доставку' : 'наличными'} {courierCashToCollect(selectedLive, orderDelivery(selectedLive, roadKm, TARIFF))}</span>
                         </button>
                         )}
                   </div>
@@ -1411,7 +1391,7 @@ function CourierAppInner() {
                   );
                 })()}
                 {step==='toClient' && <button onClick={() => detailOrderId && updateStatus(detailOrderId, 'delivering', { courierAtClient: true })} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
-                {step==='done'     && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>{active?.paymentMethod === 'transfer' ? '✓ Доставлено — оплачено переводом' : `✓ Доставлено — получить ${courierCashToCollect(active, orderDelivery(active, roadKm, TARIFF))}`}</button>}
+                {step==='done'     && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {courierCashToCollect(active, orderDelivery(active, roadKm, TARIFF))}</button>}
               </div>
             </div>
           ) : myActiveOrders.length ? (

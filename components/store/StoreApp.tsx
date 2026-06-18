@@ -11,14 +11,6 @@ import { useOrders, USE_API, useRestaurants } from "@/lib/store";
 import { api } from "@/lib/api";
 import { enrichRestaurants } from "@/lib/enrichCatalog";
 import { mapOrdersForClient } from "@/lib/orderUiMap";
-import {
-  CHECKOUT_PAYMENT_OPTIONS,
-  STORE_PAYMENT_REQUISITES,
-  initialPaymentStatus,
-  paymentMethodLabel,
-  paymentStatusLabel,
-  needsTransferConfirmation,
-} from "@/lib/storePayment";
 import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
@@ -984,7 +976,7 @@ function fillCartFromOrder(
 const FAQ = [
   {q:"Как быстро доставляют заказ?",         a:"45 минут по всему г. Яван. В часы пик до 60 минут. Придёт SMS когда курьер выедет."},
   {q:"Стоимость доставки?",                  a:"5 ЅМ. Бесплатно при заказе от 30 ЅМ. VIP клиентам — всегда бесплатно."},
-  {q:"Какие способы оплаты?",                a:"Наличными курьеру, переводом на Kaspi/банк или VIP-кредитом для постоянных клиентов."},
+  {q:"Какие способы оплаты?",                a:"Наличными курьеру, карты Visa/Mastercard, бонусами."},
   {q:"Как работает бонусная программа?",     a:"Bronze 1%, Silver 2%, Gold 3%, Platinum 5% кешбэк. 1 бонус = 1 ЅМ."},
   {q:"Как стать VIP клиентом?",              a:"30+ заказов, нет долгов, 5 отзывов и верификация. Даёт кредитный лимит до 500 ЅМ."},
   {q:"Как отменить заказ?",                  a:"В течение 5 минут в разделе 'Мои заказы'. После сборки — только по телефону."},
@@ -1621,56 +1613,10 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
   );
 };
 
-const CHECKOUT_PAYS_BASE = CHECKOUT_PAYMENT_OPTIONS.map(o => ({ ...o }));
-
-function copyText(text: string, onDone?: () => void) {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).then(() => onDone?.()).catch(() => onDone?.());
-  } else {
-    onDone?.();
-  }
-}
-
-function TransferRequisitesBlock({ amount, orderId, compact }: { amount: number; orderId?: string; compact?: boolean }) {
-  const req = STORE_PAYMENT_REQUISITES;
-  const rows = [
-    { l: 'Kaspi / номер', v: req.kaspi, copy: req.kaspi },
-    { l: 'Получатель', v: req.holder },
-    { l: 'Банк', v: req.bank },
-    { l: 'Сумма', v: `${amount.toFixed(2)} ЅМ`, copy: amount.toFixed(2) },
-    ...(orderId ? [{ l: 'Комментарий', v: orderId, copy: orderId }] : []),
-  ];
-  return (
-    <div style={{
-      marginTop: compact ? 0 : 12,
-      padding: compact ? '12px 14px' : '14px 16px',
-      borderRadius: 14,
-      background: 'rgba(59,142,240,.08)',
-      border: '1px solid rgba(59,142,240,.25)',
-      textAlign: 'left',
-    }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--sky)', marginBottom: 8 }}>
-        📱 Реквизиты для перевода
-      </div>
-      {rows.map((r, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: i < rows.length - 1 ? '1px solid rgba(59,142,240,.12)' : 'none' }}>
-          <span style={{ fontSize: 11, color: 'var(--t2)' }}>{r.l}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)', textAlign: 'right' }}>{r.v}</span>
-            {r.copy && (
-              <button type="button" className="btn" onClick={() => copyText(r.copy!)} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 8, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--sky)' }}>
-                Копировать
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
-      <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 10, lineHeight: 1.5 }}>
-        {req.note}. После поступления денег заказ отправят курьеру.
-      </div>
-    </div>
-  );
-}
+const CHECKOUT_PAYS_BASE = [
+  { id: 'cash', icon: '💵', label: 'Наличными', sub: 'Курьеру при получении' },
+  { id: 'card', icon: '💳', label: 'Картой онлайн', sub: 'Visa / Mastercard' },
+];
 const CHECKOUT_TIMES = [
   { id: 'asap', l: 'Как можно скорее', s: '~45 мин' },
   { id: 't1', l: '12:00–14:00', s: 'Сегодня' },
@@ -1912,10 +1858,9 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       restIds,
       restId: restIds[0],
       restName: restIds[0] ? restaurants.find(r => r.id === restIds[0])?.name : undefined,
-      comment: pay === 'credit' ? 'VIP-кредит: товары в долг, доставка наличными' : pay === 'transfer' ? 'Оплата переводом' : bonusUsable > 0 ? `Списано бонусов: ${bonusUsable}` : '',
+      comment: pay === 'credit' ? 'VIP-кредит: товары в долг, доставка наличными' : bonusUsable > 0 ? `Списано бонусов: ${bonusUsable}` : '',
       payment_method: pay,
       pay,
-      paymentStatus: initialPaymentStatus(pay),
       creditAmount: useCreditPay ? creditGoods : undefined,
       vip: !!user?.vip,
     };
@@ -1962,15 +1907,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     }
   };
 
-  if (step === "ok") {
-    const payLabel = paidWithCredit > 0
-      ? `VIP-долг ${paidWithCredit.toFixed(2)} ЅМ${bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : ''}`
-      : pay === 'transfer'
-        ? 'Перевод · ожидаем оплату'
-        : bonusSpent > 0
-          ? `Бонусы −${bonusSpent} · наличными`
-          : 'Наличными при получении';
-    return (
+  if (step === "ok") return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px 24px", textAlign:"center" }}>
       <div style={{ width:90, height:90, borderRadius:"50%", background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 0 60px rgba(31,215,96,.5)", marginBottom:24, animation:"successPop .6s cubic-bezier(.16,1,.3,1)" }}>
         <Ic n="check" s={44} c="white" w={2.5}/>
@@ -1985,20 +1922,18 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             : 'Сначала соберут заказ, затем назначат курьера. Отслеживание появится когда курьер примет заказ.'}
       </div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
-        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:payLabel,c:"var(--gd)"}].map((r,i) => (
+        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-долг ${paidWithCredit.toFixed(2)} ЅМ` + (bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : '') : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
             <div style={{ width:30, height:30, borderRadius:8, background:`${r.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={r.icon} s={14} c={r.c}/></div>
             <span style={{ fontSize:12, color:"var(--t2)", flex:1 }}>{r.l}</span>
             <span style={{ fontSize:12, fontWeight:700, color:r.c }}>{r.v}</span>
           </div>
         ))}
-        {pay === 'transfer' && <TransferRequisitesBlock amount={payable} orderId={orderId} compact />}
       </div>
       <button onClick={() => go("orders")} className="btn" style={{ width:"100%", padding:"15px", fontSize:14, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", marginBottom:10 }}>Мои заказы</button>
       <button onClick={() => go("home")} className="btn" style={{ width:"100%", padding:"14px", fontSize:13, borderRadius:17, background:"var(--l2)", border:"1px solid var(--b1)", color:"var(--t2)" }}>На главную</button>
     </div>
-    );
-  }
+  );
 
   return (
     <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
@@ -2089,11 +2024,6 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               Товары {creditGoods.toFixed(2)} ЅМ — в долг на VIP-карту. Доставка {effectiveDelivery.toFixed(2)} ЅМ — наличными курьеру. Остаток лимита: {(credit.available - creditGoods).toLocaleString()} ЅМ
             </div>
           )}
-          {pay === 'transfer' && (
-            <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.25)', fontSize: 11, color: 'var(--sky)', lineHeight: 1.5 }}>
-              Переведите сумму на Kaspi или банк до отправки курьера. Реквизиты и номер заказа покажем после оформления.
-            </div>
-          )}
         </div>
         {(user?.bonus || 0) > 0 && (
         <div className="card" style={{ padding:"16px", marginBottom:13, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -2131,7 +2061,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, paddingTop: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0, borderTop: bonusUsable > 0 || effectiveDelivery > 0 ? '1px solid var(--b1)' : 'none' }}>
-              <span>{pay === 'credit' ? (effectiveDelivery > 0 ? '💵 Доставка + 👑 в долг' : '👑 В кредит') : pay === 'transfer' ? '📱 К переводу' : '💵 К оплате'}</span>
+              <span>{pay === 'credit' ? (effectiveDelivery > 0 ? '💵 Доставка + 👑 в долг' : '👑 В кредит') : '💵 К оплате'}</span>
               <span className="ub" style={{ color:"var(--gd)" }}>{payable.toFixed(2)} ЅМ</span>
             </div>
           </div>
@@ -2533,20 +2463,6 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             <div><div style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>Заказ доставлен!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>Начислено <span style={{ color:"var(--gd)", fontWeight:700 }}>+{selected.bonus} бонусов</span></div></div>
           </div>
         )}
-        {needsTransferConfirmation(selected) && (
-          <div style={{ marginBottom:16 }}>
-            <div style={{ padding:"12px 14px", borderRadius:14, background:"rgba(255,140,0,.08)", border:"1px solid rgba(255,140,0,.28)", marginBottom:10 }}>
-              <div style={{ fontSize:13, fontWeight:700, color:"#FF8C00", marginBottom:4 }}>⏳ Ожидаем перевод</div>
-              <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.5 }}>Переведите сумму и укажите номер заказа в комментарии. После проверки магазин отправит заказ курьеру.</div>
-            </div>
-            <TransferRequisitesBlock amount={selected.total} orderId={selected.id} compact />
-          </div>
-        )}
-        {selected.paymentMethod === 'transfer' && selected.paymentStatus === 'confirmed' && selected.status !== 'delivered' && selected.status !== 'cancelled' && (
-          <div style={{ padding:"12px 14px", borderRadius:14, background:"rgba(31,215,96,.07)", border:"1px solid rgba(31,215,96,.25)", marginBottom:16, fontSize:12, color:"var(--gr)", fontWeight:700 }}>
-            ✓ Перевод получен · курьер будет назначен
-          </div>
-        )}
         <div className="card" style={{ marginBottom:14, overflow:"hidden" }}>
           <div style={{ padding:"13px 15px", borderBottom:"1px solid var(--b1)", fontSize:13, fontWeight:800 }}>Состав заказа</div>
           {selected.items.map((item,i) => (
@@ -2561,13 +2477,6 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0" }}>
             <span style={{ fontSize:12, color:"var(--t2)" }}>Адрес</span>
             <span style={{ fontSize:12, fontWeight:700, color:"var(--t2)", textAlign:"right", maxWidth:"60%" }}>{selected.addr}</span>
-          </div>
-          <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderTop:"1px solid var(--b1)" }}>
-            <span style={{ fontSize:12, color:"var(--t2)" }}>Оплата</span>
-            <span style={{ fontSize:12, fontWeight:700, color:"var(--t1)" }}>
-              {paymentMethodLabel(selected.paymentMethod)}
-              {paymentStatusLabel(selected.paymentMethod, selected.paymentStatus) ? ` · ${paymentStatusLabel(selected.paymentMethod, selected.paymentStatus)}` : ''}
-            </span>
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginTop:10, borderTop:"1px solid var(--b1)", paddingTop:10 }}>
             <span style={{ fontSize:14, fontWeight:700 }}>Итого</span>
@@ -2680,9 +2589,6 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
                       <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{o.id}</span>
                       <span className="bdg" style={{ background:`${st.c}18`, color:st.c, border:`1px solid ${st.c}30` }}>{st.l}</span>
-                      {needsTransferConfirmation(o) && (
-                        <span className="bdg" style={{ background:'rgba(255,140,0,.12)', color:'#FF8C00', border:'1px solid rgba(255,140,0,.3)', fontSize:10 }}>⏳ перевод</span>
-                      )}
                     </div>
                     <div style={{ fontSize:11, color:"var(--t3)" }}>{o.date} · {o.time}</div>
                   </div>
