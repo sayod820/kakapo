@@ -6,6 +6,7 @@ import { api } from './api'
 import {
   DEFAULT_ADMIN_CLIENTS,
   normalizeClient,
+  isClientPurged,
   type AdminClient,
 } from './clientCrm'
 
@@ -108,14 +109,16 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     get().updateClient(id, { blocked: !c.blocked })
   },
   fetchFromApi: async () => {
-    const local = loadClients()
+    const localRaw = loadClients()
+    const local = localRaw.filter(c => !isClientPurged(c))
     if (!USE_API) {
       set({ clients: local, hydrated: true })
       return
     }
     try {
       const apiList = await api.getClients()
-      const remote = apiList.length ? apiList.map(c => normalizeClient(c)) : DEFAULT_ADMIN_CLIENTS
+      const remote = (apiList.length ? apiList.map(c => normalizeClient(c)) : DEFAULT_ADMIN_CLIENTS)
+        .filter(c => !isClientPurged(c))
       const clients = mergeClientLists(local, remote)
       saveClients(clients)
       set({ clients, hydrated: true })

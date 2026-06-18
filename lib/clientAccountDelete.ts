@@ -8,6 +8,7 @@ import { normalizePhone, phonesMatch, type AdminClient } from './clientCrm'
 import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { moveClientToRecovery } from './clientRecovery'
+import { legacyPurgeClientOnServer } from './clientLegacyBackend'
 import { type StoreUser } from './clientSession'
 import { ACCOUNT_NS, removeAccountJson } from './clientAccountStorage'
 
@@ -89,10 +90,19 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
   if (idToDelete) removeClientLocal(idToDelete)
 
   if (USE_API) {
-    if (idToDelete) {
-      await remoteDeleteClient(idToDelete, targetPhone)
-    } else if (targetPhone) {
-      await api.deleteClientByPhone(targetPhone)
+    try {
+      if (idToDelete) {
+        await remoteDeleteClient(idToDelete, targetPhone)
+      } else if (targetPhone) {
+        await api.deleteClientByPhone(targetPhone)
+      }
+    } catch (e) {
+      console.error(e)
+      try {
+        await legacyPurgeClientOnServer(idToDelete, targetPhone)
+      } catch (legacyErr) {
+        console.error(legacyErr)
+      }
     }
   }
 

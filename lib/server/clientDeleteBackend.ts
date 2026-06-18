@@ -66,7 +66,7 @@ async function softDeleteClientOnBackend(id: string): Promise<Response> {
       addr: '',
       card: '',
       blocked: true,
-      note: 'deleted',
+      note: 'kakapo-purged',
     }),
   })
 }

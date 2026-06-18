@@ -99,6 +99,15 @@ async function parseSuccessBody<T>(res: Response): Promise<T> {
 }
 
 async function request<T>(path: string, options: RequestInit = {}, attempt = 0): Promise<T> {
+  return requestUrl<T>(`${getApiUrl()}${path}`, options, attempt)
+}
+
+/** Маршруты Next.js вне proxy /api/kakapo → Render */
+async function requestApp<T>(path: string, options: RequestInit = {}, attempt = 0): Promise<T> {
+  return requestUrl<T>(path, options, attempt)
+}
+
+async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
@@ -108,7 +117,7 @@ async function request<T>(path: string, options: RequestInit = {}, attempt = 0):
 
   let res: Response
   try {
-    res = await withTimeout(fetch(`${getApiUrl()}${path}`, { ...options, headers }))
+    res = await withTimeout(fetch(url, { ...options, headers }))
   } catch (e) {
     if (e instanceof Error && e.message.includes('Сервер не отвечает')) throw e
     throw new Error('Нет связи с сервером. Проверьте интернет.')
@@ -118,7 +127,7 @@ async function request<T>(path: string, options: RequestInit = {}, attempt = 0):
     const message = await parseErrorResponse(res)
     if (RETRY_STATUS.has(res.status) && attempt < 2) {
       await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
-      return request<T>(path, options, attempt + 1)
+      return requestUrl<T>(url, options, attempt + 1)
     }
     throw new Error(message || `Ошибка ${res.status}`)
   }
@@ -251,21 +260,21 @@ export const api = {
   updateClient: (id: string, data: Partial<AdminClient>) =>
     request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteClient: (id: string) =>
-    request<{ ok: boolean }>(`/clients/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
+    requestApp<{ ok: boolean }>(`/api/clients/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
   deleteClientByPhone: (phone: string) => {
     const digits = (phone || '').replace(/\D/g, '').slice(-9)
-    return request<{ ok: boolean }>('/clients/delete-by-phone', {
+    return requestApp<{ ok: boolean }>('/api/clients/delete-by-phone', {
       method: 'POST',
       body: JSON.stringify({ phone: digits }),
     })
   },
   moveClientToRecovery: (id: string) =>
-    request<AdminClient>(`/clients/${encodeURIComponent(id)}/recovery`, { method: 'POST' }),
+    requestApp<AdminClient>(`/api/clients/${encodeURIComponent(id)}/recovery`, { method: 'POST' }),
   restoreClient: (id: string) =>
-    request<AdminClient>(`/clients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+    requestApp<AdminClient>(`/api/clients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   moveClientToRecoveryByPhone: (phone: string) => {
     const digits = (phone || '').replace(/\D/g, '').slice(-9)
-    return request<AdminClient>('/clients/recovery-by-phone', {
+    return requestApp<AdminClient>('/api/clients/recovery-by-phone', {
       method: 'POST',
       body: JSON.stringify({ phone: digits }),
     })

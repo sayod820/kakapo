@@ -35,6 +35,23 @@ export interface AdminClient {
   deletedAt?: string
 }
 
+/** Маркеры в note для старого backend без accountStatus / delete API */
+export const RECOVERY_NOTE_PREFIX = 'kakapo-recovery'
+export const PURGED_NOTE = 'kakapo-purged'
+
+export function isClientPurged(c?: AdminClient | null): boolean {
+  if (!c) return false
+  const note = c.note || ''
+  if (note.includes(PURGED_NOTE)) return true
+  if (note === 'deleted') return true
+  return c.name === 'Удалён' && /^\+0000000/.test(c.phone || '')
+}
+
+export function parseRecoveryDeletedAt(note: string): string | undefined {
+  const m = note.match(/kakapo-recovery\s+(\d{4}-\d{2}-\d{2})/)
+  return m ? m[1] : undefined
+}
+
 export const CLIENT_LEVEL_COLORS: Record<ClientLevel, string> = {
   basic: '#8FB897',
   bronze: '#CD7F32',
@@ -158,8 +175,10 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
-    accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
-    deletedAt: raw.deletedAt || undefined,
+    accountStatus: raw.accountStatus === 'recovery' || (raw.note || '').includes(RECOVERY_NOTE_PREFIX)
+      ? 'recovery'
+      : 'active',
+    deletedAt: raw.deletedAt || parseRecoveryDeletedAt(raw.note || ''),
   }
 }
 

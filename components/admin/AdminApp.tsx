@@ -60,6 +60,7 @@ import {
   type AdminClient,
   type ClientLevel,
   type ClientProfileForm,
+  isClientPurged,
 } from '@/lib/clientCrm'
 import {
   saveClientProfile,
@@ -2499,6 +2500,7 @@ function ClientsPage() {
     const qCompact = q.replace(/\s/g, '');
     const qDigits = q.replace(/\D/g, '');
     return clients.filter(c => {
+      if (isClientPurged(c)) return false;
       if (filterAccount === 'active' && isClientInRecovery(c)) return false;
       if (filterAccount === 'recovery' && !isClientInRecovery(c)) return false;
       if (filterLevel !== 'all' && c.level !== filterLevel) return false;
@@ -2519,11 +2521,11 @@ function ClientsPage() {
   }, [clients, search, filterLevel, filterDebt, filterCard, filterBlocked, filterSegment, filterAccount]);
 
   const stats = useMemo(() => ({
-    total: clients.filter(c => !isClientInRecovery(c)).length,
-    recovery: clients.filter(c => isClientInRecovery(c)).length,
-    withCard: clients.filter(c => !!c.card && !isClientInRecovery(c)).length,
-    withDebt: clients.filter(c => c.debt > 0 && !isClientInRecovery(c)).length,
-    newMonth: clients.filter(c => isNewThisMonth(c.createdAt) && !isClientInRecovery(c)).length,
+    total: clients.filter(c => !isClientPurged(c) && !isClientInRecovery(c)).length,
+    recovery: clients.filter(c => !isClientPurged(c) && isClientInRecovery(c)).length,
+    withCard: clients.filter(c => !isClientPurged(c) && !!c.card && !isClientInRecovery(c)).length,
+    withDebt: clients.filter(c => !isClientPurged(c) && c.debt > 0 && !isClientInRecovery(c)).length,
+    newMonth: clients.filter(c => !isClientPurged(c) && isNewThisMonth(c.createdAt) && !isClientInRecovery(c)).length,
   }), [clients]);
 
   const detailClient = detailId ? clients.find(c => c.id === detailId) : null;

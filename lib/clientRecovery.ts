@@ -7,6 +7,7 @@ import { useClientStore, hydrateClientStore } from './clientStore'
 import { phonesMatch, type AdminClient } from './clientCrm'
 import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
+import { legacyMoveToRecoveryOnServer, legacyRestoreOnServer } from './clientLegacyBackend'
 
 export type ClientAccountStatus = 'active' | 'recovery'
 
@@ -82,7 +83,13 @@ export async function moveClientToRecovery(clientId: string, phone?: string): Pr
     card: '',
   })
 
-  if (USE_API) await api.moveClientToRecovery(id)
+  if (USE_API) {
+    try {
+      await api.moveClientToRecovery(id)
+    } catch {
+      await legacyMoveToRecoveryOnServer(id, targetPhone).catch(console.error)
+    }
+  }
 
   emitCrmSync()
 }
@@ -99,7 +106,13 @@ export async function restoreClientFromRecovery(clientId: string): Promise<void>
     blocked: false,
   })
 
-  if (USE_API) await api.restoreClient(clientId)
+  if (USE_API) {
+    try {
+      await api.restoreClient(clientId)
+    } catch {
+      await legacyRestoreOnServer(clientId).catch(console.error)
+    }
+  }
 
   emitCrmSync()
 }
