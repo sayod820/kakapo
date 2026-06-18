@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
 import { hydrateCourierStores } from "@/lib/courierStore";
@@ -3088,22 +3088,46 @@ function DebtSupportBlock({ debt, cardNum }: { debt: number; cardNum?: string })
   )
 }
 
+function DebtBottomSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
+      <div style={{
+        position: 'relative', zIndex: 1, width: '100%', maxWidth: 480,
+        background: 'var(--l1)', borderTop: '1px solid var(--b1)',
+        borderRadius: '24px 24px 0 0', padding: '20px 20px 36px',
+        maxHeight: '88vh', overflowY: 'auto',
+        animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)',
+      }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 18px' }} />
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function VipDebtSection({
   phone,
   cardNum,
   creditUsed,
   creditLimit,
-  onOpenOrder,
+  apiOrders = [],
 }: {
   phone?: string
   cardNum?: string
   creditUsed: number
   creditLimit: number
-  onOpenOrder: (orderId: string) => void
+  apiOrders?: import('@/lib/types').Order[]
 }) {
   const [tab, setTab] = useState<DebtTab>('all')
   const [histTick, setHistTick] = useState(0)
   const [payDetail, setPayDetail] = useState<import('@/lib/clientVipCredit').DebtHistoryEntry | null>(null)
+  const [orderDetail, setOrderDetail] = useState<{
+    hist: import('@/lib/clientVipCredit').DebtHistoryEntry
+    order: ReturnType<typeof mapOrdersForClient>[number] | null
+  } | null>(null)
+
+  const clientOrders = useMemo(() => mapOrdersForClient(apiOrders), [apiOrders])
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
 
@@ -3129,7 +3153,8 @@ function VipDebtSection({
 
   const handleRowClick = (h: import('@/lib/clientVipCredit').DebtHistoryEntry) => {
     if (h.type === 'debt' && h.orderId) {
-      onOpenOrder(h.orderId)
+      const order = clientOrders.find(o => o.id === h.orderId) || null
+      setOrderDetail({ hist: h, order })
       return
     }
     if (h.type === 'pay') setPayDetail(h)
@@ -3281,17 +3306,82 @@ function VipDebtSection({
         </div>
       </div>
 
+      {/* Детали заказа в долг */}
+      {orderDetail && (() => {
+        const { hist, order } = orderDetail
+        const debtAmt = Math.abs(hist.amount)
+        const st = order ? (OSTATUS[order.status] || OSTATUS.pending) : null
+        const rawOrder = apiOrders.find(o => o.id === hist.orderId)
+        const deliveryFee = rawOrder?.deliveryFee ?? order?.delivery ?? 0
+        return (
+          <DebtBottomSheet onClose={() => setOrderDetail(null)}>
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: 16, margin: '0 auto 12px',
+                background: 'rgba(255,184,0,.12)', border: '1px solid rgba(255,184,0,.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28,
+              }}>🛒</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
+                <span className="ub" style={{ fontSize: 18, fontWeight: 900 }}>{hist.orderId}</span>
+                <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 5, background: 'rgba(255,184,0,.15)', color: 'var(--gd)' }}>VIP</span>
+              </div>
+              {st && (
+                <span className="bdg" style={{ background: `${st.c}18`, color: st.c, border: `1px solid ${st.c}30`, fontSize: 11 }}>{st.l}</span>
+              )}
+              <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: '#FF8080', marginTop: 12 }}>
+                −{debtAmt.toLocaleString()} ЅМ
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>товары в долг</div>
+            </div>
+
+            <div className="card" style={{ padding: '14px 16px', marginBottom: 12 }}>
+              {[
+                { l: 'Дата', v: hist.date },
+                { l: 'Время', v: hist.time || '—' },
+                ...(order?.addr ? [{ l: 'Адрес', v: order.addr }] : []),
+                ...(deliveryFee > 0 ? [{ l: 'Доставка', v: `${Number(deliveryFee).toFixed(2)} ЅМ · наличными курьеру`, c: 'var(--t2)' }] : []),
+              ].map((row, i, arr) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--b1)' : 'none' }}>
+                  <span style={{ fontSize: 12, color: 'var(--t3)', flexShrink: 0 }}>{row.l}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: row.c || 'var(--t1)', textAlign: 'right' }}>{row.v}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="card" style={{ overflow: 'hidden', marginBottom: 16 }}>
+              <div style={{ padding: '12px 15px', borderBottom: '1px solid var(--b1)', fontSize: 13, fontWeight: 800 }}>Состав заказа</div>
+              {order?.items?.length ? order.items.map((item, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 15px', borderBottom: i < order.items.length - 1 ? '1px solid var(--b1)' : 'none' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--l3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{item.e}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>× {item.qty}</div>
+                  </div>
+                  <span className="ub" style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></span>
+                </div>
+              )) : (
+                <div style={{ padding: '14px 15px', fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>
+                  {hist.itemsSummary || 'Состав заказа недоступен'}
+                </div>
+              )}
+              {order && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 15px', borderTop: '1px solid var(--b1)' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>Итого заказа</span>
+                  <span className="ub" style={{ fontSize: 15, fontWeight: 900 }}>{order.total.toFixed(2)} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></span>
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => setOrderDetail(null)} className="btn" style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontSize: 14, fontWeight: 700 }}>
+              Закрыть
+            </button>
+          </DebtBottomSheet>
+        )
+      })()}
+
       {/* Детали погашения */}
       {payDetail && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div onClick={() => setPayDetail(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
-          <div style={{
-            position: 'relative', zIndex: 1, width: '100%', maxWidth: 480,
-            background: 'var(--l1)', borderTop: '1px solid var(--b1)',
-            borderRadius: '24px 24px 0 0', padding: '20px 20px 36px',
-            animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)',
-          }}>
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 18px' }} />
+        <DebtBottomSheet onClose={() => setPayDetail(null)}>
             <div style={{ textAlign: 'center', marginBottom: 20 }}>
               <div style={{
                 width: 56, height: 56, borderRadius: 16, margin: '0 auto 12px',
@@ -3318,8 +3408,7 @@ function VipDebtSection({
             <button onClick={() => setPayDetail(null)} className="btn" style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontSize: 14, fontWeight: 700 }}>
               Закрыть
             </button>
-          </div>
-        </div>
+        </DebtBottomSheet>
       )}
     </>
   )
@@ -3465,7 +3554,7 @@ const VIPPage = ({ go, user, setUser }) => {
             cardNum={user?.card}
             creditUsed={creditUsed}
             creditLimit={creditLimit}
-            onOpenOrder={(orderId) => go('orders', { orderId })}
+            apiOrders={apiOrders}
           />
         )}
 
