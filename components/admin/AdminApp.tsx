@@ -69,6 +69,7 @@ import {
   clientNoteForCard,
   cardLoyaltyFromCard,
 } from '@/lib/clientCardSync'
+import { loadDebtHistory, subscribeDebtHistory, type DebtHistoryEntry } from '@/lib/clientVipCredit'
 import {
   enrichClientsForPush,
   filterClientsBySegment,
@@ -3656,9 +3657,11 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
   const [filter, setFilter] = useState<'with_debt' | 'over_limit' | 'all'>('with_debt');
   const [search, setSearch] = useState('');
   const [detail, setDetail] = useState<AdminCard | null>(null);
-  const [debtVal, setDebtVal] = useState('0');
+  const [debtAction, setDebtAction] = useState<'add' | 'subtract'>('subtract');
+  const [debtAmount, setDebtAmount] = useState('');
   const [saveErr, setSaveErr] = useState('');
   const [saveBusy, setSaveBusy] = useState(false);
+  const [histTick, setHistTick] = useState(0);
 
   const stats = useMemo(() => ({
     totalDebt: creditCards.reduce((s, c) => s + c.debt, 0),
@@ -3692,9 +3695,17 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
 
   const openDetail = (card: AdminCard) => {
     setDetail(card);
-    setDebtVal(String(card.debt));
+    setDebtAction('subtract');
+    setDebtAmount('');
     setSaveErr('');
   };
+
+  useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), []);
+
+  const debtHistory = useMemo(() => {
+    if (!detail?.phone) return [];
+    return loadDebtHistory(detail.phone).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 12);
+  }, [detail?.phone, histTick]);
 
   const saveDebt = () => {
     if (!detail) return;
@@ -3702,9 +3713,14 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
     setSaveErr('');
     try {
       const client = findClientForCard(clients, detail);
+      const amount = Math.max(0, parseFloat(debtAmount) || 0);
+      if (amount <= 0) throw new Error('Укажите сумму');
+      const nextDebt = debtAction === 'add'
+        ? detail.debt + amount
+        : Math.max(0, detail.debt - amount);
       const form = {
         ...cardLoyaltyFromCard(detail, client),
-        debt: Math.max(0, parseFloat(debtVal) || 0),
+        debt: nextDebt,
       };
       saveCardLoyalty(detail, form, 'edit');
       setDetail(null);
@@ -3869,10 +3885,35 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
             </div>
 
             <div style={{ padding: '14px', borderRadius: 12, background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.22)', marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#FF8C00', marginBottom: 8 }}>Списать долг после оплаты</div>
-              <NI lbl="Новый долг ЅМ" val={debtVal} set={setDebtVal} ph="0" type="number" />
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#FF8C00', marginBottom: 8 }}>Изменить долг</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                {[
+                  { id: 'subtract' as const, l: 'Списать долг', s: 'После оплаты' },
+                  { id: 'add' as const, l: 'Добавить долг', s: 'Ручное начисление' },
+                ].map(action => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={() => setDebtAction(action.id)}
+                    className="ab"
+                    style={{
+                      padding: '10px 10px',
+                      textAlign: 'left',
+                      background: debtAction === action.id ? 'rgba(255,140,0,.14)' : '#0C1C0F',
+                      border: `1px solid ${debtAction === action.id ? 'rgba(255,140,0,.35)' : '#162B1A'}`,
+                      color: debtAction === action.id ? '#FF8C00' : '#8FB897',
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 800 }}>{action.l}</div>
+                    <div style={{ fontSize: 10, marginTop: 2, opacity: .85 }}>{action.s}</div>
+                  </button>
+                ))}
+              </div>
+              <NI lbl="Сумма ЅМ" val={debtAmount} set={setDebtAmount} ph="0" type="number" />
               <div style={{ fontSize: 10, color: '#8FB897', marginTop: 8, lineHeight: 1.45 }}>
-                Уменьшите сумму после подтверждения оплаты через поддержку. Клиент увидит запись в приложении.
+                {debtAction === 'subtract'
+                  ? 'После сохранения долг уменьшится, а клиент увидит запись о погашении через поддержку.'
+                  : 'После сохранения долг увеличится, а клиент увидит запись о новом начислении.'}
               </div>
             </div>
 
@@ -3895,6 +3936,31 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
               </div>
             )}
 
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: '#3D6645', fontWeight: 800, marginBottom: 8, textTransform: 'uppercase' }}>История долга</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+                {debtHistory.length === 0 ? (
+                  <div style={{ padding: '12px 14px', background: '#0C1C0F', border: '1px solid #162B1A', borderRadius: 10, fontSize: 12, color: '#8FB897' }}>
+                    История пока пуста
+                  </div>
+                ) : debtHistory.map((row: DebtHistoryEntry) => {
+                  const isPay = row.type === 'pay';
+                  return (
+                    <div key={row.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 12px', background: '#0C1C0F', borderRadius: 10, border: '1px solid #162B1A' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#EBF5ED' }}>{row.desc || (isPay ? 'Погашение' : 'Начисление')}</div>
+                        {row.itemsSummary && <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>{row.itemsSummary}</div>}
+                        <div style={{ fontSize: 10, color: '#3D6645', marginTop: 3 }}>{row.date} · {row.time || '—'}</div>
+                      </div>
+                      <div className="ub" style={{ fontSize: 13, fontWeight: 900, color: isPay ? '#1FD760' : '#FF8080', flexShrink: 0 }}>
+                        {isPay ? '+' : '−'}{Math.abs(row.amount).toLocaleString()} ЅМ
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {saveErr && (
               <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.3)', fontSize: 12, color: '#FF4545', fontWeight: 700, marginBottom: 12 }}>
                 ⚠ {saveErr}
@@ -3906,7 +3972,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
                 💳 Карта
               </button>
               <button type="button" onClick={saveDebt} disabled={saveBusy} className="ab abp" style={{ flex: 2, padding: 12, fontWeight: 800, opacity: saveBusy ? .7 : 1 }}>
-                {saveBusy ? '⏳ Сохраняем…' : '✓ Сохранить долг'}
+                {saveBusy ? '⏳ Сохраняем…' : debtAction === 'add' ? '✓ Добавить долг' : '✓ Списать долг'}
               </button>
             </div>
           </div>

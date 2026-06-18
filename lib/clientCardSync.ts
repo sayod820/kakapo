@@ -10,7 +10,7 @@ import {
   clientProfileFromClient,
 } from './clientCrm'
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard } from './cardCrm'
-import { recordStoreDebtRepayment } from './clientVipCredit'
+import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -156,6 +156,8 @@ export function saveCardLoyalty(
     })
     if (loyalty.debt < prevDebt - 0.001) {
       recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
+    } else if (loyalty.debt > prevDebt + 0.001) {
+      recordStoreDebtCharge(phone, loyalty.debt - prevDebt)
     }
   }
 }

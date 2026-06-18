@@ -178,6 +178,16 @@ export function recordStoreDebtRepayment(phone: string, amount: number): void {
   })
 }
 
+export function recordStoreDebtCharge(phone: string, amount: number, desc = 'Начисление через поддержку'): void {
+  const debt = Math.max(0, Math.round(amount * 100) / 100)
+  if (!phone.trim() || debt <= 0) return
+  pushDebtHistory(phone, {
+    desc,
+    amount: -debt,
+    type: 'debt',
+  })
+}
+
 /** Клиент не погашает долг сам — только через магазин (админ → Карты). */
 export async function repayCredit(_phone: string, _amount?: number): Promise<number> {
   throw new Error('Погашение долга доступно только в магазине КАКАПО')
