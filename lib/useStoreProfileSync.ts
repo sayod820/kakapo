@@ -10,6 +10,8 @@ import {
   crmStoreUsersEqual,
   fetchCrmStoreUser,
 } from './clientProfileSync'
+import { isClientNamePlaceholder } from './clientCrm'
+import { useClientStore } from './clientStore'
 
 /** Синхронизация профиля клиента с CRM (карта + клиент из админки) */
 export function useStoreProfileSync(
@@ -25,6 +27,9 @@ export function useStoreProfileSync(
     const next = await fetchCrmStoreUser(phone, userRef.current?.card)
     if (!next) return
     const cur = userRef.current
+    if (cur?.clientId && isClientNamePlaceholder(cur.name) && !isClientNamePlaceholder(next.name)) {
+      useClientStore.getState().updateClient(cur.clientId, { name: next.name })
+    }
     if (!cur || !crmStoreUsersEqual(cur, next)) {
       const merged: StoreUser = { ...cur, ...next }
       saveStoreUser(merged)

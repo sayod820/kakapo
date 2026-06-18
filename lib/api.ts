@@ -209,6 +209,8 @@ export const api = {
     request<AdminClient>('/clients', { method: 'POST', body: JSON.stringify(data) }),
   updateClient: (id: string, data: Partial<AdminClient>) =>
     request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteClient: (id: string) =>
+    request<{ ok: boolean }>(`/clients/${id}`, { method: 'DELETE' }),
 
   // ── Точки забора ──
   getPickups: () => request<PickupPoint[]>('/pickups'),

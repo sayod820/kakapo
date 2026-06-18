@@ -3,6 +3,7 @@ import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
 import {
   phonesMatch,
+  pickClientDisplayName,
   type AdminClient,
   type ClientLevel,
   type ClientProfileForm,
@@ -129,7 +130,7 @@ export function saveCardLoyalty(
 
   if (!client) {
     client = clientStore.addClient({
-      name: 'Клиент',
+      name: pickClientDisplayName(card.client),
       phone,
       email: '',
       addr: '',
@@ -140,9 +141,10 @@ export function saveCardLoyalty(
     })
   }
 
-  const clientName = client.name || 'Клиент'
+  const clientName = pickClientDisplayName(client.name, card.client)
 
   if (mode === 'link') {
+    clientStore.updateClient(client.id, { name: clientName, phone, card: card.num, ...loyalty })
     cardStore.linkCard(card.num, {
       phone,
       clientName,

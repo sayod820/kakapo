@@ -18,6 +18,7 @@ import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
 import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
 import { loadStoreUser, saveStoreUser, getActiveClientPhone, formatTjPhone } from "@/lib/clientSession";
 import { fetchCrmStoreUser, crmStoreUsersEqual } from "@/lib/clientProfileSync";
+import { deleteClientAccount } from "@/lib/clientAccountDelete";
 import {
   getVipCreditState,
   canPayWithCredit,
@@ -2181,10 +2182,12 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   );
 };
 
-const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
+const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
   const apiOrders = useOrders(s => s.orders);
   const [reviewStats, setReviewStats] = useState({ count: 0, withReplies: 0 });
   const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
@@ -2391,6 +2394,54 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="card" style={cardAccent}>
+          {confirmDelete ? (
+            <div style={{ padding:"14px" }}>
+              <div style={{ fontSize:13, fontWeight:800, color:"var(--red)", marginBottom:8 }}>Удалить аккаунт?</div>
+              <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.5, marginBottom:14 }}>
+                Профиль, карта и данные будут удалены из базы. Заказы в системе могут остаться. Это действие нельзя отменить.
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button
+                  disabled={deleting}
+                  onClick={async () => {
+                    setDeleting(true);
+                    try {
+                      await deleteClientAccount(user);
+                      setConfirmDelete(false);
+                      onLogout?.();
+                      showToast?.("Аккаунт удалён");
+                    } catch {
+                      showToast?.("Не удалось удалить аккаунт");
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                  className="btn"
+                  style={{ flex:1, padding:"11px", borderRadius:12, background:"var(--red)", color:"white", fontSize:12, fontWeight:800, opacity:deleting ? 0.7 : 1 }}
+                >
+                  {deleting ? "Удаление…" : "Да, удалить"}
+                </button>
+                <button
+                  disabled={deleting}
+                  onClick={() => setConfirmDelete(false)}
+                  className="btn"
+                  style={{ flex:1, padding:"11px", borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", fontSize:12, fontWeight:700, color:"var(--t2)" }}
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div onClick={() => setConfirmDelete(true)} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
+              <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.08)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <Ic n="trash" s={16} c="var(--red)"/>
+              </div>
+              <div style={{ flex:1, fontSize:13, fontWeight:700, color:"var(--red)" }}>Удалить аккаунт</div>
+            </div>
+          )}
         </div>
 
         <div className="card" style={cardAccent}>

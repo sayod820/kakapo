@@ -180,6 +180,8 @@ export const useCardStore = create<CardStore>((set, get) => ({
     if (data.clientId) {
       useClientStore.getState().updateClient(data.clientId, {
         card: num,
+        name: data.clientName,
+        phone: data.phone.trim(),
         level: data.level,
         debtLimit: data.debtLimit,
         bonus: data.bonus,

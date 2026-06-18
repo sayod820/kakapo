@@ -6,6 +6,7 @@ import {
   DEFAULT_ADMIN_CLIENTS,
   normalizeClient,
   phonesMatch,
+  pickClientDisplayName,
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
@@ -135,7 +136,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
   return normalizeClient({
     ...base,
     card: card.num,
-    name: base.name || card.client,
+    name: pickClientDisplayName(base.name, card.client),
     phone: base.phone || card.phone,
     level,
     bonus: card.bonus ?? base.bonus,
@@ -174,7 +175,7 @@ export function crmToStoreUser(c: AdminClient): CrmStoreUser {
 function buildClientFromCard(card: AdminCard): AdminClient {
   return normalizeClient({
     id: card.clientId || `CARD-${card.num.replace(/\W/g, '')}`,
-    name: card.client || 'Клиент',
+    name: pickClientDisplayName(card.client),
     phone: card.phone,
     email: '',
     addr: '',

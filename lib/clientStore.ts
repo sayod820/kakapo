@@ -56,6 +56,7 @@ interface ClientStore {
   setClients: (list: AdminClient[]) => void
   addClient: (data: Omit<AdminClient, 'id' | 'orders' | 'spent' | 'createdAt' | 'lastOrderAt'>) => AdminClient
   updateClient: (id: string, patch: Partial<AdminClient>) => void
+  removeClient: (id: string) => void
   toggleBlock: (id: string) => void
   fetchFromApi: () => Promise<void>
 }
@@ -95,6 +96,12 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     if (USE_API) api.updateClient(id, patch).catch(console.error)
     return { clients }
   }),
+  removeClient: id => {
+    const clients = get().clients.filter(c => c.id !== id)
+    saveClients(clients)
+    if (USE_API) api.deleteClient(id).catch(console.error)
+    set({ clients })
+  },
   toggleBlock: id => {
     const c = get().clients.find(x => x.id === id)
     if (!c) return

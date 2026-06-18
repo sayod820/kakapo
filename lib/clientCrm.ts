@@ -64,6 +64,26 @@ export function phonesMatch(a: string, b: string): boolean {
   return !!da && !!db && da === db
 }
 
+export const CLIENT_NAME_PLACEHOLDER = 'Клиент'
+
+export function isClientNamePlaceholder(name?: string | null): boolean {
+  const t = (name || '').trim()
+  return !t || t === CLIENT_NAME_PLACEHOLDER
+}
+
+/** Предпочитает реальное имя вместо заглушки «Клиент» */
+export function pickClientDisplayName(...names: (string | undefined | null)[]): string {
+  for (const n of names) {
+    const t = (n || '').trim()
+    if (t && !isClientNamePlaceholder(t)) return t
+  }
+  for (const n of names) {
+    const t = (n || '').trim()
+    if (t) return t
+  }
+  return CLIENT_NAME_PLACEHOLDER
+}
+
 export function emptyClientForm(): ClientProfileForm {
   return emptyClientProfileForm()
 }

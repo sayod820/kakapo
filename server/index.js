@@ -531,6 +531,33 @@ app.patch('/clients/:id', (req, res) => {
   persist()
   res.json(c)
 })
+app.delete('/clients/:id', (req, res) => {
+  if (!db.clients) db.clients = []
+  const idx = db.clients.findIndex(x => x.id === req.params.id)
+  if (idx < 0) return res.status(404).json({ detail: 'Клиент не найден' })
+  const client = db.clients[idx]
+  db.clients.splice(idx, 1)
+  for (const card of db.cards || []) {
+    const sameClient = card.clientId === client.id
+    const samePhone = card.phone && client.phone
+      && normalizePhoneDigits(card.phone) === normalizePhoneDigits(client.phone)
+    if (!sameClient && !samePhone) continue
+    Object.assign(card, normalizeCardRow({
+      num: card.num,
+      client: '',
+      phone: '',
+      clientId: undefined,
+      status: 'unlinked',
+      level: '',
+      bonus: 0,
+      debt: 0,
+      debtLimit: 0,
+      vip: false,
+    }))
+  }
+  persist()
+  res.json({ ok: true })
+})
 
 app.get('/settings/pricing', (_req, res) => res.json(db.settings.pricing))
 app.patch('/settings/pricing', (req, res) => {
@@ -596,7 +623,10 @@ function syncClientFromCardRow(card) {
   }
   if (!client) return
   client.card = card.num
-  if (card.client) client.name = card.client
+  const cardName = String(card.client || '').trim()
+  const clientName = String(client.name || '').trim()
+  if (cardName && cardName !== 'Клиент') client.name = cardName
+  else if (!clientName || clientName === 'Клиент') client.name = cardName || clientName || 'Клиент'
   if (card.level) client.level = card.level
   client.bonus = Number(card.bonus) || 0
   client.debt = Number(card.debt) || 0
