@@ -28,6 +28,7 @@ import {
   debtHistoryTotals,
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
+import { DEBT_REPAY_REQUISITES, copyToClipboard, debtPayMethodLabel } from "@/lib/debtRepayment";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import { phoneDigits } from "@/lib/clientSession";
@@ -3051,13 +3052,73 @@ const FAQPage = ({ go }) => {
 
 type DebtTab = 'all' | 'debt' | 'pay'
 
+function DebtRepayGuide({ debt, cardNum }: { debt: number; cardNum?: string }) {
+  const req = DEBT_REPAY_REQUISITES
+  const comment = cardNum || 'VIP-карта'
+  const rows = [
+    { l: 'Kaspi', v: req.kaspi, copy: req.kaspi },
+    { l: 'Получатель', v: req.holder },
+    { l: 'Сумма', v: `${debt.toFixed(2)} ЅМ`, copy: debt.toFixed(2) },
+    { l: 'Комментарий', v: comment, copy: comment },
+  ]
+
+  return (
+    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gd)' }}>Как погасить долг</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div style={{ padding: '12px', borderRadius: 12, background: 'rgba(31,215,96,.08)', border: '1px solid rgba(31,215,96,.22)' }}>
+          <div style={{ fontSize: 20, marginBottom: 6 }}>💵</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gr)', marginBottom: 4 }}>Наличными</div>
+          <div style={{ fontSize: 10, color: 'var(--t2)', lineHeight: 1.45 }}>
+            Приходите в {req.storeAddress}. Назовите номер карты — кассир спишет долг.
+          </div>
+          {cardNum && (
+            <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: 'var(--gd)' }}>{cardNum}</div>
+          )}
+        </div>
+        <div style={{ padding: '12px', borderRadius: 12, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.22)' }}>
+          <div style={{ fontSize: 20, marginBottom: 6 }}>📱</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--sky)', marginBottom: 4 }}>Переводом</div>
+          <div style={{ fontSize: 10, color: 'var(--t2)', lineHeight: 1.45 }}>
+            Переведите на Kaspi или банк. В комментарии укажите номер карты.
+          </div>
+        </div>
+      </div>
+      <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(59,142,240,.06)', border: '1px solid rgba(59,142,240,.18)' }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--sky)', marginBottom: 8 }}>Реквизиты для перевода</div>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: i < rows.length - 1 ? '1px solid rgba(59,142,240,.1)' : 'none' }}>
+            <span style={{ fontSize: 10, color: 'var(--t3)' }}>{r.l}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700 }}>{r.v}</span>
+              {r.copy && (
+                <button type="button" className="btn" onClick={() => copyToClipboard(r.copy!)} style={{ fontSize: 9, padding: '3px 7px', borderRadius: 7, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--sky)' }}>
+                  Копировать
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+        <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 8, lineHeight: 1.45 }}>
+          После поступления денег администратор спишет долг — запись появится в истории ниже.
+        </div>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--t3)', textAlign: 'center', lineHeight: 1.4 }}>
+        Погашение в приложении недоступно — только через магазин
+      </div>
+    </div>
+  )
+}
+
 function VipDebtSection({
   phone,
+  cardNum,
   creditUsed,
   creditLimit,
   onOpenOrder,
 }: {
   phone?: string
+  cardNum?: string
   creditUsed: number
   creditLimit: number
   onOpenOrder: (orderId: string) => void
@@ -3129,21 +3190,7 @@ function VipDebtSection({
             </div>
           </div>
 
-          {creditUsed > 0 && (
-            <div style={{
-              marginTop: 14, padding: '11px 13px', borderRadius: 12,
-              background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.22)',
-              display: 'flex', alignItems: 'flex-start', gap: 10,
-            }}>
-              <span style={{ fontSize: 18, flexShrink: 0 }}>🏪</span>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gd)', marginBottom: 3 }}>Погашение только в магазине</div>
-                <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.45 }}>
-                  Долг закрывает кассир или администратор КАКАПО при оплате на месте. Самостоятельно в приложении погасить нельзя.
-                </div>
-              </div>
-            </div>
-          )}
+          {creditUsed > 0 && <DebtRepayGuide debt={creditUsed} cardNum={cardNum} />}
         </div>
 
         {/* Фильтры */}
@@ -3213,12 +3260,12 @@ function VipDebtSection({
                         border: `1px solid ${isPay ? 'rgba(31,215,96,.25)' : 'rgba(255,184,0,.25)'}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
                       }}>
-                        {isPay ? '✅' : '🛒'}
+                        {isPay ? (h.payMethod === 'transfer' ? '📱' : '💵') : '🛒'}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                           <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
-                            {isPay ? (h.desc || 'Оплата в магазине') : (h.orderId || 'Заказ в долг')}
+                            {isPay ? (h.desc || debtPayMethodLabel(h.payMethod)) : (h.orderId || 'Заказ в долг')}
                           </span>
                           {!isPay && (
                             <span style={{
@@ -3273,18 +3320,19 @@ function VipDebtSection({
                 background: 'rgba(31,215,96,.12)', border: '1px solid rgba(31,215,96,.3)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28,
               }}>✅</div>
-              <div className="ub" style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>{payDetail.desc || 'Оплата в магазине'}</div>
+              <div className="ub" style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>{payDetail.desc || debtPayMethodLabel(payDetail.payMethod)}</div>
               <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: 'var(--gr)' }}>
                 +{payDetail.amount.toLocaleString()} ЅМ
               </div>
             </div>
             <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
               {[
+                { l: 'Способ', v: debtPayMethodLabel(payDetail.payMethod) },
                 { l: 'Дата', v: payDetail.date },
                 { l: 'Время', v: payDetail.time || '—' },
                 { l: 'Статус', v: 'Успешно', c: 'var(--gr)' },
               ].map((row, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < 2 ? '1px solid var(--b1)' : 'none' }}>
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < 3 ? '1px solid var(--b1)' : 'none' }}>
                   <span style={{ fontSize: 12, color: 'var(--t3)' }}>{row.l}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: row.c || 'var(--t1)' }}>{row.v}</span>
                 </div>
@@ -3437,6 +3485,7 @@ const VIPPage = ({ go, user, setUser }) => {
         {(isVip || creditLimit > 0) && (
           <VipDebtSection
             phone={user?.phone}
+            cardNum={user?.card}
             creditUsed={creditUsed}
             creditLimit={creditLimit}
             onOpenOrder={(orderId) => go('orders', { orderId })}

@@ -7,6 +7,7 @@ import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync, fetchCrmStoreUser, findMergedClientByPhone } from './clientProfileSync'
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson } from './clientAccountStorage'
 import type { StoreUser } from './clientSession'
+import { debtRepayHistoryDesc, type DebtPayMethod } from './debtRepayment'
 
 const DEBT_HIST = ACCOUNT_NS.debtHistory
 export const DEBT_HISTORY_EVT = 'kakapo_debt_history'
@@ -32,6 +33,8 @@ export type DebtHistoryEntry = {
   /** Краткое описание состава заказа */
   itemsSummary?: string
   type: 'debt' | 'pay'
+  /** Способ погашения (только для type=pay) */
+  payMethod?: 'cash' | 'transfer'
 }
 
 export function emitDebtHistoryChange() {
@@ -168,13 +171,14 @@ export async function chargeCredit(
   return newDebt
 }
 
-export function recordStoreDebtRepayment(phone: string, amount: number): void {
+export function recordStoreDebtRepayment(phone: string, amount: number, method: DebtPayMethod = 'cash'): void {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || pay <= 0) return
   pushDebtHistory(phone, {
-    desc: 'Оплата в магазине',
+    desc: debtRepayHistoryDesc(method),
     amount: pay,
     type: 'pay',
+    payMethod: method,
   })
 }
 
