@@ -57,31 +57,68 @@ export function debtHistoryTotals(list: DebtHistoryEntry[]) {
 }
 
 /** Разделить заказы в долг на оплаченные (FIFO по погашениям) и неоплаченные */
-export function splitDebtHistoryBySettlement(
-  list: DebtHistoryEntry[],
-  includePayments = true,
-): { unpaid: DebtHistoryEntry[]; paid: DebtHistoryEntry[] } {
+export type DebtOrderBalance = DebtHistoryEntry & {
+  originalAmount: number
+  paidAmount: number
+  remainingAmount: number
+  partial: boolean
+}
+
+export function buildDebtOrderBalances(list: DebtHistoryEntry[]): {
+  unpaid: DebtOrderBalance[]
+  paid: DebtHistoryEntry[]
+} {
   const debts = list.filter(h => h.type === 'debt').sort((a, b) => (a.ts || 0) - (b.ts || 0))
   const pays = list.filter(h => h.type === 'pay')
   let repayLeft = pays.reduce((s, h) => s + h.amount, 0)
 
-  const paidDebts: DebtHistoryEntry[] = []
-  const unpaidDebts: DebtHistoryEntry[] = []
+  const paid: DebtHistoryEntry[] = []
+  const unpaid: DebtOrderBalance[] = []
 
   for (const d of debts) {
-    const amt = Math.abs(d.amount)
+    const amt = Math.round(Math.abs(d.amount) * 100) / 100
     if (repayLeft >= amt - 0.001) {
-      paidDebts.push(d)
-      repayLeft -= amt
+      paid.push(d)
+      repayLeft = Math.round((repayLeft - amt) * 100) / 100
+    } else if (repayLeft > 0.001) {
+      const paidAmount = repayLeft
+      const remainingAmount = Math.round((amt - paidAmount) * 100) / 100
+      unpaid.push({
+        ...d,
+        originalAmount: amt,
+        paidAmount,
+        remainingAmount,
+        partial: true,
+      })
+      repayLeft = 0
     } else {
-      unpaidDebts.push(d)
+      unpaid.push({
+        ...d,
+        originalAmount: amt,
+        paidAmount: 0,
+        remainingAmount: amt,
+        partial: false,
+      })
     }
   }
 
+  const sortDesc = (a: { ts?: number }, b: { ts?: number }) => (b.ts || 0) - (a.ts || 0)
+  return {
+    unpaid: unpaid.sort(sortDesc),
+    paid: paid.sort(sortDesc),
+  }
+}
+
+export function splitDebtHistoryBySettlement(
+  list: DebtHistoryEntry[],
+  includePayments = true,
+): { unpaid: DebtOrderBalance[]; paid: DebtHistoryEntry[] } {
+  const { unpaid, paid } = buildDebtOrderBalances(list)
+  const pays = list.filter(h => h.type === 'pay')
   const sortDesc = (a: DebtHistoryEntry, b: DebtHistoryEntry) => (b.ts || 0) - (a.ts || 0)
   return {
-    unpaid: unpaidDebts.sort(sortDesc),
-    paid: [...paidDebts, ...(includePayments ? pays : [])].sort(sortDesc),
+    unpaid,
+    paid: [...paid, ...(includePayments ? pays : [])].sort(sortDesc),
   }
 }
 

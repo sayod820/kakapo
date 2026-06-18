@@ -27,6 +27,8 @@ import {
   subscribeDebtHistory,
   debtHistoryTotals,
   splitDebtHistoryBySettlement,
+  buildDebtOrderBalances,
+  type DebtOrderBalance,
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
 import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
@@ -3138,7 +3140,7 @@ function VipDebtSection({
   }, [phone, creditUsed, histTick])
 
   const unpaidOrders = useMemo(
-    () => splitDebtHistoryBySettlement(history, false).unpaid,
+    () => buildDebtOrderBalances(history).unpaid,
     [history],
   )
 
@@ -3166,21 +3168,92 @@ function VipDebtSection({
     if (h.type === 'pay') setPayDetail(h)
   }
 
-  const renderHistoryRow = (h: import('@/lib/clientVipCredit').DebtHistoryEntry, i: number, mode: 'default' | 'unpaid' = 'default') => {
+  const renderUnpaidRow = (b: DebtOrderBalance, i: number) => {
+    const clickable = !!b.orderId
+    return (
+      <button
+        key={b.id || `unpaid-${i}`}
+        type="button"
+        onClick={() => clickable && handleRowClick(b)}
+        className="btn"
+        style={{
+          width: '100%', textAlign: 'left', padding: '13px 14px', borderRadius: 14,
+          background: 'var(--l3)',
+          border: `1px solid ${b.partial ? 'rgba(255,184,0,.28)' : 'rgba(255,69,69,.28)'}`,
+          display: 'flex', alignItems: 'center', gap: 12,
+          cursor: clickable ? 'pointer' : 'default',
+          animation: `fadeUp .3s ease ${i * 0.03}s both`,
+        }}
+      >
+        <div style={{
+          width: 44, height: 44, borderRadius: 13, flexShrink: 0,
+          background: b.partial ? 'rgba(255,184,0,.12)' : 'rgba(255,69,69,.1)',
+          border: `1px solid ${b.partial ? 'rgba(255,184,0,.28)' : 'rgba(255,69,69,.25)'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+        }}>
+          🛒
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
+              {b.orderId || 'Заказ в долг'}
+            </span>
+            <span style={{
+              fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
+              background: b.partial ? 'rgba(255,184,0,.15)' : 'rgba(255,69,69,.15)',
+              color: b.partial ? 'var(--gd)' : '#FF8080',
+            }}>
+              {b.partial ? 'частично' : 'не оплачен'}
+            </span>
+          </div>
+          {b.itemsSummary && (
+            <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {b.itemsSummary}
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: 'var(--t3)' }}>
+            {b.date}{b.time ? ` · ${b.time}` : ''}
+          </div>
+          {b.partial && (
+            <div style={{ fontSize: 10, color: 'var(--gr)', marginTop: 4, fontWeight: 700 }}>
+              Оплачено {b.paidAmount.toLocaleString()} из {b.originalAmount.toLocaleString()} ЅМ
+            </div>
+          )}
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div>
+            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: '#FF8080' }}>
+              −{b.remainingAmount.toLocaleString()} ЅМ
+            </div>
+            <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
+              {b.partial ? 'осталось' : 'в долг'}
+            </div>
+            {b.partial && (
+              <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2, textDecoration: 'line-through', opacity: .7 }}>
+                {b.originalAmount.toLocaleString()} ЅМ
+              </div>
+            )}
+          </div>
+          {clickable && <Ic n="arr" s={14} c="var(--t3)" />}
+        </div>
+      </button>
+    )
+  }
+
+  const renderHistoryRow = (h: import('@/lib/clientVipCredit').DebtHistoryEntry, i: number) => {
     const isPay = h.type === 'pay'
     const clickable = !!(isPay || h.orderId)
-    const unpaid = mode === 'unpaid'
     const settled = isPay
     return (
       <button
-        key={h.id || `${mode}-${i}`}
+        key={h.id || `hist-${i}`}
         type="button"
         onClick={() => clickable && handleRowClick(h)}
         className="btn"
         style={{
           width: '100%', textAlign: 'left', padding: '13px 14px', borderRadius: 14,
-          background: unpaid ? 'var(--l3)' : settled ? 'rgba(31,215,96,.06)' : 'var(--l3)',
-          border: `1px solid ${unpaid ? 'rgba(255,69,69,.28)' : settled ? 'rgba(31,215,96,.22)' : 'rgba(255,184,0,.18)'}`,
+          background: settled ? 'rgba(31,215,96,.06)' : 'var(--l3)',
+          border: `1px solid ${settled ? 'rgba(31,215,96,.22)' : 'rgba(255,184,0,.18)'}`,
           display: 'flex', alignItems: 'center', gap: 12,
           cursor: clickable ? 'pointer' : 'default',
           opacity: clickable ? 1 : 0.85,
@@ -3189,24 +3262,18 @@ function VipDebtSection({
       >
         <div style={{
           width: 44, height: 44, borderRadius: 13, flexShrink: 0,
-          background: unpaid ? 'rgba(255,69,69,.1)' : settled ? 'rgba(31,215,96,.12)' : 'rgba(255,184,0,.12)',
-          border: `1px solid ${unpaid ? 'rgba(255,69,69,.25)' : settled ? 'rgba(31,215,96,.25)' : 'rgba(255,184,0,.25)'}`,
+          background: settled ? 'rgba(31,215,96,.12)' : 'rgba(255,184,0,.12)',
+          border: `1px solid ${settled ? 'rgba(31,215,96,.25)' : 'rgba(255,184,0,.25)'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
         }}>
-          {unpaid ? '🛒' : settled ? '✅' : '🛒'}
+          {settled ? '✅' : '🛒'}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
               {isPay ? (h.desc || 'Погашение через поддержку') : (h.orderId || 'Заказ в долг')}
             </span>
-            {unpaid && (
-              <span style={{
-                fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
-                background: 'rgba(255,69,69,.15)', color: '#FF8080',
-              }}>не оплачен</span>
-            )}
-            {!unpaid && !isPay && (
+            {!isPay && (
               <span style={{
                 fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
                 background: 'rgba(255,184,0,.15)', color: 'var(--gd)',
@@ -3224,11 +3291,11 @@ function VipDebtSection({
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
           <div>
-            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: unpaid ? '#FF8080' : settled ? 'var(--gr)' : '#FF8080' }}>
+            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: settled ? 'var(--gr)' : '#FF8080' }}>
               {isPay ? '+' : '−'}{Math.abs(h.amount).toLocaleString()} ЅМ
             </div>
             <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
-              {unpaid ? 'в долг' : settled ? 'оплачено' : 'в долг'}
+              {settled ? 'оплачено' : 'в долг'}
             </div>
           </div>
           {clickable && <Ic n="arr" s={14} c="var(--t3)" />}
@@ -3310,7 +3377,7 @@ function VipDebtSection({
                 Нажмите на заказ — откроются детали
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {unpaidOrders.map((h, i) => renderHistoryRow(h, i, 'unpaid'))}
+                {unpaidOrders.map((b, i) => renderUnpaidRow(b, i))}
               </div>
             </>
           )}
@@ -3374,7 +3441,7 @@ function VipDebtSection({
                 {tab === 'pay' ? 'Нажмите на оплату — подробности' : 'Все операции по порядку'}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {historyList.map((h, i) => renderHistoryRow(h, i, 'default'))}
+                {historyList.map((h, i) => renderHistoryRow(h, i))}
               </div>
             </>
           )}
@@ -3384,7 +3451,10 @@ function VipDebtSection({
       {/* Детали заказа в долг */}
       {orderDetail && (() => {
         const { hist, order } = orderDetail
-        const debtAmt = Math.abs(hist.amount)
+        const balance = unpaidOrders.find(b => b.id === hist.id) || null
+        const originalAmt = balance?.originalAmount ?? Math.abs(hist.amount)
+        const paidAmt = balance?.paidAmount ?? 0
+        const debtAmt = balance?.remainingAmount ?? Math.abs(hist.amount)
         const st = order ? (OSTATUS[order.status] || OSTATUS.pending) : null
         const rawOrder = apiOrders.find(o => o.id === hist.orderId)
         const deliveryFee = rawOrder?.deliveryFee ?? order?.delivery ?? 0
@@ -3406,13 +3476,26 @@ function VipDebtSection({
               <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: '#FF8080', marginTop: 12 }}>
                 −{debtAmt.toLocaleString()} ЅМ
               </div>
-              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>товары в долг</div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
+                {balance?.partial ? 'осталось к оплате' : 'товары в долг'}
+              </div>
+              {balance?.partial && (
+                <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 8, lineHeight: 1.5 }}>
+                  <span style={{ color: 'var(--gr)', fontWeight: 700 }}>Оплачено {paidAmt.toLocaleString()} ЅМ</span>
+                  {' · '}из {originalAmt.toLocaleString()} ЅМ
+                </div>
+              )}
             </div>
 
             <div className="card" style={{ padding: '14px 16px', marginBottom: 12 }}>
               {[
                 { l: 'Дата', v: hist.date },
                 { l: 'Время', v: hist.time || '—' },
+                ...(balance?.partial ? [
+                  { l: 'Сумма заказа', v: `${originalAmt.toLocaleString()} ЅМ` },
+                  { l: 'Уже оплачено', v: `${paidAmt.toLocaleString()} ЅМ`, c: 'var(--gr)' },
+                  { l: 'Осталось', v: `${debtAmt.toLocaleString()} ЅМ`, c: '#FF8080' },
+                ] : []),
                 ...(order?.addr ? [{ l: 'Адрес', v: order.addr }] : []),
                 ...(deliveryFee > 0 ? [{ l: 'Доставка', v: `${Number(deliveryFee).toFixed(2)} ЅМ · наличными курьеру`, c: 'var(--t2)' }] : []),
               ].map((row, i, arr) => (
