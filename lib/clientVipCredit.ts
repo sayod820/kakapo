@@ -56,6 +56,35 @@ export function debtHistoryTotals(list: DebtHistoryEntry[]) {
   return { borrowed, repaid }
 }
 
+/** Разделить заказы в долг на оплаченные (FIFO по погашениям) и неоплаченные */
+export function splitDebtHistoryBySettlement(
+  list: DebtHistoryEntry[],
+  includePayments = true,
+): { unpaid: DebtHistoryEntry[]; paid: DebtHistoryEntry[] } {
+  const debts = list.filter(h => h.type === 'debt').sort((a, b) => (a.ts || 0) - (b.ts || 0))
+  const pays = list.filter(h => h.type === 'pay')
+  let repayLeft = pays.reduce((s, h) => s + h.amount, 0)
+
+  const paidDebts: DebtHistoryEntry[] = []
+  const unpaidDebts: DebtHistoryEntry[] = []
+
+  for (const d of debts) {
+    const amt = Math.abs(d.amount)
+    if (repayLeft >= amt - 0.001) {
+      paidDebts.push(d)
+      repayLeft -= amt
+    } else {
+      unpaidDebts.push(d)
+    }
+  }
+
+  const sortDesc = (a: DebtHistoryEntry, b: DebtHistoryEntry) => (b.ts || 0) - (a.ts || 0)
+  return {
+    unpaid: unpaidDebts.sort(sortDesc),
+    paid: [...paidDebts, ...(includePayments ? pays : [])].sort(sortDesc),
+  }
+}
+
 export function getVipCreditState(user?: Partial<StoreUser> | null): VipCreditState {
   const debt = Number(user?.debt) || 0
   const debtLimit = Number(user?.debtLimit) || 0
