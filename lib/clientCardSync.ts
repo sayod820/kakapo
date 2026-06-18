@@ -170,6 +170,25 @@ export function saveCardLoyalty(
   emitCrmSync()
 }
 
+/** Автоповышение уровня по доставленным заказам и тратам (только вверх, не ниже админского) */
+export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: string) {
+  const clientStore = useClientStore.getState()
+  const cardStore = useCardStore.getState()
+  const client = clientStore.clients.find(c => phonesMatch(c.phone, phone))
+  const num = cardNum?.trim().toUpperCase()
+  const card = num
+    ? cardStore.cards.find(c => c.num === num && c.status !== 'unlinked')
+    : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
+
+  if (card) {
+    cardStore.updateCardLoyalty(card.num, { level })
+  }
+  if (client) {
+    clientStore.updateClient(client.id, { level, ...(card ? { card: card.num } : {}) })
+  }
+  emitCrmSync()
+}
+
 /** Создать 1 новую карту и сразу привязать к клиенту */
 export async function createAndLinkCard(form: CardLoyaltyForm): Promise<AdminCard> {
   const cardStore = useCardStore.getState()

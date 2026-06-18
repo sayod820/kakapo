@@ -152,6 +152,45 @@ export function loyaltyStatsFromOrders(orders: Order[], phone: string): { orderC
   }
 }
 
+const TIER_ORDER: ClientLevel[] = ['bronze', 'silver', 'gold', 'platinum']
+
+function loyaltyTierIndex(level: ClientLevel): number {
+  if (level === 'basic') return -1
+  return TIER_ORDER.indexOf(level)
+}
+
+/** Уровень: авто (траты/заказы) + назначение из CRM (вручную заданный не понижаем) */
+export function resolveEffectiveClientLevel(
+  spent: number,
+  orderCount: number,
+  storedLevel?: ClientLevel | 'new',
+): ClientLevel {
+  const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+  const earned = suggestLevel(spent)
+  const earnedBronze = hasEarnedBronze(spent, orderCount)
+
+  let effectiveLevel: ClientLevel = 'basic'
+
+  if (normalizedStored && normalizedStored !== 'basic') {
+    effectiveLevel = normalizedStored
+    if (earnedBronze) {
+      const earnedIdx = loyaltyTierIndex(earned)
+      const storedIdx = loyaltyTierIndex(normalizedStored)
+      if (earnedIdx > storedIdx) effectiveLevel = earned
+    }
+  } else if (earnedBronze) {
+    effectiveLevel = earned
+  }
+
+  return effectiveLevel
+}
+
+export function shouldAutoUpgradeLevel(stored: ClientLevel | undefined, effective: ClientLevel): boolean {
+  if (effective === stored) return false
+  if (!stored || stored === 'basic') return effective !== 'basic'
+  return loyaltyTierIndex(effective) > loyaltyTierIndex(stored)
+}
+
 export function suggestLevel(spent: number): ClientLevel {
   const bronzeMin = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().bronzeMinSpent : BRONZE_MIN_SPENT
   const tiers = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().tiers : null
@@ -208,7 +247,7 @@ export function enrichClientWithOrders(client: AdminClient, orders: Order[]): Ad
   const hasLive = orders.some(o => phonesMatch(o.client?.phone || '', client.phone))
   const spent = hasLive ? live.spent : Math.max(client.spent, live.spent)
   const ordersCount = hasLive ? live.orders : Math.max(client.orders, live.orders)
-  const level = client.level || suggestLevel(spent)
+  const level = resolveEffectiveClientLevel(spent, ordersCount, client.level || 'basic')
   const lastLabel = formatLastActivity(live.lastOrderAt || client.lastOrderAt)
   return {
     ...client,

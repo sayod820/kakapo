@@ -15,6 +15,7 @@ import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
+import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
 import { loadStoreUser, saveStoreUser, getActiveClientPhone, formatTjPhone } from "@/lib/clientSession";
 import { fetchCrmStoreUser, crmStoreUsersEqual } from "@/lib/clientProfileSync";
 import {
@@ -7925,9 +7926,12 @@ function KakapoAppInner() {
     saveAccountJson(ACCOUNT_NS.wished, wished, user.phone);
   }, [wished, user?.phone]);
 
+  const apiOrders = useOrders(s => s.orders);
+
   useClientReviewNotifSync(user);
   useClientNotificationSync(user);
   useStoreProfileSync(user, setUser);
+  useAutoLoyaltySync(user, setUser, apiOrders);
 
   useEffect(() => {
     hydrateCourierStores();

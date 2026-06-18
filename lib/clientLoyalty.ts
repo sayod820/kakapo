@@ -1,4 +1,4 @@
-import { suggestLevel, hasEarnedBronze, type ClientLevel } from './clientCrm'
+import { suggestLevel, hasEarnedBronze, resolveEffectiveClientLevel, type ClientLevel } from './clientCrm'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 
 export type LoyaltyTier = {
@@ -79,23 +79,7 @@ export function getLoyaltyProgress(
   refreshLoyaltyTiersFromConfig()
   const cfg = loadLoyaltyStatusConfig()
   const vipRules = cfg.vipRules
-  const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
-  const earned = suggestLevel(spent)
-  const earnedBronze = hasEarnedBronze(spent, orderCount)
-
-  let effectiveLevel: ClientLevel = 'basic'
-
-  if (normalizedStored && normalizedStored !== 'basic') {
-    // Уровень из CRM/админки — назначенный статус (не сбрасываем до «Обычный»)
-    effectiveLevel = normalizedStored
-    if (earnedBronze) {
-      const earnedIdx = tierIndex(earned)
-      const storedIdx = tierIndex(normalizedStored)
-      if (earnedIdx > storedIdx) effectiveLevel = earned
-    }
-  } else if (earnedBronze) {
-    effectiveLevel = earned
-  }
+  const effectiveLevel = resolveEffectiveClientLevel(spent, orderCount, storedLevel)
 
   const isBasicClient = effectiveLevel === 'basic' && !adminVip
 
@@ -110,6 +94,7 @@ export function getLoyaltyProgress(
   let progressPct = 100
   let remaining = 0
   if (isBasicClient && nextTier) {
+    const earnedBronze = hasEarnedBronze(spent, orderCount)
     progressPct = earnedBronze ? 100 : (orderCount > 0 ? 50 : 0)
     remaining = earnedBronze ? 0 : Math.max(0, cfg.bronzeMinSpent - spent)
   } else if (nextTier) {
