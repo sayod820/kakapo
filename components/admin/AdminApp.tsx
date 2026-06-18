@@ -327,7 +327,7 @@ function Layout({page,setPage,children,title,subtitle}) {
   );
   const newOrders = orders.filter(o => o.status === 'new').length;
   const debtClients = useMemo(
-    () => mergeCardsWithClients(storedCards, clients).filter(c => c.status === 'active' && c.debt > 0).length,
+    () => mergeCardsWithClients(storedCards, clients).filter(c => c.status === 'active' && c.vip && c.debt > 0).length,
     [storedCards, clients],
   );
   return (
@@ -3528,9 +3528,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                   <NI lbl="Лимит долга ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 </div>
-                <div style={{ marginTop: 10 }}>
-                  <DebtReadOnly debt={0} />
-                </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
@@ -3538,6 +3535,11 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   </div>
                   <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
                 </div>
+                {linkForm.vip && (
+                  <div style={{ marginTop: 10 }}>
+                    <DebtReadOnly debt={0} />
+                  </div>
+                )}
               </CardFormSection>
 
               {linkErr && (
@@ -3594,12 +3596,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                   <NI lbl="Лимит ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 </div>
-                <div style={{ marginTop: 10 }}>
-                  <DebtReadOnly
-                    debt={Math.max(0, Number(linkForm.debt) || 0)}
-                    onManage={showLink.status !== 'unlinked' ? () => { setShowLink(null); setPage('debts'); } : undefined}
-                  />
-                </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
@@ -3607,6 +3603,14 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   </div>
                   <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
                 </div>
+                {linkForm.vip && (
+                  <div style={{ marginTop: 10 }}>
+                    <DebtReadOnly
+                      debt={Math.max(0, Number(linkForm.debt) || 0)}
+                      onManage={showLink.status !== 'unlinked' ? () => { setShowLink(null); setPage('debts'); } : undefined}
+                    />
+                  </div>
+                )}
               </CardFormSection>
 
               {linkErr && (
@@ -3679,7 +3683,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
   const cards = useMemo(() => mergeCardsWithClients(stored, clients), [stored, clients]);
 
   const creditCards = useMemo(
-    () => cards.filter(c => c.status === 'active' && (c.debt > 0 || c.debtLimit > 0)),
+    () => cards.filter(c => c.status === 'active' && c.vip),
     [cards],
   );
 
