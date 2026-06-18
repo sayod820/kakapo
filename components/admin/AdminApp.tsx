@@ -2486,6 +2486,7 @@ function ClientsPage() {
   const [form, setForm] = useState<ClientProfileForm>(emptyClientProfileForm());
   const [formErr, setFormErr] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<AdminClient | null>(null);
 
   const clients = useMemo(() => mergeClientsWithOrders(stored, apiOrders), [stored, apiOrders]);
 
@@ -2552,15 +2553,15 @@ function ClientsPage() {
   };
 
   const handleDeleteClient = async (c: AdminClient) => {
-    if (!window.confirm(`Удалить клиента «${c.name}» (${c.phone})?\n\nКарта будет отвязана. Это действие нельзя отменить.`)) return;
     setDeletingId(c.id);
     try {
       await deleteClientFromCrm(c.id, c.phone);
+      setDeleteConfirm(null);
       if (detailId === c.id) setDetailId(null);
       if (editId === c.id) closeModal();
     } catch (e) {
       console.error(e);
-      window.alert('Не удалось удалить клиента. Проверьте связь с сервером.');
+      window.alert(e instanceof Error ? e.message : 'Не удалось удалить клиента');
     } finally {
       setDeletingId(null);
     }
@@ -2764,7 +2765,8 @@ function ClientsPage() {
                       <button onClick={() => setDetailId(c.id)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>👁</button>
                       <button onClick={() => openEdit(c)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>✏️</button>
                       <button
-                        onClick={() => handleDeleteClient(c)}
+                        type="button"
+                        onClick={() => setDeleteConfirm(c)}
                         disabled={deletingId === c.id}
                         className="ab abd"
                         style={{ padding: '4px 9px', fontSize: 11, opacity: deletingId === c.id ? 0.6 : 1 }}
@@ -2839,6 +2841,41 @@ function ClientsPage() {
         </div>
       )}
 
+      {deleteConfirm && (
+        <div className="amod">
+          <div className="amodbg" onClick={() => !deletingId && setDeleteConfirm(null)} />
+          <div className="amodbox" style={{ maxWidth: 420 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#FF4545', marginBottom: 10 }}>
+              Удалить клиента?
+            </div>
+            <div style={{ fontSize: 13, color: '#8FB897', lineHeight: 1.55, marginBottom: 16 }}>
+              <strong style={{ color: '#EBF5ED' }}>{deleteConfirm.name}</strong> ({deleteConfirm.phone}) будет удалён из базы.
+              Карта отвяжется. Это нельзя отменить.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                disabled={!!deletingId}
+                onClick={() => handleDeleteClient(deleteConfirm)}
+                className="ab abd"
+                style={{ flex: 1, opacity: deletingId ? 0.7 : 1 }}
+              >
+                {deletingId ? 'Удаление…' : 'Да, удалить'}
+              </button>
+              <button
+                type="button"
+                disabled={!!deletingId}
+                onClick={() => setDeleteConfirm(null)}
+                className="ab"
+                style={{ flex: 1, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {detailClient && (
         <div className="amod">
           <div className="amodbg" onClick={() => setDetailId(null)} />
@@ -2886,7 +2923,8 @@ function ClientsPage() {
               <button onClick={() => { setDetailId(null); openEdit(detailClient); }} className="ab abg" style={{ flex: 1, minWidth: 120 }}>✏️ Редактировать</button>
               <a href={`tel:${detailClient.phone.replace(/\s/g, '')}`} className="ab abp" style={{ flex: 1, minWidth: 120, textDecoration: 'none', textAlign: 'center' }}>📱 Позвонить</a>
               <button
-                onClick={() => handleDeleteClient(detailClient)}
+                type="button"
+                onClick={() => setDeleteConfirm(detailClient)}
                 disabled={deletingId === detailClient.id}
                 className="ab abd"
                 style={{ flex: 1, minWidth: 120, opacity: deletingId === detailClient.id ? 0.6 : 1 }}

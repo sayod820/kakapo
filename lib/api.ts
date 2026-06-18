@@ -57,6 +57,27 @@ async function parseErrorResponse(res: Response): Promise<string> {
 }
 
 const RETRY_STATUS = new Set([500, 502, 503, 504])
+const REQUEST_TIMEOUT_MS = 15000
+
+function withTimeout<T>(promise: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Сервер не отвечает. Попробуйте ещё раз.')), ms)
+    promise.then(
+      v => { clearTimeout(timer); resolve(v) },
+      e => { clearTimeout(timer); reject(e) },
+    )
+  })
+}
+
+async function parseSuccessBody<T>(res: Response): Promise<T> {
+  const text = await res.text()
+  if (!text.trim()) return {} as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    return {} as T
+  }
+}
 
 async function request<T>(path: string, options: RequestInit = {}, attempt = 0): Promise<T> {
   const headers: Record<string, string> = {
@@ -68,8 +89,9 @@ async function request<T>(path: string, options: RequestInit = {}, attempt = 0):
 
   let res: Response
   try {
-    res = await fetch(`${getApiUrl()}${path}`, { ...options, headers })
-  } catch {
+    res = await withTimeout(fetch(`${getApiUrl()}${path}`, { ...options, headers }))
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('Сервер не отвечает')) throw e
     throw new Error('Нет связи с сервером. Проверьте интернет.')
   }
 
@@ -81,7 +103,7 @@ async function request<T>(path: string, options: RequestInit = {}, attempt = 0):
     }
     throw new Error(message || `Ошибка ${res.status}`)
   }
-  return res.json()
+  return parseSuccessBody<T>(res)
 }
 
 async function createOrderViaAppRoute(data: unknown): Promise<Order> {
@@ -210,7 +232,11 @@ export const api = {
   updateClient: (id: string, data: Partial<AdminClient>) =>
     request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteClient: (id: string) =>
-    request<{ ok: boolean }>(`/clients/${id}`, { method: 'DELETE' }),
+    request<{ ok: boolean }>(`/clients/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteClientByPhone: (phone: string) => {
+    const digits = (phone || '').replace(/\D/g, '').slice(-9)
+    return request<{ ok: boolean }>(`/clients/by-phone/${encodeURIComponent(digits)}`, { method: 'DELETE' })
+  },
 
   // ── Точки забора ──
   getPickups: () => request<PickupPoint[]>('/pickups'),

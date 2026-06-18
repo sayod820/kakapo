@@ -2,25 +2,18 @@
 
 import { api } from './api'
 import { USE_API } from './config'
-import { useCardStore, hydrateCardStore, syncCardsFromApi } from './cardStore'
-import { useClientStore, hydrateClientStore, syncClientsFromApi } from './clientStore'
-import { phonesMatch, type AdminClient } from './clientCrm'
-import { type AdminCard } from './cardCrm'
+import { useCardStore, hydrateCardStore } from './cardStore'
+import { useClientStore, hydrateClientStore } from './clientStore'
+import { normalizePhone, phonesMatch, type AdminClient } from './clientCrm'
+import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { saveStoreUser, type StoreUser } from './clientSession'
 import { ACCOUNT_NS, removeAccountJson } from './clientAccountStorage'
 
-async function ensureCrmLoaded(): Promise<{ clients: AdminClient[]; cards: AdminCard[] }> {
-  hydrateClientStore()
-  hydrateCardStore()
-
-  if (USE_API) {
-    await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
-  }
-
-  const { clients } = useClientStore.getState()
-  const { cards } = useCardStore.getState()
-  return { clients, cards }
+function findClient(clientId: string, phone?: string): AdminClient | undefined {
+  const clients = useClientStore.getState().clients
+  return clients.find(c => c.id === clientId)
+    || (phone ? clients.find(c => phonesMatch(c.phone, phone)) : undefined)
 }
 
 function cardsForClient(
@@ -37,72 +30,108 @@ function cardsForClient(
   })
 }
 
-async function unlinkCardAwait(num: string) {
-  useCardStore.getState().unlinkCard(num)
-  if (USE_API) await api.updateCard(num, { unlink: true })
+function unlinkCardsLocal(linked: AdminCard[]) {
+  if (!linked.length) return
+  const nums = new Set(linked.map(c => c.num))
+  const cardStore = useCardStore.getState()
+  cardStore.setCards(cardStore.cards.map(c => {
+    if (!nums.has(c.num)) return c
+    return normalizeCard({
+      num: c.num,
+      client: '',
+      phone: '',
+      status: 'unlinked',
+      level: '',
+      bonus: 0,
+      debt: 0,
+      debtLimit: 0,
+      vip: false,
+      debtEnabled: false,
+    })
+  }))
+}
+
+function removeClientLocal(clientId: string) {
+  const clientStore = useClientStore.getState()
+  clientStore.setClients(clientStore.clients.filter(c => c.id !== clientId))
+}
+
+function isNotFoundError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e || '')
+  return /не найден|404|not found/i.test(msg)
+}
+
+async function remoteDeleteClient(clientId: string, phone: string): Promise<void> {
+  if (!USE_API) return
+  try {
+    await api.deleteClient(clientId)
+    return
+  } catch (e) {
+    if (!phone || !isNotFoundError(e)) throw e
+  }
+  await api.deleteClientByPhone(phone)
 }
 
 /** Удалить клиента из CRM и отвязать его карты (админка и внутренние вызовы) */
 export async function deleteClientFromCrm(clientId: string, phone?: string): Promise<void> {
-  const { clients, cards } = await ensureCrmLoaded()
+  hydrateClientStore()
+  hydrateCardStore()
 
-  const client = clients.find(c => c.id === clientId)
-    || (phone ? clients.find(c => phonesMatch(c.phone, phone)) : undefined)
-
-  const targetPhone = phone || client?.phone || ''
-  const linkedCards = cardsForClient(client, targetPhone, cards)
-
-  for (const card of linkedCards) {
-    await unlinkCardAwait(card.num)
-  }
-
+  const client = findClient(clientId, phone)
   const idToDelete = client?.id || clientId
-  if (!idToDelete) throw new Error('Клиент не найден')
+  const targetPhone = phone || client?.phone || ''
+  if (!idToDelete && !targetPhone) throw new Error('Клиент не найден')
+
+  const linkedCards = cardsForClient(client, targetPhone, useCardStore.getState().cards)
+
+  // Сразу обновляем UI — не ждём сеть
+  unlinkCardsLocal(linkedCards)
+  if (idToDelete) removeClientLocal(idToDelete)
 
   if (USE_API) {
-    await api.deleteClient(idToDelete)
+    if (idToDelete) {
+      await remoteDeleteClient(idToDelete, targetPhone)
+    } else if (targetPhone) {
+      await api.deleteClientByPhone(targetPhone)
+    }
   }
 
-  const freshClients = useClientStore.getState().clients.filter(c => c.id !== idToDelete)
-  useClientStore.getState().setClients(freshClients)
   emitCrmSync()
-}
-
-async function resolveClientId(user: StoreUser): Promise<{ clientId?: string; phone: string }> {
-  const phone = user.phone?.trim()
-  if (!phone) throw new Error('Нет данных аккаунта')
-
-  if (user.clientId) return { clientId: user.clientId, phone }
-
-  if (USE_API) {
-    const remote = await api.getClients()
-    const found = remote.find(c => phonesMatch(c.phone, phone))
-    if (found) return { clientId: found.id, phone }
-  }
-
-  const { clients } = await ensureCrmLoaded()
-  const found = clients.find(c => phonesMatch(c.phone, phone))
-  return { clientId: found?.id, phone }
 }
 
 /** Удалить аккаунт из профиля магазина */
 export async function deleteClientAccount(user: StoreUser): Promise<void> {
-  const { clientId, phone } = await resolveClientId(user)
+  const phone = user.phone?.trim()
+  if (!phone) throw new Error('Нет данных аккаунта')
 
-  if (clientId) {
-    await deleteClientFromCrm(clientId, phone)
-  } else if (USE_API) {
-    throw new Error('Клиент не найден в базе')
-  } else {
-    const { clients, cards } = await ensureCrmLoaded()
-    const client = clients.find(c => phonesMatch(c.phone, phone))
-    if (client) await deleteClientFromCrm(client.id, phone)
+  hydrateClientStore()
+
+  let clientId = user.clientId
+  const local = findClient(clientId || '', phone)
+  if (local) clientId = local.id
+
+  if (!clientId && USE_API) {
+    try {
+      const remote = await api.getClients()
+      const found = remote.find(c => phonesMatch(c.phone, phone))
+      if (found) clientId = found.id
+    } catch { /* удалим локально и по телефону */ }
+  }
+
+  let apiError: Error | null = null
+  try {
+    if (clientId || normalizePhone(phone)) {
+      await deleteClientFromCrm(clientId || '', phone)
+    }
+  } catch (e) {
+    apiError = e instanceof Error ? e : new Error('Не удалось удалить аккаунт')
   }
 
   for (const ns of Object.values(ACCOUNT_NS)) {
     removeAccountJson(ns, phone)
   }
-
   saveStoreUser(null)
   emitCrmSync()
+
+  if (apiError) throw apiError
 }

@@ -531,12 +531,10 @@ app.patch('/clients/:id', (req, res) => {
   persist()
   res.json(c)
 })
-app.delete('/clients/:id', (req, res) => {
-  if (!db.clients) db.clients = []
-  const idx = db.clients.findIndex(x => x.id === req.params.id)
-  if (idx < 0) return res.status(404).json({ detail: 'Клиент не найден' })
-  const client = db.clients[idx]
-  db.clients.splice(idx, 1)
+
+function removeClientAndUnlinkCards(client) {
+  const idx = (db.clients || []).findIndex(x => x.id === client.id)
+  if (idx >= 0) db.clients.splice(idx, 1)
   for (const card of db.cards || []) {
     const sameClient = card.clientId === client.id
     const samePhone = card.phone && client.phone
@@ -556,6 +554,22 @@ app.delete('/clients/:id', (req, res) => {
     }))
   }
   persist()
+}
+
+app.delete('/clients/by-phone/:phone', (req, res) => {
+  if (!db.clients) db.clients = []
+  const digits = normalizePhoneDigits(decodeURIComponent(req.params.phone))
+  const client = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  removeClientAndUnlinkCards(client)
+  res.json({ ok: true })
+})
+
+app.delete('/clients/:id', (req, res) => {
+  if (!db.clients) db.clients = []
+  const client = db.clients.find(x => x.id === req.params.id)
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  removeClientAndUnlinkCards(client)
   res.json({ ok: true })
 })
 

@@ -2417,7 +2417,11 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
                       showToast?.("Аккаунт удалён");
                     } catch (e) {
                       console.error(e);
-                      showToast?.("Не удалось удалить аккаунт");
+                      setConfirmDelete(false);
+                      setUser?.(null);
+                      onLogout?.();
+                      const msg = e instanceof Error ? e.message : '';
+                      showToast?.(msg.includes('Сервер') ? msg : 'Аккаунт удалён локально');
                     } finally {
                       setDeleting(false);
                     }
