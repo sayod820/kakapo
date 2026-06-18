@@ -481,7 +481,7 @@ app.patch('/assemblers/:id', (req, res) => {
 })
 
 function normalizeClientRow(raw) {
-  const level = ['bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : 'bronze'
+  const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : 'bronze'
   return {
     id: raw.id,
     name: raw.name || '',
@@ -500,6 +500,9 @@ function normalizeClientRow(raw) {
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
+    loyaltyPeriod: raw.loyaltyPeriod,
+    accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
+    deletedAt: raw.deletedAt || undefined,
   }
 }
 
@@ -537,14 +540,14 @@ app.patch('/clients/:id', (req, res) => {
   res.json(c)
 })
 
-function removeClientAndUnlinkCards(client) {
-  const idx = (db.clients || []).findIndex(x => x.id === client.id)
-  if (idx >= 0) db.clients.splice(idx, 1)
+function unlinkCardsForClient(client) {
   for (const card of db.cards || []) {
+    if (card.status === 'unlinked') continue
     const sameClient = card.clientId === client.id
     const samePhone = card.phone && client.phone
       && normalizePhoneDigits(card.phone) === normalizePhoneDigits(client.phone)
-    if (!sameClient && !samePhone) continue
+    const sameCardNum = client.card && card.num === client.card
+    if (!sameClient && !samePhone && !sameCardNum) continue
     Object.assign(card, normalizeCardRow({
       num: card.num,
       client: '',
@@ -558,8 +561,54 @@ function removeClientAndUnlinkCards(client) {
       vip: false,
     }))
   }
+}
+
+function moveClientToRecoveryRecord(client) {
+  unlinkCardsForClient(client)
+  client.card = ''
+  client.accountStatus = 'recovery'
+  client.deletedAt = new Date().toISOString().slice(0, 10)
   persist()
 }
+
+function restoreClientRecord(client) {
+  client.accountStatus = 'active'
+  client.deletedAt = undefined
+  client.blocked = false
+  persist()
+}
+
+function removeClientAndUnlinkCards(client) {
+  const idx = (db.clients || []).findIndex(x => x.id === client.id)
+  if (idx >= 0) db.clients.splice(idx, 1)
+  unlinkCardsForClient(client)
+  persist()
+}
+
+app.post('/clients/:id/recovery', (req, res) => {
+  if (!db.clients) db.clients = []
+  const client = db.clients.find(x => x.id === req.params.id)
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  moveClientToRecoveryRecord(client)
+  res.json(client)
+})
+
+app.post('/clients/:id/restore', (req, res) => {
+  if (!db.clients) db.clients = []
+  const client = db.clients.find(x => x.id === req.params.id)
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  restoreClientRecord(client)
+  res.json(client)
+})
+
+app.post('/clients/recovery-by-phone', (req, res) => {
+  if (!db.clients) db.clients = []
+  const digits = normalizePhoneDigits(req.body?.phone || '')
+  const client = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  moveClientToRecoveryRecord(client)
+  res.json(client)
+})
 
 app.post('/clients/delete-by-phone', (req, res) => {
   if (!db.clients) db.clients = []

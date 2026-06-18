@@ -71,6 +71,7 @@ import {
   cardLoyaltyFromCard,
 } from '@/lib/clientCardSync'
 import { deleteClientFromCrm } from '@/lib/clientAccountDelete'
+import { isClientInRecovery, moveClientToRecovery, restoreClientFromRecovery } from '@/lib/clientRecovery'
 import { loadDebtHistory, subscribeDebtHistory, type DebtHistoryEntry } from '@/lib/clientVipCredit'
 import { loyaltyTierOptions, loadLoyaltyStatusConfig } from '@/lib/loyaltyStatusConfig'
 import CardStatusAdminPanel from '@/components/admin/CardStatusAdminPanel'
@@ -2480,6 +2481,7 @@ function ClientsPage() {
   const [filterCard, setFilterCard] = useState<'all' | 'with' | 'without'>('all');
   const [filterBlocked, setFilterBlocked] = useState<'all' | 'active' | 'blocked'>('all');
   const [filterSegment, setFilterSegment] = useState<'all' | 'market' | 'restaurant' | 'mixed'>('all');
+  const [filterAccount, setFilterAccount] = useState<'active' | 'recovery'>('active');
   const [editId, setEditId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -2487,6 +2489,8 @@ function ClientsPage() {
   const [formErr, setFormErr] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<AdminClient | null>(null);
+  const [recoveryConfirm, setRecoveryConfirm] = useState<AdminClient | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
 
   const clients = useMemo(() => mergeClientsWithOrders(stored, apiOrders), [stored, apiOrders]);
 
@@ -2495,6 +2499,8 @@ function ClientsPage() {
     const qCompact = q.replace(/\s/g, '');
     const qDigits = q.replace(/\D/g, '');
     return clients.filter(c => {
+      if (filterAccount === 'active' && isClientInRecovery(c)) return false;
+      if (filterAccount === 'recovery' && !isClientInRecovery(c)) return false;
       if (filterLevel !== 'all' && c.level !== filterLevel) return false;
       if (filterDebt === 'with' && c.debt <= 0) return false;
       if (filterDebt === 'without' && c.debt > 0) return false;
@@ -2510,13 +2516,14 @@ function ClientsPage() {
       }
       return true;
     });
-  }, [clients, search, filterLevel, filterDebt, filterCard, filterBlocked, filterSegment]);
+  }, [clients, search, filterLevel, filterDebt, filterCard, filterBlocked, filterSegment, filterAccount]);
 
   const stats = useMemo(() => ({
-    total: clients.length,
-    withCard: clients.filter(c => !!c.card).length,
-    withDebt: clients.filter(c => c.debt > 0).length,
-    newMonth: clients.filter(c => isNewThisMonth(c.createdAt)).length,
+    total: clients.filter(c => !isClientInRecovery(c)).length,
+    recovery: clients.filter(c => isClientInRecovery(c)).length,
+    withCard: clients.filter(c => !!c.card && !isClientInRecovery(c)).length,
+    withDebt: clients.filter(c => c.debt > 0 && !isClientInRecovery(c)).length,
+    newMonth: clients.filter(c => isNewThisMonth(c.createdAt) && !isClientInRecovery(c)).length,
   }), [clients]);
 
   const detailClient = detailId ? clients.find(c => c.id === detailId) : null;
@@ -2569,6 +2576,34 @@ function ClientsPage() {
     }
   };
 
+  const handleMoveToRecovery = async (c: AdminClient) => {
+    setActionId(c.id);
+    try {
+      await moveClientToRecovery(c.id, c.phone);
+      setRecoveryConfirm(null);
+      if (detailId === c.id) setDetailId(null);
+      if (editId === c.id) closeModal();
+    } catch (e) {
+      console.error(e);
+      window.alert(e instanceof Error ? e.message : 'Не удалось переместить в восстановление');
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleRestoreClient = async (c: AdminClient) => {
+    setActionId(c.id);
+    try {
+      await restoreClientFromRecovery(c.id);
+      if (detailId === c.id) setDetailId(null);
+    } catch (e) {
+      console.error(e);
+      window.alert(e instanceof Error ? e.message : 'Не удалось восстановить клиента');
+    } finally {
+      setActionId(null);
+    }
+  };
+
   const setF = <K extends keyof ClientProfileForm>(key: K, val: ClientProfileForm[K]) =>
     setForm(prev => ({ ...prev, [key]: val }));
 
@@ -2598,8 +2633,9 @@ function ClientsPage() {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
-        <StatCard l="Всего клиентов" v={stats.total.toLocaleString()} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 18 }}>
+        <StatCard l="Активных" v={stats.total.toLocaleString()} />
+        <StatCard l="Восстановление" v={stats.recovery} c="#FF8C00" />
         <StatCard l="С картами" v={stats.withCard} c="#FFB800" />
         <StatCard l="VIP (долг)" v={stats.withDebt} c="#FF4545" />
         <StatCard l="Новых за месяц" v={stats.newMonth} c="#1FD760" />
@@ -2633,6 +2669,23 @@ function ClientsPage() {
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+        {[
+          { id: 'active', l: '✓ Активные' },
+          { id: 'recovery', l: '♻️ Восстановление' },
+        ].map(f => (
+          <button
+            key={f.id}
+            onClick={() => setFilterAccount(f.id as typeof filterAccount)}
+            className="ab"
+            style={{
+              padding: '5px 12px',
+              fontSize: 11,
+              background: filterAccount === f.id ? (f.id === 'recovery' ? 'rgba(255,140,0,.15)' : 'rgba(31,215,96,.15)') : '#0C1C0F',
+              color: filterAccount === f.id ? (f.id === 'recovery' ? '#FF8C00' : '#1FD760') : '#8FB897',
+              border: `1px solid ${filterAccount === f.id ? (f.id === 'recovery' ? 'rgba(255,140,0,.35)' : 'rgba(31,215,96,.35)') : '#162B1A'}`,
+            }}
+          >{f.l}</button>
+        ))}
         {[{ id: 'all', l: 'Все типы' }, { id: 'market', l: '🛒 Магазин' }, { id: 'restaurant', l: '🍽 Рестораны' }, { id: 'mixed', l: '🔀 Смешанные' }].map(f => (
           <button
             key={f.id}
@@ -2743,12 +2796,16 @@ function ClientsPage() {
             ) : filtered.map(c => {
               const seg = clientSegment(c);
               return (
-                <tr key={c.id} style={c.blocked ? { opacity: .65 } : undefined}>
+                <tr key={c.id} style={(c.blocked || isClientInRecovery(c)) ? { opacity: .75 } : undefined}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: c.blocked ? 'linear-gradient(135deg,#662222,#FF4545)' : 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 12, fontWeight: 900, color: '#030B05', flexShrink: 0 }}>{c.name.charAt(0)}</div>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: isClientInRecovery(c) ? 'linear-gradient(135deg,#664400,#FF8C00)' : c.blocked ? 'linear-gradient(135deg,#662222,#FF4545)' : 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 12, fontWeight: 900, color: '#030B05', flexShrink: 0 }}>{c.name.charAt(0)}</div>
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}{c.blocked && <span style={{ marginLeft: 6, fontSize: 10, color: '#FF4545' }}>🚫</span>}</div>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>
+                          {c.name}
+                          {isClientInRecovery(c) && <span style={{ marginLeft: 6, fontSize: 10, color: '#FF8C00' }}>♻️</span>}
+                          {c.blocked && !isClientInRecovery(c) && <span style={{ marginLeft: 6, fontSize: 10, color: '#FF4545' }}>🚫</span>}
+                        </div>
                         <div style={{ fontSize: 11, color: '#8FB897' }}>{c.phone}</div>
                       </div>
                     </div>
@@ -2766,19 +2823,56 @@ function ClientsPage() {
                       <a href={`tel:${c.phone.replace(/\s/g, '')}`} className="ab abg" style={{ padding: '4px 9px', fontSize: 11, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>📱</a>
                       <button onClick={() => setDetailId(c.id)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>👁</button>
                       <button onClick={() => openEdit(c)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>✏️</button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteConfirm(c)}
-                        disabled={deletingId === c.id}
-                        className="ab abd"
-                        style={{ padding: '4px 9px', fontSize: 11, opacity: deletingId === c.id ? 0.6 : 1 }}
-                        title="Удалить клиента"
-                      >
-                        {deletingId === c.id ? '…' : '🗑'}
-                      </button>
-                      <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
-                        {c.blocked ? 'Разблок' : 'Блок'}
-                      </button>
+                      {isClientInRecovery(c) ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreClient(c)}
+                            disabled={actionId === c.id}
+                            className="ab abg"
+                            style={{ padding: '4px 9px', fontSize: 11, opacity: actionId === c.id ? 0.6 : 1 }}
+                            title="Восстановить"
+                          >
+                            {actionId === c.id ? '…' : '♻️'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirm(c)}
+                            disabled={deletingId === c.id}
+                            className="ab abd"
+                            style={{ padding: '4px 9px', fontSize: 11, opacity: deletingId === c.id ? 0.6 : 1 }}
+                            title="Удалить навсегда"
+                          >
+                            {deletingId === c.id ? '…' : '🗑'}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setRecoveryConfirm(c)}
+                            disabled={actionId === c.id}
+                            className="ab"
+                            style={{ padding: '4px 9px', fontSize: 11, background: 'rgba(255,140,0,.12)', color: '#FF8C00', border: '1px solid rgba(255,140,0,.3)', opacity: actionId === c.id ? 0.6 : 1 }}
+                            title="В восстановление"
+                          >
+                            {actionId === c.id ? '…' : '♻️'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirm(c)}
+                            disabled={deletingId === c.id}
+                            className="ab abd"
+                            style={{ padding: '4px 9px', fontSize: 11, opacity: deletingId === c.id ? 0.6 : 1 }}
+                            title="Удалить навсегда"
+                          >
+                            {deletingId === c.id ? '…' : '🗑'}
+                          </button>
+                          <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
+                            {c.blocked ? 'Разблок' : 'Блок'}
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -2848,11 +2942,11 @@ function ClientsPage() {
           <div className="amodbg" onClick={() => !deletingId && setDeleteConfirm(null)} />
           <div className="amodbox" style={{ maxWidth: 420 }}>
             <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#FF4545', marginBottom: 10 }}>
-              Удалить клиента?
+              Удалить навсегда?
             </div>
             <div style={{ fontSize: 13, color: '#8FB897', lineHeight: 1.55, marginBottom: 16 }}>
-              <strong style={{ color: '#EBF5ED' }}>{deleteConfirm.name}</strong> ({deleteConfirm.phone}) будет удалён из базы.
-              Карта отвяжется. Это нельзя отменить.
+              <strong style={{ color: '#EBF5ED' }}>{deleteConfirm.name}</strong> ({deleteConfirm.phone}) будет полностью удалён из базы.
+              Карта отвяжется. Восстановить будет нельзя.
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button
@@ -2862,12 +2956,47 @@ function ClientsPage() {
                 className="ab abd"
                 style={{ flex: 1, opacity: deletingId ? 0.7 : 1 }}
               >
-                {deletingId ? 'Удаление…' : 'Да, удалить'}
+                {deletingId ? 'Удаление…' : 'Да, удалить навсегда'}
               </button>
               <button
                 type="button"
                 disabled={!!deletingId}
                 onClick={() => setDeleteConfirm(null)}
+                className="ab"
+                style={{ flex: 1, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {recoveryConfirm && (
+        <div className="amod">
+          <div className="amodbg" onClick={() => !actionId && setRecoveryConfirm(null)} />
+          <div className="amodbox" style={{ maxWidth: 420 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#FF8C00', marginBottom: 10 }}>
+              Переместить в восстановление?
+            </div>
+            <div style={{ fontSize: 13, color: '#8FB897', lineHeight: 1.55, marginBottom: 16 }}>
+              <strong style={{ color: '#EBF5ED' }}>{recoveryConfirm.name}</strong> ({recoveryConfirm.phone}) попадёт в раздел «Восстановление».
+              Карта отвяжется. Клиент сможет восстановить аккаунт при входе.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                disabled={!!actionId}
+                onClick={() => handleMoveToRecovery(recoveryConfirm)}
+                className="ab"
+                style={{ flex: 1, background: 'rgba(255,140,0,.2)', border: '1px solid rgba(255,140,0,.4)', color: '#FF8C00', opacity: actionId ? 0.7 : 1 }}
+              >
+                {actionId ? '…' : 'Да, переместить'}
+              </button>
+              <button
+                type="button"
+                disabled={!!actionId}
+                onClick={() => setRecoveryConfirm(null)}
                 className="ab"
                 style={{ flex: 1, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}
               >
@@ -2895,7 +3024,8 @@ function ClientsPage() {
                 { l: 'Карта', v: detailClient.card || '—' },
                 { l: 'Уровень', v: detailClient.level },
                 { l: 'Тип клиента', v: clientSegmentLabel(clientSegment(detailClient)) },
-                { l: 'Статус', v: detailClient.blocked ? '🚫 Заблокирован' : '✓ Активен' },
+                { l: 'Статус', v: isClientInRecovery(detailClient) ? '♻️ Восстановление' : detailClient.blocked ? '🚫 Заблокирован' : '✓ Активен' },
+                { l: 'Удалён', v: detailClient.deletedAt || '—' },
                 { l: 'Регистрация', v: detailClient.createdAt || '—' },
                 { l: 'Последний заказ', v: detailClient.lastLabel },
               ].map(row => (
@@ -2924,15 +3054,25 @@ function ClientsPage() {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={() => { setDetailId(null); openEdit(detailClient); }} className="ab abg" style={{ flex: 1, minWidth: 120 }}>✏️ Редактировать</button>
               <a href={`tel:${detailClient.phone.replace(/\s/g, '')}`} className="ab abp" style={{ flex: 1, minWidth: 120, textDecoration: 'none', textAlign: 'center' }}>📱 Позвонить</a>
-              <button
-                type="button"
-                onClick={() => setDeleteConfirm(detailClient)}
-                disabled={deletingId === detailClient.id}
-                className="ab abd"
-                style={{ flex: 1, minWidth: 120, opacity: deletingId === detailClient.id ? 0.6 : 1 }}
-              >
-                {deletingId === detailClient.id ? 'Удаление…' : '🗑 Удалить'}
-              </button>
+              {isClientInRecovery(detailClient) ? (
+                <>
+                  <button type="button" onClick={() => handleRestoreClient(detailClient)} disabled={actionId === detailClient.id} className="ab abg" style={{ flex: 1, minWidth: 120 }}>
+                    {actionId === detailClient.id ? '…' : '♻️ Восстановить'}
+                  </button>
+                  <button type="button" onClick={() => setDeleteConfirm(detailClient)} disabled={deletingId === detailClient.id} className="ab abd" style={{ flex: 1, minWidth: 120 }}>
+                    {deletingId === detailClient.id ? '…' : '🗑 Удалить навсегда'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setRecoveryConfirm(detailClient)} disabled={actionId === detailClient.id} className="ab" style={{ flex: 1, minWidth: 120, background: 'rgba(255,140,0,.12)', color: '#FF8C00', border: '1px solid rgba(255,140,0,.3)' }}>
+                    ♻️ В восстановление
+                  </button>
+                  <button type="button" onClick={() => setDeleteConfirm(detailClient)} disabled={deletingId === detailClient.id} className="ab abd" style={{ flex: 1, minWidth: 120 }}>
+                    {deletingId === detailClient.id ? '…' : '🗑 Удалить навсегда'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -8,7 +8,8 @@ import {
   storeUserFromClient,
   type StoreUser,
 } from '@/lib/clientSession'
-import { DEFAULT_ADMIN_CLIENTS, normalizePhone, phonesMatch } from '@/lib/clientCrm'
+import { DEFAULT_ADMIN_CLIENTS, normalizePhone, phonesMatch, type AdminClient } from '@/lib/clientCrm'
+import { isClientInRecovery, restoreClientFromRecovery } from '@/lib/clientRecovery'
 import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
 import { formatClientAddressLine, setRegistrationDefaultAddress } from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
@@ -50,7 +51,7 @@ function emptyRegAddress(): RegAddress {
   return { street: '', apt: '', floor: '', ent: '', coords: null, saved: false }
 }
 
-type Step = 'phone' | 'otp' | 'register'
+type Step = 'phone' | 'otp' | 'register' | 'restore'
 
 interface ClientLoginPageProps {
   go: (page: string) => void
@@ -86,6 +87,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const [load, setLoad] = useState(false)
   const [cd, setCd] = useState(0)
   const [focusedOtp, setFocusedOtp] = useState(-1)
+  const [recoveryClient, setRecoveryClient] = useState<AdminClient | null>(null)
   const refs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -148,6 +150,11 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
           setOtp(['', '', '', ''])
           return
         }
+        if (isClientInRecovery(match)) {
+          setRecoveryClient(match)
+          setStep('restore')
+          return
+        }
         finishLogin(storeUserFromClient(match))
         return
       }
@@ -161,6 +168,28 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   }
 
   const verify = () => verifyWithCode(otp.join(''))
+
+  const confirmRestore = async () => {
+    if (!recoveryClient || load) return
+    setLoad(true)
+    setErr('')
+    try {
+      await restoreClientFromRecovery(recoveryClient.id)
+      finishLogin(storeUserFromClient({ ...recoveryClient, accountStatus: 'active', deletedAt: undefined }))
+    } catch {
+      setErr('Не удалось восстановить аккаунт')
+    } finally {
+      setLoad(false)
+    }
+  }
+
+  const declineRestore = () => {
+    setRecoveryClient(null)
+    setStep('phone')
+    setPhone('')
+    setOtp(['', '', '', ''])
+    setErr('')
+  }
 
   const handleOtp = (i: number, v: string) => {
     const d = [...otp]
@@ -267,6 +296,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     { id: 'phone', label: 'Телефон' },
     { id: 'otp', label: 'Код SMS' },
     ...(step === 'register' ? [{ id: 'register' as Step, label: 'Профиль' }] : []),
+    ...(step === 'restore' ? [{ id: 'restore' as Step, label: 'Восстановление' }] : []),
   ]
 
   const stepIndex = (s: Step) => (s === 'phone' ? 0 : s === 'otp' ? 1 : 2)
@@ -542,6 +572,38 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                   </button>
                 )}
               </div>
+            </div>
+          )}
+
+          {step === 'restore' && recoveryClient && (
+            <div key="restore-step">
+              <div style={{ fontSize: 48, textAlign: 'center', marginBottom: 12 }}>♻️</div>
+              <div className="sl-ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, color: '#EBF5ED', textAlign: 'center' }}>
+                Восстановить аккаунт?
+              </div>
+              <div style={{ fontSize: 13, color: '#8FB897', marginBottom: 20, lineHeight: 1.55, textAlign: 'center' }}>
+                Аккаунт <strong style={{ color: '#EBF5ED' }}>{recoveryClient.name}</strong> ({formatTjPhone(phone)}) был удалён
+                {recoveryClient.deletedAt ? ` · ${recoveryClient.deletedAt}` : ''}.
+                <br />Восстановить профиль, бонусы и историю?
+              </div>
+              <button type="button" onClick={confirmRestore} disabled={load} className="sl-btn sl-ub"
+                style={{
+                  width: '100%', padding: 16, borderRadius: 16, marginBottom: 10,
+                  background: 'linear-gradient(135deg,#17B34E,#1FD760)',
+                  border: 'none', color: '#030B05', fontWeight: 800, fontSize: 14,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  boxShadow: '0 8px 28px rgba(31,215,96,.35)', opacity: load ? .75 : 1,
+                }}>
+                {load ? <Spinner /> : <>✓ Да, восстановить</>}
+              </button>
+              <button type="button" onClick={declineRestore} disabled={load} className="sl-btn"
+                style={{
+                  width: '100%', padding: 14, borderRadius: 16,
+                  background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#8FB897',
+                  fontWeight: 700, fontSize: 13,
+                }}>
+                Нет, оставить удалённым
+              </button>
             </div>
           )}
 

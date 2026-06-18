@@ -259,6 +259,17 @@ export const api = {
       body: JSON.stringify({ phone: digits }),
     })
   },
+  moveClientToRecovery: (id: string) =>
+    request<AdminClient>(`/clients/${encodeURIComponent(id)}/recovery`, { method: 'POST' }),
+  restoreClient: (id: string) =>
+    request<AdminClient>(`/clients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+  moveClientToRecoveryByPhone: (phone: string) => {
+    const digits = (phone || '').replace(/\D/g, '').slice(-9)
+    return request<AdminClient>('/clients/recovery-by-phone', {
+      method: 'POST',
+      body: JSON.stringify({ phone: digits }),
+    })
+  },
 
   // ── Точки забора ──
   getPickups: () => request<PickupPoint[]>('/pickups'),

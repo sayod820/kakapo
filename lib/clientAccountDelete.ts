@@ -7,6 +7,7 @@ import { useClientStore, hydrateClientStore } from './clientStore'
 import { normalizePhone, phonesMatch, type AdminClient } from './clientCrm'
 import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
+import { moveClientToRecovery } from './clientRecovery'
 import { type StoreUser } from './clientSession'
 import { ACCOUNT_NS, removeAccountJson } from './clientAccountStorage'
 
@@ -72,7 +73,7 @@ async function remoteDeleteClient(clientId: string, phone: string): Promise<void
   await api.deleteClientByPhone(phone)
 }
 
-/** Удалить клиента из CRM и отвязать его карты (админка и внутренние вызовы) */
+/** Полностью удалить клиента из CRM (только админ) */
 export async function deleteClientFromCrm(clientId: string, phone?: string): Promise<void> {
   hydrateClientStore()
   hydrateCardStore()
@@ -84,7 +85,6 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
 
   const linkedCards = cardsForClient(client, targetPhone, useCardStore.getState().cards)
 
-  // Сразу обновляем UI — не ждём сеть
   unlinkCardsLocal(linkedCards)
   if (idToDelete) removeClientLocal(idToDelete)
 
@@ -99,7 +99,7 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
   emitCrmSync()
 }
 
-/** Удалить аккаунт из профиля магазина */
+/** Самоудаление из профиля — клиент попадает в «Восстановление» */
 export async function deleteClientAccount(user: StoreUser): Promise<void> {
   const phone = user.phone?.trim()
   if (!phone) throw new Error('Нет данных аккаунта')
@@ -115,13 +115,13 @@ export async function deleteClientAccount(user: StoreUser): Promise<void> {
       const remote = await api.getClients()
       const found = remote.find(c => phonesMatch(c.phone, phone))
       if (found) clientId = found.id
-    } catch { /* удалим локально и по телефону */ }
+    } catch { /* локально */ }
   }
 
   let apiError: Error | null = null
   try {
     if (clientId || normalizePhone(phone)) {
-      await deleteClientFromCrm(clientId || '', phone)
+      await moveClientToRecovery(clientId || '', phone)
     }
   } catch (e) {
     apiError = e instanceof Error ? e : new Error('Не удалось удалить аккаунт')

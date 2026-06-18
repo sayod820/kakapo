@@ -6,6 +6,8 @@ import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } fr
 
 export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
+export type ClientAccountStatus = 'active' | 'recovery'
+
 export interface AdminClient {
   id: string
   name: string
@@ -27,6 +29,10 @@ export interface AdminClient {
   lastOrderAt?: string
   /** Месяц (YYYY-MM), за который действует текущий статус и VIP */
   loyaltyPeriod?: string
+  /** active — обычный клиент; recovery — удалил аккаунт / перенесён админом */
+  accountStatus?: ClientAccountStatus
+  /** Дата перевода в восстановление */
+  deletedAt?: string
 }
 
 export const CLIENT_LEVEL_COLORS: Record<ClientLevel, string> = {
@@ -152,6 +158,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
+    accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
+    deletedAt: raw.deletedAt || undefined,
   }
 }
 
