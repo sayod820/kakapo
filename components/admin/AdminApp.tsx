@@ -45,6 +45,7 @@ import {
   type AdminCard,
   type CardStatus,
   type CardLoyaltyForm,
+  cardHasDebtSection,
 } from '@/lib/cardCrm'
 import {
   emptyClientProfileForm,
@@ -327,7 +328,7 @@ function Layout({page,setPage,children,title,subtitle}) {
   );
   const newOrders = orders.filter(o => o.status === 'new').length;
   const debtClients = useMemo(
-    () => mergeCardsWithClients(storedCards, clients).filter(c => c.status === 'active' && c.debt > 0).length,
+    () => mergeCardsWithClients(storedCards, clients).filter(c => c.status === 'active' && cardHasDebtSection(c) && c.debt > 0).length,
     [storedCards, clients],
   );
   return (
@@ -3524,13 +3525,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 8, fontWeight: 700 }}>Уровень лояльности</div>
                   <CardLevelPicker value={linkForm.level} onChange={v => setLF('level', v)} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                  <NI lbl="Лимит долга ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                </div>
-                <div style={{ marginTop: 10 }}>
-                  <DebtReadOnly debt={0} />
-                </div>
+                <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
@@ -3538,6 +3533,23 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   </div>
                   <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
                 </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, padding: '12px 14px', borderRadius: 12, background: linkForm.debtEnabled ? 'rgba(255,140,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.debtEnabled ? 'rgba(255,140,0,.28)' : '#162B1A'}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.debtEnabled ? '#FF8C00' : '#EBF5ED' }}>📒 Раздел долга</div>
+                    <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>Можно включить без VIP · долг и лимит</div>
+                  </div>
+                  <Tog on={linkForm.debtEnabled} set={() => setLF('debtEnabled', !linkForm.debtEnabled)} />
+                </div>
+                {linkForm.debtEnabled && (
+                  <>
+                    <div style={{ marginTop: 10 }}>
+                      <NI lbl="Лимит долга ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <DebtReadOnly debt={0} />
+                    </div>
+                  </>
+                )}
               </CardFormSection>
 
               {linkErr && (
@@ -3590,16 +3602,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                 <div style={{ marginBottom: 12 }}>
                   <CardLevelPicker value={linkForm.level} onChange={v => setLF('level', v)} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                  <NI lbl="Лимит ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                </div>
-                <div style={{ marginTop: 10 }}>
-                  <DebtReadOnly
-                    debt={Math.max(0, Number(linkForm.debt) || 0)}
-                    onManage={showLink.status !== 'unlinked' ? () => { setShowLink(null); setPage('debts'); } : undefined}
-                  />
-                </div>
+                <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
@@ -3607,6 +3610,26 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   </div>
                   <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
                 </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, padding: '12px 14px', borderRadius: 12, background: linkForm.debtEnabled ? 'rgba(255,140,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.debtEnabled ? 'rgba(255,140,0,.28)' : '#162B1A'}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.debtEnabled ? '#FF8C00' : '#EBF5ED' }}>📒 Раздел долга</div>
+                    <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>Можно включить без VIP · долг и лимит</div>
+                  </div>
+                  <Tog on={linkForm.debtEnabled} set={() => setLF('debtEnabled', !linkForm.debtEnabled)} />
+                </div>
+                {linkForm.debtEnabled && (
+                  <>
+                    <div style={{ marginTop: 10 }}>
+                      <NI lbl="Лимит ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <DebtReadOnly
+                        debt={Math.max(0, Number(linkForm.debt) || 0)}
+                        onManage={showLink.status !== 'unlinked' ? () => { setShowLink(null); setPage('debts'); } : undefined}
+                      />
+                    </div>
+                  </>
+                )}
               </CardFormSection>
 
               {linkErr && (
@@ -3679,7 +3702,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
   const cards = useMemo(() => mergeCardsWithClients(stored, clients), [stored, clients]);
 
   const debtCards = useMemo(
-    () => cards.filter(c => c.status === 'active' && !!(c.phone || c.clientId || c.client)),
+    () => cards.filter(c => c.status === 'active' && cardHasDebtSection(c) && !!(c.phone || c.clientId || c.client)),
     [cards],
   );
 
@@ -3767,7 +3790,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
           { filter: 'with_debt' as const, l: 'С долгом', v: stats.withDebt, c: '#FF4545', e: '⚠️' },
           { filter: 'with_debt' as const, l: 'Всего долг', v: `${stats.totalDebt.toLocaleString()} ЅМ`, c: '#FF8C00', e: '💰' },
           { filter: 'over_limit' as const, l: 'Превышен лимит', v: stats.overLimit, c: '#FF4545', e: '🚫' },
-          { filter: 'all' as const, l: 'Все карты', v: stats.allCards, c: '#1FD760', e: '💳' },
+          { filter: 'all' as const, l: 'С разделом долга', v: stats.allCards, c: '#1FD760', e: '💳' },
         ].map((s, i) => (
           <button
             key={i}
@@ -3795,7 +3818,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
         fontSize: 12, color: '#8FB897', lineHeight: 1.55,
       }}>
         💬 Клиенты погашают долг через <strong style={{ color: '#EBF5ED' }}>поддержку</strong> (звонок / Telegram).
-        После подтверждения оплаты уменьшите долг здесь. VIP не обязателен — долг можно начислить любой активной карте.
+        После подтверждения оплаты уменьшите долг здесь. Карта попадает в список, если в настройках включён переключатель «Раздел долга».
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -3812,7 +3835,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
         {[
           { id: 'with_debt' as const, l: 'С долгом' },
           { id: 'over_limit' as const, l: '⚠ Превышен лимит' },
-          { id: 'all' as const, l: 'Все карты' },
+          { id: 'all' as const, l: 'С разделом долга' },
         ].map(f => (
           <button
             key={f.id}

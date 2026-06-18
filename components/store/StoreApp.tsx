@@ -3427,6 +3427,7 @@ const VIPPage = ({ go, user, setUser }) => {
   const { isVip, theme, tier } = resolveUserVip(vipUser)
   const creditUsed = user?.debt ?? 0;
   const creditLimit = user?.debtLimit ?? 0;
+  const debtSectionOn = !!user?.debtEnabled;
   const creditPct = creditLimit > 0 ? Math.min(100, Math.round((creditUsed / creditLimit) * 100)) : 0;
   const cardLabel = user?.card
     ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")
@@ -3513,11 +3514,13 @@ const VIPPage = ({ go, user, setUser }) => {
           </div>
         </div>
 
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
+        <div style={{ display:"grid", gridTemplateColumns: debtSectionOn ? "1fr 1fr 1fr" : "1fr", gap:10, marginBottom:16 }}>
           {[
             { l:"Бонусов",   v:(user?.bonus ?? 0).toLocaleString(), c:"var(--gd)" },
-            { l:"Долг",      v:`${creditUsed.toLocaleString()} ЅМ`, c: creditUsed > 0 ? "var(--red)" : "var(--gr)" },
-            { l:"Лимит",     v:`${creditLimit.toLocaleString()} ЅМ`, c:"var(--blue)" },
+            ...(debtSectionOn ? [
+              { l:"Долг",      v:`${creditUsed.toLocaleString()} ЅМ`, c: creditUsed > 0 ? "var(--red)" : "var(--gr)" },
+              { l:"Лимит",     v:`${creditLimit.toLocaleString()} ЅМ`, c:"var(--blue)" },
+            ] : []),
           ].map((s,i) => (
             <div key={i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 10px", textAlign:"center" }}>
               <div className="ub" style={{ fontSize:15, fontWeight:900, color:s.c, marginBottom:3 }}>{s.v}</div>
@@ -3526,6 +3529,7 @@ const VIPPage = ({ go, user, setUser }) => {
           ))}
         </div>
 
+        {debtSectionOn && (
         <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
             <div className="ub" style={{ fontSize:14, fontWeight:800 }}>💳 Кредитный лимит</div>
@@ -3547,8 +3551,9 @@ const VIPPage = ({ go, user, setUser }) => {
             <div style={{ fontSize:12, color:"var(--t3)", lineHeight:1.6 }}>Кредитный лимит назначается администратором в разделе «Карты».</div>
           )}
         </div>
+        )}
 
-        {(isVip || creditLimit > 0 || creditUsed > 0) && (
+        {debtSectionOn && (
           <VipDebtSection
             phone={user?.phone}
             cardNum={user?.card}

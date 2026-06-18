@@ -16,6 +16,7 @@ export type StoreUser = {
   debt?: number
   debtLimit?: number
   blocked?: boolean
+  debtEnabled?: boolean
 }
 
 const USER_KEY = 'kakapo_store_user'

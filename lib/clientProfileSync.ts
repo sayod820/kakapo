@@ -9,7 +9,7 @@ import {
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
-import { DEFAULT_ADMIN_CARDS, normalizeCard, type AdminCard } from './cardCrm'
+import { DEFAULT_ADMIN_CARDS, normalizeCard, cardHasDebtSection, type AdminCard } from './cardCrm'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const CARDS_KEY = 'kakapo-cards'
@@ -30,6 +30,7 @@ export type CrmStoreUser = {
   debt?: number
   debtLimit?: number
   blocked?: boolean
+  debtEnabled?: boolean
 }
 
 function loadLocalClients(): AdminClient[] {
@@ -140,6 +141,11 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     debt: card.debt ?? base.debt,
     debtLimit: card.debtLimit ?? base.debtLimit,
     vip: !!(card.vip || base.vip),
+    debtEnabled: cardHasDebtSection({
+      debtEnabled: card.debtEnabled ?? base.debtEnabled,
+      debt: card.debt ?? base.debt,
+      debtLimit: card.debtLimit ?? base.debtLimit,
+    }),
     blocked: card.status === 'blocked' || base.blocked,
   })
 }
@@ -157,6 +163,7 @@ export function crmToStoreUser(c: AdminClient): CrmStoreUser {
     card: c.card || '',
     debt: c.debt || 0,
     debtLimit: c.debtLimit || 0,
+    debtEnabled: !!c.debtEnabled,
     blocked: !!c.blocked,
   }
 }
@@ -177,6 +184,7 @@ function buildClientFromCard(card: AdminCard): AdminClient {
     debtLimit: card.debtLimit,
     blocked: card.status === 'blocked',
     vip: !!card.vip,
+    debtEnabled: !!card.debtEnabled,
   })
 }
 
@@ -225,7 +233,7 @@ export async function fetchCrmStoreUser(phone: string, cardNum?: string): Promis
 }
 
 const SYNC_KEYS: (keyof CrmStoreUser)[] = [
-  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'blocked', 'email', 'addr', 'clientId',
+  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId',
 ]
 
 export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmStoreUser | null | undefined): boolean {

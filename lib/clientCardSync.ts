@@ -9,7 +9,7 @@ import {
   emptyClientProfileForm,
   clientProfileFromClient,
 } from './clientCrm'
-import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard } from './cardCrm'
+import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardHasDebtSection } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 
 export type { ClientProfileForm, CardLoyaltyForm }
@@ -31,6 +31,11 @@ export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[])
     debt: card?.debt ?? client.debt,
     debtLimit: card?.debtLimit ?? client.debtLimit,
     vip: !!(card?.vip ?? client.vip),
+    debtEnabled: cardHasDebtSection({
+      debtEnabled: card?.debtEnabled ?? client.debtEnabled,
+      debt: card?.debt ?? client.debt,
+      debtLimit: card?.debtLimit ?? client.debtLimit,
+    }),
   }
 }
 
@@ -114,6 +119,7 @@ export function saveCardLoyalty(
     bonus: Math.max(0, Number(form.bonus) || 0),
     debt: Math.max(0, Number(form.debt) || 0),
     vip: !!form.vip,
+    debtEnabled: !!form.debtEnabled,
   }
 
   const prevDebt = Math.max(0, Number(card.debt) || 0)

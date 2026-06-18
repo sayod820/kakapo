@@ -16,6 +16,13 @@ export interface AdminCard {
   issued?: string
   note?: string
   vip?: boolean
+  /** Раздел долга в приложении и админке (не зависит от VIP) */
+  debtEnabled?: boolean
+}
+
+export function cardHasDebtSection(card: Pick<AdminCard, 'debtEnabled' | 'debt' | 'debtLimit'>): boolean {
+  if (card.debtEnabled !== undefined) return !!card.debtEnabled
+  return (Number(card.debt) || 0) > 0 || (Number(card.debtLimit) || 0) > 0
 }
 
 export const CARD_STATUS_LABELS: Record<CardStatus, { l: string; c: string }> = {
@@ -25,11 +32,11 @@ export const CARD_STATUS_LABELS: Record<CardStatus, { l: string; c: string }> = 
 }
 
 export const DEFAULT_ADMIN_CARDS: AdminCard[] = [
-  { num: 'КАКАПО-0001', client: 'Диловар Рахимов', phone: '+992 93 456 78 90', status: 'active', level: 'platinum', bonus: 4850, debtLimit: 3000, debt: 1200, issued: '2022-01-01', vip: true },
+  { num: 'КАКАПО-0001', client: 'Диловар Рахимов', phone: '+992 93 456 78 90', status: 'active', level: 'platinum', bonus: 4850, debtLimit: 3000, debt: 1200, issued: '2022-01-01', vip: true, debtEnabled: true },
   { num: 'КАКАПО-0042', client: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', status: 'active', level: 'gold', bonus: 1240, debtLimit: 1000, debt: 0, issued: '2023-03-15' },
   { num: 'КАКАПО-0118', client: 'Бахром Каримов', phone: '+992 88 789 01 23', status: 'active', level: 'silver', bonus: 560, debtLimit: 0, debt: 0, issued: '2023-06-10' },
   { num: 'КАКАПО-0099', client: '', phone: '', status: 'unlinked', level: '', bonus: 0, debtLimit: 0, debt: 0, issued: '2024-05-01' },
-  { num: 'КАКАПО-0234', client: 'Зафар Мирзоев', phone: '+992 91 654 32 10', status: 'active', level: 'gold', bonus: 2100, debtLimit: 2000, debt: 4500, issued: '2023-02-05' },
+  { num: 'КАКАПО-0234', client: 'Зафар Мирзоев', phone: '+992 91 654 32 10', status: 'active', level: 'gold', bonus: 2100, debtLimit: 2000, debt: 4500, issued: '2023-02-05', debtEnabled: true },
   { num: 'КАКАПО-0055', client: 'Рустам Давлатов', phone: '+992 90 445 23 11', status: 'blocked', level: 'gold', bonus: 890, debtLimit: 0, debt: 0, issued: '2022-11-10' },
 ]
 
@@ -53,6 +60,9 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     issued: raw.issued,
     note: raw.note || '',
     vip: !!raw.vip,
+    debtEnabled: raw.debtEnabled !== undefined
+      ? !!raw.debtEnabled
+      : (Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0,
   }
 }
 
@@ -80,10 +90,11 @@ export type CardLoyaltyForm = {
   bonus: number
   debt: number
   vip: boolean
+  debtEnabled: boolean
 }
 
 export function emptyCardLoyaltyForm(): CardLoyaltyForm {
-  return { clientId: '', phone: '', level: 'bronze', debtLimit: 0, bonus: 0, debt: 0, vip: false }
+  return { clientId: '', phone: '', level: 'bronze', debtLimit: 0, bonus: 0, debt: 0, vip: false, debtEnabled: false }
 }
 
 export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): CardLoyaltyForm {
@@ -95,6 +106,11 @@ export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): Card
     bonus: card.bonus ?? client?.bonus ?? 0,
     debt: card.debt ?? client?.debt ?? 0,
     vip: !!(card.vip ?? client?.vip),
+    debtEnabled: cardHasDebtSection({
+      debtEnabled: card.debtEnabled ?? client?.debtEnabled,
+      debt: card.debt ?? client?.debt ?? 0,
+      debtLimit: card.debtLimit ?? client?.debtLimit ?? 0,
+    }),
   }
 }
 
@@ -131,6 +147,11 @@ export function enrichCardWithClient(card: AdminCard, clients: AdminClient[]): A
     debtLimit: client.debtLimit ?? card.debtLimit,
     debt: Math.max(card.debt, client.debt),
     vip: !!(card.vip || client.vip),
+    debtEnabled: cardHasDebtSection({
+      debtEnabled: card.debtEnabled ?? client.debtEnabled,
+      debt: Math.max(card.debt, client.debt),
+      debtLimit: client.debtLimit ?? card.debtLimit,
+    }),
     status,
   })
 }
@@ -156,6 +177,11 @@ export function mergeCardsWithClients(cards: AdminCard[], clients: AdminClient[]
         debtLimit: client.debtLimit,
         debt: client.debt,
         vip: !!client.vip,
+        debtEnabled: cardHasDebtSection({
+          debtEnabled: client.debtEnabled,
+          debt: client.debt,
+          debtLimit: client.debtLimit,
+        }),
       }))
     }
   }

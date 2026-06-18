@@ -17,6 +17,7 @@ export interface AdminClient {
   debtLimit: number
   blocked: boolean
   vip?: boolean
+  debtEnabled?: boolean
   note?: string
   createdAt?: string
   lastOrderAt?: string
@@ -37,10 +38,10 @@ export const CLIENT_LEVEL_OPTIONS: { id: ClientLevel; label: string }[] = [
 ]
 
 export const DEFAULT_ADMIN_CLIENTS: AdminClient[] = [
-  { id: 'U-01', name: 'Диловар Рахимов', phone: '+992 93 456 78 90', email: '', addr: 'ул. Ленина, 42', card: 'КАКАПО-0001', level: 'platinum', orders: 87, spent: 3420, debt: 1200, bonus: 4850, debtLimit: 3000, blocked: false, vip: true, createdAt: '2024-01-12' },
+  { id: 'U-01', name: 'Диловар Рахимов', phone: '+992 93 456 78 90', email: '', addr: 'ул. Ленина, 42', card: 'КАКАПО-0001', level: 'platinum', orders: 87, spent: 3420, debt: 1200, bonus: 4850, debtLimit: 3000, blocked: false, vip: true, debtEnabled: true, createdAt: '2024-01-12' },
   { id: 'U-02', name: 'Нилуфар Хасанова', phone: '+992 90 123 45 67', email: '', addr: 'ул. Сомони, 12', card: 'КАКАПО-0042', level: 'gold', orders: 43, spent: 1890, debt: 0, bonus: 1240, debtLimit: 1000, blocked: false, createdAt: '2024-03-05' },
   { id: 'U-03', name: 'Бахром Каримов', phone: '+992 88 789 01 23', email: '', addr: 'мкр. Мирный, 5', card: 'КАКАПО-0118', level: 'silver', orders: 28, spent: 980, debt: 0, bonus: 560, debtLimit: 0, blocked: false, createdAt: '2024-06-18' },
-  { id: 'U-04', name: 'Зафар Мирзоев', phone: '+992 91 654 32 10', email: '', addr: 'ул. Рудаки, 8', card: 'КАКАПО-0234', level: 'gold', orders: 56, spent: 2340, debt: 4500, bonus: 2100, debtLimit: 2000, blocked: false, createdAt: '2023-11-02' },
+  { id: 'U-04', name: 'Зафар Мирзоев', phone: '+992 91 654 32 10', email: '', addr: 'ул. Рудаки, 8', card: 'КАКАПО-0234', level: 'gold', orders: 56, spent: 2340, debt: 4500, bonus: 2100, debtLimit: 2000, blocked: false, debtEnabled: true, createdAt: '2023-11-02' },
   { id: 'U-05', name: 'Мадина Оразова', phone: '+992 93 321 65 43', email: '', addr: 'ул. Ленина, 18', card: '', level: 'silver', orders: 12, spent: 640, debt: 0, bonus: 120, debtLimit: 0, blocked: false, createdAt: '2025-01-20' },
   { id: 'U-06', name: 'Рустам Давлатов', phone: '+992 90 445 23 11', email: '', addr: 'ул. Сомони, 5', card: 'КАКАПО-0055', level: 'gold', orders: 34, spent: 1560, debt: 0, bonus: 890, debtLimit: 0, blocked: true, createdAt: '2024-08-09', note: 'Злоупотребление возвратами' },
 ]
@@ -112,6 +113,9 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
     vip: !!raw.vip,
+    debtEnabled: raw.debtEnabled !== undefined
+      ? !!raw.debtEnabled
+      : (Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0,
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
