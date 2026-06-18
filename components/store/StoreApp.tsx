@@ -113,6 +113,40 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 .b-gd{background:rgba(255,184,0,.12);color:var(--gd);border:1px solid rgba(255,184,0,.28);}
 .b-rd{background:rgba(255,69,69,.12);color:var(--red);border:1px solid rgba(255,69,69,.28);}
 .b-bl{background:rgba(59,142,240,.1);color:var(--blue);border:1px solid rgba(59,142,240,.25);}
+.store-vip{
+  --l1:#0a0802;--l2:#0d0a04;--l3:#120e06;--l4:#181208;
+  --b1:rgba(255,184,0,.2);--b2:rgba(255,184,0,.32);
+  background:radial-gradient(ellipse 100% 42% at 50% -5%, rgba(255,184,0,.11) 0%, transparent 48%), var(--bg);
+}
+.store-vip .card{
+  border-color:rgba(255,184,0,.26);
+  box-shadow:0 4px 22px rgba(255,184,0,.09);
+}
+.store-vip .kakapo-card{border-color:rgba(255,184,0,.22);}
+.store-vip .chip.on{background:rgba(255,184,0,.12);color:var(--gd);border-color:rgba(255,184,0,.4);}
+.store-vip .inp:focus{border-color:rgba(255,184,0,.48);box-shadow:0 0 0 4px rgba(255,184,0,.08);}
+.store-vip header{
+  background:rgba(10,8,2,.96)!important;
+  border-bottom-color:rgba(255,184,0,.28)!important;
+  box-shadow:0 4px 18px rgba(255,184,0,.07)!important;
+}
+.store-vip .btn-vip-cta{
+  background:linear-gradient(135deg,#E89E00,#FFB800,#FFD700)!important;
+  color:#1a1000!important;
+  box-shadow:0 4px 18px rgba(255,184,0,.35)!important;
+}
+.store-vip [data-store-page]{background:transparent!important;}
+.store-vip header[data-store-header],.store-vip [data-store-header]{
+  background:rgba(10,8,2,.96)!important;
+  border-bottom-color:rgba(255,184,0,.3)!important;
+  box-shadow:0 4px 20px rgba(255,184,0,.08)!important;
+}
+.store-vip .store-toast{
+  background:linear-gradient(135deg,#1a1200,#2a1a00)!important;
+  border-color:rgba(255,184,0,.45)!important;
+  box-shadow:0 8px 36px rgba(255,184,0,.15)!important;
+}
+.store-vip .store-toast-icon{background:rgba(255,184,0,.2)!important;}
 `;
 const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
   const icons = {
@@ -172,10 +206,10 @@ const Stars = ({ r, s=10 }) => (
   </div>
 );
 
-const Toast = ({ msg }) => !msg ? null : (
-  <div style={{ position:"fixed", top:16, left:"50%", zIndex:999, animation:"notif .38s cubic-bezier(.16,1,.3,1)", background:"linear-gradient(135deg,#091C0D,#123020)", border:"1.5px solid rgba(31,215,96,.45)", borderRadius:16, padding:"12px 18px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 8px 36px rgba(0,0,0,.65)", whiteSpace:"nowrap", transform:"translateX(-50%)", maxWidth:"90vw" }}>
-    <div style={{ width:24, height:24, borderRadius:"50%", background:"rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-      <Ic n="check" s={12} c="var(--gr)" w={2.5}/>
+const Toast = ({ msg, isVip = false }) => !msg ? null : (
+  <div className={isVip ? 'store-toast' : undefined} style={{ position:"fixed", top:16, left:"50%", zIndex:999, animation:"notif .38s cubic-bezier(.16,1,.3,1)", background:"linear-gradient(135deg,#091C0D,#123020)", border:"1.5px solid rgba(31,215,96,.45)", borderRadius:16, padding:"12px 18px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 8px 36px rgba(0,0,0,.65)", whiteSpace:"nowrap", transform:"translateX(-50%)", maxWidth:"90vw" }}>
+    <div className={isVip ? 'store-toast-icon' : undefined} style={{ width:24, height:24, borderRadius:"50%", background:"rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+      <Ic n="check" s={12} c={isVip ? "var(--gd)" : "var(--gr)"} w={2.5}/>
     </div>
     <span style={{ fontSize:13, fontWeight:700 }}>{msg}</span>
   </div>
@@ -194,19 +228,18 @@ const Nav = ({ page, go, user: userProp }) => {
     padding:"8px 18px calc(16px + env(safe-area-inset-bottom, 0px))", display:"flex", justifyContent:"space-around", zIndex:200,
   }}>
     {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => {
-      const isProfileVip = item.id === "profile" && isVip
       const on = page === item.id
-      const activeColor = isProfileVip ? "#FFD700" : "var(--gr)"
-      const activeBg = isProfileVip ? "rgba(255,184,0,.12)" : "rgba(31,215,96,.09)"
-      const activeBorder = isProfileVip ? "rgba(255,184,0,.35)" : "rgba(31,215,96,.22)"
+      const activeColor = isVip && on ? "#FFD700" : on ? "var(--gr)" : "var(--t3)"
+      const activeBg = isVip && on ? "rgba(255,184,0,.12)" : on ? "rgba(31,215,96,.09)" : "transparent"
+      const activeBorder = isVip && on ? "rgba(255,184,0,.35)" : on ? "rgba(31,215,96,.22)" : "transparent"
       return (
       <button key={item.id} type="button" onClick={() => go(item.id)} className="btn"
         style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"6px 12px", borderRadius:12, background:on?activeBg:"transparent", border:`1.5px solid ${on?activeBorder:"transparent"}`, color:on?activeColor:"var(--t3)", position:"relative" }}>
-        {isProfileVip && (
+        {isVip && item.id === "profile" && (
           <div style={{ position:"absolute", top:2, right:6, fontSize:9, animation:"crownFloat 2.5s ease-in-out infinite" }}>👑</div>
         )}
         <Ic n={item.icon} s={20} c={on?activeColor:"var(--t3)"}/>
-        <span style={{ fontSize:9, fontWeight:on?800:600 }}>{isProfileVip ? "VIP" : item.label}</span>
+        <span style={{ fontSize:9, fontWeight:on?800:600 }}>{item.id === "profile" && isVip ? "VIP" : item.label}</span>
       </button>
     )})}
   </nav>
@@ -214,7 +247,10 @@ const Nav = ({ page, go, user: userProp }) => {
 }
 
 /** Компактная плавающая кнопка корзины */
-const FloatingCartBtn = ({ count, onClick, label = "В корзину" }) => (
+const FloatingCartBtn = ({ count, onClick, label = "В корзину", isVip: isVipProp }) => {
+  const { isVip: isVipUser } = resolveUserVip(loadStoreUser())
+  const isVip = isVipProp ?? isVipUser
+  return (
   <div style={{ position:"fixed", bottom:82, left:0, right:0, zIndex:90, display:"flex", justifyContent:"center", pointerEvents:"none", animation:"fadeUp .35s cubic-bezier(.16,1,.3,1)" }}>
     <button
       type="button"
@@ -227,9 +263,9 @@ const FloatingCartBtn = ({ count, onClick, label = "В корзину" }) => (
         gap:6,
         padding:"6px 12px 6px 7px",
         borderRadius:999,
-        background:"linear-gradient(135deg,#0F7A38 0%,#1FD760 100%)",
-        border:"1px solid rgba(255,255,255,.14)",
-        boxShadow:"0 3px 12px rgba(31,215,96,.26), inset 0 1px 0 rgba(255,255,255,.16)",
+        background: isVip ? "linear-gradient(135deg,#B8860B 0%,#FFD700 100%)" : "linear-gradient(135deg,#0F7A38 0%,#1FD760 100%)",
+        border: isVip ? "1px solid rgba(255,220,100,.35)" : "1px solid rgba(255,255,255,.14)",
+        boxShadow: isVip ? "0 3px 14px rgba(255,184,0,.38), inset 0 1px 0 rgba(255,255,255,.2)" : "0 3px 12px rgba(31,215,96,.26), inset 0 1px 0 rgba(255,255,255,.16)",
         maxWidth:"calc(100% - 44px)",
       }}
     >
@@ -243,7 +279,8 @@ const FloatingCartBtn = ({ count, onClick, label = "В корзину" }) => (
       <Ic n="arr" s={11} c="rgba(255,255,255,.85)"/>
     </button>
   </div>
-);
+  );
+};
 
 const Header = ({ title, back, go, cart, user: userProp }) => {
   const { prods } = useLiveCatalog();
@@ -254,10 +291,10 @@ const Header = ({ title, back, go, cart, user: userProp }) => {
   return (
     <header style={{
       position:"sticky", top:0, zIndex:100,
-      background: isVip && !title ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)",
+      background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)",
       backdropFilter:"blur(24px)",
-      borderBottom: isVip && !title ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)",
-      boxShadow: isVip && !title ? "0 4px 24px rgba(255,184,0,.1)" : "none",
+      borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)",
+      boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none",
     }}>
       <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
         {back ? (
@@ -523,6 +560,17 @@ function countClientSpent(apiOrders: import('@/lib/types').Order[], phone?: stri
   add(ORDERS_LIST).forEach(o => byId.set(o.id, o))
   const sum = [...byId.values()].reduce((s, o) => s + (o.total || 0), 0)
   return Math.round(sum * 10) / 10
+}
+
+function vipPageShell(isVip: boolean) {
+  return {
+    minHeight: '100vh' as const,
+    maxWidth: 480,
+    margin: '0 auto' as const,
+    background: isVip
+      ? 'radial-gradient(ellipse 100% 35% at 50% 0%, rgba(255,184,0,.09) 0%, transparent 50%), var(--bg)'
+      : 'var(--bg)',
+  }
 }
 
 const TIER_THEMES: Record<string, { bg: string; border: string; glow: string; accent: string; rail: string }> = {
@@ -1048,18 +1096,11 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
     [spentTotal, orderCount, user?.level, user?.vip],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
-  const { isVip } = resolveUserVip(vipUser);
   const [bi, setBi] = useState(0);
   useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % BANNERS.length), 4000); return () => clearInterval(t); }, []);
   const b = BANNERS[bi];
   return (
-    <div style={{
-      minHeight:"100vh",
-      background: isVip
-        ? "radial-gradient(ellipse 120% 40% at 50% -5%, rgba(255,184,0,.12) 0%, transparent 55%), var(--bg)"
-        : "var(--bg)",
-      maxWidth:480, margin:"0 auto",
-    }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <Header go={go} cart={cart} user={vipUser}/>
       <div style={{ padding:"14px 18px 100px" }}>
         <HomeVipWelcome user={vipUser} go={go}/>
@@ -1143,7 +1184,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 const CatalogPage = ({ go, cart, user }) => {
   const { prods, restaurants } = useLiveCatalog();
   return (
-  <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+  <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart} user={user}/>
     <div style={{ padding:"16px 18px 100px" }}>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
@@ -1212,8 +1253,8 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   else if (sort === "exp") items = [...items].sort((a,b) => b.price - a.price);
   else if (sort === "sale") items = items.filter(p => p.old).sort((a,b) => (1-b.price/b.old) - (1-a.price/a.old));
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("catalog")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ width:36, height:36, borderRadius:10, background:cat.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cat.e}</div>
@@ -1376,7 +1417,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
         <button onClick={() => go("catalog")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"rgba(3,11,5,.75)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={18} c="var(--t1)"/></button>
         <div style={{ display:"flex", gap:8 }}>
@@ -1531,8 +1572,8 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
     else { setPromoErr(true); setTimeout(() => setPromoErr(false), 2200); }
   };
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Корзина</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{tqty} товаров</div></div>
@@ -1912,7 +1953,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   };
 
   if (step === "ok") return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px 24px", textAlign:"center" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px 24px", textAlign:"center" }}>
       <div style={{ width:90, height:90, borderRadius:"50%", background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 0 60px rgba(31,215,96,.5)", marginBottom:24, animation:"successPop .6s cubic-bezier(.16,1,.3,1)" }}>
         <Ic n="check" s={44} c="white" w={2.5}/>
       </div>
@@ -1940,8 +1981,8 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   );
 
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900 }}>Оформление заказа</div>
@@ -2146,7 +2187,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
   }, [apiOrders, user]);
 
   if (!user) return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
       <div style={{ fontSize:60, marginBottom:16, animation:"float 3s ease-in-out infinite" }}>👤</div>
       <div className="ub" style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Войдите в аккаунт</div>
       <div style={{ fontSize:13, color:"var(--t2)", marginBottom:24, lineHeight:1.6 }}>Войдите по номеру телефона — бонусы, заказы и персональные предложения</div>
@@ -2192,10 +2233,10 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
   ];
 
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={vipPageShell(loyalty.isVip)}>
+      <header style={{ position:"sticky", top:0, zIndex:100, background: loyalty.isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: loyalty.isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: loyalty.isVip ? "0 4px 20px rgba(255,184,0,.08)" : "none" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>Профиль</div>
+          <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900, color: loyalty.isVip ? "#FFD700" : undefined }}>Профиль</div>
           <button onClick={() => go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="bell" s={17} c="var(--t2)"/>
             {unreadNotifs > 0 && (
@@ -2274,7 +2315,13 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
 
         <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
 
-        <div className="card" style={{ marginBottom:12 }}>
+        <div className="card" style={{
+          marginBottom:12,
+          ...(loyalty.isVip ? {
+            border: '1.5px solid rgba(255,184,0,.32)',
+            boxShadow: '0 6px 28px rgba(255,184,0,.12)',
+          } : {}),
+        }}>
           {menuItems.map((item, i) => (
             <div
               key={item.to}
@@ -2407,8 +2454,8 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   };
 
   if (selected) return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => setSelected(null)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:15, fontWeight:900 }}>Заказ {selected.id}</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{selected.date} · {selected.time}</div></div>
@@ -2523,8 +2570,8 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   );
 
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div>
@@ -2674,7 +2721,7 @@ const ClientReviewsPage = ({ go, user }) => {
 
   if (!user) {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
         <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Войдите, чтобы видеть отзывы</div>
         <button onClick={() => go("auth")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white" }}>Войти</button>
@@ -2686,8 +2733,8 @@ const ClientReviewsPage = ({ go, user }) => {
   const withReplies = reviews.filter(r => r.adminReply || r.restReply).length;
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
-      <header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.96)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.96)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
@@ -2765,8 +2812,8 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
           <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:17, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 4px 16px rgba(31,215,96,.4)", flexShrink:0 }}>K</div>
           <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900 }}>Акции</div>
@@ -2924,8 +2971,8 @@ const SearchPage = ({ go, cart, onAdd, onRm }) => {
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1, position:"relative" }}>
@@ -3010,8 +3057,8 @@ const FAQPage = ({ go }) => {
   const [q, setQ] = useState("");
   const filtered = FAQ.filter(f => q==="" || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase()));
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>FAQ</div>
@@ -3631,11 +3678,9 @@ const VIPPage = ({ go, user, setUser }) => {
   ];
 
   return (
-    <div style={{
+    <div data-store-page style={{
       minHeight:"100vh",
-      background: isVip
-        ? "radial-gradient(ellipse 100% 35% at 50% 0%, rgba(255,184,0,.1) 0%, transparent 50%), var(--bg)"
-        : "var(--bg)",
+      background:"var(--bg)",
       maxWidth:480, margin:"0 auto",
     }}>
       <header style={{
@@ -3861,8 +3906,8 @@ const AboutPage = ({ go, user }) => {
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
@@ -5922,8 +5967,8 @@ const NotifPage = ({go, user}) => {
   const unread = notifs.filter(n => !n.read).length;
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{flex:1}}>
@@ -6060,8 +6105,8 @@ const AddressesPage = ({ go, user }) => {
   };
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Мои адреса</div>
@@ -6188,8 +6233,8 @@ const ReferralPage = ({ go, user }) => {
   };
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Пригласи друга</div>
@@ -6296,8 +6341,8 @@ const ChatPage = ({ go, user }) => {
   };
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column'}}>
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--bg)',flexShrink:0}}>K</div>
@@ -6421,8 +6466,8 @@ const AssemblerDashPage = ({go}) => {
   const allDone   = order ? doneCount===order.items.length : false;
 
   if(active&&order) return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>setActive(null)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{flex:1}}>
@@ -6473,8 +6518,8 @@ const AssemblerDashPage = ({go}) => {
   );
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('home')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{flex:1}}>
@@ -6804,8 +6849,8 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
   });
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:40,height:40,borderRadius:12,background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'var(--bg)',animation:'glow 3s ease-in-out infinite',boxShadow:'0 4px 16px rgba(31,215,96,.4)',flexShrink:0}}>K</div>
           <div className="ub" style={{flex:1,fontSize:16,fontWeight:900}}>Рестораны</div>
@@ -6901,10 +6946,10 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const getQty   = (item) => (cart||{})[`R${r.id}_${item.id}`]||0;
 
   return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
 
       {/* Sticky header — back + name + cart + categories */}
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('restaurants')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
@@ -7752,7 +7797,7 @@ const AdminAssemblersPage = ({go}) => {
   );
 };
 const Page404 = ({ go }) => (
-  <div style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center", position:"relative", overflow:"hidden" }}>
+  <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center", position:"relative", overflow:"hidden" }}>
     <div style={{ position:"absolute", inset:0, opacity:.03, background:"repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(31,215,96,1) 28px,rgba(31,215,96,1) 29px),repeating-linear-gradient(90deg,transparent,transparent 28px,rgba(31,215,96,1) 28px,rgba(31,215,96,1) 29px)" }}/>
     <div style={{ position:"relative", zIndex:2 }}>
       <div className="ub" style={{ fontSize:96, fontWeight:900, lineHeight:1, marginBottom:8, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>404</div>
@@ -7890,7 +7935,9 @@ function KakapoAppInner() {
     go('profile');
   }, [go]);
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user, setUser, onLogout: logout };
+  const isVipUser = !!user?.vip;
+
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user, setUser, onLogout: logout, isVip: isVipUser };
 
   const render = () => {
     switch (page) {
@@ -7944,8 +7991,8 @@ function KakapoAppInner() {
   return (
     <>
       <style>{CSS}</style>
-      <Toast msg={toast}/>
-      <div style={{ maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"var(--bg)", overflowX:"clip" }}>
+      <Toast msg={toast} isVip={isVipUser}/>
+      <div className={isVipUser ? 'store-vip' : undefined} style={{ maxWidth:480, margin:"0 auto", minHeight:"100vh", overflowX:"clip" }}>
         {render()}
       </div>
     </>
