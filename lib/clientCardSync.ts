@@ -11,7 +11,6 @@ import {
 } from './clientCrm'
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard } from './cardCrm'
 import { recordStoreDebtRepayment } from './clientVipCredit'
-import type { DebtPayMethod } from './debtRepayment'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -98,7 +97,6 @@ export function saveCardLoyalty(
   card: AdminCard,
   form: CardLoyaltyForm,
   mode: 'link' | 'edit',
-  repay?: { repayAmount: number; repayMethod: DebtPayMethod },
 ) {
   const cardStore = useCardStore.getState()
   const clientStore = useClientStore.getState()
@@ -156,25 +154,10 @@ export function saveCardLoyalty(
       phone,
       ...loyalty,
     })
-    if (repay && repay.repayAmount > 0) {
-      recordStoreDebtRepayment(phone, repay.repayAmount, repay.repayMethod)
-    } else if (loyalty.debt < prevDebt - 0.001) {
-      recordStoreDebtRepayment(phone, prevDebt - loyalty.debt, 'cash')
+    if (loyalty.debt < prevDebt - 0.001) {
+      recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
     }
   }
-}
-
-/** Быстрое погашение долга с записью в историю клиента */
-export function applyDebtRepayment(
-  card: AdminCard,
-  form: CardLoyaltyForm,
-  amount: number,
-  method: DebtPayMethod,
-): void {
-  const pay = Math.min(Math.max(0, Number(amount) || 0), form.debt)
-  if (pay <= 0) throw new Error('Укажите сумму погашения')
-  const newDebt = Math.max(0, Math.round((form.debt - pay) * 100) / 100)
-  saveCardLoyalty(card, { ...form, debt: newDebt }, 'edit', { repayAmount: pay, repayMethod: method })
 }
 
 /** Создать 1 новую карту и сразу привязать к клиенту */

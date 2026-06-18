@@ -59,12 +59,10 @@ import {
   type ClientLevel,
   type ClientProfileForm,
 } from '@/lib/clientCrm'
-import type { DebtPayMethod } from '@/lib/debtRepayment'
 import {
   saveClientProfile,
   saveCardLoyalty,
   createAndLinkCard,
-  applyDebtRepayment,
   lookupClientByPhone,
   loyaltySummaryForClient,
   clientNoteForCard,
@@ -3054,85 +3052,6 @@ function ClientSearchPicker({
 }
 
 /* ── КАРТЫ ──────────────────────────────────────── */
-function CardDebtRepayBlock({
-  debt,
-  cardNum,
-  onRepay,
-  busy,
-}: {
-  debt: number
-  cardNum: string
-  onRepay: (amount: number, method: DebtPayMethod) => void
-  busy?: boolean
-}) {
-  const [amount, setAmount] = useState(String(debt))
-  const [method, setMethod] = useState<DebtPayMethod>('cash')
-
-  useEffect(() => {
-    setAmount(String(debt))
-  }, [debt])
-
-  if (debt <= 0) return null
-
-  const parsed = Math.max(0, parseFloat(amount) || 0)
-  const valid = parsed > 0 && parsed <= debt + 0.001
-
-  return (
-    <div style={{
-      padding: '14px', borderRadius: 12,
-      background: 'rgba(255,69,69,.06)', border: '1px solid rgba(255,69,69,.22)',
-    }}>
-      <div style={{ fontSize: 11, color: '#FF9090', fontWeight: 800, marginBottom: 10, textTransform: 'uppercase', letterSpacing: .4 }}>
-        💰 Погасить долг
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-        {([
-          { id: 'cash' as const, l: '💵 Наличные', s: 'На кассе' },
-          { id: 'transfer' as const, l: '📱 Перевод', s: 'Kaspi / банк' },
-        ]).map(m => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => setMethod(m.id)}
-            className="ab"
-            style={{
-              padding: '10px 8px', borderRadius: 10, textAlign: 'left',
-              background: method === m.id ? 'rgba(31,215,96,.12)' : '#0C1C0F',
-              border: `1.5px solid ${method === m.id ? 'rgba(31,215,96,.35)' : '#162B1A'}`,
-              color: method === m.id ? '#1FD760' : '#8FB897',
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 800 }}>{m.l}</div>
-            <div style={{ fontSize: 10, marginTop: 2, opacity: .85 }}>{m.s}</div>
-          </button>
-        ))}
-      </div>
-      <NI
-        lbl={`Сумма погашения (долг ${debt.toLocaleString()} ЅМ)`}
-        val={amount}
-        set={setAmount}
-        ph={String(debt)}
-        type="number"
-      />
-      <button
-        type="button"
-        disabled={!valid || busy}
-        onClick={() => onRepay(parsed, method)}
-        className="ab abp"
-        style={{
-          width: '100%', marginTop: 12, padding: 12, fontSize: 13, fontWeight: 800,
-          opacity: !valid || busy ? .6 : 1,
-        }}
-      >
-        {busy ? '⏳ Записываем…' : `✓ Записать погашение · ${method === 'transfer' ? 'перевод' : 'наличные'}`}
-      </button>
-      <div style={{ fontSize: 10, color: '#3D6645', marginTop: 8, lineHeight: 1.45 }}>
-        Клиент увидит оплату в истории долга в приложении. Карта: <strong style={{ color: '#FFB800' }}>{cardNum}</strong>
-      </div>
-    </div>
-  )
-}
-
 function CardsPage() {
   const stored = useCards();
   const clients = useClients();
@@ -3151,7 +3070,6 @@ function CardsPage() {
   const [genCreated, setGenCreated] = useState<AdminCard[]>([]);
   const [linkForm, setLinkForm] = useState<CardLoyaltyForm>(emptyCardLoyaltyForm());
   const [linkErr, setLinkErr] = useState('');
-  const [repayBusy, setRepayBusy] = useState(false);
 
   const cards = useMemo(() => mergeCardsWithClients(stored, clients), [stored, clients]);
 
@@ -3210,24 +3128,6 @@ function CardsPage() {
       setShowLink(null);
     } catch (e) {
       setLinkErr(e instanceof Error ? e.message : 'Ошибка сохранения');
-    }
-  };
-
-  const handleDebtRepay = (amount: number, method: DebtPayMethod) => {
-    if (!showLink) return;
-    setRepayBusy(true);
-    setLinkErr('');
-    try {
-      applyDebtRepayment(showLink, linkForm, amount, method);
-      const pay = Math.min(amount, linkForm.debt);
-      const newDebt = Math.max(0, Math.round((linkForm.debt - pay) * 100) / 100);
-      setLinkForm(prev => ({ ...prev, debt: newDebt }));
-      const fresh = useCardStore.getState().cards.find(c => c.num === showLink.num);
-      if (fresh) setShowLink(fresh);
-    } catch (e) {
-      setLinkErr(e instanceof Error ? e.message : 'Не удалось записать погашение');
-    } finally {
-      setRepayBusy(false);
     }
   };
 
@@ -3662,16 +3562,6 @@ function CardsPage() {
                 <div style={{ marginTop: 10 }}>
                   <NI lbl="Долг ЅМ" val={String(linkForm.debt)} set={v => setLF('debt', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 </div>
-                {showLink.status !== 'unlinked' && linkForm.debt > 0 && (
-                  <div style={{ marginTop: 14 }}>
-                    <CardDebtRepayBlock
-                      debt={linkForm.debt}
-                      cardNum={showLink.num}
-                      onRepay={handleDebtRepay}
-                      busy={repayBusy}
-                    />
-                  </div>
-                )}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
