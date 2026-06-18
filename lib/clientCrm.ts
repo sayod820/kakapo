@@ -2,6 +2,7 @@
 
 import type { Order } from './types'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
+import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 
 export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
@@ -24,6 +25,8 @@ export interface AdminClient {
   note?: string
   createdAt?: string
   lastOrderAt?: string
+  /** Месяц (YYYY-MM), за который действует текущий статус и VIP */
+  loyaltyPeriod?: string
 }
 
 export const CLIENT_LEVEL_COLORS: Record<ClientLevel, string> = {
@@ -128,6 +131,7 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
+    loyaltyPeriod: raw.loyaltyPeriod || undefined,
   }
 }
 
@@ -139,14 +143,27 @@ export function hasEarnedBronze(spent: number, orderCount: number): boolean {
   return spent >= min || orderCount >= 1
 }
 
-/** Доставленные заказы клиента — только они влияют на статус (отменённые не считаются) */
-export function loyaltyOrdersForClient(orders: Order[], phone: string): Order[] {
-  return orders.filter(o => phonesMatch(o.client?.phone || '', phone) && o.status === 'delivered')
+/** Доставленные заказы клиента за период (по умолчанию — текущий месяц) */
+export function loyaltyOrdersForClient(
+  orders: Order[],
+  phone: string,
+  period = currentLoyaltyPeriod(),
+): Order[] {
+  return orders.filter(
+    o => phonesMatch(o.client?.phone || '', phone)
+      && o.status === 'delivered'
+      && orderInLoyaltyPeriod(o, period),
+  )
 }
 
-export function loyaltyStatsFromOrders(orders: Order[], phone: string): { orderCount: number; spent: number } {
-  const delivered = loyaltyOrdersForClient(orders, phone)
+export function loyaltyStatsFromOrders(
+  orders: Order[],
+  phone: string,
+  period = currentLoyaltyPeriod(),
+): { orderCount: number; spent: number; period: string } {
+  const delivered = loyaltyOrdersForClient(orders, phone, period)
   return {
+    period,
     orderCount: delivered.length,
     spent: Math.round(delivered.reduce((s, o) => s + (o.total || 0), 0) * 10) / 10,
   }
@@ -159,35 +176,44 @@ function loyaltyTierIndex(level: ClientLevel): number {
   return TIER_ORDER.indexOf(level)
 }
 
-/** Уровень: авто (траты/заказы) + назначение из CRM (вручную заданный не понижаем) */
+/** Уровень за текущий месяц: авто + назначение админки (только если задан в этом месяце) */
 export function resolveEffectiveClientLevel(
   spent: number,
   orderCount: number,
   storedLevel?: ClientLevel | 'new',
+  storedPeriod?: string,
 ): ClientLevel {
+  const period = currentLoyaltyPeriod()
+  const storedActive = isLoyaltyPeriodCurrent(storedPeriod)
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+  const storedForMonth = storedActive && normalizedStored && normalizedStored !== 'basic'
+    ? normalizedStored
+    : 'basic'
+
   const earned = suggestLevel(spent)
   const earnedBronze = hasEarnedBronze(spent, orderCount)
 
-  let effectiveLevel: ClientLevel = 'basic'
-
-  if (normalizedStored && normalizedStored !== 'basic') {
-    effectiveLevel = normalizedStored
-    if (earnedBronze) {
-      const earnedIdx = loyaltyTierIndex(earned)
-      const storedIdx = loyaltyTierIndex(normalizedStored)
-      if (earnedIdx > storedIdx) effectiveLevel = earned
-    }
-  } else if (earnedBronze) {
-    effectiveLevel = earned
+  if (storedForMonth !== 'basic') {
+    if (!earnedBronze) return storedForMonth
+    const earnedIdx = loyaltyTierIndex(earned)
+    const storedIdx = loyaltyTierIndex(storedForMonth)
+    return earnedIdx > storedIdx ? earned : storedForMonth
   }
 
-  return effectiveLevel
+  return earnedBronze ? earned : 'basic'
 }
 
-export function shouldAutoUpgradeLevel(stored: ClientLevel | undefined, effective: ClientLevel): boolean {
-  if (effective === stored) return false
+export function shouldAutoUpgradeLevel(
+  stored: ClientLevel | undefined,
+  effective: ClientLevel,
+  storedPeriod?: string,
+): boolean {
+  if (!isLoyaltyPeriodCurrent(storedPeriod) && effective === 'basic' && stored !== 'basic') {
+    return true // месяц сменился — сбросить до basic
+  }
+  if (effective === stored && isLoyaltyPeriodCurrent(storedPeriod)) return false
   if (!stored || stored === 'basic') return effective !== 'basic'
+  if (!isLoyaltyPeriodCurrent(storedPeriod)) return effective !== 'basic'
   return loyaltyTierIndex(effective) > loyaltyTierIndex(stored)
 }
 
@@ -247,7 +273,7 @@ export function enrichClientWithOrders(client: AdminClient, orders: Order[]): Ad
   const hasLive = orders.some(o => phonesMatch(o.client?.phone || '', client.phone))
   const spent = hasLive ? live.spent : Math.max(client.spent, live.spent)
   const ordersCount = hasLive ? live.orders : Math.max(client.orders, live.orders)
-  const level = resolveEffectiveClientLevel(spent, ordersCount, client.level || 'basic')
+  const level = resolveEffectiveClientLevel(spent, ordersCount, client.level || 'basic', client.loyaltyPeriod)
   const lastLabel = formatLastActivity(live.lastOrderAt || client.lastOrderAt)
   return {
     ...client,

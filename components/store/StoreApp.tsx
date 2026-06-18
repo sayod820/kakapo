@@ -550,25 +550,7 @@ function ruCount(n: number, one: string, few: string, many: string) {
 }
 
 function clientLoyaltyTotals(apiOrders: import('@/lib/types').Order[], phone?: string) {
-  const stats = loyaltyStatsFromOrders(apiOrders, phone || '')
-  if (USE_API) return stats
-  const mine = phoneDigits(phone || '')
-  if (!mine) return stats
-  const byId = new Map<string, { delivered: boolean; total: number }>()
-  apiOrders
-    .filter(o => phoneDigits(o.client?.phone || '') === mine)
-    .forEach(o => byId.set(o.id, { delivered: o.status === 'delivered', total: o.total || 0 }))
-  ORDERS_LIST
-    .filter(o => phoneDigits(o.phone || '') === mine)
-    .forEach(o => byId.set(o.id, { delivered: o.status === 'delivered', total: o.total || 0 }))
-  let orderCount = 0
-  let spent = 0
-  for (const v of byId.values()) {
-    if (!v.delivered) continue
-    orderCount++
-    spent += v.total
-  }
-  return { orderCount, spent: Math.round(spent * 10) / 10 }
+  return loyaltyStatsFromOrders(apiOrders, phone || '')
 }
 
 function countClientSpent(apiOrders: import('@/lib/types').Order[], phone?: string) {
@@ -711,7 +693,7 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
 }
 
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
-  const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount } = loyalty
+  const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount, periodLabel, periodEnds } = loyalty
   const themes = getTierThemes()
   const theme = isVip ? themes.vip : isBasicClient ? themes.basic : (themes[tier.id] || themes.bronze)
   const prevTierRef = useRef(tier.id)
@@ -793,6 +775,9 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
               </div>
               <div style={{ fontSize: 10, color: 'var(--t2)' }}>
                 Кешбэк {tier.cashback} · {isVip ? 'Все привилегии' : tier.perk}
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 4 }}>
+                📅 {periodLabel} · действует до {periodEnds}
               </div>
             </div>
           </div>
@@ -1159,8 +1144,8 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip),
-    [spentTotal, orderCount, user?.level, user?.vip],
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod),
+    [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const [bi, setBi] = useState(0);
@@ -2209,8 +2194,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
     [wished],
   );
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level, user?.vip),
-    [spentTotal, orderCount, reviewStats.count, user?.level, user?.vip],
+    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod),
+    [spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod],
   );
 
   useEffect(() => {
@@ -3709,8 +3694,8 @@ const VIPPage = ({ go, user, setUser }) => {
   const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip),
-    [spentTotal, orderCount, user?.level, user?.vip],
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod),
+    [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const { isVip, theme, tier } = resolveUserVip(vipUser)

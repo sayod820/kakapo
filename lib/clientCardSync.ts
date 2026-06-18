@@ -12,6 +12,7 @@ import {
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardHasDebtSection } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 import { emitCrmSync } from './clientProfileSync'
+import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -121,6 +122,7 @@ export function saveCardLoyalty(
     debt: Math.max(0, Number(form.debt) || 0),
     vip: !!form.vip,
     debtEnabled: !!form.debtEnabled,
+    loyaltyPeriod: currentLoyaltyPeriod(),
   }
 
   const prevDebt = Math.max(0, Number(card.debt) || 0)
@@ -170,7 +172,29 @@ export function saveCardLoyalty(
   emitCrmSync()
 }
 
-/** Автоповышение уровня по доставленным заказам и тратам (только вверх, не ниже админского) */
+/** Сброс статуса и VIP в начале нового месяца */
+export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string): boolean {
+  const clientStore = useClientStore.getState()
+  const cardStore = useCardStore.getState()
+  const client = clientStore.clients.find(c => phonesMatch(c.phone, phone))
+  const num = cardNum?.trim().toUpperCase()
+  const card = num
+    ? cardStore.cards.find(c => c.num === num && c.status !== 'unlinked')
+    : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
+
+  const storedPeriod = card?.loyaltyPeriod || client?.loyaltyPeriod
+  if (isLoyaltyPeriodCurrent(storedPeriod)) return false
+
+  const period = currentLoyaltyPeriod()
+  const patch = { level: 'basic' as ClientLevel, vip: false, loyaltyPeriod: period }
+
+  if (card) cardStore.updateCardLoyalty(card.num, patch)
+  if (client) clientStore.updateClient(client.id, { ...patch, ...(card ? { card: card.num } : {}) })
+  emitCrmSync()
+  return true
+}
+
+/** Автоповышение уровня по доставленным заказам и тратам за текущий месяц */
 export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: string) {
   const clientStore = useClientStore.getState()
   const cardStore = useCardStore.getState()
@@ -180,11 +204,12 @@ export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: 
     ? cardStore.cards.find(c => c.num === num && c.status !== 'unlinked')
     : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
 
+  const period = currentLoyaltyPeriod()
   if (card) {
-    cardStore.updateCardLoyalty(card.num, { level })
+    cardStore.updateCardLoyalty(card.num, { level, loyaltyPeriod: period })
   }
   if (client) {
-    clientStore.updateClient(client.id, { level, ...(card ? { card: card.num } : {}) })
+    clientStore.updateClient(client.id, { level, loyaltyPeriod: period, ...(card ? { card: card.num } : {}) })
   }
   emitCrmSync()
 }

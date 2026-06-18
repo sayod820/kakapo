@@ -62,6 +62,7 @@ function pushLoyaltyToClient(card: AdminCard) {
     vip: !!card.vip,
     debtEnabled: !!card.debtEnabled,
     blocked: card.status === 'blocked',
+    loyaltyPeriod: card.loyaltyPeriod,
   })
   if (card.bonus > prevBonus) {
     onBonusCredited(client.phone, card.bonus - prevBonus, card.num)

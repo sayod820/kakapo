@@ -9,9 +9,10 @@ import {
   resolveEffectiveClientLevel,
   shouldAutoUpgradeLevel,
 } from './clientCrm'
-import { syncAutoLevelToCrm } from './clientCardSync'
+import { syncAutoLevelToCrm, syncMonthlyLoyaltyReset } from './clientCardSync'
+import { currentLoyaltyPeriod } from './loyaltyPeriod'
 
-/** При выполнении условий (заказы, траты) — автоматически повысить статус в CRM и сессии */
+/** Ежемесячный сброс + автоповышение по заказам текущего месяца */
 export function useAutoLoyaltySync(
   user: StoreUser | null,
   setUser: (u: StoreUser | null) => void,
@@ -24,13 +25,31 @@ export function useAutoLoyaltySync(
     const cur = userRef.current
     if (!cur?.phone) return
 
-    const { orderCount, spent } = loyaltyStatsFromOrders(orders, cur.phone)
-    const effective = resolveEffectiveClientLevel(spent, orderCount, cur.level)
-    if (!shouldAutoUpgradeLevel(cur.level, effective)) return
+    const reset = syncMonthlyLoyaltyReset(cur.phone, cur.card)
+    const base = reset
+      ? { ...cur, level: 'basic' as const, vip: false, loyaltyPeriod: currentLoyaltyPeriod() }
+      : cur
 
-    syncAutoLevelToCrm(cur.phone, effective, cur.card)
-    const next: StoreUser = { ...cur, level: effective }
-    saveStoreUser(next)
-    setUser(next)
-  }, [user?.phone, user?.level, user?.card, orders, setUser])
+    const { orderCount, spent } = loyaltyStatsFromOrders(orders, base.phone)
+    const effective = resolveEffectiveClientLevel(spent, orderCount, base.level, base.loyaltyPeriod)
+
+    if (reset || shouldAutoUpgradeLevel(base.level, effective, base.loyaltyPeriod)) {
+      syncAutoLevelToCrm(base.phone, effective, base.card)
+      const next: StoreUser = {
+        ...base,
+        level: effective,
+        loyaltyPeriod: currentLoyaltyPeriod(),
+        ...(reset ? { vip: false } : {}),
+      }
+      saveStoreUser(next)
+      setUser(next)
+      return
+    }
+
+    if (reset) {
+      const next: StoreUser = { ...base, level: 'basic', vip: false, loyaltyPeriod: currentLoyaltyPeriod() }
+      saveStoreUser(next)
+      setUser(next)
+    }
+  }, [user?.phone, user?.level, user?.card, user?.loyaltyPeriod, user?.vip, orders, setUser])
 }

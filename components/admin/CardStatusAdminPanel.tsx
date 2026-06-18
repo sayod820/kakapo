@@ -214,7 +214,7 @@ export default function CardStatusAdminPanel() {
           <div>
             <div className="ub" style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>⚙️ Программа лояльности</div>
             <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.5 }}>
-              Пороги, правила VIP и оформление статусов в приложении клиента
+              Пороги, правила VIP и оформление. Статус и привилегии действуют один календарный месяц и сбрасываются 1-го числа.
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

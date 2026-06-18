@@ -18,6 +18,8 @@ export interface AdminCard {
   vip?: boolean
   /** Раздел долга в приложении и админке (не зависит от VIP) */
   debtEnabled?: boolean
+  /** Месяц (YYYY-MM), за который действует статус на карте */
+  loyaltyPeriod?: string
 }
 
 export function cardHasDebtSection(card: Pick<AdminCard, 'debtEnabled' | 'debt' | 'debtLimit'>): boolean {
@@ -63,6 +65,7 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     debtEnabled: raw.debtEnabled !== undefined
       ? !!raw.debtEnabled
       : (Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0,
+    loyaltyPeriod: raw.loyaltyPeriod || undefined,
   }
 }
 

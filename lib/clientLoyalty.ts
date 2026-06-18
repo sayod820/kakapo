@@ -1,4 +1,5 @@
 import { suggestLevel, hasEarnedBronze, resolveEffectiveClientLevel, type ClientLevel } from './clientCrm'
+import { isLoyaltyPeriodCurrent, loyaltyPeriodEndsLabel, loyaltyPeriodLabel, currentLoyaltyPeriod } from './loyaltyPeriod'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 
 export type LoyaltyTier = {
@@ -62,6 +63,9 @@ export type LoyaltyProgress = {
   isBasicClient: boolean
   vipSteps: VipStep[]
   vipDoneCount: number
+  period: string
+  periodLabel: string
+  periodEnds: string
 }
 
 function tierIndex(level: ClientLevel): number {
@@ -75,13 +79,16 @@ export function getLoyaltyProgress(
   reviewCount: number,
   storedLevel?: ClientLevel | 'new',
   adminVip?: boolean,
+  storedPeriod?: string,
 ): LoyaltyProgress {
   refreshLoyaltyTiersFromConfig()
   const cfg = loadLoyaltyStatusConfig()
   const vipRules = cfg.vipRules
-  const effectiveLevel = resolveEffectiveClientLevel(spent, orderCount, storedLevel)
+  const period = currentLoyaltyPeriod()
+  const effectiveLevel = resolveEffectiveClientLevel(spent, orderCount, storedLevel, storedPeriod)
+  const adminVipActive = !!adminVip && isLoyaltyPeriodCurrent(storedPeriod)
 
-  const isBasicClient = effectiveLevel === 'basic' && !adminVip
+  const isBasicClient = effectiveLevel === 'basic' && !adminVipActive
 
   const tier = isBasicClient
     ? BASIC_CLIENT_TIER
@@ -138,10 +145,13 @@ export function getLoyaltyProgress(
     nextTier,
     progressPct,
     remaining,
-    isVip: !!adminVip || autoVip,
+    isVip: adminVipActive || autoVip,
     isBasicClient,
     vipSteps,
-    vipDoneCount: adminVip ? vipSteps.length : vipSteps.filter(s => s.done).length,
+    vipDoneCount: adminVipActive ? vipSteps.length : vipSteps.filter(s => s.done).length,
+    period,
+    periodLabel: loyaltyPeriodLabel(period),
+    periodEnds: loyaltyPeriodEndsLabel(period),
   }
 }
 

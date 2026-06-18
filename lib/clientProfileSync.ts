@@ -31,6 +31,7 @@ export type CrmStoreUser = {
   debtLimit?: number
   blocked?: boolean
   debtEnabled?: boolean
+  loyaltyPeriod?: string
 }
 
 function loadLocalClients(): AdminClient[] {
@@ -147,6 +148,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
       debtLimit: card.debtLimit ?? base.debtLimit,
     }),
     blocked: card.status === 'blocked' || base.blocked,
+    loyaltyPeriod: card.loyaltyPeriod || base.loyaltyPeriod,
   })
 }
 
@@ -165,6 +167,7 @@ export function crmToStoreUser(c: AdminClient): CrmStoreUser {
     debtLimit: c.debtLimit || 0,
     debtEnabled: !!c.debtEnabled,
     blocked: !!c.blocked,
+    loyaltyPeriod: c.loyaltyPeriod,
   }
 }
 
@@ -233,7 +236,7 @@ export async function fetchCrmStoreUser(phone: string, cardNum?: string): Promis
 }
 
 const SYNC_KEYS: (keyof CrmStoreUser)[] = [
-  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId',
+  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod',
 ]
 
 export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmStoreUser | null | undefined): boolean {
