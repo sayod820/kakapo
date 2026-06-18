@@ -1883,7 +1883,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       try {
         const ph = user?.phone || formatTjPhone(phone);
         if (bonusUsable > 0) await spendBonus(ph, bonusUsable, order.id);
-        if (pay === 'credit' && creditGoods > 0) await chargeCredit(ph, creditGoods, order.id);
+        if (pay === 'credit' && creditGoods > 0) {
+          const names = items.slice(0, 2).map(p => p.name || 'Товар')
+          const itemsSummary = names.length
+            ? `${names.join(', ')}${items.length > 2 ? ` + ещё ${items.length - 2}` : ''}`
+            : undefined
+          await chargeCredit(ph, creditGoods, order.id, { itemsSummary })
+        }
         if (setUser) {
           const fresh = await refreshStoreUserAfterCredit(ph, user?.card);
           if (fresh) {
@@ -2306,7 +2312,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
     </div>
   );
 };
-const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
+const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const apiOrders = useOrders(s => s.orders);
   const { prods, restaurants } = useLiveCatalog();
   const ordersList = useMemo(() => {
@@ -2326,6 +2332,12 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast }) => {
   const [reviewText, setReviewText] = useState("");
   const [showRev, setShowRev] = useState(null);
   const [step, setStep] = useState(1);
+  useEffect(() => {
+    const oid = params?.orderId || params?.id
+    if (!oid) return
+    const o = ordersList.find(x => x.id === oid)
+    if (o) setSelected(o)
+  }, [params?.orderId, params?.id, ordersList])
   useEffect(() => { if (step < 3) { const t = setTimeout(() => setStep(s => s+1), 8000); return () => clearTimeout(t); } }, [step]);
   useEffect(() => {
     if (!user?.phone) {
@@ -3047,7 +3059,7 @@ function VipDebtSection({
   onRepay,
   repayLoading,
   repayErr,
-  onGoOrders,
+  onOpenOrder,
 }: {
   phone?: string
   creditUsed: number
@@ -3055,10 +3067,11 @@ function VipDebtSection({
   onRepay: () => void
   repayLoading: boolean
   repayErr: string
-  onGoOrders: () => void
+  onOpenOrder: (orderId: string) => void
 }) {
   const [tab, setTab] = useState<DebtTab>('all')
   const [histTick, setHistTick] = useState(0)
+  const [payDetail, setPayDetail] = useState<import('@/lib/clientVipCredit').DebtHistoryEntry | null>(null)
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
 
@@ -3074,188 +3087,226 @@ function VipDebtSection({
   }, [history, tab])
 
   const totals = useMemo(() => debtHistoryTotals(history), [history])
+  const available = Math.max(0, creditLimit - creditUsed)
 
-  const tabs: { id: DebtTab; label: string; count: number }[] = [
-    { id: 'all', label: 'Все', count: history.length },
-    { id: 'debt', label: 'В долг', count: history.filter(h => h.type === 'debt').length },
-    { id: 'pay', label: 'Оплаты', count: history.filter(h => h.type === 'pay').length },
+  const tabs: { id: DebtTab; label: string; icon: string }[] = [
+    { id: 'all', label: 'Все', icon: '📋' },
+    { id: 'debt', label: 'Заказы', icon: '🛒' },
+    { id: 'pay', label: 'Оплаты', icon: '✅' },
   ]
 
+  const handleRowClick = (h: import('@/lib/clientVipCredit').DebtHistoryEntry) => {
+    if (h.type === 'debt' && h.orderId) {
+      onOpenOrder(h.orderId)
+      return
+    }
+    if (h.type === 'pay') setPayDetail(h)
+  }
+
   return (
-    <div style={{
-      borderRadius: 22, overflow: 'hidden', marginBottom: 16,
-      background: 'linear-gradient(165deg, rgba(26,16,0,.95) 0%, rgba(12,8,0,.98) 100%)',
-      border: '1.5px solid rgba(255,184,0,.35)',
-      boxShadow: '0 12px 40px rgba(255,184,0,.12), inset 0 1px 0 rgba(255,220,100,.08)',
-    }}>
-      <div style={{ padding: '18px 18px 14px', borderBottom: '1px solid rgba(255,184,0,.15)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: 12,
-              background: 'linear-gradient(135deg, var(--gd2), var(--gd))',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 16px rgba(255,184,0,.35)',
-            }}>
-              <span style={{ fontSize: 20 }}>📒</span>
-            </div>
+    <>
+      <div className="card" style={{ marginBottom: 16, overflow: 'hidden', border: '1px solid rgba(255,184,0,.28)', boxShadow: '0 8px 32px rgba(255,184,0,.08)' }}>
+        {/* Шапка — текущий долг */}
+        <div style={{
+          padding: '18px 16px',
+          background: creditUsed > 0
+            ? 'linear-gradient(135deg, rgba(255,69,69,.12) 0%, rgba(26,16,0,.6) 100%)'
+            : 'linear-gradient(135deg, rgba(31,215,96,.1) 0%, rgba(26,16,0,.5) 100%)',
+          borderBottom: '1px solid var(--b1)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>
-              <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: '#FFD700' }}>Мой долг</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,220,100,.65)', marginTop: 2 }}>История заказов и погашений</div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: .5 }}>
+                {creditUsed > 0 ? 'Сейчас в долгу' : 'Долга нет'}
+              </div>
+              <div className="ub" style={{ fontSize: 32, fontWeight: 900, color: creditUsed > 0 ? '#FF6969' : 'var(--gr)', lineHeight: 1 }}>
+                {creditUsed.toLocaleString()}<span style={{ fontSize: 14, marginLeft: 4, opacity: .8 }}>ЅМ</span>
+              </div>
+              {creditLimit > 0 && (
+                <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 6 }}>
+                  Доступно ещё <span style={{ color: 'var(--gr)', fontWeight: 700 }}>{available.toLocaleString()} ЅМ</span> из {creditLimit.toLocaleString()} ЅМ
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 2 }}>Всего взято</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#FF9090' }}>{totals.borrowed.toLocaleString()} ЅМ</div>
+              <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 8, marginBottom: 2 }}>Погашено</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--gr)' }}>{totals.repaid.toLocaleString()} ЅМ</div>
             </div>
           </div>
-          {creditUsed > 0 && (
-            <div style={{
-              padding: '6px 11px', borderRadius: 10,
-              background: 'rgba(255,69,69,.12)', border: '1px solid rgba(255,69,69,.35)',
-            }}>
-              <div style={{ fontSize: 9, color: 'rgba(255,150,150,.8)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5 }}>Сейчас</div>
-              <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: '#FF6969' }}>{creditUsed.toLocaleString()} ЅМ</div>
-            </div>
-          )}
-        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-          <div style={{ padding: '11px 12px', borderRadius: 14, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.2)' }}>
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 3 }}>Взято в долг</div>
-            <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#FF8080' }}>{totals.borrowed.toLocaleString()} <span style={{ fontSize: 10 }}>ЅМ</span></div>
-          </div>
-          <div style={{ padding: '11px 12px', borderRadius: 14, background: 'rgba(31,215,96,.08)', border: '1px solid rgba(31,215,96,.22)' }}>
-            <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 3 }}>Погашено</div>
-            <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: 'var(--gr)' }}>{totals.repaid.toLocaleString()} <span style={{ fontSize: 10 }}>ЅМ</span></div>
-          </div>
-        </div>
-
-        {creditLimit > 0 && creditUsed > 0 && (
-          <button
-            onClick={onRepay}
-            disabled={repayLoading}
-            className="btn"
-            style={{
-              width: '100%', marginBottom: 12, padding: '13px', borderRadius: 14,
-              background: 'linear-gradient(135deg, var(--gd2), var(--gd))',
-              color: 'var(--bg)', fontSize: 13, fontWeight: 800,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              boxShadow: '0 6px 24px rgba(255,184,0,.3)',
-              opacity: repayLoading ? 0.7 : 1,
-            }}
-          >
-            <Ic n="card" s={16} c="var(--bg)" />
-            {repayLoading ? 'Обработка…' : `Погасить ${creditUsed.toLocaleString()} ЅМ`}
-          </button>
-        )}
-        {repayErr && (
-          <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--red)', textAlign: 'center' }}>{repayErr}</div>
-        )}
-
-        <div style={{ display: 'flex', gap: 6, background: 'rgba(0,0,0,.35)', borderRadius: 12, padding: 4 }}>
-          {tabs.map(t => (
+          {creditLimit > 0 && creditUsed > 0 && (
             <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
+              onClick={onRepay}
+              disabled={repayLoading}
               className="btn"
               style={{
-                flex: 1, padding: '8px 6px', borderRadius: 9, border: 'none',
-                background: tab === t.id ? 'linear-gradient(135deg, rgba(255,184,0,.25), rgba(255,184,0,.12))' : 'transparent',
-                color: tab === t.id ? '#FFD700' : 'var(--t3)',
-                fontSize: 11, fontWeight: tab === t.id ? 800 : 600,
-                boxShadow: tab === t.id ? 'inset 0 0 0 1px rgba(255,184,0,.35)' : 'none',
+                width: '100%', marginTop: 14, padding: '13px', borderRadius: 14,
+                background: 'linear-gradient(135deg, var(--gd2), var(--gd))',
+                color: 'var(--bg)', fontSize: 14, fontWeight: 800,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                boxShadow: '0 4px 20px rgba(255,184,0,.25)',
+                opacity: repayLoading ? 0.7 : 1,
               }}
             >
-              {t.label}{t.count > 0 ? ` · ${t.count}` : ''}
+              {repayLoading ? 'Обработка…' : `💳 Погасить ${creditUsed.toLocaleString()} ЅМ`}
             </button>
-          ))}
+          )}
+          {repayErr && <div style={{ marginTop: 8, fontSize: 11, color: 'var(--red)', textAlign: 'center' }}>{repayErr}</div>}
+        </div>
+
+        {/* Фильтры */}
+        <div style={{ display: 'flex', gap: 6, padding: '12px 14px', borderBottom: '1px solid var(--b1)' }}>
+          {tabs.map(t => {
+            const count = t.id === 'all' ? history.length : history.filter(h => h.type === (t.id === 'debt' ? 'debt' : 'pay')).length
+            const on = tab === t.id
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className="btn"
+                style={{
+                  flex: 1, padding: '9px 8px', borderRadius: 11, border: 'none',
+                  background: on ? 'rgba(255,184,0,.15)' : 'var(--l3)',
+                  color: on ? 'var(--gd)' : 'var(--t3)',
+                  fontSize: 11, fontWeight: on ? 800 : 600,
+                  boxShadow: on ? 'inset 0 0 0 1px rgba(255,184,0,.35)' : 'none',
+                }}
+              >
+                {t.icon} {t.label}{count > 0 ? ` (${count})` : ''}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Список операций */}
+        <div style={{ padding: '10px 12px 14px' }}>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '24px 12px' }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>{tab === 'pay' ? '✅' : '🛒'}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)', marginBottom: 4 }}>
+                {tab === 'pay' ? 'Оплат пока нет' : tab === 'debt' ? 'Заказов в долг нет' : 'История пуста'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
+                Оформите заказ с оплатой «VIP-кредит» — он появится здесь
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 8, paddingLeft: 4 }}>
+                {tab !== 'pay' ? 'Нажмите на заказ — откроются детали' : 'Нажмите на оплату — подробности'}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {filtered.map((h, i) => {
+                  const isPay = h.type === 'pay'
+                  const clickable = !!(isPay || h.orderId)
+                  return (
+                    <button
+                      key={h.id || i}
+                      type="button"
+                      onClick={() => clickable && handleRowClick(h)}
+                      className="btn"
+                      style={{
+                        width: '100%', textAlign: 'left', padding: '13px 14px', borderRadius: 14,
+                        background: 'var(--l3)', border: `1px solid ${isPay ? 'rgba(31,215,96,.2)' : 'rgba(255,184,0,.18)'}`,
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        cursor: clickable ? 'pointer' : 'default',
+                        opacity: clickable ? 1 : 0.85,
+                        animation: `fadeUp .3s ease ${i * 0.03}s both`,
+                      }}
+                    >
+                      <div style={{
+                        width: 44, height: 44, borderRadius: 13, flexShrink: 0,
+                        background: isPay ? 'rgba(31,215,96,.12)' : 'rgba(255,184,0,.12)',
+                        border: `1px solid ${isPay ? 'rgba(31,215,96,.25)' : 'rgba(255,184,0,.25)'}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+                      }}>
+                        {isPay ? '✅' : '🛒'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
+                            {isPay ? 'Погашение долга' : (h.orderId || 'Заказ в долг')}
+                          </span>
+                          {!isPay && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
+                              background: 'rgba(255,184,0,.15)', color: 'var(--gd)',
+                            }}>VIP</span>
+                          )}
+                        </div>
+                        {h.itemsSummary && (
+                          <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {h.itemsSummary}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 10, color: 'var(--t3)' }}>
+                          {h.date}{h.time ? ` · ${h.time}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div>
+                          <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: isPay ? 'var(--gr)' : '#FF8080' }}>
+                            {isPay ? '+' : '−'}{Math.abs(h.amount).toLocaleString()} ЅМ
+                          </div>
+                          <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
+                            {isPay ? 'оплачено' : 'в долг'}
+                          </div>
+                        </div>
+                        {clickable && <Ic n="arr" s={14} c="var(--t3)" />}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      <div style={{ padding: '8px 14px 16px', maxHeight: 340, overflowY: 'auto' }}>
-        {filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '28px 16px' }}>
-            <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.85 }}>{tab === 'pay' ? '✅' : tab === 'debt' ? '🛒' : '📭'}</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)', marginBottom: 6 }}>
-              {tab === 'pay' ? 'Погашений пока нет' : tab === 'debt' ? 'Заказов в долг пока нет' : 'История пуста'}
+      {/* Детали погашения */}
+      {payDetail && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div onClick={() => setPayDetail(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
+          <div style={{
+            position: 'relative', zIndex: 1, width: '100%', maxWidth: 480,
+            background: 'var(--l1)', borderTop: '1px solid var(--b1)',
+            borderRadius: '24px 24px 0 0', padding: '20px 20px 36px',
+            animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)',
+          }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 18px' }} />
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: 16, margin: '0 auto 12px',
+                background: 'rgba(31,215,96,.12)', border: '1px solid rgba(31,215,96,.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28,
+              }}>✅</div>
+              <div className="ub" style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>Погашение долга</div>
+              <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: 'var(--gr)' }}>
+                +{payDetail.amount.toLocaleString()} ЅМ
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
-              {tab === 'all' && creditLimit > 0
-                ? 'Оформите заказ с оплатой «VIP-кредит» — запись появится здесь автоматически'
-                : 'Здесь сохраняются все операции по VIP-долгу'}
-            </div>
-          </div>
-        ) : (
-          <div style={{ position: 'relative' }}>
-            <div style={{
-              position: 'absolute', left: 15, top: 8, bottom: 8, width: 2,
-              background: 'linear-gradient(180deg, rgba(255,184,0,.5), rgba(255,184,0,.08))',
-              borderRadius: 2,
-            }} />
-            {filtered.map((h, i) => {
-              const isPay = h.type === 'pay'
-              const accent = isPay ? 'var(--gr)' : '#FF8080'
-              const bg = isPay ? 'rgba(31,215,96,.08)' : 'rgba(255,69,69,.06)'
-              const border = isPay ? 'rgba(31,215,96,.22)' : 'rgba(255,69,69,.2)'
-              return (
-                <div
-                  key={h.id || i}
-                  style={{
-                    position: 'relative', marginLeft: 28, marginBottom: i < filtered.length - 1 ? 10 : 0,
-                    padding: '12px 14px', borderRadius: 14,
-                    background: bg, border: `1px solid ${border}`,
-                    animation: `fadeUp .35s cubic-bezier(.16,1,.3,1) ${i * 0.04}s both`,
-                  }}
-                >
-                  <div style={{
-                    position: 'absolute', left: -22, top: 14, width: 12, height: 12, borderRadius: '50%',
-                    background: isPay ? 'var(--gr)' : 'var(--gd)',
-                    border: '2px solid #1a1000',
-                    boxShadow: `0 0 10px ${accent}88`,
-                  }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                        <span style={{
-                          fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 6,
-                          background: isPay ? 'rgba(31,215,96,.15)' : 'rgba(255,184,0,.15)',
-                          color: isPay ? 'var(--gr)' : 'var(--gd)',
-                          textTransform: 'uppercase', letterSpacing: .4,
-                        }}>
-                          {isPay ? '✓ Оплата' : '👑 В долг'}
-                        </span>
-                        {h.orderId && (
-                          <button
-                            type="button"
-                            onClick={onGoOrders}
-                            className="btn"
-                            style={{
-                              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
-                              background: 'rgba(59,142,240,.12)', border: '1px solid rgba(59,142,240,.25)',
-                              color: 'var(--sky)',
-                            }}
-                          >
-                            {h.orderId}
-                          </button>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)' }}>{h.desc}</div>
-                      <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Ic n="clock" s={10} c="var(--t3)" />
-                        {h.date}{h.time ? ` · ${h.time}` : ''}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: accent, lineHeight: 1.1 }}>
-                        {isPay ? '+' : '−'}{Math.abs(h.amount).toLocaleString()}
-                      </div>
-                      <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>ЅМ</div>
-                    </div>
-                  </div>
+            <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
+              {[
+                { l: 'Дата', v: payDetail.date },
+                { l: 'Время', v: payDetail.time || '—' },
+                { l: 'Статус', v: 'Успешно', c: 'var(--gr)' },
+              ].map((row, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < 2 ? '1px solid var(--b1)' : 'none' }}>
+                  <span style={{ fontSize: 12, color: 'var(--t3)' }}>{row.l}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: row.c || 'var(--t1)' }}>{row.v}</span>
                 </div>
-              )
-            })}
+              ))}
+            </div>
+            <button onClick={() => setPayDetail(null)} className="btn" style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontSize: 14, fontWeight: 700 }}>
+              Закрыть
+            </button>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -3421,7 +3472,7 @@ const VIPPage = ({ go, user, setUser }) => {
             onRepay={handleRepayDebt}
             repayLoading={repayLoading}
             repayErr={repayErr}
-            onGoOrders={() => go('orders')}
+            onOpenOrder={(orderId) => go('orders', { orderId })}
           />
         )}
 

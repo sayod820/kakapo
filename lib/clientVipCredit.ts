@@ -29,6 +29,8 @@ export type DebtHistoryEntry = {
   desc: string
   amount: number
   orderId?: string
+  /** Краткое описание состава заказа */
+  itemsSummary?: string
   type: 'debt' | 'pay'
 }
 
@@ -141,7 +143,12 @@ function pushDebtHistory(phone: string, entry: Omit<DebtHistoryEntry, 'id' | 'da
   emitDebtHistoryChange()
 }
 
-export async function chargeCredit(phone: string, amount: number, orderId: string): Promise<number> {
+export async function chargeCredit(
+  phone: string,
+  amount: number,
+  orderId: string,
+  meta?: { itemsSummary?: string },
+): Promise<number> {
   const merged = await findMergedClientByPhone(phone)
   if (!merged) throw new Error('Клиент не найден в CRM')
   const check = canPayWithCredit(
@@ -152,9 +159,10 @@ export async function chargeCredit(phone: string, amount: number, orderId: strin
   const newDebt = Math.round((merged.debt + amount) * 100) / 100
   setDebtOnCard(phone, newDebt)
   pushDebtHistory(phone, {
-    desc: 'Заказ в долг',
+    desc: `Заказ ${orderId}`,
     amount: -amount,
     orderId,
+    itemsSummary: meta?.itemsSummary,
     type: 'debt',
   })
   return newDebt
