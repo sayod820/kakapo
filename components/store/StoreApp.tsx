@@ -3091,6 +3091,29 @@ function DebtSupportBlock({ debt, cardNum }: { debt: number; cardNum?: string })
   )
 }
 
+function VipSupportBlock() {
+  const s = KAKAPO_SUPPORT
+  return (
+    <div style={{ background: 'var(--l2)', border: '1px solid var(--b1)', borderRadius: 18, padding: '18px', marginBottom: 16 }}>
+      <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>📞 Поддержка VIP</div>
+      <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginBottom: 12 }}>
+        Помощь по заказам, бонусам и долгу — без очереди, по телефону или в Telegram.
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <a href={s.phoneTel} className="btn" style={{ flex: 1, padding: '12px 10px', borderRadius: 12, background: 'rgba(31,215,96,.1)', border: '1px solid rgba(31,215,96,.28)', textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+          <Ic n="phone" s={18} c="var(--gr)" />
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--gr)' }}>Позвонить</span>
+        </a>
+        <a href={s.telegram} target="_blank" rel="noopener noreferrer" className="btn" style={{ flex: 1, padding: '12px 10px', borderRadius: 12, background: 'rgba(41,182,246,.1)', border: '1px solid rgba(41,182,246,.28)', textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+          <Ic n="tg" s={18} c="#29B6F6" />
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#29B6F6' }}>Telegram</span>
+        </a>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 10, textAlign: 'center' }}>{s.hours}</div>
+    </div>
+  )
+}
+
 function DebtBottomSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
@@ -3595,7 +3618,7 @@ const VIPPage = ({ go, user, setUser }) => {
     { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
     { e:"💳", title:"Покупки в долг",          desc:creditLimit > 0 ? `Кредитный лимит ${creditLimit.toLocaleString()} ЅМ. Платите потом.` : "Кредитный лимит назначается на уровне Platinum.", color:"var(--gd)" },
     { e:"📦", title:"Резерв товаров",           desc:"Зарезервируй нужные товары — они ждут тебя в магазине.", color:"var(--sky)" },
-    { e:"👑", title:"Личный менеджер",          desc:"Диловар Р. — ваш персональный менеджер. Всегда на связи.", color:"var(--pur)" },
+    { e:"📞", title:"Линия поддержки VIP",      desc:"Помощь по заказам, бонусам и долгу — звонок или Telegram.", color:"var(--sky)" },
     { e:"🎁", title:"Закрытые акции",           desc:"Доступ к эксклюзивным VIP предложениям до публикации.", color:"var(--gr)" },
     { e:"🌿", title:"Бесплатная доставка",      desc:"Доставка всегда бесплатна, независимо от суммы заказа.", color:"#34D399" },
     { e:"⭐", title:"5% кешбэк бонусами",       desc:"Максимальный уровень Platinum — 5% с каждой покупки.", color:"var(--gd)" },
@@ -3746,28 +3769,7 @@ const VIPPage = ({ go, user, setUser }) => {
           </div>
         </div>
 
-        <div style={{ background:"linear-gradient(135deg,#0E0A28,#1A1440)", border:"1px solid rgba(155,109,255,.3)", borderRadius:18, padding:"18px", marginBottom:16 }}>
-          <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>👑 Личный менеджер</div>
-          <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:14 }}>
-            <div style={{ width:54, height:54, borderRadius:16, background:"linear-gradient(135deg,var(--pur),#6B3FD4)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:20, fontWeight:900, color:"white", flexShrink:0 }}>Д</div>
-            <div style={{ flex:1 }}>
-              <div className="ub" style={{ fontSize:14, fontWeight:800 }}>Диловар Рахимов</div>
-              <div style={{ fontSize:11, color:"var(--t2)", marginTop:2 }}>Персональный VIP-менеджер</div>
-              <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:5 }}>
-                <div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>
-                <span style={{ fontSize:10, color:"var(--gr)", fontWeight:700 }}>Онлайн сейчас</span>
-              </div>
-            </div>
-          </div>
-          <div style={{ display:"flex", gap:8 }}>
-            {[{icon:"phone",l:"Позвонить",c:"var(--gr)",bg:"rgba(31,215,96,.1)"},{icon:"tg",l:"Telegram",c:"#29B6F6",bg:"rgba(41,182,246,.1)"},{icon:"msg",l:"Написать",c:"var(--pur)",bg:"rgba(155,109,255,.1)"}].map((b,i) => (
-              <button key={i} className="btn" style={{ flex:1, padding:"10px 8px", borderRadius:12, background:b.bg, border:`1px solid ${b.c}28`, display:"flex", flexDirection:"column", alignItems:"center", gap:5 }}>
-                <Ic n={b.icon} s={18} c={b.c}/>
-                <span style={{ fontSize:10, fontWeight:700, color:b.c }}>{b.l}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <VipSupportBlock />
 
         <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
@@ -3826,7 +3828,7 @@ const AboutPage = ({ go, user }) => {
     { year:"2021", e:"📱", t:"Запуск приложения",          d:"Создали мобильное приложение. Более 5 000 загрузок в первый месяц." },
     { year:"2022", e:"🚀", t:"Служба доставки",             d:"Запустили собственную доставку по всему г. Яван за 45 минут." },
     { year:"2023", e:"🏪", t:"Второй магазин",              d:"Открыли магазин на Центральном рынке. Ассортимент — 5 000 позиций." },
-    { year:"2024", e:"👑", t:"VIP программа",               d:"Запустили клуб лояльности с кредитным лимитом и VIP менеджерами." },
+    { year:"2024", e:"👑", t:"VIP программа",               d:"Запустили клуб лояльности с кредитным лимитом и привилегиями для постоянных клиентов." },
     { year:"2025", e:"✨", t:"Новое приложение",             d:"Полностью переработали платформу — вы в нём прямо сейчас!" },
   ];
 
