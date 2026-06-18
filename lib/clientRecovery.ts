@@ -8,6 +8,7 @@ import { phonesMatch, type AdminClient } from './clientCrm'
 import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { legacyMoveToRecoveryOnServer, legacyRestoreOnServer } from './clientLegacyBackend'
+import { unmarkPhoneDeleted } from './clientTombstones'
 
 export type ClientAccountStatus = 'active' | 'recovery'
 
@@ -105,6 +106,8 @@ export async function restoreClientFromRecovery(clientId: string): Promise<void>
     deletedAt: undefined,
     blocked: false,
   })
+
+  unmarkPhoneDeleted(client.phone)
 
   if (USE_API) {
     try {

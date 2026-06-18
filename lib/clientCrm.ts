@@ -1,6 +1,7 @@
 'use client'
 
 import type { Order } from './types'
+import { isPhoneDeleted } from './clientTombstones'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 
@@ -357,16 +358,21 @@ export function isNewThisMonth(createdAt?: string): boolean {
 
 export function mergeClientsWithOrders(stored: AdminClient[], orders: Order[]): (AdminClient & ClientOrderStats & { lastLabel: string })[] {
   const byPhone = new Map<string, AdminClient>()
-  for (const c of stored) byPhone.set(normalizePhone(c.phone), normalizeClient(c))
+  for (const c of stored) {
+    if (isClientPurged(c)) continue
+    const key = normalizePhone(c.phone)
+    if (!key || isPhoneDeleted(c.phone)) continue
+    byPhone.set(key, normalizeClient(c))
+  }
 
   for (const order of orders) {
     const phone = order.client?.phone || ''
     const key = normalizePhone(phone)
-    if (!key) continue
+    if (!key || isPhoneDeleted(phone)) continue
     if (!byPhone.has(key)) {
       byPhone.set(key, normalizeClient({
         id: `U-${key}`,
-        name: order.client?.name || 'Клиент',
+        name: pickClientDisplayName(order.client?.name),
         phone: order.client?.phone || phone,
         addr: order.client?.addr || '',
         card: '',
@@ -380,7 +386,7 @@ export function mergeClientsWithOrders(stored: AdminClient[], orders: Order[]): 
       }))
     } else {
       const prev = byPhone.get(key)!
-      if (!prev.name && order.client?.name) prev.name = order.client.name
+      prev.name = pickClientDisplayName(prev.name, order.client?.name)
       if (!prev.addr && order.client?.addr) prev.addr = order.client.addr
     }
   }

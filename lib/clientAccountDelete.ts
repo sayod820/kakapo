@@ -9,6 +9,7 @@ import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { moveClientToRecovery } from './clientRecovery'
 import { legacyPurgeClientOnServer } from './clientLegacyBackend'
+import { markPhoneDeleted, isSyntheticOrderClientId } from './clientTombstones'
 import { type StoreUser } from './clientSession'
 import { ACCOUNT_NS, removeAccountJson } from './clientAccountStorage'
 
@@ -53,9 +54,11 @@ function unlinkCardsLocal(linked: AdminCard[]) {
   }))
 }
 
-function removeClientLocal(clientId: string) {
+function removeClientsByPhone(phone: string) {
+  const key = normalizePhone(phone)
+  if (!key) return
   const clientStore = useClientStore.getState()
-  clientStore.setClients(clientStore.clients.filter(c => c.id !== clientId))
+  clientStore.setClients(clientStore.clients.filter(c => normalizePhone(c.phone) !== key))
 }
 
 function isNotFoundError(e: unknown): boolean {
@@ -63,15 +66,37 @@ function isNotFoundError(e: unknown): boolean {
   return /не найден|404|not found/i.test(msg)
 }
 
+async function resolveServerClientId(clientId: string, phone: string): Promise<string | undefined> {
+  const local = findClient(clientId, phone)
+  if (local && !isSyntheticOrderClientId(local.id)) return local.id
+
+  if (USE_API && phone) {
+    try {
+      const remote = await api.getClients()
+      const found = remote.find(c => phonesMatch(c.phone, phone))
+      if (found) return found.id
+    } catch { /* offline */ }
+  }
+
+  if (clientId && !isSyntheticOrderClientId(clientId)) return clientId
+  return undefined
+}
+
 async function remoteDeleteClient(clientId: string, phone: string): Promise<void> {
   if (!USE_API) return
+  const serverId = await resolveServerClientId(clientId, phone)
   try {
-    await api.deleteClient(clientId)
-    return
+    if (serverId) {
+      await api.deleteClient(serverId)
+      return
+    }
+    if (phone) {
+      await api.deleteClientByPhone(phone)
+    }
   } catch (e) {
     if (!phone || !isNotFoundError(e)) throw e
+    await api.deleteClientByPhone(phone)
   }
-  await api.deleteClientByPhone(phone)
 }
 
 /** Полностью удалить клиента из CRM (только админ) */
@@ -80,26 +105,28 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
   hydrateCardStore()
 
   const client = findClient(clientId, phone)
-  const idToDelete = client?.id || clientId
   const targetPhone = phone || client?.phone || ''
-  if (!idToDelete && !targetPhone) throw new Error('Клиент не найден')
+  if (!targetPhone && !clientId) throw new Error('Клиент не найден')
 
   const linkedCards = cardsForClient(client, targetPhone, useCardStore.getState().cards)
 
   unlinkCardsLocal(linkedCards)
-  if (idToDelete) removeClientLocal(idToDelete)
+  if (targetPhone) {
+    removeClientsByPhone(targetPhone)
+    markPhoneDeleted(targetPhone)
+  } else if (clientId) {
+    const clientStore = useClientStore.getState()
+    clientStore.setClients(clientStore.clients.filter(c => c.id !== clientId))
+  }
 
   if (USE_API) {
     try {
-      if (idToDelete) {
-        await remoteDeleteClient(idToDelete, targetPhone)
-      } else if (targetPhone) {
-        await api.deleteClientByPhone(targetPhone)
-      }
+      await remoteDeleteClient(clientId, targetPhone)
     } catch (e) {
       console.error(e)
       try {
-        await legacyPurgeClientOnServer(idToDelete, targetPhone)
+        const serverId = await resolveServerClientId(clientId, targetPhone)
+        await legacyPurgeClientOnServer(serverId || clientId, targetPhone)
       } catch (legacyErr) {
         console.error(legacyErr)
       }
