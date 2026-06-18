@@ -70,6 +70,7 @@ import {
   clientNoteForCard,
   cardLoyaltyFromCard,
 } from '@/lib/clientCardSync'
+import { deleteClientFromCrm } from '@/lib/clientAccountDelete'
 import { loadDebtHistory, subscribeDebtHistory, type DebtHistoryEntry } from '@/lib/clientVipCredit'
 import { loyaltyTierOptions, loadLoyaltyStatusConfig } from '@/lib/loyaltyStatusConfig'
 import CardStatusAdminPanel from '@/components/admin/CardStatusAdminPanel'
@@ -2484,6 +2485,7 @@ function ClientsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<ClientProfileForm>(emptyClientProfileForm());
   const [formErr, setFormErr] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const clients = useMemo(() => mergeClientsWithOrders(stored, apiOrders), [stored, apiOrders]);
 
@@ -2547,6 +2549,21 @@ function ClientsPage() {
     }
     saveClientProfile(editId, form);
     closeModal();
+  };
+
+  const handleDeleteClient = async (c: AdminClient) => {
+    if (!window.confirm(`Удалить клиента «${c.name}» (${c.phone})?\n\nКарта будет отвязана. Это действие нельзя отменить.`)) return;
+    setDeletingId(c.id);
+    try {
+      await deleteClientFromCrm(c.id, c.phone);
+      if (detailId === c.id) setDetailId(null);
+      if (editId === c.id) closeModal();
+    } catch (e) {
+      console.error(e);
+      window.alert('Не удалось удалить клиента. Проверьте связь с сервером.');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const setF = <K extends keyof ClientProfileForm>(key: K, val: ClientProfileForm[K]) =>
@@ -2746,6 +2763,15 @@ function ClientsPage() {
                       <a href={`tel:${c.phone.replace(/\s/g, '')}`} className="ab abg" style={{ padding: '4px 9px', fontSize: 11, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>📱</a>
                       <button onClick={() => setDetailId(c.id)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>👁</button>
                       <button onClick={() => openEdit(c)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>✏️</button>
+                      <button
+                        onClick={() => handleDeleteClient(c)}
+                        disabled={deletingId === c.id}
+                        className="ab abd"
+                        style={{ padding: '4px 9px', fontSize: 11, opacity: deletingId === c.id ? 0.6 : 1 }}
+                        title="Удалить клиента"
+                      >
+                        {deletingId === c.id ? '…' : '🗑'}
+                      </button>
                       <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
                         {c.blocked ? 'Разблок' : 'Блок'}
                       </button>
@@ -2856,9 +2882,17 @@ function ClientsPage() {
                 <strong style={{ color: '#FFB800' }}>Заметка:</strong> {detailClient.note}
               </div>
             )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => { setDetailId(null); openEdit(detailClient); }} className="ab abg" style={{ flex: 1 }}>✏️ Редактировать</button>
-              <a href={`tel:${detailClient.phone.replace(/\s/g, '')}`} className="ab abp" style={{ flex: 1, textDecoration: 'none', textAlign: 'center' }}>📱 Позвонить</a>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => { setDetailId(null); openEdit(detailClient); }} className="ab abg" style={{ flex: 1, minWidth: 120 }}>✏️ Редактировать</button>
+              <a href={`tel:${detailClient.phone.replace(/\s/g, '')}`} className="ab abp" style={{ flex: 1, minWidth: 120, textDecoration: 'none', textAlign: 'center' }}>📱 Позвонить</a>
+              <button
+                onClick={() => handleDeleteClient(detailClient)}
+                disabled={deletingId === detailClient.id}
+                className="ab abd"
+                style={{ flex: 1, minWidth: 120, opacity: deletingId === detailClient.id ? 0.6 : 1 }}
+              >
+                {deletingId === detailClient.id ? 'Удаление…' : '🗑 Удалить'}
+              </button>
             </div>
           </div>
         </div>

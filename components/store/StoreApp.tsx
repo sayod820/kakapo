@@ -2405,15 +2405,18 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
               </div>
               <div style={{ display:"flex", gap:8 }}>
                 <button
+                  type="button"
                   disabled={deleting}
                   onClick={async () => {
                     setDeleting(true);
                     try {
                       await deleteClientAccount(user);
                       setConfirmDelete(false);
+                      setUser?.(null);
                       onLogout?.();
                       showToast?.("Аккаунт удалён");
-                    } catch {
+                    } catch (e) {
+                      console.error(e);
                       showToast?.("Не удалось удалить аккаунт");
                     } finally {
                       setDeleting(false);
@@ -2425,6 +2428,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
                   {deleting ? "Удаление…" : "Да, удалить"}
                 </button>
                 <button
+                  type="button"
                   disabled={deleting}
                   onClick={() => setConfirmDelete(false)}
                   className="btn"
