@@ -1,6 +1,6 @@
 import type { Order } from './types'
 
-export type ClientLevel = 'new' | 'bronze' | 'silver' | 'gold' | 'platinum'
+export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
 export interface AdminClient {
   id: string
@@ -24,6 +24,7 @@ export interface AdminClient {
 }
 
 export const CLIENT_LEVEL_COLORS: Record<ClientLevel, string> = {
+  basic: '#8FB897',
   bronze: '#CD7F32',
   silver: '#C0C0C0',
   gold: '#FFB800',
@@ -31,6 +32,7 @@ export const CLIENT_LEVEL_COLORS: Record<ClientLevel, string> = {
 }
 
 export const CLIENT_LEVEL_OPTIONS: { id: ClientLevel; label: string }[] = [
+  { id: 'basic', label: 'Обычный' },
   { id: 'bronze', label: 'Bronze' },
   { id: 'silver', label: 'Silver' },
   { id: 'gold', label: 'Gold' },
@@ -95,10 +97,13 @@ export function clientProfileFromClient(c: AdminClient): ClientProfileForm {
 }
 
 export function normalizeClient(raw: Partial<AdminClient> & { id: string }): AdminClient {
-  const known = ['new', 'bronze', 'silver', 'gold', 'platinum'] as ClientLevel[]
+  const known = ['basic', 'bronze', 'silver', 'gold', 'platinum'] as ClientLevel[]
+  const legacyBasic = raw.level === 'new' || raw.level === ('' as string)
   const level = known.includes(raw.level as ClientLevel)
     ? (raw.level as ClientLevel)
-    : ((Number(raw.orders) || 0) === 0 && (Number(raw.spent) || 0) === 0 ? 'new' : 'bronze')
+    : legacyBasic || ((Number(raw.orders) || 0) === 0 && (Number(raw.spent) || 0) === 0)
+      ? 'basic'
+      : 'bronze'
   return {
     id: raw.id,
     name: raw.name || '',
@@ -123,11 +128,19 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
   }
 }
 
+/** Минимум покупок для уровня Бронза (ниже — «Обычный клиент», без привилегий) */
+export const BRONZE_MIN_SPENT = 1
+
+export function hasEarnedBronze(spent: number, orderCount: number): boolean {
+  return spent >= BRONZE_MIN_SPENT || orderCount >= 1
+}
+
 export function suggestLevel(spent: number): ClientLevel {
   if (spent >= 3000) return 'platinum'
   if (spent >= 1500) return 'gold'
   if (spent >= 500) return 'silver'
-  return 'bronze'
+  if (spent >= BRONZE_MIN_SPENT) return 'bronze'
+  return 'basic'
 }
 
 export function formatLastActivity(isoOrLabel?: string): string {

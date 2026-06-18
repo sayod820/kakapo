@@ -6,7 +6,7 @@ import { crmToStoreUser, findMergedClientByPhone } from './clientProfileSync'
 export type StoreUser = {
   name: string
   phone: string
-  level: 'new' | 'bronze' | 'silver' | 'gold' | 'platinum'
+  level: 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
   bonus: number
   clientId?: string
   email?: string
@@ -72,7 +72,7 @@ export async function resolveStoreUserByPhone(phone: string, fallbackName?: stri
   return {
     name: fallbackName || 'Клиент',
     phone: formatTjPhone(phone),
-    level: 'new',
+    level: 'basic',
     bonus: 0,
   }
 }

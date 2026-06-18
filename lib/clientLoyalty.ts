@@ -1,4 +1,4 @@
-import { suggestLevel, type ClientLevel } from './clientCrm'
+import { suggestLevel, hasEarnedBronze, BRONZE_MIN_SPENT, type ClientLevel } from './clientCrm'
 
 export type LoyaltyTier = {
   id: ClientLevel
@@ -10,18 +10,19 @@ export type LoyaltyTier = {
   perk: string
 }
 
-export const NEW_CLIENT_TIER: LoyaltyTier = {
-  id: 'new',
-  label: 'Новый клиент',
-  emoji: '✨',
+/** Базовый статус — без привилегий, пока не выполнены условия Бронзы */
+export const BASIC_CLIENT_TIER: LoyaltyTier = {
+  id: 'basic',
+  label: 'Обычный клиент',
+  emoji: '👤',
   minSpent: 0,
-  color: '#1FD760',
+  color: '#8FB897',
   cashback: '—',
-  perk: 'Сделайте первый заказ',
+  perk: 'Привилегий пока нет',
 }
 
 export const LOYALTY_TIERS: LoyaltyTier[] = [
-  { id: 'bronze', label: 'Бронза', emoji: '🥉', minSpent: 0, color: '#CD7F32', cashback: '2%', perk: 'Бонусы за покупки' },
+  { id: 'bronze', label: 'Бронза', emoji: '🥉', minSpent: BRONZE_MIN_SPENT, color: '#CD7F32', cashback: '2%', perk: 'Бонусы за покупки' },
   { id: 'silver', label: 'Серебро', emoji: '🥈', minSpent: 500, color: '#C0C0C0', cashback: '3%', perk: 'Доп. скидки' },
   { id: 'gold', label: 'Золото', emoji: '🥇', minSpent: 1500, color: '#FFB800', cashback: '4%', perk: 'Приоритет сборки' },
   { id: 'platinum', label: 'Platinum', emoji: '💎', minSpent: 3000, color: '#3B8EF0', cashback: '5%', perk: 'Кредитный лимит' },
@@ -48,33 +49,53 @@ export type LoyaltyProgress = {
   progressPct: number
   remaining: number
   isVip: boolean
-  isNewClient: boolean
+  isBasicClient: boolean
   vipSteps: VipStep[]
   vipDoneCount: number
+}
+
+function tierIndex(level: ClientLevel): number {
+  if (level === 'basic') return -1
+  return LOYALTY_TIERS.findIndex(t => t.id === level)
 }
 
 export function getLoyaltyProgress(
   spent: number,
   orderCount: number,
   reviewCount: number,
-  storedLevel?: ClientLevel,
+  storedLevel?: ClientLevel | 'new',
   adminVip?: boolean,
 ): LoyaltyProgress {
-  const bySpent = suggestLevel(spent)
-  let effectiveLevel = bySpent
-  if (storedLevel) {
-    const storedIdx = LOYALTY_TIERS.findIndex(t => t.id === storedLevel)
-    const spentIdx = LOYALTY_TIERS.findIndex(t => t.id === bySpent)
-    if (storedIdx >= 0 && storedIdx > spentIdx) effectiveLevel = storedLevel
+  const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+  const earned = suggestLevel(spent)
+  const earnedBronze = hasEarnedBronze(spent, orderCount)
+
+  let effectiveLevel: ClientLevel = earnedBronze ? earned : 'basic'
+
+  if (normalizedStored && normalizedStored !== 'basic') {
+    const storedIdx = tierIndex(normalizedStored)
+    const earnedIdx = tierIndex(earnedBronze ? earned : 'basic')
+    if (storedIdx >= 0 && storedIdx > earnedIdx) effectiveLevel = normalizedStored
   }
 
-  const tierIdx = LOYALTY_TIERS.findIndex(t => t.id === effectiveLevel)
-  const tier = LOYALTY_TIERS[Math.max(0, tierIdx)] || LOYALTY_TIERS[0]
-  const nextTier = LOYALTY_TIERS[tierIdx + 1] || null
+  if (effectiveLevel === 'bronze' && !earnedBronze) effectiveLevel = 'basic'
+
+  const isBasicClient = effectiveLevel === 'basic' && !adminVip
+
+  const tier = isBasicClient
+    ? BASIC_CLIENT_TIER
+    : LOYALTY_TIERS[Math.max(0, tierIndex(effectiveLevel))] || LOYALTY_TIERS[0]
+
+  const nextTier = isBasicClient
+    ? LOYALTY_TIERS[0]
+    : LOYALTY_TIERS[tierIndex(effectiveLevel) + 1] || null
 
   let progressPct = 100
   let remaining = 0
-  if (nextTier) {
+  if (isBasicClient && nextTier) {
+    progressPct = earnedBronze ? 100 : (orderCount > 0 ? 50 : 0)
+    remaining = earnedBronze ? 0 : Math.max(0, BRONZE_MIN_SPENT - spent)
+  } else if (nextTier) {
     const range = nextTier.minSpent - tier.minSpent
     const done = Math.max(0, spent - tier.minSpent)
     progressPct = range > 0 ? Math.min(100, Math.round((done / range) * 100)) : 0
@@ -116,7 +137,7 @@ export function getLoyaltyProgress(
     progressPct,
     remaining,
     isVip: !!adminVip || autoVip,
-    isNewClient: false,
+    isBasicClient,
     vipSteps,
     vipDoneCount: adminVip ? vipSteps.length : vipSteps.filter(s => s.done).length,
   }

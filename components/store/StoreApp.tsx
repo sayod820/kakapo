@@ -576,7 +576,7 @@ function vipPageShell(isVip: boolean) {
 type TierTheme = { bg: string; border: string; glow: string; accent: string; rail: string }
 
 const TIER_TOP_GLOW: Record<string, string> = {
-  new: 'rgba(31,215,96,.1)',
+  basic: 'rgba(143,184,151,.07)',
   bronze: 'rgba(205,127,50,.11)',
   silver: 'rgba(220,220,230,.09)',
   gold: 'rgba(255,184,0,.1)',
@@ -614,7 +614,7 @@ function profileCardAccent(theme: TierTheme) {
 }
 
 const TIER_THEMES: Record<string, { bg: string; border: string; glow: string; accent: string; rail: string }> = {
-  new:      { bg: 'linear-gradient(145deg,#06100A 0%,#030B05 40%,#091508 100%)', border: 'rgba(31,215,96,.38)', glow: 'rgba(31,215,96,.28)', accent: '#1FD760', rail: 'linear-gradient(90deg,#0F8A3A,#1FD760)' },
+  basic:    { bg: 'linear-gradient(145deg,#0a0e0b 0%,#060a07 40%,#0d120f 100%)', border: 'rgba(143,184,151,.24)', glow: 'rgba(143,184,151,.14)', accent: '#8FB897', rail: 'linear-gradient(90deg,#3D6645,#8FB897)' },
   bronze:   { bg: 'linear-gradient(145deg,#1a1008 0%,#0d0804 40%,#2a1810 100%)', border: 'rgba(205,127,50,.42)', glow: 'rgba(205,127,50,.35)', accent: '#CD7F32', rail: 'linear-gradient(90deg,#8B5A2B,#CD7F32)' },
   silver:   { bg: 'linear-gradient(145deg,#141820 0%,#0a0d12 40%,#1e2430 100%)', border: 'rgba(192,192,192,.38)', glow: 'rgba(220,220,230,.28)', accent: '#D4D4DC', rail: 'linear-gradient(90deg,#888,#E0E0E8)' },
   gold:     { bg: 'linear-gradient(145deg,#1f1600 0%,#120d00 40%,#2e2200 100%)', border: 'rgba(255,184,0,.48)', glow: 'rgba(255,184,0,.38)', accent: '#FFB800', rail: 'linear-gradient(90deg,#B8860B,#FFD700)' },
@@ -631,8 +631,8 @@ function resolveUserVip(user: VipUserLike) {
     const tier = LOYALTY_TIERS.find(t => t.id === user?.level) || LOYALTY_TIERS[0]
     return { isVip, theme, tier, label: 'VIP Elite' }
   }
-  if (user?.level === 'new') {
-    return { isVip: false, theme: TIER_THEMES.new, tier: { id: 'new', label: 'Новый клиент', emoji: '✨', color: '#1FD760' }, label: 'Новый клиент' }
+  if (user?.level === 'basic' || user?.level === 'new') {
+    return { isVip: false, theme: TIER_THEMES.basic, tier: { id: 'basic', label: 'Обычный клиент', emoji: '👤', color: '#8FB897' }, label: 'Обычный клиент' }
   }
   const tier = LOYALTY_TIERS.find(t => t.id === user?.level) || LOYALTY_TIERS[0]
   const theme = TIER_THEMES[user?.level || 'bronze'] || TIER_THEMES.bronze
@@ -642,17 +642,17 @@ function resolveUserVip(user: VipUserLike) {
 function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm' | 'md' | 'lg' }) {
   if (!user) return null
   const { isVip, theme, tier, label } = resolveUserVip(user)
-  const isNew = user.level === 'new' && !isVip
+  const isBasic = (user.level === 'basic' || user.level === 'new') && !isVip
   const sz = size === 'sm' ? { fontSize: 9, padding: '2px 8px' } : size === 'lg' ? { fontSize: 12, padding: '5px 14px' } : { fontSize: 10, padding: '3px 10px' }
   return (
     <span style={{
       ...sz, fontWeight: 800, borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
-      background: isVip ? 'linear-gradient(135deg,rgba(255,184,0,.28),rgba(255,140,0,.12))' : isNew ? 'rgba(31,215,96,.12)' : `${tier.color}18`,
-      color: isVip ? '#FFD700' : isNew ? '#1FD760' : tier.color,
-      border: isVip ? '1px solid rgba(255,184,0,.55)' : isNew ? '1px solid rgba(31,215,96,.35)' : `1px solid ${tier.color}35`,
-      boxShadow: isVip ? '0 0 14px rgba(255,184,0,.3)' : isNew ? '0 0 12px rgba(31,215,96,.2)' : 'none',
+      background: isVip ? 'linear-gradient(135deg,rgba(255,184,0,.28),rgba(255,140,0,.12))' : isBasic ? 'rgba(143,184,151,.1)' : `${tier.color}18`,
+      color: isVip ? '#FFD700' : isBasic ? '#8FB897' : tier.color,
+      border: isVip ? '1px solid rgba(255,184,0,.55)' : isBasic ? '1px solid rgba(143,184,151,.28)' : `1px solid ${tier.color}35`,
+      boxShadow: isVip ? '0 0 14px rgba(255,184,0,.3)' : 'none',
     }}>
-      {isVip ? '👑 VIP' : isNew ? '✨ Новый' : `${tier.emoji} ${label}`}
+      {isVip ? '👑 VIP' : isBasic ? '👤 Обычный' : `${tier.emoji} ${label}`}
     </span>
   )
 }
@@ -706,8 +706,8 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
 }
 
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
-  const { tier, nextTier, progressPct, remaining, spent, isVip, isNewClient, vipSteps, vipDoneCount } = loyalty
-  const theme = isVip ? TIER_THEMES.vip : isNewClient ? TIER_THEMES.new : (TIER_THEMES[tier.id] || TIER_THEMES.bronze)
+  const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount } = loyalty
+  const theme = isVip ? TIER_THEMES.vip : isBasicClient ? TIER_THEMES.basic : (TIER_THEMES[tier.id] || TIER_THEMES.bronze)
   const prevTierRef = useRef(tier.id)
   const [levelFlash, setLevelFlash] = useState<string | null>(null)
 
@@ -801,14 +801,27 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
           </div>
         </div>
 
-        {isNewClient ? (
-          <div style={{
-            fontSize: 11, fontWeight: 700, marginBottom: 14, padding: '10px 12px', borderRadius: 12, lineHeight: 1.55,
-            background: 'rgba(31,215,96,.08)',
-            border: '1px solid rgba(31,215,96,.28)', color: 'var(--t2)',
-          }}>
-            <span style={{ color: theme.accent, fontWeight: 800 }}>✨ Добро пожаловать!</span>
-            {' '}Оформите первый заказ — откроется уровень {LOYALTY_TIERS[0].emoji} {LOYALTY_TIERS[0].label} и начнёт копиться кешбэк.
+        {isBasicClient ? (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{
+              fontSize: 11, fontWeight: 700, marginBottom: 10, padding: '10px 12px', borderRadius: 12, lineHeight: 1.55,
+              background: 'rgba(0,0,0,.2)',
+              border: '1px solid rgba(143,184,151,.2)', color: 'var(--t2)',
+            }}>
+              <span style={{ color: theme.accent, fontWeight: 800 }}>Привилегий пока нет.</span>
+              {' '}Сделайте первый заказ — откроется уровень {LOYALTY_TIERS[0].emoji} {LOYALTY_TIERS[0].label} с бонусами.
+            </div>
+            {nextTier && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--t2)' }}>До {nextTier.emoji} {nextTier.label}</span>
+                  <span className="ub" style={{ fontSize: 10, fontWeight: 800, color: theme.accent }}>{progressPct}%</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: 'rgba(0,0,0,.35)', overflow: 'hidden', border: `1px solid ${theme.border}` }}>
+                  <div style={{ height: '100%', width: `${Math.max(progressPct, 4)}%`, borderRadius: 4, background: theme.rail, transition: 'width .6s ease' }} />
+                </div>
+              </>
+            )}
           </div>
         ) : nextTier && !isVip ? (
           <div style={{ marginBottom: 14 }}>
@@ -850,7 +863,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
           <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
             {LOYALTY_TIERS.map((t, i) => {
               const reached = spent >= t.minSpent
-              const active = (t.id === tier.id && !isVip && !isNewClient)
+              const active = (t.id === tier.id && !isVip && !isBasicClient)
               const vipActive = isVip && i === LOYALTY_TIERS.length - 1
               const nodeColor = vipActive ? TIER_THEMES.vip.accent : (reached ? t.color : 'var(--b2)')
               return (
@@ -2255,14 +2268,14 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
     </div>
   );
 
-  const profileTheme = loyalty.isVip ? TIER_THEMES.vip : loyalty.isNewClient ? TIER_THEMES.new : (TIER_THEMES[loyalty.tier.id] || TIER_THEMES.bronze);
-  const profileTierId = loyalty.isVip ? 'vip' : loyalty.isNewClient ? 'new' : loyalty.tier.id;
+  const profileTheme = loyalty.isVip ? TIER_THEMES.vip : loyalty.isBasicClient ? TIER_THEMES.basic : (TIER_THEMES[loyalty.tier.id] || TIER_THEMES.bronze);
+  const profileTierId = loyalty.isVip ? 'vip' : loyalty.isBasicClient ? 'basic' : loyalty.tier.id;
   const cardAccent = profileCardAccent(profileTheme);
 
   const menuItems = [
     {
       icon: "crown", l: loyalty.isVip ? "VIP профиль" : "VIP программа", c: "var(--gd)", to: "vip",
-      s: loyalty.isVip ? "Привилегии и кредитный лимит" : loyalty.isNewClient ? "Путь к привилегиям VIP" : `Выполнено ${loyalty.vipDoneCount} из 3 условий`,
+      s: loyalty.isVip ? "Привилегии и кредитный лимит" : loyalty.isBasicClient ? "Нет привилегий · путь к VIP" : `Выполнено ${loyalty.vipDoneCount} из 3 условий`,
       badge: loyalty.isVip ? "VIP" : undefined,
     },
     {
