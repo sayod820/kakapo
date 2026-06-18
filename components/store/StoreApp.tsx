@@ -26,7 +26,6 @@ import {
   loadDebtHistory,
   subscribeDebtHistory,
   debtHistoryTotals,
-  repayCredit,
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
@@ -3056,17 +3055,11 @@ function VipDebtSection({
   phone,
   creditUsed,
   creditLimit,
-  onRepay,
-  repayLoading,
-  repayErr,
   onOpenOrder,
 }: {
   phone?: string
   creditUsed: number
   creditLimit: number
-  onRepay: () => void
-  repayLoading: boolean
-  repayErr: string
   onOpenOrder: (orderId: string) => void
 }) {
   const [tab, setTab] = useState<DebtTab>('all')
@@ -3136,24 +3129,21 @@ function VipDebtSection({
             </div>
           </div>
 
-          {creditLimit > 0 && creditUsed > 0 && (
-            <button
-              onClick={onRepay}
-              disabled={repayLoading}
-              className="btn"
-              style={{
-                width: '100%', marginTop: 14, padding: '13px', borderRadius: 14,
-                background: 'linear-gradient(135deg, var(--gd2), var(--gd))',
-                color: 'var(--bg)', fontSize: 14, fontWeight: 800,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                boxShadow: '0 4px 20px rgba(255,184,0,.25)',
-                opacity: repayLoading ? 0.7 : 1,
-              }}
-            >
-              {repayLoading ? 'Обработка…' : `💳 Погасить ${creditUsed.toLocaleString()} ЅМ`}
-            </button>
+          {creditUsed > 0 && (
+            <div style={{
+              marginTop: 14, padding: '11px 13px', borderRadius: 12,
+              background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.22)',
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+            }}>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>🏪</span>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gd)', marginBottom: 3 }}>Погашение только в магазине</div>
+                <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.45 }}>
+                  Долг закрывает кассир или администратор КАКАПО при оплате на месте. Самостоятельно в приложении погасить нельзя.
+                </div>
+              </div>
+            </div>
           )}
-          {repayErr && <div style={{ marginTop: 8, fontSize: 11, color: 'var(--red)', textAlign: 'center' }}>{repayErr}</div>}
         </div>
 
         {/* Фильтры */}
@@ -3228,7 +3218,7 @@ function VipDebtSection({
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                           <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
-                            {isPay ? 'Погашение долга' : (h.orderId || 'Заказ в долг')}
+                            {isPay ? (h.desc || 'Оплата в магазине') : (h.orderId || 'Заказ в долг')}
                           </span>
                           {!isPay && (
                             <span style={{
@@ -3283,7 +3273,7 @@ function VipDebtSection({
                 background: 'rgba(31,215,96,.12)', border: '1px solid rgba(31,215,96,.3)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28,
               }}>✅</div>
-              <div className="ub" style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>Погашение долга</div>
+              <div className="ub" style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>{payDetail.desc || 'Оплата в магазине'}</div>
               <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: 'var(--gr)' }}>
                 +{payDetail.amount.toLocaleString()} ЅМ
               </div>
@@ -3312,8 +3302,6 @@ function VipDebtSection({
 
 const VIPPage = ({ go, user, setUser }) => {
   const [reserveModal, setReserveModal] = useState(false);
-  const [repayLoading, setRepayLoading] = useState(false);
-  const [repayErr, setRepayErr] = useState('');
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
@@ -3329,24 +3317,6 @@ const VIPPage = ({ go, user, setUser }) => {
   const cardLabel = user?.card
     ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")
     : "•••• •••• •••• —";
-
-  const handleRepayDebt = async () => {
-    if (!user?.phone || creditUsed <= 0) return;
-    setRepayLoading(true);
-    setRepayErr('');
-    try {
-      await repayCredit(user.phone, creditUsed);
-      const fresh = await refreshStoreUserAfterCredit(user.phone, user.card);
-      if (fresh && setUser) {
-        saveStoreUser({ ...user, ...fresh });
-        setUser({ ...user, ...fresh });
-      }
-    } catch (e) {
-      setRepayErr(e instanceof Error ? e.message : 'Не удалось погасить долг');
-    } finally {
-      setRepayLoading(false);
-    }
-  };
 
   const PERKS = [
     { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
@@ -3469,9 +3439,6 @@ const VIPPage = ({ go, user, setUser }) => {
             phone={user?.phone}
             creditUsed={creditUsed}
             creditLimit={creditLimit}
-            onRepay={handleRepayDebt}
-            repayLoading={repayLoading}
-            repayErr={repayErr}
             onOpenOrder={(orderId) => go('orders', { orderId })}
           />
         )}

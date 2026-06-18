@@ -10,6 +10,7 @@ import {
   clientProfileFromClient,
 } from './clientCrm'
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard } from './cardCrm'
+import { recordStoreDebtRepayment } from './clientVipCredit'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -111,6 +112,8 @@ export function saveCardLoyalty(card: AdminCard, form: CardLoyaltyForm, mode: 'l
     vip: !!form.vip,
   }
 
+  const prevDebt = Math.max(0, Number(card.debt) || 0)
+
   if (!client) {
     client = clientStore.addClient({
       name: 'Клиент',
@@ -147,6 +150,9 @@ export function saveCardLoyalty(card: AdminCard, form: CardLoyaltyForm, mode: 'l
       phone,
       ...loyalty,
     })
+    if (loyalty.debt < prevDebt - 0.001) {
+      recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
+    }
   }
 }
 

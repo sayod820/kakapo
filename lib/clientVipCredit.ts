@@ -168,19 +168,19 @@ export async function chargeCredit(
   return newDebt
 }
 
-export async function repayCredit(phone: string, amount?: number): Promise<number> {
-  const merged = await findMergedClientByPhone(phone)
-  if (!merged) throw new Error('Клиент не найден')
-  const pay = amount != null ? Math.min(merged.debt, Math.max(0, amount)) : merged.debt
-  if (pay <= 0) throw new Error('Долга нет')
-  const newDebt = Math.round((merged.debt - pay) * 100) / 100
-  setDebtOnCard(phone, newDebt)
+export function recordStoreDebtRepayment(phone: string, amount: number): void {
+  const pay = Math.max(0, Math.round(amount * 100) / 100)
+  if (!phone.trim() || pay <= 0) return
   pushDebtHistory(phone, {
-    desc: 'Погашение долга',
+    desc: 'Оплата в магазине',
     amount: pay,
     type: 'pay',
   })
-  return newDebt
+}
+
+/** Клиент не погашает долг сам — только через магазин (админ → Карты). */
+export async function repayCredit(_phone: string, _amount?: number): Promise<number> {
+  throw new Error('Погашение долга доступно только в магазине КАКАПО')
 }
 
 export async function spendBonus(phone: string, amount: number, orderId: string): Promise<number> {
