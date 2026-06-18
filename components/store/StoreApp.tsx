@@ -135,7 +135,7 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
   color:#1a1000!important;
   box-shadow:0 4px 18px rgba(255,184,0,.35)!important;
 }
-.store-vip [data-store-page]{background:transparent!important;}
+.store-vip [data-store-page]:not([data-profile-tier]){background:transparent!important;}
 .store-vip header[data-store-header],.store-vip [data-store-header]{
   background:rgba(10,8,2,.96)!important;
   border-bottom-color:rgba(255,184,0,.3)!important;
@@ -570,6 +570,45 @@ function vipPageShell(isVip: boolean) {
     background: isVip
       ? 'radial-gradient(ellipse 100% 35% at 50% 0%, rgba(255,184,0,.09) 0%, transparent 50%), var(--bg)'
       : 'var(--bg)',
+  }
+}
+
+type TierTheme = { bg: string; border: string; glow: string; accent: string; rail: string }
+
+const TIER_TOP_GLOW: Record<string, string> = {
+  bronze: 'rgba(205,127,50,.11)',
+  silver: 'rgba(220,220,230,.09)',
+  gold: 'rgba(255,184,0,.1)',
+  platinum: 'rgba(59,142,240,.1)',
+  vip: 'rgba(255,184,0,.12)',
+}
+
+function profilePageShell(theme: TierTheme, tierId: string) {
+  const glow = TIER_TOP_GLOW[tierId] || TIER_TOP_GLOW.bronze
+  return {
+    minHeight: '100vh' as const,
+    maxWidth: 480,
+    margin: '0 auto' as const,
+    background: `radial-gradient(ellipse 100% 38% at 50% -2%, ${glow} 0%, transparent 52%), var(--bg)`,
+  }
+}
+
+function profileHeaderStyle(theme: TierTheme) {
+  return {
+    position: 'sticky' as const,
+    top: 0,
+    zIndex: 100,
+    background: 'rgba(3,11,5,.96)',
+    backdropFilter: 'blur(24px)',
+    borderBottom: `1px solid ${theme.border}`,
+    boxShadow: `0 4px 22px ${theme.glow.replace(/,\s*[\d.]+\)$/, ', 0.12)')}`,
+  }
+}
+
+function profileCardAccent(theme: TierTheme) {
+  return {
+    border: `1.5px solid ${theme.border}`,
+    boxShadow: `0 6px 28px ${theme.glow.replace(/,\s*[\d.]+\)$/, ', 0.14)')}`,
   }
 }
 
@@ -2196,9 +2235,9 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
     </div>
   );
 
-  const lc = loyalty.tier.color;
-  const levelLabel = loyalty.tier.label;
   const profileTheme = loyalty.isVip ? TIER_THEMES.vip : (TIER_THEMES[loyalty.tier.id] || TIER_THEMES.bronze);
+  const profileTierId = loyalty.isVip ? 'vip' : loyalty.tier.id;
+  const cardAccent = profileCardAccent(profileTheme);
 
   const menuItems = [
     {
@@ -2233,10 +2272,10 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
   ];
 
   return (
-    <div data-store-page style={vipPageShell(loyalty.isVip)}>
-      <header style={{ position:"sticky", top:0, zIndex:100, background: loyalty.isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: loyalty.isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: loyalty.isVip ? "0 4px 20px rgba(255,184,0,.08)" : "none" }}>
+    <div data-store-page data-profile-tier={profileTierId} style={profilePageShell(profileTheme, profileTierId)}>
+      <header style={profileHeaderStyle(profileTheme)}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900, color: loyalty.isVip ? "#FFD700" : undefined }}>Профиль</div>
+          <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900, color: profileTheme.accent }}>Профиль</div>
           <button onClick={() => go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="bell" s={17} c="var(--t2)"/>
             {unreadNotifs > 0 && (
@@ -2253,7 +2292,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
           padding:"16px", marginBottom:14,
           background: profileTheme.bg,
           border: `1.5px solid ${profileTheme.border}`,
-          boxShadow: loyalty.isVip ? `0 6px 28px ${profileTheme.glow}` : `0 2px 16px ${profileTheme.glow}`,
+          boxShadow: loyalty.isVip ? `0 6px 28px ${profileTheme.glow}` : `0 4px 22px ${profileTheme.glow}`,
           transition: 'all .4s ease',
         }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
@@ -2296,8 +2335,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
             </div>
           </div>
           <div style={{ display:"flex", gap:8 }}>
-            <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.2)", textAlign:"center" }}>
-              <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--gd)", lineHeight:1.1 }}>{(user.bonus || 0).toLocaleString()}</div>
+            <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:`${profileTheme.accent}14`, border:`1px solid ${profileTheme.border}`, textAlign:"center" }}>
+              <div className="ub" style={{ fontSize:18, fontWeight:900, color:profileTheme.accent, lineHeight:1.1 }}>{(user.bonus || 0).toLocaleString()}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>бонусов</div>
             </div>
             <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center" }}>
@@ -2315,18 +2354,12 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
 
         <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
 
-        <div className="card" style={{
-          marginBottom:12,
-          ...(loyalty.isVip ? {
-            border: '1.5px solid rgba(255,184,0,.32)',
-            boxShadow: '0 6px 28px rgba(255,184,0,.12)',
-          } : {}),
-        }}>
+        <div className="card" style={{ marginBottom:12, ...cardAccent }}>
           {menuItems.map((item, i) => (
             <div
               key={item.to}
               onClick={() => go(item.to)}
-              style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", borderBottom:i < menuItems.length - 1 ? "1px solid var(--b1)" : "none", cursor:"pointer" }}
+              style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", borderBottom:i < menuItems.length - 1 ? `1px solid ${profileTheme.border}` : "none", cursor:"pointer" }}
             >
               <div style={{ width:34, height:34, borderRadius:10, background:`${item.c}14`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                 <Ic n={item.icon} s={16} c={item.c}/>
@@ -2347,7 +2380,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
           ))}
         </div>
 
-        <div className="card">
+        <div className="card" style={cardAccent}>
           <div onClick={() => onLogout?.()} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
             <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.12)", display:"flex", alignItems:"center", justifyContent:"center" }}>
               <Ic n="logout" s={16} c="var(--red)"/>
