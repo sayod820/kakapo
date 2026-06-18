@@ -1,0 +1,21 @@
+# Render Blueprint — backend API (Node.js)
+# Dashboard: New → Blueprint → подключить репозиторий
+# Или: New Web Service → Root Directory = server
+
+services:
+  - type: web
+    name: kakapo-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: "*"
+      # Опционально: Render Disk → mountPath /var/data, затем раскомментировать:
+      # - key: DATA_DIR
+      #   value: /var/data

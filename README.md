@@ -92,13 +92,41 @@ kakapo-next/
 - Порт: `8419`
 - Синхронизация по артикулам KAK-XXXX
 
-## Деплой (Vercel — бесплатно)
+## Деплой: Vercel + Render
 
-```bash
-npm i -g vercel
-vercel login
-vercel --prod
-```
+**Схема:** фронт (Next.js) → **Vercel**, API + WebSocket → **Render** (`server/`).
+
+### 1. Render — backend
+
+1. [render.com](https://render.com) → **New** → **Web Service** → подключить GitHub-репозиторий
+2. **Root Directory:** `server`
+3. **Build Command:** `npm install`
+4. **Start Command:** `npm start`
+5. **Health Check Path:** `/health`
+6. После деплоя скопировать URL, например: `https://kakapo-api.onrender.com`
+
+Или **New → Blueprint** — в репозитории есть `render.yaml`.
+
+### 2. Vercel — frontend
+
+1. [vercel.com](https://vercel.com) → Import репозитория (корень проекта, не `server/`)
+2. **Environment Variables** (Production):
+
+| Переменная | Значение |
+|------------|----------|
+| `NEXT_PUBLIC_USE_API` | `true` |
+| `KAKAPO_BACKEND_URL` | `https://ВАШ-СЕРВИС.onrender.com` |
+| `NEXT_PUBLIC_API_URL` | то же |
+| `NEXT_PUBLIC_WS_URL` | `wss://ВАШ-СЕРВИС.onrender.com` |
+
+3. Deploy. Запросы идут через proxy `/api/kakapo` → Render (см. `next.config.js`).
+
+### Проверка
+
+- API: `https://ВАШ-СЕРВИС.onrender.com/health` → `{"ok":true,...}`
+- Сайт: `https://ваш-проект.vercel.app`
+
+> На бесплатном Render сервис «засыпает» после простоя — первый запрос может занять ~30 сек.
 
 ## Деплой (Hetzner VPS ~$46/год)
 

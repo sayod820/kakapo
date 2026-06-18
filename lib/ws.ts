@@ -3,9 +3,7 @@
 // ════════════════════════════════════════════════
 import { useEffect, useRef, useState } from 'react'
 import { getToken } from './api'
-import { USE_API } from './config'
-
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
+import { USE_API, getWsUrl } from './config'
 
 export type WSRole = 'client' | 'courier' | 'assembler' | 'restaurant' | 'admin'
 
@@ -35,7 +33,7 @@ export function useWebSocket(role: WSRole, onMessage: (msg: WSMessage) => void) 
       const token = getToken() || ''
       let ws: WebSocket
       try {
-        ws = new WebSocket(`${WS_URL}/ws/${role}?token=${token}`)
+        ws = new WebSocket(`${getWsUrl()}/ws/${role}?token=${token}`)
       } catch {
         scheduleReconnect()
         return
