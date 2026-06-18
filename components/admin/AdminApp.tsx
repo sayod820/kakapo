@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { useOrders, useProducts, useRestaurants, USE_API } from '@/lib/store'
 import { mapOrdersForAdmin, ADMIN_STATUS_OPTIONS, adminStatusLabel, buildAdminStatusPatch, COURIER_ASSIGNED_STATUSES } from '@/lib/orderUiMap'
+import { paymentMethodLabel, needsTransferConfirmation, STORE_PAYMENT_REQUISITES } from '@/lib/storePayment'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -417,11 +418,13 @@ function OrderPersonSelect({ value, options, onChange, disabled = false, accent 
   )
 }
 
-function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onAssemblerChange, couriers, assemblers, statusBusy, courierBusy, assemblerBusy }) {
+function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onAssemblerChange, onConfirmPayment, couriers, assemblers, statusBusy, courierBusy, assemblerBusy, paymentBusy }) {
   if (!order) return null
   const st = adminStatusLabel(order.status)
   const showAssembler = order.type === 'market' || order.type === 'mixed'
   const PART_LABELS = { new: 'Новый', assembling: 'Собирается', done: 'Готово', cooking: 'Готовится' }
+  const transferPending = needsTransferConfirmation(order)
+  const payLabel = paymentMethodLabel(order.paymentMethod)
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.72)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e=>e.stopPropagation()} className="ac" style={{ width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', padding:22 }}>
@@ -485,6 +488,35 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
           <div style={{ fontSize:12, color:'#FF8C00', marginBottom:12, fontWeight:700 }}>🍽 {order.rest}</div>
         )}
 
+        <div style={{ marginBottom:14, padding:12, background: transferPending ? 'rgba(255,140,0,.08)' : '#0C1C0F', borderRadius:12, border:`1px solid ${transferPending ? 'rgba(255,140,0,.35)' : '#162B1A'}` }}>
+          <div style={{ fontSize:10, color:'#3D6645', marginBottom:8, fontWeight:700 }}>ОПЛАТА</div>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:700 }}>{payLabel}</div>
+              <div style={{ fontSize:11, color: transferPending ? '#FF8C00' : '#1FD760', marginTop:4, fontWeight:700 }}>
+                {transferPending ? '⏳ Ожидаем перевод' : order.paymentMethod === 'transfer' ? '✓ Перевод подтверждён' : 'При получении / в долг'}
+              </div>
+            </div>
+            <div className="ub" style={{ fontSize:18, fontWeight:900, color:'#1FD760' }}>{order.total} ЅМ</div>
+          </div>
+          {transferPending && (
+            <div style={{ marginTop:10, fontSize:11, color:'#8FB897', lineHeight:1.5 }}>
+              Kaspi: <strong style={{ color:'#EBF5ED' }}>{STORE_PAYMENT_REQUISITES.kaspi}</strong> · {STORE_PAYMENT_REQUISITES.holder}
+            </div>
+          )}
+          {transferPending && onConfirmPayment && (
+            <button
+              type="button"
+              className="btn"
+              disabled={paymentBusy}
+              onClick={() => onConfirmPayment(order)}
+              style={{ marginTop:12, width:'100%', padding:'11px 14px', borderRadius:10, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:13, opacity: paymentBusy ? .7 : 1 }}
+            >
+              {paymentBusy ? '⏳ Сохраняем…' : '✓ Перевод получен — подтвердить'}
+            </button>
+          )}
+        </div>
+
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:10, color:'#3D6645', marginBottom:8, fontWeight:700 }}>СОСТАВ ЗАКАЗА</div>
           <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
@@ -538,6 +570,7 @@ function OrdersPage() {
   const apiOrders = useOrders(s => s.orders);
   const adminPins = useOrders(s => s.orderAdminPins);
   const adminUpdateStatus = useOrders(s => s.adminUpdateStatus);
+  const adminConfirmPayment = useOrders(s => s.adminConfirmPayment);
   const adminAssignCourier = useOrders(s => s.adminAssignCourier);
   const adminAssignAssembler = useOrders(s => s.adminAssignAssembler);
   const couriers = useCourierTeam();
@@ -663,6 +696,19 @@ function OrdersPage() {
       setBusyKey(null);
     }
   };
+  const confirmPayment = async (o) => {
+    if (!needsTransferConfirmation(o)) return;
+    if (!window.confirm(`Подтвердить перевод по заказу ${o.id} на сумму ${o.total} ЅМ?`)) return;
+    setBusyKey(`${o.id}:payment`);
+    try {
+      await adminConfirmPayment(o.id);
+      if (detail?.id === o.id) {
+        setDetail(prev => prev ? { ...prev, paymentStatus: 'confirmed' } : null);
+      }
+    } finally {
+      setBusyKey(null);
+    }
+  };
   return (
     <div>
       {detail && (
@@ -672,11 +718,13 @@ function OrdersPage() {
           onStatusChange={changeStatus}
           onCourierChange={applyCourier}
           onAssemblerChange={applyAssembler}
+          onConfirmPayment={confirmPayment}
           couriers={couriers.filter(c => !c.blocked)}
           assemblers={assemblers.filter(a => !a.blocked)}
           statusBusy={busyKey === `${detail.id}:status`}
           courierBusy={busyKey === `${detail.id}:courier`}
           assemblerBusy={busyKey === `${detail.id}:assembler`}
+          paymentBusy={busyKey === `${detail.id}:payment`}
         />
       )}
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:18}}>
@@ -744,7 +792,7 @@ function OrdersPage() {
                   <td><div style={{fontWeight:600,fontSize:12}}>{o.client}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.phone}</div></td>
                   <td style={{fontSize:10,color:'#8FB897',maxWidth:100}}>{o.addr||'—'}</td>
                   <td style={{fontSize:11,color:'#8FB897',maxWidth:130}}>{o.items}</td>
-                  <td><span className="ub" style={{fontSize:12,fontWeight:800}}>{o.total} ЅМ</span></td>
+                  <td><span className="ub" style={{fontSize:12,fontWeight:800}}>{o.total} ЅМ</span>{needsTransferConfirmation(o) && <div style={{fontSize:9,color:'#FF8C00',fontWeight:700,marginTop:2}}>⏳ перевод</div>}</td>
                   <td style={{fontSize:11,color:o.courier==='—'?'#3D6645':'#3B8EF0',fontWeight:o.courier==='—'?400:700}}>{o.courier}</td>
                   <td style={{fontSize:11,color:o.assembler==='—'?'#3D6645':'#9B6DFF',fontWeight:o.assembler==='—'?400:700}}>{o.assembler}</td>
                   <td>

@@ -1,6 +1,7 @@
 /** Нормализация заказа под KAKAPO API (Render) */
 import { restIdToPickupId } from './pickups'
 import { getRestIdsFromOrder, getMarketItems, inferOrderType } from './orderParts'
+import { initialPaymentStatus } from './storePayment'
 import type { OrderItem } from './types'
 
 export function sanitizeOrderPayload(raw: Record<string, unknown>) {
@@ -57,6 +58,7 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
       ...restIds.map(restIdToPickupId),
     ]
 
+  const payMethod = String(raw.payment_method ?? raw.pay ?? 'cash')
   const payload: Record<string, unknown> = {
     type: orderType,
     items: cleanItems,
@@ -72,8 +74,9 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
     deliveryFeeLocked: Number(raw.deliveryFee) > 0 && raw.deliveryFeeLocked === true,
     pickupIds: pickupIds.length ? pickupIds : ['store'],
     comment: String(raw.comment ?? ''),
-    payment_method: String(raw.payment_method ?? raw.pay ?? 'cash'),
-    pay: String(raw.payment_method ?? raw.pay ?? 'cash'),
+    payment_method: payMethod,
+    pay: payMethod,
+    paymentStatus: raw.paymentStatus ?? initialPaymentStatus(payMethod),
     priority: 'normal',
   }
 

@@ -1,8 +1,15 @@
 import type { Order } from './types'
 import type { DemoCourierOrder } from './demoOrders'
+import {
+  isTransferPayment,
+  isVipCreditPayment,
+  orderPaymentMethod,
+  paymentMethodLabel,
+} from './storePayment'
 
 export type CourierPaymentBreakdown = {
   isCredit: boolean
+  isTransfer: boolean
   products: number
   delivery: number
   credit: number
@@ -10,14 +17,7 @@ export type CourierPaymentBreakdown = {
   payLabel: string
 }
 
-export function orderPaymentMethod(order: Pick<Order, 'payment_method' | 'pay'> | Record<string, unknown>): string {
-  const raw = order as Record<string, unknown>
-  return String(raw.payment_method ?? raw.pay ?? 'cash')
-}
-
-export function isVipCreditOrder(order: Pick<Order, 'payment_method' | 'pay'> | Record<string, unknown>): boolean {
-  return orderPaymentMethod(order) === 'credit'
-}
+export { orderPaymentMethod, isVipCreditPayment as isVipCreditOrder }
 
 /** Сумма товаров в заказе (без доставки) */
 export function orderProductsTotal(order: Pick<Order, 'total' | 'deliveryFee' | 'creditAmount' | 'items'>): number {
@@ -30,7 +30,9 @@ export function resolveCourierPayment(
   order: Pick<Order, 'total' | 'deliveryFee' | 'creditAmount' | 'payment_method' | 'pay'>,
   deliveryFee: number | null,
 ): CourierPaymentBreakdown {
-  const isCredit = isVipCreditOrder(order)
+  const method = orderPaymentMethod(order)
+  const isCredit = isVipCreditPayment(method)
+  const isTransfer = isTransferPayment(method)
   const storedDelivery = Number(order.deliveryFee) || 0
   const delivery = deliveryFee ?? (storedDelivery > 0 ? storedDelivery : null) ?? 0
   const products = orderProductsTotal(order)
@@ -40,6 +42,7 @@ export function resolveCourierPayment(
     const cash = delivery
     return {
       isCredit: true,
+      isTransfer: false,
       products: credit,
       delivery: cash,
       credit,
@@ -48,16 +51,27 @@ export function resolveCourierPayment(
     }
   }
 
+  if (isTransfer) {
+    return {
+      isCredit: false,
+      isTransfer: true,
+      products,
+      delivery,
+      credit: 0,
+      cash: 0,
+      payLabel: 'Перевод',
+    }
+  }
+
   const cash = products + delivery
-  const method = orderPaymentMethod(order)
-  const payLabel = method === 'card' ? 'Картой' : 'Наличными'
   return {
     isCredit: false,
+    isTransfer: false,
     products,
     delivery,
     credit: 0,
     cash,
-    payLabel,
+    payLabel: paymentMethodLabel(method),
   }
 }
 

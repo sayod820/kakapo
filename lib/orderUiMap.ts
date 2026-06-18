@@ -48,6 +48,8 @@ export function mapOrdersForClient(orders: Order[]) {
       bonus: Math.round(order.total * 0.02),
       delivery: order.deliveryFee ?? 0,
       addr: order.client?.addr || '',
+      paymentMethod: order.payment_method ?? order.pay ?? 'cash',
+      paymentStatus: order.paymentStatus,
       restId: order.restId || order.items?.find(it => it.restId)?.restId || '',
       cancelReason: order.status === 'cancelled' ? 'Отменён' : undefined,
       orderType: order.type,
@@ -222,6 +224,7 @@ export function resolveRestaurantName(
 export function mapOrdersForAdmin(orders: Order[], restaurants: RestCatalogEntry[] = []) {
   return orders.map(o => {
     const order = normalizeOrder(o)
+    const payMethod = String(order.payment_method ?? order.pay ?? 'cash')
     return {
       id: order.id,
       type: order.type,
@@ -238,6 +241,8 @@ export function mapOrdersForAdmin(orders: Order[], restaurants: RestCatalogEntry
       })),
       total: order.total,
       deliveryFee: order.deliveryFee,
+      paymentMethod: payMethod,
+      paymentStatus: order.paymentStatus,
       status: o.status ?? order.status,
       courier: order.courier?.name || '—',
       courierPhone: order.courier?.phone || '',
