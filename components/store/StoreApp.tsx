@@ -3162,9 +3162,10 @@ function VipDebtSection({
 
   return (
     <>
-      <div className="card" style={{ marginBottom: 16, overflow: 'hidden', border: '1px solid rgba(255,184,0,.28)', boxShadow: '0 8px 32px rgba(255,184,0,.08)' }}>
+      <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', border: '1px solid rgba(255,184,0,.28)', boxShadow: '0 8px 32px rgba(255,184,0,.08)' }}>
         {/* Шапка — текущий долг */}
         <div style={{
+          flexShrink: 0,
           padding: '18px 16px',
           background: creditUsed > 0
             ? 'linear-gradient(135deg, rgba(255,69,69,.12) 0%, rgba(26,16,0,.6) 100%)'
@@ -3197,7 +3198,7 @@ function VipDebtSection({
         </div>
 
         {/* Фильтры */}
-        <div style={{ display: 'flex', gap: 6, padding: '12px 14px', borderBottom: '1px solid var(--b1)' }}>
+        <div style={{ flexShrink: 0, display: 'flex', gap: 6, padding: '12px 14px', borderBottom: '1px solid var(--b1)' }}>
           {tabs.map(t => {
             const count = t.id === 'all' ? history.length : history.filter(h => h.type === (t.id === 'debt' ? 'debt' : 'pay')).length
             const on = tab === t.id
@@ -3221,8 +3222,16 @@ function VipDebtSection({
           })}
         </div>
 
-        {/* Список операций */}
-        <div style={{ padding: '10px 12px 14px' }}>
+        {/* Список операций — прокрутка только внутри блока */}
+        <div style={{
+          flex: '1 1 auto',
+          minHeight: 0,
+          maxHeight: 'min(380px, 52vh)',
+          overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehavior: 'contain',
+          padding: '10px 12px 14px',
+        }}>
           {filtered.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '24px 12px' }}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>{tab === 'pay' ? '✅' : '🛒'}</div>
