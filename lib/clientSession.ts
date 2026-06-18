@@ -23,6 +23,17 @@ export type StoreUser = {
 const USER_KEY = 'kakapo_store_user'
 const PHONE_KEY = 'kakapo_client_phone'
 
+let sessionEpoch = 0
+
+export function getSessionEpoch(): number {
+  return sessionEpoch
+}
+
+export function bumpSessionEpoch(): number {
+  sessionEpoch += 1
+  return sessionEpoch
+}
+
 export function phoneDigits(v: string) {
   return normalizePhone(v)
 }
@@ -50,13 +61,26 @@ export function loadStoreUser(): StoreUser | null {
   }
 }
 
+export function isClientSessionActive(): boolean {
+  return !!loadStoreUser()
+}
+
+export function clearClientSession() {
+  if (typeof window === 'undefined') return
+  bumpSessionEpoch()
+  try {
+    localStorage.removeItem(USER_KEY)
+    localStorage.removeItem(PHONE_KEY)
+  } catch { /* quota */ }
+}
+
 export function saveStoreUser(user: StoreUser | null) {
   if (typeof window === 'undefined') return
   try {
     if (!user) {
-      localStorage.removeItem(USER_KEY)
-      localStorage.removeItem(PHONE_KEY)
+      clearClientSession()
     } else {
+      bumpSessionEpoch()
       localStorage.setItem(USER_KEY, JSON.stringify(user))
       localStorage.setItem(PHONE_KEY, user.phone.trim())
     }
@@ -80,9 +104,7 @@ export async function resolveStoreUserByPhone(phone: string, fallbackName?: stri
 
 export function getActiveClientPhone(user?: { phone?: string } | null): string {
   if (typeof window === 'undefined') return user?.phone?.trim() || ''
-  try {
-    return user?.phone?.trim() || loadStoreUser()?.phone || localStorage.getItem(PHONE_KEY) || ''
-  } catch {
-    return user?.phone?.trim() || loadStoreUser()?.phone || ''
-  }
+  if (user?.phone?.trim()) return user.phone.trim()
+  const stored = loadStoreUser()
+  return stored?.phone?.trim() || ''
 }

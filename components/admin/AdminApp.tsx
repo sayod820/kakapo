@@ -2561,7 +2561,9 @@ function ClientsPage() {
       if (editId === c.id) closeModal();
     } catch (e) {
       console.error(e);
-      window.alert(e instanceof Error ? e.message : 'Не удалось удалить клиента');
+      setDeleteConfirm(null);
+      const msg = e instanceof Error ? e.message : 'Не удалось удалить клиента';
+      window.alert(msg.length > 180 ? `${msg.slice(0, 180)}…` : msg);
     } finally {
       setDeletingId(null);
     }

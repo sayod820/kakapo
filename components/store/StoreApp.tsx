@@ -16,7 +16,7 @@ import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
 import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
-import { loadStoreUser, saveStoreUser, getActiveClientPhone, formatTjPhone } from "@/lib/clientSession";
+import { loadStoreUser, saveStoreUser, clearClientSession, getActiveClientPhone, formatTjPhone, isClientSessionActive, phoneDigits, getSessionEpoch } from "@/lib/clientSession";
 import { fetchCrmStoreUser, crmStoreUsersEqual } from "@/lib/clientProfileSync";
 import { deleteClientAccount } from "@/lib/clientAccountDelete";
 import {
@@ -36,7 +36,6 @@ import {
 import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
-import { phoneDigits } from "@/lib/clientSession";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS } from "@/lib/clientLoyalty";
@@ -2203,14 +2202,21 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
 
   useEffect(() => {
     if (!user?.phone || !setUser) return
-    fetchCrmStoreUser(user.phone, user.card).then(next => {
-      if (!next) return
+    let cancelled = false
+    const phone = user.phone
+    const card = user.card
+    const epoch = getSessionEpoch()
+    fetchCrmStoreUser(phone, card).then(next => {
+      if (cancelled || getSessionEpoch() !== epoch || !next || !isClientSessionActive()) return
+      const stored = loadStoreUser()
+      if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
       const merged = { ...user, ...next }
       if (!crmStoreUsersEqual(user, merged)) {
         saveStoreUser(merged)
         setUser(merged)
       }
     }).catch(() => {})
+    return () => { cancelled = true }
   }, [user?.phone, user?.card])
 
   useEffect(() => {
@@ -2408,18 +2414,16 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
                   type="button"
                   disabled={deleting}
                   onClick={async () => {
+                    const snapshot = user;
+                    clearClientSession();
+                    setUser?.(null);
+                    setConfirmDelete(false);
                     setDeleting(true);
                     try {
-                      await deleteClientAccount(user);
-                      setConfirmDelete(false);
-                      setUser?.(null);
-                      onLogout?.();
+                      await deleteClientAccount(snapshot);
                       showToast?.("Аккаунт удалён");
                     } catch (e) {
                       console.error(e);
-                      setConfirmDelete(false);
-                      setUser?.(null);
-                      onLogout?.();
                       const msg = e instanceof Error ? e.message : '';
                       showToast?.(msg.includes('Сервер') ? msg : 'Аккаунт удалён локально');
                     } finally {
@@ -7940,6 +7944,7 @@ function KakapoAppInner() {
 
   useEffect(() => {
     if (user) saveStoreUser(user)
+    else clearClientSession()
   }, [user])
 
   useEffect(() => {
@@ -8038,7 +8043,7 @@ function KakapoAppInner() {
   }, []);
 
   const logout = useCallback(() => {
-    saveStoreUser(null);
+    clearClientSession();
     setUser(null);
     setCart({});
     setCartMeta({});

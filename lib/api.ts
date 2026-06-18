@@ -45,6 +45,24 @@ function formatApiError(detail: unknown, status?: number): string {
   return status ? `Ошибка сервера (${status})` : 'Ошибка сервера'
 }
 
+function stripHtmlError(text: string): string {
+  const pre = text.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)
+  if (pre) {
+    const msg = pre[1].replace(/<[^>]+>/g, '').trim()
+    if (/Cannot DELETE/i.test(msg)) {
+      return 'На сервере нет удаления клиентов — обновите backend на Render'
+    }
+    if (/Cannot POST/i.test(msg)) {
+      return 'На сервере нет этого API — обновите backend на Render'
+    }
+    return msg.slice(0, 200)
+  }
+  if (/Cannot DELETE/i.test(text)) {
+    return 'На сервере нет удаления клиентов — обновите backend на Render'
+  }
+  return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
+}
+
 async function parseErrorResponse(res: Response): Promise<string> {
   const text = await res.text()
   if (!text) return formatApiError(null, res.status)
@@ -52,7 +70,8 @@ async function parseErrorResponse(res: Response): Promise<string> {
     const json = JSON.parse(text)
     return formatApiError(json.detail ?? json.message ?? json, res.status) || text.slice(0, 160)
   } catch {
-    return formatApiError(text, res.status) || text.slice(0, 160)
+    const plain = stripHtmlError(text)
+    return formatApiError(plain, res.status) || plain
   }
 }
 
@@ -232,10 +251,13 @@ export const api = {
   updateClient: (id: string, data: Partial<AdminClient>) =>
     request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteClient: (id: string) =>
-    request<{ ok: boolean }>(`/clients/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    request<{ ok: boolean }>(`/clients/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
   deleteClientByPhone: (phone: string) => {
     const digits = (phone || '').replace(/\D/g, '').slice(-9)
-    return request<{ ok: boolean }>(`/clients/by-phone/${encodeURIComponent(digits)}`, { method: 'DELETE' })
+    return request<{ ok: boolean }>('/clients/delete-by-phone', {
+      method: 'POST',
+      body: JSON.stringify({ phone: digits }),
+    })
   },
 
   // ── Точки забора ──

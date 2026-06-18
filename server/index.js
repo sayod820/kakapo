@@ -527,7 +527,12 @@ app.post('/clients', (req, res) => {
 app.patch('/clients/:id', (req, res) => {
   const c = (db.clients || []).find(x => x.id === req.params.id)
   if (!c) return res.status(404).json({ detail: 'Клиент не найден' })
-  Object.assign(c, normalizeClientRow({ ...c, ...req.body, id: c.id }))
+  if (req.body && req.body.purge === true) {
+    removeClientAndUnlinkCards(c)
+    return res.json({ ok: true })
+  }
+  const { purge, ...patch } = req.body || {}
+  Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
   persist()
   res.json(c)
 })
@@ -555,6 +560,23 @@ function removeClientAndUnlinkCards(client) {
   }
   persist()
 }
+
+app.post('/clients/delete-by-phone', (req, res) => {
+  if (!db.clients) db.clients = []
+  const digits = normalizePhoneDigits(req.body?.phone || '')
+  const client = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  removeClientAndUnlinkCards(client)
+  res.json({ ok: true })
+})
+
+app.post('/clients/:id/delete', (req, res) => {
+  if (!db.clients) db.clients = []
+  const client = db.clients.find(x => x.id === req.params.id)
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  removeClientAndUnlinkCards(client)
+  res.json({ ok: true })
+})
 
 app.delete('/clients/by-phone/:phone', (req, res) => {
   if (!db.clients) db.clients = []

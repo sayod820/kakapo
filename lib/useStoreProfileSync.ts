@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { USE_API } from './config'
 import type { StoreUser } from './clientSession'
-import { saveStoreUser } from './clientSession'
+import { saveStoreUser, loadStoreUser, isClientSessionActive, phoneDigits, getSessionEpoch } from './clientSession'
 import {
   CRM_SYNC_BC,
   CRM_SYNC_EVENT,
@@ -23,9 +23,14 @@ export function useStoreProfileSync(
 
   const refresh = useCallback(async () => {
     const phone = userRef.current?.phone
-    if (!phone) return
-    const next = await fetchCrmStoreUser(phone, userRef.current?.card)
-    if (!next) return
+    if (!phone || !isClientSessionActive()) return
+    const epoch = getSessionEpoch()
+    const card = userRef.current?.card
+    const next = await fetchCrmStoreUser(phone, card)
+    if (getSessionEpoch() !== epoch || !next || !isClientSessionActive()) return
+    if (userRef.current?.phone !== phone) return
+    const stored = loadStoreUser()
+    if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
     const cur = userRef.current
     if (cur?.clientId && isClientNamePlaceholder(cur.name) && !isClientNamePlaceholder(next.name)) {
       useClientStore.getState().updateClient(cur.clientId, { name: next.name })

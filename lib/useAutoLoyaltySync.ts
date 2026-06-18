@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import type { Order } from './types'
 import type { StoreUser } from './clientSession'
-import { saveStoreUser } from './clientSession'
+import { saveStoreUser, isClientSessionActive, getSessionEpoch } from './clientSession'
 import {
   loyaltyStatsFromOrders,
   resolveEffectiveClientLevel,
@@ -25,6 +25,7 @@ export function useAutoLoyaltySync(
     const cur = userRef.current
     if (!cur?.phone) return
 
+    const epoch = getSessionEpoch()
     const reset = syncMonthlyLoyaltyReset(cur.phone, cur.card)
     const base = reset
       ? { ...cur, level: 'basic' as const, vip: false, loyaltyPeriod: currentLoyaltyPeriod() }
@@ -41,6 +42,7 @@ export function useAutoLoyaltySync(
         loyaltyPeriod: currentLoyaltyPeriod(),
         ...(reset ? { vip: false } : {}),
       }
+      if (getSessionEpoch() !== epoch || !isClientSessionActive() || userRef.current?.phone !== base.phone) return
       saveStoreUser(next)
       setUser(next)
       return
@@ -48,6 +50,7 @@ export function useAutoLoyaltySync(
 
     if (reset) {
       const next: StoreUser = { ...base, level: 'basic', vip: false, loyaltyPeriod: currentLoyaltyPeriod() }
+      if (getSessionEpoch() !== epoch || !isClientSessionActive() || userRef.current?.phone !== base.phone) return
       saveStoreUser(next)
       setUser(next)
     }

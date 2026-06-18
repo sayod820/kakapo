@@ -7,7 +7,7 @@ import { useClientStore, hydrateClientStore } from './clientStore'
 import { normalizePhone, phonesMatch, type AdminClient } from './clientCrm'
 import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
-import { saveStoreUser, type StoreUser } from './clientSession'
+import { type StoreUser } from './clientSession'
 import { ACCOUNT_NS, removeAccountJson } from './clientAccountStorage'
 
 function findClient(clientId: string, phone?: string): AdminClient | undefined {
@@ -130,8 +130,6 @@ export async function deleteClientAccount(user: StoreUser): Promise<void> {
   for (const ns of Object.values(ACCOUNT_NS)) {
     removeAccountJson(ns, phone)
   }
-  saveStoreUser(null)
-  emitCrmSync()
 
   if (apiError) throw apiError
 }
