@@ -44,7 +44,7 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
   const status = (['active', 'unlinked', 'blocked'] as CardStatus[]).includes(raw.status as CardStatus)
     ? (raw.status as CardStatus)
     : 'unlinked'
-  const level = (['bronze', 'silver', 'gold', 'platinum'] as ClientLevel[]).includes(raw.level as ClientLevel)
+  const level = (['basic', 'bronze', 'silver', 'gold', 'platinum'] as ClientLevel[]).includes(raw.level as ClientLevel)
     ? (raw.level as ClientLevel)
     : ''
   return {
@@ -94,14 +94,14 @@ export type CardLoyaltyForm = {
 }
 
 export function emptyCardLoyaltyForm(): CardLoyaltyForm {
-  return { clientId: '', phone: '', level: 'bronze', debtLimit: 0, bonus: 0, debt: 0, vip: false, debtEnabled: false }
+  return { clientId: '', phone: '', level: 'basic', debtLimit: 0, bonus: 0, debt: 0, vip: false, debtEnabled: false }
 }
 
 export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): CardLoyaltyForm {
   return {
     clientId: client?.id || card.clientId || '',
     phone: card.phone || client?.phone || '',
-    level: (card.level || client?.level || 'bronze') as ClientLevel,
+    level: (card.level || client?.level || 'basic') as ClientLevel,
     debtLimit: card.debtLimit ?? client?.debtLimit ?? 0,
     bonus: card.bonus ?? client?.bonus ?? 0,
     debt: card.debt ?? client?.debt ?? 0,

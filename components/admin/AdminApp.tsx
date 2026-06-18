@@ -71,6 +71,8 @@ import {
   cardLoyaltyFromCard,
 } from '@/lib/clientCardSync'
 import { loadDebtHistory, subscribeDebtHistory, type DebtHistoryEntry } from '@/lib/clientVipCredit'
+import { loyaltyTierOptions, loadLoyaltyStatusConfig } from '@/lib/loyaltyStatusConfig'
+import CardStatusAdminPanel from '@/components/admin/CardStatusAdminPanel'
 import {
   enrichClientsForPush,
   filterClientsBySegment,
@@ -2896,34 +2898,48 @@ function CardVisualMini({ num, level, clientName, status }: { num?: string; leve
 }
 
 function CardLevelPicker({ value, onChange }: { value: ClientLevel; onChange: (v: ClientLevel) => void }) {
-  const icons: Record<ClientLevel, string> = { basic: '👤', bronze: '🥉', silver: '🥈', gold: '🥇', platinum: '💎' };
+  const cfg = loadLoyaltyStatusConfig();
+  const options = loyaltyTierOptions(cfg);
+  const colorOf = (id: ClientLevel) => {
+    if (id === 'basic') return cfg.basic.color;
+    const t = cfg.tiers.find(x => x.id === id);
+    return t?.color || LVC[id] || '#8FB897';
+  };
+  const emojiOf = (id: ClientLevel) => {
+    if (id === 'basic') return cfg.basic.emoji;
+    const t = cfg.tiers.find(x => x.id === id);
+    return t?.emoji || '⭐';
+  };
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
-      {CLIENT_LEVEL_OPTIONS.map(o => (
-        <button
-          key={o.id}
-          type="button"
-          onClick={() => onChange(o.id)}
-          className="ab"
-          style={{
-            padding: '12px 6px',
-            fontSize: 11,
-            fontWeight: 800,
-            color: LVC[o.id],
-            background: value === o.id ? `${LVC[o.id]}28` : '#0C1C0F',
-            border: `2px solid ${value === o.id ? LVC[o.id] : '#1D3822'}`,
-            borderRadius: 12,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 5,
-            transform: value === o.id ? 'scale(1.02)' : 'none',
-          }}
-        >
-          <span style={{ fontSize: 18 }}>{icons[o.id]}</span>
-          {CARD_LEVEL_RU[o.id]}
-        </button>
-      ))}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
+      {options.map(o => {
+        const c = colorOf(o.id);
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onChange(o.id)}
+            className="ab"
+            style={{
+              padding: '12px 4px',
+              fontSize: 10,
+              fontWeight: 800,
+              color: c,
+              background: value === o.id ? `${c}28` : '#0C1C0F',
+              border: `2px solid ${value === o.id ? c : '#1D3822'}`,
+              borderRadius: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 5,
+              transform: value === o.id ? 'scale(1.02)' : 'none',
+            }}
+          >
+            <span style={{ fontSize: 18 }}>{emojiOf(o.id)}</span>
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -3088,6 +3104,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
   const stored = useCards();
   const clients = useClients();
   const { generateCards, unlinkCard, toggleBlock } = useCardStore();
+  const [cardsTab, setCardsTab] = useState<'registry' | 'status'>('registry');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | CardStatus>('all');
   const [detail, setDetail] = useState<AdminCard | null>(null);
@@ -3220,6 +3237,34 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
 
   return (
     <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {[
+          { id: 'registry' as const, l: '💳 Картотека', d: 'Выдача и привязка карт' },
+          { id: 'status' as const, l: '🏅 Статусы', d: 'Уровни, VIP, оформление' },
+        ].map(t => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setCardsTab(t.id)}
+            className="ab"
+            style={{
+              flex: '1 1 200px',
+              padding: '14px 18px',
+              textAlign: 'left',
+              borderRadius: 14,
+              border: cardsTab === t.id ? '2px solid #1FD76055' : '1px solid #162B1A',
+              background: cardsTab === t.id ? 'rgba(31,215,96,.08)' : '#0C1C0F',
+            }}
+          >
+            <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: cardsTab === t.id ? '#1FD760' : '#EBF5ED', marginBottom: 4 }}>{t.l}</div>
+            <div style={{ fontSize: 11, color: '#8FB897' }}>{t.d}</div>
+          </button>
+        ))}
+      </div>
+
+      {cardsTab === 'status' && <CardStatusAdminPanel />}
+
+      {cardsTab === 'registry' && <>
       {/* Статистика — клик фильтрует список */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
         {[
@@ -3307,7 +3352,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
       }}>
         {[
           { n: '1', t: 'Выберите клиента', d: 'Из списка или по телефону' },
-          { n: '2', t: 'Настройте уровень', d: 'Бонусы, лимит долга' },
+          { n: '2', t: 'Бонусы', d: 'Уровень и VIP — во вкладке «Статусы»' },
           { n: '3', t: 'Готово!', d: 'Карта работает в приложении' },
         ].map((step, i) => (
           <div key={step.n} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: '1 1 160px' }}>
@@ -3520,36 +3565,11 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                 )}
               </CardFormSection>
 
-              <CardFormSection title="⭐ Шаг 2 — Уровень и бонусы" subtitle="Можно изменить позже в настройках карты">
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 8, fontWeight: 700 }}>Уровень лояльности</div>
-                  <CardLevelPicker value={linkForm.level} onChange={v => setLF('level', v)} />
-                </div>
+              <CardFormSection title="⭐ Шаг 2 — Бонусы" subtitle="Уровень, VIP и раздел долга — во вкладке «Статусы»">
                 <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
-                    <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>Кредит, бесплатная доставка, привилегии</div>
-                  </div>
-                  <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.2)', fontSize: 11, color: '#8FB897', lineHeight: 1.45 }}>
+                  🏅 Статус клиента (уровень, VIP, долг) настраивается в <button type="button" onClick={() => { setShowCreateLink(false); setCardsTab('status'); }} style={{ background: 'none', border: 'none', color: '#3B8EF0', fontWeight: 800, cursor: 'pointer', padding: 0, fontSize: 11 }}>разделе «Статусы»</button>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, padding: '12px 14px', borderRadius: 12, background: linkForm.debtEnabled ? 'rgba(255,140,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.debtEnabled ? 'rgba(255,140,0,.28)' : '#162B1A'}` }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.debtEnabled ? '#FF8C00' : '#EBF5ED' }}>📒 Раздел долга</div>
-                    <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>Можно включить без VIP · долг и лимит</div>
-                  </div>
-                  <Tog on={linkForm.debtEnabled} set={() => setLF('debtEnabled', !linkForm.debtEnabled)} />
-                </div>
-                {linkForm.debtEnabled && (
-                  <>
-                    <div style={{ marginTop: 10 }}>
-                      <NI lbl="Лимит долга ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      <DebtReadOnly debt={0} />
-                    </div>
-                  </>
-                )}
               </CardFormSection>
 
               {linkErr && (
@@ -3598,38 +3618,19 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                 </div>
               </CardFormSection>
 
-              <CardFormSection title="⭐ Лояльность">
-                <div style={{ marginBottom: 12 }}>
-                  <CardLevelPicker value={linkForm.level} onChange={v => setLF('level', v)} />
-                </div>
+              <CardFormSection title="⭐ Бонусы" subtitle="Уровень, VIP и долг — во вкладке «Статусы»">
                 <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
-                    <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>Включить или отключить VIP вручную</div>
+                {showLink.status !== 'unlinked' && (linkForm.debt > 0 || linkForm.debtEnabled) && (
+                  <div style={{ marginTop: 12 }}>
+                    <DebtReadOnly
+                      debt={Math.max(0, Number(linkForm.debt) || 0)}
+                      onManage={() => { setShowLink(null); setPage('debts'); }}
+                    />
                   </div>
-                  <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, padding: '12px 14px', borderRadius: 12, background: linkForm.debtEnabled ? 'rgba(255,140,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.debtEnabled ? 'rgba(255,140,0,.28)' : '#162B1A'}` }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.debtEnabled ? '#FF8C00' : '#EBF5ED' }}>📒 Раздел долга</div>
-                    <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>Можно включить без VIP · долг и лимит</div>
-                  </div>
-                  <Tog on={linkForm.debtEnabled} set={() => setLF('debtEnabled', !linkForm.debtEnabled)} />
-                </div>
-                {linkForm.debtEnabled && (
-                  <>
-                    <div style={{ marginTop: 10 }}>
-                      <NI lbl="Лимит ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      <DebtReadOnly
-                        debt={Math.max(0, Number(linkForm.debt) || 0)}
-                        onManage={showLink.status !== 'unlinked' ? () => { setShowLink(null); setPage('debts'); } : undefined}
-                      />
-                    </div>
-                  </>
                 )}
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.2)', fontSize: 11, color: '#8FB897', lineHeight: 1.45 }}>
+                  🏅 Статус: <button type="button" onClick={() => { setShowLink(null); setCardsTab('status'); }} style={{ background: 'none', border: 'none', color: '#3B8EF0', fontWeight: 800, cursor: 'pointer', padding: 0, fontSize: 11 }}>вкладка «Статусы»</button>
+                </div>
               </CardFormSection>
 
               {linkErr && (
@@ -3690,6 +3691,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }

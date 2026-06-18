@@ -38,6 +38,7 @@ import { phoneDigits } from "@/lib/clientSession";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS } from "@/lib/clientLoyalty";
+import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig } from "@/lib/loyaltyStatusConfig";
 import {
   getUnreadNotificationCount,
   loadClientNotifications,
@@ -575,17 +576,12 @@ function vipPageShell(isVip: boolean) {
 
 type TierTheme = { bg: string; border: string; glow: string; accent: string; rail: string }
 
-const TIER_TOP_GLOW: Record<string, string> = {
-  basic: 'rgba(143,184,151,.07)',
-  bronze: 'rgba(205,127,50,.11)',
-  silver: 'rgba(220,220,230,.09)',
-  gold: 'rgba(255,184,0,.1)',
-  platinum: 'rgba(59,142,240,.1)',
-  vip: 'rgba(255,184,0,.12)',
+function getTierThemes(): Record<string, TierTheme> {
+  return tierPresentationMap(loadLoyaltyStatusConfig())
 }
 
 function profilePageShell(theme: TierTheme, tierId: string) {
-  const glow = TIER_TOP_GLOW[tierId] || TIER_TOP_GLOW.bronze
+  const glow = tierTopGlowMap(loadLoyaltyStatusConfig())[tierId] || tierTopGlowMap(loadLoyaltyStatusConfig()).bronze
   return {
     minHeight: '100vh' as const,
     maxWidth: 480,
@@ -613,29 +609,22 @@ function profileCardAccent(theme: TierTheme) {
   }
 }
 
-const TIER_THEMES: Record<string, { bg: string; border: string; glow: string; accent: string; rail: string }> = {
-  basic:    { bg: 'linear-gradient(145deg,#0a0e0b 0%,#060a07 40%,#0d120f 100%)', border: 'rgba(143,184,151,.24)', glow: 'rgba(143,184,151,.14)', accent: '#8FB897', rail: 'linear-gradient(90deg,#3D6645,#8FB897)' },
-  bronze:   { bg: 'linear-gradient(145deg,#1a1008 0%,#0d0804 40%,#2a1810 100%)', border: 'rgba(205,127,50,.42)', glow: 'rgba(205,127,50,.35)', accent: '#CD7F32', rail: 'linear-gradient(90deg,#8B5A2B,#CD7F32)' },
-  silver:   { bg: 'linear-gradient(145deg,#141820 0%,#0a0d12 40%,#1e2430 100%)', border: 'rgba(192,192,192,.38)', glow: 'rgba(220,220,230,.28)', accent: '#D4D4DC', rail: 'linear-gradient(90deg,#888,#E0E0E8)' },
-  gold:     { bg: 'linear-gradient(145deg,#1f1600 0%,#120d00 40%,#2e2200 100%)', border: 'rgba(255,184,0,.48)', glow: 'rgba(255,184,0,.38)', accent: '#FFB800', rail: 'linear-gradient(90deg,#B8860B,#FFD700)' },
-  platinum: { bg: 'linear-gradient(145deg,#0a1428 0%,#060e1a 40%,#0f2040 100%)', border: 'rgba(59,142,240,.48)', glow: 'rgba(59,142,240,.38)', accent: '#3B8EF0', rail: 'linear-gradient(90deg,#2563EB,#60A5FA)' },
-  vip:      { bg: 'linear-gradient(145deg,#1a1000 0%,#0a0600 30%,#2a1a00 70%,#1a1000 100%)', border: 'rgba(255,184,0,.65)', glow: 'rgba(255,184,0,.55)', accent: '#FFD700', rail: 'linear-gradient(90deg,#E89E00,#FFE566,#E89E00)' },
-}
-
 type VipUserLike = { level?: string; vip?: boolean; name?: string; bonus?: number; card?: string } | null | undefined
 
 function resolveUserVip(user: VipUserLike) {
+  const themes = getTierThemes()
+  const cfg = loadLoyaltyStatusConfig()
   const isVip = !!user?.vip
   if (isVip) {
-    const theme = TIER_THEMES.vip
+    const theme = themes.vip
     const tier = LOYALTY_TIERS.find(t => t.id === user?.level) || LOYALTY_TIERS[0]
-    return { isVip, theme, tier, label: 'VIP Elite' }
+    return { isVip, theme, tier, label: cfg.vip.label }
   }
   if (user?.level === 'basic' || user?.level === 'new') {
-    return { isVip: false, theme: TIER_THEMES.basic, tier: { id: 'basic', label: 'Обычный клиент', emoji: '👤', color: '#8FB897' }, label: 'Обычный клиент' }
+    return { isVip: false, theme: themes.basic, tier: { id: 'basic', label: cfg.basic.label, emoji: cfg.basic.emoji, color: cfg.basic.color }, label: cfg.basic.label }
   }
   const tier = LOYALTY_TIERS.find(t => t.id === user?.level) || LOYALTY_TIERS[0]
-  const theme = TIER_THEMES[user?.level || 'bronze'] || TIER_THEMES.bronze
+  const theme = themes[user?.level || 'bronze'] || themes.bronze
   return { isVip, theme, tier, label: tier.label }
 }
 
@@ -707,7 +696,8 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
 
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
   const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount } = loyalty
-  const theme = isVip ? TIER_THEMES.vip : isBasicClient ? TIER_THEMES.basic : (TIER_THEMES[tier.id] || TIER_THEMES.bronze)
+  const themes = getTierThemes()
+  const theme = isVip ? themes.vip : isBasicClient ? themes.basic : (themes[tier.id] || themes.bronze)
   const prevTierRef = useRef(tier.id)
   const [levelFlash, setLevelFlash] = useState<string | null>(null)
 
@@ -865,7 +855,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
               const reached = spent >= t.minSpent
               const active = (t.id === tier.id && !isVip && !isBasicClient)
               const vipActive = isVip && i === LOYALTY_TIERS.length - 1
-              const nodeColor = vipActive ? TIER_THEMES.vip.accent : (reached ? t.color : 'var(--b2)')
+              const nodeColor = vipActive ? themes.vip.accent : (reached ? t.color : 'var(--b2)')
               return (
                 <div key={t.id} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
                   <div
@@ -890,7 +880,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                   </div>
                   <div style={{
                     fontSize: 8, fontWeight: active || vipActive ? 900 : 600,
-                    color: active || vipActive ? (vipActive ? TIER_THEMES.vip.accent : t.color) : reached ? 'var(--t2)' : 'var(--t3)',
+                    color: active || vipActive ? (vipActive ? themes.vip.accent : t.color) : reached ? 'var(--t2)' : 'var(--t3)',
                     overflow: 'hidden', textOverflow: 'ellipsis',
                   }}>{t.label}</div>
                   <div style={{ fontSize: 7, color: 'var(--t3)', marginTop: 1 }}>{t.minSpent > 0 ? t.minSpent : '0'}</div>
@@ -2268,7 +2258,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished }) => {
     </div>
   );
 
-  const profileTheme = loyalty.isVip ? TIER_THEMES.vip : loyalty.isBasicClient ? TIER_THEMES.basic : (TIER_THEMES[loyalty.tier.id] || TIER_THEMES.bronze);
+  const profileTheme = (() => { const th = getTierThemes(); return loyalty.isVip ? th.vip : loyalty.isBasicClient ? th.basic : (th[loyalty.tier.id] || th.bronze); })();
   const profileTierId = loyalty.isVip ? 'vip' : loyalty.isBasicClient ? 'basic' : loyalty.tier.id;
   const cardAccent = profileCardAccent(profileTheme);
 
@@ -7895,6 +7885,9 @@ function KakapoAppInner() {
   const [wished, setWished] = useState({});
   const [user,   setUser]   = useState(() => loadStoreUser());
   const [toast,  setToast]  = useState(null);
+  const [, setLoyaltyCfgTick] = useState(0);
+
+  useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
 
   useEffect(() => {
     if (user) saveStoreUser(user)

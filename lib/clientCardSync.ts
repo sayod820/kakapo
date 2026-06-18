@@ -86,7 +86,7 @@ export function saveClientProfile(clientId: string | null, form: ClientProfileFo
     const row = clientStore.addClient({
       ...profilePatch,
       card: '',
-      level: 'bronze',
+      level: 'basic',
       debt: 0,
       bonus: 0,
       debtLimit: 0,

@@ -1,4 +1,7 @@
+'use client'
+
 import type { Order } from './types'
+import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 
 export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
@@ -132,14 +135,20 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
 export const BRONZE_MIN_SPENT = 1
 
 export function hasEarnedBronze(spent: number, orderCount: number): boolean {
-  return spent >= BRONZE_MIN_SPENT || orderCount >= 1
+  const min = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().bronzeMinSpent : BRONZE_MIN_SPENT
+  return spent >= min || orderCount >= 1
 }
 
 export function suggestLevel(spent: number): ClientLevel {
-  if (spent >= 3000) return 'platinum'
-  if (spent >= 1500) return 'gold'
-  if (spent >= 500) return 'silver'
-  if (spent >= BRONZE_MIN_SPENT) return 'bronze'
+  const bronzeMin = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().bronzeMinSpent : BRONZE_MIN_SPENT
+  const tiers = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().tiers : null
+  const platinumMin = tiers?.find(t => t.id === 'platinum')?.minSpent ?? 3000
+  const goldMin = tiers?.find(t => t.id === 'gold')?.minSpent ?? 1500
+  const silverMin = tiers?.find(t => t.id === 'silver')?.minSpent ?? 500
+  if (spent >= platinumMin) return 'platinum'
+  if (spent >= goldMin) return 'gold'
+  if (spent >= silverMin) return 'silver'
+  if (spent >= bronzeMin) return 'bronze'
   return 'basic'
 }
 
