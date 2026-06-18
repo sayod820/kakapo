@@ -327,7 +327,7 @@ function Layout({page,setPage,children,title,subtitle}) {
   );
   const newOrders = orders.filter(o => o.status === 'new').length;
   const debtClients = useMemo(
-    () => mergeCardsWithClients(storedCards, clients).filter(c => c.status === 'active' && c.vip && c.debt > 0).length,
+    () => mergeCardsWithClients(storedCards, clients).filter(c => c.status === 'active' && c.debt > 0).length,
     [storedCards, clients],
   );
   return (
@@ -3528,6 +3528,9 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                   <NI lbl="Лимит долга ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 </div>
+                <div style={{ marginTop: 10 }}>
+                  <DebtReadOnly debt={0} />
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
@@ -3535,11 +3538,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   </div>
                   <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
                 </div>
-                {linkForm.vip && (
-                  <div style={{ marginTop: 10 }}>
-                    <DebtReadOnly debt={0} />
-                  </div>
-                )}
               </CardFormSection>
 
               {linkErr && (
@@ -3596,6 +3594,12 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                   <NI lbl="Лимит ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 </div>
+                <div style={{ marginTop: 10 }}>
+                  <DebtReadOnly
+                    debt={Math.max(0, Number(linkForm.debt) || 0)}
+                    onManage={showLink.status !== 'unlinked' ? () => { setShowLink(null); setPage('debts'); } : undefined}
+                  />
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: linkForm.vip ? '#FFB800' : '#EBF5ED' }}>👑 VIP клиент</div>
@@ -3603,14 +3607,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   </div>
                   <Tog on={linkForm.vip} set={() => setLF('vip', !linkForm.vip)} />
                 </div>
-                {linkForm.vip && (
-                  <div style={{ marginTop: 10 }}>
-                    <DebtReadOnly
-                      debt={Math.max(0, Number(linkForm.debt) || 0)}
-                      onManage={showLink.status !== 'unlinked' ? () => { setShowLink(null); setPage('debts'); } : undefined}
-                    />
-                  </div>
-                )}
               </CardFormSection>
 
               {linkErr && (
@@ -3682,8 +3678,8 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
   const apiOrders = useOrders(s => s.orders);
   const cards = useMemo(() => mergeCardsWithClients(stored, clients), [stored, clients]);
 
-  const creditCards = useMemo(
-    () => cards.filter(c => c.status === 'active' && c.vip),
+  const debtCards = useMemo(
+    () => cards.filter(c => c.status === 'active' && !!(c.phone || c.clientId || c.client)),
     [cards],
   );
 
@@ -3697,14 +3693,14 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
   const [histTick, setHistTick] = useState(0);
 
   const stats = useMemo(() => ({
-    totalDebt: creditCards.reduce((s, c) => s + c.debt, 0),
-    withDebt: creditCards.filter(c => c.debt > 0).length,
-    overLimit: creditCards.filter(c => c.debtLimit > 0 && c.debt > c.debtLimit).length,
-    creditClients: creditCards.length,
-  }), [creditCards]);
+    totalDebt: debtCards.reduce((s, c) => s + c.debt, 0),
+    withDebt: debtCards.filter(c => c.debt > 0).length,
+    overLimit: debtCards.filter(c => c.debtLimit > 0 && c.debt > c.debtLimit).length,
+    allCards: debtCards.length,
+  }), [debtCards]);
 
   const filtered = useMemo(() => {
-    let list = creditCards;
+    let list = debtCards;
     if (filter === 'with_debt') list = list.filter(c => c.debt > 0);
     if (filter === 'over_limit') list = list.filter(c => c.debtLimit > 0 && c.debt > c.debtLimit);
     const q = search.trim().toLowerCase();
@@ -3716,7 +3712,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
       );
     }
     return [...list].sort((a, b) => b.debt - a.debt);
-  }, [creditCards, filter, search]);
+  }, [debtCards, filter, search]);
 
   const creditOrders = useMemo(() => {
     if (!detail?.phone) return [];
@@ -3771,7 +3767,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
           { filter: 'with_debt' as const, l: 'С долгом', v: stats.withDebt, c: '#FF4545', e: '⚠️' },
           { filter: 'with_debt' as const, l: 'Всего долг', v: `${stats.totalDebt.toLocaleString()} ЅМ`, c: '#FF8C00', e: '💰' },
           { filter: 'over_limit' as const, l: 'Превышен лимит', v: stats.overLimit, c: '#FF4545', e: '🚫' },
-          { filter: 'all' as const, l: 'VIP-кредит', v: stats.creditClients, c: '#1FD760', e: '👑' },
+          { filter: 'all' as const, l: 'Все карты', v: stats.allCards, c: '#1FD760', e: '💳' },
         ].map((s, i) => (
           <button
             key={i}
@@ -3799,7 +3795,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
         fontSize: 12, color: '#8FB897', lineHeight: 1.55,
       }}>
         💬 Клиенты погашают долг через <strong style={{ color: '#EBF5ED' }}>поддержку</strong> (звонок / Telegram).
-        После подтверждения оплаты уменьшите долг здесь или в разделе «Карты».
+        После подтверждения оплаты уменьшите долг здесь. VIP не обязателен — долг можно начислить любой активной карте.
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -3816,7 +3812,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
         {[
           { id: 'with_debt' as const, l: 'С долгом' },
           { id: 'over_limit' as const, l: '⚠ Превышен лимит' },
-          { id: 'all' as const, l: 'Все с кредитом' },
+          { id: 'all' as const, l: 'Все карты' },
         ].map(f => (
           <button
             key={f.id}
@@ -3880,8 +3876,10 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
                       <Badge v="Превышен" c="#FF4545" />
                     ) : c.debt > 0 ? (
                       <Badge v="В долгу" c="#FF8C00" />
-                    ) : (
+                    ) : c.debtLimit > 0 ? (
                       <Badge v="Лимит есть" c="#1FD760" />
+                    ) : (
+                      <Badge v="Нет долга" c="#3D6645" />
                     )}
                   </td>
                 </tr>

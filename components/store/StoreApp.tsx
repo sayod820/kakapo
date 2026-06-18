@@ -3548,7 +3548,7 @@ const VIPPage = ({ go, user, setUser }) => {
           )}
         </div>
 
-        {isVip && (
+        {(isVip || creditLimit > 0 || creditUsed > 0) && (
           <VipDebtSection
             phone={user?.phone}
             cardNum={user?.card}
