@@ -139,6 +139,19 @@ export function hasEarnedBronze(spent: number, orderCount: number): boolean {
   return spent >= min || orderCount >= 1
 }
 
+/** Доставленные заказы клиента — только они влияют на статус (отменённые не считаются) */
+export function loyaltyOrdersForClient(orders: Order[], phone: string): Order[] {
+  return orders.filter(o => phonesMatch(o.client?.phone || '', phone) && o.status === 'delivered')
+}
+
+export function loyaltyStatsFromOrders(orders: Order[], phone: string): { orderCount: number; spent: number } {
+  const delivered = loyaltyOrdersForClient(orders, phone)
+  return {
+    orderCount: delivered.length,
+    spent: Math.round(delivered.reduce((s, o) => s + (o.total || 0), 0) * 10) / 10,
+  }
+}
+
 export function suggestLevel(spent: number): ClientLevel {
   const bronzeMin = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().bronzeMinSpent : BRONZE_MIN_SPENT
   const tiers = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().tiers : null
@@ -177,22 +190,24 @@ export type ClientOrderStats = {
 
 export function statsFromOrders(orders: Order[], phone: string): ClientOrderStats {
   const related = orders.filter(o => phonesMatch(o.client?.phone || '', phone))
-  const delivered = related.filter(o => o.status === 'delivered')
+  const delivered = loyaltyOrdersForClient(orders, phone)
+  const active = related.filter(o => o.status !== 'cancelled')
   return {
-    orders: related.length,
+    orders: delivered.length,
     spent: Math.round(delivered.reduce((s, o) => s + (o.total || 0), 0) * 10) / 10,
-    marketOrders: related.filter(o => o.type === 'market').length,
-    restaurantOrders: related.filter(o => o.type === 'restaurant').length,
-    mixedOrders: related.filter(o => o.type === 'mixed').length,
-    lastOrderAt: related[0]?.createdAt,
-    lastAddr: related[0]?.client?.addr,
+    marketOrders: active.filter(o => o.type === 'market').length,
+    restaurantOrders: active.filter(o => o.type === 'restaurant').length,
+    mixedOrders: active.filter(o => o.type === 'mixed').length,
+    lastOrderAt: active[0]?.createdAt,
+    lastAddr: active[0]?.client?.addr,
   }
 }
 
 export function enrichClientWithOrders(client: AdminClient, orders: Order[]): AdminClient & ClientOrderStats & { lastLabel: string } {
   const live = statsFromOrders(orders, client.phone)
-  const spent = Math.max(client.spent, live.spent)
-  const ordersCount = Math.max(client.orders, live.orders)
+  const hasLive = orders.some(o => phonesMatch(o.client?.phone || '', client.phone))
+  const spent = hasLive ? live.spent : Math.max(client.spent, live.spent)
+  const ordersCount = hasLive ? live.orders : Math.max(client.orders, live.orders)
   const level = client.level || suggestLevel(spent)
   const lastLabel = formatLastActivity(live.lastOrderAt || client.lastOrderAt)
   return {

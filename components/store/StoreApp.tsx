@@ -38,6 +38,7 @@ import { phoneDigits } from "@/lib/clientSession";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS } from "@/lib/clientLoyalty";
+import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
 import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig } from "@/lib/loyaltyStatusConfig";
 import {
   getUnreadNotificationCount,
@@ -547,20 +548,34 @@ function ruCount(n: number, one: string, few: string, many: string) {
   return `${n} ${many}`
 }
 
-function countClientSpent(apiOrders: import('@/lib/types').Order[], phone?: string) {
+function clientLoyaltyTotals(apiOrders: import('@/lib/types').Order[], phone?: string) {
+  const stats = loyaltyStatsFromOrders(apiOrders, phone || '')
+  if (USE_API) return stats
   const mine = phoneDigits(phone || '')
-  if (!mine) return 0
-  const add = (list: { id: string; phone?: string; status: string; total?: number }[]) =>
-    list.filter(o => phoneDigits(o.phone || '') === mine && o.status === 'delivered')
-  if (USE_API) {
-    const sum = add(mapOrdersForClient(apiOrders)).reduce((s, o) => s + (o.total || 0), 0)
-    return Math.round(sum * 10) / 10
+  if (!mine) return stats
+  const byId = new Map<string, { delivered: boolean; total: number }>()
+  apiOrders
+    .filter(o => phoneDigits(o.client?.phone || '') === mine)
+    .forEach(o => byId.set(o.id, { delivered: o.status === 'delivered', total: o.total || 0 }))
+  ORDERS_LIST
+    .filter(o => phoneDigits(o.phone || '') === mine)
+    .forEach(o => byId.set(o.id, { delivered: o.status === 'delivered', total: o.total || 0 }))
+  let orderCount = 0
+  let spent = 0
+  for (const v of byId.values()) {
+    if (!v.delivered) continue
+    orderCount++
+    spent += v.total
   }
-  const byId = new Map<string, { total?: number }>()
-  add(mapOrdersForClient(apiOrders)).forEach(o => byId.set(o.id, o))
-  add(ORDERS_LIST).forEach(o => byId.set(o.id, o))
-  const sum = [...byId.values()].reduce((s, o) => s + (o.total || 0), 0)
-  return Math.round(sum * 10) / 10
+  return { orderCount, spent: Math.round(spent * 10) / 10 }
+}
+
+function countClientSpent(apiOrders: import('@/lib/types').Order[], phone?: string) {
+  return clientLoyaltyTotals(apiOrders, phone).spent
+}
+
+function countClientOrders(apiOrders: import('@/lib/types').Order[], phone?: string) {
+  return clientLoyaltyTotals(apiOrders, phone).orderCount
 }
 
 function vipPageShell(isVip: boolean) {
@@ -982,17 +997,6 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
   )
 }
 
-function countClientOrders(apiOrders: import('@/lib/types').Order[], phone?: string) {
-  const mine = phoneDigits(phone || '')
-  if (!mine) return 0
-  const fromApi = mapOrdersForClient(apiOrders).filter(o => phoneDigits(o.phone || '') === mine)
-  if (USE_API) return fromApi.length
-  const demoStatic = ORDERS_LIST.filter(o => phoneDigits(o.phone || '') === mine)
-  const byId = new Map<string, typeof fromApi[0]>()
-  fromApi.forEach(o => byId.set(o.id, o))
-  demoStatic.forEach(o => byId.set(o.id, o))
-  return byId.size
-}
 
 function ClientReviewBlock({ review, orderId, embedded }: { review: Review; orderId?: string; embedded?: boolean }) {
   const hasReply = !!(review.adminReply || review.restReply);
