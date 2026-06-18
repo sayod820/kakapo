@@ -283,6 +283,28 @@ const NI = ({lbl,val,set,ph='',type='text',suf=''}) => (
   </div>
 );
 
+const DebtReadOnly = ({ debt, onManage }: { debt: number; onManage?: () => void }) => (
+  <div>
+    <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Долг ЅМ</div>
+    <div style={{
+      padding: '9px 13px', borderRadius: 10, background: '#08120C', border: '1.5px solid #162B1A',
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+    }}>
+      <span className="ub" style={{ fontSize: 15, fontWeight: 900, color: debt > 0 ? '#FF4545' : '#8FB897' }}>
+        {debt > 0 ? `${debt.toLocaleString()} ЅМ` : '0 ЅМ'}
+      </span>
+      {onManage && (
+        <button type="button" onClick={onManage} className="ab" style={{ padding: '5px 10px', fontSize: 10, fontWeight: 700, background: 'rgba(255,140,0,.12)', border: '1px solid rgba(255,140,0,.28)', color: '#FF8C00' }}>
+          Изменить в «Долги VIP»
+        </button>
+      )}
+    </div>
+    <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6, lineHeight: 1.45 }}>
+      Долг меняется только в разделе «Долги VIP» — добавить или списать с историей.
+    </div>
+  </div>
+);
+
 /* ── NAV ──────────────────────────────────────────── */
 const NAV_GROUPS = [
   {g:'Общее',     items:[{id:'dashboard',icon:'📊',l:'Dashboard'},{id:'orders',icon:'📦',l:'Все заказы'}]},
@@ -3061,7 +3083,7 @@ function ClientSearchPicker({
 }
 
 /* ── КАРТЫ ──────────────────────────────────────── */
-function CardsPage() {
+function CardsPage({ setPage }: { setPage: (p: string) => void }) {
   const stored = useCards();
   const clients = useClients();
   const { generateCards, unlinkCard, toggleBlock } = useCardStore();
@@ -3133,7 +3155,11 @@ function CardsPage() {
   const saveLink = () => {
     if (!showLink) return;
     try {
-      saveCardLoyalty(showLink, linkForm, showLink.status === 'unlinked' ? 'link' : 'edit');
+      const form = {
+        ...linkForm,
+        debt: showLink.status === 'unlinked' ? 0 : Math.max(0, Number(showLink.debt) || 0),
+      };
+      saveCardLoyalty(showLink, form, showLink.status === 'unlinked' ? 'link' : 'edit');
       setShowLink(null);
     } catch (e) {
       setLinkErr(e instanceof Error ? e.message : 'Ошибка сохранения');
@@ -3147,7 +3173,7 @@ function CardsPage() {
       if (!linkForm.clientId && !linkForm.phone.trim()) {
         throw new Error('Выберите клиента из списка');
       }
-      await createAndLinkCard(linkForm);
+      await createAndLinkCard({ ...linkForm, debt: 0 });
       setShowCreateLink(false);
       setLinkForm(emptyCardLoyaltyForm());
       setFilter('active');
@@ -3503,7 +3529,7 @@ function CardsPage() {
                   <NI lbl="Лимит долга ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 </div>
                 <div style={{ marginTop: 10 }}>
-                  <NI lbl="Текущий долг ЅМ" val={String(linkForm.debt)} set={v => setLF('debt', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                  <DebtReadOnly debt={0} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
@@ -3569,7 +3595,10 @@ function CardsPage() {
                   <NI lbl="Лимит ЅМ" val={String(linkForm.debtLimit)} set={v => setLF('debtLimit', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
                 </div>
                 <div style={{ marginTop: 10 }}>
-                  <NI lbl="Долг ЅМ" val={String(linkForm.debt)} set={v => setLF('debt', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+                  <DebtReadOnly
+                    debt={Math.max(0, Number(linkForm.debt) || 0)}
+                    onManage={showLink.status !== 'unlinked' ? () => { setShowLink(null); setPage('debts'); } : undefined}
+                  />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, padding: '12px 14px', borderRadius: 12, background: linkForm.vip ? 'rgba(255,184,0,.08)' : '#0C1C0F', border: `1px solid ${linkForm.vip ? 'rgba(255,184,0,.28)' : '#162B1A'}` }}>
                   <div>
@@ -6296,7 +6325,7 @@ function AdminAppInner() {
       {page==='couriers'   && <CouriersPage/>}
       {page==='assemblers' && <AssemblersPage/>}
       {page==='clients'    && <ClientsPage/>}
-      {page==='cards'      && <CardsPage/>}
+      {page==='cards'      && <CardsPage setPage={setPage}/>}
       {page==='debts'      && <DebtsPage setPage={setPage}/>}
       {page==='push'       && <PushPage/>}
       {page==='banners'    && <BannersPage/>}
