@@ -3137,15 +3137,15 @@ function VipDebtSection({
     return loadDebtHistory(phone).sort((a, b) => (b.ts || 0) - (a.ts || 0))
   }, [phone, creditUsed, histTick])
 
-  const filtered = useMemo(() => {
+  const unpaidOrders = useMemo(
+    () => splitDebtHistoryBySettlement(history, false).unpaid,
+    [history],
+  )
+
+  const historyList = useMemo(() => {
+    if (tab === 'debt') return history.filter(h => h.type === 'debt')
     if (tab === 'pay') return history.filter(h => h.type === 'pay')
     return history
-  }, [history, tab])
-
-  const { unpaid, paid } = useMemo(() => {
-    if (tab === 'pay') return { unpaid: [] as import('@/lib/clientVipCredit').DebtHistoryEntry[], paid: [] as import('@/lib/clientVipCredit').DebtHistoryEntry[] }
-    const src = tab === 'debt' ? history.filter(h => h.type === 'debt') : history
-    return splitDebtHistoryBySettlement(src, tab === 'all')
   }, [history, tab])
 
   const totals = useMemo(() => debtHistoryTotals(history), [history])
@@ -3166,20 +3166,21 @@ function VipDebtSection({
     if (h.type === 'pay') setPayDetail(h)
   }
 
-  const renderHistoryRow = (h: import('@/lib/clientVipCredit').DebtHistoryEntry, i: number, settledDebt = false) => {
+  const renderHistoryRow = (h: import('@/lib/clientVipCredit').DebtHistoryEntry, i: number, mode: 'default' | 'unpaid' = 'default') => {
     const isPay = h.type === 'pay'
     const clickable = !!(isPay || h.orderId)
-    const settled = isPay || settledDebt
+    const unpaid = mode === 'unpaid'
+    const settled = isPay
     return (
       <button
-        key={h.id || `${settled ? 'paid' : 'unpaid'}-${i}`}
+        key={h.id || `${mode}-${i}`}
         type="button"
         onClick={() => clickable && handleRowClick(h)}
         className="btn"
         style={{
           width: '100%', textAlign: 'left', padding: '13px 14px', borderRadius: 14,
-          background: settled ? 'rgba(31,215,96,.06)' : 'var(--l3)',
-          border: `1px solid ${settled ? 'rgba(31,215,96,.22)' : 'rgba(255,69,69,.22)'}`,
+          background: unpaid ? 'var(--l3)' : settled ? 'rgba(31,215,96,.06)' : 'var(--l3)',
+          border: `1px solid ${unpaid ? 'rgba(255,69,69,.28)' : settled ? 'rgba(31,215,96,.22)' : 'rgba(255,184,0,.18)'}`,
           display: 'flex', alignItems: 'center', gap: 12,
           cursor: clickable ? 'pointer' : 'default',
           opacity: clickable ? 1 : 0.85,
@@ -3188,28 +3189,28 @@ function VipDebtSection({
       >
         <div style={{
           width: 44, height: 44, borderRadius: 13, flexShrink: 0,
-          background: settled ? 'rgba(31,215,96,.12)' : 'rgba(255,69,69,.1)',
-          border: `1px solid ${settled ? 'rgba(31,215,96,.25)' : 'rgba(255,69,69,.25)'}`,
+          background: unpaid ? 'rgba(255,69,69,.1)' : settled ? 'rgba(31,215,96,.12)' : 'rgba(255,184,0,.12)',
+          border: `1px solid ${unpaid ? 'rgba(255,69,69,.25)' : settled ? 'rgba(31,215,96,.25)' : 'rgba(255,184,0,.25)'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
         }}>
-          {settled ? '✅' : '🛒'}
+          {unpaid ? '🛒' : settled ? '✅' : '🛒'}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
               {isPay ? (h.desc || 'Погашение через поддержку') : (h.orderId || 'Заказ в долг')}
             </span>
-            {!isPay && !settledDebt && (
+            {unpaid && (
               <span style={{
                 fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
                 background: 'rgba(255,69,69,.15)', color: '#FF8080',
               }}>не оплачен</span>
             )}
-            {!isPay && settledDebt && (
+            {!unpaid && !isPay && (
               <span style={{
                 fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
-                background: 'rgba(31,215,96,.15)', color: 'var(--gr)',
-              }}>оплачен</span>
+                background: 'rgba(255,184,0,.15)', color: 'var(--gd)',
+              }}>VIP</span>
             )}
           </div>
           {h.itemsSummary && (
@@ -3223,11 +3224,11 @@ function VipDebtSection({
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
           <div>
-            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: settled ? 'var(--gr)' : '#FF8080' }}>
+            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: unpaid ? '#FF8080' : settled ? 'var(--gr)' : '#FF8080' }}>
               {isPay ? '+' : '−'}{Math.abs(h.amount).toLocaleString()} ЅМ
             </div>
             <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
-              {settled ? 'оплачено' : 'в долг'}
+              {unpaid ? 'в долг' : settled ? 'оплачено' : 'в долг'}
             </div>
           </div>
           {clickable && <Ic n="arr" s={14} c="var(--t3)" />}
@@ -3236,24 +3237,14 @@ function VipDebtSection({
     )
   }
 
-  const renderSection = (title: string, items: import('@/lib/clientVipCredit').DebtHistoryEntry[], settledDebt: boolean, accent: string) => {
-    if (!items.length) return null
-    return (
-      <div style={{ marginBottom: 12 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 8, padding: '0 4px',
-        }}>
-          <span style={{ fontSize: 11, fontWeight: 800, color: accent, textTransform: 'uppercase', letterSpacing: .4 }}>
-            {title}
-          </span>
-          <span style={{ fontSize: 10, color: 'var(--t3)', fontWeight: 700 }}>{items.length}</span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {items.map((h, i) => renderHistoryRow(h, i, settledDebt))}
-        </div>
-      </div>
-    )
+  const scrollBoxStyle = {
+    flex: '1 1 auto',
+    minHeight: 0,
+    maxHeight: 'min(280px, 40vh)',
+    overflowY: 'auto' as const,
+    WebkitOverflowScrolling: 'touch' as const,
+    overscrollBehavior: 'contain' as const,
+    padding: '10px 12px 14px',
   }
 
   return (
@@ -3292,6 +3283,52 @@ function VipDebtSection({
 
           {creditUsed > 0 && <DebtSupportBlock debt={creditUsed} cardNum={cardNum} />}
         </div>
+      </div>
+
+      {/* Не оплачено — отдельный блок */}
+      <div className="card" style={{
+        marginBottom: 12, display: 'flex', flexDirection: 'column',
+        border: '1px solid rgba(255,69,69,.28)', boxShadow: '0 6px 24px rgba(255,69,69,.06)',
+      }}>
+        <div style={{
+          flexShrink: 0, padding: '14px 16px', borderBottom: '1px solid var(--b1)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#FF8080' }}>⚠ Не оплачено</div>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)' }}>{unpaidOrders.length}</span>
+        </div>
+        <div style={scrollBoxStyle}>
+          {unpaidOrders.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '20px 12px' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--gr)' }}>Все долги оплачены</div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>Активных заказов в долг нет</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 8, paddingLeft: 4 }}>
+                Нажмите на заказ — откроются детали
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {unpaidOrders.map((h, i) => renderHistoryRow(h, i, 'unpaid'))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Вся история — отдельный блок */}
+      <div className="card" style={{
+        marginBottom: 16, display: 'flex', flexDirection: 'column',
+        border: '1px solid rgba(255,184,0,.28)', boxShadow: '0 8px 32px rgba(255,184,0,.08)',
+      }}>
+        <div style={{
+          flexShrink: 0, padding: '14px 16px', borderBottom: '1px solid var(--b1)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: 'var(--gd)' }}>📋 История</div>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)' }}>{history.length}</span>
+        </div>
 
         {/* Фильтры */}
         <div style={{ flexShrink: 0, display: 'flex', gap: 6, padding: '12px 14px', borderBottom: '1px solid var(--b1)' }}>
@@ -3318,55 +3355,27 @@ function VipDebtSection({
           })}
         </div>
 
-        {/* Список операций — прокрутка только внутри блока */}
-        <div style={{
-          flex: '1 1 auto',
-          minHeight: 0,
-          maxHeight: 'min(380px, 52vh)',
-          overflowY: 'auto',
-          WebkitOverflowScrolling: 'touch',
-          overscrollBehavior: 'contain',
-          padding: '10px 12px 14px',
-        }}>
-          {tab === 'pay' ? (
-            filtered.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px 12px' }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)', marginBottom: 4 }}>Оплат пока нет</div>
-                <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
-                  После погашения через поддержку оплата появится здесь
-                </div>
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 8, paddingLeft: 4 }}>
-                  Нажмите на оплату — подробности
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {filtered.map((h, i) => renderHistoryRow(h, i, false))}
-                </div>
-              </>
-            )
-          ) : unpaid.length === 0 && paid.length === 0 ? (
+        <div style={scrollBoxStyle}>
+          {historyList.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '24px 12px' }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>{tab === 'debt' ? '🛒' : '📋'}</div>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>{tab === 'pay' ? '✅' : tab === 'debt' ? '🛒' : '📋'}</div>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)', marginBottom: 4 }}>
-                {tab === 'debt' ? 'Заказов в долг нет' : 'История пуста'}
+                {tab === 'pay' ? 'Оплат пока нет' : tab === 'debt' ? 'Заказов в долг нет' : 'История пуста'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
-                Оформите заказ с оплатой «VIP-кредит» — он появится здесь
+                {tab === 'pay'
+                  ? 'После погашения через поддержку оплата появится здесь'
+                  : 'Оформите заказ с оплатой «VIP-кредит» — он появится здесь'}
               </div>
             </div>
           ) : (
             <>
-              <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 10, paddingLeft: 4 }}>
-                Нажмите на заказ — откроются детали
+              <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 8, paddingLeft: 4 }}>
+                {tab === 'pay' ? 'Нажмите на оплату — подробности' : 'Все операции по порядку'}
               </div>
-              {renderSection('⚠ Не оплачено', unpaid, false, '#FF8080')}
-              {unpaid.length > 0 && paid.length > 0 && (
-                <div style={{ height: 1, background: 'var(--b1)', margin: '4px 0 14px' }} />
-              )}
-              {renderSection('✅ Оплачено', paid, true, 'var(--gr)')}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {historyList.map((h, i) => renderHistoryRow(h, i, 'default'))}
+              </div>
             </>
           )}
         </div>
