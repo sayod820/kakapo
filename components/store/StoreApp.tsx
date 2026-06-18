@@ -24,6 +24,8 @@ import {
   spendBonus,
   getBonusUsable,
   loadDebtHistory,
+  subscribeDebtHistory,
+  debtHistoryTotals,
   repayCredit,
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
@@ -3035,6 +3037,228 @@ const FAQPage = ({ go }) => {
     </div>
   );
 };
+
+type DebtTab = 'all' | 'debt' | 'pay'
+
+function VipDebtSection({
+  phone,
+  creditUsed,
+  creditLimit,
+  onRepay,
+  repayLoading,
+  repayErr,
+  onGoOrders,
+}: {
+  phone?: string
+  creditUsed: number
+  creditLimit: number
+  onRepay: () => void
+  repayLoading: boolean
+  repayErr: string
+  onGoOrders: () => void
+}) {
+  const [tab, setTab] = useState<DebtTab>('all')
+  const [histTick, setHistTick] = useState(0)
+
+  useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
+
+  const history = useMemo(() => {
+    if (!phone) return []
+    return loadDebtHistory(phone).sort((a, b) => (b.ts || 0) - (a.ts || 0))
+  }, [phone, creditUsed, histTick])
+
+  const filtered = useMemo(() => {
+    if (tab === 'debt') return history.filter(h => h.type === 'debt')
+    if (tab === 'pay') return history.filter(h => h.type === 'pay')
+    return history
+  }, [history, tab])
+
+  const totals = useMemo(() => debtHistoryTotals(history), [history])
+
+  const tabs: { id: DebtTab; label: string; count: number }[] = [
+    { id: 'all', label: 'Все', count: history.length },
+    { id: 'debt', label: 'В долг', count: history.filter(h => h.type === 'debt').length },
+    { id: 'pay', label: 'Оплаты', count: history.filter(h => h.type === 'pay').length },
+  ]
+
+  return (
+    <div style={{
+      borderRadius: 22, overflow: 'hidden', marginBottom: 16,
+      background: 'linear-gradient(165deg, rgba(26,16,0,.95) 0%, rgba(12,8,0,.98) 100%)',
+      border: '1.5px solid rgba(255,184,0,.35)',
+      boxShadow: '0 12px 40px rgba(255,184,0,.12), inset 0 1px 0 rgba(255,220,100,.08)',
+    }}>
+      <div style={{ padding: '18px 18px 14px', borderBottom: '1px solid rgba(255,184,0,.15)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 12,
+              background: 'linear-gradient(135deg, var(--gd2), var(--gd))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 16px rgba(255,184,0,.35)',
+            }}>
+              <span style={{ fontSize: 20 }}>📒</span>
+            </div>
+            <div>
+              <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: '#FFD700' }}>Мой долг</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,220,100,.65)', marginTop: 2 }}>История заказов и погашений</div>
+            </div>
+          </div>
+          {creditUsed > 0 && (
+            <div style={{
+              padding: '6px 11px', borderRadius: 10,
+              background: 'rgba(255,69,69,.12)', border: '1px solid rgba(255,69,69,.35)',
+            }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,150,150,.8)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5 }}>Сейчас</div>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: '#FF6969' }}>{creditUsed.toLocaleString()} ЅМ</div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+          <div style={{ padding: '11px 12px', borderRadius: 14, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.2)' }}>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 3 }}>Взято в долг</div>
+            <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#FF8080' }}>{totals.borrowed.toLocaleString()} <span style={{ fontSize: 10 }}>ЅМ</span></div>
+          </div>
+          <div style={{ padding: '11px 12px', borderRadius: 14, background: 'rgba(31,215,96,.08)', border: '1px solid rgba(31,215,96,.22)' }}>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 3 }}>Погашено</div>
+            <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: 'var(--gr)' }}>{totals.repaid.toLocaleString()} <span style={{ fontSize: 10 }}>ЅМ</span></div>
+          </div>
+        </div>
+
+        {creditLimit > 0 && creditUsed > 0 && (
+          <button
+            onClick={onRepay}
+            disabled={repayLoading}
+            className="btn"
+            style={{
+              width: '100%', marginBottom: 12, padding: '13px', borderRadius: 14,
+              background: 'linear-gradient(135deg, var(--gd2), var(--gd))',
+              color: 'var(--bg)', fontSize: 13, fontWeight: 800,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              boxShadow: '0 6px 24px rgba(255,184,0,.3)',
+              opacity: repayLoading ? 0.7 : 1,
+            }}
+          >
+            <Ic n="card" s={16} c="var(--bg)" />
+            {repayLoading ? 'Обработка…' : `Погасить ${creditUsed.toLocaleString()} ЅМ`}
+          </button>
+        )}
+        {repayErr && (
+          <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--red)', textAlign: 'center' }}>{repayErr}</div>
+        )}
+
+        <div style={{ display: 'flex', gap: 6, background: 'rgba(0,0,0,.35)', borderRadius: 12, padding: 4 }}>
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className="btn"
+              style={{
+                flex: 1, padding: '8px 6px', borderRadius: 9, border: 'none',
+                background: tab === t.id ? 'linear-gradient(135deg, rgba(255,184,0,.25), rgba(255,184,0,.12))' : 'transparent',
+                color: tab === t.id ? '#FFD700' : 'var(--t3)',
+                fontSize: 11, fontWeight: tab === t.id ? 800 : 600,
+                boxShadow: tab === t.id ? 'inset 0 0 0 1px rgba(255,184,0,.35)' : 'none',
+              }}
+            >
+              {t.label}{t.count > 0 ? ` · ${t.count}` : ''}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: '8px 14px 16px', maxHeight: 340, overflowY: 'auto' }}>
+        {filtered.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '28px 16px' }}>
+            <div style={{ fontSize: 40, marginBottom: 10, opacity: 0.85 }}>{tab === 'pay' ? '✅' : tab === 'debt' ? '🛒' : '📭'}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)', marginBottom: 6 }}>
+              {tab === 'pay' ? 'Погашений пока нет' : tab === 'debt' ? 'Заказов в долг пока нет' : 'История пуста'}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.5 }}>
+              {tab === 'all' && creditLimit > 0
+                ? 'Оформите заказ с оплатой «VIP-кредит» — запись появится здесь автоматически'
+                : 'Здесь сохраняются все операции по VIP-долгу'}
+            </div>
+          </div>
+        ) : (
+          <div style={{ position: 'relative' }}>
+            <div style={{
+              position: 'absolute', left: 15, top: 8, bottom: 8, width: 2,
+              background: 'linear-gradient(180deg, rgba(255,184,0,.5), rgba(255,184,0,.08))',
+              borderRadius: 2,
+            }} />
+            {filtered.map((h, i) => {
+              const isPay = h.type === 'pay'
+              const accent = isPay ? 'var(--gr)' : '#FF8080'
+              const bg = isPay ? 'rgba(31,215,96,.08)' : 'rgba(255,69,69,.06)'
+              const border = isPay ? 'rgba(31,215,96,.22)' : 'rgba(255,69,69,.2)'
+              return (
+                <div
+                  key={h.id || i}
+                  style={{
+                    position: 'relative', marginLeft: 28, marginBottom: i < filtered.length - 1 ? 10 : 0,
+                    padding: '12px 14px', borderRadius: 14,
+                    background: bg, border: `1px solid ${border}`,
+                    animation: `fadeUp .35s cubic-bezier(.16,1,.3,1) ${i * 0.04}s both`,
+                  }}
+                >
+                  <div style={{
+                    position: 'absolute', left: -22, top: 14, width: 12, height: 12, borderRadius: '50%',
+                    background: isPay ? 'var(--gr)' : 'var(--gd)',
+                    border: '2px solid #1a1000',
+                    boxShadow: `0 0 10px ${accent}88`,
+                  }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                        <span style={{
+                          fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 6,
+                          background: isPay ? 'rgba(31,215,96,.15)' : 'rgba(255,184,0,.15)',
+                          color: isPay ? 'var(--gr)' : 'var(--gd)',
+                          textTransform: 'uppercase', letterSpacing: .4,
+                        }}>
+                          {isPay ? '✓ Оплата' : '👑 В долг'}
+                        </span>
+                        {h.orderId && (
+                          <button
+                            type="button"
+                            onClick={onGoOrders}
+                            className="btn"
+                            style={{
+                              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                              background: 'rgba(59,142,240,.12)', border: '1px solid rgba(59,142,240,.25)',
+                              color: 'var(--sky)',
+                            }}
+                          >
+                            {h.orderId}
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)' }}>{h.desc}</div>
+                      <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Ic n="clock" s={10} c="var(--t3)" />
+                        {h.date}{h.time ? ` · ${h.time}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: accent, lineHeight: 1.1 }}>
+                        {isPay ? '+' : '−'}{Math.abs(h.amount).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>ЅМ</div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const VIPPage = ({ go, user, setUser }) => {
   const [reserveModal, setReserveModal] = useState(false);
   const [repayLoading, setRepayLoading] = useState(false);
@@ -3054,10 +3278,6 @@ const VIPPage = ({ go, user, setUser }) => {
   const cardLabel = user?.card
     ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")
     : "•••• •••• •••• —";
-  const debtHistory = useMemo(
-    () => (user?.phone ? loadDebtHistory(user.phone) : []),
-    [user?.phone, user?.debt, creditUsed],
-  );
 
   const handleRepayDebt = async () => {
     if (!user?.phone || creditUsed <= 0) return;
@@ -3092,17 +3312,6 @@ const VIPPage = ({ go, user, setUser }) => {
     { e:"🥩", name:"Говядина вырезка", qty:2, unit:"500 гр", price:38.00, till:"Сегодня 20:00" },
     { e:"🐟", name:"Лосось слабосолёный", qty:1, unit:"200 гр", price:28.00, till:"Завтра 12:00" },
   ];
-
-  const HISTORY = debtHistory.length > 0
-    ? debtHistory.map(h => ({
-        date: h.date,
-        desc: h.desc,
-        amount: h.amount,
-        type: h.type === 'pay' ? 'pay' : 'debt',
-      }))
-    : creditUsed > 0
-      ? [{ date: 'Сейчас', desc: 'Текущий долг', amount: -creditUsed, type: 'debt' as const }]
-      : [];
 
   return (
     <div style={{
@@ -3199,34 +3408,22 @@ const VIPPage = ({ go, user, setUser }) => {
             <span style={{ fontSize:11, color:"var(--t3)" }}>Доступно: <span style={{ color:"var(--gr)", fontWeight:700 }}>{(creditLimit-creditUsed).toLocaleString()} ЅМ</span></span>
             <span style={{ fontSize:11, color:"var(--t3)" }}>Лимит: {creditLimit.toLocaleString()} ЅМ</span>
           </div>
-          <div style={{ borderTop:"1px solid var(--b1)", paddingTop:12 }}>
-            <div style={{ fontSize:12, fontWeight:700, marginBottom:10, color:"var(--t2)" }}>История</div>
-            {HISTORY.map((h,i) => (
-              <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:i<HISTORY.length-1?"1px solid rgba(22,43,26,.5)":"none" }}>
-                <div>
-                  <div style={{ fontSize:12, fontWeight:600 }}>{h.desc}</div>
-                  <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>{h.date}</div>
-                </div>
-                <span className="ub" style={{ fontSize:13, fontWeight:800, color:h.type==="pay"?"var(--gr)":"var(--red)" }}>
-                  {h.type==="pay" ? "+" : "−"}{Math.abs(h.amount).toLocaleString()} ЅМ
-                </span>
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={handleRepayDebt}
-            disabled={creditUsed <= 0 || repayLoading}
-            className="btn"
-            style={{ width:"100%", marginTop:14, padding:"12px", borderRadius:13, background:"linear-gradient(135deg,var(--gd2),var(--gd))", color:"var(--bg)", fontSize:13, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:7, opacity: creditUsed > 0 && !repayLoading ? 1 : 0.5 }}
-          >
-            <Ic n="card" s={16} c="var(--bg)"/>
-            {repayLoading ? 'Обработка…' : creditUsed > 0 ? `Погасить долг — ${creditUsed.toLocaleString()} ЅМ` : "Долга нет"}
-          </button>
-          {repayErr && <div style={{ marginTop: 8, fontSize: 11, color: 'var(--red)', textAlign: 'center' }}>{repayErr}</div>}
           </>) : (
             <div style={{ fontSize:12, color:"var(--t3)", lineHeight:1.6 }}>Кредитный лимит назначается администратором в разделе «Карты».</div>
           )}
         </div>
+
+        {(isVip || creditLimit > 0) && (
+          <VipDebtSection
+            phone={user?.phone}
+            creditUsed={creditUsed}
+            creditLimit={creditLimit}
+            onRepay={handleRepayDebt}
+            repayLoading={repayLoading}
+            repayErr={repayErr}
+            onGoOrders={() => go('orders')}
+          />
+        )}
 
         <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>

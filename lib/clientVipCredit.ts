@@ -5,10 +5,11 @@ import { useClientStore } from './clientStore'
 import { phonesMatch } from './clientCrm'
 import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync, fetchCrmStoreUser, findMergedClientByPhone } from './clientProfileSync'
-import { loadAccountJson, saveAccountJson } from './clientAccountStorage'
+import { ACCOUNT_NS, loadAccountJson, saveAccountJson } from './clientAccountStorage'
 import type { StoreUser } from './clientSession'
 
-const DEBT_HIST = 'debt_history'
+const DEBT_HIST = ACCOUNT_NS.debtHistory
+export const DEBT_HISTORY_EVT = 'kakapo_debt_history'
 
 export type VipCreditState = {
   enabled: boolean
@@ -23,10 +24,34 @@ export type VipCreditState = {
 export type DebtHistoryEntry = {
   id: string
   date: string
+  time: string
+  ts: number
   desc: string
   amount: number
   orderId?: string
   type: 'debt' | 'pay'
+}
+
+export function emitDebtHistoryChange() {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(DEBT_HISTORY_EVT))
+}
+
+export function subscribeDebtHistory(cb: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  const h = () => cb()
+  window.addEventListener(DEBT_HISTORY_EVT, h)
+  return () => window.removeEventListener(DEBT_HISTORY_EVT, h)
+}
+
+export function debtHistoryTotals(list: DebtHistoryEntry[]) {
+  let borrowed = 0
+  let repaid = 0
+  for (const row of list) {
+    if (row.type === 'debt') borrowed += Math.abs(row.amount)
+    else if (row.type === 'pay') repaid += row.amount
+  }
+  return { borrowed, repaid }
 }
 
 export function getVipCreditState(user?: Partial<StoreUser> | null): VipCreditState {
@@ -94,17 +119,26 @@ function setDebtOnCard(phone: string, newDebt: number, newBonus?: number) {
 
 export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
   const list = loadAccountJson<DebtHistoryEntry[]>(DEBT_HIST, [], phone)
-  return Array.isArray(list) ? list : []
+  if (!Array.isArray(list)) return []
+  return list.map((row, i) => ({
+    ...row,
+    time: row.time || '',
+    ts: row.ts || Date.now() - i,
+  }))
 }
 
-function pushDebtHistory(phone: string, entry: Omit<DebtHistoryEntry, 'id' | 'date'>) {
+function pushDebtHistory(phone: string, entry: Omit<DebtHistoryEntry, 'id' | 'date' | 'time' | 'ts'>) {
   const prev = loadDebtHistory(phone)
+  const now = new Date()
   const row: DebtHistoryEntry = {
     ...entry,
-    id: `D-${Date.now()}`,
-    date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }),
+    id: `D-${now.getTime()}`,
+    date: now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }),
+    time: now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+    ts: now.getTime(),
   }
-  saveAccountJson(DEBT_HIST, [row, ...prev].slice(0, 50), phone)
+  saveAccountJson(DEBT_HIST, [row, ...prev].slice(0, 100), phone)
+  emitDebtHistoryChange()
 }
 
 export async function chargeCredit(phone: string, amount: number, orderId: string): Promise<number> {
@@ -117,7 +151,12 @@ export async function chargeCredit(phone: string, amount: number, orderId: strin
   if (!check.ok) throw new Error(check.reason || 'Оплата в долг недоступна')
   const newDebt = Math.round((merged.debt + amount) * 100) / 100
   setDebtOnCard(phone, newDebt)
-  pushDebtHistory(phone, { desc: `Заказ ${orderId}`, amount: -amount, orderId, type: 'debt' })
+  pushDebtHistory(phone, {
+    desc: 'Заказ в долг',
+    amount: -amount,
+    orderId,
+    type: 'debt',
+  })
   return newDebt
 }
 
@@ -128,7 +167,11 @@ export async function repayCredit(phone: string, amount?: number): Promise<numbe
   if (pay <= 0) throw new Error('Долга нет')
   const newDebt = Math.round((merged.debt - pay) * 100) / 100
   setDebtOnCard(phone, newDebt)
-  pushDebtHistory(phone, { desc: 'Оплата долга', amount: pay, type: 'pay' })
+  pushDebtHistory(phone, {
+    desc: 'Погашение долга',
+    amount: pay,
+    type: 'pay',
+  })
   return newDebt
 }
 
