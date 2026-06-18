@@ -1,6 +1,6 @@
 import type { Order } from './types'
 
-export type ClientLevel = 'bronze' | 'silver' | 'gold' | 'platinum'
+export type ClientLevel = 'new' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
 export interface AdminClient {
   id: string
@@ -95,9 +95,10 @@ export function clientProfileFromClient(c: AdminClient): ClientProfileForm {
 }
 
 export function normalizeClient(raw: Partial<AdminClient> & { id: string }): AdminClient {
-  const level = (['bronze', 'silver', 'gold', 'platinum'] as ClientLevel[]).includes(raw.level as ClientLevel)
+  const known = ['new', 'bronze', 'silver', 'gold', 'platinum'] as ClientLevel[]
+  const level = known.includes(raw.level as ClientLevel)
     ? (raw.level as ClientLevel)
-    : 'bronze'
+    : ((Number(raw.orders) || 0) === 0 && (Number(raw.spent) || 0) === 0 ? 'new' : 'bronze')
   return {
     id: raw.id,
     name: raw.name || '',

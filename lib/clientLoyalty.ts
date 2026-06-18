@@ -10,6 +10,16 @@ export type LoyaltyTier = {
   perk: string
 }
 
+export const NEW_CLIENT_TIER: LoyaltyTier = {
+  id: 'new',
+  label: 'Новый клиент',
+  emoji: '✨',
+  minSpent: 0,
+  color: '#1FD760',
+  cashback: '—',
+  perk: 'Сделайте первый заказ',
+}
+
 export const LOYALTY_TIERS: LoyaltyTier[] = [
   { id: 'bronze', label: 'Бронза', emoji: '🥉', minSpent: 0, color: '#CD7F32', cashback: '2%', perk: 'Бонусы за покупки' },
   { id: 'silver', label: 'Серебро', emoji: '🥈', minSpent: 500, color: '#C0C0C0', cashback: '3%', perk: 'Доп. скидки' },
@@ -38,6 +48,7 @@ export type LoyaltyProgress = {
   progressPct: number
   remaining: number
   isVip: boolean
+  isNewClient: boolean
   vipSteps: VipStep[]
   vipDoneCount: number
 }
@@ -105,6 +116,7 @@ export function getLoyaltyProgress(
     progressPct,
     remaining,
     isVip: !!adminVip || autoVip,
+    isNewClient: false,
     vipSteps,
     vipDoneCount: adminVip ? vipSteps.length : vipSteps.filter(s => s.done).length,
   }

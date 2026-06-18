@@ -251,7 +251,7 @@ const REVIEWS = [
 
 /* ── HELPERS ─────────────────────────────────────── */
 const SC_STATUS = {new:{l:'Новый',c:'#FF4545'},assembling:{l:'Собирается',c:'#9B6DFF'},cooking:{l:'Готовится',c:'#FF8C00'},delivering:{l:'В пути',c:'#3B8EF0'},delivered:{l:'Доставлен',c:'#1FD760'},cancelled:{l:'Отменён',c:'#3D6645'}};
-const LVC = {bronze:'#CD7F32',silver:'#C0C0C0',gold:'#FFB800',platinum:'#3B8EF0'};
+const LVC = {new:'#1FD760',bronze:'#CD7F32',silver:'#C0C0C0',gold:'#FFB800',platinum:'#3B8EF0'};
 
 const Tog = ({on,set}) => (
   <div onClick={() => { if (typeof set === 'function') set(); }} style={{width:44,height:24,borderRadius:12,background:on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
@@ -2866,7 +2866,7 @@ function ClientsPage() {
 }
 
 /* ── КАРТЫ — UI helpers ─────────────────────────── */
-const CARD_LEVEL_RU: Record<ClientLevel, string> = { bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина' };
+const CARD_LEVEL_RU: Record<ClientLevel, string> = { new: 'Новый', bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина' };
 
 function CardVisualMini({ num, level, clientName, status }: { num?: string; level?: string; clientName?: string; status?: CardStatus }) {
   const lc = level && LVC[level as ClientLevel] ? LVC[level as ClientLevel] : '#FFB800';
@@ -2896,7 +2896,7 @@ function CardVisualMini({ num, level, clientName, status }: { num?: string; leve
 }
 
 function CardLevelPicker({ value, onChange }: { value: ClientLevel; onChange: (v: ClientLevel) => void }) {
-  const icons: Record<ClientLevel, string> = { bronze: '🥉', silver: '🥈', gold: '🥇', platinum: '💎' };
+  const icons: Record<ClientLevel, string> = { new: '✨', bronze: '🥉', silver: '🥈', gold: '🥇', platinum: '💎' };
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
       {CLIENT_LEVEL_OPTIONS.map(o => (
