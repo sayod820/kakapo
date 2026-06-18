@@ -11,6 +11,7 @@ import {
 } from './clientCrm'
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardHasDebtSection } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
+import { emitCrmSync } from './clientProfileSync'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -166,6 +167,7 @@ export function saveCardLoyalty(
       recordStoreDebtCharge(phone, loyalty.debt - prevDebt)
     }
   }
+  emitCrmSync()
 }
 
 /** Создать 1 новую карту и сразу привязать к клиенту */

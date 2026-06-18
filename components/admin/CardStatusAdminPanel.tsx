@@ -87,8 +87,8 @@ type AssignRow = {
   level: ClientLevel
   vip: boolean
   debtEnabled: boolean
-  dirty: boolean
   saving: boolean
+  saved: boolean
   err: string
 }
 
@@ -162,54 +162,43 @@ export default function CardStatusAdminPanel() {
       level: form.level,
       vip: form.vip,
       debtEnabled: form.debtEnabled,
-      dirty: false,
       saving: false,
+      saved: false,
       err: '',
     }
   }
 
-  const updateRow = (num: string, patch: Partial<AssignRow>) => {
-    setAssignRows(prev => {
-      const card = activeCards.find(c => c.num === num)
-      if (!card) return prev
-      const base = prev[num] || getRow(card)
-      const statusChange = 'level' in patch || 'vip' in patch || 'debtEnabled' in patch
-      return {
-        ...prev,
-        [num]: {
-          ...base,
-          ...patch,
-          dirty: patch.dirty ?? (statusChange ? true : base.dirty),
-        },
-      }
-    })
-  }
-
-  const saveRow = async (num: string) => {
+  const applyStatus = (num: string, patch: Partial<Pick<AssignRow, 'level' | 'vip' | 'debtEnabled'>>) => {
     const card = activeCards.find(c => c.num === num)
     if (!card) return
-    const row = assignRows[num] || getRow(card)
     const client = card.clientId ? clients.find(c => c.id === card.clientId) : undefined
-    const base = cardLoyaltyFromCard(card, client)
-    setAssignRows(prev => ({ ...prev, [num]: { ...(prev[num] || row), saving: true, err: '' } }))
+    const prev = assignRows[num] || getRow(card)
+    const next: AssignRow = { ...prev, ...patch, saving: true, saved: false, err: '' }
+    setAssignRows(p => ({ ...p, [num]: next }))
     try {
+      const base = cardLoyaltyFromCard(card, client)
       saveCardLoyalty(card, {
         ...base,
-        level: row.level,
-        vip: row.vip,
-        debtEnabled: row.debtEnabled,
+        level: next.level,
+        vip: next.vip,
+        debtEnabled: next.debtEnabled,
       }, 'edit')
-      setAssignRows(prev => ({
-        ...prev,
-        [num]: { ...(prev[num] || row), saving: false, dirty: false, err: '' },
-      }))
+      setAssignRows(p => ({ ...p, [num]: { ...next, saving: false, saved: true, err: '' } }))
+      window.setTimeout(() => {
+        setAssignRows(p => {
+          const row = p[num]
+          if (!row?.saved) return p
+          return { ...p, [num]: { ...row, saved: false } }
+        })
+      }, 2000)
     } catch (e) {
-      setAssignRows(prev => ({
-        ...prev,
+      setAssignRows(p => ({
+        ...p,
         [num]: {
-          ...(prev[num] || row),
+          ...next,
           saving: false,
-          err: e instanceof Error ? e.message : 'Ошибка',
+          saved: false,
+          err: e instanceof Error ? e.message : 'Ошибка сохранения',
         },
       }))
     }
@@ -283,7 +272,7 @@ export default function CardStatusAdminPanel() {
         <div style={{ padding: '16px 18px', borderBottom: '1px solid #162B1A' }}>
           <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 4 }}>👥 Статусы клиентов</div>
           <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 12 }}>
-            Уровень, VIP и раздел долга — только здесь. Бонусы и сумма долга — в карточке карты или «Долги VIP».
+            Уровень, VIP и раздел долга сохраняются автоматически. Бонусы и сумма долга — в карточке карты или «Долги VIP».
           </div>
           <div style={{ position: 'relative', maxWidth: 360 }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: .5 }}>🔍</span>
@@ -329,7 +318,8 @@ export default function CardStatusAdminPanel() {
                       <select
                         className="ai"
                         value={st.level}
-                        onChange={e => updateRow(card.num, { level: e.target.value as ClientLevel })}
+                        onChange={e => applyStatus(card.num, { level: e.target.value as ClientLevel })}
+                        disabled={st.saving}
                         style={{ fontSize: 12, padding: '6px 8px', minWidth: 130 }}
                       >
                         {levelOptions.map(o => (
@@ -338,25 +328,16 @@ export default function CardStatusAdminPanel() {
                       </select>
                     </td>
                     <td>
-                      <Tog on={st.vip} set={() => updateRow(card.num, { vip: !st.vip })} />
+                      <Tog on={st.vip} set={() => !st.saving && applyStatus(card.num, { vip: !st.vip })} />
                     </td>
                     <td>
-                      <Tog on={st.debtEnabled} set={() => updateRow(card.num, { debtEnabled: !st.debtEnabled })} />
+                      <Tog on={st.debtEnabled} set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled })} />
                     </td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={() => saveRow(card.num)}
-                        disabled={st.saving || (!st.dirty && !assignRows[card.num])}
-                        className="ab abp"
-                        style={{
-                          padding: '6px 12px', fontSize: 11, fontWeight: 800,
-                          opacity: st.saving || (!st.dirty && !assignRows[card.num]) ? .45 : 1,
-                        }}
-                      >
-                        {st.saving ? '…' : st.dirty || assignRows[card.num] ? 'Сохранить' : '—'}
-                      </button>
-                      {st.err && <div style={{ fontSize: 10, color: '#FF4545', marginTop: 4 }}>{st.err}</div>}
+                    <td style={{ fontSize: 11, fontWeight: 700, minWidth: 72 }}>
+                      {st.saving ? <span style={{ color: '#FFB800' }}>Сохраняем…</span>
+                        : st.saved ? <span style={{ color: '#1FD760' }}>✓ Сохранено</span>
+                          : st.err ? <span style={{ color: '#FF4545' }}>{st.err}</span>
+                            : null}
                     </td>
                   </tr>
                 )

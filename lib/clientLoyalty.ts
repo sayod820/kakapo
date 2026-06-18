@@ -83,15 +83,19 @@ export function getLoyaltyProgress(
   const earned = suggestLevel(spent)
   const earnedBronze = hasEarnedBronze(spent, orderCount)
 
-  let effectiveLevel: ClientLevel = earnedBronze ? earned : 'basic'
+  let effectiveLevel: ClientLevel = 'basic'
 
   if (normalizedStored && normalizedStored !== 'basic') {
-    const storedIdx = tierIndex(normalizedStored)
-    const earnedIdx = tierIndex(earnedBronze ? earned : 'basic')
-    if (storedIdx >= 0 && storedIdx > earnedIdx) effectiveLevel = normalizedStored
+    // Уровень из CRM/админки — назначенный статус (не сбрасываем до «Обычный»)
+    effectiveLevel = normalizedStored
+    if (earnedBronze) {
+      const earnedIdx = tierIndex(earned)
+      const storedIdx = tierIndex(normalizedStored)
+      if (earnedIdx > storedIdx) effectiveLevel = earned
+    }
+  } else if (earnedBronze) {
+    effectiveLevel = earned
   }
-
-  if (effectiveLevel === 'bronze' && !earnedBronze) effectiveLevel = 'basic'
 
   const isBasicClient = effectiveLevel === 'basic' && !adminVip
 
