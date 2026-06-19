@@ -143,7 +143,8 @@ function nowTime() {
 app.get('/health', (_req, res) => res.json({
   ok: true,
   service: 'kakapo-api',
-  version: '2.2-node',
+  version: '2.3-node-loyalty',
+  loyaltyVip: true,
   dataDir: process.env.DATA_DIR || 'data',
 }))
 
@@ -507,7 +508,7 @@ function normalizeClientRow(raw) {
   }
 }
 
-app.get('/clients', (_req, res) => res.json(db.clients || []))
+app.get('/clients', (_req, res) => res.json((db.clients || []).map(c => normalizeClientRow({ ...c, id: c.id }))))
 app.post('/clients', (req, res) => {
   if (!db.clients) db.clients = []
   const nums = db.clients.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
@@ -653,7 +654,36 @@ app.patch('/settings/pricing', (req, res) => {
   res.json(db.settings.pricing)
 })
 
-app.get('/cards', (_req, res) => res.json(db.cards || []))
+function migrateLoyaltyRows() {
+  let changed = false
+  if (Array.isArray(db.cards)) {
+    const next = db.cards.map(c => normalizeCardRow({ ...c, num: c.num }))
+    if (JSON.stringify(db.cards) !== JSON.stringify(next)) {
+      db.cards = next
+      changed = true
+    }
+  }
+  if (Array.isArray(db.clients)) {
+    const byId = new Map()
+    for (const c of db.clients) {
+      const prev = byId.get(c.id)
+      if (!prev) byId.set(c.id, c)
+      else if (c.card && !prev.card) byId.set(c.id, c)
+      else if (!c.card && prev.card) { /* keep prev */ }
+      else if ((c.level || '') !== 'basic' && (prev.level || 'basic') === 'basic') byId.set(c.id, c)
+    }
+    const deduped = Array.from(byId.values()).map(c => normalizeClientRow({ ...c, id: c.id }))
+    if (JSON.stringify(db.clients) !== JSON.stringify(deduped)) {
+      db.clients = deduped
+      changed = true
+    }
+  }
+  if (changed) persist()
+}
+
+migrateLoyaltyRows()
+
+app.get('/cards', (_req, res) => res.json((db.cards || []).map(c => normalizeCardRow({ ...c, num: c.num }))))
 
 function normalizePhoneDigits(phone) {
   return String(phone || '').replace(/\D/g, '').slice(-9)
