@@ -2,6 +2,7 @@
 import { useEffect } from 'react'
 import { useAuth } from '@/lib/store'
 import { USE_API } from '@/lib/config'
+import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 
 type Props = { children: React.ReactNode; mode?: 'all' | 'assembler' | 'courier' | 'catalog' }
 
@@ -14,15 +15,20 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
 
   useEffect(() => {
     if (!USE_API) return
+    clearAppDataLocalCacheOnce()
     let cancelled = false
 
     const load = async () => {
       const { useProducts, useRestaurants, useOrders } = await import('@/lib/store')
       const { syncCourierStoresFromApi } = await import('@/lib/courierStore')
+      const { syncClientsFromApi } = await import('@/lib/clientStore')
+      const { syncCardsFromApi } = await import('@/lib/cardStore')
       const tasks = [
         useProducts.getState().fetchProducts(),
         useRestaurants.getState().fetchRestaurants(),
         syncCourierStoresFromApi(),
+        syncClientsFromApi(),
+        syncCardsFromApi(),
       ]
       if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
       else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())

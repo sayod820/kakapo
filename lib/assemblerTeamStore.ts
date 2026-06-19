@@ -7,10 +7,12 @@ import {
   normalizeAssembler,
   type AdminAssembler,
 } from './assemblerTeam'
+import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const ASSEMBLERS_KEY = 'kakapo-assemblers'
 
 function loadAssemblers(): AdminAssembler[] {
+  if (USE_API) return []
   if (typeof window === 'undefined') return DEFAULT_ADMIN_ASSEMBLERS
   try {
     const raw = localStorage.getItem(ASSEMBLERS_KEY)
@@ -24,20 +26,10 @@ function loadAssemblers(): AdminAssembler[] {
 }
 
 function saveAssemblers(list: AdminAssembler[]) {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || !persistAppDataLocally()) return
   try {
     localStorage.setItem(ASSEMBLERS_KEY, JSON.stringify(list))
   } catch { /* quota */ }
-}
-
-function mergeAssemblerLists(primary: AdminAssembler[], secondary: AdminAssembler[]): AdminAssembler[] {
-  const byId = new Map<string, AdminAssembler>()
-  for (const a of secondary) byId.set(a.id, normalizeAssembler(a))
-  for (const a of primary) {
-    const prev = byId.get(a.id)
-    byId.set(a.id, normalizeAssembler(prev ? { ...prev, ...a, id: a.id } : a))
-  }
-  return Array.from(byId.values())
 }
 
 function nextAssemblerId(list: AdminAssembler[]): string {
@@ -49,6 +41,7 @@ function nextAssemblerId(list: AdminAssembler[]): string {
 interface AssemblerTeamStore {
   assemblers: AdminAssembler[]
   hydrated: boolean
+  apiReady: boolean
   hydrate: () => void
   reload: () => void
   setAssemblers: (list: AdminAssembler[]) => void
@@ -59,10 +52,12 @@ interface AssemblerTeamStore {
 }
 
 export const useAssemblerTeamStore = create<AssemblerTeamStore>((set, get) => ({
-  assemblers: DEFAULT_ADMIN_ASSEMBLERS,
+  assemblers: USE_API ? [] : DEFAULT_ADMIN_ASSEMBLERS,
   hydrated: false,
+  apiReady: !USE_API,
   hydrate: () => {
-    set({ assemblers: loadAssemblers(), hydrated: true })
+    if (USE_API) return
+    set({ assemblers: loadAssemblers(), hydrated: true, apiReady: true })
   },
   reload: () => {
     set({ assemblers: loadAssemblers() })
@@ -100,20 +95,18 @@ export const useAssemblerTeamStore = create<AssemblerTeamStore>((set, get) => ({
     get().updateAssembler(id, { blocked: !a.blocked, status: !a.blocked ? 'offline' : a.status })
   },
   fetchFromApi: async () => {
-    const local = loadAssemblers()
     if (!USE_API) {
-      set({ assemblers: local, hydrated: true })
+      set({ assemblers: loadAssemblers(), hydrated: true, apiReady: true })
       return
     }
     try {
+      clearAppDataLocalCache()
       const apiList = await api.getAssemblers()
-      const remote = apiList.length ? apiList.map(a => normalizeAssembler(a)) : DEFAULT_ADMIN_ASSEMBLERS
-      const assemblers = mergeAssemblerLists(local, remote)
-      saveAssemblers(assemblers)
-      set({ assemblers, hydrated: true })
+      const assemblers = apiList.map(a => normalizeAssembler(a))
+      set({ assemblers, hydrated: true, apiReady: true })
     } catch (e) {
       console.error(e)
-      set({ assemblers: local, hydrated: true })
+      set({ assemblers: [], hydrated: true, apiReady: false })
     }
   },
 }))
@@ -127,5 +120,9 @@ export async function syncAssemblerTeamFromApi() {
 }
 
 export function hydrateAssemblerTeamStore() {
+  if (USE_API) {
+    void useAssemblerTeamStore.getState().fetchFromApi()
+    return
+  }
   useAssemblerTeamStore.getState().hydrate()
 }

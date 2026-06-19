@@ -11,6 +11,8 @@ import {
 import { normalizePhone, type AdminClient } from '@/lib/clientCrm'
 import { isClientInRecovery, restoreClientFromRecovery } from '@/lib/clientRecovery'
 import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
+import { hydrateCardStore } from '@/lib/cardStore'
+import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { registerClientAccount } from '@/lib/clientCardSync'
 import { formatClientAddressLine, setRegistrationDefaultAddress } from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
@@ -96,7 +98,11 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     useRef<HTMLInputElement>(null),
   ]
 
-  useEffect(() => { hydrateClientStore() }, [])
+  useEffect(() => {
+    clearAppDataLocalCacheOnce()
+    hydrateClientStore()
+    hydrateCardStore()
+  }, [])
 
   useEffect(() => {
     if (step !== 'otp' || cd <= 0) return

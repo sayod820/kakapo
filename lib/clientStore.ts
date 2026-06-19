@@ -10,17 +10,13 @@ import {
   type AdminClient,
 } from './clientCrm'
 import { isPhoneDeleted } from './clientTombstones'
+import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const CLIENTS_KEY = 'kakapo-clients'
 
-/** Удалить устаревший CRM-кэш браузера — при USE_API источник только Render */
+/** @deprecated use clearAppDataLocalCache */
 export function clearCrmLocalCache() {
-  if (!USE_API || typeof window === 'undefined') return
-  try {
-    localStorage.removeItem(CLIENTS_KEY)
-    localStorage.removeItem('kakapo-cards')
-    localStorage.removeItem('kakapo-deleted-phones')
-  } catch { /* quota */ }
+  clearAppDataLocalCache()
 }
 
 function readLocalClientsCache(): AdminClient[] {
@@ -46,7 +42,7 @@ function loadClients(): AdminClient[] {
 
 function saveClients(list: AdminClient[]) {
   if (typeof window === 'undefined') return
-  if (USE_API) {
+  if (!persistAppDataLocally()) {
     emitCrmSync()
     return
   }
@@ -134,7 +130,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       return
     }
     try {
-      clearCrmLocalCache()
+      clearAppDataLocalCache()
       const apiList = await api.getClients()
       const clients = filterVisibleClients(apiList.map(c => normalizeClient(c)))
       set({ clients, hydrated: true, apiReady: true })

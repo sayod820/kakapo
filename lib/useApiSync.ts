@@ -3,6 +3,11 @@ import { useEffect, useRef } from 'react'
 import { USE_API } from './config'
 import { useProducts, useRestaurants, useOrders, mergeOrderFields, applyAdminPins } from './store'
 import { syncCourierStoresFromApi } from './courierStore'
+import { syncClientsFromApi } from './clientStore'
+import { syncCardsFromApi } from './cardStore'
+import { syncAssemblerTeamFromApi } from './assemblerTeamStore'
+import { syncPushFromApi } from './pushStore'
+import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog'
@@ -52,6 +57,14 @@ export function useApiSync(mode: SyncMode = 'all') {
         useRestaurants.getState().fetchRestaurants(),
         syncCourierStoresFromApi(),
       ]
+      if (mode === 'all') {
+        tasks.push(
+          syncClientsFromApi(),
+          syncCardsFromApi(),
+          syncAssemblerTeamFromApi(),
+          syncPushFromApi(),
+        )
+      }
       if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
       else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
       else if (mode === 'restaurant') tasks.push(useOrders.getState().fetchRestaurantOrders())
@@ -69,10 +82,15 @@ export function useApiSync(mode: SyncMode = 'all') {
 export function hydrateAllFromApi() {
   if (!USE_API || startedGuard) return
   startedGuard = true
+  clearAppDataLocalCacheOnce()
   useProducts.getState().fetchProducts()
   useRestaurants.getState().fetchRestaurants()
   useOrders.getState().fetchOrders()
-  syncCourierStoresFromApi()
+  void syncCourierStoresFromApi()
+  void syncClientsFromApi()
+  void syncCardsFromApi()
+  void syncAssemblerTeamFromApi()
+  void syncPushFromApi()
 }
 
 let startedGuard = false

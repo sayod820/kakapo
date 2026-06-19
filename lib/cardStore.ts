@@ -15,7 +15,7 @@ import {
   type CardStatus,
 } from './cardCrm'
 import { isPhoneDeleted } from './clientTombstones'
-import { clearCrmLocalCache } from './clientStore'
+import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const CARDS_KEY = 'kakapo-cards'
 
@@ -42,7 +42,7 @@ function loadCards(): AdminCard[] {
 
 function saveCards(list: AdminCard[]) {
   if (typeof window === 'undefined') return
-  if (USE_API) {
+  if (!persistAppDataLocally()) {
     emitCrmSync()
     return
   }
@@ -312,7 +312,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
       return
     }
     try {
-      clearCrmLocalCache()
+      clearAppDataLocalCache()
       const apiList = await api.getCards()
       const cards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
       set({ cards, hydrated: true, apiReady: true })

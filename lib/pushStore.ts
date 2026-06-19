@@ -11,6 +11,7 @@ import {
   type PushCampaign,
   type PushTemplate,
 } from './pushCrm'
+import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const PUSH_KEY = 'kakapo-push'
 
@@ -21,7 +22,7 @@ type PushState = {
 }
 
 function loadPushState(): PushState {
-  if (typeof window === 'undefined') {
+  if (USE_API || typeof window === 'undefined') {
     return {
       autoSettings: DEFAULT_PUSH_AUTO_SETTINGS,
       history: DEFAULT_PUSH_HISTORY,
@@ -60,7 +61,7 @@ function loadPushState(): PushState {
 }
 
 function savePushState(state: PushState) {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || !persistAppDataLocally()) return
   try {
     localStorage.setItem(PUSH_KEY, JSON.stringify(state))
   } catch { /* quota */ }
@@ -102,24 +103,29 @@ export const usePushStore = create<PushStore>((set, get) => ({
     set({ history })
   },
   fetchFromApi: async () => {
-    const local = loadPushState()
     if (!USE_API) {
-      set({ ...local, hydrated: true })
+      set({ ...loadPushState(), hydrated: true })
       return
     }
     try {
+      clearAppDataLocalCache()
       const remote = await api.getPushState()
       const autoMap = new Map((remote.autoSettings || []).map(s => [s.id, s]))
       const autoSettings = DEFAULT_PUSH_AUTO_SETTINGS.map(def => ({
         ...def,
         ...(autoMap.get(def.id) || {}),
       }))
-      const history = remote.history?.length ? remote.history : local.history
-      savePushState({ autoSettings, history, templates: local.templates })
-      set({ autoSettings, history, templates: local.templates, hydrated: true })
+      const history = remote.history?.length ? remote.history : []
+      const templates = DEFAULT_PUSH_TEMPLATES
+      set({ autoSettings, history, templates, hydrated: true })
     } catch (e) {
       console.error(e)
-      set({ ...local, hydrated: true })
+      set({
+        autoSettings: DEFAULT_PUSH_AUTO_SETTINGS,
+        history: [],
+        templates: DEFAULT_PUSH_TEMPLATES,
+        hydrated: true,
+      })
     }
   },
   isAutoEnabled: id => {
@@ -129,6 +135,10 @@ export const usePushStore = create<PushStore>((set, get) => ({
 }))
 
 export function hydratePushStore() {
+  if (USE_API) {
+    void usePushStore.getState().fetchFromApi()
+    return
+  }
   usePushStore.getState().hydrate()
 }
 

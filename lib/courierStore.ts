@@ -6,11 +6,13 @@ import { DEFAULT_PICKUPS, pickupsToLocationMap, type PickupPoint, type PickupLoc
 import { USE_API } from './config';
 import { api } from './api';
 import { hydrateCourierTeamStore, syncCourierTeamFromApi } from './courierTeamStore';
+import { clearAppDataLocalCache, persistAppDataLocally } from './localCache';
 
 const PRICING_KEY = 'kakapo-pricing';
 const PICKUPS_KEY = 'kakapo-pickups';
 
 function loadPickups(): PickupPoint[] {
+  if (USE_API) return DEFAULT_PICKUPS;
   if (typeof window === 'undefined') return DEFAULT_PICKUPS;
   try {
     const raw = localStorage.getItem(PICKUPS_KEY);
@@ -23,6 +25,7 @@ function loadPickups(): PickupPoint[] {
 }
 
 function loadPricing(): PricingConfig {
+  if (USE_API) return DEFAULT_PRICING;
   if (typeof window === 'undefined') return DEFAULT_PRICING;
   try {
     const raw = localStorage.getItem(PRICING_KEY);
@@ -34,7 +37,7 @@ function loadPricing(): PricingConfig {
 }
 
 function saveJson(key: string, value: unknown) {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined' || !persistAppDataLocally()) return;
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch { /* quota */ }
@@ -61,6 +64,10 @@ export const usePricingStore = create<PricingStore>((set, get) => ({
   hydrated: false,
   hydrate: () => {
     if (get().hydrated) return;
+    if (USE_API) {
+      void syncCourierStoresFromApi();
+      return;
+    }
     set({ pricing: loadPricing(), hydrated: true });
   },
   setPricing: p => set(s => {
@@ -81,6 +88,10 @@ export const usePickupStore = create<PickupStore>((set, get) => ({
   hydrated: false,
   hydrate: () => {
     if (get().hydrated) return;
+    if (USE_API) {
+      void syncCourierStoresFromApi();
+      return;
+    }
     set({ pickups: loadPickups(), hydrated: true });
   },
   setPickups: list => {
@@ -154,6 +165,10 @@ export function usePickupLocations(): PickupLocationMap {
 
 /** Синхронизация store при загрузке любого приложения */
 export function hydrateCourierStores() {
+  if (USE_API) {
+    void syncCourierStoresFromApi();
+    return;
+  }
   usePricingStore.getState().hydrate();
   usePickupStore.getState().hydrate();
   hydrateCourierTeamStore();
@@ -166,6 +181,7 @@ export async function syncCourierStoresFromApi() {
     return;
   }
   try {
+    clearAppDataLocalCache();
     const [pickups, pricing] = await Promise.all([
       api.getPickups(),
       api.getPricing(),
@@ -175,6 +191,7 @@ export async function syncCourierStoresFromApi() {
     usePricingStore.setState({ pricing: { ...DEFAULT_PRICING, ...pricing }, hydrated: true });
   } catch (e) {
     console.error(e);
-    hydrateCourierStores();
+    usePickupStore.setState({ pickups: DEFAULT_PICKUPS, hydrated: true });
+    usePricingStore.setState({ pricing: DEFAULT_PRICING, hydrated: true });
   }
 }

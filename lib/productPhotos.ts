@@ -1,10 +1,12 @@
 'use client';
 import { create } from 'zustand';
+import { USE_API } from './config';
+import { persistAppDataLocally } from './localCache';
 
 const PHOTOS_KEY = 'kakapo-product-photos';
 
 function loadPhotos(): Record<number, string> {
-  if (typeof window === 'undefined') return {};
+  if (USE_API || typeof window === 'undefined') return {};
   try {
     const raw = localStorage.getItem(PHOTOS_KEY);
     if (!raw) return {};
@@ -18,7 +20,7 @@ function loadPhotos(): Record<number, string> {
 }
 
 function savePhotos(photos: Record<number, string>) {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined' || !persistAppDataLocally()) return;
   try {
     localStorage.setItem(PHOTOS_KEY, JSON.stringify(photos));
   } catch { /* quota */ }

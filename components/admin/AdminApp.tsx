@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import { useOrders, useProducts, useRestaurants, USE_API } from '@/lib/store'
 import { mapOrdersForAdmin, ADMIN_STATUS_OPTIONS, adminStatusLabel, buildAdminStatusPatch, COURIER_ASSIGNED_STATUSES } from '@/lib/orderUiMap'
 import { useApiSync } from '@/lib/useApiSync'
+import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
@@ -2491,6 +2492,9 @@ function ClientsPage() {
   const [formErr, setFormErr] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<AdminClient | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [recoveryConfirm, setRecoveryConfirm] = useState<AdminClient | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
 
@@ -2567,6 +2571,12 @@ function ClientsPage() {
     try {
       await deleteClientFromCrm(c.id, c.phone);
       setDeleteConfirm(null);
+      setSelectedIds(prev => {
+        if (!prev.has(c.id)) return prev;
+        const next = new Set(prev);
+        next.delete(c.id);
+        return next;
+      });
       if (detailId === c.id) setDetailId(null);
       if (editId === c.id) closeModal();
     } catch (e) {
@@ -2576,6 +2586,56 @@ function ClientsPage() {
       window.alert(msg.length > 180 ? `${msg.slice(0, 180)}…` : msg);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const selectedClients = useMemo(
+    () => clients.filter(c => selectedIds.has(c.id)),
+    [clients, selectedIds],
+  );
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every(c => selectedIds.has(c.id));
+
+  const toggleSelectClient = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filtered.forEach(c => next.delete(c.id));
+      } else {
+        filtered.forEach(c => next.add(c.id));
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedClients.length) return;
+    setBulkDeleting(true);
+    let errors = 0;
+    for (const c of selectedClients) {
+      try {
+        await deleteClientFromCrm(c.id, c.phone);
+        if (detailId === c.id) setDetailId(null);
+        if (editId === c.id) closeModal();
+      } catch (e) {
+        console.error(e);
+        errors += 1;
+      }
+    }
+    setSelectedIds(new Set());
+    setBulkDeleteOpen(false);
+    setBulkDeleting(false);
+    if (errors > 0) {
+      window.alert(`Не удалось удалить ${errors} из ${selectedClients.length} клиент(ов)`);
     }
   };
 
@@ -2773,10 +2833,56 @@ function ClientsPage() {
         ))}
       </div>
 
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 10,
+          marginBottom: 12,
+          padding: '10px 14px',
+          borderRadius: 12,
+          background: 'rgba(255,69,69,.08)',
+          border: '1px solid rgba(255,69,69,.25)',
+        }}>
+          <span style={{ fontSize: 13, color: '#EBF5ED' }}>
+            Выбрано: <strong style={{ color: '#FF4545' }}>{selectedIds.size}</strong>
+          </span>
+          <button
+            type="button"
+            onClick={() => setBulkDeleteOpen(true)}
+            disabled={bulkDeleting}
+            className="ab abd"
+            style={{ padding: '6px 14px', fontSize: 12, opacity: bulkDeleting ? 0.6 : 1 }}
+          >
+            🗑 Удалить выбранных
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            disabled={bulkDeleting}
+            className="ab"
+            style={{ padding: '6px 14px', fontSize: 12, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}
+          >
+            Снять выбор
+          </button>
+        </div>
+      )}
+
       <div className="ac">
         <table className="at">
           <thead>
             <tr>
+              <th style={{ width: 36 }}>
+                <input
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  onChange={toggleSelectAllFiltered}
+                  disabled={filtered.length === 0 || bulkDeleting}
+                  title="Выбрать все на странице"
+                  style={{ width: 16, height: 16, cursor: filtered.length === 0 ? 'default' : 'pointer', accentColor: '#1FD760' }}
+                />
+              </th>
               <th>Клиент</th>
               <th>Тип</th>
               <th>Карта</th>
@@ -2792,20 +2898,30 @@ function ClientsPage() {
           <tbody>
             {USE_API && !clientsApiReady ? (
               <tr>
-                <td colSpan={10} style={{ textAlign: 'center', color: '#8FB897', padding: 28 }}>
+                <td colSpan={11} style={{ textAlign: 'center', color: '#8FB897', padding: 28 }}>
                   Загрузка клиентов…
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={10} style={{ textAlign: 'center', color: '#3D6645', padding: 28 }}>
+                <td colSpan={11} style={{ textAlign: 'center', color: '#3D6645', padding: 28 }}>
                   {search.trim() ? `Клиент «${search.trim()}» не найден` : 'Нет клиентов по выбранным фильтрам'}
                 </td>
               </tr>
             ) : filtered.map(c => {
               const seg = clientSegment(c);
+              const isSelected = selectedIds.has(c.id);
               return (
                 <tr key={c.id} style={(c.blocked || isClientInRecovery(c)) ? { opacity: .75 } : undefined}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelectClient(c.id)}
+                      disabled={bulkDeleting}
+                      style={{ width: 16, height: 16, cursor: bulkDeleting ? 'default' : 'pointer', accentColor: '#1FD760' }}
+                    />
+                  </td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ width: 32, height: 32, borderRadius: '50%', background: isClientInRecovery(c) ? 'linear-gradient(135deg,#664400,#FF8C00)' : c.blocked ? 'linear-gradient(135deg,#662222,#FF4545)' : 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 12, fontWeight: 900, color: '#030B05', flexShrink: 0 }}>{c.name.charAt(0)}</div>
@@ -2971,6 +3087,60 @@ function ClientsPage() {
                 type="button"
                 disabled={!!deletingId}
                 onClick={() => setDeleteConfirm(null)}
+                className="ab"
+                style={{ flex: 1, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteOpen && (
+        <div className="amod">
+          <div className="amodbg" onClick={() => !bulkDeleting && setBulkDeleteOpen(false)} />
+          <div className="amodbox" style={{ maxWidth: 460 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#FF4545', marginBottom: 10 }}>
+              Удалить {selectedClients.length} клиент(ов)?
+            </div>
+            <div style={{ fontSize: 13, color: '#8FB897', lineHeight: 1.55, marginBottom: 12 }}>
+              Выбранные клиенты будут полностью удалены из базы на сервере. Карты отвяжутся. Восстановить будет нельзя.
+            </div>
+            <div style={{
+              maxHeight: 140,
+              overflowY: 'auto',
+              marginBottom: 16,
+              padding: '8px 10px',
+              borderRadius: 10,
+              background: '#0C1C0F',
+              border: '1px solid #162B1A',
+              fontSize: 12,
+              color: '#8FB897',
+            }}>
+              {selectedClients.slice(0, 12).map(c => (
+                <div key={c.id} style={{ padding: '3px 0' }}>
+                  <strong style={{ color: '#EBF5ED' }}>{c.name}</strong> · {c.phone}
+                </div>
+              ))}
+              {selectedClients.length > 12 && (
+                <div style={{ color: '#3D6645', marginTop: 4 }}>…и ещё {selectedClients.length - 12}</div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={() => void handleBulkDelete()}
+                className="ab abd"
+                style={{ flex: 1, opacity: bulkDeleting ? 0.7 : 1 }}
+              >
+                {bulkDeleting ? 'Удаление…' : `Да, удалить ${selectedClients.length}`}
+              </button>
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={() => setBulkDeleteOpen(false)}
                 className="ab"
                 style={{ flex: 1, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}
               >
@@ -6547,6 +6717,7 @@ function AdminAppInner() {
   useApiSync('all');
   const { page, setPage } = useAppNavigation('dashboard');
   useEffect(() => {
+    if (USE_API) clearAppDataLocalCacheOnce();
     hydrateCourierStores();
     void syncCourierStoresFromApi();
     void syncCourierTeamFromApi();

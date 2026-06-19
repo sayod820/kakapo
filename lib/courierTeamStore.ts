@@ -7,10 +7,12 @@ import {
   normalizeCourier,
   type AdminCourier,
 } from './courierTeam'
+import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const COURIERS_KEY = 'kakapo-couriers'
 
 function loadCouriers(): AdminCourier[] {
+  if (USE_API) return []
   if (typeof window === 'undefined') return DEFAULT_ADMIN_COURIERS
   try {
     const raw = localStorage.getItem(COURIERS_KEY)
@@ -24,20 +26,10 @@ function loadCouriers(): AdminCourier[] {
 }
 
 function saveCouriers(list: AdminCourier[]) {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || !persistAppDataLocally()) return
   try {
     localStorage.setItem(COURIERS_KEY, JSON.stringify(list))
   } catch { /* quota */ }
-}
-
-function mergeCourierLists(primary: AdminCourier[], secondary: AdminCourier[]): AdminCourier[] {
-  const byId = new Map<string, AdminCourier>()
-  for (const c of secondary) byId.set(c.id, normalizeCourier(c))
-  for (const c of primary) {
-    const prev = byId.get(c.id)
-    byId.set(c.id, normalizeCourier(prev ? { ...prev, ...c, id: c.id } : c))
-  }
-  return Array.from(byId.values())
 }
 
 function nextCourierId(list: AdminCourier[]): string {
@@ -49,6 +41,7 @@ function nextCourierId(list: AdminCourier[]): string {
 interface CourierTeamStore {
   couriers: AdminCourier[]
   hydrated: boolean
+  apiReady: boolean
   hydrate: () => void
   reload: () => void
   setCouriers: (list: AdminCourier[]) => void
@@ -59,10 +52,12 @@ interface CourierTeamStore {
 }
 
 export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
-  couriers: DEFAULT_ADMIN_COURIERS,
+  couriers: USE_API ? [] : DEFAULT_ADMIN_COURIERS,
   hydrated: false,
+  apiReady: !USE_API,
   hydrate: () => {
-    set({ couriers: loadCouriers(), hydrated: true })
+    if (USE_API) return
+    set({ couriers: loadCouriers(), hydrated: true, apiReady: true })
   },
   reload: () => {
     set({ couriers: loadCouriers() })
@@ -100,20 +95,18 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
     get().updateCourier(id, { blocked: !c.blocked, status: !c.blocked ? 'offline' : c.status })
   },
   fetchFromApi: async () => {
-    const local = loadCouriers()
     if (!USE_API) {
-      set({ couriers: local, hydrated: true })
+      set({ couriers: loadCouriers(), hydrated: true, apiReady: true })
       return
     }
     try {
+      clearAppDataLocalCache()
       const apiList = await api.getCouriers()
-      const remote = apiList.length ? apiList.map(c => normalizeCourier(c)) : DEFAULT_ADMIN_COURIERS
-      const couriers = mergeCourierLists(local, remote)
-      saveCouriers(couriers)
-      set({ couriers, hydrated: true })
+      const couriers = apiList.map(c => normalizeCourier(c))
+      set({ couriers, hydrated: true, apiReady: true })
     } catch (e) {
       console.error(e)
-      set({ couriers: local, hydrated: true })
+      set({ couriers: [], hydrated: true, apiReady: false })
     }
   },
 }))
@@ -127,6 +120,10 @@ export async function syncCourierTeamFromApi() {
 }
 
 export function hydrateCourierTeamStore() {
+  if (USE_API) {
+    void useCourierTeamStore.getState().fetchFromApi()
+    return
+  }
   useCourierTeamStore.getState().hydrate()
 }
 

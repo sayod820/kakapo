@@ -234,7 +234,7 @@ export async function isStoreAccountActiveOnServer(phone: string): Promise<boole
       .find(c => c.status !== 'unlinked' && c.phone && phonesMatch(c.phone, phone))
     return !!card
   } catch {
-    return true
+    return false
   }
 }
 
