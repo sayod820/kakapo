@@ -27,13 +27,11 @@ import {
 import {
   useClientStore,
   useClients,
-  syncClientsFromApi,
   hydrateClientStore,
 } from '@/lib/clientStore'
 import {
   useCardStore,
   useCards,
-  syncCardsFromApi,
   hydrateCardStore,
 } from '@/lib/cardStore'
 import {
@@ -2703,7 +2701,7 @@ function ClientsPage() {
         <StatCard l="Активных" v={stats.total.toLocaleString()} />
         <StatCard l="Восстановление" v={stats.recovery} c="#FF8C00" />
         <StatCard l="С картами" v={stats.withCard} c="#FFB800" />
-        <StatCard l="VIP (долг)" v={stats.withDebt} c="#FF4545" />
+        <StatCard l="С долгом" v={stats.withDebt} c="#FF4545" />
         <StatCard l="Новых за месяц" v={stats.newMonth} c="#1FD760" />
       </div>
 
@@ -2734,7 +2732,7 @@ function ClientsPage() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         {[
           { id: 'active', l: '✓ Активные' },
           { id: 'recovery', l: '♻️ Восстановление' },
@@ -2752,88 +2750,58 @@ function ClientsPage() {
             }}
           >{f.l}</button>
         ))}
-        {[{ id: 'all', l: 'Все типы' }, { id: 'market', l: '🛒 Магазин' }, { id: 'restaurant', l: '🍽 Рестораны' }, { id: 'mixed', l: '🔀 Смешанные' }].map(f => (
-          <button
-            key={f.id}
-            onClick={() => setFilterSegment(f.id as typeof filterSegment)}
-            className="ab"
-            style={{
-              padding: '5px 12px',
-              fontSize: 11,
-              background: filterSegment === f.id ? 'rgba(31,215,96,.15)' : '#0C1C0F',
-              color: filterSegment === f.id ? '#1FD760' : '#8FB897',
-              border: `1px solid ${filterSegment === f.id ? 'rgba(31,215,96,.35)' : '#162B1A'}`,
-            }}
-          >{f.l}</button>
-        ))}
-        {[{ id: 'all', l: 'Все уровни' }, ...CLIENT_LEVEL_OPTIONS.map(o => ({ id: o.id, l: o.label }))].map(f => (
-          <button
-            key={f.id}
-            onClick={() => setFilterLevel(f.id as typeof filterLevel)}
-            className="ab"
-            style={{
-              padding: '5px 10px',
-              fontSize: 11,
-              background: filterLevel === f.id ? `${LVC[f.id as ClientLevel] || '#1FD760'}18` : '#0C1C0F',
-              color: filterLevel === f.id ? (LVC[f.id as ClientLevel] || '#1FD760') : '#8FB897',
-              border: `1px solid ${filterLevel === f.id ? `${LVC[f.id as ClientLevel] || '#1FD760'}40` : '#162B1A'}`,
-            }}
-          >{f.l}</button>
-        ))}
-        {[
-          { id: 'all', l: 'Долг: все' },
-          { id: 'with', l: 'С долгом' },
-          { id: 'without', l: 'Без долга' },
-        ].map(f => (
-          <button
-            key={f.id}
-            onClick={() => setFilterDebt(f.id as typeof filterDebt)}
-            className="ab"
-            style={{
-              padding: '5px 10px',
-              fontSize: 11,
-              background: filterDebt === f.id ? 'rgba(255,69,69,.12)' : '#0C1C0F',
-              color: filterDebt === f.id ? '#FF4545' : '#8FB897',
-              border: `1px solid ${filterDebt === f.id ? 'rgba(255,69,69,.3)' : '#162B1A'}`,
-            }}
-          >{f.l}</button>
-        ))}
-        {[
-          { id: 'all', l: 'Карта: все' },
-          { id: 'with', l: 'С картой' },
-          { id: 'without', l: 'Без карты' },
-        ].map(f => (
-          <button
-            key={f.id}
-            onClick={() => setFilterCard(f.id as typeof filterCard)}
-            className="ab"
-            style={{
-              padding: '5px 10px',
-              fontSize: 11,
-              background: filterCard === f.id ? 'rgba(255,184,0,.12)' : '#0C1C0F',
-              color: filterCard === f.id ? '#FFB800' : '#8FB897',
-              border: `1px solid ${filterCard === f.id ? 'rgba(255,184,0,.3)' : '#162B1A'}`,
-            }}
-          >{f.l}</button>
-        ))}
-        {[
-          { id: 'all', l: 'Статус: все' },
-          { id: 'active', l: 'Активные' },
-          { id: 'blocked', l: 'Заблок.' },
-        ].map(f => (
-          <button
-            key={f.id}
-            onClick={() => setFilterBlocked(f.id as typeof filterBlocked)}
-            className="ab"
-            style={{
-              padding: '5px 10px',
-              fontSize: 11,
-              background: filterBlocked === f.id ? 'rgba(31,215,96,.12)' : '#0C1C0F',
-              color: filterBlocked === f.id ? '#1FD760' : '#8FB897',
-              border: `1px solid ${filterBlocked === f.id ? 'rgba(31,215,96,.3)' : '#162B1A'}`,
-            }}
-          >{f.l}</button>
-        ))}
+        <select
+          className="ai"
+          value={filterLevel}
+          onChange={e => setFilterLevel(e.target.value as typeof filterLevel)}
+          style={{ width: 130, fontSize: 11, padding: '6px 10px' }}
+        >
+          <option value="all">Все уровни</option>
+          {CLIENT_LEVEL_OPTIONS.map(o => (
+            <option key={o.id} value={o.id}>{o.label}</option>
+          ))}
+        </select>
+        <select
+          className="ai"
+          value={filterDebt}
+          onChange={e => setFilterDebt(e.target.value as typeof filterDebt)}
+          style={{ width: 120, fontSize: 11, padding: '6px 10px' }}
+        >
+          <option value="all">Долг: все</option>
+          <option value="with">С долгом</option>
+          <option value="without">Без долга</option>
+        </select>
+        <select
+          className="ai"
+          value={filterCard}
+          onChange={e => setFilterCard(e.target.value as typeof filterCard)}
+          style={{ width: 120, fontSize: 11, padding: '6px 10px' }}
+        >
+          <option value="all">Карта: все</option>
+          <option value="with">С картой</option>
+          <option value="without">Без карты</option>
+        </select>
+        <select
+          className="ai"
+          value={filterSegment}
+          onChange={e => setFilterSegment(e.target.value as typeof filterSegment)}
+          style={{ width: 130, fontSize: 11, padding: '6px 10px' }}
+        >
+          <option value="all">Все типы</option>
+          <option value="market">🛒 Магазин</option>
+          <option value="restaurant">🍽 Рестораны</option>
+          <option value="mixed">🔀 Смешанные</option>
+        </select>
+        <select
+          className="ai"
+          value={filterBlocked}
+          onChange={e => setFilterBlocked(e.target.value as typeof filterBlocked)}
+          style={{ width: 120, fontSize: 11, padding: '6px 10px' }}
+        >
+          <option value="all">Статус: все</option>
+          <option value="active">Активные</option>
+          <option value="blocked">Заблок.</option>
+        </select>
       </div>
 
       {selectedIds.size > 0 && (
@@ -3566,14 +3534,14 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
     setShowLink(card);
   };
 
-  const saveLink = () => {
+  const saveLink = async () => {
     if (!showLink) return;
     try {
       const form = {
         ...linkForm,
         debt: showLink.status === 'unlinked' ? 0 : Math.max(0, Number(showLink.debt) || 0),
       };
-      saveCardLoyalty(showLink, form, showLink.status === 'unlinked' ? 'link' : 'edit');
+      await saveCardLoyalty(showLink, form, showLink.status === 'unlinked' ? 'link' : 'edit');
       setShowLink(null);
     } catch (e) {
       setLinkErr(e instanceof Error ? e.message : 'Ошибка сохранения');
@@ -4157,7 +4125,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
     return loadDebtHistory(detail.phone).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 12);
   }, [detail?.phone, histTick]);
 
-  const saveDebt = () => {
+  const saveDebt = async () => {
     if (!detail) return;
     setSaveBusy(true);
     setSaveErr('');
@@ -4172,7 +4140,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
         ...cardLoyaltyFromCard(detail, client),
         debt: nextDebt,
       };
-      saveCardLoyalty(detail, form, 'edit');
+      await saveCardLoyalty(detail, form, 'edit');
       setDetail(null);
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : 'Не удалось сохранить');
@@ -6726,24 +6694,14 @@ function AdminAppInner() {
     void syncCourierTeamFromApi();
     hydrateAssemblerTeamStore();
     void syncAssemblerTeamFromApi();
-    let crmTimer: ReturnType<typeof setInterval> | undefined;
-    if (USE_API) {
-      void syncClientsFromApi();
-      void syncCardsFromApi();
-      crmTimer = setInterval(() => {
-        void syncClientsFromApi();
-        void syncCardsFromApi();
-      }, 12000);
-    } else {
+    if (!USE_API) {
       hydrateClientStore();
       hydrateCardStore();
     }
     hydratePushStore();
     void syncPushFromApi();
     useProductPhotos.getState().hydrate();
-    return () => {
-      if (crmTimer) clearInterval(crmTimer);
-    };
+    return () => {};
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
   const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};

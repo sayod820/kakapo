@@ -7,6 +7,7 @@ import {
   DEFAULT_ADMIN_CLIENTS,
   normalizeClient,
   isClientPurged,
+  phonesMatch,
   type AdminClient,
 } from './clientCrm'
 import { isPhoneDeleted } from './clientTombstones'
@@ -130,22 +131,30 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       set({ clients: filterVisibleClients(loadClients()), hydrated: true, apiReady: true })
       return
     }
+    const prev = get().clients
     try {
       clearAppDataLocalCache()
       const apiList = await api.getClients()
-      const local = get().clients
-      const clients = filterVisibleClients(
-        apiList.map(c => {
-          const normalized = normalizeClient(c)
-          const lc = local.find(x => x.id === normalized.id)
-          return mergeClientLoyaltyIfRecent(normalized, lc)
-        }),
-      )
+      const local = prev
+      const apiIds = new Set(apiList.map(c => String(c.id)))
+      const merged = apiList.map(c => {
+        const normalized = normalizeClient(c)
+        const lc = local.find(x => x.id === normalized.id)
+          || local.find(x => phonesMatch(x.phone, normalized.phone))
+        return mergeClientLoyaltyIfRecent(normalized, lc)
+      })
+      for (const lc of local) {
+        if (isClientPurged(lc)) continue
+        if (apiIds.has(lc.id)) continue
+        if (merged.some(m => m.id === lc.id || phonesMatch(m.phone, lc.phone))) continue
+        merged.push(normalizeClient(lc))
+      }
+      const clients = filterVisibleClients(merged)
       set({ clients, hydrated: true, apiReady: true })
       emitCrmSync()
     } catch (e) {
       console.error(e)
-      set({ clients: [], hydrated: true, apiReady: false })
+      set({ clients: prev, hydrated: true, apiReady: prev.length > 0 })
     }
   },
 }))

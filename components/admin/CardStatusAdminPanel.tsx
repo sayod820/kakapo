@@ -13,7 +13,7 @@ import {
 import { refreshLoyaltyTiersFromConfig } from '@/lib/clientLoyalty'
 import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
-import { mergeCardsWithClients, cardMatchesSearch } from '@/lib/cardCrm'
+import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/cardCrm'
 import { saveCardLoyalty, cardLoyaltyFromCard } from '@/lib/clientCardSync'
 import { useCards } from '@/lib/cardStore'
 import { useClients } from '@/lib/clientStore'
@@ -102,7 +102,15 @@ export default function CardStatusAdminPanel() {
   const [saved, setSaved] = useState(false)
   const [configErr, setConfigErr] = useState('')
   const [search, setSearch] = useState('')
-  const [assignRows, setAssignRows] = useState<Record<string, AssignRow>>({})
+  const [showProgram, setShowProgram] = useState(false)
+  const [assignRows, setAssignRows] = useState<Record<string, {
+    saving?: boolean
+    saved?: boolean
+    err?: string
+    level?: ClientLevel
+    vip?: boolean
+    debtEnabled?: boolean
+  }>>({})
 
   useEffect(() => subscribeLoyaltyStatusConfig(cfg => setDraft(cfg)), [])
 
@@ -153,29 +161,27 @@ export default function CardStatusAdminPanel() {
   }
 
   const getRow = (card: AdminCard): AssignRow => {
-    const key = card.num
-    const pending = assignRows[key]
-    if (pending && (pending.saving || pending.err || pending.saved)) return pending
     const client = card.clientId ? clients.find(c => c.id === card.clientId) : undefined
     const form = cardLoyaltyFromCard(card, client)
+    const meta = assignRows[card.num]
     return {
       card,
-      level: form.level,
-      vip: form.vip,
-      debtEnabled: form.debtEnabled,
-      saving: false,
-      saved: false,
-      err: '',
+      level: meta?.level ?? form.level,
+      vip: meta?.vip ?? form.vip,
+      debtEnabled: meta?.debtEnabled ?? form.debtEnabled,
+      saving: !!meta?.saving,
+      saved: !!meta?.saved,
+      err: meta?.err || '',
     }
   }
 
   const applyStatus = async (num: string, patch: Partial<Pick<AssignRow, 'level' | 'vip' | 'debtEnabled'>>) => {
-    const card = activeCards.find(c => c.num === num)
+    const card = activeCards.find(c => cardNumsMatch(c.num, num))
     if (!card) return
     const client = card.clientId ? clients.find(c => c.id === card.clientId) : undefined
-    const prev = assignRows[num] || getRow(card)
+    const prev = getRow(card)
     const next: AssignRow = { ...prev, ...patch, saving: true, saved: false, err: '' }
-    setAssignRows(p => ({ ...p, [num]: next }))
+    setAssignRows(p => ({ ...p, [num]: { ...p[num], ...patch, saving: true, saved: false, err: '' } }))
     try {
       const base = cardLoyaltyFromCard(card, client)
       await saveCardLoyalty(card, {
@@ -184,19 +190,19 @@ export default function CardStatusAdminPanel() {
         vip: next.vip,
         debtEnabled: next.debtEnabled,
       }, 'edit')
-      setAssignRows(p => ({ ...p, [num]: { ...next, saving: false, saved: true, err: '' } }))
+      setAssignRows(p => ({ ...p, [num]: { saving: false, saved: true, err: '' } }))
       window.setTimeout(() => {
         setAssignRows(p => {
           const row = p[num]
           if (!row?.saved) return p
-          return { ...p, [num]: { ...row, saved: false } }
+          const { [num]: _, ...rest } = p
+          return rest
         })
       }, 2000)
     } catch (e) {
       setAssignRows(p => ({
         ...p,
         [num]: {
-          ...prev,
           saving: false,
           saved: false,
           err: e instanceof Error ? e.message : 'Ошибка сохранения',
@@ -208,72 +214,91 @@ export default function CardStatusAdminPanel() {
   const levelOptions = [draft.basic, ...draft.tiers]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {/* Программа и правила */}
-      <div className="ac" style={{ padding: '18px 20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Программа лояльности — свёрнута по умолчанию */}
+      <div className="ac" style={{ padding: 0, overflow: 'hidden' }}>
+        <button
+          type="button"
+          onClick={() => setShowProgram(v => !v)}
+          className="ab"
+          style={{
+            width: '100%',
+            padding: '14px 18px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            background: 'transparent',
+            border: 'none',
+            borderRadius: 0,
+            textAlign: 'left',
+          }}
+        >
           <div>
-            <div className="ub" style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>⚙️ Программа лояльности</div>
-            <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.5 }}>
-              Пороги, правила VIP и оформление. Статус и привилегии действуют один календарный месяц и сбрасываются 1-го числа.
+            <div className="ub" style={{ fontSize: 14, fontWeight: 900 }}>⚙️ Программа лояльности</div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>Пороги уровней, VIP, оформление карточек</div>
+          </div>
+          <span style={{ fontSize: 12, color: '#8FB897' }}>{showProgram ? '▲ Свернуть' : '▼ Настроить'}</span>
+        </button>
+
+        {showProgram && (
+          <div style={{ padding: '0 18px 18px', borderTop: '1px solid #162B1A' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', margin: '14px 0' }}>
+              <button type="button" onClick={resetConfig} className="ab" style={{ padding: '8px 14px', fontSize: 11, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>
+                Сбросить
+              </button>
+              <button type="button" onClick={saveConfig} className="ab abp" style={{ padding: '8px 18px', fontSize: 12, fontWeight: 800 }}>
+                {saved ? '✓ Сохранено' : 'Сохранить программу'}
+              </button>
+            </div>
+
+            {configErr && (
+              <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.3)', fontSize: 12, color: '#FF4545', marginBottom: 14 }}>
+                ⚠ {configErr}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
+              <NI lbl="Порог Бронзы ЅМ" val={String(draft.bronzeMinSpent)} set={v => { setDraft(p => ({ ...p, bronzeMinSpent: Math.max(0, parseFloat(v) || 0) })); setSaved(false) }} type="number" />
+              <NI lbl="VIP: мин. заказов" val={String(draft.vipRules.minOrders)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minOrders: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
+              <NI lbl="VIP: мин. отзывов" val={String(draft.vipRules.minReviews)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minReviews: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
+              <NI lbl="VIP: мин. траты ЅМ" val={String(draft.vipRules.minSpent)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minSpent: Math.max(0, parseFloat(v) || 0) } })); setSaved(false) }} type="number" />
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>Уровни</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 14 }}>
+              {allTiers.map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSelectedTier(t.id)}
+                  className="ab"
+                  style={{
+                    padding: 0, overflow: 'hidden', textAlign: 'left',
+                    border: selectedTier === t.id ? `2px solid ${t.color}` : '1px solid #162B1A',
+                    borderRadius: 14, background: 'transparent',
+                  }}
+                >
+                  <TierPreviewCard tier={t} />
+                </button>
+              ))}
+            </div>
+
+            <div style={{ background: '#0A140C', border: '1px solid #162B1A', borderRadius: 14, padding: '14px 16px' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 10 }}>
+                {editingTier.emoji} {editingTier.label}
+              </div>
+              <TierEditor tier={editingTier} onChange={patch => patchTier(selectedTier, patch)} />
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={resetConfig} className="ab" style={{ padding: '8px 14px', fontSize: 11, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>
-              Сбросить
-            </button>
-            <button type="button" onClick={saveConfig} className="ab abp" style={{ padding: '8px 18px', fontSize: 12, fontWeight: 800 }}>
-              {saved ? '✓ Сохранено' : 'Сохранить программу'}
-            </button>
-          </div>
-        </div>
-
-        {configErr && (
-          <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.3)', fontSize: 12, color: '#FF4545', marginBottom: 14 }}>
-            ⚠ {configErr}
-          </div>
         )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
-          <NI lbl="Порог Бронзы ЅМ" val={String(draft.bronzeMinSpent)} set={v => { setDraft(p => ({ ...p, bronzeMinSpent: Math.max(0, parseFloat(v) || 0) })); setSaved(false) }} type="number" />
-          <NI lbl="VIP: мин. заказов" val={String(draft.vipRules.minOrders)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minOrders: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
-          <NI lbl="VIP: мин. отзывов" val={String(draft.vipRules.minReviews)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minReviews: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
-          <NI lbl="VIP: мин. траты ЅМ" val={String(draft.vipRules.minSpent)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minSpent: Math.max(0, parseFloat(v) || 0) } })); setSaved(false) }} type="number" />
-        </div>
-
-        <div style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>Уровни — нажмите для редактирования</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, marginBottom: 16 }}>
-          {allTiers.map(t => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setSelectedTier(t.id)}
-              className="ab"
-              style={{
-                padding: 0, overflow: 'hidden', textAlign: 'left',
-                border: selectedTier === t.id ? `2px solid ${t.color}` : '1px solid #162B1A',
-                borderRadius: 16, background: 'transparent',
-              }}
-            >
-              <TierPreviewCard tier={t} />
-            </button>
-          ))}
-        </div>
-
-        <div style={{ background: '#0A140C', border: '1px solid #162B1A', borderRadius: 14, padding: '16px 18px' }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 12 }}>
-            Редактирование: {editingTier.emoji} {editingTier.label}
-          </div>
-          <TierEditor tier={editingTier} onChange={patch => patchTier(selectedTier, patch)} />
-        </div>
       </div>
 
       {/* Назначение клиентам */}
       <div className="ac">
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid #162B1A' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid #162B1A' }}>
           <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 4 }}>👥 Статусы клиентов</div>
-          <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 12 }}>
-            Уровень, VIP и раздел долга сохраняются автоматически. Бонусы и сумма долга — в карточке карты или «Долги VIP».
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 10 }}>
+            Уровень, VIP и раздел долга сохраняются сразу. Сумму долга меняйте в «Долги VIP».
           </div>
           <div style={{ position: 'relative', maxWidth: 360 }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: .5 }}>🔍</span>
@@ -306,8 +331,7 @@ export default function CardStatusAdminPanel() {
                   </td>
                 </tr>
               ) : filteredCards.map(card => {
-                const row = getRow(card)
-                const st = assignRows[card.num] || row
+                const st = getRow(card)
                 return (
                   <tr key={card.num}>
                     <td>

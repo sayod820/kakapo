@@ -182,9 +182,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
     vip: !!raw.vip || vipFromNote(raw.note),
-    debtEnabled: raw.debtEnabled !== undefined
-      ? !!raw.debtEnabled
-      : (Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0,
+    debtEnabled: raw.debtEnabled === true
+      || (raw.debtEnabled === undefined && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,

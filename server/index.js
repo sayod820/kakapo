@@ -925,7 +925,7 @@ app.post('/cards/ensure', (req, res) => {
       debt: Number(body.debt ?? baseClient?.debt) || 0,
       debtLimit: Number(body.debtLimit ?? baseClient?.debtLimit) || 0,
       vip: !!(body.vip ?? baseClient?.vip),
-      debtEnabled: body.debtEnabled === true || baseClient?.debtEnabled === true,
+      debtEnabled: body.debtEnabled !== undefined ? body.debtEnabled === true : baseClient?.debtEnabled === true,
       loyaltyPeriod: body.loyaltyPeriod || baseClient?.loyaltyPeriod,
       issued: new Date().toISOString().slice(0, 10),
     })

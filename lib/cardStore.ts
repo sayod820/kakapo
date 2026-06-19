@@ -325,7 +325,8 @@ export const useCardStore = create<CardStore>((set, get) => ({
       emitCrmSync()
     } catch (e) {
       console.error(e)
-      set({ cards: [], hydrated: true, apiReady: false })
+      const prev = get().cards
+      set({ cards: prev, hydrated: true, apiReady: prev.length > 0 })
     }
   },
 }))

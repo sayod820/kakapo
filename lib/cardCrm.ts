@@ -27,6 +27,16 @@ export function cardHasDebtSection(card: Pick<AdminCard, 'debtEnabled' | 'debt' 
   return (Number(card.debt) || 0) > 0 || (Number(card.debtLimit) || 0) > 0
 }
 
+/** Явное значение переключателя «Раздел долга» без вывода из суммы долга */
+export function resolveDebtEnabled(
+  card?: Pick<AdminCard, 'debtEnabled'>,
+  client?: Pick<AdminClient, 'debtEnabled'>,
+): boolean {
+  if (card?.debtEnabled !== undefined) return !!card.debtEnabled
+  if (client?.debtEnabled !== undefined) return !!client.debtEnabled
+  return false
+}
+
 /** Цифры номера карты (КАКАПО-0099 и KAKAPO-0099 → 0099) */
 export function cardDigits(num: string | undefined): string {
   return String(num || '').replace(/\D/g, '')
@@ -87,9 +97,8 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     issued: raw.issued,
     note: raw.note || '',
     vip: !!raw.vip || vipFromNote(raw.note),
-    debtEnabled: raw.debtEnabled !== undefined
-      ? !!raw.debtEnabled
-      : (Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0,
+    debtEnabled: raw.debtEnabled === true
+      || (raw.debtEnabled === undefined && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
   }
 }
@@ -134,11 +143,7 @@ export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): Card
     bonus: card.bonus ?? client?.bonus ?? 0,
     debt: card.debt ?? client?.debt ?? 0,
     vip: !!(card.vip ?? client?.vip),
-    debtEnabled: cardHasDebtSection({
-      debtEnabled: card.debtEnabled ?? client?.debtEnabled,
-      debt: card.debt ?? client?.debt ?? 0,
-      debtLimit: card.debtLimit ?? client?.debtLimit ?? 0,
-    }),
+    debtEnabled: resolveDebtEnabled(card, client),
   }
 }
 
@@ -150,7 +155,7 @@ export function emptyLinkForm(): CardLoyaltyForm {
 export function findClientForCard(clients: AdminClient[], card: AdminCard): AdminClient | undefined {
   if (card.clientId) return clients.find(c => c.id === card.clientId)
   if (card.num) {
-    const byCard = clients.find(c => c.card === card.num)
+    const byCard = clients.find(c => cardNumsMatch(c.card, card.num))
     if (byCard) return byCard
   }
   if (card.phone) return clients.find(c => phonesMatch(c.phone, card.phone))
@@ -175,11 +180,7 @@ export function enrichCardWithClient(card: AdminCard, clients: AdminClient[]): A
     debtLimit: client.debtLimit ?? card.debtLimit,
     debt: Math.max(card.debt, client.debt),
     vip: !!(card.vip || client.vip),
-    debtEnabled: cardHasDebtSection({
-      debtEnabled: card.debtEnabled ?? client.debtEnabled,
-      debt: Math.max(card.debt, client.debt),
-      debtLimit: client.debtLimit ?? card.debtLimit,
-    }),
+    debtEnabled: resolveDebtEnabled(card, client),
     status,
   })
 }
@@ -188,13 +189,22 @@ export function mergeCardsWithClients(cards: AdminCard[], clients: AdminClient[]
   const byNum = new Map<string, AdminCard>()
   for (const c of cards) byNum.set(c.num, normalizeCard(c))
 
+  const findKey = (cardNum: string) => {
+    if (byNum.has(cardNum)) return cardNum
+    for (const k of byNum.keys()) {
+      if (cardNumsMatch(k, cardNum)) return k
+    }
+    return undefined
+  }
+
   for (const client of clients) {
     if (!client.card) continue
-    const prev = byNum.get(client.card)
+    const key = findKey(client.card) || client.card
+    const prev = byNum.get(key)
     if (prev) {
-      byNum.set(client.card, enrichCardWithClient(prev, [client]))
+      byNum.set(key, enrichCardWithClient(prev, [client]))
     } else {
-      byNum.set(client.card, normalizeCard({
+      byNum.set(key, normalizeCard({
         num: client.card,
         client: client.name,
         phone: client.phone,
@@ -205,11 +215,7 @@ export function mergeCardsWithClients(cards: AdminCard[], clients: AdminClient[]
         debtLimit: client.debtLimit,
         debt: client.debt,
         vip: !!client.vip,
-        debtEnabled: cardHasDebtSection({
-          debtEnabled: client.debtEnabled,
-          debt: client.debt,
-          debtLimit: client.debtLimit,
-        }),
+        debtEnabled: client.debtEnabled,
       }))
     }
   }

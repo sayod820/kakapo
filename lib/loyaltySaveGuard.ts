@@ -3,7 +3,7 @@
 import { cardNumsMatch, canonicalCardNum, type AdminCard } from './cardCrm'
 import type { AdminClient } from './clientCrm'
 
-const TTL_MS = 90_000
+const TTL_MS = 180_000
 const cardSavedAt = new Map<string, number>()
 const clientSavedAt = new Map<string, number>()
 
