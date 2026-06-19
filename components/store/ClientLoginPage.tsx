@@ -11,6 +11,7 @@ import {
 import { DEFAULT_ADMIN_CLIENTS, normalizePhone, phonesMatch, type AdminClient } from '@/lib/clientCrm'
 import { isClientInRecovery, restoreClientFromRecovery } from '@/lib/clientRecovery'
 import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
+import { registerClientAccount } from '@/lib/clientCardSync'
 import { formatClientAddressLine, setRegistrationDefaultAddress } from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
 import { setCurrentClientPhone } from '@/lib/clientNotifications'
@@ -94,7 +95,6 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
   ]
-  const addClient = useClientStore(s => s.addClient)
   const demoList = DEFAULT_ADMIN_CLIENTS.filter(c => !c.blocked && c.phone).slice(0, 3)
 
   useEffect(() => { hydrateClientStore() }, [])
@@ -253,18 +253,17 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     setErr('')
   }
 
-  const saveRegister = () => {
+  const saveRegister = async () => {
     if (!reg.firstName.trim()) { setErr('Укажите имя'); return }
     if (!reg.lastName.trim()) { setErr('Укажите фамилию'); return }
     if (!savedAddr.saved || !savedAddr.coords) { setErr('Добавьте адрес доставки'); openAddrSheet(); return }
     if (!savedAddr.street.trim()) { setErr('Укажите адрес доставки'); openAddrSheet(); return }
     setErr('')
     setLoad(true)
-    setTimeout(() => {
-      setLoad(false)
+    try {
       const formattedPhone = formatTjPhone(phone)
       const fullName = `${reg.firstName.trim()} ${reg.lastName.trim()}`
-      const newClient = addClient({
+      const newClient = await registerClientAccount({
         name: fullName,
         phone: formattedPhone,
         email: reg.email.trim(),
@@ -288,7 +287,11 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
         })
       }
       finishLogin(storeUserFromClient(newClient))
-    }, 500)
+    } catch {
+      setErr('Не удалось создать аккаунт. Попробуйте ещё раз.')
+    } finally {
+      setLoad(false)
+    }
   }
 
   const otpReady = otp.join('').length === 4

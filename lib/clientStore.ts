@@ -55,7 +55,7 @@ interface ClientStore {
   hydrate: () => void
   reload: () => void
   setClients: (list: AdminClient[]) => void
-  addClient: (data: Omit<AdminClient, 'id' | 'orders' | 'spent' | 'createdAt' | 'lastOrderAt'>) => AdminClient
+  addClient: (data: Omit<AdminClient, 'id' | 'orders' | 'spent' | 'createdAt' | 'lastOrderAt'>, opts?: { skipApi?: boolean }) => AdminClient
   updateClient: (id: string, patch: Partial<AdminClient>) => void
   removeClient: (id: string) => void
   toggleBlock: (id: string) => void
@@ -76,7 +76,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     saveClients(clients)
     set({ clients })
   },
-  addClient: data => {
+  addClient: (data, opts) => {
     const clients = get().clients
     const row = normalizeClient({
       ...data,
@@ -87,7 +87,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     })
     const next = [...clients, row]
     saveClients(next)
-    if (USE_API) api.createClient(row).catch(console.error)
+    if (USE_API && !opts?.skipApi) api.createClient(row).catch(console.error)
     set({ clients: next })
     return row
   },

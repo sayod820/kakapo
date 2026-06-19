@@ -4,6 +4,7 @@ import { useCardStore } from './cardStore'
 import {
   phonesMatch,
   pickClientDisplayName,
+  normalizeClient,
   type AdminClient,
   type ClientLevel,
   type ClientProfileForm,
@@ -14,6 +15,9 @@ import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyalty
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 import { emitCrmSync } from './clientProfileSync'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
+import { hydrateCardStore } from './cardStore'
+import { USE_API } from './config'
+import { api } from './api'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -23,6 +27,67 @@ export function lookupClientByPhone(phone: string, clients?: AdminClient[]): Adm
   const p = phone.trim()
   if (!p) return undefined
   return list.find(c => phonesMatch(c.phone, p))
+}
+
+const REGISTRATION_WELCOME_BONUS = 100
+
+/** Создать карту КАКАПО и привязать к клиенту (регистрация / если карты ещё нет) */
+export async function provisionLoyaltyCardForClient(client: AdminClient): Promise<AdminClient> {
+  hydrateCardStore()
+  const clientStore = useClientStore.getState()
+  const cardStore = useCardStore.getState()
+
+  let current = clientStore.clients.find(c => c.id === client.id) || normalizeClient(client)
+  if (current.card) {
+    const linked = cardStore.cards.find(c => c.num === current.card && c.status !== 'unlinked')
+    if (linked) return current
+  }
+
+  const created = await cardStore.generateCards(1)
+  const card = created[0]
+  if (!card) throw new Error('Не удалось создать карту лояльности')
+
+  const enriched = normalizeClient({
+    ...current,
+    level: (current.level || 'basic') as ClientLevel,
+    bonus: Math.max(Number(current.bonus) || 0, REGISTRATION_WELCOME_BONUS),
+    loyaltyPeriod: current.loyaltyPeriod || currentLoyaltyPeriod(),
+  })
+
+  cardStore.assignToClient(card.num, enriched)
+  emitCrmSync()
+  return clientStore.clients.find(c => c.id === client.id) || enriched
+}
+
+/** Регистрация нового клиента: аккаунт + автоматическая карта */
+export async function registerClientAccount(
+  data: Omit<AdminClient, 'id' | 'orders' | 'spent' | 'createdAt' | 'lastOrderAt'>,
+): Promise<AdminClient> {
+  useClientStore.getState().hydrate()
+  hydrateCardStore()
+
+  const local = useClientStore.getState().addClient(data, { skipApi: true })
+
+  let client = local
+  if (USE_API) {
+    try {
+      const remote = await api.createClient(local)
+      useClientStore.getState().updateClient(local.id, remote)
+      client = useClientStore.getState().clients.find(c => c.id === local.id) || local
+      if (client.card) {
+        await useCardStore.getState().fetchFromApi()
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  if (!client.card) {
+    client = await provisionLoyaltyCardForClient(client)
+  }
+
+  emitCrmSync()
+  return client
 }
 
 export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[]) {

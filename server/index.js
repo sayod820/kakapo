@@ -513,7 +513,7 @@ app.post('/clients', (req, res) => {
   const n = (nums.length ? Math.max(...nums) : 0) + 1
   const row = normalizeClientRow({
     id: `U-${String(n).padStart(2, '0')}`,
-    level: 'bronze',
+    level: 'basic',
     orders: 0,
     spent: 0,
     debt: 0,
@@ -524,6 +524,7 @@ app.post('/clients', (req, res) => {
     ...req.body,
   })
   db.clients.push(row)
+  if (!row.card) issueCardForNewClient(row)
   persist()
   res.json(row)
 })
@@ -674,6 +675,28 @@ function normalizeCardRow(raw) {
     note: raw.note || '',
     vip: !!raw.vip,
   }
+}
+
+function issueCardForNewClient(client) {
+  if (!db.cards) db.cards = []
+  const nums = db.cards.map(c => parseInt(String(c.num).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+  const n = (nums.length ? Math.max(...nums) : 0) + 1
+  const num = `КАКАПО-${String(n).padStart(4, '0')}`
+  const card = normalizeCardRow({
+    num,
+    client: client.name || 'Клиент',
+    phone: client.phone || '',
+    clientId: client.id,
+    status: 'active',
+    level: client.level === 'basic' ? '' : (client.level || ''),
+    bonus: Number(client.bonus) || 0,
+    debt: 0,
+    debtLimit: 0,
+    issued: new Date().toISOString().slice(0, 10),
+  })
+  db.cards.push(card)
+  client.card = num
+  return card
 }
 
 function syncClientFromCardRow(card) {
