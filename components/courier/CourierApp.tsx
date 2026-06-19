@@ -598,6 +598,7 @@ function CourierAppInner() {
   const TARIFF = useTariff();
   const couriers = useCourierTeam();
   const teamApiReady = useCourierTeamStore(s => s.apiReady);
+  const teamHydrated = useCourierTeamStore(s => s.hydrated);
   const [session, setSession] = useState<CourierSession | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
 
@@ -703,11 +704,10 @@ function CourierAppInner() {
 
   useEffect(() => {
     const syncTeam = () => {
-      reloadCourierTeamStore();
       void syncCourierTeamFromApi();
     };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'kakapo-couriers') reloadCourierTeamStore();
+      if (e.key === 'kakapo-couriers' && !USE_API) reloadCourierTeamStore();
     };
     window.addEventListener('focus', syncTeam);
     window.addEventListener('storage', onStorage);
@@ -862,7 +862,7 @@ function CourierAppInner() {
     o.pickupIds.length > 0,
   );
 
-  if (!sessionReady || (session && !courierProfile && !teamApiReady)) {
+  if (!sessionReady || (session && !courierProfile && (!teamHydrated || !teamApiReady))) {
     return (
       <>
         <style>{CSS}</style>

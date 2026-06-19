@@ -60,6 +60,7 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
     set({ couriers: loadCouriers(), hydrated: true, apiReady: true })
   },
   reload: () => {
+    if (USE_API) return
     set({ couriers: loadCouriers() })
   },
   setCouriers: list => {
@@ -106,7 +107,12 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
       set({ couriers, hydrated: true, apiReady: true })
     } catch (e) {
       console.error(e)
-      set({ couriers: [], hydrated: true, apiReady: false })
+      const prev = get().couriers
+      set({
+        couriers: prev,
+        hydrated: true,
+        apiReady: prev.length > 0,
+      })
     }
   },
 }))

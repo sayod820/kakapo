@@ -60,6 +60,7 @@ export const useAssemblerTeamStore = create<AssemblerTeamStore>((set, get) => ({
     set({ assemblers: loadAssemblers(), hydrated: true, apiReady: true })
   },
   reload: () => {
+    if (USE_API) return
     set({ assemblers: loadAssemblers() })
   },
   setAssemblers: list => {
@@ -106,7 +107,12 @@ export const useAssemblerTeamStore = create<AssemblerTeamStore>((set, get) => ({
       set({ assemblers, hydrated: true, apiReady: true })
     } catch (e) {
       console.error(e)
-      set({ assemblers: [], hydrated: true, apiReady: false })
+      const prev = get().assemblers
+      set({
+        assemblers: prev,
+        hydrated: true,
+        apiReady: prev.length > 0,
+      })
     }
   },
 }))
