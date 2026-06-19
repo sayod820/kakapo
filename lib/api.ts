@@ -260,21 +260,21 @@ export const api = {
   updateClient: (id: string, data: Partial<AdminClient>) =>
     request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteClient: (id: string) =>
-    requestApp<{ ok: boolean }>(`/api/clients/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
+    requestApp<{ ok: boolean }>(`/api/kakapo/clients/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
   deleteClientByPhone: (phone: string) => {
     const digits = (phone || '').replace(/\D/g, '').slice(-9)
-    return requestApp<{ ok: boolean }>('/api/clients/delete-by-phone', {
+    return requestApp<{ ok: boolean }>('/api/kakapo/clients/delete-by-phone', {
       method: 'POST',
       body: JSON.stringify({ phone: digits }),
     })
   },
   moveClientToRecovery: (id: string) =>
-    requestApp<AdminClient>(`/api/clients/${encodeURIComponent(id)}/recovery`, { method: 'POST' }),
+    requestApp<AdminClient>(`/api/kakapo/clients/${encodeURIComponent(id)}/recovery`, { method: 'POST' }),
   restoreClient: (id: string) =>
-    requestApp<AdminClient>(`/api/clients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+    requestApp<AdminClient>(`/api/kakapo/clients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   moveClientToRecoveryByPhone: (phone: string) => {
     const digits = (phone || '').replace(/\D/g, '').slice(-9)
-    return requestApp<AdminClient>('/api/clients/recovery-by-phone', {
+    return request<AdminClient>('/clients/recovery-by-phone', {
       method: 'POST',
       body: JSON.stringify({ phone: digits }),
     })
