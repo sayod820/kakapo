@@ -2473,6 +2473,7 @@ function AssemblersPage() {
 /* ── КЛИЕНТЫ ────────────────────────────────────── */
 function ClientsPage() {
   const stored = useClients();
+  const clientsApiReady = useClientStore(s => s.apiReady);
   const allCards = useCards();
   const { toggleBlock } = useClientStore();
   const apiOrders = useOrders(s => s.orders);
@@ -2789,7 +2790,13 @@ function ClientsPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {USE_API && !clientsApiReady ? (
+              <tr>
+                <td colSpan={10} style={{ textAlign: 'center', color: '#8FB897', padding: 28 }}>
+                  Загрузка клиентов…
+                </td>
+              </tr>
+            ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={10} style={{ textAlign: 'center', color: '#3D6645', padding: 28 }}>
                   {search.trim() ? `Клиент «${search.trim()}» не найден` : 'Нет клиентов по выбранным фильтрам'}
@@ -6545,10 +6552,13 @@ function AdminAppInner() {
     void syncCourierTeamFromApi();
     hydrateAssemblerTeamStore();
     void syncAssemblerTeamFromApi();
-    hydrateClientStore();
-    void syncClientsFromApi();
-    hydrateCardStore();
-    void syncCardsFromApi();
+    if (USE_API) {
+      void syncClientsFromApi();
+      void syncCardsFromApi();
+    } else {
+      hydrateClientStore();
+      hydrateCardStore();
+    }
     hydratePushStore();
     void syncPushFromApi();
     useProductPhotos.getState().hydrate();

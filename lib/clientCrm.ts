@@ -321,7 +321,9 @@ export function enrichClientWithOrders(client: AdminClient, orders: Order[]): Ad
   const hasLive = orders.some(o => phonesMatch(o.client?.phone || '', client.phone))
   const spent = hasLive ? live.spent : Math.max(client.spent, live.spent)
   const ordersCount = hasLive ? live.orders : Math.max(client.orders, live.orders)
-  const level = resolveEffectiveClientLevel(spent, ordersCount, client.level || 'basic', client.loyaltyPeriod)
+  const level = hasLive || orders.length > 0
+    ? resolveEffectiveClientLevel(spent, ordersCount, client.level || 'basic', client.loyaltyPeriod)
+    : (client.level || 'basic')
   const lastLabel = formatLastActivity(live.lastOrderAt || client.lastOrderAt)
   return {
     ...client,

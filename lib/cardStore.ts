@@ -16,17 +16,24 @@ import { isPhoneDeleted } from './clientTombstones'
 
 const CARDS_KEY = 'kakapo-cards'
 
-function loadCards(): AdminCard[] {
-  if (typeof window === 'undefined') return DEFAULT_ADMIN_CARDS
+function readLocalCardsCache(): AdminCard[] {
+  if (typeof window === 'undefined') return []
   try {
     const raw = localStorage.getItem(CARDS_KEY)
-    if (!raw) return DEFAULT_ADMIN_CARDS
+    if (!raw) return []
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_ADMIN_CARDS
+    if (!Array.isArray(parsed) || !parsed.length) return []
     return parsed.map(c => normalizeCard(c))
   } catch {
-    return DEFAULT_ADMIN_CARDS
+    return []
   }
+}
+
+function loadCards(): AdminCard[] {
+  if (USE_API) return []
+  if (typeof window === 'undefined') return DEFAULT_ADMIN_CARDS
+  const cached = readLocalCardsCache()
+  return cached.length ? cached : DEFAULT_ADMIN_CARDS
 }
 
 function saveCards(list: AdminCard[]) {
@@ -97,6 +104,7 @@ function clearClientCard(num: string) {
 interface CardStore {
   cards: AdminCard[]
   hydrated: boolean
+  apiReady: boolean
   hydrate: () => void
   reload: () => void
   setCards: (list: AdminCard[]) => void
@@ -122,10 +130,12 @@ interface CardStore {
 }
 
 export const useCardStore = create<CardStore>((set, get) => ({
-  cards: DEFAULT_ADMIN_CARDS,
+  cards: USE_API ? [] : DEFAULT_ADMIN_CARDS,
   hydrated: false,
+  apiReady: !USE_API,
   hydrate: () => {
-    set({ cards: loadCards(), hydrated: true })
+    if (USE_API) return
+    set({ cards: loadCards(), hydrated: true, apiReady: true })
   },
   reload: () => {
     set({ cards: loadCards() })
@@ -286,20 +296,19 @@ export const useCardStore = create<CardStore>((set, get) => ({
     return createLocal()
   },
   fetchFromApi: async () => {
-    const local = loadCards()
     if (!USE_API) {
-      set({ cards: local, hydrated: true })
+      set({ cards: loadCards(), hydrated: true, apiReady: true })
       return
     }
     try {
       const apiList = await api.getCards()
-      const remote = apiList.length ? apiList.map(c => normalizeCard(c)) : DEFAULT_ADMIN_CARDS
-      const cards = applyDeletedPhoneMask(mergeCardLists(local, remote))
+      const remote = apiList.map(c => normalizeCard(c))
+      const cards = applyDeletedPhoneMask(mergeCardLists(readLocalCardsCache(), remote))
       saveCards(cards)
-      set({ cards, hydrated: true })
+      set({ cards, hydrated: true, apiReady: true })
     } catch (e) {
       console.error(e)
-      set({ cards: local, hydrated: true })
+      set({ cards: readLocalCardsCache(), hydrated: true, apiReady: true })
     }
   },
 }))

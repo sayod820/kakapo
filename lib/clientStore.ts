@@ -14,17 +14,24 @@ import { isPhoneDeleted } from './clientTombstones'
 
 const CLIENTS_KEY = 'kakapo-clients'
 
-function loadClients(): AdminClient[] {
-  if (typeof window === 'undefined') return DEFAULT_ADMIN_CLIENTS
+function readLocalClientsCache(): AdminClient[] {
+  if (typeof window === 'undefined') return []
   try {
     const raw = localStorage.getItem(CLIENTS_KEY)
-    if (!raw) return DEFAULT_ADMIN_CLIENTS
+    if (!raw) return []
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_ADMIN_CLIENTS
+    if (!Array.isArray(parsed) || !parsed.length) return []
     return parsed.map(c => normalizeClient(c))
   } catch {
-    return DEFAULT_ADMIN_CLIENTS
+    return []
   }
+}
+
+function loadClients(): AdminClient[] {
+  if (USE_API) return []
+  if (typeof window === 'undefined') return DEFAULT_ADMIN_CLIENTS
+  const cached = readLocalClientsCache()
+  return cached.length ? cached : DEFAULT_ADMIN_CLIENTS
 }
 
 function saveClients(list: AdminClient[]) {
@@ -63,6 +70,7 @@ function nextClientId(list: AdminClient[]): string {
 interface ClientStore {
   clients: AdminClient[]
   hydrated: boolean
+  apiReady: boolean
   hydrate: () => void
   reload: () => void
   setClients: (list: AdminClient[]) => void
@@ -74,10 +82,12 @@ interface ClientStore {
 }
 
 export const useClientStore = create<ClientStore>((set, get) => ({
-  clients: DEFAULT_ADMIN_CLIENTS,
+  clients: USE_API ? [] : DEFAULT_ADMIN_CLIENTS,
   hydrated: false,
+  apiReady: !USE_API,
   hydrate: () => {
-    set({ clients: filterVisibleClients(loadClients()), hydrated: true })
+    if (USE_API) return
+    set({ clients: filterVisibleClients(loadClients()), hydrated: true, apiReady: true })
   },
   reload: () => {
     set({ clients: filterVisibleClients(loadClients()) })
@@ -120,23 +130,21 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     get().updateClient(id, { blocked: !c.blocked })
   },
   fetchFromApi: async () => {
-    const localRaw = loadClients()
-    const local = filterVisibleClients(localRaw)
     if (!USE_API) {
-      set({ clients: local, hydrated: true })
+      set({ clients: filterVisibleClients(loadClients()), hydrated: true, apiReady: true })
       return
     }
     try {
       const apiList = await api.getClients()
-      const remote = filterVisibleClients(
-        apiList.length ? apiList.map(c => normalizeClient(c)) : DEFAULT_ADMIN_CLIENTS,
-      )
-      const clients = mergeClientsForApi(local, remote)
+      const remote = filterVisibleClients(apiList.map(c => normalizeClient(c)))
+      const localOnly = filterVisibleClients(readLocalClientsCache())
+      const clients = mergeClientsForApi(localOnly, remote)
       saveClients(clients)
-      set({ clients, hydrated: true })
+      set({ clients, hydrated: true, apiReady: true })
     } catch (e) {
       console.error(e)
-      set({ clients: local, hydrated: true })
+      const fallback = filterVisibleClients(readLocalClientsCache())
+      set({ clients: fallback, hydrated: true, apiReady: true })
     }
   },
 }))
