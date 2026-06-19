@@ -1,5 +1,16 @@
 /** @type {import('next').NextConfig} */
-const backendUrl = process.env.KAKAPO_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const DEFAULT_BACKEND = 'https://kakapo-api.onrender.com'
+
+function resolveBackendUrl() {
+  for (const key of ['KAKAPO_BACKEND_URL', 'NEXT_PUBLIC_API_URL']) {
+    const raw = (process.env[key] || '').trim()
+    if (!raw || raw === 'true' || raw === 'false') continue
+    if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '')
+  }
+  return process.env.NODE_ENV === 'production' ? DEFAULT_BACKEND : 'http://localhost:8000'
+}
+
+const backendUrl = resolveBackendUrl()
 
 const nextConfig = {
   reactStrictMode: true,
