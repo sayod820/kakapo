@@ -39,7 +39,7 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
   bronzeMinSpent: 1,
   basic: {
     id: 'basic',
-    label: 'Обычный клиент',
+    label: 'Базовый',
     emoji: '👤',
     minSpent: 0,
     color: '#8FB897',

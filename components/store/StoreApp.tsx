@@ -639,7 +639,7 @@ function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm'
       border: isVip ? '1px solid rgba(255,184,0,.55)' : isBasic ? '1px solid rgba(143,184,151,.28)' : `1px solid ${tier.color}35`,
       boxShadow: isVip ? '0 0 14px rgba(255,184,0,.3)' : 'none',
     }}>
-      {isVip ? '👑 VIP' : isBasic ? '👤 Обычный' : `${tier.emoji} ${label}`}
+      {isVip ? '👑 VIP' : isBasic ? '👤 Базовый' : `${tier.emoji} ${label}`}
     </span>
   )
 }

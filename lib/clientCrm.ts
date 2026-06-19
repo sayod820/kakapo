@@ -62,7 +62,7 @@ export const CLIENT_LEVEL_COLORS: Record<ClientLevel, string> = {
 }
 
 export const CLIENT_LEVEL_OPTIONS: { id: ClientLevel; label: string }[] = [
-  { id: 'basic', label: 'Обычный' },
+  { id: 'basic', label: 'Базовый' },
   { id: 'bronze', label: 'Bronze' },
   { id: 'silver', label: 'Silver' },
   { id: 'gold', label: 'Gold' },

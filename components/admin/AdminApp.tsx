@@ -3091,7 +3091,7 @@ function ClientsPage() {
 }
 
 /* ── КАРТЫ — UI helpers ─────────────────────────── */
-const CARD_LEVEL_RU: Record<ClientLevel, string> = { basic: 'Обычный', bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина' };
+const CARD_LEVEL_RU: Record<ClientLevel, string> = { basic: 'Базовый', bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина' };
 
 function CardVisualMini({ num, level, clientName, status }: { num?: string; level?: string; clientName?: string; status?: CardStatus }) {
   const lc = level && LVC[level as ClientLevel] ? LVC[level as ClientLevel] : '#FFB800';
