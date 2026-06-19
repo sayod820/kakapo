@@ -28,20 +28,47 @@ function isCardMissingOnServer(err: unknown): boolean {
   return /карт[аы].*не найден|not found|404/i.test(msg)
 }
 
+function isMissingApiRoute(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /404|cannot post|нет этого api|not found/i.test(msg)
+}
+
+/** Сохранить лояльность на сервер; карта может отсутствовать на старом backend */
 async function persistLoyaltyToApi(
   apiCardNum: string,
   cardPatch: Record<string, unknown>,
   clientId: string,
   clientPatch: Record<string, unknown>,
-) {
+): Promise<{ cardSaved: boolean; clientSaved: boolean }> {
+  let cardSaved = false
+
   try {
     await api.updateCard(apiCardNum, cardPatch)
+    cardSaved = true
   } catch (e) {
     if (!isCardMissingOnServer(e)) throw e
-    await api.ensureCard({ num: apiCardNum, clientId, ...cardPatch })
-    await api.updateCard(apiCardNum, cardPatch)
+    try {
+      await api.ensureCard({ num: apiCardNum, clientId, ...cardPatch })
+      await api.updateCard(apiCardNum, cardPatch)
+      cardSaved = true
+    } catch (ensureErr) {
+      if (!isMissingApiRoute(ensureErr) && !isCardMissingOnServer(ensureErr)) throw ensureErr
+    }
   }
-  await api.updateClient(clientId, clientPatch)
+
+  let clientSaved = false
+  try {
+    await api.updateClient(clientId, clientPatch)
+    clientSaved = true
+  } catch (e) {
+    throw e
+  }
+
+  if (!cardSaved && !clientSaved) {
+    throw new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
+  }
+
+  return { cardSaved, clientSaved }
 }
 
 export function lookupClientByPhone(phone: string, clients?: AdminClient[]): AdminClient | undefined {
@@ -245,6 +272,16 @@ export async function saveCardLoyalty(
     ...loyalty,
   }
 
+  if (USE_API) {
+    try {
+      const apiCardNum = card.num.trim()
+      await persistLoyaltyToApi(apiCardNum, cardPatch, client.id, clientPatch)
+    } catch (e) {
+      console.error('saveCardLoyalty API failed', e)
+      throw e instanceof Error ? e : new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
+    }
+  }
+
   if (mode === 'link') {
     clientStore.updateClient(client.id, clientPatch, { skipApi: true })
     cardStore.linkCard(cardKey, {
@@ -263,15 +300,6 @@ export async function saveCardLoyalty(
     }
   }
 
-  if (USE_API) {
-    try {
-      const apiCardNum = card.num.trim()
-      await persistLoyaltyToApi(apiCardNum, cardPatch, client.id, clientPatch)
-    } catch (e) {
-      console.error('saveCardLoyalty API failed', e)
-      throw new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
-    }
-  }
   emitCrmSync()
 }
 

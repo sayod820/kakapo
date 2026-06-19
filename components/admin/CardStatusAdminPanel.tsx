@@ -195,7 +195,7 @@ export default function CardStatusAdminPanel() {
       setAssignRows(p => ({
         ...p,
         [num]: {
-          ...next,
+          ...prev,
           saving: false,
           saved: false,
           err: e instanceof Error ? e.message : 'Ошибка сохранения',
