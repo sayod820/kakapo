@@ -321,7 +321,7 @@ const Header = ({ title, back, go, cart, user: userProp }) => {
         <div style={{ flex:1, minWidth:0 }}>
           {title ? (
             <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-              <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
+            <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
               {isVip && <UserStatusBadge user={user} size="sm" />}
             </div>
           ) : (
@@ -1286,7 +1286,7 @@ const CatalogPage = ({ go, cart, user }) => {
     </div>
     <Nav page="catalog" go={go}/>
   </div>
-  );
+);
 };
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const { prods } = useLiveCatalog();
@@ -1698,11 +1698,11 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
               <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
                 <span className="ub" style={{ fontSize:22, fontWeight:900 }}>{total.toFixed(2)}</span>
                 <span style={{ fontSize:13, color:"var(--gd)", fontWeight:800 }}>ЅМ</span>
-              </div>
+          </div>
             </div>
             <button onClick={() => go("checkout")} className="btn" style={{ flex:2, padding:"14px 12px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
               <Ic n="bag" s={18} c="white"/>Оформить · {tqty} шт
-            </button>
+          </button>
           </div>
         </div>
       )}
@@ -2119,7 +2119,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           {pay === 'credit' && (
             <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', lineHeight: 1.5 }}>
               Товары {creditGoods.toFixed(2)} ЅМ — в долг на VIP-карту. Доставка {effectiveDelivery.toFixed(2)} ЅМ — наличными курьеру. Остаток лимита: {(credit.available - creditGoods).toLocaleString()} ЅМ
-            </div>
+        </div>
           )}
         </div>
         {(user?.bonus || 0) > 0 && (
@@ -2307,10 +2307,10 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
             {unreadNotifs > 0 && (
               <div style={{ position:"absolute", top:6, right:6, minWidth:16, height:16, padding:"0 4px", borderRadius:8, background:"var(--red)", border:"1.5px solid var(--bg)", fontSize:9, fontWeight:800, color:"white", display:"flex", alignItems:"center", justifyContent:"center" }}>
                 {unreadNotifs > 9 ? "9+" : unreadNotifs}
-              </div>
+      </div>
             )}
-          </button>
-        </div>
+      </button>
+      </div>
       </header>
 
       <div style={{ padding:"16px 18px 110px" }}>
@@ -2341,42 +2341,42 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
                   boxShadow:'0 2px 8px rgba(255,184,0,.5)', animation:'crownFloat 2.5s ease-in-out infinite',
                 }}>👑</div>
               )}
-            </div>
+      </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
                 <div className="ub" style={{ fontSize:15, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
-              </div>
+      </div>
               <div style={{ fontSize:12, color:"var(--t2)", marginBottom: user.card ? 2 : 5 }}>{user.phone}</div>
               {user.card && (
                 <div style={{ fontSize:11, color:"var(--t3)", marginBottom:5, display:"flex", alignItems:"center", gap:4 }}>
                   <Ic n="card" s={11} c="var(--t3)"/>
                   {user.card}
-                </div>
+          </div>
               )}
               <span style={{
                 fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20, display:'inline-flex', alignItems:'center', gap:4,
               }}>
                 <UserStatusBadge user={{ ...user, vip: loyalty.isVip, level: loyalty.level }} size="md" />
               </span>
-            </div>
-          </div>
+        </div>
+      </div>
           <div style={{ display:"flex", gap:8 }}>
             <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:`${profileTheme.accent}14`, border:`1px solid ${profileTheme.border}`, textAlign:"center" }}>
               <div className="ub" style={{ fontSize:18, fontWeight:900, color:profileTheme.accent, lineHeight:1.1 }}>{(user.bonus || 0).toLocaleString()}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>бонусов</div>
-            </div>
+      </div>
             <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center" }}>
               <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--gr)", lineHeight:1.1 }}>{orderCount}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>{orderCount === 1 ? "заказ" : orderCount >= 2 && orderCount <= 4 ? "заказа" : "заказов"}</div>
-            </div>
+    </div>
             {wishCount > 0 && (
               <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(255,69,69,.08)", border:"1px solid rgba(255,69,69,.2)", textAlign:"center" }}>
                 <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--red)", lineHeight:1.1 }}>{wishCount}</div>
                 <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>в избранном</div>
-              </div>
+    </div>
             )}
-          </div>
         </div>
+          </div>
 
         <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
 
@@ -2389,11 +2389,11 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
             >
               <div style={{ width:34, height:34, borderRadius:10, background:`${item.c}14`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                 <Ic n={item.icon} s={16} c={item.c}/>
-              </div>
+          </div>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>{item.l}</div>
                 {item.s && <div style={{ fontSize:11, color:"var(--t3)", marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.s}</div>}
-              </div>
+        </div>
               <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
                 {item.badge ? (
                   <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(255,69,69,.12)" : item.icon === "crown" ? "rgba(255,184,0,.12)" : "rgba(59,142,240,.12)", color:item.icon === "bell" ? "var(--red)" : item.icon === "crown" ? "var(--gd)" : "var(--blue)", border:`1px solid ${item.icon === "bell" ? "rgba(255,69,69,.25)" : item.icon === "crown" ? "rgba(255,184,0,.3)" : "rgba(59,142,240,.25)"}` }}>
@@ -2449,7 +2449,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
                   Отмена
                 </button>
               </div>
-            </div>
+              </div>
           ) : (
             <div onClick={() => setConfirmDelete(true)} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
               <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.08)", display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -2464,13 +2464,13 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
           <div onClick={() => onLogout?.()} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
             <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.12)", display:"flex", alignItems:"center", justifyContent:"center" }}>
               <Ic n="logout" s={16} c="var(--red)"/>
-            </div>
+                </div>
             <div style={{ flex:1, fontSize:13, fontWeight:700, color:"var(--red)" }}>Выйти из аккаунта</div>
+            </div>
           </div>
-        </div>
 
         <div style={{ textAlign:"center", marginTop:14, fontSize:10, color:"var(--t3)" }}>КАКАПО · г. Яван</div>
-      </div>
+          </div>
       <Nav page="profile" go={go} user={user}/>
     </div>
   );
@@ -2691,7 +2691,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2, flexWrap:"wrap" }}>
               <div style={{ fontSize:10, color:"var(--t2)" }}>{ordersList.length} заказов</div>
               {user && resolveUserVip(user).isVip && <UserStatusBadge user={user} size="sm" />}
-            </div>
+        </div>
           </div>
         </div>
         <div className="hscroll" style={{ padding:"0 16px 10px", gap:5 }}>
@@ -2937,11 +2937,11 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
             <Ic n="cart" s={17} c={totalQtyNum>0?"white":"var(--t2)"}/>
             {totalQtyNum>0 && <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>}
           </button>
-        </div>
+            </div>
         <div className="hscroll" style={{ padding:"0 18px 10px", gap:6 }}>
-          {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"},{id:"codes",l:"🏷 Промокоды"}].map(t => (
-            <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
-          ))}
+            {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"},{id:"codes",l:"🏷 Промокоды"}].map(t => (
+              <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
+            ))}
         </div>
         <div style={{ background:"rgba(255,69,69,.08)", borderTop:"1px solid rgba(255,69,69,.12)", padding:"5px 0", overflow:"hidden" }}>
           <div style={{ display:"flex", animation:"ticker 20s linear infinite", width:"200%" }}>
@@ -3809,7 +3809,7 @@ const VIPPage = ({ go, user, setUser }) => {
             <div className="ub" style={{ fontSize:17, fontWeight:900, color: isVip ? "#FFD700" : "var(--t1)" }}>{isVip ? "VIP Профиль" : "VIP программа"}</div>
             <div style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--gd)", marginTop:1, display:"flex", alignItems:"center", gap:4 }}>
               <Ic n="crown" s={10} c={isVip ? "#FFD700" : "var(--gd)"}/>{isVip ? "VIP Elite" : tier.label}{user?.card ? ` · ${user.card}` : ""}
-            </div>
+          </div>
           </div>
           {isVip && <UserStatusBadge user={vipUser} size="md" />}
         </div>
@@ -3889,7 +3889,7 @@ const VIPPage = ({ go, user, setUser }) => {
           </>) : (
             <div style={{ fontSize:12, color:"var(--t3)", lineHeight:1.6 }}>Кредитный лимит назначается администратором в разделе «Карты».</div>
           )}
-        </div>
+                </div>
         )}
 
         {debtSectionOn && (
@@ -3907,24 +3907,24 @@ const VIPPage = ({ go, user, setUser }) => {
             <div className="ub" style={{ fontSize:14, fontWeight:800 }}>📦 Резерв товаров</div>
             <button onClick={() => setReserveModal(true)} className="btn" style={{ padding:"6px 13px", borderRadius:10, background:"rgba(0,212,200,.1)", border:"1px solid rgba(0,212,200,.28)", color:"var(--sky)", fontSize:12, fontWeight:700 }}>+ Добавить</button>
           </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-            {RESERVED.map((r,i) => (
-              <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"var(--l3)", borderRadius:14, border:"1px solid var(--b1)" }}>
-                <div style={{ width:44, height:44, borderRadius:12, background:"var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{r.e}</div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:700 }}>{r.name}</div>
-                  <div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>{r.qty} шт · {r.unit}</div>
-                  <div style={{ fontSize:10, color:"var(--sky)", marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
-                    <Ic n="clock" s={10} c="var(--sky)"/>До {r.till}
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {RESERVED.map((r,i) => (
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"var(--l3)", borderRadius:14, border:"1px solid var(--b1)" }}>
+                  <div style={{ width:44, height:44, borderRadius:12, background:"var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{r.e}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:700 }}>{r.name}</div>
+                    <div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>{r.qty} шт · {r.unit}</div>
+                    <div style={{ fontSize:10, color:"var(--sky)", marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
+                      <Ic n="clock" s={10} c="var(--sky)"/>До {r.till}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <div className="ub" style={{ fontSize:13, fontWeight:800 }}>{(r.price*r.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
+                    <button className="btn" style={{ marginTop:6, padding:"4px 10px", borderRadius:8, background:"rgba(31,215,96,.12)", border:"1px solid rgba(31,215,96,.3)", color:"var(--gr)", fontSize:11 }}>Купить</button>
                   </div>
                 </div>
-                <div style={{ textAlign:"right" }}>
-                  <div className="ub" style={{ fontSize:13, fontWeight:800 }}>{(r.price*r.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
-                  <button className="btn" style={{ marginTop:6, padding:"4px 10px", borderRadius:8, background:"rgba(31,215,96,.12)", border:"1px solid rgba(31,215,96,.3)", color:"var(--gr)", fontSize:11 }}>Купить</button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
         </div>
 
         <VipSupportBlock />
@@ -5840,19 +5840,19 @@ const CourierDashPage = ({go}) => {
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('courier_login')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
-          </button>
-          <div style={{flex:1}}>
+        </button>
+        <div style={{flex:1}}>
             <div className="ub" style={{fontSize:15,fontWeight:900}}>Курьер КАКАПО</div>
-            <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
-              <div style={{width:6,height:6,borderRadius:'50%',background:SC[status].c,animation:'pulse 2s infinite'}}/>
-              <span style={{fontSize:10,color:'var(--t2)'}}>{SC[status].l} · 🏍 TJ 1234 AA</span>
-            </div>
-          </div>
-          <div style={{textAlign:'right'}}>
-            <div style={{fontSize:9,color:'var(--t3)'}}>Сегодня</div>
-            <div className="ub" style={{fontSize:15,fontWeight:900,color:'var(--gd)'}}>42 ЅМ</div>
+          <div style={{display:'flex',alignItems:'center',gap:5,marginTop:1}}>
+            <div style={{width:6,height:6,borderRadius:'50%',background:SC[status].c,animation:'pulse 2s infinite'}}/>
+            <span style={{fontSize:10,color:'var(--t2)'}}>{SC[status].l} · 🏍 TJ 1234 AA</span>
           </div>
         </div>
+        <div style={{textAlign:'right'}}>
+          <div style={{fontSize:9,color:'var(--t3)'}}>Сегодня</div>
+          <div className="ub" style={{fontSize:15,fontWeight:900,color:'var(--gd)'}}>42 ЅМ</div>
+        </div>
+      </div>
         {/* Табы */}
         <div style={{display:'flex',borderTop:'1px solid var(--b1)'}}>
           {[{id:'orders',l:'📋 Заказы'},{id:'map',l:'🗺 Маршрут'}].map(t=>(
@@ -5977,33 +5977,33 @@ const CourierDashPage = ({go}) => {
               </div>
             )}
 
-            <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>
-              Новые заказы
+        <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>
+          Новые заказы
               <span style={{marginLeft:8,padding:'2px 8px',borderRadius:8,fontSize:11,fontWeight:800,background:'rgba(255,69,69,.12)',color:'var(--red)',border:'1px solid rgba(255,69,69,.28)'}}>{ORDERS.filter(o=>o.id!==activeId).length}</span>
-            </div>
+        </div>
 
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
               {ORDERS.filter(o=>o.id!==activeId).map(order=>(
                 <div key={order.id} style={{background:'var(--l2)',border:'1.5px solid var(--b1)',borderRadius:18,overflow:'hidden'}}>
-                  <div style={{padding:'13px 16px',borderBottom:'1px solid var(--b1)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    <div>
-                      <span className="ub" style={{fontSize:13,fontWeight:800,color:'var(--gr)'}}>{order.id}</span>
+              <div style={{padding:'13px 16px',borderBottom:'1px solid var(--b1)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <span className="ub" style={{fontSize:13,fontWeight:800,color:'var(--gr)'}}>{order.id}</span>
                       <span style={{fontSize:10,padding:'2px 7px',borderRadius:6,marginLeft:8,background:order.type==='restaurant'?'rgba(255,125,59,.12)':'rgba(31,215,96,.1)',color:order.type==='restaurant'?'var(--org)':'var(--gr)',border:`1px solid ${order.type==='restaurant'?'rgba(255,125,59,.25)':'rgba(31,215,96,.2)'}`}}>{order.type==='restaurant'?'🍽 Ресторан':'🛒 Магазин'}</span>
-                    </div>
-                    <div className="ub" style={{fontSize:18,fontWeight:900,color:'var(--gd)'}}>+{order.earning} ЅМ</div>
-                  </div>
+                </div>
+                <div className="ub" style={{fontSize:18,fontWeight:900,color:'var(--gd)'}}>+{order.earning} ЅМ</div>
+              </div>
                   <div style={{padding:'12px 16px',borderBottom:'1px solid var(--b1)',display:'flex',flexDirection:'column',gap:10}}>
                     {/* Забрать */}
                     <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
                       <div style={{width:28,height:28,borderRadius:8,background:'rgba(31,215,96,.12)',border:'1px solid rgba(31,215,96,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}>
                         {order.type==='restaurant'?'🍽':'🛒'}
-                      </div>
+                </div>
                       <div>
                         <div style={{fontSize:10,color:'var(--t3)',fontWeight:700,marginBottom:1}}>ЗАБРАТЬ</div>
                         <div style={{fontSize:13,fontWeight:700}}>{order.pickupName}</div>
                         <div style={{fontSize:11,color:'var(--t3)',marginTop:1}}>{order.items.map(it=>it.e+' '+it.n).join(' · ')}</div>
-                      </div>
-                    </div>
+                </div>
+              </div>
                     {/* Стрелка */}
                     <div style={{paddingLeft:8,color:'var(--t3)',fontSize:12}}>↓ {order.dist} км</div>
                     {/* Доставить */}
@@ -6015,27 +6015,27 @@ const CourierDashPage = ({go}) => {
                         <div style={{fontSize:11,color:'var(--t3)',marginTop:1}}>{order.addr} · {order.pay}</div>
                       </div>
                     </div>
-                  </div>
-                  <div style={{padding:'12px 16px'}}>
+              </div>
+              <div style={{padding:'12px 16px'}}>
                     {activeOrder ? (
                       <div style={{padding:10,borderRadius:12,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',textAlign:'center',fontSize:12,color:'var(--t3)'}}>
                         Сначала завершите текущий заказ
-                      </div>
-                    ) : (
-                      <button onClick={()=>accept(order)} className="btn"
-                        style={{width:'100%',padding:13,borderRadius:13,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
-                        ✓ Принять — +{order.earning} ЅМ
-                      </button>
-                    )}
                   </div>
-                </div>
-              ))}
+                ) : (
+                      <button onClick={()=>accept(order)} className="btn"
+                    style={{width:'100%',padding:13,borderRadius:13,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
+                    ✓ Принять — +{order.earning} ЅМ
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
               {ORDERS.filter(o=>o.id!==activeId).length===0&&(
                 <div style={{textAlign:'center',padding:'30px 20px',background:'var(--l2)',borderRadius:18,border:'1px solid var(--b1)'}}>
                   <div style={{fontSize:40,marginBottom:10}}>✅</div>
                   <div className="ub" style={{fontSize:13,fontWeight:800}}>Нет новых заказов</div>
                   <div style={{fontSize:11,color:'var(--t3)',marginTop:4}}>Ожидай следующего заказа...</div>
-                </div>
+        </div>
               )}
             </div>
           </div>
@@ -6299,7 +6299,7 @@ const AddressesPage = ({ go, user }) => {
               <div>
                 <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица, дом *</div>
                 <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="ул. Ленина, 42" style={{ width: '100%' }} />
-              </div>
+            </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Квартира</div>
@@ -7073,8 +7073,8 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
               <span style={{fontSize:10,color:'var(--gd)',fontWeight:700}}>★ {r.rating}</span>
               <span style={{fontSize:10,color:'var(--t3)'}}>· {r.cuisine}</span>
               <span style={{fontSize:10,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'● Открыто':'● Закрыто'}</span>
-            </div>
-          </div>
+        </div>
+        </div>
           <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQtyNum>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQtyNum>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQtyNum>0?'0 4px 14px rgba(31,215,96,.4)':'none',flexShrink:0}}>
             <Ic n="cart" s={17} c={totalQtyNum>0?'white':'var(--t2)'}/>
             {totalQtyNum>0&&<div style={{position:'absolute',top:-6,right:-6,minWidth:17,height:17,padding:'0 4px',borderRadius:999,background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
@@ -7114,7 +7114,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
         <div style={{margin:'0 18px 12px',padding:'12px 14px',borderRadius:14,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.35)',textAlign:'center'}}>
           <div style={{fontSize:13,fontWeight:800,color:'var(--red)',marginBottom:4}}>🔴 Ресторан сейчас закрыт</div>
           <div style={{fontSize:11,color:'var(--t2)'}}>Заказ временно недоступен — попробуйте позже</div>
-        </div>
+          </div>
       )}
 
       <div style={{padding:'14px 18px 160px',display:'flex',flexDirection:'column',gap:10}}>
@@ -7122,8 +7122,8 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,color:'var(--t2)'}}>{sectionTitle}</div>
           <div style={{fontSize:11,color:'var(--t3)'}}>
             {displayMenu.length} {displayMenu.length === 1 ? 'блюдо' : displayMenu.length < 5 ? 'блюда' : 'блюд'}
-          </div>
         </div>
+      </div>
         {displayMenu.length === 0 ? (
           <div style={{padding:'32px 20px',borderRadius:16,background:'var(--l2)',border:'1px solid var(--b1)',textAlign:'center'}}>
             <div style={{fontSize:36,marginBottom:10}}>🍽</div>
