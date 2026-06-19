@@ -1,9 +1,9 @@
 'use client'
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, COURIER_MAP_VIEW } from '@/lib/courierData'
 import { resolveOrderDeliveryFee, buildDeliveryFeePatch } from '@/lib/deliveryFee'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
-import { useCourierTeam } from '@/lib/courierTeamStore'
+import { useCourierTeam, useCourierTeamStore } from '@/lib/courierTeamStore'
 import { countCourierActiveOrders, isMyCourierOrder, findCourierByPhone, vehicleIcon } from '@/lib/courierTeam'
 import { reloadCourierTeamStore, syncCourierTeamFromApi } from '@/lib/courierTeamStore'
 import { loadCourierSession, clearCourierSession, type CourierSession } from '@/lib/courierSession'
@@ -578,6 +578,12 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 /* ─────────────────────────────────────────────────────
    ГЛАВНОЕ ПРИЛОЖЕНИЕ
 ───────────────────────────────────────────────────── */
+function CourierSessionBoot() {
+  return (
+    <div style={{ minHeight: '100vh', background: '#030B05', maxWidth: 480, margin: '0 auto' }} />
+  );
+}
+
 export default function CourierApp() {
   return (
     <AppNavigationBoundary>
@@ -591,7 +597,16 @@ function CourierAppInner() {
   const { page: tab, navigate: setTab } = useAppNavigation('orders');
   const TARIFF = useTariff();
   const couriers = useCourierTeam();
-  const [session, setSession] = useState<CourierSession | null>(() => loadCourierSession());
+  const teamApiReady = useCourierTeamStore(s => s.apiReady);
+  const [session, setSession] = useState<CourierSession | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useLayoutEffect(() => {
+    setSession(loadCourierSession());
+    setSessionReady(true);
+    hydrateCourierStores();
+    void syncCourierTeamFromApi();
+  }, []);
 
   const courierProfile = useMemo(() => {
     if (!session) return null
@@ -687,8 +702,6 @@ function CourierAppInner() {
   const [acceptErr, setAcceptErr] = useState('');
 
   useEffect(() => {
-    hydrateCourierStores();
-    void syncCourierTeamFromApi();
     const syncTeam = () => {
       reloadCourierTeamStore();
       void syncCourierTeamFromApi();
@@ -848,6 +861,15 @@ function CourierAppInner() {
     !myActiveOrderIds.has(o.id) &&
     o.pickupIds.length > 0,
   );
+
+  if (!sessionReady || (session && !courierProfile && !teamApiReady)) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <CourierSessionBoot />
+      </>
+    );
+  }
 
   if (!session || !courierProfile) {
     return (
