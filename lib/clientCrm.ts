@@ -41,15 +41,31 @@ export const RECOVERY_NOTE_PREFIX = 'kakapo-recovery'
 export const PURGED_NOTE = 'kakapo-purged'
 /** VIP на старом backend без поля vip в JSON */
 export const VIP_NOTE_MARKER = 'kakapo-vip'
+/** Раздел долга на backend без поля debtEnabled в JSON */
+export const DEBT_NOTE_MARKER = 'kakapo-debt'
 
 export function vipFromNote(note?: string): boolean {
   return !!(note && note.includes(VIP_NOTE_MARKER))
+}
+
+export function debtFromNote(note?: string): boolean {
+  return !!(note && note.includes(DEBT_NOTE_MARKER))
 }
 
 export function withVipNote(note: string | undefined, vip: boolean): string {
   const cleaned = (note || '').replace(/\bkakapo-vip\b/g, '').replace(/\s+/g, ' ').trim()
   if (!vip) return cleaned
   return cleaned ? `${cleaned} ${VIP_NOTE_MARKER}` : VIP_NOTE_MARKER
+}
+
+export function withDebtNote(note: string | undefined, debtEnabled: boolean): string {
+  const cleaned = (note || '').replace(/\bkakapo-debt\b/g, '').replace(/\s+/g, ' ').trim()
+  if (!debtEnabled) return cleaned
+  return cleaned ? `${cleaned} ${DEBT_NOTE_MARKER}` : DEBT_NOTE_MARKER
+}
+
+export function withLoyaltyNote(note: string | undefined, vip: boolean, debtEnabled: boolean): string {
+  return withDebtNote(withVipNote(note, vip), debtEnabled)
 }
 
 export function isClientPurged(c?: AdminClient | null): boolean {
@@ -183,7 +199,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     blocked: !!raw.blocked,
     vip: !!raw.vip || vipFromNote(raw.note),
     debtEnabled: raw.debtEnabled === true
-      || (raw.debtEnabled === undefined && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
+      || debtFromNote(raw.note)
+      || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,

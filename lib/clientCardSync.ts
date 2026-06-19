@@ -5,7 +5,7 @@ import {
   phonesMatch,
   pickClientDisplayName,
   normalizeClient,
-  withVipNote,
+  withLoyaltyNote,
   maxClientLevel,
   type AdminClient,
   type ClientLevel,
@@ -13,7 +13,7 @@ import {
   emptyClientProfileForm,
   clientProfileFromClient,
 } from './clientCrm'
-import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardHasDebtSection, cardNumsMatch, canonicalCardNum } from './cardCrm'
+import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardNumsMatch, canonicalCardNum, resolveDebtEnabled } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 import { emitCrmSync } from './clientProfileSync'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
@@ -35,27 +35,33 @@ function isMissingApiRoute(err: unknown): boolean {
   return /404|cannot post|нет этого api|not found/i.test(msg)
 }
 
-/** Сохранить лояльность на сервер; карта может отсутствовать на старом backend */
+/** Сохранить лояльность на сервер; карта должна быть записана вместе с клиентом */
 async function persistLoyaltyToApi(
   apiCardNum: string,
   cardPatch: Record<string, unknown>,
   clientId: string,
   clientPatch: Record<string, unknown>,
-): Promise<{ cardSaved: boolean; clientSaved: boolean }> {
+): Promise<{ cardSaved: boolean; clientSaved: boolean; cardNum: string }> {
   let cardSaved = false
+  let cardNum = apiCardNum.trim()
+
+  const trySaveCard = async (num: string) => {
+    try {
+      const saved = await api.updateCard(num, cardPatch)
+      return saved
+    } catch (e) {
+      if (!isCardMissingOnServer(e)) throw e
+      await api.ensureCard({ num, clientId, ...cardPatch })
+      return api.updateCard(num, cardPatch)
+    }
+  }
 
   try {
-    await api.updateCard(apiCardNum, cardPatch)
+    const saved = await trySaveCard(cardNum)
     cardSaved = true
+    cardNum = String(saved?.num || cardNum)
   } catch (e) {
-    if (!isCardMissingOnServer(e)) throw e
-    try {
-      await api.ensureCard({ num: apiCardNum, clientId, ...cardPatch })
-      await api.updateCard(apiCardNum, cardPatch)
-      cardSaved = true
-    } catch (ensureErr) {
-      if (!isMissingApiRoute(ensureErr) && !isCardMissingOnServer(ensureErr)) throw ensureErr
-    }
+    if (!isMissingApiRoute(e)) throw e
   }
 
   let clientSaved = false
@@ -66,11 +72,11 @@ async function persistLoyaltyToApi(
     throw e
   }
 
-  if (!cardSaved && !clientSaved) {
-    throw new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
+  if (!cardSaved) {
+    throw new Error('Не удалось сохранить карту на сервере. Обновите страницу и повторите.')
   }
 
-  return { cardSaved, clientSaved }
+  return { cardSaved, clientSaved, cardNum }
 }
 
 export function lookupClientByPhone(phone: string, clients?: AdminClient[]): AdminClient | undefined {
@@ -176,7 +182,7 @@ export async function registerClientAccount(
 }
 
 export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[]) {
-  const card = client.card ? cards.find(c => c.num === client.card) : undefined
+  const card = client.card ? cards.find(c => cardNumsMatch(c.num, client.card)) : undefined
   return {
     card: client.card || '',
     level: card?.level || client.level,
@@ -184,11 +190,7 @@ export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[])
     debt: card?.debt ?? client.debt,
     debtLimit: card?.debtLimit ?? client.debtLimit,
     vip: !!(card?.vip ?? client.vip),
-    debtEnabled: cardHasDebtSection({
-      debtEnabled: card?.debtEnabled ?? client.debtEnabled,
-      debt: card?.debt ?? client.debt,
-      debtLimit: card?.debtLimit ?? client.debtLimit,
-    }),
+    debtEnabled: resolveDebtEnabled(card, client),
   }
 }
 
@@ -258,6 +260,7 @@ export async function saveCardLoyalty(
 ) {
   const cardStore = useCardStore.getState()
   const clientStore = useClientStore.getState()
+  let cardNum = card.num
 
   let client = form.clientId
     ? clientStore.clients.find(c => c.id === form.clientId)
@@ -292,32 +295,39 @@ export async function saveCardLoyalty(
   }
 
   const clientName = pickClientDisplayName(client.name, card.client)
-  const cardKey = canonicalCardNum(card.num)
-  const vipNote = withVipNote(client.note || card.note, !!form.vip)
+  const loyaltyNote = withLoyaltyNote(client.note || card.note, !!form.vip, !!form.debtEnabled)
   const cardPatch = {
     phone,
     client: clientName,
     clientId: client.id,
     status: 'active' as const,
-    note: vipNote,
-    ...loyalty,
-  }
-  const clientPatch = {
-    card: cardKey,
-    name: clientName,
-    phone,
-    note: vipNote,
+    note: loyaltyNote,
     ...loyalty,
   }
 
   if (USE_API) {
     try {
-      const apiCardNum = card.num.trim()
-      await persistLoyaltyToApi(apiCardNum, cardPatch, client.id, clientPatch)
+      const result = await persistLoyaltyToApi(cardNum.trim(), cardPatch, client.id, {
+        card: canonicalCardNum(cardNum),
+        name: clientName,
+        phone,
+        note: loyaltyNote,
+        ...loyalty,
+      })
+      if (result.cardNum) cardNum = result.cardNum
     } catch (e) {
       console.error('saveCardLoyalty API failed', e)
       throw e instanceof Error ? e : new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
     }
+  }
+
+  const cardKey = canonicalCardNum(cardNum)
+  const clientPatch = {
+    card: cardKey,
+    name: clientName,
+    phone,
+    note: loyaltyNote,
+    ...loyalty,
   }
 
   if (mode === 'link') {

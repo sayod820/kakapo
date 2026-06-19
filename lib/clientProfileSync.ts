@@ -11,7 +11,7 @@ import {
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
-import { DEFAULT_ADMIN_CARDS, normalizeCard, cardHasDebtSection, cardNumsMatch, type AdminCard } from './cardCrm'
+import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, type AdminCard } from './cardCrm'
 import { isPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 
@@ -113,11 +113,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     debt: card.debt ?? base.debt,
     debtLimit: card.debtLimit ?? base.debtLimit,
     vip: !!(card.vip || base.vip),
-    debtEnabled: cardHasDebtSection({
-      debtEnabled: card.debtEnabled ?? base.debtEnabled,
-      debt: card.debt ?? base.debt,
-      debtLimit: card.debtLimit ?? base.debtLimit,
-    }),
+    debtEnabled: resolveDebtEnabled(card, base),
     blocked: card.status === 'blocked' || base.blocked,
     loyaltyPeriod: card.loyaltyPeriod || base.loyaltyPeriod,
   })

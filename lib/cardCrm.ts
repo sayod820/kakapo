@@ -1,5 +1,5 @@
 import type { AdminClient, ClientLevel } from './clientCrm'
-import { normalizePhone, phonesMatch, vipFromNote } from './clientCrm'
+import { normalizePhone, phonesMatch, vipFromNote, debtFromNote } from './clientCrm'
 
 export type CardStatus = 'active' | 'unlinked' | 'blocked'
 
@@ -27,13 +27,15 @@ export function cardHasDebtSection(card: Pick<AdminCard, 'debtEnabled' | 'debt' 
   return (Number(card.debt) || 0) > 0 || (Number(card.debtLimit) || 0) > 0
 }
 
-/** Явное значение переключателя «Раздел долга» без вывода из суммы долга */
+/** Явное значение переключателя «Раздел долга» — карта или клиент, плюс маркер в note */
 export function resolveDebtEnabled(
-  card?: Pick<AdminCard, 'debtEnabled'>,
-  client?: Pick<AdminClient, 'debtEnabled'>,
+  card?: Pick<AdminCard, 'debtEnabled' | 'note'>,
+  client?: Pick<AdminClient, 'debtEnabled' | 'note'>,
 ): boolean {
-  if (card?.debtEnabled !== undefined) return !!card.debtEnabled
-  if (client?.debtEnabled !== undefined) return !!client.debtEnabled
+  if (card?.debtEnabled === true || client?.debtEnabled === true) return true
+  if (debtFromNote(card?.note) || debtFromNote(client?.note)) return true
+  if (card?.debtEnabled === false && client?.debtEnabled !== true && !debtFromNote(client?.note)) return false
+  if (client?.debtEnabled === false && card?.debtEnabled !== true && !debtFromNote(card?.note)) return false
   return false
 }
 
@@ -98,7 +100,8 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     note: raw.note || '',
     vip: !!raw.vip || vipFromNote(raw.note),
     debtEnabled: raw.debtEnabled === true
-      || (raw.debtEnabled === undefined && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
+      || debtFromNote(raw.note)
+      || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
   }
 }

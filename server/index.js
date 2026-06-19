@@ -502,7 +502,7 @@ function normalizeClientRow(raw) {
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod,
-    debtEnabled: raw.debtEnabled === true,
+    debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
     accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
     deletedAt: raw.deletedAt || undefined,
   }
@@ -696,9 +696,14 @@ function currentLoyaltyPeriod(date = new Date()) {
 }
 
 const VIP_NOTE_MARKER = 'kakapo-vip'
+const DEBT_NOTE_MARKER = 'kakapo-debt'
 
 function vipFromNote(note) {
   return !!(note && String(note).includes(VIP_NOTE_MARKER))
+}
+
+function debtFromNote(note) {
+  return !!(note && String(note).includes(DEBT_NOTE_MARKER))
 }
 
 function normalizeCardRow(raw) {
@@ -717,7 +722,7 @@ function normalizeCardRow(raw) {
     issued: raw.issued || new Date().toISOString().slice(0, 10),
     note: raw.note || '',
     vip: !!raw.vip || vipFromNote(raw.note),
-    debtEnabled: raw.debtEnabled === true,
+    debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
   }
 }
@@ -828,7 +833,7 @@ function syncClientFromCardRow(card) {
   client.vip = !!card.vip
   client.blocked = card.status === 'blocked'
   if (card.loyaltyPeriod) client.loyaltyPeriod = card.loyaltyPeriod
-  if (card.debtEnabled !== undefined) client.debtEnabled = !!card.debtEnabled
+  client.debtEnabled = !!(card.debtEnabled || debtFromNote(card.note))
 }
 
 app.post('/cards/generate', (req, res) => {
