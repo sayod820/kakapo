@@ -262,6 +262,28 @@ export async function fetchCrmStoreUser(phone: string, cardNum?: string): Promis
   return crmToStoreUser(merged)
 }
 
+/** Только сервер: есть ли активный аккаунт (для автовыхода после удаления в админке) */
+export async function isStoreAccountActiveOnServer(phone: string): Promise<boolean> {
+  if (!phone?.trim() || isPhoneDeleted(phone)) return false
+  if (!USE_API) {
+    const merged = await findMergedClientByPhone(phone)
+    return !!merged && !isClientPurged(merged) && !isClientInRecovery(merged)
+  }
+  try {
+    const [apiClients, apiCards] = await Promise.all([api.getClients(), api.getCards()])
+    const client = apiClients
+      .map(c => normalizeClient(c))
+      .find(c => phonesMatch(c.phone, phone) && !isClientPurged(c) && !isClientInRecovery(c))
+    if (client) return true
+    const card = apiCards
+      .map(c => normalizeCard(c))
+      .find(c => c.status !== 'unlinked' && c.phone && phonesMatch(c.phone, phone))
+    return !!card
+  } catch {
+    return true
+  }
+}
+
 const SYNC_KEYS: (keyof CrmStoreUser)[] = [
   'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod',
 ]

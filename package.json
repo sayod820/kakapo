@@ -3,6 +3,9 @@
   "version": "2.0.0",
   "description": "КАКАПО Supermarket & Marketplace — г. Яван, Таджикистан",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:backend": "npm run dev --prefix server",

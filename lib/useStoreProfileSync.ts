@@ -9,6 +9,7 @@ import {
   CRM_SYNC_EVENT,
   crmStoreUsersEqual,
   fetchCrmStoreUser,
+  isStoreAccountActiveOnServer,
 } from './clientProfileSync'
 import { isClientNamePlaceholder } from './clientCrm'
 import { useClientStore } from './clientStore'
@@ -29,11 +30,21 @@ export function useStoreProfileSync(
     if (!phone || !isClientSessionActive()) return
     const epoch = getSessionEpoch()
     const card = userRef.current?.card
-    const next = await fetchCrmStoreUser(phone, card)
+
+    const active = await isStoreAccountActiveOnServer(phone)
     if (getSessionEpoch() !== epoch || !isClientSessionActive()) return
     if (userRef.current?.phone !== phone) return
     const stored = loadStoreUser()
     if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
+
+    if (!active) {
+      onRemovedRef.current?.()
+      return
+    }
+
+    const next = await fetchCrmStoreUser(phone, card)
+    if (getSessionEpoch() !== epoch || !isClientSessionActive()) return
+    if (userRef.current?.phone !== phone) return
 
     if (!next) {
       onRemovedRef.current?.()
@@ -60,7 +71,7 @@ export function useStoreProfileSync(
     }
 
     run()
-    const poll = setInterval(run, USE_API ? 8000 : 3000)
+    const poll = setInterval(run, USE_API ? 3000 : 2000)
 
     const onStorage = (e: StorageEvent) => {
       if (
