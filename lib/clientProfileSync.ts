@@ -64,44 +64,6 @@ function loadLocalCards(): AdminCard[] {
   }
 }
 
-function mergeCrmClients(api: AdminClient[], local: AdminClient[]): AdminClient[] {
-  const byId = new Map<string, AdminClient>()
-  for (const c of api) byId.set(c.id, normalizeClient(c))
-  for (const c of local) {
-    const prev = byId.get(c.id)
-    byId.set(c.id, normalizeClient(prev
-      ? { ...prev, ...c, id: c.id, vip: !!(prev.vip || c.vip) }
-      : c))
-  }
-  for (const c of local) {
-    if (byId.has(c.id)) continue
-    const byPhone = [...byId.values()].find(x => phonesMatch(x.phone, c.phone))
-    if (byPhone) {
-      byId.set(byPhone.id, normalizeClient({
-        ...byPhone,
-        ...c,
-        id: byPhone.id,
-        vip: !!(byPhone.vip || c.vip),
-      }))
-    } else {
-      byId.set(c.id, normalizeClient(c))
-    }
-  }
-  return Array.from(byId.values()).filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
-}
-
-function mergeCrmCards(api: AdminCard[], local: AdminCard[]): AdminCard[] {
-  const byNum = new Map<string, AdminCard>()
-  for (const c of api) byNum.set(c.num, normalizeCard(c))
-  for (const c of local) {
-    const prev = byNum.get(c.num)
-    byNum.set(c.num, normalizeCard(prev
-      ? { ...prev, ...c, num: c.num, vip: !!(prev.vip || c.vip) }
-      : c))
-  }
-  return Array.from(byNum.values())
-}
-
 function findLinkedCard(client: AdminClient, cards: AdminCard[]): AdminCard | null {
   if (client.card) {
     const byNum = cards.find(c => cardNumsMatch(c.num, client.card))
@@ -202,17 +164,19 @@ function buildClientFromCard(card: AdminCard): AdminClient {
 }
 
 async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard[] }> {
-  const localClients = loadLocalClients()
-  const localCards = loadLocalCards()
   if (USE_API) {
     try {
       const [clients, cards] = await Promise.all([api.getClients(), api.getCards()])
       return {
-        clients: mergeCrmClients(clients.map(c => normalizeClient(c)), localClients),
-        cards: mergeCrmCards(cards.map(c => normalizeCard(c)), localCards),
+        clients: clients.map(c => normalizeClient(c)).filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone)),
+        cards: cards.map(c => normalizeCard(c)),
       }
-    } catch { /* local fallback */ }
+    } catch {
+      return { clients: [], cards: [] }
+    }
   }
+  const localClients = loadLocalClients()
+  const localCards = loadLocalCards()
   return { clients: localClients, cards: localCards }
 }
 

@@ -6,7 +6,6 @@ import { api } from './api'
 import {
   DEFAULT_ADMIN_CLIENTS,
   normalizeClient,
-  normalizePhone,
   isClientPurged,
   type AdminClient,
 } from './clientCrm'
@@ -14,7 +13,18 @@ import { isPhoneDeleted } from './clientTombstones'
 
 const CLIENTS_KEY = 'kakapo-clients'
 
+/** Удалить устаревший CRM-кэш браузера — при USE_API источник только Render */
+export function clearCrmLocalCache() {
+  if (!USE_API || typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(CLIENTS_KEY)
+    localStorage.removeItem('kakapo-cards')
+    localStorage.removeItem('kakapo-deleted-phones')
+  } catch { /* quota */ }
+}
+
 function readLocalClientsCache(): AdminClient[] {
+  if (USE_API) return []
   if (typeof window === 'undefined') return []
   try {
     const raw = localStorage.getItem(CLIENTS_KEY)
@@ -36,6 +46,10 @@ function loadClients(): AdminClient[] {
 
 function saveClients(list: AdminClient[]) {
   if (typeof window === 'undefined') return
+  if (USE_API) {
+    emitCrmSync()
+    return
+  }
   try {
     localStorage.setItem(CLIENTS_KEY, JSON.stringify(list))
     emitCrmSync()
@@ -44,21 +58,6 @@ function saveClients(list: AdminClient[]) {
 
 function filterVisibleClients(list: AdminClient[]): AdminClient[] {
   return list.filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
-}
-
-/** API — сервер главный; локально только новые, ещё не на backend */
-function mergeClientsForApi(local: AdminClient[], remote: AdminClient[]): AdminClient[] {
-  const remoteFiltered = filterVisibleClients(remote)
-  const localFiltered = filterVisibleClients(local)
-  const remoteIds = new Set(remoteFiltered.map(c => c.id))
-  const remotePhones = new Set(remoteFiltered.map(c => normalizePhone(c.phone)).filter(Boolean))
-  const localOnly = localFiltered.filter(c => {
-    if (remoteIds.has(c.id)) return false
-    const key = normalizePhone(c.phone)
-    if (key && remotePhones.has(key)) return false
-    return true
-  })
-  return [...remoteFiltered, ...localOnly]
 }
 
 function nextClientId(list: AdminClient[]): string {
@@ -135,34 +134,14 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       return
     }
     try {
-      let apiList = await api.getClients()
-      const remote = filterVisibleClients(apiList.map(c => normalizeClient(c)))
-      const localOnly = filterVisibleClients(readLocalClientsCache()).filter(c => {
-        const remoteIds = new Set(remote.map(x => x.id))
-        const remotePhones = new Set(remote.map(x => normalizePhone(x.phone)).filter(Boolean))
-        if (remoteIds.has(c.id)) return false
-        const key = normalizePhone(c.phone)
-        if (key && remotePhones.has(key)) return false
-        return true
-      })
-      for (const c of localOnly) {
-        try {
-          await api.createClient(c)
-        } catch (e) {
-          console.error('sync local client to API', c.id, e)
-        }
-      }
-      if (localOnly.length) {
-        apiList = await api.getClients()
-      }
-      const syncedRemote = filterVisibleClients(apiList.map(c => normalizeClient(c)))
-      const clients = mergeClientsForApi(readLocalClientsCache(), syncedRemote)
-      saveClients(clients)
+      clearCrmLocalCache()
+      const apiList = await api.getClients()
+      const clients = filterVisibleClients(apiList.map(c => normalizeClient(c)))
       set({ clients, hydrated: true, apiReady: true })
+      emitCrmSync()
     } catch (e) {
       console.error(e)
-      const fallback = filterVisibleClients(readLocalClientsCache())
-      set({ clients: fallback, hydrated: true, apiReady: true })
+      set({ clients: [], hydrated: true, apiReady: false })
     }
   },
 }))
@@ -176,5 +155,9 @@ export async function syncClientsFromApi() {
 }
 
 export function hydrateClientStore() {
+  if (USE_API) {
+    void useClientStore.getState().fetchFromApi()
+    return
+  }
   useClientStore.getState().hydrate()
 }

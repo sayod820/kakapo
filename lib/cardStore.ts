@@ -15,10 +15,12 @@ import {
   type CardStatus,
 } from './cardCrm'
 import { isPhoneDeleted } from './clientTombstones'
+import { clearCrmLocalCache } from './clientStore'
 
 const CARDS_KEY = 'kakapo-cards'
 
 function readLocalCardsCache(): AdminCard[] {
+  if (USE_API) return []
   if (typeof window === 'undefined') return []
   try {
     const raw = localStorage.getItem(CARDS_KEY)
@@ -40,6 +42,10 @@ function loadCards(): AdminCard[] {
 
 function saveCards(list: AdminCard[]) {
   if (typeof window === 'undefined') return
+  if (USE_API) {
+    emitCrmSync()
+    return
+  }
   try {
     localStorage.setItem(CARDS_KEY, JSON.stringify(list))
     emitCrmSync()
@@ -292,8 +298,10 @@ export const useCardStore = create<CardStore>((set, get) => ({
           set({ cards: merged })
           return created
         }
+        throw new Error('Сервер не вернул карты')
       } catch (e) {
-        console.error('API generateCards failed, using local fallback', e)
+        console.error('API generateCards failed', e)
+        throw e
       }
     }
     return createLocal()
@@ -304,14 +312,14 @@ export const useCardStore = create<CardStore>((set, get) => ({
       return
     }
     try {
+      clearCrmLocalCache()
       const apiList = await api.getCards()
-      const remote = apiList.map(c => normalizeCard(c))
-      const cards = applyDeletedPhoneMask(mergeCardLists(readLocalCardsCache(), remote))
-      saveCards(cards)
+      const cards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
       set({ cards, hydrated: true, apiReady: true })
+      emitCrmSync()
     } catch (e) {
       console.error(e)
-      set({ cards: readLocalCardsCache(), hydrated: true, apiReady: true })
+      set({ cards: [], hydrated: true, apiReady: false })
     }
   },
 }))
@@ -325,5 +333,9 @@ export async function syncCardsFromApi() {
 }
 
 export function hydrateCardStore() {
+  if (USE_API) {
+    void useCardStore.getState().fetchFromApi()
+    return
+  }
   useCardStore.getState().hydrate()
 }

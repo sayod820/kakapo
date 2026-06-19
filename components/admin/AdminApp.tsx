@@ -6552,9 +6552,14 @@ function AdminAppInner() {
     void syncCourierTeamFromApi();
     hydrateAssemblerTeamStore();
     void syncAssemblerTeamFromApi();
+    let crmTimer: ReturnType<typeof setInterval> | undefined;
     if (USE_API) {
       void syncClientsFromApi();
       void syncCardsFromApi();
+      crmTimer = setInterval(() => {
+        void syncClientsFromApi();
+        void syncCardsFromApi();
+      }, 12000);
     } else {
       hydrateClientStore();
       hydrateCardStore();
@@ -6562,6 +6567,9 @@ function AdminAppInner() {
     hydratePushStore();
     void syncPushFromApi();
     useProductPhotos.getState().hydrate();
+    return () => {
+      if (crmTimer) clearInterval(crmTimer);
+    };
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
   const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};

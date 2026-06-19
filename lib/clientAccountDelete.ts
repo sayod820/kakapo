@@ -3,7 +3,7 @@
 import { api } from './api'
 import { USE_API } from './config'
 import { useCardStore, hydrateCardStore } from './cardStore'
-import { useClientStore, hydrateClientStore } from './clientStore'
+import { useClientStore, hydrateClientStore, syncClientsFromApi } from './clientStore'
 import { normalizePhone, phonesMatch, type AdminClient } from './clientCrm'
 import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
@@ -133,7 +133,7 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
       }
     }
     try {
-      await syncCardsFromApi()
+      await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
     } catch { /* ignore */ }
   }
 

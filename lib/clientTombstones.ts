@@ -1,5 +1,7 @@
 'use client'
 
+import { USE_API } from './config'
+
 const TOMBSTONES_KEY = 'kakapo-deleted-phones'
 
 function loadSet(): Set<string> {
@@ -27,12 +29,14 @@ function phoneKey(phone?: string | null): string {
 }
 
 export function isPhoneDeleted(phone?: string | null): boolean {
+  if (USE_API) return false
   const key = phoneKey(phone)
   if (!key) return false
   return loadSet().has(key)
 }
 
 export function markPhoneDeleted(phone?: string | null): void {
+  if (USE_API) return
   const key = phoneKey(phone)
   if (!key) return
   const set = loadSet()
@@ -46,6 +50,7 @@ export function markPhoneDeleted(phone?: string | null): void {
 }
 
 export function unmarkPhoneDeleted(phone?: string | null): void {
+  if (USE_API) return
   const key = phoneKey(phone)
   if (!key) return
   const set = loadSet()
