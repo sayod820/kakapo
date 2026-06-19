@@ -150,6 +150,7 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
   box-shadow:0 8px 36px rgba(255,184,0,.15)!important;
 }
 .store-vip .store-toast-icon{background:rgba(255,184,0,.2)!important;}
+.store-vip [data-header-cart]{animation:vipGlow 3s ease-in-out infinite;}
 `;
 const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
   const icons = {
@@ -343,13 +344,10 @@ const Header = ({ title, back, go, cart, user: userProp }) => {
             </>
           )}
         </div>
-        <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-          <Ic n="search" s={17} c="var(--t2)"/>
+        <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background: isVip ? "rgba(255,184,0,.1)" : "var(--l3)", border: isVip ? "1px solid rgba(255,184,0,.25)" : "1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <Ic n="search" s={17} c={isVip ? "rgba(255,220,100,.78)" : "var(--t2)"}/>
         </button>
-        <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:qtyNum>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${qtyNum>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:qtyNum>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
-          <Ic n="cart" s={17} c={qtyNum>0?"white":"var(--t2)"}/>
-          {qtyNum>0 && <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{qty}</div>}
-        </button>
+        <CartHeaderButton count={qty} qtyNum={qtyNum} onClick={() => go("cart")} isVip={isVip} />
       </div>
     </header>
   );
@@ -625,6 +623,63 @@ function resolveUserVip(user: VipUserLike) {
   const theme = themes[user?.level || 'bronze'] || themes.bronze
   return { isVip, theme, tier, label: tier.label }
 }
+
+function headerCartButtonStyle(isVip: boolean, hasItems: boolean) {
+  if (isVip && hasItems) {
+    return {
+      width: 38, height: 38, borderRadius: 12,
+      background: 'linear-gradient(135deg,#C9A227 0%,#FFD700 48%,#FFB800 100%)',
+      border: '1px solid rgba(255,220,100,.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      position: 'relative' as const,
+      boxShadow: '0 4px 18px rgba(255,184,0,.52), inset 0 1px 0 rgba(255,255,255,.32)',
+      animation: 'vipGlow 3s ease-in-out infinite',
+    }
+  }
+  if (isVip) {
+    return {
+      width: 38, height: 38, borderRadius: 12,
+      background: 'rgba(255,184,0,.1)',
+      border: '1px solid rgba(255,184,0,.28)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      position: 'relative' as const,
+      boxShadow: 'none',
+    }
+  }
+  return {
+    width: 38, height: 38, borderRadius: 12,
+    background: hasItems ? 'linear-gradient(135deg,var(--gr2),var(--gr))' : 'var(--l3)',
+    border: `1px solid ${hasItems ? 'transparent' : 'var(--b1)'}`,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    position: 'relative' as const,
+    boxShadow: hasItems ? '0 4px 14px rgba(31,215,96,.4)' : 'none',
+  }
+}
+
+function headerCartIconColor(isVip: boolean, hasItems: boolean) {
+  if (isVip && hasItems) return '#1a1000'
+  if (isVip) return 'rgba(255,220,100,.78)'
+  return hasItems ? 'white' : 'var(--t2)'
+}
+
+function cartCountBadgeStyle(isVip: boolean) {
+  return {
+    position: 'absolute' as const, top: -6, right: -6,
+    minWidth: 17, height: 17, padding: '0 4px', borderRadius: 999,
+    background: isVip ? 'linear-gradient(135deg,#FF5A5A,#D63031)' : 'var(--red)',
+    border: isVip ? '2px solid #FFD700' : '2px solid var(--bg)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: 'Unbounded', fontSize: 9, fontWeight: 900, color: 'white',
+    boxShadow: isVip ? '0 2px 8px rgba(255,184,0,.45)' : 'none',
+  }
+}
+
+const CartHeaderButton = ({ count, qtyNum, onClick, isVip = false }) => (
+  <button onClick={onClick} className="btn" data-header-cart style={headerCartButtonStyle(isVip, qtyNum > 0)}>
+    <Ic n="cart" s={17} c={headerCartIconColor(isVip, qtyNum > 0)}/>
+    {qtyNum > 0 && <div style={cartCountBadgeStyle(isVip)}>{count}</div>}
+  </button>
+)
 
 function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm' | 'md' | 'lg' }) {
   if (!user) return null
