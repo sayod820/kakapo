@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react'
 import { useOrders, useProducts, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler, mapCancelledOrdersForAssembler, mapSingleOrderForAssembler, buildAdminStatusPatch, isAssemblerCancelledVisible } from '@/lib/orderUiMap'
 import { getMarketStatus, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
@@ -9,7 +9,7 @@ import { useApiSync } from '@/lib/useApiSync'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import Link from 'next/link'
 import AssemblerLoginPage from '@/components/assembler/AssemblerLoginPage'
-import { useAssemblerTeam, hydrateAssemblerTeamStore } from '@/lib/assemblerTeamStore'
+import { useAssemblerTeam, hydrateAssemblerTeamStore, useAssemblerTeamStore } from '@/lib/assemblerTeamStore'
 import type { AdminAssembler } from '@/lib/assemblerTeam'
 import type { Product } from '@/lib/types'
 import { canAssemblerSeeOrder, isAssemblerOrderClaimed, orderHasAssemblerAssignment } from '@/lib/assemblerTeam'
@@ -122,13 +122,27 @@ export default function AssemblerApp() {
   );
 }
 
+function AssemblerSessionBoot() {
+  return (
+    <div style={{ minHeight: '100vh', background: '#030B05', maxWidth: 480, margin: '0 auto' }} />
+  );
+}
+
 function AssemblerAppInner() {
   useApiSync('assembler');
   const assemblers = useAssemblerTeam();
-  const [session, setSession] = useState<AssemblerSession | null>(() => loadAssemblerSession());
+  const teamApiReady = useAssemblerTeamStore(s => s.apiReady);
+  const [session, setSession] = useState<AssemblerSession | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [dismissedCancelled, setDismissedCancelled] = useState<Set<string>>(() => new Set());
   const [demoClaims, setDemoClaims] = useState<Record<string, string>>({});
   const [demoEdits, setDemoEdits] = useState<Record<string, { items: typeof ORDERS_DATA[0]['items']; assemblerNote?: string }>>({});
+
+  useLayoutEffect(() => {
+    setSession(loadAssemblerSession());
+    setSessionReady(true);
+    hydrateAssemblerTeamStore();
+  }, []);
 
   const assemblerProfile = useMemo((): AdminAssembler | null => {
     if (!session) return null;
@@ -184,7 +198,6 @@ function AssemblerAppInner() {
     : null;
 
   useEffect(() => {
-    hydrateAssemblerTeamStore();
     setDismissedCancelled(loadDismissedCancelled());
   }, []);
 
@@ -316,6 +329,15 @@ function AssemblerAppInner() {
     setSession(null);
     navigate('dashboard');
   };
+
+  if (!sessionReady || (session && !assemblerProfile && !teamApiReady)) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <AssemblerSessionBoot />
+      </>
+    );
+  }
 
   if (!session || !assemblerProfile || assemblerProfile.blocked) {
     if (session && assemblerProfile?.blocked) clearAssemblerSession();
