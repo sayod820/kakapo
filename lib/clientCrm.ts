@@ -154,7 +154,7 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     ? (raw.level as ClientLevel)
     : legacyBasic || ((Number(raw.orders) || 0) === 0 && (Number(raw.spent) || 0) === 0)
       ? 'basic'
-      : 'bronze'
+      : 'basic'
   return {
     id: raw.id,
     name: raw.name || '',
@@ -184,7 +184,7 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
   }
 }
 
-/** Минимум покупок для уровня Бронза (ниже — «Обычный клиент», без привилегий) */
+/** Минимум покупок для уровня Бронза (ниже — «Базовый», без привилегий) */
 export const BRONZE_MIN_SPENT = 1
 
 export function hasEarnedBronze(spent: number, orderCount: number): boolean {
@@ -237,12 +237,13 @@ export function resolveEffectiveClientLevel(
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
   const storedForMonth = storedActive && normalizedStored && normalizedStored !== 'basic'
     ? normalizedStored
-    : (!storedPeriod && normalizedStored && normalizedStored !== 'basic' ? normalizedStored : 'basic')
+    : 'basic'
 
   const earned = suggestLevel(spent)
   const earnedBronze = hasEarnedBronze(spent, orderCount)
 
   if (storedForMonth !== 'basic') {
+    if (!earnedBronze && !storedActive) return 'basic'
     if (!earnedBronze) return storedForMonth
     const earnedIdx = loyaltyTierIndex(earned)
     const storedIdx = loyaltyTierIndex(storedForMonth)
@@ -383,7 +384,7 @@ export function mergeClientsWithOrders(stored: AdminClient[], orders: Order[]): 
         phone: order.client?.phone || phone,
         addr: order.client?.addr || '',
         card: '',
-        level: 'bronze',
+        level: 'basic',
         orders: 0,
         spent: 0,
         debt: 0,

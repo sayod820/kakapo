@@ -263,11 +263,9 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
         email: reg.email.trim(),
         addr: formatClientAddressLine(savedAddr),
         card: '',
-        level: 'basic',
-        debt: 0,
-        bonus: 100,
-        debtLimit: 0,
         blocked: false,
+        note: '',
+        bonus: 100,
       })
       if (savedAddr.coords) {
         setRegistrationDefaultAddress({

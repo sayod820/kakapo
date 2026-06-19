@@ -80,6 +80,22 @@ export function lookupClientByPhone(phone: string, clients?: AdminClient[]): Adm
 
 const REGISTRATION_WELCOME_BONUS = 100
 
+export function newClientRegistrationDefaults(): Pick<
+  AdminClient,
+  'level' | 'vip' | 'debtEnabled' | 'loyaltyPeriod' | 'orders' | 'spent' | 'debt' | 'debtLimit'
+> {
+  return {
+    level: 'basic',
+    vip: false,
+    debtEnabled: false,
+    loyaltyPeriod: currentLoyaltyPeriod(),
+    orders: 0,
+    spent: 0,
+    debt: 0,
+    debtLimit: 0,
+  }
+}
+
 /** Создать карту КАКАПО и привязать к клиенту (регистрация / если карты ещё нет) */
 export async function provisionLoyaltyCardForClient(client: AdminClient): Promise<AdminClient> {
   hydrateCardStore()
@@ -98,9 +114,8 @@ export async function provisionLoyaltyCardForClient(client: AdminClient): Promis
 
   const enriched = normalizeClient({
     ...current,
-    level: (current.level || 'basic') as ClientLevel,
+    ...newClientRegistrationDefaults(),
     bonus: Math.max(Number(current.bonus) || 0, REGISTRATION_WELCOME_BONUS),
-    loyaltyPeriod: current.loyaltyPeriod || currentLoyaltyPeriod(),
   })
 
   cardStore.assignToClient(card.num, enriched)
@@ -116,14 +131,32 @@ export async function registerClientAccount(
   useClientStore.getState().hydrate()
   hydrateCardStore()
 
-  const local = useClientStore.getState().addClient(data, { skipApi: true })
+  const registration = newClientRegistrationDefaults()
+  const local = useClientStore.getState().addClient({ ...data, ...registration }, { skipApi: true })
 
   let client = local
   if (USE_API) {
     try {
-      const remote = await api.createClient(local)
-      useClientStore.getState().updateClient(local.id, remote)
-      client = useClientStore.getState().clients.find(c => c.id === local.id) || local
+      const remote = await api.createClient({ ...local, ...registration })
+      const merged = normalizeClient({
+        ...local,
+        ...remote,
+        ...registration,
+        id: local.id,
+        name: local.name,
+        phone: local.phone,
+        email: local.email,
+        addr: local.addr,
+        bonus: Math.max(Number(remote.bonus) || 0, REGISTRATION_WELCOME_BONUS),
+      })
+      useClientStore.getState().updateClient(local.id, merged, { skipApi: true })
+      await api.updateClient(local.id, {
+        level: 'basic',
+        vip: false,
+        debtEnabled: false,
+        loyaltyPeriod: registration.loyaltyPeriod,
+      })
+      client = useClientStore.getState().clients.find(c => c.id === local.id) || merged
       if (client.card) {
         await useCardStore.getState().fetchFromApi()
       }

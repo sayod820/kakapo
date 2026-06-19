@@ -188,7 +188,7 @@ function buildClientFromCard(card: AdminCard): AdminClient {
     email: '',
     addr: '',
     card: card.num,
-    level: (card.level || 'bronze') as ClientLevel,
+    level: (card.level || 'basic') as ClientLevel,
     orders: 0,
     spent: 0,
     debt: card.debt,

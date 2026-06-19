@@ -482,7 +482,7 @@ app.patch('/assemblers/:id', (req, res) => {
 })
 
 function normalizeClientRow(raw) {
-  const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : 'bronze'
+  const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : 'basic'
   return {
     id: raw.id,
     name: raw.name || '',
@@ -797,7 +797,7 @@ function syncClientFromCardRow(card) {
       name: card.client || 'Клиент',
       phone,
       card: card.num,
-      level: card.level || 'bronze',
+      level: card.level || 'basic',
       bonus: card.bonus,
       debt: card.debt,
       debtLimit: card.debtLimit,
