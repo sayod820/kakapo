@@ -23,6 +23,27 @@ import { unmarkPhoneDeleted } from './clientTombstones'
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
 
+function isCardMissingOnServer(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /карт[аы].*не найден|not found|404/i.test(msg)
+}
+
+async function persistLoyaltyToApi(
+  apiCardNum: string,
+  cardPatch: Record<string, unknown>,
+  clientId: string,
+  clientPatch: Record<string, unknown>,
+) {
+  try {
+    await api.updateCard(apiCardNum, cardPatch)
+  } catch (e) {
+    if (!isCardMissingOnServer(e)) throw e
+    await api.ensureCard({ num: apiCardNum, clientId, ...cardPatch })
+    await api.updateCard(apiCardNum, cardPatch)
+  }
+  await api.updateClient(clientId, clientPatch)
+}
+
 export function lookupClientByPhone(phone: string, clients?: AdminClient[]): AdminClient | undefined {
   const list = clients ?? useClientStore.getState().clients
   const p = phone.trim()
@@ -245,10 +266,7 @@ export async function saveCardLoyalty(
   if (USE_API) {
     try {
       const apiCardNum = card.num.trim()
-      await Promise.all([
-        api.updateCard(apiCardNum, cardPatch),
-        api.updateClient(client.id, clientPatch),
-      ])
+      await persistLoyaltyToApi(apiCardNum, cardPatch, client.id, clientPatch)
     } catch (e) {
       console.error('saveCardLoyalty API failed', e)
       throw new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')

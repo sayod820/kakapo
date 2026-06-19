@@ -526,7 +526,7 @@ app.post('/clients', (req, res) => {
     ...req.body,
   })
   db.clients.push(row)
-  if (!row.card) issueCardForNewClient(row)
+  ensureCardRowForClient(row)
   persist()
   res.json(row)
 })
@@ -738,6 +738,47 @@ function issueCardForNewClient(client) {
   return card
 }
 
+function findCardByNum(num) {
+  const upper = String(num || '').toUpperCase()
+  let card = (db.cards || []).find(x => x.num === upper)
+  if (!card) {
+    const digits = upper.replace(/\D/g, '')
+    if (digits) card = (db.cards || []).find(x => String(x.num).replace(/\D/g, '') === digits)
+  }
+  return card
+}
+
+/** Создать строку карты, если клиент ссылается на номер, которого нет в db.cards */
+function ensureCardRowForClient(client) {
+  if (!client) return null
+  if (!client.card) return issueCardForNewClient(client)
+  let card = findCardByNum(client.card)
+  if (card) {
+    if (client.id && !card.clientId) card.clientId = client.id
+    if (client.phone && !card.phone) card.phone = client.phone
+    if (client.name && !card.client) card.client = client.name
+    return card
+  }
+  if (!db.cards) db.cards = []
+  card = normalizeCardRow({
+    num: String(client.card).toUpperCase(),
+    client: client.name || '',
+    phone: client.phone || '',
+    clientId: client.id,
+    status: client.blocked ? 'blocked' : 'active',
+    level: client.level === 'basic' ? '' : (client.level || ''),
+    bonus: Number(client.bonus) || 0,
+    debt: Number(client.debt) || 0,
+    debtLimit: Number(client.debtLimit) || 0,
+    vip: !!client.vip,
+    debtEnabled: !!client.debtEnabled,
+    loyaltyPeriod: client.loyaltyPeriod,
+    issued: new Date().toISOString().slice(0, 10),
+  })
+  db.cards.push(card)
+  return card
+}
+
 function syncClientFromCardRow(card) {
   if (!Array.isArray(db.clients)) db.clients = []
   if (card.status === 'unlinked') {
@@ -809,16 +850,6 @@ app.post('/cards/generate', (req, res) => {
   res.json({ ok: true, count: created.length, cards: created })
 })
 
-function findCardByNum(num) {
-  const upper = String(num || '').toUpperCase()
-  let card = (db.cards || []).find(x => x.num === upper)
-  if (!card) {
-    const digits = upper.replace(/\D/g, '')
-    if (digits) card = (db.cards || []).find(x => String(x.num).replace(/\D/g, '') === digits)
-  }
-  return card
-}
-
 function ensureMissingSeedRows() {
   let changed = false
   const extraClients = DEFAULT_CLIENTS.filter(c => c.id === 'U-07')
@@ -842,10 +873,66 @@ function ensureMissingSeedRows() {
     }
   }
 
+  for (const client of db.clients || []) {
+    if (!client.card) continue
+    if (!findCardByNum(client.card)) {
+      ensureCardRowForClient(client)
+      changed = true
+    }
+  }
+
   if (changed) persist()
 }
 
 ensureMissingSeedRows()
+
+app.post('/cards/ensure', (req, res) => {
+  const body = req.body || {}
+  const num = String(body.num || '').toUpperCase()
+  if (!num) return res.status(400).json({ detail: 'Укажите номер карты' })
+  let card = findCardByNum(num)
+  const client = body.clientId
+    ? (db.clients || []).find(c => c.id === body.clientId)
+    : (db.clients || []).find(c => {
+      if (!c.card) return false
+      const digits = String(c.card).replace(/\D/g, '')
+      return c.card.toUpperCase() === num || digits === num.replace(/\D/g, '')
+    })
+  if (card) {
+    const patch = { ...body, num: card.num }
+    delete patch.unlink
+    if (patch.vip === true) patch.loyaltyPeriod = currentLoyaltyPeriod()
+    Object.assign(card, normalizeCardRow({ ...card, ...patch, num: card.num }))
+    syncClientFromCardRow(card)
+  } else {
+    const baseClient = client || (body.phone
+      ? (db.clients || []).find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(body.phone))
+      : undefined)
+    card = normalizeCardRow({
+      num,
+      client: body.client || baseClient?.name || '',
+      phone: body.phone || baseClient?.phone || '',
+      clientId: body.clientId || baseClient?.id,
+      status: body.status || 'active',
+      level: body.level || baseClient?.level || '',
+      bonus: Number(body.bonus ?? baseClient?.bonus) || 0,
+      debt: Number(body.debt ?? baseClient?.debt) || 0,
+      debtLimit: Number(body.debtLimit ?? baseClient?.debtLimit) || 0,
+      vip: !!(body.vip ?? baseClient?.vip),
+      debtEnabled: body.debtEnabled === true || baseClient?.debtEnabled === true,
+      loyaltyPeriod: body.loyaltyPeriod || baseClient?.loyaltyPeriod,
+      issued: new Date().toISOString().slice(0, 10),
+    })
+    if (!db.cards) db.cards = []
+    db.cards.push(card)
+    if (baseClient) {
+      baseClient.card = card.num
+      syncClientFromCardRow(card)
+    }
+  }
+  persist()
+  res.json(card)
+})
 
 app.patch('/cards/:num', (req, res) => {
   const num = decodeURIComponent(req.params.num).toUpperCase()

@@ -294,6 +294,8 @@ export const api = {
   getCards: () => request<AdminCard[]>('/cards'),
   generateCards: (count: number) =>
     request<{ ok: boolean; count: number; cards: AdminCard[] }>(`/cards/generate?count=${count}`, { method: 'POST' }),
+  ensureCard: (data: Partial<AdminCard> & { num: string; clientId?: string }) =>
+    request<AdminCard>('/cards/ensure', { method: 'POST', body: JSON.stringify(data) }),
   updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean }) =>
     request<AdminCard>(`/cards/${encodeURIComponent(num.trim())}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
