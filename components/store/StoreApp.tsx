@@ -34,7 +34,7 @@ import {
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
 import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
-import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } from "@/lib/clientAddresses";
+import { loadClientAddresses, saveClientAddresses, formatClientAddressLine, ensureClientDefaultAddress } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
@@ -1790,6 +1790,9 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const [name,  setName]  = useState("");
   const [phone, setPhone] = useState("");
   const [addr,  setAddr]  = useState("");
+  const [apt, setApt] = useState("");
+  const [floor, setFloor] = useState("");
+  const [ent, setEnt] = useState("");
   const [pay,   setPay]   = useState("cash");
   const [time,  setTime]  = useState("asap");
   const [useBonus, setUseBonus] = useState(false);
@@ -1810,27 +1813,44 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 
   const clientPhone = user?.phone || getActiveClientPhone(user);
 
+  const fullAddrLine = useMemo(
+    () => formatClientAddressLine({ street: addr, apt, floor, ent }),
+    [addr, apt, floor, ent],
+  );
+
   // Загрузить сохранённые адреса + автозаполнить адрес по умолчанию (только для текущего аккаунта)
   useEffect(() => {
     if (!clientPhone) {
       setSavedAddrs([]);
       return;
     }
-    try {
-      migrateLegacyClientData(clientPhone);
-      const list = loadClientAddresses(clientPhone);
-      if (list.length) setSavedAddrs(list);
-      const def = list.find(a => a.def) || list[0];
-      if (def) {
-        setAddr(formatClientAddressLine(def));
-        if (def.lat != null && def.lng != null) {
-          setClientLat(def.lat);
-          setClientLng(def.lng);
-          setAddrReady(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        migrateLegacyClientData(clientPhone);
+        let list = loadClientAddresses(clientPhone);
+        if (!list.length && user?.addr?.trim()) {
+          const imported = await ensureClientDefaultAddress(clientPhone, user.addr);
+          if (imported) list = [imported];
         }
-      }
-    } catch { /* ignore */ }
-  }, [clientPhone]);
+        if (cancelled) return;
+        if (list.length) setSavedAddrs(list);
+        const def = list.find(a => a.def) || list[0];
+        if (def) {
+          setAddr(def.street || formatClientAddressLine(def));
+          setApt(def.apt || "");
+          setFloor(def.floor || "");
+          setEnt(def.ent || "");
+          if (def.lat != null && def.lng != null) {
+            setClientLat(def.lat);
+            setClientLng(def.lng);
+            setAddrReady(true);
+          }
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [clientPhone, user?.addr]);
 
   useEffect(() => {
     if (user?.name && !name) setName(user.name)
@@ -1840,7 +1860,10 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   }, [user, name, phone])
 
   const pickSavedAddr = (a) => {
-    setAddr(formatClientAddressLine(a));
+    setAddr(a.street || formatClientAddressLine(a));
+    setApt(a.apt || "");
+    setFloor(a.floor || "");
+    setEnt(a.ent || "");
     setErrs(prev => ({ ...prev, addr: undefined }));
     if (a.lat != null && a.lng != null) {
       setClientLat(a.lat)
@@ -1933,7 +1956,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 
     const payload = {
       type: orderType,
-      client: { name, phone, addr, lat: clientLat, lng: clientLng },
+      client: { name, phone, addr: fullAddrLine, lat: clientLat, lng: clientLng },
       items: [
         ...prodItems.map(p => orderItemFromProduct(p, p.qty)),
         ...restItems.map(p => ({
@@ -2066,7 +2089,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               <div className="hscroll" style={{ gap:8 }}>
                 {savedAddrs.map(a => {
                   const line = formatClientAddressLine(a);
-                  const active = addr === line;
+                  const active = addr === (a.street || line) && apt === (a.apt || "") && floor === (a.floor || "") && ent === (a.ent || "");
                   return (
                     <button key={a.id} onClick={() => pickSavedAddr(a)} className="btn"
                       style={{ flexShrink:0, padding:"10px 14px", borderRadius:12, textAlign:"left",
@@ -2083,6 +2106,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>Улица, дом *</div>
           <GeoAddressPicker
             value={addr}
+            initialCoords={clientLat && clientLng ? { lat: clientLat, lng: clientLng } : null}
             onChange={v => { setAddr(v); resetDelivery(); setErrs(prev => ({ ...prev, addr: undefined })); }}
             onClear={resetDelivery}
             weightKg={weightKg}
@@ -2104,9 +2128,9 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           )}
           {errs.addr && <div style={{ fontSize:11, color:"var(--red)", marginTop:6 }}>{errs.addr}</div>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-            <input className="inp" placeholder="Квартира" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
-            <input className="inp" placeholder="Этаж" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
-            <input className="inp" placeholder="Подъезд" style={{ width: '100%', fontSize: 13, padding: '11px 12px', gridColumn: '1 / -1' }} />
+            <input className="inp" placeholder="Квартира" value={apt} onChange={e => setApt(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+            <input className="inp" placeholder="Этаж" value={floor} onChange={e => setFloor(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+            <input className="inp" placeholder="Подъезд" value={ent} onChange={e => setEnt(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '11px 12px', gridColumn: '1 / -1' }} />
           </div>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>

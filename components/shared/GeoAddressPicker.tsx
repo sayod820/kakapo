@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { calcDeliveryPrice, fetchOrderDeliveryRoute, formatKm, roundRouteKm, STORE_LOCATION } from '@/lib/courierData';
 import { usePricing, usePickupLocations } from '@/lib/courierStore';
@@ -30,9 +30,11 @@ interface Props {
   ) => void;
   /** Сброс расчёта доставки (когда адрес изменён без точки на карте) */
   onClear?: () => void;
+  /** Уже сохранённые координаты — подтвердить на карте автоматически */
+  initialCoords?: { lat: number; lng: number } | null;
 }
 
-export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderAmount = 0, pickupIds = ['store'], onPriceChange, onClear }: Props) {
+export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderAmount = 0, pickupIds = ['store'], onPriceChange, onClear, initialCoords = null }: Props) {
   const { pricing } = usePricing();
   const locations = usePickupLocations();
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -43,9 +45,11 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
   const [resolved, setResolved] = useState<AddressResult | null>(null);
   const [showPinMap, setShowPinMap] = useState(false);
   const [draftPin, setDraftPin] = useState<{ lat: number; lng: number } | null>(null);
+  const seededCoordsRef = useRef<string>('');
 
   const resetCalculation = useCallback(() => {
     setResolved(null);
+    seededCoordsRef.current = '';
     onClear?.();
   }, [onClear]);
 
@@ -75,6 +79,15 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
       setRouteLoading(false);
     }
   }, [orderAmount, weightKg, pricing, onPriceChange, pickupIds, locations]);
+
+  useEffect(() => {
+    if (!initialCoords?.lat || !initialCoords?.lng || !value?.trim()) return
+    const key = `${initialCoords.lat.toFixed(5)}:${initialCoords.lng.toFixed(5)}:${value.trim()}`
+    if (seededCoordsRef.current === key || resolved) return
+    seededCoordsRef.current = key
+    setDraftPin({ lat: initialCoords.lat, lng: initialCoords.lng })
+    void resolveCoords(initialCoords.lat, initialCoords.lng, value)
+  }, [initialCoords?.lat, initialCoords?.lng, value, resolveCoords, resolved])
 
   const openMap = (initial?: { lat: number; lng: number } | null) => {
     setDraftPin(initial ?? draftPin ?? { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng });

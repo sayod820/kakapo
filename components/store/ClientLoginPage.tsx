@@ -14,7 +14,7 @@ import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
 import { hydrateCardStore } from '@/lib/cardStore'
 import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { registerClientAccount } from '@/lib/clientCardSync'
-import { formatClientAddressLine, setRegistrationDefaultAddress } from '@/lib/clientAddresses'
+import { formatClientAddressLine, setRegistrationDefaultAddress, ensureClientDefaultAddress } from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
 import { setCurrentClientPhone } from '@/lib/clientNotifications'
 
@@ -114,6 +114,9 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     saveStoreUser(user)
     setCurrentClientPhone(user.phone)
     migrateLegacyClientData(user.phone)
+    if (user.addr?.trim()) {
+      void ensureClientDefaultAddress(user.phone, user.addr)
+    }
     setUser(user)
     go('profile')
   }

@@ -33,6 +33,31 @@ export function formatClientAddressLine(
   return s
 }
 
+/** Разбор строки адреса из CRM / регистрации */
+export function parseClientAddressLine(line: string): Pick<ClientSavedAddress, 'street' | 'apt' | 'floor' | 'ent'> {
+  let street = line.trim()
+  let apt = ''
+  let floor = ''
+  let ent = ''
+  const aptM = street.match(/,\s*кв\.\s*([^,]+)/i)
+  if (aptM) {
+    apt = aptM[1].trim()
+    street = street.replace(aptM[0], '')
+  }
+  const floorM = street.match(/,\s*этаж\s*([^,]+)/i)
+  if (floorM) {
+    floor = floorM[1].trim()
+    street = street.replace(floorM[0], '')
+  }
+  const entM = street.match(/,\s*подъезд\s*([^,]+)/i)
+  if (entM) {
+    ent = entM[1].trim()
+    street = street.replace(entM[0], '')
+  }
+  street = street.replace(/,\s*,/g, ',').replace(/^,\s*|,\s*$/g, '').trim()
+  return { street: street || line.trim(), apt, floor, ent }
+}
+
 function resolvePhone(phone?: string): string {
   return phone?.trim() || getActiveClientPhone(loadStoreUser())
 }
@@ -75,4 +100,46 @@ export function setRegistrationDefaultAddress(data: {
 export function getDefaultClientAddress(phone?: string): ClientSavedAddress | null {
   const list = loadClientAddresses(phone)
   return list.find(a => a.def) || list[0] || null
+}
+
+/** Если локальных адресов нет — импорт из CRM (addr) + геокод для точки на карте */
+export async function ensureClientDefaultAddress(
+  phone: string,
+  crmAddr?: string,
+): Promise<ClientSavedAddress | null> {
+  const p = phone?.trim()
+  if (!p) return null
+  const existing = loadClientAddresses(p)
+  if (existing.length) return existing.find(a => a.def) || existing[0]
+
+  const line = crmAddr?.trim()
+  if (!line) return null
+
+  const parsed = parseClientAddressLine(line)
+  let lat: number | undefined
+  let lng: number | undefined
+  try {
+    const { forwardGeocode } = await import('./geocode')
+    const query = parsed.street || line
+    const results = await forwardGeocode(query)
+    if (results[0]) {
+      lat = results[0].lat
+      lng = results[0].lng
+    }
+  } catch { /* offline / geocode fail */ }
+
+  const entry: ClientSavedAddress = {
+    id: Date.now(),
+    label: '🏠 Дом',
+    street: parsed.street || line,
+    apt: parsed.apt || '',
+    floor: parsed.floor || '',
+    ent: parsed.ent || '',
+    comment: '',
+    def: true,
+    lat,
+    lng,
+  }
+  saveClientAddresses([entry], p)
+  return entry
 }
