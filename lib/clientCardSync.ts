@@ -11,7 +11,7 @@ import {
   emptyClientProfileForm,
   clientProfileFromClient,
 } from './clientCrm'
-import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardHasDebtSection } from './cardCrm'
+import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardHasDebtSection, cardNumsMatch } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 import { emitCrmSync } from './clientProfileSync'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
@@ -248,10 +248,11 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string): boolea
   const client = clientStore.clients.find(c => phonesMatch(c.phone, phone))
   const num = cardNum?.trim().toUpperCase()
   const card = num
-    ? cardStore.cards.find(c => c.num === num && c.status !== 'unlinked')
+    ? cardStore.cards.find(c => cardNumsMatch(c.num, num) && c.status !== 'unlinked')
     : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
 
   const storedPeriod = card?.loyaltyPeriod || client?.loyaltyPeriod
+  if (!storedPeriod) return false
   if (isLoyaltyPeriodCurrent(storedPeriod)) return false
 
   const period = currentLoyaltyPeriod()
@@ -270,7 +271,7 @@ export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: 
   const client = clientStore.clients.find(c => phonesMatch(c.phone, phone))
   const num = cardNum?.trim().toUpperCase()
   const card = num
-    ? cardStore.cards.find(c => c.num === num && c.status !== 'unlinked')
+    ? cardStore.cards.find(c => cardNumsMatch(c.num, num) && c.status !== 'unlinked')
     : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
 
   const period = currentLoyaltyPeriod()

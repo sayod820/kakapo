@@ -501,6 +501,7 @@ function normalizeClientRow(raw) {
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod,
+    debtEnabled: raw.debtEnabled === true,
     accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
     deletedAt: raw.deletedAt || undefined,
   }
@@ -660,7 +661,7 @@ function normalizePhoneDigits(phone) {
 
 function normalizeCardRow(raw) {
   const status = ['active', 'unlinked', 'blocked'].includes(raw.status) ? raw.status : 'unlinked'
-  const level = ['bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : (raw.level || '')
+  const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : (raw.level || '')
   return {
     num: String(raw.num || '').toUpperCase(),
     client: raw.client || '',
@@ -674,6 +675,8 @@ function normalizeCardRow(raw) {
     issued: raw.issued || new Date().toISOString().slice(0, 10),
     note: raw.note || '',
     vip: !!raw.vip,
+    debtEnabled: raw.debtEnabled === true,
+    loyaltyPeriod: raw.loyaltyPeriod || undefined,
   }
 }
 
@@ -741,6 +744,8 @@ function syncClientFromCardRow(card) {
   client.debtLimit = Number(card.debtLimit) || 0
   client.vip = !!card.vip
   client.blocked = card.status === 'blocked'
+  if (card.loyaltyPeriod) client.loyaltyPeriod = card.loyaltyPeriod
+  if (card.debtEnabled !== undefined) client.debtEnabled = !!card.debtEnabled
 }
 
 app.post('/cards/generate', (req, res) => {
@@ -768,9 +773,19 @@ app.post('/cards/generate', (req, res) => {
   res.json({ ok: true, count: created.length, cards: created })
 })
 
+function findCardByNum(num) {
+  const upper = String(num || '').toUpperCase()
+  let card = (db.cards || []).find(x => x.num === upper)
+  if (!card) {
+    const digits = upper.replace(/\D/g, '')
+    if (digits) card = (db.cards || []).find(x => String(x.num).replace(/\D/g, '') === digits)
+  }
+  return card
+}
+
 app.patch('/cards/:num', (req, res) => {
   const num = decodeURIComponent(req.params.num).toUpperCase()
-  const card = (db.cards || []).find(x => x.num === num)
+  const card = findCardByNum(num)
   if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
   if (req.body.unlink) {
     const prevClient = db.clients?.find(x => x.card === num)

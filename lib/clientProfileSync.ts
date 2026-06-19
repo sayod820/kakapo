@@ -11,7 +11,7 @@ import {
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
-import { DEFAULT_ADMIN_CARDS, normalizeCard, cardHasDebtSection, type AdminCard } from './cardCrm'
+import { DEFAULT_ADMIN_CARDS, normalizeCard, cardHasDebtSection, cardNumsMatch, type AdminCard } from './cardCrm'
 import { isPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 
@@ -104,7 +104,7 @@ function mergeCrmCards(api: AdminCard[], local: AdminCard[]): AdminCard[] {
 
 function findLinkedCard(client: AdminClient, cards: AdminCard[]): AdminCard | null {
   if (client.card) {
-    const byNum = cards.find(c => c.num === client.card)
+    const byNum = cards.find(c => cardNumsMatch(c.num, client.card))
     if (byNum && byNum.status !== 'unlinked') return normalizeCard(byNum)
   }
   if (client.id) {
@@ -121,7 +121,7 @@ function findBestCard(phone: string, cardNum: string | undefined, client: AdminC
   if (isPhoneDeleted(phone)) return null
   const num = cardNum?.trim().toUpperCase()
   if (num) {
-    const byNum = cards.find(c => c.num === num && c.status !== 'unlinked')
+    const byNum = cards.find(c => cardNumsMatch(c.num, num) && c.status !== 'unlinked')
     if (byNum) {
       if (byNum.phone && isPhoneDeleted(byNum.phone)) return null
       return normalizeCard(byNum)
@@ -197,6 +197,7 @@ function buildClientFromCard(card: AdminCard): AdminClient {
     blocked: card.status === 'blocked',
     vip: !!card.vip,
     debtEnabled: !!card.debtEnabled,
+    loyaltyPeriod: card.loyaltyPeriod,
   })
 }
 
@@ -245,7 +246,7 @@ export async function findMergedClientByCard(cardNum: string): Promise<AdminClie
   const num = cardNum.trim().toUpperCase()
   if (!num) return null
   const { clients, cards } = await loadCrmData()
-  const card = cards.find(c => c.num === num && c.status !== 'unlinked')
+  const card = cards.find(c => cardNumsMatch(c.num, num) && c.status !== 'unlinked')
   if (!card) return null
   const normalized = normalizeCard(card)
   const client = card.clientId

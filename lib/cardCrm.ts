@@ -27,6 +27,19 @@ export function cardHasDebtSection(card: Pick<AdminCard, 'debtEnabled' | 'debt' 
   return (Number(card.debt) || 0) > 0 || (Number(card.debtLimit) || 0) > 0
 }
 
+/** Цифры номера карты (КАКАПО-0099 и KAKAPO-0099 → 0099) */
+export function cardDigits(num: string | undefined): string {
+  return String(num || '').replace(/\D/g, '')
+}
+
+export function cardNumsMatch(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false
+  if (a === b) return true
+  const da = cardDigits(a)
+  const db = cardDigits(b)
+  return da.length > 0 && da === db
+}
+
 export const CARD_STATUS_LABELS: Record<CardStatus, { l: string; c: string }> = {
   active: { l: 'Активна', c: '#1FD760' },
   unlinked: { l: 'Не привязана', c: '#FFB800' },

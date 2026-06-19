@@ -86,7 +86,7 @@ export function getLoyaltyProgress(
   const vipRules = cfg.vipRules
   const period = currentLoyaltyPeriod()
   const effectiveLevel = resolveEffectiveClientLevel(spent, orderCount, storedLevel, storedPeriod)
-  const adminVipActive = !!adminVip && isLoyaltyPeriodCurrent(storedPeriod)
+  const adminVipActive = !!adminVip && (!storedPeriod || isLoyaltyPeriodCurrent(storedPeriod))
 
   const isBasicClient = effectiveLevel === 'basic' && !adminVipActive
 

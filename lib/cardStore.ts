@@ -9,6 +9,7 @@ import { onBonusCredited } from './pushService'
 import {
   DEFAULT_ADMIN_CARDS,
   normalizeCard,
+  cardNumsMatch,
   type AdminCard,
   type CardStatus,
 } from './cardCrm'
@@ -76,7 +77,7 @@ function pushLoyaltyToClient(card: AdminCard) {
   const clients = useClientStore.getState().clients
   const client = card.clientId
     ? clients.find(c => c.id === card.clientId)
-    : clients.find(c => c.card === card.num || (card.phone && phonesMatch(c.phone, card.phone)))
+    : clients.find(c => cardNumsMatch(c.card, card.num) || (card.phone && phonesMatch(c.phone, card.phone)))
   if (!client) return
   const prevBonus = client.bonus || 0
   useClientStore.getState().updateClient(client.id, {
@@ -97,7 +98,7 @@ function pushLoyaltyToClient(card: AdminCard) {
 
 function clearClientCard(num: string) {
   const clients = useClientStore.getState().clients
-  const client = clients.find(c => c.card === num)
+  const client = clients.find(c => cardNumsMatch(c.card, num))
   if (client) useClientStore.getState().updateClient(client.id, { card: '' })
 }
 

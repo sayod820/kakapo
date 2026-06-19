@@ -236,7 +236,7 @@ export function resolveEffectiveClientLevel(
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
   const storedForMonth = storedActive && normalizedStored && normalizedStored !== 'basic'
     ? normalizedStored
-    : 'basic'
+    : (!storedPeriod && normalizedStored && normalizedStored !== 'basic' ? normalizedStored : 'basic')
 
   const earned = suggestLevel(spent)
   const earnedBronze = hasEarnedBronze(spent, orderCount)
@@ -256,6 +256,10 @@ export function shouldAutoUpgradeLevel(
   effective: ClientLevel,
   storedPeriod?: string,
 ): boolean {
+  if (!storedPeriod) {
+    if (!stored || stored === 'basic') return effective !== 'basic'
+    return loyaltyTierIndex(effective) > loyaltyTierIndex(stored)
+  }
   if (!isLoyaltyPeriodCurrent(storedPeriod) && effective === 'basic' && stored !== 'basic') {
     return true // месяц сменился — сбросить до basic
   }
