@@ -135,10 +135,28 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       return
     }
     try {
-      const apiList = await api.getClients()
+      let apiList = await api.getClients()
       const remote = filterVisibleClients(apiList.map(c => normalizeClient(c)))
-      const localOnly = filterVisibleClients(readLocalClientsCache())
-      const clients = mergeClientsForApi(localOnly, remote)
+      const localOnly = filterVisibleClients(readLocalClientsCache()).filter(c => {
+        const remoteIds = new Set(remote.map(x => x.id))
+        const remotePhones = new Set(remote.map(x => normalizePhone(x.phone)).filter(Boolean))
+        if (remoteIds.has(c.id)) return false
+        const key = normalizePhone(c.phone)
+        if (key && remotePhones.has(key)) return false
+        return true
+      })
+      for (const c of localOnly) {
+        try {
+          await api.createClient(c)
+        } catch (e) {
+          console.error('sync local client to API', c.id, e)
+        }
+      }
+      if (localOnly.length) {
+        apiList = await api.getClients()
+      }
+      const syncedRemote = filterVisibleClients(apiList.map(c => normalizeClient(c)))
+      const clients = mergeClientsForApi(readLocalClientsCache(), syncedRemote)
       saveClients(clients)
       set({ clients, hydrated: true, apiReady: true })
     } catch (e) {

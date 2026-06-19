@@ -64,6 +64,7 @@ export const DEFAULT_ADMIN_CARDS: AdminCard[] = [
   { num: 'КАКАПО-0099', client: '', phone: '', status: 'unlinked', level: '', bonus: 0, debtLimit: 0, debt: 0, issued: '2024-05-01' },
   { num: 'КАКАПО-0234', client: 'Зафар Мирзоев', phone: '+992 91 654 32 10', status: 'active', level: 'gold', bonus: 2100, debtLimit: 2000, debt: 4500, issued: '2023-02-05', debtEnabled: true },
   { num: 'КАКАПО-0055', client: 'Рустам Давлатов', phone: '+992 90 445 23 11', status: 'blocked', level: 'gold', bonus: 890, debtLimit: 0, debt: 0, issued: '2022-11-10' },
+  { num: 'KAKAPO-0236', client: 'Сайёд Гафуров', phone: '+992 50 190 31 41', status: 'active', level: 'silver', bonus: 100, debtLimit: 0, debt: 0, issued: '2025-06-01', clientId: 'U-07' },
 ]
 
 export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminCard {

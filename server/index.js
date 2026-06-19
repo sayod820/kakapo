@@ -819,6 +819,34 @@ function findCardByNum(num) {
   return card
 }
 
+function ensureMissingSeedRows() {
+  let changed = false
+  const extraClients = DEFAULT_CLIENTS.filter(c => c.id === 'U-07')
+  const extraCards = DEFAULT_CARDS.filter(c => String(c.num).replace(/\D/g, '').includes('0236'))
+
+  for (const seed of extraClients) {
+    const pk = phoneKey(seed.phone)
+    const exists = (db.clients || []).some(c => c.id === seed.id || phoneKey(c.phone) === pk)
+    if (!exists) {
+      if (!db.clients) db.clients = []
+      db.clients.push(normalizeClientRow({ ...seed }))
+      changed = true
+    }
+  }
+
+  for (const seed of extraCards) {
+    if (!findCardByNum(seed.num)) {
+      if (!db.cards) db.cards = []
+      db.cards.push(normalizeCardRow({ ...seed }))
+      changed = true
+    }
+  }
+
+  if (changed) persist()
+}
+
+ensureMissingSeedRows()
+
 app.patch('/cards/:num', (req, res) => {
   const num = decodeURIComponent(req.params.num).toUpperCase()
   const card = findCardByNum(num)

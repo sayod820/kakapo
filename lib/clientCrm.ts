@@ -76,6 +76,7 @@ export const DEFAULT_ADMIN_CLIENTS: AdminClient[] = [
   { id: 'U-04', name: 'Зафар Мирзоев', phone: '+992 91 654 32 10', email: '', addr: 'ул. Рудаки, 8', card: 'КАКАПО-0234', level: 'gold', orders: 56, spent: 2340, debt: 4500, bonus: 2100, debtLimit: 2000, blocked: false, debtEnabled: true, createdAt: '2023-11-02' },
   { id: 'U-05', name: 'Мадина Оразова', phone: '+992 93 321 65 43', email: '', addr: 'ул. Ленина, 18', card: '', level: 'silver', orders: 12, spent: 640, debt: 0, bonus: 120, debtLimit: 0, blocked: false, createdAt: '2025-01-20' },
   { id: 'U-06', name: 'Рустам Давлатов', phone: '+992 90 445 23 11', email: '', addr: 'ул. Сомони, 5', card: 'КАКАПО-0055', level: 'gold', orders: 34, spent: 1560, debt: 0, bonus: 890, debtLimit: 0, blocked: true, createdAt: '2024-08-09', note: 'Злоупотребление возвратами' },
+  { id: 'U-07', name: 'Сайёд Гафуров', phone: '+992 50 190 31 41', email: '', addr: '', card: 'KAKAPO-0236', level: 'silver', orders: 0, spent: 0, debt: 0, bonus: 100, debtLimit: 0, blocked: false, createdAt: '2025-06-01' },
 ]
 
 export function normalizePhone(phone: string): string {

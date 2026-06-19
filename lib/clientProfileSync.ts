@@ -219,26 +219,12 @@ async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard
 export async function findMergedClientByPhone(phone: string, cardNum?: string): Promise<AdminClient | null> {
   if (isPhoneDeleted(phone)) return null
 
-  if (USE_API) {
-    try {
-      const [apiClients, apiCards] = await Promise.all([api.getClients(), api.getCards()])
-      const clients = apiClients.map(c => normalizeClient(c)).filter(c => !isClientPurged(c) && !isClientInRecovery(c))
-      const cards = apiCards.map(c => normalizeCard(c))
-      const phoneMatches = clients.filter(c => phonesMatch(c.phone, phone))
-      const client = phoneMatches.find(c => c.card && cardNum && cardNumsMatch(c.card, cardNum))
-        || phoneMatches.find(c => c.card)
-        || phoneMatches[0]
-      const card = findBestCard(phone, cardNum, client, cards)
-      if (!client && !card) return null
-      if (client) return mergeClientWithCard(client, card)
-      if (card) return mergeClientWithCard(buildClientFromCard(card), card)
-      return null
-    } catch { /* offline — local cache below */ }
-  }
-
   const { clients, cards } = await loadCrmData()
   const activeClients = clients.filter(c => !isClientPurged(c) && !isClientInRecovery(c))
-  const client = activeClients.find(c => phonesMatch(c.phone, phone))
+  const phoneMatches = activeClients.filter(c => phonesMatch(c.phone, phone))
+  const client = phoneMatches.find(c => c.card && cardNum && cardNumsMatch(c.card, cardNum))
+    || phoneMatches.find(c => c.card)
+    || phoneMatches[0]
   const card = findBestCard(phone, cardNum, client, cards)
   if (client) return mergeClientWithCard(client, card)
   if (card) return mergeClientWithCard(buildClientFromCard(card), card)
