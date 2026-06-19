@@ -107,6 +107,8 @@ const STATUS_RANK: Record<string, number> = {
 function mergeOrderStatus(local: OrderStatus, remote: OrderStatus): OrderStatus {
   if (remote === 'delivered' || remote === 'cancelled') return remote
   if (local === 'delivered' || local === 'cancelled') return local
+  // Сервер — источник правды: админ может откатить заказ на «Новый»
+  if (USE_API) return remote ?? local
   return (STATUS_RANK[local] ?? 0) >= (STATUS_RANK[remote] ?? 0) ? local : remote
 }
 
@@ -149,7 +151,9 @@ export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOr
     assemblerTeam: remote.assemblerTeam?.length ? remote.assemblerTeam : local.assemblerTeam,
     marketStatus: remote.marketStatus ?? local.marketStatus,
     restParts: remote.restParts ?? local.restParts,
-    items: remote.items?.length ? mergeOrderItems(local.items, remote.items) : local.items,
+    items: remote.items?.length
+      ? (USE_API ? remote.items : mergeOrderItems(local.items, remote.items))
+      : local.items,
     courierAtClient: remote.courierAtClient ?? local.courierAtClient,
     ...(pickedUpIds.length ? { pickedUpIds } : {}),
     ...(courierRoute != null ? { courierRoute } : { courierRoute: null }),
@@ -232,8 +236,15 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     try {
       const raw = await api.getOrders()
       const pins = get().orderAdminPins
+      const current = get().orders
       const orders = applyAdminPins(
-        raw.map(o => ({ ...normalizeOrder(o), status: o.status })),
+        raw.map(o => {
+          const normalized = { ...normalizeOrder(o), status: o.status }
+          const local = current.find(x => x.id === o.id)
+          const pin = pins[o.id]
+          if (pin) return { ...normalized, ...pin, status: (pin.status ?? normalized.status) as OrderStatus }
+          return local ? mergeOrderFields(local, normalized, pins[o.id]) : normalized
+        }),
         pins,
       )
       patchOrders(set, get, orders)
@@ -347,19 +358,32 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         const updated = await api.updateOrderStatus(id, status, patch)
         const serverStatus = (updated.status ?? status) as OrderStatus
         const nextPins = { ...get().orderAdminPins }
-        const activePin = serverStatus === status ? undefined : pin
-        if (serverStatus === status) delete nextPins[id]
-        else nextPins[id] = pin
+        if (serverStatus === status) {
+          window.setTimeout(() => {
+            const p = get().orderAdminPins[id]
+            if (p?.status === status) {
+              const cleared = { ...get().orderAdminPins }
+              delete cleared[id]
+              set({ orderAdminPins: cleared })
+            }
+          }, 30000)
+        } else {
+          nextPins[id] = pin
+        }
         set({ orderAdminPins: nextPins })
         patchOrders(set, get, s => s.map(o => {
           if (o.id !== id) return o
-          const merged = { ...o, ...updated, status: activePin?.status ?? serverStatus }
-          return activePin ? { ...merged, ...activePin } : merged
+          const merged = { ...o, ...updated, status: serverStatus }
+          return serverStatus === status ? merged : { ...merged, ...pin, status }
         }))
         const synced = get().orders.find(o => o.id === id)
         if (prev && synced) onOrderStatusChange(prev, normalizeOrder(synced))
       } catch (e) {
         console.error(e)
+        const nextPins = { ...get().orderAdminPins }
+        delete nextPins[id]
+        set({ orderAdminPins: nextPins })
+        if (prev) patchOrders(set, get, s => s.map(o => o.id === id ? prev : o))
       }
     } else {
       const nextPins = { ...get().orderAdminPins }

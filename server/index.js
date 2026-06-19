@@ -901,7 +901,7 @@ app.post('/cards/ensure', (req, res) => {
   if (card) {
     const patch = { ...body, num: card.num }
     delete patch.unlink
-    if (patch.vip === true) patch.loyaltyPeriod = currentLoyaltyPeriod()
+    if (patch.vip === true || patch.level != null) patch.loyaltyPeriod = currentLoyaltyPeriod()
     Object.assign(card, normalizeCardRow({ ...card, ...patch, num: card.num }))
     syncClientFromCardRow(card)
   } else {
@@ -953,7 +953,7 @@ app.patch('/cards/:num', (req, res) => {
     }))
   } else {
     const body = { ...req.body }
-    if (body.vip === true) {
+    if (body.vip === true || body.level != null) {
       body.loyaltyPeriod = currentLoyaltyPeriod()
     }
     Object.assign(card, normalizeCardRow({ ...card, ...body, num }))

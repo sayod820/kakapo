@@ -15,6 +15,8 @@ import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
 import { mergeCardsWithClients, cardMatchesSearch } from '@/lib/cardCrm'
 import { saveCardLoyalty, cardLoyaltyFromCard } from '@/lib/clientCardSync'
+import { syncCardsFromApi } from '@/lib/cardStore'
+import { syncClientsFromApi } from '@/lib/clientStore'
 import { useCards } from '@/lib/cardStore'
 import { useClients } from '@/lib/clientStore'
 
@@ -183,6 +185,7 @@ export default function CardStatusAdminPanel() {
         vip: next.vip,
         debtEnabled: next.debtEnabled,
       }, 'edit')
+      await Promise.all([syncCardsFromApi(), syncClientsFromApi()])
       setAssignRows(p => ({ ...p, [num]: { ...next, saving: false, saved: true, err: '' } }))
       window.setTimeout(() => {
         setAssignRows(p => {

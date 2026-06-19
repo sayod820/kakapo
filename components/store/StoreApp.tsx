@@ -2210,10 +2210,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
       if (cancelled || getSessionEpoch() !== epoch || !isClientSessionActive()) return
       const stored = loadStoreUser()
       if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
-      if (!next) {
-        onLogout?.()
-        return
-      }
+      if (!next) return
       const merged = { ...user, ...next, vip: !!next.vip }
       if (!crmStoreUsersEqual(user, merged)) {
         saveStoreUser(merged)

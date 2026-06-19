@@ -232,12 +232,14 @@ export function resolveEffectiveClientLevel(
   storedLevel?: ClientLevel | 'new',
   storedPeriod?: string,
 ): ClientLevel {
-  const period = currentLoyaltyPeriod()
-  const storedActive = isLoyaltyPeriodCurrent(storedPeriod)
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+  const storedActive = isLoyaltyPeriodCurrent(storedPeriod)
+  const adminAssignedLegacy = !!normalizedStored && normalizedStored !== 'basic' && !storedPeriod
   const storedForMonth = storedActive && normalizedStored && normalizedStored !== 'basic'
     ? normalizedStored
-    : 'basic'
+    : adminAssignedLegacy
+      ? normalizedStored!
+      : 'basic'
 
   const earned = suggestLevel(spent)
   const earnedBronze = hasEarnedBronze(spent, orderCount)
