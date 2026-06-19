@@ -38,7 +38,7 @@ import { loadClientAddresses, saveClientAddresses, formatClientAddressLine } fro
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
-import { getLoyaltyProgress, LOYALTY_TIERS } from "@/lib/clientLoyalty";
+import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
 import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
 import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig } from "@/lib/loyaltyStatusConfig";
 import {
@@ -8067,8 +8067,11 @@ function KakapoAppInner() {
     return getLoyaltyProgress(spent, orderCount, 0, user.level, user.vip, user.loyaltyPeriod)
   }, [apiOrders, user?.phone, user?.level, user?.vip, user?.loyaltyPeriod])
 
-  const isVipUser = storeLoyalty.isVip
-  const displayUser = user ? { ...user, vip: storeLoyalty.isVip, level: storeLoyalty.level } : null
+  const displayUser = useMemo(
+    () => (user ? mergeStoreUserWithCrmLoyalty(user, apiOrders) : null),
+    [user, apiOrders],
+  )
+  const isVipUser = !!(displayUser?.vip || storeLoyalty.isVip)
 
   const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser };
 

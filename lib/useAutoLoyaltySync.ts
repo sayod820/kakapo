@@ -8,9 +8,13 @@ import {
   loyaltyStatsFromOrders,
   resolveEffectiveClientLevel,
   shouldAutoUpgradeLevel,
+  loyaltyTierIndex,
+  type ClientLevel,
 } from './clientCrm'
 import { syncAutoLevelToCrm, syncMonthlyLoyaltyReset } from './clientCardSync'
 import { currentLoyaltyPeriod } from './loyaltyPeriod'
+import { USE_API } from './config'
+import { useClientStore } from './clientStore'
 
 /** Ежемесячный сброс + автоповышение по заказам текущего месяца */
 export function useAutoLoyaltySync(
@@ -24,6 +28,7 @@ export function useAutoLoyaltySync(
   useEffect(() => {
     const cur = userRef.current
     if (!cur?.phone) return
+    if (USE_API && !useClientStore.getState().apiReady) return
 
     const epoch = getSessionEpoch()
     const reset = syncMonthlyLoyaltyReset(cur.phone, cur.card)
@@ -31,10 +36,15 @@ export function useAutoLoyaltySync(
       ? { ...cur, level: 'basic' as const, vip: false, loyaltyPeriod: currentLoyaltyPeriod() }
       : cur
 
+    if (base.vip && !reset) return
+
     const { orderCount, spent } = loyaltyStatsFromOrders(orders, base.phone)
     const effective = resolveEffectiveClientLevel(spent, orderCount, base.level, base.loyaltyPeriod)
 
     if (reset || shouldAutoUpgradeLevel(base.level, effective, base.loyaltyPeriod)) {
+      if (!reset && loyaltyTierIndex(effective) <= loyaltyTierIndex((base.level || 'basic') as ClientLevel)) {
+        return
+      }
       syncAutoLevelToCrm(base.phone, effective, base.card)
       const next: StoreUser = {
         ...base,

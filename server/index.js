@@ -497,7 +497,7 @@ function normalizeClientRow(raw) {
     bonus: Number(raw.bonus) || 0,
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
-    vip: !!raw.vip,
+    vip: !!raw.vip || vipFromNote(raw.note),
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
@@ -695,6 +695,12 @@ function currentLoyaltyPeriod(date = new Date()) {
   return `${y}-${m}`
 }
 
+const VIP_NOTE_MARKER = 'kakapo-vip'
+
+function vipFromNote(note) {
+  return !!(note && String(note).includes(VIP_NOTE_MARKER))
+}
+
 function normalizeCardRow(raw) {
   const status = ['active', 'unlinked', 'blocked'].includes(raw.status) ? raw.status : 'unlinked'
   const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : (raw.level || '')
@@ -710,7 +716,7 @@ function normalizeCardRow(raw) {
     debt: Number(raw.debt) || 0,
     issued: raw.issued || new Date().toISOString().slice(0, 10),
     note: raw.note || '',
-    vip: !!raw.vip,
+    vip: !!raw.vip || vipFromNote(raw.note),
     debtEnabled: raw.debtEnabled === true,
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
   }

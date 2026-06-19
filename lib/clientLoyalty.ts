@@ -1,6 +1,8 @@
-import { suggestLevel, hasEarnedBronze, resolveEffectiveClientLevel, type ClientLevel } from './clientCrm'
+import { suggestLevel, hasEarnedBronze, resolveEffectiveClientLevel, loyaltyStatsFromOrders, type ClientLevel } from './clientCrm'
 import { isLoyaltyPeriodCurrent, loyaltyPeriodEndsLabel, loyaltyPeriodLabel, currentLoyaltyPeriod } from './loyaltyPeriod'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
+import type { StoreUser } from './clientSession'
+import type { Order } from './types'
 
 export type LoyaltyTier = {
   id: ClientLevel
@@ -162,3 +164,19 @@ export function getLoyaltyProgress(
 
 /** @deprecated use getVipRules() */
 export const VIP_RULES = getVipRules()
+
+/** Профиль: CRM-статус (админка) важнее авторасчёта по заказам */
+export function mergeStoreUserWithCrmLoyalty(
+  user: StoreUser,
+  orders: Order[],
+  reviewCount = 0,
+): StoreUser {
+  const { spent, orderCount } = loyaltyStatsFromOrders(orders, user.phone)
+  const loyalty = getLoyaltyProgress(spent, orderCount, reviewCount, user.level, user.vip, user.loyaltyPeriod)
+  const crmLevel = user.level && user.level !== 'basic' && user.level !== 'new' ? user.level : null
+  return {
+    ...user,
+    vip: !!user.vip || loyalty.isVip,
+    level: (crmLevel || loyalty.level) as ClientLevel,
+  }
+}

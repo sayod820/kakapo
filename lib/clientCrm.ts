@@ -39,6 +39,18 @@ export interface AdminClient {
 /** Маркеры в note для старого backend без accountStatus / delete API */
 export const RECOVERY_NOTE_PREFIX = 'kakapo-recovery'
 export const PURGED_NOTE = 'kakapo-purged'
+/** VIP на старом backend без поля vip в JSON */
+export const VIP_NOTE_MARKER = 'kakapo-vip'
+
+export function vipFromNote(note?: string): boolean {
+  return !!(note && note.includes(VIP_NOTE_MARKER))
+}
+
+export function withVipNote(note: string | undefined, vip: boolean): string {
+  const cleaned = (note || '').replace(/\bkakapo-vip\b/g, '').replace(/\s+/g, ' ').trim()
+  if (!vip) return cleaned
+  return cleaned ? `${cleaned} ${VIP_NOTE_MARKER}` : VIP_NOTE_MARKER
+}
 
 export function isClientPurged(c?: AdminClient | null): boolean {
   if (!c) return false
@@ -169,7 +181,7 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     bonus: Number(raw.bonus) || 0,
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
-    vip: !!raw.vip,
+    vip: !!raw.vip || vipFromNote(raw.note),
     debtEnabled: raw.debtEnabled !== undefined
       ? !!raw.debtEnabled
       : (Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0,
@@ -220,9 +232,13 @@ export function loyaltyStatsFromOrders(
 
 const TIER_ORDER: ClientLevel[] = ['bronze', 'silver', 'gold', 'platinum']
 
-function loyaltyTierIndex(level: ClientLevel): number {
+export function loyaltyTierIndex(level: ClientLevel): number {
   if (level === 'basic') return -1
   return TIER_ORDER.indexOf(level)
+}
+
+export function maxClientLevel(a: ClientLevel, b: ClientLevel): ClientLevel {
+  return loyaltyTierIndex(a) >= loyaltyTierIndex(b) ? a : b
 }
 
 /** Уровень за текущий месяц: авто + назначение админки (только если задан в этом месяце) */
@@ -245,7 +261,7 @@ export function resolveEffectiveClientLevel(
   const earnedBronze = hasEarnedBronze(spent, orderCount)
 
   if (storedForMonth !== 'basic') {
-    if (!earnedBronze && !storedActive) return 'basic'
+    if (!earnedBronze && !storedActive && !adminAssignedLegacy) return 'basic'
     if (!earnedBronze) return storedForMonth
     const earnedIdx = loyaltyTierIndex(earned)
     const storedIdx = loyaltyTierIndex(storedForMonth)

@@ -5,6 +5,8 @@ import {
   phonesMatch,
   pickClientDisplayName,
   normalizeClient,
+  withVipNote,
+  maxClientLevel,
   type AdminClient,
   type ClientLevel,
   type ClientProfileForm,
@@ -291,17 +293,20 @@ export async function saveCardLoyalty(
 
   const clientName = pickClientDisplayName(client.name, card.client)
   const cardKey = canonicalCardNum(card.num)
+  const vipNote = withVipNote(client.note || card.note, !!form.vip)
   const cardPatch = {
     phone,
     client: clientName,
     clientId: client.id,
     status: 'active' as const,
+    note: vipNote,
     ...loyalty,
   }
   const clientPatch = {
     card: cardKey,
     name: clientName,
     phone,
+    note: vipNote,
     ...loyalty,
   }
 
@@ -373,13 +378,14 @@ export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: 
 
   const period = currentLoyaltyPeriod()
   if (card) {
-    cardStore.updateCardLoyalty(card.num, { level, loyaltyPeriod: period, vip: !!card.vip })
+    const keepLevel = maxClientLevel(level, (card.level || 'basic') as ClientLevel)
+    cardStore.updateCardLoyalty(card.num, { level: keepLevel, loyaltyPeriod: period })
   }
   if (client) {
+    const keepLevel = maxClientLevel(level, (client.level || 'basic') as ClientLevel)
     clientStore.updateClient(client.id, {
-      level,
+      level: keepLevel,
       loyaltyPeriod: period,
-      vip: !!client.vip,
       ...(card ? { card: card.num } : {}),
     })
   }

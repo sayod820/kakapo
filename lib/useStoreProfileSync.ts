@@ -28,7 +28,6 @@ export function useStoreProfileSync(
   const refresh = useCallback(async () => {
     const phone = userRef.current?.phone
     if (!phone || !isClientSessionActive()) return
-    if (USE_API && !useClientStore.getState().apiReady) return
     const epoch = getSessionEpoch()
     const card = userRef.current?.card
 

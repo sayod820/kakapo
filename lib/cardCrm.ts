@@ -1,5 +1,5 @@
 import type { AdminClient, ClientLevel } from './clientCrm'
-import { normalizePhone, phonesMatch } from './clientCrm'
+import { normalizePhone, phonesMatch, vipFromNote } from './clientCrm'
 
 export type CardStatus = 'active' | 'unlinked' | 'blocked'
 
@@ -86,7 +86,7 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     debt: Number(raw.debt) || 0,
     issued: raw.issued,
     note: raw.note || '',
-    vip: !!raw.vip,
+    vip: !!raw.vip || vipFromNote(raw.note),
     debtEnabled: raw.debtEnabled !== undefined
       ? !!raw.debtEnabled
       : (Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0,
