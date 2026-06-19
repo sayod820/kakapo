@@ -8,7 +8,7 @@ import {
   storeUserFromClient,
   type StoreUser,
 } from '@/lib/clientSession'
-import { DEFAULT_ADMIN_CLIENTS, normalizePhone, phonesMatch, type AdminClient } from '@/lib/clientCrm'
+import { normalizePhone, type AdminClient } from '@/lib/clientCrm'
 import { isClientInRecovery, restoreClientFromRecovery } from '@/lib/clientRecovery'
 import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
 import { registerClientAccount } from '@/lib/clientCardSync'
@@ -95,7 +95,6 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
   ]
-  const demoList = DEFAULT_ADMIN_CLIENTS.filter(c => !c.blocked && c.phone).slice(0, 3)
 
   useEffect(() => { hydrateClientStore() }, [])
 
@@ -104,11 +103,6 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     const t = setInterval(() => setCd(c => (c > 0 ? c - 1 : 0)), 1000)
     return () => clearInterval(t)
   }, [step, cd])
-
-  const pickDemo = (c: (typeof demoList)[0]) => {
-    setPhone(c.phone.replace(/^\+992\s?/, ''))
-    setErr('')
-  }
 
   const finishLogin = (user: StoreUser) => {
     saveStoreUser(user)
@@ -138,7 +132,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     setTimeout(async () => {
       setLoad(false)
       if (code !== DEMO_OTP) {
-        setErr('Неверный код · для демо: 1234')
+        setErr('Неверный код')
         setOtp(['', '', '', ''])
         refs[0].current?.focus()
         return
@@ -449,40 +443,6 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                   }}
                 />
               </div>
-
-              {demoList.length > 0 && (
-                <div style={{ marginBottom: 18 }}>
-                  <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 8, fontWeight: 700 }}>Быстрый вход (демо)</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {demoList.map(c => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className="sl-btn"
-                        onClick={() => pickDemo(c)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 12,
-                          padding: '11px 14px', borderRadius: 13, textAlign: 'left',
-                          background: phonesMatch(c.phone, phone) ? 'rgba(31,215,96,.14)' : 'rgba(31,215,96,.06)',
-                          border: `1.5px solid ${phonesMatch(c.phone, phone) ? 'rgba(31,215,96,.45)' : 'rgba(31,215,96,.15)'}`,
-                        }}
-                      >
-                        <div style={{
-                          width: 38, height: 38, borderRadius: 11, flexShrink: 0,
-                          background: 'linear-gradient(135deg,#0F8A3A,#1FD760)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontFamily: 'Unbounded', fontSize: 16, fontWeight: 900, color: '#030B05',
-                        }}>{c.name.charAt(0)}</div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 800, color: '#EBF5ED', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                          <div style={{ fontSize: 11, color: '#8FB897', marginTop: 1 }}>{c.phone}</div>
-                        </div>
-                        <span style={{ fontSize: 10, fontWeight: 800, color: '#FFB800', flexShrink: 0 }}>{c.bonus} б.</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <button type="button" onClick={sendOtp} disabled={load} className="sl-btn sl-ub"
                 style={{
