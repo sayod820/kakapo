@@ -1343,8 +1343,9 @@ const CatalogPage = ({ go, cart, user }) => {
   </div>
 );
 };
-const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
+const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   const { prods } = useLiveCatalog();
+  const { isVip } = resolveUserVip(user);
   const [sort,    setSort]    = useState("pop");
   const [view,    setView]    = useState("grid");
   const [search,  setSearch]  = useState("");
@@ -1361,7 +1362,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   else if (sort === "sale") items = items.filter(p => p.old).sort((a,b) => (1-b.price/b.old) - (1-a.price/a.old));
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
         <div style={{ padding:"13px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("catalog")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ width:36, height:36, borderRadius:10, background:cat.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cat.e}</div>
@@ -1369,10 +1370,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
             <div className="ub" style={{ fontSize:15, fontWeight:800 }}>{cat.label}</div>
             <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{formatProductCount(items.length)}</div>
           </div>
-          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:totalQtyNum>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${totalQtyNum>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:totalQtyNum>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
-            <Ic n="cart" s={17} c={totalQtyNum>0?"white":"var(--t2)"}/>
-            {totalQtyNum>0 && <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>}
-          </button>
+          <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
         </div>
         <div style={{ padding:"0 18px 10px", position:"relative" }}>
           <div style={{ position:"absolute", left:30, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}><Ic n="search" s={15} c="var(--t3)"/></div>
@@ -1456,9 +1454,9 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         )}
       </div>
       {totalQtyNum > 0 && (
-        <FloatingCartBtn count={totalQty} onClick={() => go("cart")} label="Корзина" />
+        <FloatingCartBtn count={totalQty} onClick={() => go("cart")} label="Корзина" isVip={isVip} />
       )}
-      <Nav page="catalog" go={go}/>
+      <Nav page="catalog" go={go} user={user}/>
     </div>
   );
 };
@@ -2992,8 +2990,9 @@ const ClientReviewsPage = ({ go, user, sessionReady }) => {
   );
 };
 
-const PromosPage = ({ go, cart, onAdd, onRm }) => {
+const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
   const { prods } = useLiveCatalog();
+  const { isVip } = resolveUserVip(user);
   const [tab, setTab] = useState("all");
   const [bi, setBi] = useState(0);
   const [copied, setCopied] = useState(null);
@@ -3012,17 +3011,17 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
   const totalQtyNum = sumCartUnits(cart, prods);
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:17, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 4px 16px rgba(31,215,96,.4)", flexShrink:0 }}>K</div>
-          <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900 }}>Акции</div>
-          <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <Ic n="search" s={17} c="var(--t2)"/>
+          <div style={{ width:40, height:40, borderRadius:12, background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:17, fontWeight:900, color: isVip ? "#1a1000" : "var(--bg)", animation: isVip ? "vipGlow 3s ease-in-out infinite" : "glow 3s ease-in-out infinite", boxShadow: isVip ? "0 4px 16px rgba(255,184,0,.45)" : "0 4px 16px rgba(31,215,96,.4)", flexShrink:0, position:"relative" }}>
+            K
+            {isVip && <span style={{ position:"absolute", top:-4, right:-4, fontSize:10 }}>👑</span>}
+          </div>
+          <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900, ...(isVip ? { background:"linear-gradient(135deg,#FFD700,#FFB800)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" } : {}) }}>Акции</div>
+          <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background: isVip ? "rgba(255,184,0,.1)" : "var(--l3)", border: isVip ? "1px solid rgba(255,184,0,.25)" : "1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <Ic n="search" s={17} c={isVip ? "rgba(255,220,100,.78)" : "var(--t2)"}/>
           </button>
-          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:totalQtyNum>0?"linear-gradient(135deg,var(--gr2),var(--gr))":"var(--l3)", border:`1px solid ${totalQtyNum>0?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", boxShadow:totalQtyNum>0?"0 4px 14px rgba(31,215,96,.4)":"none" }}>
-            <Ic n="cart" s={17} c={totalQtyNum>0?"white":"var(--t2)"}/>
-            {totalQtyNum>0 && <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>}
-          </button>
+          <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
             </div>
         <div className="hscroll" style={{ padding:"0 18px 10px", gap:6 }}>
             {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"},{id:"codes",l:"🏷 Промокоды"}].map(t => (
@@ -3152,14 +3151,15 @@ const PromosPage = ({ go, cart, onAdd, onRm }) => {
         )}
       </div>
       {totalQtyNum > 0 && (
-        <FloatingCartBtn count={totalQty} onClick={() => go("cart")} />
+        <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />
       )}
-      <Nav page="promos" go={go}/>
+      <Nav page="promos" go={go} user={user}/>
     </div>
   );
 };
-const SearchPage = ({ go, cart, onAdd, onRm }) => {
+const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
   const { prods } = useLiveCatalog();
+  const { isVip } = resolveUserVip(user);
   const [query, setQuery] = useState("");
   const iRef = useRef();
   useEffect(() => {
@@ -3179,10 +3179,9 @@ const SearchPage = ({ go, cart, onAdd, onRm }) => {
             <input ref={iRef} className="inp" value={query} onChange={e => setQuery(e.target.value)} placeholder="Поиск в КАКАПО..." style={{ paddingLeft:36, paddingRight:query?32:14, width:"100%", fontSize:14 }}/>
             {query && <button onClick={() => setQuery("")} className="btn" style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", width:20, height:20, borderRadius:5, background:"rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="x" s={11} c="var(--t2)"/></button>}
           </div>
-          {totalQtyNum>0 && <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", flexShrink:0 }}>
-            <Ic n="cart" s={17} c="white"/>
-            <div style={{ position:"absolute", top:-6, right:-6, minWidth:17, height:17, padding:"0 4px", borderRadius:999, background:"var(--red)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white" }}>{totalQty}</div>
-          </button>}
+          {totalQtyNum > 0 && (
+            <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
+          )}
         </div>
       </header>
       <div style={{ padding:"16px 18px 100px" }}>
