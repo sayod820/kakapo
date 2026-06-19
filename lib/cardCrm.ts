@@ -40,11 +40,15 @@ export function cardNumsMatch(a: string | undefined, b: string | undefined): boo
   return da.length > 0 && da === db
 }
 
-/** Канонический номер для API (сервер хранит КАКАПО-XXXX) */
+/** Канонический номер для API — сохраняем префикс карты (KAKAPO или КАКАПО) */
 export function canonicalCardNum(num: string | undefined): string {
+  const raw = String(num || '').trim().toUpperCase()
   const digits = cardDigits(num)
-  if (!digits) return String(num || '').trim().toUpperCase()
-  return `КАКАПО-${digits.padStart(4, '0')}`
+  if (!digits) return raw
+  const padded = digits.padStart(4, '0')
+  if (raw.includes('KAKAPO')) return `KAKAPO-${padded}`
+  if (raw.includes('КАКАПО')) return `КАКАПО-${padded}`
+  return `KAKAPO-${padded}`
 }
 
 export const CARD_STATUS_LABELS: Record<CardStatus, { l: string; c: string }> = {

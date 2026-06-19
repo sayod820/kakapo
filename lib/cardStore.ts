@@ -159,7 +159,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
     saveCards(cards)
     const updated = cards.find(c => cardNumsMatch(c.num, key))
     if (updated) pushLoyaltyToClient(updated)
-    if (USE_API && !opts?.skipApi) api.updateCard(key, patch).catch(console.error)
+    if (USE_API && !opts?.skipApi && updated) api.updateCard(updated.num, patch).catch(console.error)
     return { cards }
   }),
   syncIdentityFromClient: client => {

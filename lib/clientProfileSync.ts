@@ -11,7 +11,7 @@ import {
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
-import { DEFAULT_ADMIN_CARDS, normalizeCard, cardHasDebtSection, cardNumsMatch, canonicalCardNum, type AdminCard } from './cardCrm'
+import { DEFAULT_ADMIN_CARDS, normalizeCard, cardHasDebtSection, cardNumsMatch, type AdminCard } from './cardCrm'
 import { isPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 
@@ -171,7 +171,7 @@ export function crmToStoreUser(c: AdminClient): CrmStoreUser {
     email: c.email || '',
     addr: c.addr || '',
     vip: !!c.vip,
-    card: c.card ? canonicalCardNum(c.card) : '',
+    card: c.card || '',
     debt: c.debt || 0,
     debtLimit: c.debtLimit || 0,
     debtEnabled: !!c.debtEnabled,
@@ -224,7 +224,10 @@ export async function findMergedClientByPhone(phone: string, cardNum?: string): 
       const [apiClients, apiCards] = await Promise.all([api.getClients(), api.getCards()])
       const clients = apiClients.map(c => normalizeClient(c)).filter(c => !isClientPurged(c) && !isClientInRecovery(c))
       const cards = apiCards.map(c => normalizeCard(c))
-      const client = clients.find(c => phonesMatch(c.phone, phone))
+      const phoneMatches = clients.filter(c => phonesMatch(c.phone, phone))
+      const client = phoneMatches.find(c => c.card && cardNum && cardNumsMatch(c.card, cardNum))
+        || phoneMatches.find(c => c.card)
+        || phoneMatches[0]
       const card = findBestCard(phone, cardNum, client, cards)
       if (!client && !card) return null
       if (client) return mergeClientWithCard(client, card)

@@ -8,7 +8,6 @@ import type { AdminCourier } from './courierTeam'
 import type { AdminAssembler } from './assemblerTeam'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
-import { canonicalCardNum } from './cardCrm'
 import { getApiUrl } from './config'
 
 // ── Хранение токена ──
@@ -296,7 +295,7 @@ export const api = {
   generateCards: (count: number) =>
     request<{ ok: boolean; count: number; cards: AdminCard[] }>(`/cards/generate?count=${count}`, { method: 'POST' }),
   updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean }) =>
-    request<AdminCard>(`/cards/${encodeURIComponent(canonicalCardNum(num))}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    request<AdminCard>(`/cards/${encodeURIComponent(num.trim())}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Отзывы ──
   getReviews: (restId?: string) =>

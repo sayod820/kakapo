@@ -244,8 +244,9 @@ export async function saveCardLoyalty(
 
   if (USE_API) {
     try {
+      const apiCardNum = card.num.trim()
       await Promise.all([
-        api.updateCard(cardKey, cardPatch),
+        api.updateCard(apiCardNum, cardPatch),
         api.updateClient(client.id, clientPatch),
       ])
     } catch (e) {
