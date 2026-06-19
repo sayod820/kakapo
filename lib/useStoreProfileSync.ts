@@ -17,9 +17,12 @@ import { useClientStore } from './clientStore'
 export function useStoreProfileSync(
   user: StoreUser | null,
   setUser: (u: StoreUser | null) => void,
+  onAccountRemoved?: () => void,
 ) {
   const userRef = useRef(user)
   userRef.current = user
+  const onRemovedRef = useRef(onAccountRemoved)
+  onRemovedRef.current = onAccountRemoved
 
   const refresh = useCallback(async () => {
     const phone = userRef.current?.phone
@@ -27,10 +30,16 @@ export function useStoreProfileSync(
     const epoch = getSessionEpoch()
     const card = userRef.current?.card
     const next = await fetchCrmStoreUser(phone, card)
-    if (getSessionEpoch() !== epoch || !next || !isClientSessionActive()) return
+    if (getSessionEpoch() !== epoch || !isClientSessionActive()) return
     if (userRef.current?.phone !== phone) return
     const stored = loadStoreUser()
     if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
+
+    if (!next) {
+      onRemovedRef.current?.()
+      return
+    }
+
     const cur = userRef.current
     if (cur?.clientId && isClientNamePlaceholder(cur.name) && !isClientNamePlaceholder(next.name)) {
       useClientStore.getState().updateClient(cur.clientId, { name: next.name })
@@ -54,7 +63,12 @@ export function useStoreProfileSync(
     const poll = setInterval(run, USE_API ? 8000 : 3000)
 
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'kakapo-cards' || e.key === 'kakapo-clients' || e.key === 'kakapo_store_user') run()
+      if (
+        e.key === 'kakapo-cards'
+        || e.key === 'kakapo-clients'
+        || e.key === 'kakapo_store_user'
+        || e.key === 'kakapo-deleted-phones'
+      ) run()
     }
     const onVisible = () => {
       if (document.visibilityState === 'visible') run()

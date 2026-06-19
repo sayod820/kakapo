@@ -7,10 +7,13 @@ import {
   normalizeClient,
   phonesMatch,
   pickClientDisplayName,
+  isClientPurged,
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
 import { DEFAULT_ADMIN_CARDS, normalizeCard, cardHasDebtSection, type AdminCard } from './cardCrm'
+import { isPhoneDeleted } from './clientTombstones'
+import { isClientInRecovery } from './clientRecovery'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const CARDS_KEY = 'kakapo-cards'
@@ -208,8 +211,25 @@ async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard
 }
 
 export async function findMergedClientByPhone(phone: string, cardNum?: string): Promise<AdminClient | null> {
+  if (isPhoneDeleted(phone)) return null
+
+  if (USE_API) {
+    try {
+      const [apiClients, apiCards] = await Promise.all([api.getClients(), api.getCards()])
+      const clients = apiClients.map(c => normalizeClient(c)).filter(c => !isClientPurged(c) && !isClientInRecovery(c))
+      const cards = apiCards.map(c => normalizeCard(c))
+      const client = clients.find(c => phonesMatch(c.phone, phone))
+      const card = findBestCard(phone, cardNum, client, cards)
+      if (!client && !card) return null
+      if (client) return mergeClientWithCard(client, card)
+      if (card) return mergeClientWithCard(buildClientFromCard(card), card)
+      return null
+    } catch { /* offline — local cache below */ }
+  }
+
   const { clients, cards } = await loadCrmData()
-  const client = clients.find(c => phonesMatch(c.phone, phone))
+  const activeClients = clients.filter(c => !isClientPurged(c) && !isClientInRecovery(c))
+  const client = activeClients.find(c => phonesMatch(c.phone, phone))
   const card = findBestCard(phone, cardNum, client, cards)
   if (client) return mergeClientWithCard(client, card)
   if (card) return mergeClientWithCard(buildClientFromCard(card), card)
@@ -231,8 +251,9 @@ export async function findMergedClientByCard(cardNum: string): Promise<AdminClie
 }
 
 export async function fetchCrmStoreUser(phone: string, cardNum?: string): Promise<CrmStoreUser | null> {
+  if (isPhoneDeleted(phone)) return null
   const merged = await findMergedClientByPhone(phone, cardNum)
-  if (!merged) return null
+  if (!merged || isClientPurged(merged) || isClientInRecovery(merged)) return null
   return crmToStoreUser(merged)
 }
 

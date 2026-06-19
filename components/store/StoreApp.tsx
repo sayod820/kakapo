@@ -2207,9 +2207,13 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
     const card = user.card
     const epoch = getSessionEpoch()
     fetchCrmStoreUser(phone, card).then(next => {
-      if (cancelled || getSessionEpoch() !== epoch || !next || !isClientSessionActive()) return
+      if (cancelled || getSessionEpoch() !== epoch || !isClientSessionActive()) return
       const stored = loadStoreUser()
       if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
+      if (!next) {
+        onLogout?.()
+        return
+      }
       const merged = { ...user, ...next }
       if (!crmStoreUsersEqual(user, merged)) {
         saveStoreUser(merged)
@@ -7977,9 +7981,18 @@ function KakapoAppInner() {
 
   const apiOrders = useOrders(s => s.orders);
 
+  const logout = useCallback(() => {
+    clearClientSession();
+    setUser(null);
+    setCart({});
+    setCartMeta({});
+    setWished({});
+    go('profile');
+  }, [go]);
+
   useClientReviewNotifSync(user);
   useClientNotificationSync(user);
-  useStoreProfileSync(user, setUser);
+  useStoreProfileSync(user, setUser, logout);
   useAutoLoyaltySync(user, setUser, apiOrders);
 
   useEffect(() => {
@@ -8041,15 +8054,6 @@ function KakapoAppInner() {
     setCart({});
     setCartMeta({});
   }, []);
-
-  const logout = useCallback(() => {
-    clearClientSession();
-    setUser(null);
-    setCart({});
-    setCartMeta({});
-    setWished({});
-    go('profile');
-  }, [go]);
 
   const isVipUser = !!user?.vip;
 

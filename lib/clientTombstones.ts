@@ -38,6 +38,11 @@ export function markPhoneDeleted(phone?: string | null): void {
   const set = loadSet()
   set.add(key)
   saveSet(set)
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('kakapo-crm-sync'))
+    } catch { /* ignore */ }
+  }
 }
 
 export function unmarkPhoneDeleted(phone?: string | null): void {
