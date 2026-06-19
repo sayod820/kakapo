@@ -28,6 +28,7 @@ export function useStoreProfileSync(
   const refresh = useCallback(async () => {
     const phone = userRef.current?.phone
     if (!phone || !isClientSessionActive()) return
+    if (USE_API && !useClientStore.getState().apiReady) return
     const epoch = getSessionEpoch()
     const card = userRef.current?.card
 
@@ -46,10 +47,7 @@ export function useStoreProfileSync(
     if (getSessionEpoch() !== epoch || !isClientSessionActive()) return
     if (userRef.current?.phone !== phone) return
 
-    if (!next) {
-      onRemovedRef.current?.()
-      return
-    }
+    if (!next) return
 
     const cur = userRef.current
     if (cur?.clientId && isClientNamePlaceholder(cur.name) && !isClientNamePlaceholder(next.name)) {

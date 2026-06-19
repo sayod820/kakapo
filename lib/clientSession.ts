@@ -80,9 +80,12 @@ export function saveStoreUser(user: StoreUser | null) {
     if (!user) {
       clearClientSession()
     } else {
-      bumpSessionEpoch()
+      const prev = loadStoreUser()
+      const prevPhone = prev ? phoneDigits(prev.phone) : ''
+      const nextPhone = phoneDigits(user.phone)
       localStorage.setItem(USER_KEY, JSON.stringify(user))
       localStorage.setItem(PHONE_KEY, user.phone.trim())
+      if (prevPhone !== nextPhone) bumpSessionEpoch()
     }
   } catch { /* quota */ }
 }

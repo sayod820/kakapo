@@ -7940,16 +7940,23 @@ function KakapoAppInner() {
   const [cart,   setCart]   = useState({});
   const [cartMeta, setCartMeta] = useState({});
   const [wished, setWished] = useState({});
-  const [user,   setUser]   = useState(() => loadStoreUser());
+  const [user,   setUser]   = useState<StoreUser | null>(null);
+  const sessionReadyRef = useRef(false);
   const [toast,  setToast]  = useState(null);
   const [, setLoyaltyCfgTick] = useState(0);
 
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
 
   useEffect(() => {
-    if (user) saveStoreUser(user)
-    else clearClientSession()
-  }, [user])
+    setUser(loadStoreUser());
+    sessionReadyRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!sessionReadyRef.current) return;
+    if (user) saveStoreUser(user);
+    else clearClientSession();
+  }, [user]);
 
   useEffect(() => {
     if (!user?.phone) {
