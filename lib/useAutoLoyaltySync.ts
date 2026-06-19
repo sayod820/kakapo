@@ -40,7 +40,7 @@ export function useAutoLoyaltySync(
         ...base,
         level: effective,
         loyaltyPeriod: currentLoyaltyPeriod(),
-        ...(reset ? { vip: false } : {}),
+        vip: reset ? false : !!base.vip,
       }
       if (getSessionEpoch() !== epoch || !isClientSessionActive() || userRef.current?.phone !== base.phone) return
       saveStoreUser(next)

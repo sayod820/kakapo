@@ -2214,7 +2214,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
         onLogout?.()
         return
       }
-      const merged = { ...user, ...next }
+      const merged = { ...user, ...next, vip: !!next.vip }
       if (!crmStoreUsersEqual(user, merged)) {
         saveStoreUser(merged)
         setUser(merged)
@@ -8055,9 +8055,18 @@ function KakapoAppInner() {
     setCartMeta({});
   }, []);
 
-  const isVipUser = !!user?.vip;
+  const storeLoyalty = useMemo(() => {
+    if (!user?.phone) {
+      return getLoyaltyProgress(0, 0, 0, user?.level, user?.vip, user?.loyaltyPeriod)
+    }
+    const { spent, orderCount } = loyaltyStatsFromOrders(apiOrders, user.phone)
+    return getLoyaltyProgress(spent, orderCount, 0, user.level, user.vip, user.loyaltyPeriod)
+  }, [apiOrders, user?.phone, user?.level, user?.vip, user?.loyaltyPeriod])
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user, setUser, onLogout: logout, isVip: isVipUser };
+  const isVipUser = storeLoyalty.isVip
+  const displayUser = user ? { ...user, vip: storeLoyalty.isVip, level: storeLoyalty.level } : null
+
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser };
 
   const render = () => {
     switch (page) {
@@ -8068,13 +8077,13 @@ function KakapoAppInner() {
       case "cart":             return <CartPage          {...shared} onDel={delItem}/>;
       case "checkout":         return <CheckoutPage      {...shared}/>;
       case "auth":             return <ClientLoginPage   go={go} setUser={setUser}/>;
-      case "profile":          return <ProfilePage       {...shared} user={user} setUser={setUser} onLogout={logout}/>;
+      case "profile":          return <ProfilePage       {...shared} user={displayUser} setUser={setUser} onLogout={logout}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
       case "reviews":          return <ClientReviewsPage   go={go} user={user}/>;
       case "promos":           return <PromosPage        {...shared}/>;
       case "search":           return <SearchPage        {...shared}/>;
       case "faq":              return <FAQPage           {...shared}/>;
-      case "vip":              return <VIPPage           {...shared} user={user} setUser={setUser}/>;
+      case "vip":              return <VIPPage           {...shared} setUser={setUser}/>;
       case "about":            return <AboutPage         {...shared}/>;
       case "admin_dash":       return <AdminDashPage     go={go}/>;
       case "admin_orders":     return <AdminOrdersPage   go={go}/>;

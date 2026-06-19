@@ -659,6 +659,12 @@ function normalizePhoneDigits(phone) {
   return String(phone || '').replace(/\D/g, '').slice(-9)
 }
 
+function currentLoyaltyPeriod(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
 function normalizeCardRow(raw) {
   const status = ['active', 'unlinked', 'blocked'].includes(raw.status) ? raw.status : 'unlinked'
   const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : (raw.level || '')
@@ -801,7 +807,11 @@ app.patch('/cards/:num', (req, res) => {
       debtLimit: 0,
     }))
   } else {
-    Object.assign(card, normalizeCardRow({ ...card, ...req.body, num }))
+    const body = { ...req.body }
+    if (body.vip === true) {
+      body.loyaltyPeriod = currentLoyaltyPeriod()
+    }
+    Object.assign(card, normalizeCardRow({ ...card, ...body, num }))
     syncClientFromCardRow(card)
   }
   persist()

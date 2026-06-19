@@ -55,8 +55,8 @@ export function useStoreProfileSync(
     if (cur?.clientId && isClientNamePlaceholder(cur.name) && !isClientNamePlaceholder(next.name)) {
       useClientStore.getState().updateClient(cur.clientId, { name: next.name })
     }
-    if (!cur || !crmStoreUsersEqual(cur, next)) {
-      const merged: StoreUser = { ...cur, ...next }
+    if (!cur || !crmStoreUsersEqual(cur, next) || !!cur.vip !== !!next.vip) {
+      const merged: StoreUser = { ...cur, ...next, vip: !!next.vip }
       saveStoreUser(merged)
       setUser(merged)
     }

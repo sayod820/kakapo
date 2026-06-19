@@ -276,10 +276,15 @@ export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: 
 
   const period = currentLoyaltyPeriod()
   if (card) {
-    cardStore.updateCardLoyalty(card.num, { level, loyaltyPeriod: period })
+    cardStore.updateCardLoyalty(card.num, { level, loyaltyPeriod: period, vip: !!card.vip })
   }
   if (client) {
-    clientStore.updateClient(client.id, { level, loyaltyPeriod: period, ...(card ? { card: card.num } : {}) })
+    clientStore.updateClient(client.id, {
+      level,
+      loyaltyPeriod: period,
+      vip: !!client.vip,
+      ...(card ? { card: card.num } : {}),
+    })
   }
   emitCrmSync()
 }

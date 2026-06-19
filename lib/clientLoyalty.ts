@@ -73,6 +73,13 @@ function tierIndex(level: ClientLevel): number {
   return LOYALTY_TIERS.findIndex(t => t.id === level)
 }
 
+export function resolveAdminVipActive(adminVip?: boolean, storedPeriod?: string): boolean {
+  if (!adminVip) return false
+  // Назначение админки: без периода (legacy) или текущий месяц
+  if (!storedPeriod) return true
+  return isLoyaltyPeriodCurrent(storedPeriod)
+}
+
 export function getLoyaltyProgress(
   spent: number,
   orderCount: number,
@@ -86,7 +93,7 @@ export function getLoyaltyProgress(
   const vipRules = cfg.vipRules
   const period = currentLoyaltyPeriod()
   const effectiveLevel = resolveEffectiveClientLevel(spent, orderCount, storedLevel, storedPeriod)
-  const adminVipActive = !!adminVip && (!storedPeriod || isLoyaltyPeriodCurrent(storedPeriod))
+  const adminVipActive = resolveAdminVipActive(adminVip, storedPeriod)
 
   const isBasicClient = effectiveLevel === 'basic' && !adminVipActive
 

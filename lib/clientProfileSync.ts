@@ -150,7 +150,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     bonus: card.bonus ?? base.bonus,
     debt: card.debt ?? base.debt,
     debtLimit: card.debtLimit ?? base.debtLimit,
-    vip: !!(card.vip || base.vip),
+    vip: !!card.vip,
     debtEnabled: cardHasDebtSection({
       debtEnabled: card.debtEnabled ?? base.debtEnabled,
       debt: card.debt ?? base.debt,

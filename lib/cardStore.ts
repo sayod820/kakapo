@@ -68,7 +68,7 @@ function mergeCardLists(primary: AdminCard[], secondary: AdminCard[]): AdminCard
   for (const c of secondary) byNum.set(c.num, normalizeCard(c))
   for (const c of primary) {
     const prev = byNum.get(c.num)
-    byNum.set(c.num, normalizeCard(prev ? { ...prev, ...c, num: c.num } : c))
+    byNum.set(c.num, normalizeCard(prev ? { ...prev, ...c, num: c.num, vip: !!(prev.vip || c.vip) } : c))
   }
   return Array.from(byNum.values())
 }
