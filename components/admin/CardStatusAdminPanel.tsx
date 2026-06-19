@@ -15,8 +15,6 @@ import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
 import { mergeCardsWithClients, cardMatchesSearch } from '@/lib/cardCrm'
 import { saveCardLoyalty, cardLoyaltyFromCard } from '@/lib/clientCardSync'
-import { syncCardsFromApi } from '@/lib/cardStore'
-import { syncClientsFromApi } from '@/lib/clientStore'
 import { useCards } from '@/lib/cardStore'
 import { useClients } from '@/lib/clientStore'
 
@@ -156,7 +154,8 @@ export default function CardStatusAdminPanel() {
 
   const getRow = (card: AdminCard): AssignRow => {
     const key = card.num
-    if (assignRows[key]) return assignRows[key]
+    const pending = assignRows[key]
+    if (pending && (pending.saving || pending.err || pending.saved)) return pending
     const client = card.clientId ? clients.find(c => c.id === card.clientId) : undefined
     const form = cardLoyaltyFromCard(card, client)
     return {
@@ -185,7 +184,6 @@ export default function CardStatusAdminPanel() {
         vip: next.vip,
         debtEnabled: next.debtEnabled,
       }, 'edit')
-      await Promise.all([syncCardsFromApi(), syncClientsFromApi()])
       setAssignRows(p => ({ ...p, [num]: { ...next, saving: false, saved: true, err: '' } }))
       window.setTimeout(() => {
         setAssignRows(p => {

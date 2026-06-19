@@ -99,6 +99,15 @@ export type AdminOrderPin = Partial<Pick<Order,
   'status' | 'marketStatus' | 'restParts' | 'items' | 'courier' | 'assembler' | 'courierRoute' | 'pickedUpIds' | 'deliveredAt'
 >>
 
+function orderMatchesAdminPin(order: Order, pin: AdminOrderPin): boolean {
+  if (pin.status && order.status !== pin.status) return false
+  if (pin.marketStatus != null && order.marketStatus !== pin.marketStatus) return false
+  if (pin.restParts && JSON.stringify(order.restParts ?? {}) !== JSON.stringify(pin.restParts)) return false
+  if (pin.courier === null && order.courier?.name) return false
+  if (pin.assembler === null && order.assembler?.name) return false
+  return true
+}
+
 const STATUS_RANK: Record<string, number> = {
   new: 0, cooking: 1, assembling: 2, ready: 3, assembler_done: 3,
   courier_picked: 4, delivering: 5, delivered: 6, cancelled: 6,
@@ -356,34 +365,27 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(id, status, patch)
-        const serverStatus = (updated.status ?? status) as OrderStatus
-        const nextPins = { ...get().orderAdminPins }
-        if (serverStatus === status) {
-          window.setTimeout(() => {
-            const p = get().orderAdminPins[id]
-            if (p?.status === status) {
-              const cleared = { ...get().orderAdminPins }
-              delete cleared[id]
-              set({ orderAdminPins: cleared })
-            }
-          }, 30000)
-        } else {
-          nextPins[id] = pin
+        const merged = normalizeOrder({ ...(get().orders.find(o => o.id === id) || {}), ...updated, status: (updated.status ?? status) as OrderStatus })
+        if (!orderMatchesAdminPin(merged, pin)) {
+          set({ orderAdminPins: { ...get().orderAdminPins, [id]: pin } })
+          patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...pin, status: pin.status ?? status } : o)))
+          throw new Error('Сервер не сохранил статус. Задеплойте бэкенд на Render и повторите.')
         }
+        const nextPins = { ...get().orderAdminPins }
+        delete nextPins[id]
         set({ orderAdminPins: nextPins })
-        patchOrders(set, get, s => s.map(o => {
-          if (o.id !== id) return o
-          const merged = { ...o, ...updated, status: serverStatus }
-          return serverStatus === status ? merged : { ...merged, ...pin, status }
-        }))
+        patchOrders(set, get, s => s.map(o => (o.id === id ? merged : o)))
         const synced = get().orders.find(o => o.id === id)
         if (prev && synced) onOrderStatusChange(prev, normalizeOrder(synced))
       } catch (e) {
         console.error(e)
-        const nextPins = { ...get().orderAdminPins }
-        delete nextPins[id]
-        set({ orderAdminPins: nextPins })
-        if (prev) patchOrders(set, get, s => s.map(o => o.id === id ? prev : o))
+        if (!(e instanceof Error && e.message.includes('Сервер не сохранил'))) {
+          const nextPins = { ...get().orderAdminPins }
+          delete nextPins[id]
+          set({ orderAdminPins: nextPins })
+          if (prev) patchOrders(set, get, s => s.map(o => o.id === id ? prev : o))
+        }
+        throw e
       }
     } else {
       const nextPins = { ...get().orderAdminPins }

@@ -644,6 +644,9 @@ function OrdersPage() {
           courierPhone: clearsCourier ? '' : prev.courierPhone,
         } : null));
       }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Не удалось сохранить статус'
+      window.alert(msg)
     } finally {
       setBusyKey(null);
     }

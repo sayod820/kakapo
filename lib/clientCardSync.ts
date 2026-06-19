@@ -1,5 +1,5 @@
 'use client'
-import { useClientStore } from './clientStore'
+import { useClientStore, markClientLoyaltySaved } from './clientStore'
 import { useCardStore } from './cardStore'
 import {
   phonesMatch,
@@ -15,7 +15,7 @@ import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyalty
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 import { emitCrmSync } from './clientProfileSync'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
-import { hydrateCardStore } from './cardStore'
+import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
 import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
@@ -334,6 +334,8 @@ export async function saveCardLoyalty(
   }
 
   emitCrmSync()
+  markCardLoyaltySaved(cardKey)
+  markClientLoyaltySaved(client.id)
 }
 
 /** Сброс статуса и VIP в начале нового месяца */

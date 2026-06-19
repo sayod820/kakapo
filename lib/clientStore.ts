@@ -11,6 +11,7 @@ import {
 } from './clientCrm'
 import { isPhoneDeleted } from './clientTombstones'
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
+import { markClientLoyaltySaved, mergeClientLoyaltyIfRecent } from './loyaltySaveGuard'
 
 const CLIENTS_KEY = 'kakapo-clients'
 
@@ -132,7 +133,14 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     try {
       clearAppDataLocalCache()
       const apiList = await api.getClients()
-      const clients = filterVisibleClients(apiList.map(c => normalizeClient(c)))
+      const local = get().clients
+      const clients = filterVisibleClients(
+        apiList.map(c => {
+          const normalized = normalizeClient(c)
+          const lc = local.find(x => x.id === normalized.id)
+          return mergeClientLoyaltyIfRecent(normalized, lc)
+        }),
+      )
       set({ clients, hydrated: true, apiReady: true })
       emitCrmSync()
     } catch (e) {
@@ -149,6 +157,8 @@ export function useClients() {
 export async function syncClientsFromApi() {
   await useClientStore.getState().fetchFromApi()
 }
+
+export { markClientLoyaltySaved }
 
 export function hydrateClientStore() {
   if (USE_API) {

@@ -16,6 +16,7 @@ import {
 } from './cardCrm'
 import { isPhoneDeleted } from './clientTombstones'
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
+import { findLocalCard, markCardLoyaltySaved, mergeCardLoyaltyIfRecent } from './loyaltySaveGuard'
 
 const CARDS_KEY = 'kakapo-cards'
 
@@ -75,7 +76,7 @@ function mergeCardLists(primary: AdminCard[], secondary: AdminCard[]): AdminCard
   for (const c of secondary) byNum.set(c.num, normalizeCard(c))
   for (const c of primary) {
     const prev = byNum.get(c.num)
-    byNum.set(c.num, normalizeCard(prev ? { ...prev, ...c, num: c.num, vip: !!(prev.vip || c.vip) } : c))
+    byNum.set(c.num, normalizeCard(prev ? { ...prev, ...c, num: c.num } : c))
   }
   return Array.from(byNum.values())
 }
@@ -314,8 +315,13 @@ export const useCardStore = create<CardStore>((set, get) => ({
     try {
       clearAppDataLocalCache()
       const apiList = await api.getCards()
-      const cards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
-      set({ cards, hydrated: true, apiReady: true })
+      const local = get().cards
+      const apiCards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
+      const merged = apiCards.map(ac => mergeCardLoyaltyIfRecent(ac, findLocalCard(local, ac.num)))
+      for (const lc of local) {
+        if (!merged.some(c => cardNumsMatch(c.num, lc.num))) merged.push(lc)
+      }
+      set({ cards: merged, hydrated: true, apiReady: true })
       emitCrmSync()
     } catch (e) {
       console.error(e)
@@ -331,6 +337,8 @@ export function useCards() {
 export async function syncCardsFromApi() {
   await useCardStore.getState().fetchFromApi()
 }
+
+export { markCardLoyaltySaved }
 
 export function hydrateCardStore() {
   if (USE_API) {
