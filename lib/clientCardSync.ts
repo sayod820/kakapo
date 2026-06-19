@@ -18,6 +18,7 @@ import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { hydrateCardStore } from './cardStore'
 import { USE_API } from './config'
 import { api } from './api'
+import { unmarkPhoneDeleted } from './clientTombstones'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -63,6 +64,7 @@ export async function provisionLoyaltyCardForClient(client: AdminClient): Promis
 export async function registerClientAccount(
   data: Omit<AdminClient, 'id' | 'orders' | 'spent' | 'createdAt' | 'lastOrderAt'>,
 ): Promise<AdminClient> {
+  unmarkPhoneDeleted(data.phone)
   useClientStore.getState().hydrate()
   hydrateCardStore()
 

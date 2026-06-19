@@ -10,6 +10,7 @@ import { emitCrmSync } from './clientProfileSync'
 import { moveClientToRecovery } from './clientRecovery'
 import { legacyPurgeClientOnServer } from './clientLegacyBackend'
 import { markPhoneDeleted, isSyntheticOrderClientId } from './clientTombstones'
+import { syncCardsFromApi } from './cardStore'
 import { type StoreUser } from './clientSession'
 import { ACCOUNT_NS, removeAccountJson } from './clientAccountStorage'
 
@@ -131,6 +132,9 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
         console.error(legacyErr)
       }
     }
+    try {
+      await syncCardsFromApi()
+    } catch { /* ignore */ }
   }
 
   emitCrmSync()

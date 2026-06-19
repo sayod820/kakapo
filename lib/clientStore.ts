@@ -6,9 +6,11 @@ import { api } from './api'
 import {
   DEFAULT_ADMIN_CLIENTS,
   normalizeClient,
+  normalizePhone,
   isClientPurged,
   type AdminClient,
 } from './clientCrm'
+import { isPhoneDeleted } from './clientTombstones'
 
 const CLIENTS_KEY = 'kakapo-clients'
 
@@ -33,14 +35,23 @@ function saveClients(list: AdminClient[]) {
   } catch { /* quota */ }
 }
 
-function mergeClientLists(primary: AdminClient[], secondary: AdminClient[]): AdminClient[] {
-  const byId = new Map<string, AdminClient>()
-  for (const c of secondary) byId.set(c.id, normalizeClient(c))
-  for (const c of primary) {
-    const prev = byId.get(c.id)
-    byId.set(c.id, normalizeClient(prev ? { ...prev, ...c, id: c.id } : c))
-  }
-  return Array.from(byId.values())
+function filterVisibleClients(list: AdminClient[]): AdminClient[] {
+  return list.filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
+}
+
+/** API — сервер главный; локально только новые, ещё не на backend */
+function mergeClientsForApi(local: AdminClient[], remote: AdminClient[]): AdminClient[] {
+  const remoteFiltered = filterVisibleClients(remote)
+  const localFiltered = filterVisibleClients(local)
+  const remoteIds = new Set(remoteFiltered.map(c => c.id))
+  const remotePhones = new Set(remoteFiltered.map(c => normalizePhone(c.phone)).filter(Boolean))
+  const localOnly = localFiltered.filter(c => {
+    if (remoteIds.has(c.id)) return false
+    const key = normalizePhone(c.phone)
+    if (key && remotePhones.has(key)) return false
+    return true
+  })
+  return [...remoteFiltered, ...localOnly]
 }
 
 function nextClientId(list: AdminClient[]): string {
@@ -66,13 +77,13 @@ export const useClientStore = create<ClientStore>((set, get) => ({
   clients: DEFAULT_ADMIN_CLIENTS,
   hydrated: false,
   hydrate: () => {
-    set({ clients: loadClients(), hydrated: true })
+    set({ clients: filterVisibleClients(loadClients()), hydrated: true })
   },
   reload: () => {
-    set({ clients: loadClients() })
+    set({ clients: filterVisibleClients(loadClients()) })
   },
   setClients: list => {
-    const clients = list.map(c => normalizeClient(c))
+    const clients = filterVisibleClients(list.map(c => normalizeClient(c)))
     saveClients(clients)
     set({ clients })
   },
@@ -110,16 +121,17 @@ export const useClientStore = create<ClientStore>((set, get) => ({
   },
   fetchFromApi: async () => {
     const localRaw = loadClients()
-    const local = localRaw.filter(c => !isClientPurged(c))
+    const local = filterVisibleClients(localRaw)
     if (!USE_API) {
       set({ clients: local, hydrated: true })
       return
     }
     try {
       const apiList = await api.getClients()
-      const remote = (apiList.length ? apiList.map(c => normalizeClient(c)) : DEFAULT_ADMIN_CLIENTS)
-        .filter(c => !isClientPurged(c))
-      const clients = mergeClientLists(local, remote)
+      const remote = filterVisibleClients(
+        apiList.length ? apiList.map(c => normalizeClient(c)) : DEFAULT_ADMIN_CLIENTS,
+      )
+      const clients = mergeClientsForApi(local, remote)
       saveClients(clients)
       set({ clients, hydrated: true })
     } catch (e) {

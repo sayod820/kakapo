@@ -12,6 +12,7 @@ import {
   type AdminCard,
   type CardStatus,
 } from './cardCrm'
+import { isPhoneDeleted } from './clientTombstones'
 
 const CARDS_KEY = 'kakapo-cards'
 
@@ -34,6 +35,24 @@ function saveCards(list: AdminCard[]) {
     localStorage.setItem(CARDS_KEY, JSON.stringify(list))
     emitCrmSync()
   } catch { /* quota */ }
+}
+
+function applyDeletedPhoneMask(cards: AdminCard[]): AdminCard[] {
+  return cards.map(c => {
+    if (c.status !== 'active' || !c.phone || !isPhoneDeleted(c.phone)) return c
+    return normalizeCard({
+      num: c.num,
+      client: '',
+      phone: '',
+      status: 'unlinked',
+      level: '',
+      bonus: 0,
+      debt: 0,
+      debtLimit: 0,
+      vip: false,
+      debtEnabled: false,
+    })
+  })
 }
 
 function mergeCardLists(primary: AdminCard[], secondary: AdminCard[]): AdminCard[] {
@@ -275,7 +294,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
     try {
       const apiList = await api.getCards()
       const remote = apiList.length ? apiList.map(c => normalizeCard(c)) : DEFAULT_ADMIN_CARDS
-      const cards = mergeCardLists(local, remote)
+      const cards = applyDeletedPhoneMask(mergeCardLists(local, remote))
       saveCards(cards)
       set({ cards, hydrated: true })
     } catch (e) {

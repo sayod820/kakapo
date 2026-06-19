@@ -87,7 +87,7 @@ function mergeCrmClients(api: AdminClient[], local: AdminClient[]): AdminClient[
       byId.set(c.id, normalizeClient(c))
     }
   }
-  return Array.from(byId.values())
+  return Array.from(byId.values()).filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
 }
 
 function mergeCrmCards(api: AdminCard[], local: AdminCard[]): AdminCard[] {
@@ -118,16 +118,21 @@ function findLinkedCard(client: AdminClient, cards: AdminCard[]): AdminCard | nu
 }
 
 function findBestCard(phone: string, cardNum: string | undefined, client: AdminClient | undefined, cards: AdminCard[]): AdminCard | null {
+  if (isPhoneDeleted(phone)) return null
   const num = cardNum?.trim().toUpperCase()
   if (num) {
     const byNum = cards.find(c => c.num === num && c.status !== 'unlinked')
-    if (byNum) return normalizeCard(byNum)
+    if (byNum) {
+      if (byNum.phone && isPhoneDeleted(byNum.phone)) return null
+      return normalizeCard(byNum)
+    }
   }
   if (client) {
     const linked = findLinkedCard(client, cards)
     if (linked) return linked
   }
   const byPhone = cards.find(c => c.status !== 'unlinked' && c.phone && phonesMatch(c.phone, phone))
+  if (byPhone && isPhoneDeleted(byPhone.phone)) return null
   return byPhone ? normalizeCard(byPhone) : null
 }
 
