@@ -40,6 +40,13 @@ export function cardNumsMatch(a: string | undefined, b: string | undefined): boo
   return da.length > 0 && da === db
 }
 
+/** Канонический номер для API (сервер хранит КАКАПО-XXXX) */
+export function canonicalCardNum(num: string | undefined): string {
+  const digits = cardDigits(num)
+  if (!digits) return String(num || '').trim().toUpperCase()
+  return `КАКАПО-${digits.padStart(4, '0')}`
+}
+
 export const CARD_STATUS_LABELS: Record<CardStatus, { l: string; c: string }> = {
   active: { l: 'Активна', c: '#1FD760' },
   unlinked: { l: 'Не привязана', c: '#FFB800' },

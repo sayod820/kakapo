@@ -75,7 +75,7 @@ interface ClientStore {
   reload: () => void
   setClients: (list: AdminClient[]) => void
   addClient: (data: Omit<AdminClient, 'id' | 'orders' | 'spent' | 'createdAt' | 'lastOrderAt'>, opts?: { skipApi?: boolean }) => AdminClient
-  updateClient: (id: string, patch: Partial<AdminClient>) => void
+  updateClient: (id: string, patch: Partial<AdminClient>, opts?: { skipApi?: boolean }) => void
   removeClient: (id: string) => void
   toggleBlock: (id: string) => void
   fetchFromApi: () => Promise<void>
@@ -112,10 +112,10 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     set({ clients: next })
     return row
   },
-  updateClient: (id, patch) => set(s => {
+  updateClient: (id, patch, opts) => set(s => {
     const clients = s.clients.map(c => (c.id === id ? normalizeClient({ ...c, ...patch, id }) : c))
     saveClients(clients)
-    if (USE_API) api.updateClient(id, patch).catch(console.error)
+    if (USE_API && !opts?.skipApi) api.updateClient(id, patch).catch(console.error)
     return { clients }
   }),
   removeClient: id => {

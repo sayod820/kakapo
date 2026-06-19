@@ -10,6 +10,7 @@ import {
   DEFAULT_ADMIN_CARDS,
   normalizeCard,
   cardNumsMatch,
+  canonicalCardNum,
   type AdminCard,
   type CardStatus,
 } from './cardCrm'
@@ -110,7 +111,7 @@ interface CardStore {
   reload: () => void
   setCards: (list: AdminCard[]) => void
   updateCard: (num: string, patch: Partial<AdminCard>) => void
-  updateCardLoyalty: (num: string, patch: Partial<AdminCard>) => void
+  updateCardLoyalty: (num: string, patch: Partial<AdminCard>, opts?: { skipApi?: boolean }) => void
   syncIdentityFromClient: (client: AdminClient) => void
   assignToClient: (num: string, client: AdminClient) => void
   linkCard: (num: string, data: {
@@ -152,12 +153,13 @@ export const useCardStore = create<CardStore>((set, get) => ({
     if (USE_API) api.updateCard(num, patch).catch(console.error)
     return { cards }
   }),
-  updateCardLoyalty: (num, patch) => set(s => {
-    const cards = s.cards.map(c => (c.num === num ? normalizeCard({ ...c, ...patch, num }) : c))
+  updateCardLoyalty: (num, patch, opts) => set(s => {
+    const key = canonicalCardNum(num)
+    const cards = s.cards.map(c => (cardNumsMatch(c.num, key) ? normalizeCard({ ...c, ...patch, num: c.num }) : c))
     saveCards(cards)
-    const updated = cards.find(c => c.num === num)
+    const updated = cards.find(c => cardNumsMatch(c.num, key))
     if (updated) pushLoyaltyToClient(updated)
-    if (USE_API) api.updateCard(num, patch).catch(console.error)
+    if (USE_API && !opts?.skipApi) api.updateCard(key, patch).catch(console.error)
     return { cards }
   }),
   syncIdentityFromClient: client => {

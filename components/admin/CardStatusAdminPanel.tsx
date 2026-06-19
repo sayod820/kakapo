@@ -168,7 +168,7 @@ export default function CardStatusAdminPanel() {
     }
   }
 
-  const applyStatus = (num: string, patch: Partial<Pick<AssignRow, 'level' | 'vip' | 'debtEnabled'>>) => {
+  const applyStatus = async (num: string, patch: Partial<Pick<AssignRow, 'level' | 'vip' | 'debtEnabled'>>) => {
     const card = activeCards.find(c => c.num === num)
     if (!card) return
     const client = card.clientId ? clients.find(c => c.id === card.clientId) : undefined
@@ -177,7 +177,7 @@ export default function CardStatusAdminPanel() {
     setAssignRows(p => ({ ...p, [num]: next }))
     try {
       const base = cardLoyaltyFromCard(card, client)
-      saveCardLoyalty(card, {
+      await saveCardLoyalty(card, {
         ...base,
         level: next.level,
         vip: next.vip,

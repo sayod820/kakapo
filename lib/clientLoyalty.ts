@@ -73,11 +73,9 @@ function tierIndex(level: ClientLevel): number {
   return LOYALTY_TIERS.findIndex(t => t.id === level)
 }
 
-export function resolveAdminVipActive(adminVip?: boolean, storedPeriod?: string): boolean {
-  if (!adminVip) return false
-  // Назначение админки: без периода (legacy) или текущий месяц
-  if (!storedPeriod) return true
-  return isLoyaltyPeriodCurrent(storedPeriod)
+export function resolveAdminVipActive(adminVip?: boolean, _storedPeriod?: string): boolean {
+  // Назначение админки: флаг vip на карте/клиенте — источник правды до месячного сброса на сервере
+  return !!adminVip
 }
 
 export function getLoyaltyProgress(

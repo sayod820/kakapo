@@ -11,7 +11,7 @@ import {
   emptyClientProfileForm,
   clientProfileFromClient,
 } from './clientCrm'
-import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardHasDebtSection, cardNumsMatch } from './cardCrm'
+import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardHasDebtSection, cardNumsMatch, canonicalCardNum } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 import { emitCrmSync } from './clientProfileSync'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
@@ -168,7 +168,7 @@ export function saveClientProfile(clientId: string | null, form: ClientProfileFo
 }
 
 /** Сохранить лояльность карты (уровень, бонусы, долг) */
-export function saveCardLoyalty(
+export async function saveCardLoyalty(
   card: AdminCard,
   form: CardLoyaltyForm,
   mode: 'link' | 'edit',
@@ -209,33 +209,48 @@ export function saveCardLoyalty(
   }
 
   const clientName = pickClientDisplayName(client.name, card.client)
+  const cardKey = canonicalCardNum(card.num)
+  const cardPatch = {
+    phone,
+    client: clientName,
+    clientId: client.id,
+    status: 'active' as const,
+    ...loyalty,
+  }
+  const clientPatch = {
+    card: cardKey,
+    name: clientName,
+    phone,
+    ...loyalty,
+  }
 
   if (mode === 'link') {
-    clientStore.updateClient(client.id, { name: clientName, phone, card: card.num, ...loyalty })
-    cardStore.linkCard(card.num, {
+    clientStore.updateClient(client.id, clientPatch, { skipApi: true })
+    cardStore.linkCard(cardKey, {
       phone,
       clientName,
       clientId: client.id,
       ...loyalty,
     })
   } else {
-    cardStore.updateCardLoyalty(card.num, {
-      phone,
-      client: clientName,
-      clientId: client.id,
-      status: 'active' as const,
-      ...loyalty,
-    })
-    clientStore.updateClient(client.id, {
-      card: card.num,
-      name: clientName,
-      phone,
-      ...loyalty,
-    })
+    cardStore.updateCardLoyalty(cardKey, cardPatch, { skipApi: true })
+    clientStore.updateClient(client.id, clientPatch, { skipApi: true })
     if (loyalty.debt < prevDebt - 0.001) {
       recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
     } else if (loyalty.debt > prevDebt + 0.001) {
       recordStoreDebtCharge(phone, loyalty.debt - prevDebt)
+    }
+  }
+
+  if (USE_API) {
+    try {
+      await Promise.all([
+        api.updateCard(cardKey, cardPatch),
+        api.updateClient(client.id, clientPatch),
+      ])
+    } catch (e) {
+      console.error('saveCardLoyalty API failed', e)
+      throw new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
     }
   }
   emitCrmSync()
@@ -295,8 +310,8 @@ export async function createAndLinkCard(form: CardLoyaltyForm): Promise<AdminCar
   const created = await cardStore.generateCards(1)
   const card = created[0]
   if (!card) throw new Error('Не удалось создать карту. Попробуйте ещё раз.')
-  saveCardLoyalty(card, form, 'link')
-  return useCardStore.getState().cards.find(c => c.num === card.num) || card
+  await saveCardLoyalty(card, form, 'link')
+  return useCardStore.getState().cards.find(c => cardNumsMatch(c.num, card.num)) || card
 }
 
 export function clientNoteForCard(card: AdminCard, clients: AdminClient[]): string {
