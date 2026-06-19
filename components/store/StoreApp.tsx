@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
 import { hydrateCourierStores } from "@/lib/courierStore";
@@ -2181,7 +2181,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   );
 };
 
-const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
+function StoreSessionBoot() {
+  return (
+    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }} />
+  );
+}
+
+const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady }) => {
   const apiOrders = useOrders(s => s.orders);
   const [reviewStats, setReviewStats] = useState({ count: 0, withReplies: 0 });
   const [unreadNotifs, setUnreadNotifs] = useState(0);
@@ -2247,6 +2253,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast }) => {
       });
     }).catch(() => {});
   }, [apiOrders, user]);
+
+  if (!sessionReady) return <StoreSessionBoot />;
 
   if (!user) return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
@@ -2795,7 +2803,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   );
 };
 
-const ClientReviewsPage = ({ go, user }) => {
+const ClientReviewsPage = ({ go, user, sessionReady }) => {
   const apiOrders = useOrders(s => s.orders);
   const { restaurants } = useLiveCatalog();
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -2828,6 +2836,8 @@ const ClientReviewsPage = ({ go, user }) => {
     const id = setInterval(refresh, 12000);
     return () => clearInterval(id);
   }, [refresh, user]);
+
+  if (!sessionReady) return <StoreSessionBoot />;
 
   if (!user) {
     return (
@@ -7938,22 +7948,27 @@ function KakapoAppInner() {
   const [cartMeta, setCartMeta] = useState({});
   const [wished, setWished] = useState({});
   const [user,   setUser]   = useState<StoreUser | null>(null);
-  const sessionReadyRef = useRef(false);
+  const [sessionReady, setSessionReady] = useState(false);
+  const userPersistReadyRef = useRef(false);
   const [toast,  setToast]  = useState(null);
   const [, setLoyaltyCfgTick] = useState(0);
 
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setUser(loadStoreUser());
-    sessionReadyRef.current = true;
+    setSessionReady(true);
   }, []);
 
   useEffect(() => {
-    if (!sessionReadyRef.current) return;
+    if (!sessionReady) return;
+    if (!userPersistReadyRef.current) {
+      userPersistReadyRef.current = true;
+      return;
+    }
     if (user) saveStoreUser(user);
     else clearClientSession();
-  }, [user]);
+  }, [user, sessionReady]);
 
   useEffect(() => {
     if (!user?.phone) {
@@ -8073,7 +8088,7 @@ function KakapoAppInner() {
   )
   const isVipUser = !!(displayUser?.vip || storeLoyalty.isVip)
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser };
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser, sessionReady };
 
   const render = () => {
     switch (page) {
@@ -8086,7 +8101,7 @@ function KakapoAppInner() {
       case "auth":             return <ClientLoginPage   go={go} setUser={setUser}/>;
       case "profile":          return <ProfilePage       {...shared} user={displayUser} setUser={setUser} onLogout={logout}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
-      case "reviews":          return <ClientReviewsPage   go={go} user={user}/>;
+      case "reviews":          return <ClientReviewsPage   go={go} user={user} sessionReady={sessionReady}/>;
       case "promos":           return <PromosPage        {...shared}/>;
       case "search":           return <SearchPage        {...shared}/>;
       case "faq":              return <FAQPage           {...shared}/>;
