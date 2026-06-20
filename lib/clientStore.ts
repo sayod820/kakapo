@@ -15,6 +15,28 @@ import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 import { markClientLoyaltySaved, mergeClientLoyaltyIfRecent } from './loyaltySaveGuard'
 
 const CLIENTS_KEY = 'kakapo-clients'
+const PENDING_CLIENT_MS = 120_000
+/** Клиенты, созданные локально и ещё не подтверждённые API */
+const pendingClientSync = new Map<string, number>()
+
+export function markPendingClientSync(id: string) {
+  if (!id) return
+  pendingClientSync.set(id, Date.now())
+}
+
+function isPendingClientSync(id: string): boolean {
+  const t = pendingClientSync.get(id)
+  if (!t) return false
+  if (Date.now() - t > PENDING_CLIENT_MS) {
+    pendingClientSync.delete(id)
+    return false
+  }
+  return true
+}
+
+function clearPendingClientSync(id: string) {
+  pendingClientSync.delete(id)
+}
 
 /** @deprecated use clearAppDataLocalCache */
 export function clearCrmLocalCache() {
@@ -105,6 +127,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     })
     const next = [...clients, row]
     saveClients(next)
+    markPendingClientSync(row.id)
     if (USE_API && !opts?.skipApi) api.createClient(row).catch(console.error)
     set({ clients: next })
     return row
@@ -134,17 +157,21 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     const prev = get().clients
     try {
       clearAppDataLocalCache()
-      const apiList = await api.getClients()
+      const apiList = (await api.getClients())
+        .map(c => normalizeClient(c))
+        .filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
       const local = prev
       const apiIds = new Set(apiList.map(c => String(c.id)))
       const merged = apiList.map(c => {
-        const normalized = normalizeClient(c)
+        const normalized = c
+        clearPendingClientSync(normalized.id)
         const lc = local.find(x => x.id === normalized.id)
           || local.find(x => phonesMatch(x.phone, normalized.phone))
         return mergeClientLoyaltyIfRecent(normalized, lc)
       })
       for (const lc of local) {
-        if (isClientPurged(lc)) continue
+        if (isClientPurged(lc) || isPhoneDeleted(lc.phone)) continue
+        if (!isPendingClientSync(lc.id)) continue
         if (apiIds.has(lc.id)) continue
         if (merged.some(m => m.id === lc.id || phonesMatch(m.phone, lc.phone))) continue
         merged.push(normalizeClient(lc))

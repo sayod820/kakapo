@@ -2,11 +2,10 @@
 
 import { USE_API } from './config'
 
-/** Ключи operational-данных (не сессия пользователя) */
+/** Ключи operational-данных (не сессия пользователя). Tombstones удаления — отдельно. */
 export const APP_DATA_LOCAL_KEYS = [
   'kakapo-clients',
   'kakapo-cards',
-  'kakapo-deleted-phones',
   'kakapo-couriers',
   'kakapo-assemblers',
   'kakapo-push',

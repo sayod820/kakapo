@@ -57,19 +57,14 @@ ensureAssemblers()
 
 function ensureClients() {
   if (!Array.isArray(db.clients)) db.clients = []
-  if (!db.clients.length) {
-    db.clients = DEFAULT_CLIENTS.map(c => ({ ...c }))
-    persist()
-  }
+  // Не восстанавливать демо-клиентов после полного удаления — иначе после рестарта Render
+  // снова появляются U-01…U-07 и пропадают реальные клиенты админа.
 }
 ensureClients()
 
 function ensureCards() {
   if (!Array.isArray(db.cards)) db.cards = []
-  if (!db.cards.length) {
-    db.cards = DEFAULT_CARDS.map(c => ({ ...c }))
-    persist()
-  }
+  // Не восстанавливать демо-карты после полного удаления (см. ensureClients).
 }
 ensureCards()
 
@@ -862,28 +857,8 @@ app.post('/cards/generate', (req, res) => {
 })
 
 function ensureMissingSeedRows() {
+  // Отключено: не подмешивать тестовых клиентов (U-07 / KAKAPO-0236) в прод-базу.
   let changed = false
-  const extraClients = DEFAULT_CLIENTS.filter(c => c.id === 'U-07')
-  const extraCards = DEFAULT_CARDS.filter(c => String(c.num).replace(/\D/g, '').includes('0236'))
-
-  for (const seed of extraClients) {
-    const pk = phoneKey(seed.phone)
-    const exists = (db.clients || []).some(c => c.id === seed.id || phoneKey(c.phone) === pk)
-    if (!exists) {
-      if (!db.clients) db.clients = []
-      db.clients.push(normalizeClientRow({ ...seed }))
-      changed = true
-    }
-  }
-
-  for (const seed of extraCards) {
-    if (!findCardByNum(seed.num)) {
-      if (!db.cards) db.cards = []
-      db.cards.push(normalizeCardRow({ ...seed }))
-      changed = true
-    }
-  }
-
   for (const client of db.clients || []) {
     if (!client.card) continue
     if (!findCardByNum(client.card)) {
@@ -891,7 +866,6 @@ function ensureMissingSeedRows() {
       changed = true
     }
   }
-
   if (changed) persist()
 }
 

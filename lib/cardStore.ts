@@ -19,6 +19,29 @@ import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 import { findLocalCard, markCardLoyaltySaved, mergeCardLoyaltyIfRecent } from './loyaltySaveGuard'
 
 const CARDS_KEY = 'kakapo-cards'
+const PENDING_CARD_MS = 120_000
+const pendingCardSync = new Map<string, number>()
+
+function markPendingCardSync(num: string) {
+  const key = canonicalCardNum(num)
+  if (!key) return
+  pendingCardSync.set(key, Date.now())
+}
+
+function isPendingCardSync(num: string): boolean {
+  const key = canonicalCardNum(num)
+  const t = pendingCardSync.get(key)
+  if (!t) return false
+  if (Date.now() - t > PENDING_CARD_MS) {
+    pendingCardSync.delete(key)
+    return false
+  }
+  return true
+}
+
+function clearPendingCardSync(num: string) {
+  pendingCardSync.delete(canonicalCardNum(num))
+}
 
 function readLocalCardsCache(): AdminCard[] {
   if (USE_API) return []
@@ -279,6 +302,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
         next += 1
       }
       const merged = [...cards, ...created]
+      for (const row of created) markPendingCardSync(row.num)
       saveCards(merged)
       set({ cards: merged })
       if (USE_API) {
@@ -294,6 +318,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
         const res = await api.generateCards(n)
         const created = (res?.cards || []).map(c => normalizeCard(c))
         if (created.length) {
+          for (const row of created) markPendingCardSync(row.num)
           const merged = mergeCardLists(get().cards, created)
           saveCards(merged)
           set({ cards: merged })
@@ -317,8 +342,12 @@ export const useCardStore = create<CardStore>((set, get) => ({
       const apiList = await api.getCards()
       const local = get().cards
       const apiCards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
-      const merged = apiCards.map(ac => mergeCardLoyaltyIfRecent(ac, findLocalCard(local, ac.num)))
+      const merged = apiCards.map(ac => {
+        clearPendingCardSync(ac.num)
+        return mergeCardLoyaltyIfRecent(ac, findLocalCard(local, ac.num))
+      })
       for (const lc of local) {
+        if (!isPendingCardSync(lc.num)) continue
         if (!merged.some(c => cardNumsMatch(c.num, lc.num))) merged.push(lc)
       }
       set({ cards: merged, hydrated: true, apiReady: true })
