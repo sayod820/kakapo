@@ -94,6 +94,7 @@ interface ClientStore {
   apiError: string
   hydrate: () => void
   reload: () => void
+  applyVisibleFilter: () => void
   setClients: (list: AdminClient[]) => void
   addClient: (data: Omit<AdminClient, 'id' | 'orders' | 'spent' | 'createdAt' | 'lastOrderAt'>, opts?: { skipApi?: boolean }) => AdminClient
   updateClient: (id: string, patch: Partial<AdminClient>, opts?: { skipApi?: boolean }) => void
@@ -114,6 +115,9 @@ export const useClientStore = create<ClientStore>((set, get) => ({
   },
   reload: () => {
     set({ clients: filterVisibleClients(loadClients()) })
+  },
+  applyVisibleFilter: () => {
+    set(s => ({ clients: filterVisibleClients(s.clients) }))
   },
   setClients: list => {
     const clients = filterVisibleClients(list.map(c => normalizeClient(c)))
@@ -198,6 +202,10 @@ export function useClients() {
 
 export async function syncClientsFromApi() {
   await useClientStore.getState().fetchFromApi()
+}
+
+export function refilterClientsStore() {
+  useClientStore.getState().applyVisibleFilter()
 }
 
 export { markClientLoyaltySaved }

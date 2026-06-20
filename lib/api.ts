@@ -275,14 +275,19 @@ export const api = {
     request<AdminClient>('/clients', { method: 'POST', body: JSON.stringify(data) }),
   updateClient: (id: string, data: Partial<AdminClient>) =>
     request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  purgeClient: (id: string) =>
+    request<{ ok: boolean } | AdminClient>(`/clients/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ purge: true }),
+    }),
   deleteClient: (id: string, phone?: string) =>
-    requestApp<{ ok: boolean }>(`/api/kakapo/clients/${encodeURIComponent(id)}/delete`, {
+    request<{ ok: boolean }>(`/clients/${encodeURIComponent(id)}/delete`, {
       method: 'POST',
       body: JSON.stringify({ phone: phone ? phone.replace(/\D/g, '').slice(-9) : '' }),
     }),
   deleteClientByPhone: (phone: string) => {
     const digits = (phone || '').replace(/\D/g, '').slice(-9)
-    return requestApp<{ ok: boolean }>('/api/kakapo/clients/delete-by-phone', {
+    return request<{ ok: boolean }>('/clients/delete-by-phone', {
       method: 'POST',
       body: JSON.stringify({ phone: digits }),
     })

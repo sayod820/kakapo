@@ -25,16 +25,15 @@ import {
   type AssemblerStatus,
 } from '@/lib/assemblerTeam'
 import {
-  useClientStore,
   useClients,
   hydrateClientStore,
   syncClientsFromApi,
+  refilterClientsStore,
 } from '@/lib/clientStore'
 import {
   useCardStore,
   useCards,
   hydrateCardStore,
-  syncCardsFromApi,
 } from '@/lib/cardStore'
 import {
   emptyCardLoyaltyForm,
@@ -2646,10 +2645,8 @@ function ClientsPage() {
     setBulkDeleting(false);
     if (errors > 0) {
       window.alert(`Не удалось удалить ${errors} из ${selectedClients.length}. ${lastErr}`);
-    } else {
-      void syncClientsFromApi();
-      void syncCardsFromApi();
     }
+    refilterClientsStore();
   };
 
   const handleMoveToRecovery = async (c: AdminClient) => {

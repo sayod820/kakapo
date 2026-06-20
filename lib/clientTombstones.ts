@@ -1,5 +1,7 @@
 'use client'
 
+import { refilterClientsStore } from './clientStore'
+
 const TOMBSTONES_KEY = 'kakapo-deleted-phones'
 
 function loadSet(): Set<string> {
@@ -38,6 +40,7 @@ export function markPhoneDeleted(phone?: string | null): void {
   const set = loadSet()
   set.add(key)
   saveSet(set)
+  refilterClientsStore()
   if (typeof window !== 'undefined') {
     try {
       window.dispatchEvent(new CustomEvent('kakapo-crm-sync'))
