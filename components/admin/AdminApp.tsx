@@ -2664,7 +2664,7 @@ function ClientsPage() {
   const handleRestoreClient = async (c: AdminClient) => {
     setActionId(c.id);
     try {
-      await restoreClientFromRecovery(c.id);
+      await restoreClientFromRecovery(c.id, c.phone);
       if (detailId === c.id) setDetailId(null);
     } catch (e) {
       console.error(e);

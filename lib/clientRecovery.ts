@@ -2,13 +2,18 @@
 
 import { api } from './api'
 import { USE_API } from './config'
-import { useCardStore, hydrateCardStore } from './cardStore'
-import { useClientStore, hydrateClientStore } from './clientStore'
+import { useCardStore, hydrateCardStore, syncCardsFromApi } from './cardStore'
+import { hydrateClientStore, syncClientsFromApi } from './clientStore'
 import { phonesMatch, type AdminClient } from './clientCrm'
-import { normalizeCard, type AdminCard } from './cardCrm'
+import { normalizeCard, cardNumsMatch, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { legacyMoveToRecoveryOnServer, legacyRestoreOnServer } from './clientLegacyBackend'
 import { unmarkPhoneDeleted } from './clientTombstones'
+import {
+  findLocalClient,
+  resolveServerClientId,
+  applyLocalClientPatch,
+} from './clientActionResolve'
 
 export type ClientAccountStatus = 'active' | 'recovery'
 
@@ -20,17 +25,11 @@ export function isClientActiveAccount(c?: AdminClient | null): boolean {
   return !isClientInRecovery(c)
 }
 
-function findClient(clientId: string, phone?: string): AdminClient | undefined {
-  const clients = useClientStore.getState().clients
-  return clients.find(c => c.id === clientId)
-    || (phone ? clients.find(c => phonesMatch(c.phone, phone)) : undefined)
-}
-
 function cardsForClient(client: AdminClient | undefined, phone: string, cards: AdminCard[]): AdminCard[] {
   return cards.filter(c => {
     if (c.status === 'unlinked') return false
     if (client && c.clientId === client.id) return true
-    if (client?.card && c.num === client.card) return true
+    if (client?.card && cardNumsMatch(c.num, client.card)) return true
     if (phone && phonesMatch(c.phone || '', phone)) return true
     return false
   })
@@ -57,11 +56,34 @@ function unlinkCardsLocal(linked: AdminCard[]) {
   }))
 }
 
-function patchClientLocal(clientId: string, patch: Partial<AdminClient>) {
-  const clientStore = useClientStore.getState()
-  const prev = clientStore.clients.find(c => c.id === clientId)
-  if (!prev) return
-  clientStore.updateClient(clientId, patch)
+async function remoteMoveToRecovery(clientId: string, phone: string): Promise<void> {
+  if (!USE_API) return
+
+  const serverId = await resolveServerClientId(clientId, phone)
+
+  if (serverId) {
+    try {
+      await api.moveClientToRecovery(serverId, phone)
+      return
+    } catch {
+      try {
+        await legacyMoveToRecoveryOnServer(serverId, phone)
+        return
+      } catch { /* try phone route */ }
+    }
+  }
+
+  if (phone) {
+    try {
+      await api.moveClientToRecoveryByPhone(phone)
+      return
+    } catch {
+      await legacyMoveToRecoveryOnServer(clientId, phone)
+      return
+    }
+  }
+
+  throw new Error('Клиент не найден на сервере. Добавьте его в CRM или удалите навсегда.')
 }
 
 /** Переместить клиента в раздел восстановления (самоудаление или админ) */
@@ -69,52 +91,53 @@ export async function moveClientToRecovery(clientId: string, phone?: string): Pr
   hydrateClientStore()
   hydrateCardStore()
 
-  const client = findClient(clientId, phone)
-  const id = client?.id || clientId
-  const targetPhone = phone || client?.phone || ''
-  if (!id) throw new Error('Клиент не найден')
+  const client = findLocalClient(clientId, phone)
+  const targetPhone = (phone || client?.phone || '').trim()
+  if (!targetPhone && !clientId) throw new Error('Клиент не найден')
 
   const linked = cardsForClient(client, targetPhone, useCardStore.getState().cards)
   unlinkCardsLocal(linked)
 
   const deletedAt = new Date().toISOString().slice(0, 10)
-  patchClientLocal(id, {
+  applyLocalClientPatch(client?.id || clientId, targetPhone, {
     accountStatus: 'recovery',
     deletedAt,
     card: '',
   })
 
   if (USE_API) {
-    try {
-      await api.moveClientToRecovery(id)
-    } catch {
-      await legacyMoveToRecoveryOnServer(id, targetPhone).catch(console.error)
-    }
+    await remoteMoveToRecovery(clientId, targetPhone)
+    await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
   }
 
   emitCrmSync()
 }
 
 /** Восстановить клиента из раздела восстановления */
-export async function restoreClientFromRecovery(clientId: string): Promise<void> {
+export async function restoreClientFromRecovery(clientId: string, phone?: string): Promise<void> {
   hydrateClientStore()
-  const client = useClientStore.getState().clients.find(c => c.id === clientId)
-  if (!client) throw new Error('Клиент не найден')
+  const client = findLocalClient(clientId, phone)
+  const targetPhone = phone || client?.phone || ''
+  const localId = client?.id || clientId
+  if (!localId && !targetPhone) throw new Error('Клиент не найден')
 
-  patchClientLocal(clientId, {
+  applyLocalClientPatch(localId, targetPhone, {
     accountStatus: 'active',
     deletedAt: undefined,
     blocked: false,
   })
 
-  unmarkPhoneDeleted(client.phone)
+  if (targetPhone) unmarkPhoneDeleted(targetPhone)
 
   if (USE_API) {
+    const serverId = await resolveServerClientId(clientId, targetPhone)
+    if (!serverId) throw new Error('Клиент не найден на сервере')
     try {
-      await api.restoreClient(clientId)
+      await api.restoreClient(serverId)
     } catch {
-      await legacyRestoreOnServer(clientId).catch(console.error)
+      await legacyRestoreOnServer(serverId)
     }
+    await syncClientsFromApi()
   }
 
   emitCrmSync()

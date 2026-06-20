@@ -5,12 +5,14 @@ import { readBackendError } from '@/lib/server/backendFetch'
 export const dynamic = 'force-dynamic'
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   try {
     const id = decodeURIComponent(params.id)
-    const res = await moveToRecoveryOnBackend(id)
+    const body = await req.json().catch(() => ({}))
+    const phone = typeof body.phone === 'string' ? body.phone : ''
+    const res = await moveToRecoveryOnBackend(id, phone)
     const text = await res.text()
     if (!res.ok) {
       const message = text ? await readBackendError(new Response(text, { status: res.status })) : 'Не удалось переместить в восстановление'

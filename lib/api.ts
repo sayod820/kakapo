@@ -284,8 +284,11 @@ export const api = {
       body: JSON.stringify({ phone: digits }),
     })
   },
-  moveClientToRecovery: (id: string) =>
-    requestApp<AdminClient>(`/api/kakapo/clients/${encodeURIComponent(id)}/recovery`, { method: 'POST' }),
+  moveClientToRecovery: (id: string, phone?: string) =>
+    requestApp<AdminClient>(`/api/kakapo/clients/${encodeURIComponent(id)}/recovery`, {
+      method: 'POST',
+      body: JSON.stringify({ phone: phone ? phone.replace(/\D/g, '').slice(-9) : '' }),
+    }),
   restoreClient: (id: string) =>
     requestApp<AdminClient>(`/api/kakapo/clients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   moveClientToRecoveryByPhone: (phone: string) => {

@@ -2,22 +2,24 @@
 
 import { api } from './api'
 import { USE_API } from './config'
-import { useCardStore, hydrateCardStore } from './cardStore'
+import { useCardStore, hydrateCardStore, syncCardsFromApi } from './cardStore'
 import { useClientStore, hydrateClientStore, syncClientsFromApi } from './clientStore'
-import { normalizePhone, phonesMatch, type AdminClient } from './clientCrm'
-import { normalizeCard, type AdminCard } from './cardCrm'
+import { phonesMatch, type AdminClient } from './clientCrm'
+import { normalizeCard, cardNumsMatch, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { moveClientToRecovery } from './clientRecovery'
 import { legacyPurgeClientOnServer } from './clientLegacyBackend'
-import { markPhoneDeleted, isSyntheticOrderClientId } from './clientTombstones'
-import { syncCardsFromApi } from './cardStore'
+import { markPhoneDeleted } from './clientTombstones'
+import {
+  findLocalClient,
+  resolveServerClientId,
+  removeLocalClientByPhone,
+} from './clientActionResolve'
 import { type StoreUser } from './clientSession'
 import { ACCOUNT_NS, removeAccountJson } from './clientAccountStorage'
 
 function findClient(clientId: string, phone?: string): AdminClient | undefined {
-  const clients = useClientStore.getState().clients
-  return clients.find(c => c.id === clientId)
-    || (phone ? clients.find(c => phonesMatch(c.phone, phone)) : undefined)
+  return findLocalClient(clientId, phone)
 }
 
 function cardsForClient(
@@ -28,7 +30,7 @@ function cardsForClient(
   return cards.filter(c => {
     if (c.status === 'unlinked') return false
     if (client && c.clientId === client.id) return true
-    if (client?.card && c.num === client.card) return true
+    if (client?.card && cardNumsMatch(c.num, client.card)) return true
     if (phone && phonesMatch(c.phone || '', phone)) return true
     return false
   })
@@ -56,10 +58,7 @@ function unlinkCardsLocal(linked: AdminCard[]) {
 }
 
 function removeClientsByPhone(phone: string) {
-  const key = normalizePhone(phone)
-  if (!key) return
-  const clientStore = useClientStore.getState()
-  clientStore.setClients(clientStore.clients.filter(c => normalizePhone(c.phone) !== key))
+  removeLocalClientByPhone(phone)
 }
 
 function isNotFoundError(e: unknown): boolean {
@@ -67,37 +66,26 @@ function isNotFoundError(e: unknown): boolean {
   return /не найден|404|not found/i.test(msg)
 }
 
-async function resolveServerClientId(clientId: string, phone: string): Promise<string | undefined> {
-  const local = findClient(clientId, phone)
-  if (local && !isSyntheticOrderClientId(local.id)) return local.id
-
-  if (USE_API && phone) {
-    try {
-      const remote = await api.getClients()
-      const found = remote.find(c => phonesMatch(c.phone, phone))
-      if (found) return found.id
-    } catch { /* offline */ }
-  }
-
-  if (clientId && !isSyntheticOrderClientId(clientId)) return clientId
-  return undefined
-}
-
 async function remoteDeleteClient(clientId: string, phone: string): Promise<void> {
   if (!USE_API) return
+
   const serverId = await resolveServerClientId(clientId, phone)
-  try {
-    if (serverId) {
-      await api.deleteClient(serverId)
-      return
-    }
-    if (phone) {
+
+  if (phone) {
+    try {
       await api.deleteClientByPhone(phone)
+      return
+    } catch (e) {
+      if (!isNotFoundError(e) || !serverId) throw e
     }
-  } catch (e) {
-    if (!phone || !isNotFoundError(e)) throw e
-    await api.deleteClientByPhone(phone)
   }
+
+  if (serverId) {
+    await api.deleteClient(serverId)
+    return
+  }
+
+  throw new Error('Клиент не найден на сервере')
 }
 
 /** Полностью удалить клиента из CRM (только админ) */
@@ -116,25 +104,33 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
     removeClientsByPhone(targetPhone)
     markPhoneDeleted(targetPhone)
   } else if (clientId) {
-    const clientStore = useClientStore.getState()
-    clientStore.setClients(clientStore.clients.filter(c => c.id !== clientId))
+    useClientStore.getState().setClients(
+      useClientStore.getState().clients.filter(c => c.id !== clientId),
+    )
   }
 
   if (USE_API) {
+    let deleted = false
+    let lastErr: Error | null = null
     try {
       await remoteDeleteClient(clientId, targetPhone)
+      deleted = true
     } catch (e) {
-      console.error(e)
+      lastErr = e instanceof Error ? e : new Error('Не удалось удалить клиента')
       try {
         const serverId = await resolveServerClientId(clientId, targetPhone)
-        await legacyPurgeClientOnServer(serverId || clientId, targetPhone)
+        if (serverId || targetPhone) {
+          await legacyPurgeClientOnServer(serverId || clientId, targetPhone)
+          deleted = true
+        }
       } catch (legacyErr) {
-        console.error(legacyErr)
+        lastErr = legacyErr instanceof Error ? legacyErr : lastErr
       }
     }
-    try {
-      await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
-    } catch { /* ignore */ }
+    if (!deleted) {
+      throw lastErr || new Error('Не удалось удалить клиента на сервере')
+    }
+    await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
   }
 
   emitCrmSync()
