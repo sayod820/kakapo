@@ -25,6 +25,7 @@ import {
   type AssemblerStatus,
 } from '@/lib/assemblerTeam'
 import {
+  useClientStore,
   useClients,
   hydrateClientStore,
   syncClientsFromApi,
