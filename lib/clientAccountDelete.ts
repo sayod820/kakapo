@@ -2,9 +2,9 @@
 
 import { api } from './api'
 import { USE_API } from './config'
-import { useCardStore, hydrateCardStore, syncCardsFromApi } from './cardStore'
-import { useClientStore, hydrateClientStore, syncClientsFromApi } from './clientStore'
-import { phonesMatch, type AdminClient } from './clientCrm'
+import { useCardStore, hydrateCardStore } from './cardStore'
+import { useClientStore, hydrateClientStore } from './clientStore'
+import { phonesMatch, normalizePhone, type AdminClient } from './clientCrm'
 import { normalizeCard, cardNumsMatch, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { moveClientToRecovery } from './clientRecovery'
@@ -81,7 +81,7 @@ async function remoteDeleteClient(clientId: string, phone: string): Promise<void
   }
 
   if (serverId) {
-    await api.deleteClient(serverId)
+    await api.deleteClient(serverId, phone)
     return
   }
 
@@ -130,7 +130,7 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
     if (!deleted) {
       throw lastErr || new Error('Не удалось удалить клиента на сервере')
     }
-    await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
+    // Не подтягиваем CRM сразу — polling обновит список; иначе «удалённые» снова мелькают.
   }
 
   emitCrmSync()

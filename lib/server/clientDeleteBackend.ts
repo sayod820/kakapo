@@ -4,11 +4,12 @@ function phoneDigits(phone: string) {
   return String(phone || '').replace(/\D/g, '').slice(-9)
 }
 
-export async function deleteClientOnBackend(id: string): Promise<Response> {
+export async function deleteClientOnBackend(id: string, phone?: string): Promise<Response> {
   const enc = encodeURIComponent(id)
+  const phoneBody = phone ? JSON.stringify({ phone: phoneDigits(phone) }) : undefined
 
   const attempts: Array<{ path: string; init: RequestInit }> = [
-    { path: `/clients/${enc}/delete`, init: { method: 'POST' } },
+    { path: `/clients/${enc}/delete`, init: { method: 'POST', body: phoneBody } },
     { path: `/clients/${enc}`, init: { method: 'DELETE' } },
     { path: `/clients/${enc}`, init: { method: 'PATCH', body: JSON.stringify({ purge: true }) } },
   ]
@@ -25,10 +26,10 @@ export async function deleteClientOnBackend(id: string): Promise<Response> {
     }
   }
 
-  return softDeleteClientOnBackend(id)
+  return softDeleteClientOnBackend(id, phone)
 }
 
-async function softDeleteClientOnBackend(id: string): Promise<Response> {
+async function softDeleteClientOnBackend(id: string, phone?: string): Promise<Response> {
   const enc = encodeURIComponent(id)
 
   const clientsRes = await backendFetch('/clients')
@@ -36,6 +37,12 @@ async function softDeleteClientOnBackend(id: string): Promise<Response> {
   const clients = await clientsRes.json() as Array<{ id: string; phone?: string; card?: string }>
   const client = clients.find(c => c.id === id)
   if (!client) {
+    if (phone) {
+      return backendFetch('/clients/delete-by-phone', {
+        method: 'POST',
+        body: JSON.stringify({ phone: phoneDigits(phone) }),
+      })
+    }
     return new Response(JSON.stringify({ detail: 'Клиент не найден' }), { status: 404 })
   }
 
@@ -73,14 +80,21 @@ async function softDeleteClientOnBackend(id: string): Promise<Response> {
 
 export async function deleteClientByPhoneOnBackend(phone: string): Promise<Response> {
   const digits = phoneDigits(phone)
+  if (!digits) {
+    return new Response(JSON.stringify({ detail: 'Укажите телефон' }), { status: 400 })
+  }
+
   const clientsRes = await backendFetch('/clients')
   if (!clientsRes.ok) return clientsRes
 
   const clients = await clientsRes.json() as Array<{ id: string; phone?: string }>
   const client = clients.find(c => phoneDigits(c.phone || '') === digits)
   if (!client) {
-    return new Response(JSON.stringify({ detail: 'Клиент не найден' }), { status: 404 })
+    return backendFetch('/clients/delete-by-phone', {
+      method: 'POST',
+      body: JSON.stringify({ phone: digits }),
+    })
   }
 
-  return deleteClientOnBackend(client.id)
+  return deleteClientOnBackend(client.id, phone)
 }

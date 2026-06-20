@@ -57,6 +57,7 @@ ensureAssemblers()
 
 function ensureClients() {
   if (!Array.isArray(db.clients)) db.clients = []
+  ensureDeletedPhoneKeys()
   // Не восстанавливать демо-клиентов после полного удаления — иначе после рестарта Render
   // снова появляются U-01…U-07 и пропадают реальные клиенты админа.
 }
@@ -476,6 +477,56 @@ app.patch('/assemblers/:id', (req, res) => {
   res.json(a)
 })
 
+function normalizePhoneDigits(phone) {
+  return String(phone || '').replace(/\D/g, '').slice(-9)
+}
+
+const PURGED_NOTE = 'kakapo-purged'
+
+function ensureDeletedPhoneKeys() {
+  if (!Array.isArray(db.deletedPhoneKeys)) db.deletedPhoneKeys = []
+}
+
+function rememberDeletedPhone(phone) {
+  ensureDeletedPhoneKeys()
+  const key = normalizePhoneDigits(phone)
+  if (!key) return
+  if (!db.deletedPhoneKeys.includes(key)) {
+    db.deletedPhoneKeys.push(key)
+    persist()
+  }
+}
+
+function forgetDeletedPhone(phone) {
+  ensureDeletedPhoneKeys()
+  const key = normalizePhoneDigits(phone)
+  if (!key) return
+  const next = db.deletedPhoneKeys.filter(x => x !== key)
+  if (next.length !== db.deletedPhoneKeys.length) {
+    db.deletedPhoneKeys = next
+    persist()
+  }
+}
+
+function isPhoneTombstoned(phone) {
+  ensureDeletedPhoneKeys()
+  const key = normalizePhoneDigits(phone)
+  return !!key && db.deletedPhoneKeys.includes(key)
+}
+
+function isClientRowVisible(c) {
+  if (!c) return false
+  if (isPhoneTombstoned(c.phone)) return false
+  const note = String(c.note || '')
+  if (note.includes(PURGED_NOTE)) return false
+  if (c.name === 'Удалён' && /^\+0000000/.test(String(c.phone || ''))) return false
+  return true
+}
+
+function listVisibleClients() {
+  return (db.clients || []).filter(isClientRowVisible).map(c => normalizeClientRow({ ...c, id: c.id }))
+}
+
 function normalizeClientRow(raw) {
   const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : 'basic'
   return {
@@ -503,9 +554,10 @@ function normalizeClientRow(raw) {
   }
 }
 
-app.get('/clients', (_req, res) => res.json((db.clients || []).map(c => normalizeClientRow({ ...c, id: c.id }))))
+app.get('/clients', (_req, res) => res.json(listVisibleClients()))
 app.post('/clients', (req, res) => {
   if (!db.clients) db.clients = []
+  if (req.body?.phone) forgetDeletedPhone(req.body.phone)
   const nums = db.clients.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
   const n = (nums.length ? Math.max(...nums) : 0) + 1
   const row = normalizeClientRow({
@@ -573,10 +625,12 @@ function restoreClientRecord(client) {
   client.accountStatus = 'active'
   client.deletedAt = undefined
   client.blocked = false
+  forgetDeletedPhone(client.phone)
   persist()
 }
 
 function removeClientAndUnlinkCards(client) {
+  rememberDeletedPhone(client.phone)
   const idx = (db.clients || []).findIndex(x => x.id === client.id)
   if (idx >= 0) db.clients.splice(idx, 1)
   unlinkCardsForClient(client)
@@ -611,16 +665,21 @@ app.post('/clients/recovery-by-phone', (req, res) => {
 app.post('/clients/delete-by-phone', (req, res) => {
   if (!db.clients) db.clients = []
   const digits = normalizePhoneDigits(req.body?.phone || '')
+  if (!digits) return res.status(400).json({ detail: 'Укажите телефон' })
   const client = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
-  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
-  removeClientAndUnlinkCards(client)
+  if (client) removeClientAndUnlinkCards(client)
+  else rememberDeletedPhone(digits)
   res.json({ ok: true })
 })
 
 app.post('/clients/:id/delete', (req, res) => {
   if (!db.clients) db.clients = []
   const client = db.clients.find(x => x.id === req.params.id)
-  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  if (!client) {
+    const digits = normalizePhoneDigits(req.body?.phone || '')
+    if (digits) rememberDeletedPhone(digits)
+    return res.json({ ok: true })
+  }
   removeClientAndUnlinkCards(client)
   res.json({ ok: true })
 })
@@ -678,11 +737,12 @@ function migrateLoyaltyRows() {
 
 migrateLoyaltyRows()
 
-app.get('/cards', (_req, res) => res.json((db.cards || []).map(c => normalizeCardRow({ ...c, num: c.num }))))
-
-function normalizePhoneDigits(phone) {
-  return String(phone || '').replace(/\D/g, '').slice(-9)
-}
+app.get('/cards', (_req, res) => {
+  const list = (db.cards || [])
+    .filter(c => !c.phone || !isPhoneTombstoned(c.phone))
+    .map(c => normalizeCardRow({ ...c, num: c.num }))
+  res.json(list)
+})
 
 function currentLoyaltyPeriod(date = new Date()) {
   const y = date.getFullYear()

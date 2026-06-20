@@ -433,5 +433,7 @@ export function mergeClientsWithOrders(stored: AdminClient[], orders: Order[]): 
     }
   }
 
-  return [...byPhone.values()].map(c => enrichClientWithOrders(c, orders))
+  return [...byPhone.values()]
+    .filter(c => !isClientPurged(c))
+    .map(c => enrichClientWithOrders(c, orders))
 }

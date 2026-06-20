@@ -92,8 +92,6 @@ interface ClientStore {
   apiReady: boolean
   apiSyncing: boolean
   apiError: string
-  syncing: boolean
-  apiError: string | null
   hydrate: () => void
   reload: () => void
   setClients: (list: AdminClient[]) => void

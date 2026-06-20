@@ -5,7 +5,7 @@ import { readBackendError } from '@/lib/server/backendFetch'
 export const dynamic = 'force-dynamic'
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   try {
@@ -14,7 +14,8 @@ export async function POST(
       return NextResponse.json({ detail: 'Не указан ID клиента' }, { status: 400 })
     }
 
-    const res = await deleteClientOnBackend(id)
+    const body = await req.json().catch(() => ({}))
+    const res = await deleteClientOnBackend(id, body.phone || '')
     const text = await res.text()
 
     if (!res.ok) {

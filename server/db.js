@@ -21,6 +21,7 @@ const DEFAULT = {
   categories: [],
   promos: [],
   payouts: [],
+  deletedPhoneKeys: [],
   _seq: { order: 4832, product: 12, category: 2, review: 0, promo: 7, payout: 0 },
 }
 
@@ -35,6 +36,7 @@ export function loadDb() {
     return cache
   }
   cache = JSON.parse(readFileSync(DB_FILE, 'utf8'))
+  if (!Array.isArray(cache.deletedPhoneKeys)) cache.deletedPhoneKeys = []
   return cache
 }
 

@@ -94,13 +94,16 @@ export function seedIfEmpty() {
   const db = loadDb()
   if (db.products.length) return db
 
+  const seedDemoCrm = process.env.SEED_DEMO_CRM === 'true'
+
   db.products = PRODUCTS
   db.restaurants = RESTAURANTS
   db.pickups = PICKUPS
   db.couriers = COURIERS.map(c => ({ ...c }))
   db.assemblers = ASSEMBLERS.map(a => ({ ...a }))
-  db.clients = DEFAULT_CLIENTS.map(c => ({ ...c }))
-  db.cards = DEFAULT_CARDS.map(c => ({ ...c }))
+  db.clients = seedDemoCrm ? DEFAULT_CLIENTS.map(c => ({ ...c })) : []
+  db.cards = seedDemoCrm ? DEFAULT_CARDS.map(c => ({ ...c })) : []
+  if (!Array.isArray(db.deletedPhoneKeys)) db.deletedPhoneKeys = []
   db.users = [
     { id: 1, email: 'admin@kakapo.tj', password: 'admin123', role: 'admin', name: 'Админ КАКАПО' },
     { id: 2, email: 'chaihona@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Чайхона' },

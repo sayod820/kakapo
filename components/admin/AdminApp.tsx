@@ -34,6 +34,7 @@ import {
   useCardStore,
   useCards,
   hydrateCardStore,
+  syncCardsFromApi,
 } from '@/lib/cardStore'
 import {
   emptyCardLoyaltyForm,
@@ -2628,6 +2629,7 @@ function ClientsPage() {
     if (!selectedClients.length) return;
     setBulkDeleting(true);
     let errors = 0;
+    let lastErr = '';
     for (const c of selectedClients) {
       try {
         await deleteClientFromCrm(c.id, c.phone);
@@ -2636,13 +2638,17 @@ function ClientsPage() {
       } catch (e) {
         console.error(e);
         errors += 1;
+        lastErr = e instanceof Error ? e.message : 'Ошибка удаления';
       }
     }
     setSelectedIds(new Set());
     setBulkDeleteOpen(false);
     setBulkDeleting(false);
     if (errors > 0) {
-      window.alert(`Не удалось удалить ${errors} из ${selectedClients.length} клиент(ов)`);
+      window.alert(`Не удалось удалить ${errors} из ${selectedClients.length}. ${lastErr}`);
+    } else {
+      void syncClientsFromApi();
+      void syncCardsFromApi();
     }
   };
 
