@@ -28,6 +28,7 @@ import {
   useClientStore,
   useClients,
   hydrateClientStore,
+  syncClientsFromApi,
 } from '@/lib/clientStore'
 import {
   useCardStore,
@@ -2475,7 +2476,8 @@ function AssemblersPage() {
 /* ── КЛИЕНТЫ ────────────────────────────────────── */
 function ClientsPage() {
   const stored = useClients();
-  const clientsApiReady = useClientStore(s => s.apiReady);
+  const clientsApiSyncing = useClientStore(s => s.apiSyncing);
+  const clientsApiError = useClientStore(s => s.apiError);
   const allCards = useCards();
   const { toggleBlock } = useClientStore();
   const apiOrders = useOrders(s => s.orders);
@@ -2498,6 +2500,10 @@ function ClientsPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [recoveryConfirm, setRecoveryConfirm] = useState<AdminClient | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (USE_API) void syncClientsFromApi();
+  }, []);
 
   const clients = useMemo(() => mergeClientsWithOrders(stored, apiOrders), [stored, apiOrders]);
 
@@ -2867,10 +2873,22 @@ function ClientsPage() {
             </tr>
           </thead>
           <tbody>
-            {USE_API && !clientsApiReady ? (
+            {USE_API && clientsApiSyncing && !stored.length ? (
               <tr>
                 <td colSpan={11} style={{ textAlign: 'center', color: '#8FB897', padding: 28 }}>
-                  Загрузка клиентов…
+                  <div style={{ marginBottom: 8 }}>Загрузка клиентов…</div>
+                  <div style={{ fontSize: 11, color: '#3D6645', lineHeight: 1.5 }}>
+                    Сервер Render может «просыпаться» до 60 сек после простоя — это нормально.
+                  </div>
+                </td>
+              </tr>
+            ) : USE_API && clientsApiError && !stored.length ? (
+              <tr>
+                <td colSpan={11} style={{ textAlign: 'center', padding: 28 }}>
+                  <div style={{ color: '#FF4545', fontWeight: 700, marginBottom: 10 }}>⚠ {clientsApiError}</div>
+                  <button type="button" onClick={() => void syncClientsFromApi()} className="ab abp" style={{ padding: '8px 16px', fontSize: 12 }}>
+                    Повторить загрузку
+                  </button>
                 </td>
               </tr>
             ) : filtered.length === 0 ? (

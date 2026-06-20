@@ -52,6 +52,9 @@ export function useApiSync(mode: SyncMode = 'all') {
     if (!USE_API) return
 
     const load = async () => {
+      if (mode === 'all') {
+        await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
+      }
       const tasks: Promise<void>[] = [
         useProducts.getState().fetchProducts(),
         useRestaurants.getState().fetchRestaurants(),
@@ -59,8 +62,6 @@ export function useApiSync(mode: SyncMode = 'all') {
       ]
       if (mode === 'all') {
         tasks.push(
-          syncClientsFromApi(),
-          syncCardsFromApi(),
           syncAssemblerTeamFromApi(),
           syncPushFromApi(),
         )

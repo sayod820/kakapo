@@ -137,6 +137,8 @@ interface CardStore {
   cards: AdminCard[]
   hydrated: boolean
   apiReady: boolean
+  apiSyncing: boolean
+  apiError: string
   hydrate: () => void
   reload: () => void
   setCards: (list: AdminCard[]) => void
@@ -165,6 +167,8 @@ export const useCardStore = create<CardStore>((set, get) => ({
   cards: USE_API ? [] : DEFAULT_ADMIN_CARDS,
   hydrated: false,
   apiReady: !USE_API,
+  apiSyncing: false,
+  apiError: '',
   hydrate: () => {
     if (USE_API) return
     set({ cards: loadCards(), hydrated: true, apiReady: true })
@@ -334,9 +338,11 @@ export const useCardStore = create<CardStore>((set, get) => ({
   },
   fetchFromApi: async () => {
     if (!USE_API) {
-      set({ cards: loadCards(), hydrated: true, apiReady: true })
+      set({ cards: loadCards(), hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
       return
     }
+    const prev = get().cards
+    set({ apiSyncing: true, apiError: '' })
     try {
       clearAppDataLocalCache()
       const apiList = await api.getCards()
@@ -350,12 +356,12 @@ export const useCardStore = create<CardStore>((set, get) => ({
         if (!isPendingCardSync(lc.num)) continue
         if (!merged.some(c => cardNumsMatch(c.num, lc.num))) merged.push(lc)
       }
-      set({ cards: merged, hydrated: true, apiReady: true })
+      set({ cards: merged, hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
       emitCrmSync()
     } catch (e) {
       console.error(e)
-      const prev = get().cards
-      set({ cards: prev, hydrated: true, apiReady: prev.length > 0 })
+      const msg = e instanceof Error ? e.message : 'Не удалось загрузить карты'
+      set({ cards: prev, hydrated: true, apiReady: true, apiSyncing: false, apiError: msg })
     }
   },
 }))

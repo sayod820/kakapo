@@ -77,6 +77,11 @@ async function parseErrorResponse(res: Response): Promise<string> {
 
 const RETRY_STATUS = new Set([500, 502, 503, 504])
 const REQUEST_TIMEOUT_MS = 15000
+/** Render free tier: первый запрос после простоя может идти 30–90 с */
+const COLD_START_TIMEOUT_MS = 50000
+const COLD_START_MAX_ATTEMPTS = 3
+/** Render free tier cold start может занимать 30–60 с */
+const GET_TIMEOUT_MS = 45000
 
 function withTimeout<T>(promise: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -98,8 +103,12 @@ async function parseSuccessBody<T>(res: Response): Promise<T> {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}, attempt = 0): Promise<T> {
-  return requestUrl<T>(`${getApiUrl()}${path}`, options, attempt)
+async function request<T>(path: string, options: RequestInit = {}, attempt = 0, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  return requestUrl<T>(`${getApiUrl()}${path}`, options, attempt, timeoutMs)
+}
+
+async function requestColdStart<T>(path: string, options: RequestInit = {}): Promise<T> {
+  return request<T>(path, options, 0, COLD_START_TIMEOUT_MS)
 }
 
 /** Маршруты Next.js вне proxy /api/kakapo → Render */
@@ -107,7 +116,7 @@ async function requestApp<T>(path: string, options: RequestInit = {}, attempt = 
   return requestUrl<T>(path, options, attempt)
 }
 
-async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0): Promise<T> {
+async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
@@ -117,9 +126,16 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
 
   let res: Response
   try {
-    res = await withTimeout(fetch(url, { ...options, headers }))
+    res = await withTimeout(fetch(url, { ...options, headers }), timeoutMs)
   } catch (e) {
-    if (e instanceof Error && e.message.includes('Сервер не отвечает')) throw e
+    const timedOut = e instanceof Error && e.message.includes('Сервер не отвечает')
+    if (timedOut && attempt < COLD_START_MAX_ATTEMPTS - 1) {
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+      return requestUrl<T>(url, options, attempt + 1, timeoutMs)
+    }
+    if (timedOut) {
+      throw new Error('Сервер Render просыпается — подождите до минуты и обновите страницу.')
+    }
     throw new Error('Нет связи с сервером. Проверьте интернет.')
   }
 
@@ -127,7 +143,7 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
     const message = await parseErrorResponse(res)
     if (RETRY_STATUS.has(res.status) && attempt < 2) {
       await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
-      return requestUrl<T>(url, options, attempt + 1)
+      return requestUrl<T>(url, options, attempt + 1, timeoutMs)
     }
     throw new Error(message || `Ошибка ${res.status}`)
   }
@@ -254,7 +270,7 @@ export const api = {
   updateAssembler: (id: string, data: Partial<AdminAssembler>) =>
     request<AdminAssembler>(`/assemblers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  getClients: () => request<AdminClient[]>('/clients'),
+  getClients: () => requestColdStart<AdminClient[]>('/clients'),
   createClient: (data: Partial<AdminClient>) =>
     request<AdminClient>('/clients', { method: 'POST', body: JSON.stringify(data) }),
   updateClient: (id: string, data: Partial<AdminClient>) =>
@@ -291,7 +307,7 @@ export const api = {
     request<PricingConfig>('/settings/pricing', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Карты ──
-  getCards: () => request<AdminCard[]>('/cards'),
+  getCards: () => requestColdStart<AdminCard[]>('/cards'),
   generateCards: (count: number) =>
     request<{ ok: boolean; count: number; cards: AdminCard[] }>(`/cards/generate?count=${count}`, { method: 'POST' }),
   ensureCard: (data: Partial<AdminCard> & { num: string; clientId?: string }) =>

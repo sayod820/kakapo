@@ -90,6 +90,10 @@ interface ClientStore {
   clients: AdminClient[]
   hydrated: boolean
   apiReady: boolean
+  apiSyncing: boolean
+  apiError: string
+  syncing: boolean
+  apiError: string | null
   hydrate: () => void
   reload: () => void
   setClients: (list: AdminClient[]) => void
@@ -104,6 +108,8 @@ export const useClientStore = create<ClientStore>((set, get) => ({
   clients: USE_API ? [] : DEFAULT_ADMIN_CLIENTS,
   hydrated: false,
   apiReady: !USE_API,
+  apiSyncing: false,
+  apiError: '',
   hydrate: () => {
     if (USE_API) return
     set({ clients: filterVisibleClients(loadClients()), hydrated: true, apiReady: true })
@@ -155,6 +161,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       return
     }
     const prev = get().clients
+    set({ apiSyncing: true, apiError: '' })
     try {
       clearAppDataLocalCache()
       const apiList = (await api.getClients())
@@ -177,11 +184,12 @@ export const useClientStore = create<ClientStore>((set, get) => ({
         merged.push(normalizeClient(lc))
       }
       const clients = filterVisibleClients(merged)
-      set({ clients, hydrated: true, apiReady: true })
+      set({ clients, hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
       emitCrmSync()
     } catch (e) {
       console.error(e)
-      set({ clients: prev, hydrated: true, apiReady: prev.length > 0 })
+      const msg = e instanceof Error ? e.message : 'Не удалось загрузить клиентов'
+      set({ clients: prev, hydrated: true, apiReady: true, apiSyncing: false, apiError: msg })
     }
   },
 }))
