@@ -3,7 +3,7 @@
 import type { Order } from './types'
 import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
-import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
+import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 
 export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
@@ -308,17 +308,13 @@ export function shouldAutoUpgradeLevel(
   return loyaltyTierIndex(effective) > loyaltyTierIndex(stored)
 }
 
-export function suggestLevel(spent: number): ClientLevel {
-  const cfg = typeof window !== 'undefined' ? loadLoyaltyStatusConfig() : null
-  const bronzeMin = cfg?.bronzeMinSpent ?? BRONZE_MIN_SPENT
-  const tiers = cfg?.tiers ?? null
-  const platinumMin = tiers?.find(t => t.id === 'platinum')?.minSpent ?? 3000
-  const goldMin = tiers?.find(t => t.id === 'gold')?.minSpent ?? 2000
-  const silverMin = tiers?.find(t => t.id === 'silver')?.minSpent ?? 1000
-  if (spent >= platinumMin) return 'platinum'
-  if (spent >= goldMin) return 'gold'
-  if (spent >= silverMin) return 'silver'
-  if (spent >= bronzeMin) return 'bronze'
+export function suggestLevel(spent: number, cfg?: ReturnType<typeof loadLoyaltyStatusConfig>): ClientLevel {
+  const c = cfg ?? (typeof window !== 'undefined' ? loadLoyaltyStatusConfig() : DEFAULT_LOYALTY_STATUS_CONFIG)
+  const t = tierThresholdsFromConfig(c)
+  if (spent >= t.platinum) return 'platinum'
+  if (spent >= t.gold) return 'gold'
+  if (spent >= t.silver) return 'silver'
+  if (spent >= t.bronze) return 'bronze'
   return 'basic'
 }
 
@@ -363,8 +359,9 @@ export function statsFromOrders(orders: Order[], phone: string): ClientOrderStat
 export function enrichClientWithOrders(client: AdminClient, orders: Order[]): AdminClient & ClientOrderStats & { lastLabel: string } {
   const live = statsFromOrders(orders, client.phone)
   const hasLive = orders.some(o => phonesMatch(o.client?.phone || '', client.phone))
-  const spent = hasLive ? live.spent : Math.max(client.spent, live.spent)
-  const ordersCount = hasLive ? live.orders : Math.max(client.orders, live.orders)
+  const crmMonthly = isLoyaltyPeriodCurrent(client.loyaltyPeriod)
+  const spent = hasLive ? live.spent : (crmMonthly ? client.spent : 0)
+  const ordersCount = hasLive ? live.orders : (crmMonthly ? client.orders : 0)
   const level = hasLive || orders.length > 0
     ? resolveEffectiveClientLevel(spent, ordersCount, client.level || 'basic', client.loyaltyPeriod)
     : (client.level || 'basic')

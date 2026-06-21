@@ -41,7 +41,8 @@ import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/cl
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
 import { syncLoyaltyBonuses, deliveredOrdersNeedingBonusSync } from "@/lib/loyaltyBonus";
 import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
-import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig } from "@/lib/loyaltyStatusConfig";
+import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig, getRegistrationWelcomeBonus } from "@/lib/loyaltyStatusConfig";
+import { getVipRules } from "@/lib/clientLoyalty";
 import {
   getUnreadNotificationCount,
   loadClientNotifications,
@@ -1138,18 +1139,26 @@ function fillCartFromOrder(
   return added;
 }
 
-const FAQ = [
+const FAQ = () => {
+  const cfg = loadLoyaltyStatusConfig();
+  const bronze = cfg.tiers.find(t => t.id === 'bronze');
+  const silver = cfg.tiers.find(t => t.id === 'silver');
+  const gold = cfg.tiers.find(t => t.id === 'gold');
+  const platinum = cfg.tiers.find(t => t.id === 'platinum');
+  const vip = getVipRules();
+  const welcome = getRegistrationWelcomeBonus(cfg);
+  return [
   {q:"Как быстро доставляют заказ?",         a:"45 минут по всему г. Яван. В часы пик до 60 минут. Придёт SMS когда курьер выедет."},
   {q:"Стоимость доставки?",                  a:"5 ЅМ. Бесплатно при заказе от 30 ЅМ. VIP клиентам — всегда бесплатно."},
   {q:"Какие способы оплаты?",                a:"Наличными курьеру, карты Visa/Mastercard, бонусами."},
-  {q:"Как работает бонусная программа?",     a:"Bronze 1%, Silver 2%, Gold 3%, Platinum 5% кешбэк. 1 бонус = 1 ЅМ."},
-  {q:"Как стать VIP клиентом?",              a:"30+ заказов, нет долгов, 5 отзывов и верификация. Даёт кредитный лимит до 500 ЅМ."},
+  {q:"Как работает бонусная программа?",     a:`Бронза ${bronze?.bonusPercent ?? 1}%, Серебро ${silver?.bonusPercent ?? 2}%, Золото ${gold?.bonusPercent ?? 3}%, Platinum ${platinum?.bonusPercent ?? 5}% кешбэк за месяц. 1 бонус = 1 ЅМ.`},
+  {q:"Как стать VIP клиентом?",              a:`${vip.minOrders}+ заказов, ${vip.minReviews} отзывов, траты от ${vip.minSpent.toLocaleString()} ЅМ за месяц. VIP даёт кредитный лимит и ${cfg.vip.bonusPercent}% кешбэк.`},
   {q:"Как отменить заказ?",                  a:"В течение 5 минут в разделе 'Мои заказы'. После сборки — только по телефону."},
   {q:"Гарантия свежести?",                   a:"Если товар плохого качества — полный возврат в течение 24 часов без вопросов."},
-  {q:"Как зарегистрироваться?",              a:"Телефон → SMS код (демо: 1234) → имя. 1 минута. +100 бонусов за регистрацию!"},
+  {q:"Как зарегистрироваться?",              a:`Телефон → SMS код (демо: 1234) → имя. 1 минута. +${welcome} бонусов за регистрацию!`},
   {q:"Можно ли отследить курьера?",          a:"Да! После начала доставки в приложении появится карта с местоположением курьера."},
   {q:"Что если меня нет дома?",              a:"Курьер подождёт 10 минут. Оставьте комментарий к заказу — например, 'оставить у соседа'."},
-];
+]; };
 const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const qty  = cart[p.id] || 0;
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
@@ -3283,7 +3292,8 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
 const FAQPage = ({ go }) => {
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState("");
-  const filtered = FAQ.filter(f => q==="" || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase()));
+  const items = useMemo(() => FAQ(), []);
+  const filtered = items.filter(f => q==="" || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase()));
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>

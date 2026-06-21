@@ -174,13 +174,36 @@ export function expectedOrderBonus(
   order: Order,
   level?: ClientLevel | string,
   vip?: boolean,
+  allOrders?: Order[],
 ): number {
   if (order.bonusEarned != null && order.status === 'delivered') return order.bonusEarned
   const cfg = loadLoyaltyStatusConfig()
   const eligible = bonusEligibleTotal(order)
+  const phone = order.client?.phone || ''
+
+  if (allOrders?.length && phone) {
+    const delivered = allOrders
+      .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
+      .sort((a, b) => orderSortKey(a) - orderSortKey(b))
+
+    let bonusLevel: ClientLevel
+    if (order.status === 'delivered') {
+      bonusLevel = resolveOrderBonusLevel(phone, delivered, order, vip)
+    } else {
+      const period = currentLoyaltyPeriod()
+      const priorDelivered = delivered.filter(o =>
+        loyaltyPeriodForOrder(o) === period && orderSortKey(o) < orderSortKey(order),
+      )
+      const { spent, orderCount } = loyaltyStatsFromOrders(priorDelivered, phone, period)
+      const projectedSpent = spent + orderSpentContribution(order)
+      const projectedOrders = orderCount + 1
+      bonusLevel = resolveEffectiveClientLevel(projectedSpent, projectedOrders, 'basic', period) as ClientLevel
+    }
+    return calcOrderBonusEarned(eligible, bonusLevel, vip, cfg)
+  }
+
   if (order.status !== 'delivered') {
-    const spentPreview = eligible
-    const previewLevel = resolveEffectiveClientLevel(spentPreview, 1, level, currentLoyaltyPeriod())
+    const previewLevel = resolveEffectiveClientLevel(eligible, 1, level, currentLoyaltyPeriod())
     return calcOrderBonusEarned(eligible, previewLevel, vip, cfg)
   }
   return calcOrderBonusEarned(eligible, level, vip, cfg)
@@ -391,6 +414,18 @@ export async function syncLoyaltyBonuses(phone: string, orders: Order[]): Promis
         markOrdersBonusSynced(phone, pending.map(o => o.id))
         void useClientStore.getState().fetchFromApi()
         void useCardStore.getState().fetchFromApi()
+        const { useOrders } = await import('./store')
+        useOrders.setState(s => ({
+          orders: s.orders.map(o => {
+            if (!pending.some(p => p.id === o.id)) return o
+            const delivered = orders
+              .filter(x => x.status === 'delivered' && phonesMatch(x.client?.phone || '', phone))
+              .sort((a, b) => orderSortKey(a) - orderSortKey(b))
+            const lvl = resolveOrderBonusLevel(phone, delivered, o, undefined)
+            const earned = calcOrderBonusEarned(bonusEligibleTotal(o), lvl, undefined)
+            return { ...o, bonusCredited: true, bonusEarned: earned }
+          }),
+        }))
         return r.credited || 0
       } catch {
         return syncLoyaltyBonusesViaCardApi(phone, orders)

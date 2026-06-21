@@ -27,13 +27,13 @@ function applyDeliveryLoyalty(
   id: string,
 ) {
   const order = get().orders.find(o => o.id === id)
-  if (!order || order.status !== 'delivered' || order.bonusCredited) {
-    if (USE_API && order?.status === 'delivered') {
-      void useClientStore.getState().fetchFromApi()
-      void useCardStore.getState().fetchFromApi()
-    }
+  if (!order || order.status !== 'delivered') return
+  if (USE_API) {
+    void useClientStore.getState().fetchFromApi()
+    void useCardStore.getState().fetchFromApi()
     return
   }
+  if (order.bonusCredited) return
   const patch = creditBonusOnDeliveryLocal(order, get().orders)
   if (patch) {
     patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...patch } : o)))

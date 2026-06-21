@@ -15,7 +15,6 @@ import { syncAutoLevelToCrm, syncMonthlyLoyaltyReset } from './clientCardSync'
 import { currentLoyaltyPeriod } from './loyaltyPeriod'
 import { USE_API } from './config'
 import { useClientStore } from './clientStore'
-import { phonesMatch } from './clientCrm'
 
 /** Ежемесячный сброс + автоповышение по заказам текущего месяца */
 export function useAutoLoyaltySync(
@@ -34,36 +33,25 @@ export function useAutoLoyaltySync(
     const epoch = getSessionEpoch()
     const reset = syncMonthlyLoyaltyReset(cur.phone, cur.card)
     const base = reset
-      ? { ...cur, level: 'basic' as const, vip: false, loyaltyPeriod: currentLoyaltyPeriod() }
+      ? { ...cur, level: 'basic' as const, loyaltyPeriod: currentLoyaltyPeriod() }
       : cur
 
+    // VIP назначенный админом — уровень не пересчитываем (кэшбэк по VIP %)
     if (base.vip && !reset) return
 
+    // Только траты текущего месяца из заказов — не смешиваем с lifetime CRM
     const { orderCount, spent } = loyaltyStatsFromOrders(orders, base.phone)
-
-    // При API — подстраховка: если сервер уже обновил spent/level, берём максимум
-    let effectiveSpent = spent
-    let effectiveOrders = orderCount
-    if (USE_API) {
-      const crmClient = useClientStore.getState().clients.find(c => phonesMatch(c.phone, base.phone))
-      if (crmClient) {
-        effectiveSpent = Math.max(spent, crmClient.spent || 0)
-        effectiveOrders = Math.max(orderCount, crmClient.orders || 0)
-      }
-    }
-
-    const effective = resolveEffectiveClientLevel(effectiveSpent, effectiveOrders, base.level, base.loyaltyPeriod)
+    const effective = resolveEffectiveClientLevel(spent, orderCount, base.level, base.loyaltyPeriod)
 
     if (reset || shouldAutoUpgradeLevel(base.level, effective, base.loyaltyPeriod)) {
       if (!reset && loyaltyTierIndex(effective) <= loyaltyTierIndex((base.level || 'basic') as ClientLevel)) {
         return
       }
-      syncAutoLevelToCrm(base.phone, effective, base.card)
+      if (!USE_API) syncAutoLevelToCrm(base.phone, effective, base.card)
       const next: StoreUser = {
         ...base,
         level: effective,
         loyaltyPeriod: currentLoyaltyPeriod(),
-        vip: reset ? false : !!base.vip,
       }
       if (getSessionEpoch() !== epoch || !isClientSessionActive() || userRef.current?.phone !== base.phone) return
       saveStoreUser(next)
@@ -72,7 +60,7 @@ export function useAutoLoyaltySync(
     }
 
     if (reset) {
-      const next: StoreUser = { ...base, level: 'basic', vip: false, loyaltyPeriod: currentLoyaltyPeriod() }
+      const next: StoreUser = { ...base, level: 'basic', loyaltyPeriod: currentLoyaltyPeriod() }
       if (getSessionEpoch() !== epoch || !isClientSessionActive() || userRef.current?.phone !== base.phone) return
       saveStoreUser(next)
       setUser(next)

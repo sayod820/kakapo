@@ -319,10 +319,15 @@ export function saveLoyaltyStatusConfig(config: LoyaltyStatusConfig) {
 }
 
 export function resetLoyaltyStatusConfig() {
-  if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEY)
   const d = DEFAULT_LOYALTY_STATUS_CONFIG
+  applyLoyaltyConfigLocally(d)
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(LOYALTY_STATUS_CONFIG_EVENT, { detail: d }))
+    import('./config').then(({ USE_API }) => {
+      if (!USE_API) return
+      import('./api').then(({ api }) => {
+        api.updateLoyalty(statusConfigToApiPayload(d)).catch(() => {})
+      })
+    })
   }
   return d
 }
@@ -332,6 +337,15 @@ export function subscribeLoyaltyStatusConfig(cb: (cfg: LoyaltyStatusConfig) => v
   const handler = (e: Event) => cb((e as CustomEvent<LoyaltyStatusConfig>).detail || loadLoyaltyStatusConfig())
   window.addEventListener(LOYALTY_STATUS_CONFIG_EVENT, handler)
   return () => window.removeEventListener(LOYALTY_STATUS_CONFIG_EVENT, handler)
+}
+
+export function tierThresholdsFromConfig(cfg: LoyaltyStatusConfig = DEFAULT_LOYALTY_STATUS_CONFIG) {
+  return {
+    bronze: cfg.bronzeMinSpent,
+    silver: cfg.tiers.find(t => t.id === 'silver')?.minSpent ?? 1000,
+    gold: cfg.tiers.find(t => t.id === 'gold')?.minSpent ?? 2000,
+    platinum: cfg.tiers.find(t => t.id === 'platinum')?.minSpent ?? 3000,
+  }
 }
 
 export function getRegistrationWelcomeBonus(cfg = loadLoyaltyStatusConfig()): number {

@@ -49,7 +49,7 @@ export function mapOrdersForClient(
         price: it.price,
       })),
       total: order.total,
-      bonus: expectedOrderBonus(order, profile?.level, profile?.vip),
+      bonus: expectedOrderBonus(order, profile?.level, profile?.vip, orders),
       bonusSpent: order.bonusSpent ?? 0,
       delivery: order.deliveryFee ?? 0,
       addr: order.client?.addr || '',

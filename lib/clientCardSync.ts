@@ -367,7 +367,7 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string): boolea
   if (isLoyaltyPeriodCurrent(storedPeriod)) return false
 
   const period = currentLoyaltyPeriod()
-  const patch = { level: 'basic' as ClientLevel, vip: false, loyaltyPeriod: period }
+  const patch = { level: 'basic' as ClientLevel, loyaltyPeriod: period }
 
   if (card) cardStore.updateCardLoyalty(card.num, patch)
   if (client) clientStore.updateClient(client.id, { ...patch, ...(card ? { card: card.num } : {}) })

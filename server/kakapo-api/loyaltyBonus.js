@@ -8,6 +8,7 @@ export const DEFAULT_LOYALTY = {
   gold: { bonusPercent: 3 },
   platinum: { bonusPercent: 5 },
   vip: { bonusPercent: 5 },
+  vipRules: { minOrders: 30, minReviews: 5, minSpent: 3000 },
 }
 
 export function ensureLoyaltySettings(db) {
@@ -18,6 +19,9 @@ export function ensureLoyaltySettings(db) {
   const l = db.settings.loyalty
   if (!l.tierMinSpent) {
     l.tierMinSpent = { ...DEFAULT_LOYALTY.tierMinSpent }
+  }
+  if (!l.vipRules) {
+    l.vipRules = { minOrders: 30, minReviews: 5, minSpent: 3000 }
   }
   return l
 }
@@ -197,11 +201,12 @@ function ensureClientPeriodForOrder(client, card, orderPeriod) {
   if (card && !card.loyaltyPeriod) card.loyaltyPeriod = orderPeriod
 }
 
-function syncClientLifetimeStats(db, client, phone) {
-  const stats = lifetimeDeliveredStats(db, phone)
+function syncClientMonthlyStats(db, client, phone, period = currentLoyaltyPeriod()) {
+  const stats = monthlyDeliveredStats(db, phone, period)
   client.orders = stats.orderCount
   client.spent = stats.spent
-  if (stats.orderCount > 0) {
+  const lifetime = lifetimeDeliveredStats(db, phone)
+  if (lifetime.orderCount > 0) {
     client.lastOrderAt = new Date().toISOString().slice(0, 10)
   }
 }
@@ -278,7 +283,7 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
     client.bonus = card.bonus
   }
 
-  syncClientLifetimeStats(db, client, phone)
+  syncClientMonthlyStats(db, client, phone, orderPeriod)
   hooks.syncClientFromCardRow(card)
 
   order.bonusCredited = true
@@ -306,7 +311,6 @@ export function backfillClientBonuses(db, phone, hooks) {
 
   const client = findClientByPhone(db, phone)
   const card = client?.card ? hooks.findCardByNum(client.card) : null
-  if (client) syncClientLifetimeStats(db, client, phone)
   if (card && client) hooks.syncClientFromCardRow(card)
 
   return {

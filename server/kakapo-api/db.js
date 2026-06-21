@@ -26,6 +26,7 @@ const DEFAULT = {
       gold: { bonusPercent: 3 },
       platinum: { bonusPercent: 5 },
       vip: { bonusPercent: 5 },
+      vipRules: { minOrders: 30, minReviews: 5, minSpent: 3000 },
     },
   },
   users: [],
