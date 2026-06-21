@@ -323,6 +323,11 @@ export const api = {
   getLoyalty: () => request<Record<string, unknown>>('/settings/loyalty'),
   updateLoyalty: (data: Record<string, unknown>) =>
     request('/settings/loyalty', { method: 'PATCH', body: JSON.stringify(data) }),
+  syncLoyalty: (phone: string) =>
+    request<{ ok: boolean; credited: number; orders: number; bonus: number }>('/loyalty/sync', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    }),
 
   // ── Карты ──
   getCards: () => requestColdStart<AdminCard[]>('/cards'),

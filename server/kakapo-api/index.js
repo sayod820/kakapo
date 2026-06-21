@@ -19,6 +19,9 @@ import {
   applyBonusSpendOnOrder,
   creditClientBonusOnDelivery,
   ensureLoyaltySettings,
+  backfillAllMissedBonuses,
+  backfillClientBonuses,
+  findClientByPhone,
 } from './loyaltyBonus.js'
 
 const loyaltyHooks = () => ({
@@ -293,7 +296,7 @@ function nowTime() {
 app.get('/health', (_req, res) => res.json({
   ok: true,
   service: 'kakapo-api',
-  version: '2.4-node-loyalty-fix',
+  version: '2.5-loyalty-backfill',
   loyaltyVip: true,
   dataDir: process.env.DATA_DIR || 'data',
 }))
@@ -911,6 +914,16 @@ app.patch('/settings/loyalty', (req, res) => {
   res.json(db.settings.loyalty)
 })
 
+app.post('/loyalty/sync', (req, res) => {
+  const phone = String(req.body?.phone || req.query?.phone || '').trim()
+  if (!phone) return res.status(400).json({ detail: 'Укажите телефон' })
+  const result = backfillClientBonuses(db, phone, loyaltyHooks())
+  persist()
+  const client = findClientByPhone(db, phone)
+  const card = client?.card ? findCardByNum(client.card) : null
+  res.json({ ok: true, ...result, client, card })
+})
+
 function migrateLoyaltyRows() {
   let changed = false
   if (Array.isArray(db.cards)) {
@@ -1133,6 +1146,19 @@ function ensureMissingSeedRows() {
 }
 
 ensureMissingSeedRows()
+
+function runLoyaltyBackfill() {
+  try {
+    const r = backfillAllMissedBonuses(db, loyaltyHooks())
+    if (r.totalOrders > 0) {
+      persist()
+      console.log(`[loyalty] backfill: +${r.totalCredited} bonus, ${r.totalOrders} orders, ${r.clients} clients`)
+    }
+  } catch (e) {
+    console.error('[loyalty] backfill failed', e)
+  }
+}
+runLoyaltyBackfill()
 
 app.post('/cards/ensure', (req, res) => {
   const body = req.body || {}

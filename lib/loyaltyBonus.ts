@@ -8,6 +8,7 @@ import {
   resolveEffectiveClientLevel,
 } from './clientCrm'
 import { USE_API } from './config'
+import { api } from './api'
 import { loadLoyaltyStatusConfig, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
 import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
@@ -174,4 +175,34 @@ export function creditBonusOnDeliveryLocal(order: Order, allOrders: Order[] = []
 
 export function onOrderDeliveredLoyalty(order: Order, allOrders: Order[] = []) {
   creditBonusOnDeliveryLocal(order, allOrders)
+}
+
+/** Пересчитать пропущенные бонусы за доставленные заказы (локально или через API). */
+export async function syncLoyaltyBonuses(phone: string, orders: Order[]): Promise<number> {
+  if (!phone.trim()) return 0
+  if (USE_API) {
+    try {
+      const r = await api.syncLoyalty(phone)
+      void useClientStore.getState().fetchFromApi()
+      void useCardStore.getState().fetchFromApi()
+      return r.credited || 0
+    } catch {
+      return 0
+    }
+  }
+  let credited = 0
+  const mine = orders.filter(
+    o => o.status === 'delivered' && !o.bonusCredited && phonesMatch(o.client?.phone || '', phone),
+  )
+  for (const order of mine) {
+    const patch = creditBonusOnDeliveryLocal(order, orders)
+    if (patch?.bonusEarned) credited += patch.bonusEarned
+    if (patch) {
+      const { useOrders } = await import('./store')
+      useOrders.setState(s => ({
+        orders: s.orders.map(o => (o.id === order.id ? { ...o, ...patch } : o)),
+      }))
+    }
+  }
+  return credited
 }

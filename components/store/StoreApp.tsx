@@ -39,6 +39,7 @@ import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData }
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
+import { syncLoyaltyBonuses } from "@/lib/loyaltyBonus";
 import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
 import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig } from "@/lib/loyaltyStatusConfig";
 import {
@@ -2272,6 +2273,8 @@ function StoreSessionBoot() {
 
 const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady }) => {
   const apiOrders = useOrders(s => s.orders);
+  const fetchOrders = useOrders(s => s.fetchOrders);
+  const loyaltySyncKeyRef = useRef('');
   const [reviewStats, setReviewStats] = useState({ count: 0, withReplies: 0 });
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -2295,7 +2298,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     const phone = user.phone
     const card = user.card
     const epoch = getSessionEpoch()
-    fetchCrmStoreUser(phone, card).then(next => {
+
+    const refreshProfile = () => fetchCrmStoreUser(phone, card).then(next => {
       if (cancelled || getSessionEpoch() !== epoch || !isClientSessionActive()) return
       const stored = loadStoreUser()
       if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
@@ -2306,8 +2310,32 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
         setUser(merged)
       }
     }).catch(() => {})
+
+    const pending = apiOrders.filter(
+      o => o.status === 'delivered'
+        && !o.bonusCredited
+        && phoneDigits(o.client?.phone || '') === phoneDigits(phone),
+    )
+    const syncKey = `${phone}:${pending.map(o => o.id).sort().join(',')}`
+
+    if (!pending.length) {
+      void refreshProfile()
+      return () => { cancelled = true }
+    }
+    if (loyaltySyncKeyRef.current === syncKey) {
+      void refreshProfile()
+      return () => { cancelled = true }
+    }
+    loyaltySyncKeyRef.current = syncKey
+
+    void syncLoyaltyBonuses(phone, apiOrders).then(async credited => {
+      if (cancelled) return
+      if (USE_API) await fetchOrders().catch(() => {})
+      await refreshProfile()
+    })
+
     return () => { cancelled = true }
-  }, [user?.phone, user?.card])
+  }, [user?.phone, user?.card, apiOrders, setUser, fetchOrders])
 
   useEffect(() => {
     const phone = getActiveClientPhone(user);

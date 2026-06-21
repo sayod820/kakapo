@@ -55,10 +55,28 @@ function orderInPeriod(order, period) {
   return d.getFullYear() === y && d.getMonth() + 1 === m
 }
 
-export function monthlyDeliveredStats(db, phone, period = currentLoyaltyPeriod()) {
+export function orderSpentContribution(order) {
+  return Math.round(((Number(order.total) || 0) + (Number(order.bonusSpent) || 0)) * 10) / 10
+}
+
+export function monthlyDeliveredStats(db, phone, period = currentLoyaltyPeriod(), excludeOrderId = null) {
+  const key = normalizePhoneDigits(phone)
+  const delivered = (db.orders || []).filter(o => {
+    if (o.status !== 'delivered') return false
+    if (normalizePhoneDigits(o.client?.phone) !== key) return false
+    if (excludeOrderId && String(o.id) === String(excludeOrderId)) return false
+    return orderInPeriod(o, period)
+  })
+  return {
+    orderCount: delivered.length,
+    spent: Math.round(delivered.reduce((s, o) => s + orderSpentContribution(o), 0) * 10) / 10,
+  }
+}
+
+export function lifetimeDeliveredStats(db, phone) {
   const key = normalizePhoneDigits(phone)
   const delivered = (db.orders || []).filter(
-    o => o.status === 'delivered' && normalizePhoneDigits(o.client?.phone) === key && orderInPeriod(o, period),
+    o => o.status === 'delivered' && normalizePhoneDigits(o.client?.phone) === key,
   )
   return {
     orderCount: delivered.length,
@@ -121,10 +139,6 @@ export function calcBonusEarned(eligibleTotal, percent) {
   return Math.floor(eligibleTotal * percent / 100)
 }
 
-export function orderSpentContribution(order) {
-  return Math.round(((Number(order.total) || 0) + (Number(order.bonusSpent) || 0)) * 10) / 10
-}
-
 function findClientForOrder(db, order, hooks) {
   const phone = order.client?.phone || ''
   let client = findClientByPhone(db, phone)
@@ -152,6 +166,20 @@ function applyLevelUpgrade(client, card, effectiveLevel, period) {
     card.level = effectiveLevel
     card.loyaltyPeriod = period
   }
+}
+
+function syncClientLifetimeStats(db, client, phone) {
+  const stats = lifetimeDeliveredStats(db, phone)
+  client.orders = stats.orderCount
+  client.spent = stats.spent
+  if (stats.orderCount > 0) {
+    client.lastOrderAt = new Date().toISOString().slice(0, 10)
+  }
+}
+
+function orderSortKey(order) {
+  const d = parseOrderDate(order)
+  return d.getTime()
 }
 
 /**
@@ -199,11 +227,7 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   const period = currentLoyaltyPeriod()
   const spentAdd = orderSpentContribution(order)
 
-  client.orders = (Number(client.orders) || 0) + 1
-  client.spent = Math.round(((Number(client.spent) || 0) + spentAdd) * 10) / 10
-  client.lastOrderAt = new Date().toISOString().slice(0, 10)
-
-  const monthly = monthlyDeliveredStats(db, phone, period)
+  const monthly = monthlyDeliveredStats(db, phone, period, order.id)
   const monthlySpent = Math.round((monthly.spent + spentAdd) * 10) / 10
   const monthlyOrders = monthly.orderCount + 1
   const effectiveLevel = resolveEffectiveLevel(
@@ -224,9 +248,66 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
     client.bonus = card.bonus
   }
 
+  syncClientLifetimeStats(db, client, phone)
   hooks.syncClientFromCardRow(card)
 
   order.bonusCredited = true
   order.bonusEarned = earned
   return earned
+}
+
+/**
+ * Пересчёт пропущенных бонусов для одного клиента (старые заказы без bonusCredited).
+ */
+export function backfillClientBonuses(db, phone, hooks) {
+  const key = normalizePhoneDigits(phone)
+  if (!key) return { credited: 0, orders: 0, bonus: 0 }
+
+  const pending = (db.orders || [])
+    .filter(o => o.status === 'delivered'
+      && !o.bonusCredited
+      && normalizePhoneDigits(o.client?.phone) === key)
+    .sort((a, b) => orderSortKey(a) - orderSortKey(b))
+
+  let totalEarned = 0
+  for (const order of pending) {
+    totalEarned += creditClientBonusOnDelivery(db, order, hooks)
+  }
+
+  const client = findClientByPhone(db, phone)
+  const card = client?.card ? hooks.findCardByNum(client.card) : null
+  if (client) syncClientLifetimeStats(db, client, phone)
+  if (card && client) hooks.syncClientFromCardRow(card)
+
+  return {
+    credited: totalEarned,
+    orders: pending.length,
+    bonus: client?.bonus ?? card?.bonus ?? 0,
+  }
+}
+
+/**
+ * Пересчёт всех пропущенных бонусов в базе (при старте сервера).
+ */
+export function backfillAllMissedBonuses(db, hooks) {
+  const phones = new Set()
+  for (const o of db.orders || []) {
+    if (o.status === 'delivered' && !o.bonusCredited && o.client?.phone) {
+      phones.add(normalizePhoneDigits(o.client.phone))
+    }
+  }
+  let totalCredited = 0
+  let totalOrders = 0
+  for (const key of phones) {
+    if (!key) continue
+    const client = (db.clients || []).find(c => normalizePhoneDigits(c.phone) === key)
+    const phone = client?.phone || (db.orders || []).find(
+      o => normalizePhoneDigits(o.client?.phone) === key,
+    )?.client?.phone
+    if (!phone) continue
+    const r = backfillClientBonuses(db, phone, hooks)
+    totalCredited += r.credited
+    totalOrders += r.orders
+  }
+  return { totalCredited, totalOrders, clients: phones.size }
 }
