@@ -40,7 +40,6 @@ import {
   emptyCardLoyaltyForm,
   mergeCardsWithClients,
   cardMatchesSearch,
-  previewCardRange,
   CARD_STATUS_LABELS,
   findClientForCard,
   type AdminCard,
@@ -66,7 +65,6 @@ import {
 import {
   saveClientProfile,
   saveCardLoyalty,
-  createAndLinkCard,
   lookupClientByPhone,
   loyaltySummaryForClient,
   clientNoteForCard,
@@ -3530,20 +3528,12 @@ function ClientSearchPicker({
 function CardsPage({ setPage }: { setPage: (p: string) => void }) {
   const stored = useCards();
   const clients = useClients();
-  const { generateCards, unlinkCard, toggleBlock } = useCardStore();
+  const { unlinkCard, toggleBlock } = useCardStore();
   const [cardsTab, setCardsTab] = useState<'registry' | 'status'>('registry');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | CardStatus>('all');
   const [detail, setDetail] = useState<AdminCard | null>(null);
-  const [showGen, setShowGen] = useState(false);
-  const [showCreateLink, setShowCreateLink] = useState(false);
   const [showLink, setShowLink] = useState<AdminCard | null>(null);
-  const [genN, setGenN] = useState('1');
-  const [gened, setGened] = useState(false);
-  const [genLoading, setGenLoading] = useState(false);
-  const [genErr, setGenErr] = useState('');
-  const [createLoading, setCreateLoading] = useState(false);
-  const [genCreated, setGenCreated] = useState<AdminCard[]>([]);
   const [linkForm, setLinkForm] = useState<CardLoyaltyForm>(emptyCardLoyaltyForm());
   const [linkErr, setLinkErr] = useState('');
 
@@ -3588,8 +3578,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
     blocked: cards.filter(c => c.status === 'blocked').length,
   }), [cards]);
 
-  const genPreview = useMemo(() => previewCardRange(cards, Math.max(1, parseInt(genN, 10) || 1)), [cards, genN]);
-
   const openLink = (card: AdminCard) => {
     const client = findClientForCard(clients, card);
     setLinkForm(cardLoyaltyFromCard(card, client));
@@ -3611,54 +3599,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
     }
   };
 
-  const saveCreateLink = async () => {
-    setCreateLoading(true);
-    setLinkErr('');
-    try {
-      if (!linkForm.clientId && !linkForm.phone.trim()) {
-        throw new Error('Выберите клиента из списка');
-      }
-      await createAndLinkCard({ ...linkForm, debt: 0 });
-      setShowCreateLink(false);
-      setLinkForm(emptyCardLoyaltyForm());
-      setFilter('active');
-    } catch (e) {
-      setLinkErr(e instanceof Error ? e.message : 'Ошибка создания карты');
-    } finally {
-      setCreateLoading(false);
-    }
-  };
-
-  const doGenerate = async () => {
-    const n = Math.min(500, Math.max(1, parseInt(genN, 10) || 1));
-    setGenLoading(true);
-    setGenErr('');
-    try {
-      const created = await generateCards(n);
-      if (!created.length) throw new Error('Карты не созданы. Проверьте backend или перезагрузите страницу.');
-      setGenCreated(created);
-      setGened(true);
-      setFilter('unlinked');
-    } catch (e) {
-      setGenErr(e instanceof Error ? e.message : 'Ошибка генерации');
-    } finally {
-      setGenLoading(false);
-    }
-  };
-
-  const downloadCsv = () => {
-    const list = genCreated.length ? genCreated : cards.filter(c => c.status === 'unlinked');
-    const rows = [['num', 'status', 'issued'], ...list.map(c => [c.num, c.status, c.issued || ''])];
-    const csv = rows.map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `kakapo-cards-${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const setLF = <K extends keyof CardLoyaltyForm>(key: K, val: CardLoyaltyForm[K]) =>
     setLinkForm(prev => ({ ...prev, [key]: val }));
 
@@ -3666,7 +3606,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {[
-          { id: 'registry' as const, l: '💳 Картотека', d: 'Выдача и привязка карт' },
+          { id: 'registry' as const, l: '💳 Картотека', d: 'Все карты клиентов' },
           { id: 'status' as const, l: '🏅 Статусы', d: 'Уровни, VIP, оформление' },
         ].map(t => (
           <button
@@ -3723,78 +3663,25 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
         ))}
       </div>
 
-      {/* Главные действия */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, marginBottom: 16 }}>
-        <button
-          type="button"
-          onClick={() => { setShowCreateLink(true); setLinkForm(emptyCardLoyaltyForm()); setLinkErr(''); }}
-          style={{
-            background: 'linear-gradient(135deg,#0F8A3A,#1FD760)',
-            border: 'none',
-            borderRadius: 16,
-            padding: '20px 22px',
-            textAlign: 'left',
-            cursor: 'pointer',
-            color: '#030B05',
-            boxShadow: '0 4px 24px rgba(31,215,96,.25)',
-          }}
-        >
-          <div style={{ fontSize: 28, marginBottom: 8 }}>🎴</div>
-          <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 6 }}>Выдать карту клиенту</div>
-          <div style={{ fontSize: 12, opacity: .85, lineHeight: 1.5, fontWeight: 600 }}>
-            Создаётся новая КАКАПО-карта и сразу привязывается к выбранному клиенту
-          </div>
-        </button>
-        <button
-          type="button"
-          onClick={() => { setShowGen(true); setGened(false); setGenCreated([]); setGenErr(''); }}
-          style={{
-            background: '#0C1C0F',
-            border: '1.5px solid #162B1A',
-            borderRadius: 16,
-            padding: '20px 22px',
-            textAlign: 'left',
-            cursor: 'pointer',
-            color: '#EBF5ED',
-          }}
-        >
-          <div style={{ fontSize: 28, marginBottom: 8 }}>📦</div>
-          <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6, color: '#FFB800' }}>Пустые карты (пачка)</div>
-          <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.5 }}>
-            Сгенерировать карты без клиента — привязку сделаете позже кнопкой «Привязать»
-          </div>
-        </button>
-      </div>
-
-      {/* Подсказка */}
+      {/* Автоматическая выдача */}
       <div style={{
         display: 'flex',
-        gap: 16,
+        gap: 12,
         padding: '14px 18px',
         marginBottom: 16,
         borderRadius: 14,
-        background: 'rgba(59,142,240,.06)',
-        border: '1px solid rgba(59,142,240,.18)',
-        flexWrap: 'wrap',
+        background: 'rgba(31,215,96,.06)',
+        border: '1px solid rgba(31,215,96,.2)',
+        alignItems: 'flex-start',
       }}>
-        {[
-          { n: '1', t: 'Выберите клиента', d: 'Из списка или по телефону' },
-          { n: '2', t: 'Бонусы', d: 'Уровень и VIP — во вкладке «Статусы»' },
-          { n: '3', t: 'Готово!', d: 'Карта работает в приложении' },
-        ].map((step, i) => (
-          <div key={step.n} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: '1 1 160px' }}>
-            <div style={{
-              width: 26, height: 26, borderRadius: '50%', background: '#3B8EF0', color: '#fff',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 12, fontWeight: 900, flexShrink: 0,
-            }}>{step.n}</div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#EBF5ED' }}>{step.t}</div>
-              <div style={{ fontSize: 11, color: '#8FB897' }}>{step.d}</div>
-            </div>
-            {i < 2 && <div style={{ display: 'none' }} />}
+        <div style={{ fontSize: 24, lineHeight: 1 }}>🎴</div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#EBF5ED', marginBottom: 4 }}>Карта создаётся автоматически</div>
+          <div style={{ fontSize: 12, color: '#8FB897', lineHeight: 1.55 }}>
+            При регистрации клиента в CRM или входе в приложение по телефону система сама выдаёт КАКАПО-карту и привязывает её к аккаунту.
+            Здесь можно просматривать карты, настраивать бонусы и привязать старые неактивные карты.
           </div>
-        ))}
+        </div>
       </div>
 
       {/* Поиск и фильтры */}
@@ -3848,7 +3735,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                     {search.trim() ? 'Ничего не найдено' : 'Карт пока нет'}
                   </div>
                   <div style={{ fontSize: 12, color: '#3D6645' }}>
-                    Нажмите «Выдать карту клиенту» чтобы начать
+                    {search.trim() ? 'Попробуйте другой запрос' : 'Карты появятся после регистрации клиентов'}
                   </div>
                 </td>
               </tr>
@@ -3958,63 +3845,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
         </div>
       )}
 
-      {showCreateLink && (
-        <div className="amod">
-          <div className="amodbg" onClick={() => !createLoading && setShowCreateLink(false)} />
-          <div className="amodbox" style={{ maxWidth: 460 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div>
-                <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>🎴 Выдать карту</div>
-                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>Новая карта + привязка к клиенту</div>
-              </div>
-              <button type="button" onClick={() => setShowCreateLink(false)} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, borderRadius: 10, fontSize: 16 }}>✕</button>
-            </div>
-
-            <CardVisualMini
-              level={linkForm.level}
-              clientName={linkClient?.name}
-              status="unlinked"
-            />
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
-              <CardFormSection title="👤 Шаг 1 — Кому выдаём?" subtitle="Найдите клиента по имени, телефону или номеру карты">
-                <ClientSearchPicker
-                  clients={clientsForLink}
-                  selectedId={linkForm.clientId}
-                  onSelect={pickClient}
-                  onClear={() => pickClient('')}
-                  autoFocus
-                />
-                {linkClient && linkClient.card && (
-                  <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.2)', fontSize: 11, color: '#FFB800' }}>
-                    ⚠ Старая карта {linkClient.card} будет заменена новой
-                  </div>
-                )}
-              </CardFormSection>
-
-              <CardFormSection title="⭐ Шаг 2 — Бонусы" subtitle="Уровень, VIP и раздел долга — во вкладке «Статусы»">
-                <NI lbl="Бонусы ⭐" val={String(linkForm.bonus)} set={v => setLF('bonus', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
-                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.2)', fontSize: 11, color: '#8FB897', lineHeight: 1.45 }}>
-                  🏅 Статус клиента (уровень, VIP, долг) настраивается в <button type="button" onClick={() => { setShowCreateLink(false); setCardsTab('status'); }} style={{ background: 'none', border: 'none', color: '#3B8EF0', fontWeight: 800, cursor: 'pointer', padding: 0, fontSize: 11 }}>разделе «Статусы»</button>
-                </div>
-              </CardFormSection>
-
-              {linkErr && (
-                <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.3)', fontSize: 12, color: '#FF4545', fontWeight: 700 }}>
-                  ⚠ {linkErr}
-                </div>
-              )}
-              <button type="button" onClick={saveCreateLink} disabled={createLoading || !linkForm.clientId} className="ab abp" style={{ width: '100%', padding: 14, fontSize: 14, fontWeight: 800, opacity: createLoading || !linkForm.clientId ? .6 : 1 }}>
-                {createLoading ? '⏳ Создаём карту…' : '✓ Выдать карту клиенту'}
-              </button>
-              {!linkForm.clientId && (
-                <div style={{ textAlign: 'center', fontSize: 11, color: '#3D6645' }}>Сначала выберите клиента ↑</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {showLink && (
         <div className="amod">
           <div className="amodbg" onClick={() => setShowLink(null)} />
@@ -4067,54 +3897,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                 {showLink.status === 'unlinked' ? '✓ Привязать карту' : '✓ Сохранить'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showGen && (
-        <div className="amod">
-          <div className="amodbg" onClick={() => { if (!genLoading) { setShowGen(false); setGened(false); setGenCreated([]); } }} />
-          <div className="amodbox" style={{ maxWidth: 440 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div>
-                <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>📦 Пустые карты</div>
-                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>Для печати или выдачи на кассе</div>
-              </div>
-              <button type="button" onClick={() => { setShowGen(false); setGened(false); setGenCreated([]); }} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, borderRadius: 10, fontSize: 16 }}>✕</button>
-            </div>
-            {!gened ? (
-              <>
-                <CardVisualMini status="unlinked" />
-                <div style={{ marginTop: 16 }}>
-                  <NI lbl="Сколько карт создать?" val={genN} set={setGenN} ph="1" type="number" />
-                </div>
-                <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.2)', fontSize: 12, color: '#8FB897', margin: '12px 0' }}>
-                  Номера: <strong style={{ color: '#FFB800' }}>{genPreview.from}</strong> → <strong style={{ color: '#FFB800' }}>{genPreview.to}</strong>
-                </div>
-                {genErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700, marginBottom: 10 }}>⚠ {genErr}</div>}
-                <button type="button" onClick={doGenerate} disabled={genLoading} className="ab abp" style={{ width: '100%', padding: 14, fontWeight: 800, opacity: genLoading ? .7 : 1 }}>
-                  {genLoading ? '⏳ Создаём…' : `✓ Создать ${Math.max(1, parseInt(genN, 10) || 1)} карт`}
-                </button>
-              </>
-            ) : (
-              <div>
-                <div style={{ textAlign: 'center', padding: '12px 0 16px' }}>
-                  <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
-                  <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#1FD760' }}>{genCreated.length} карт готово!</div>
-                  <div style={{ fontSize: 12, color: '#8FB897', marginTop: 6 }}>Нажмите «Привязать» у нужной карты</div>
-                </div>
-                <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-                  {genCreated.map(c => (
-                    <div key={c.num} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 12, background: '#0C1C0F', border: '1px solid #162B1A' }}>
-                      <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#FFB800' }}>{c.num}</span>
-                      <button type="button" onClick={() => { setShowGen(false); openLink(c); }} className="ab abp" style={{ padding: '6px 14px', fontSize: 11, fontWeight: 800 }}>🔗 Привязать</button>
-                    </div>
-                  ))}
-                </div>
-                <button type="button" onClick={downloadCsv} className="ab abg" style={{ width: '100%', padding: 11, marginBottom: 8 }}>📄 Скачать список (CSV)</button>
-                <button type="button" onClick={() => { setShowGen(false); setGened(false); setGenCreated([]); }} className="ab" style={{ width: '100%', padding: 10, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>Готово</button>
-              </div>
-            )}
           </div>
         </div>
       )}
