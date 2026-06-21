@@ -13,7 +13,7 @@ import { loadLoyaltyStatusConfig, type LoyaltyStatusConfig, getRegistrationWelco
 import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
 import { onBonusCredited } from './pushService'
-import { currentLoyaltyPeriod } from './loyaltyPeriod'
+import { currentLoyaltyPeriod, loyaltyPeriodForOrder } from './loyaltyPeriod'
 import { findMergedClientByPhone } from './clientProfileSync'
 import { phoneDigits } from './clientSession'
 
@@ -57,7 +57,30 @@ export function orderNeedsBonusSync(phone: string, order: Order): boolean {
   return true
 }
 
-/** Ожидаемый баланс: welcome + кэшбэк за все доставленные заказы − списанные бонусы. */
+function orderSortKey(order: Order): number {
+  const raw = order.deliveredAtIso || order.createdAtIso || order.createdAt || ''
+  const d = new Date(String(raw))
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime()
+}
+
+/** Уровень (и % кэшбэка) на момент доставки заказа — по накопленным тратам за этот месяц. */
+export function resolveOrderBonusLevel(
+  phone: string,
+  allDelivered: Order[],
+  order: Order,
+  vip?: boolean,
+): ClientLevel {
+  const period = loyaltyPeriodForOrder(order)
+  const prior = allDelivered.filter(o =>
+    phonesMatch(o.client?.phone || '', phone)
+    && loyaltyPeriodForOrder(o) === period
+    && orderSortKey(o) <= orderSortKey(order),
+  )
+  const { spent, orderCount } = loyaltyStatsFromOrders(prior, phone, period)
+  return resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
+}
+
+/** Ожидаемый баланс: welcome + кэшбэк за доставленные заказы − списанные бонусы. */
 export function computeExpectedClientBonus(
   phone: string,
   orders: Order[],
@@ -68,16 +91,8 @@ export function computeExpectedClientBonus(
     .sort((a, b) => orderSortKey(a) - orderSortKey(b))
 
   let earned = 0
-  const processed: Order[] = []
   for (const order of delivered) {
-    processed.push(order)
-    const { spent, orderCount } = loyaltyStatsFromOrders(processed, phone)
-    const level = resolveEffectiveClientLevel(
-      spent,
-      orderCount,
-      merged.level,
-      merged.loyaltyPeriod,
-    ) as ClientLevel
+    const level = resolveOrderBonusLevel(phone, delivered, order, merged.vip)
     earned += calcOrderBonusEarned(bonusEligibleTotal(order), level, merged.vip)
   }
 
@@ -87,12 +102,6 @@ export function computeExpectedClientBonus(
 
 export function deliveredOrdersNeedingBonusSync(phone: string, orders: Order[]): Order[] {
   return orders.filter(o => orderNeedsBonusSync(phone, o))
-}
-
-function orderSortKey(order: Order): number {
-  const raw = order.deliveredAtIso || order.createdAtIso || order.createdAt || ''
-  const d = new Date(String(raw))
-  return Number.isNaN(d.getTime()) ? 0 : d.getTime()
 }
 
 export type LoyaltyTierPercents = {
@@ -106,9 +115,9 @@ export type LoyaltyTierPercents = {
 
 export const DEFAULT_LOYALTY_PERCENTS: LoyaltyTierPercents = {
   basic: 0,
-  bronze: 2,
-  silver: 3,
-  gold: 4,
+  bronze: 1,
+  silver: 2,
+  gold: 3,
   platinum: 5,
   vip: 5,
 }
@@ -116,9 +125,9 @@ export const DEFAULT_LOYALTY_PERCENTS: LoyaltyTierPercents = {
 export function tierPercentsFromConfig(cfg: LoyaltyStatusConfig = loadLoyaltyStatusConfig()): LoyaltyTierPercents {
   return {
     basic: cfg.basic.bonusPercent,
-    bronze: cfg.tiers.find(t => t.id === 'bronze')?.bonusPercent ?? 2,
-    silver: cfg.tiers.find(t => t.id === 'silver')?.bonusPercent ?? 3,
-    gold: cfg.tiers.find(t => t.id === 'gold')?.bonusPercent ?? 4,
+    bronze: cfg.tiers.find(t => t.id === 'bronze')?.bonusPercent ?? 1,
+    silver: cfg.tiers.find(t => t.id === 'silver')?.bonusPercent ?? 2,
+    gold: cfg.tiers.find(t => t.id === 'gold')?.bonusPercent ?? 3,
     platinum: cfg.tiers.find(t => t.id === 'platinum')?.bonusPercent ?? 5,
     vip: cfg.vip.bonusPercent,
   }
@@ -213,30 +222,37 @@ export function creditBonusOnDeliveryLocal(order: Order, allOrders: Order[] = []
   if (!client && !card) return null
 
   const { spent: monthlySpent, orderCount } = loyaltyStatsFromOrders(allOrders, phone)
+  const orderPeriod = loyaltyPeriodForOrder(order)
+  const priorInMonth = allOrders.filter(o =>
+    o.status === 'delivered'
+    && phonesMatch(o.client?.phone || '', phone)
+    && loyaltyPeriodForOrder(o) === orderPeriod
+    && orderSortKey(o) <= orderSortKey(order),
+  )
+  const { spent, orderCount: monthOrders } = loyaltyStatsFromOrders(priorInMonth, phone, orderPeriod)
   const effectiveLevel = resolveEffectiveClientLevel(
-    monthlySpent,
-    orderCount,
+    spent,
+    monthOrders,
     (client?.level || card?.level || 'basic') as ClientLevel,
-    client?.loyaltyPeriod || card?.loyaltyPeriod,
+    orderPeriod,
   )
   const vip = !!(client?.vip || card?.vip)
   const eligible = bonusEligibleTotal(order)
   const earned = calcOrderBonusEarned(eligible, effectiveLevel, vip)
-  const period = currentLoyaltyPeriod()
 
   if (client) {
     clientStore.updateClient(client.id, {
       orders: Math.max(client.orders || 0, orderCount),
       spent: Math.max(client.spent || 0, monthlySpent),
       level: vip ? client.level : effectiveLevel,
-      loyaltyPeriod: period,
+      loyaltyPeriod: orderPeriod,
     })
   }
 
   const loyaltyPatch = {
     bonus: (card?.bonus || client?.bonus || 0) + earned,
     level: vip ? (card?.level || effectiveLevel) : effectiveLevel,
-    loyaltyPeriod: period,
+    loyaltyPeriod: orderPeriod,
   }
 
   if (card) {
@@ -269,15 +285,10 @@ async function reconcileOverCreditedBonus(phone: string, orders: Order[]): Promi
   const delivered = orders
     .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
     .sort((a, b) => orderSortKey(a) - orderSortKey(b))
-  const { spent, orderCount } = loyaltyStatsFromOrders(delivered, phone)
-  const processed: Order[] = []
-  let finalLevel = merged.level
   const period = currentLoyaltyPeriod()
-  for (const order of delivered) {
-    processed.push(order)
-    const { spent: ms, orderCount: mc } = loyaltyStatsFromOrders(processed, phone)
-    finalLevel = resolveEffectiveClientLevel(ms, mc, merged.level, merged.loyaltyPeriod) as ClientLevel
-  }
+  const monthDelivered = delivered.filter(o => loyaltyPeriodForOrder(o) === period)
+  const { spent, orderCount } = loyaltyStatsFromOrders(monthDelivered, phone, period)
+  const finalLevel = resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
 
   await api.updateCard(merged.card, {
     bonus: expectedBonus,
@@ -321,15 +332,10 @@ async function syncLoyaltyBonusesViaCardApi(phone: string, orders: Order[]): Pro
 
   const delta = expectedBonus - currentBonus
 
-  const { spent, orderCount } = loyaltyStatsFromOrders(delivered, phone)
-  const processed: Order[] = []
-  let finalLevel = merged.level
   const period = currentLoyaltyPeriod()
-  for (const order of delivered) {
-    processed.push(order)
-    const { spent: ms, orderCount: mc } = loyaltyStatsFromOrders(processed, phone)
-    finalLevel = resolveEffectiveClientLevel(ms, mc, merged.level, merged.loyaltyPeriod) as ClientLevel
-  }
+  const monthDelivered = delivered.filter(o => loyaltyPeriodForOrder(o) === period)
+  const { spent, orderCount } = loyaltyStatsFromOrders(monthDelivered, phone, period)
+  const finalLevel = resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
 
   await api.updateCard(merged.card, {
     bonus: expectedBonus,
@@ -353,10 +359,7 @@ async function syncLoyaltyBonusesViaCardApi(phone: string, orders: Order[]): Pro
   useOrders.setState(s => ({
     orders: s.orders.map(o => {
       if (!delivered.some(d => d.id === o.id)) return o
-      const idx = delivered.findIndex(d => d.id === o.id)
-      const batch = delivered.slice(0, idx + 1)
-      const { spent: ms, orderCount: mc } = loyaltyStatsFromOrders(batch, phone)
-      const lvl = resolveEffectiveClientLevel(ms, mc, merged.level, merged.loyaltyPeriod) as ClientLevel
+      const lvl = resolveOrderBonusLevel(phone, delivered, o, merged.vip)
       const earned = calcOrderBonusEarned(bonusEligibleTotal(o), lvl, merged.vip)
       return { ...o, bonusCredited: true, bonusEarned: earned }
     }),

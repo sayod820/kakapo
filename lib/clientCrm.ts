@@ -215,12 +215,12 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
   }
 }
 
-/** Минимум покупок для уровня Бронза (ниже — «Базовый», без привилегий) */
-export const BRONZE_MIN_SPENT = 1
+/** Минимум покупок за месяц для уровня Бронза (ниже — «Базовый», без кэшбэка) */
+export const BRONZE_MIN_SPENT = 500
 
-export function hasEarnedBronze(spent: number, orderCount: number): boolean {
+export function hasEarnedBronze(spent: number, _orderCount = 0): boolean {
   const min = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().bronzeMinSpent : BRONZE_MIN_SPENT
-  return spent >= min || orderCount >= 1
+  return spent >= min
 }
 
 /** Доставленные заказы клиента за период (по умолчанию — текущий месяц) */
@@ -309,11 +309,12 @@ export function shouldAutoUpgradeLevel(
 }
 
 export function suggestLevel(spent: number): ClientLevel {
-  const bronzeMin = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().bronzeMinSpent : BRONZE_MIN_SPENT
-  const tiers = typeof window !== 'undefined' ? loadLoyaltyStatusConfig().tiers : null
+  const cfg = typeof window !== 'undefined' ? loadLoyaltyStatusConfig() : null
+  const bronzeMin = cfg?.bronzeMinSpent ?? BRONZE_MIN_SPENT
+  const tiers = cfg?.tiers ?? null
   const platinumMin = tiers?.find(t => t.id === 'platinum')?.minSpent ?? 3000
-  const goldMin = tiers?.find(t => t.id === 'gold')?.minSpent ?? 1500
-  const silverMin = tiers?.find(t => t.id === 'silver')?.minSpent ?? 500
+  const goldMin = tiers?.find(t => t.id === 'gold')?.minSpent ?? 2000
+  const silverMin = tiers?.find(t => t.id === 'silver')?.minSpent ?? 1000
   if (spent >= platinumMin) return 'platinum'
   if (spent >= goldMin) return 'gold'
   if (spent >= silverMin) return 'silver'

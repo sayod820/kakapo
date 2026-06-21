@@ -1,4 +1,4 @@
-import { suggestLevel, hasEarnedBronze, resolveEffectiveClientLevel, loyaltyStatsFromOrders, type ClientLevel } from './clientCrm'
+import { suggestLevel, resolveEffectiveClientLevel, loyaltyStatsFromOrders, type ClientLevel } from './clientCrm'
 import { isLoyaltyPeriodCurrent, loyaltyPeriodEndsLabel, loyaltyPeriodLabel, currentLoyaltyPeriod } from './loyaltyPeriod'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 import type { StoreUser } from './clientSession'
@@ -108,9 +108,9 @@ export function getLoyaltyProgress(
   let progressPct = 100
   let remaining = 0
   if (isBasicClient && nextTier) {
-    const earnedBronze = hasEarnedBronze(spent, orderCount)
-    progressPct = earnedBronze ? 100 : (orderCount > 0 ? 50 : 0)
-    remaining = earnedBronze ? 0 : Math.max(0, cfg.bronzeMinSpent - spent)
+    const bronzeMin = cfg.bronzeMinSpent
+    progressPct = bronzeMin > 0 ? Math.min(100, Math.round((spent / bronzeMin) * 100)) : 0
+    remaining = Math.max(0, bronzeMin - spent)
   } else if (nextTier) {
     const range = nextTier.minSpent - tier.minSpent
     const done = Math.max(0, spent - tier.minSpent)

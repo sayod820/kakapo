@@ -6,10 +6,12 @@ import {
   saveLoyaltyStatusConfig,
   resetLoyaltyStatusConfig,
   subscribeLoyaltyStatusConfig,
+  syncLoyaltyStatusConfigFromApi,
   type LoyaltyStatusConfig,
   type LoyaltyTierConfig,
   type LoyaltyTierId,
 } from '@/lib/loyaltyStatusConfig'
+import { USE_API } from '@/lib/config'
 import { refreshLoyaltyTiersFromConfig } from '@/lib/clientLoyalty'
 import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
@@ -137,6 +139,14 @@ export default function CardStatusAdminPanel() {
 
   useEffect(() => subscribeLoyaltyStatusConfig(cfg => setDraft(cfg)), [])
 
+  useEffect(() => {
+    if (!USE_API) return
+    void syncLoyaltyStatusConfigFromApi().then(cfg => {
+      refreshLoyaltyTiersFromConfig()
+      setDraft(cfg)
+    })
+  }, [])
+
   const activeCards = useMemo(
     () => cards.filter(c => c.status === 'active' && (c.client || c.clientId)),
     [cards],
@@ -152,12 +162,19 @@ export default function CardStatusAdminPanel() {
 
   const patchTier = (id: LoyaltyTierId, patch: Partial<LoyaltyTierConfig>) => {
     setDraft(prev => {
-      if (id === 'basic') return { ...prev, basic: { ...prev.basic, ...patch, id: 'basic' } }
-      if (id === 'vip') return { ...prev, vip: { ...prev.vip, ...patch, id: 'vip' } }
-      return {
-        ...prev,
-        tiers: prev.tiers.map(t => (t.id === id ? { ...t, ...patch, id: t.id } : t)),
+      let next: LoyaltyStatusConfig
+      if (id === 'basic') next = { ...prev, basic: { ...prev.basic, ...patch, id: 'basic' } }
+      else if (id === 'vip') next = { ...prev, vip: { ...prev.vip, ...patch, id: 'vip' } }
+      else {
+        next = {
+          ...prev,
+          tiers: prev.tiers.map(t => (t.id === id ? { ...t, ...patch, id: t.id } : t)),
+        }
       }
+      if (id === 'bronze' && patch.minSpent != null) {
+        next = { ...next, bronzeMinSpent: patch.minSpent }
+      }
+      return next
     })
     setSaved(false)
   }

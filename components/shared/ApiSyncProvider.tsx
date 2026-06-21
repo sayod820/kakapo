@@ -23,7 +23,9 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
       const { syncCourierStoresFromApi } = await import('@/lib/courierStore')
       const { syncClientsFromApi } = await import('@/lib/clientStore')
       const { syncCardsFromApi } = await import('@/lib/cardStore')
+      const { syncLoyaltyStatusConfigFromApi } = await import('@/lib/loyaltyStatusConfig')
       const tasks = [
+        syncLoyaltyStatusConfigFromApi(),
         useProducts.getState().fetchProducts(),
         useRestaurants.getState().fetchRestaurants(),
         syncCourierStoresFromApi(),

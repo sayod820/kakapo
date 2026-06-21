@@ -42,8 +42,8 @@ const STORAGE_KEY = 'kakapo-loyalty-status-config'
 export const LOYALTY_STATUS_CONFIG_EVENT = 'kakapo-loyalty-status-config'
 
 export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
-  bronzeMinSpent: 1,
-  welcomeBonus: 100,
+  bronzeMinSpent: 500,
+  welcomeBonus: 10,
   basic: {
     id: 'basic',
     label: 'Базовый',
@@ -66,11 +66,11 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       id: 'bronze',
       label: 'Бронза',
       emoji: '🥉',
-      minSpent: 1,
-      bonusPercent: 2,
+      minSpent: 500,
+      bonusPercent: 1,
       defaultDebtLimit: 0,
       color: '#CD7F32',
-      cashback: '2%',
+      cashback: '1%',
       perk: 'Бонусы за покупки',
       border: 'rgba(205,127,50,.42)',
       glow: 'rgba(205,127,50,.35)',
@@ -83,11 +83,11 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       id: 'silver',
       label: 'Серебро',
       emoji: '🥈',
-      minSpent: 500,
-      bonusPercent: 3,
+      minSpent: 1000,
+      bonusPercent: 2,
       defaultDebtLimit: 0,
       color: '#C0C0C0',
-      cashback: '3%',
+      cashback: '2%',
       perk: 'Доп. скидки',
       border: 'rgba(192,192,192,.38)',
       glow: 'rgba(220,220,230,.28)',
@@ -100,11 +100,11 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       id: 'gold',
       label: 'Золото',
       emoji: '🥇',
-      minSpent: 1500,
-      bonusPercent: 4,
-      defaultDebtLimit: 1000,
+      minSpent: 2000,
+      bonusPercent: 3,
+      defaultDebtLimit: 2000,
       color: '#FFB800',
-      cashback: '4%',
+      cashback: '3%',
       perk: 'Приоритет сборки',
       border: 'rgba(255,184,0,.48)',
       glow: 'rgba(255,184,0,.38)',
@@ -137,7 +137,7 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
     emoji: '👑',
     minSpent: 3000,
     bonusPercent: 5,
-    defaultDebtLimit: 3000,
+    defaultDebtLimit: 5000,
     color: '#FFD700',
     cashback: '5%',
     perk: 'Все привилегии',
@@ -181,8 +181,12 @@ function mergeTier(base: LoyaltyTierConfig, patch?: Partial<LoyaltyTierConfig>):
 function normalizeConfig(raw: Partial<LoyaltyStatusConfig> | null | undefined): LoyaltyStatusConfig {
   const d = DEFAULT_LOYALTY_STATUS_CONFIG
   if (!raw) return d
+  const bronzeTierMin = raw.tiers?.find(t => t.id === 'bronze')?.minSpent
+  const bronzeMinSpent = Number(raw.bronzeMinSpent) >= 0
+    ? Number(raw.bronzeMinSpent)
+    : (bronzeTierMin != null ? Number(bronzeTierMin) : d.bronzeMinSpent)
   return {
-    bronzeMinSpent: Number(raw.bronzeMinSpent) >= 0 ? Number(raw.bronzeMinSpent) : d.bronzeMinSpent,
+    bronzeMinSpent,
     welcomeBonus: Number(raw.welcomeBonus) >= 0 ? Number(raw.welcomeBonus) : d.welcomeBonus,
     basic: mergeTier(d.basic, raw.basic),
     vip: mergeTier(d.vip, raw.vip),
@@ -191,7 +195,101 @@ function normalizeConfig(raw: Partial<LoyaltyStatusConfig> | null | undefined): 
       minReviews: Number(raw.vipRules?.minReviews) || d.vipRules.minReviews,
       minSpent: Number(raw.vipRules?.minSpent) || d.vipRules.minSpent,
     },
-    tiers: d.tiers.map((t, i) => mergeTier(t, raw.tiers?.[i] && raw.tiers[i].id === t.id ? raw.tiers[i] : raw.tiers?.find(x => x.id === t.id))),
+    tiers: d.tiers.map((t, i) => {
+      const patch = raw.tiers?.[i] && raw.tiers[i].id === t.id ? raw.tiers[i] : raw.tiers?.find(x => x.id === t.id)
+      const merged = mergeTier(t, patch)
+      if (t.id === 'bronze') merged.minSpent = bronzeMinSpent
+      return merged
+    }),
+  }
+}
+
+export type ApiLoyaltySettings = {
+  welcomeBonus?: number
+  bronzeMinSpent?: number
+  tierMinSpent?: { bronze?: number; silver?: number; gold?: number; platinum?: number }
+  basic?: { bonusPercent?: number }
+  bronze?: { bonusPercent?: number }
+  silver?: { bonusPercent?: number }
+  gold?: { bonusPercent?: number }
+  platinum?: { bonusPercent?: number }
+  vip?: { bonusPercent?: number }
+  vipRules?: { minOrders?: number; minReviews?: number; minSpent?: number }
+}
+
+/** Настройки с сервера → формат админки/магазина. */
+export function apiLoyaltyToStatusConfig(
+  api: ApiLoyaltySettings,
+  base: LoyaltyStatusConfig = DEFAULT_LOYALTY_STATUS_CONFIG,
+): LoyaltyStatusConfig {
+  const t = api.tierMinSpent || {}
+  const bronzeMin = Number(api.bronzeMinSpent) || Number(t.bronze) || base.bronzeMinSpent
+  const tierPatch = (id: LoyaltyTierId, minSpent: number, bonusPercent?: number) => ({
+    minSpent,
+    bonusPercent: bonusPercent != null ? Number(bonusPercent) : undefined,
+  })
+  return normalizeConfig({
+    welcomeBonus: api.welcomeBonus ?? base.welcomeBonus,
+    bronzeMinSpent: bronzeMin,
+    vipRules: api.vipRules ? { ...base.vipRules, ...api.vipRules } : base.vipRules,
+    basic: { bonusPercent: api.basic?.bonusPercent ?? base.basic.bonusPercent },
+    vip: { bonusPercent: api.vip?.bonusPercent ?? base.vip.bonusPercent },
+    tiers: base.tiers.map(tier => {
+      if (tier.id === 'bronze') return { ...tier, ...tierPatch('bronze', bronzeMin, api.bronze?.bonusPercent) }
+      if (tier.id === 'silver') return { ...tier, ...tierPatch('silver', Number(t.silver) || tier.minSpent, api.silver?.bonusPercent) }
+      if (tier.id === 'gold') return { ...tier, ...tierPatch('gold', Number(t.gold) || tier.minSpent, api.gold?.bonusPercent) }
+      if (tier.id === 'platinum') return { ...tier, ...tierPatch('platinum', Number(t.platinum) || tier.minSpent, api.platinum?.bonusPercent) }
+      return tier
+    }),
+  })
+}
+
+/** Настройки админки → payload для API сервера. */
+export function statusConfigToApiPayload(cfg: LoyaltyStatusConfig): ApiLoyaltySettings {
+  const next = normalizeConfig(cfg)
+  const bronze = next.tiers.find(t => t.id === 'bronze')
+  const silver = next.tiers.find(t => t.id === 'silver')
+  const gold = next.tiers.find(t => t.id === 'gold')
+  const platinum = next.tiers.find(t => t.id === 'platinum')
+  return {
+    welcomeBonus: next.welcomeBonus,
+    bronzeMinSpent: next.bronzeMinSpent,
+    tierMinSpent: {
+      bronze: next.bronzeMinSpent,
+      silver: silver?.minSpent ?? 1000,
+      gold: gold?.minSpent ?? 2000,
+      platinum: platinum?.minSpent ?? 3000,
+    },
+    basic: { bonusPercent: next.basic.bonusPercent },
+    bronze: { bonusPercent: bronze?.bonusPercent ?? 0 },
+    silver: { bonusPercent: silver?.bonusPercent ?? 0 },
+    gold: { bonusPercent: gold?.bonusPercent ?? 0 },
+    platinum: { bonusPercent: platinum?.bonusPercent ?? 0 },
+    vip: { bonusPercent: next.vip.bonusPercent },
+    vipRules: { ...next.vipRules },
+  }
+}
+
+function applyLoyaltyConfigLocally(next: LoyaltyStatusConfig) {
+  if (typeof window === 'undefined') return next
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  window.dispatchEvent(new CustomEvent(LOYALTY_STATUS_CONFIG_EVENT, { detail: next }))
+  void import('./clientLoyalty').then(m => m.refreshLoyaltyTiersFromConfig()).catch(() => {})
+  return next
+}
+
+/** Загрузить актуальные % и пороги с сервера (магазин + админка). */
+export async function syncLoyaltyStatusConfigFromApi(): Promise<LoyaltyStatusConfig> {
+  if (typeof window === 'undefined') return DEFAULT_LOYALTY_STATUS_CONFIG
+  const { USE_API } = await import('./config')
+  if (!USE_API) return loadLoyaltyStatusConfig()
+  try {
+    const { api } = await import('./api')
+    const remote = await api.getLoyalty() as ApiLoyaltySettings
+    const merged = apiLoyaltyToStatusConfig(remote, loadLoyaltyStatusConfig())
+    return applyLoyaltyConfigLocally(merged)
+  } catch {
+    return loadLoyaltyStatusConfig()
   }
 }
 
@@ -208,30 +306,12 @@ export function loadLoyaltyStatusConfig(): LoyaltyStatusConfig {
 
 export function saveLoyaltyStatusConfig(config: LoyaltyStatusConfig) {
   const next = normalizeConfig(config)
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    window.dispatchEvent(new CustomEvent(LOYALTY_STATUS_CONFIG_EVENT, { detail: next }))
-  }
+  applyLoyaltyConfigLocally(next)
   if (typeof window !== 'undefined') {
     import('./config').then(({ USE_API }) => {
       if (!USE_API) return
       import('./api').then(({ api }) => {
-        api.updateLoyalty({
-          welcomeBonus: next.welcomeBonus,
-          bronzeMinSpent: next.bronzeMinSpent,
-          basic: { bonusPercent: next.basic.bonusPercent },
-          bronze: { bonusPercent: next.tiers.find(t => t.id === 'bronze')?.bonusPercent ?? 2 },
-          tierMinSpent: {
-            bronze: next.bronzeMinSpent,
-            silver: next.tiers.find(t => t.id === 'silver')?.minSpent ?? 500,
-            gold: next.tiers.find(t => t.id === 'gold')?.minSpent ?? 1500,
-            platinum: next.tiers.find(t => t.id === 'platinum')?.minSpent ?? 3000,
-          },
-          silver: { bonusPercent: next.tiers.find(t => t.id === 'silver')?.bonusPercent ?? 3 },
-          gold: { bonusPercent: next.tiers.find(t => t.id === 'gold')?.bonusPercent ?? 4 },
-          platinum: { bonusPercent: next.tiers.find(t => t.id === 'platinum')?.bonusPercent ?? 5 },
-          vip: { bonusPercent: next.vip.bonusPercent },
-        }).catch(() => {})
+        api.updateLoyalty(statusConfigToApiPayload(next)).catch(() => {})
       })
     })
   }

@@ -909,7 +909,19 @@ app.get('/settings/loyalty', (_req, res) => {
 })
 app.patch('/settings/loyalty', (req, res) => {
   const current = ensureLoyaltySettings(db)
-  db.settings.loyalty = { ...current, ...req.body }
+  const body = req.body || {}
+  db.settings.loyalty = {
+    ...current,
+    ...body,
+    tierMinSpent: { ...current.tierMinSpent, ...body.tierMinSpent },
+    vipRules: { ...current.vipRules, ...body.vipRules },
+    basic: { ...current.basic, ...body.basic },
+    bronze: { ...current.bronze, ...body.bronze },
+    silver: { ...current.silver, ...body.silver },
+    gold: { ...current.gold, ...body.gold },
+    platinum: { ...current.platinum, ...body.platinum },
+    vip: { ...current.vip, ...body.vip },
+  }
   persist()
   res.json(db.settings.loyalty)
 })

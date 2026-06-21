@@ -54,6 +54,16 @@ export function orderInLoyaltyPeriod(
   return d.getFullYear() === y && d.getMonth() + 1 === m
 }
 
+export function loyaltyPeriodForOrder(
+  order: Pick<Order, 'createdAt' | 'deliveredAt' | 'status'> & { date?: string; createdAtIso?: string; deliveredAtIso?: string },
+): string {
+  const d = parseOrderLoyaltyDate(order)
+  if (!d) return currentLoyaltyPeriod()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
 export function isLoyaltyPeriodCurrent(stored?: string | null): boolean {
   if (!stored) return false
   return stored === currentLoyaltyPeriod()

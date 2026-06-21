@@ -55,7 +55,9 @@ export function useApiSync(mode: SyncMode = 'all') {
       if (mode === 'all') {
         await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
       }
-      const tasks: Promise<void>[] = [
+      const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
+      const tasks: Promise<unknown>[] = [
+        syncLoyaltyStatusConfigFromApi(),
         useProducts.getState().fetchProducts(),
         useRestaurants.getState().fetchRestaurants(),
         syncCourierStoresFromApi(),
@@ -84,6 +86,7 @@ export function hydrateAllFromApi() {
   if (!USE_API || startedGuard) return
   startedGuard = true
   clearAppDataLocalCacheOnce()
+  void import('./loyaltyStatusConfig').then(m => m.syncLoyaltyStatusConfigFromApi()).catch(() => {})
   useProducts.getState().fetchProducts()
   useRestaurants.getState().fetchRestaurants()
   useOrders.getState().fetchOrders()

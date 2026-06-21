@@ -1,11 +1,11 @@
 export const DEFAULT_LOYALTY = {
-  welcomeBonus: 100,
-  bronzeMinSpent: 1,
-  tierMinSpent: { bronze: 1, silver: 500, gold: 1500, platinum: 3000 },
+  welcomeBonus: 10,
+  bronzeMinSpent: 500,
+  tierMinSpent: { bronze: 500, silver: 1000, gold: 2000, platinum: 3000 },
   basic: { bonusPercent: 0 },
-  bronze: { bonusPercent: 2 },
-  silver: { bonusPercent: 3 },
-  gold: { bonusPercent: 4 },
+  bronze: { bonusPercent: 1 },
+  silver: { bonusPercent: 2 },
+  gold: { bonusPercent: 3 },
   platinum: { bonusPercent: 5 },
   vip: { bonusPercent: 5 },
 }
@@ -25,6 +25,13 @@ export function ensureLoyaltySettings(db) {
 export function currentLoyaltyPeriod(date = new Date()) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+export function loyaltyPeriodForOrder(order) {
+  const d = parseOrderDate(order)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
   return `${y}-${m}`
 }
 
@@ -84,17 +91,18 @@ export function lifetimeDeliveredStats(db, phone) {
   }
 }
 
-export function hasEarnedBronze(spent, orderCount, loyalty) {
-  const min = Number(loyalty.bronzeMinSpent) || 1
-  return spent >= min || orderCount >= 1
+export function hasEarnedBronze(spent, _orderCount, loyalty) {
+  const min = Number(loyalty.bronzeMinSpent) || 500
+  return spent >= min
 }
 
 export function suggestLevel(spent, loyalty = DEFAULT_LOYALTY) {
   const t = loyalty.tierMinSpent || DEFAULT_LOYALTY.tierMinSpent
+  const bronzeMin = Number(loyalty.bronzeMinSpent) || t.bronze || 500
   if (spent >= t.platinum) return 'platinum'
   if (spent >= t.gold) return 'gold'
   if (spent >= t.silver) return 'silver'
-  if (spent >= (Number(loyalty.bronzeMinSpent) || t.bronze || 1)) return 'bronze'
+  if (spent >= bronzeMin) return 'bronze'
   return 'basic'
 }
 
@@ -168,6 +176,27 @@ function applyLevelUpgrade(client, card, effectiveLevel, period) {
   }
 }
 
+/** Сброс уровня в начале нового месяца (VIP не трогаем). */
+function ensureClientPeriodForOrder(client, card, orderPeriod) {
+  if (client.vip) {
+    if (!client.loyaltyPeriod) client.loyaltyPeriod = orderPeriod
+    if (card && !card.loyaltyPeriod) card.loyaltyPeriod = orderPeriod
+    return
+  }
+  const stored = client.loyaltyPeriod || card?.loyaltyPeriod
+  if (stored && stored !== orderPeriod) {
+    client.level = 'basic'
+    client.loyaltyPeriod = orderPeriod
+    if (card) {
+      card.level = 'basic'
+      card.loyaltyPeriod = orderPeriod
+    }
+    return
+  }
+  if (!client.loyaltyPeriod) client.loyaltyPeriod = orderPeriod
+  if (card && !card.loyaltyPeriod) card.loyaltyPeriod = orderPeriod
+}
+
 function syncClientLifetimeStats(db, client, phone) {
   const stats = lifetimeDeliveredStats(db, phone)
   client.orders = stats.orderCount
@@ -224,10 +253,11 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   if (!card) return 0
 
   const loyalty = ensureLoyaltySettings(db)
-  const period = currentLoyaltyPeriod()
+  const orderPeriod = loyaltyPeriodForOrder(order)
+  ensureClientPeriodForOrder(client, card, orderPeriod)
   const spentAdd = orderSpentContribution(order)
 
-  const monthly = monthlyDeliveredStats(db, phone, period, order.id)
+  const monthly = monthlyDeliveredStats(db, phone, orderPeriod, order.id)
   const monthlySpent = Math.round((monthly.spent + spentAdd) * 10) / 10
   const monthlyOrders = monthly.orderCount + 1
   const effectiveLevel = resolveEffectiveLevel(
@@ -237,7 +267,7 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
     client.loyaltyPeriod,
     loyalty,
   )
-  applyLevelUpgrade(client, card, effectiveLevel, period)
+  applyLevelUpgrade(client, card, effectiveLevel, orderPeriod)
 
   const eligible = bonusEligibleTotal(order)
   const percent = getBonusPercentForClient({ ...client, level: effectiveLevel }, loyalty)
