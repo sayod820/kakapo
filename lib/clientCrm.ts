@@ -2,6 +2,7 @@
 
 import type { Order } from './types'
 import { isPhoneDeleted } from './clientTombstones'
+import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 
@@ -413,6 +414,8 @@ export function mergeClientsWithOrders(stored: AdminClient[], orders: Order[]): 
     const phone = order.client?.phone || ''
     const key = normalizePhone(phone)
     if (!key || isPhoneDeleted(phone)) continue
+    // Не создавать «призрака» из демо-заказа K-4832 (телефоны U-01…U-07)
+    if (!byPhone.has(key) && isDemoSeedClient(undefined, phone)) continue
     if (!byPhone.has(key)) {
       byPhone.set(key, normalizeClient({
         id: `U-${key}`,
@@ -436,6 +439,6 @@ export function mergeClientsWithOrders(stored: AdminClient[], orders: Order[]): 
   }
 
   return [...byPhone.values()]
-    .filter(c => !isClientPurged(c))
+    .filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
     .map(c => enrichClientWithOrders(c, orders))
 }

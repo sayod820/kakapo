@@ -10,7 +10,7 @@ import { emitCrmSync } from './clientProfileSync'
 import { moveClientToRecovery } from './clientRecovery'
 import { legacyPurgeClientOnServer } from './clientLegacyBackend'
 import { markPhoneDeleted, markPhonesDeleted, isSyntheticOrderClientId } from './clientTombstones'
-import { demoSeedPhones } from './clientDemoSeed'
+import { demoSeedPhones, isDemoSeedClient } from './clientDemoSeed'
 import {
   findLocalClient,
   resolveServerClientId,
@@ -136,7 +136,17 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
   applyLocalDelete(clientId, targetPhone)
 
   if (USE_API) {
-    await purgeClientOnServer(clientId, targetPhone)
+    const onServer = await clientStillOnServer(targetPhone).catch(() => false)
+    if (onServer) {
+      try {
+        await purgeClientOnServer(clientId, targetPhone)
+      } catch (e) {
+        // Tombstone уже стоит — для «призрака» из заказов этого достаточно
+        if (!isSyntheticOrderClientId(clientId) && !isDemoSeedClient(clientId, targetPhone)) {
+          throw e
+        }
+      }
+    }
     useClientStore.getState().applyVisibleFilter()
   }
 
