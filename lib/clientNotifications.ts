@@ -10,6 +10,13 @@ import {
   saveBroadcastNotifications,
 } from './clientAccountStorage'
 
+export type ClientNotificationKind = 'order' | 'review' | 'bonus' | 'promo' | 'system'
+
+export type ClientNotificationAction =
+  | 'orders' | 'order'
+  | 'reviews' | 'review'
+  | 'promos' | 'bonus' | 'vip'
+
 export type ClientNotification = {
   id: string
   read: boolean
@@ -18,12 +25,57 @@ export type ClientNotification = {
   body: string
   time: string
   color: string
-  action?: 'reviews' | 'orders'
+  kind?: ClientNotificationKind
+  action?: ClientNotificationAction
   reviewId?: number
   orderId?: string
   targetPhone?: string
   sentAt?: string
   broadcast?: boolean
+}
+
+export const NOTIFICATION_KIND_LABELS: Record<ClientNotificationKind, string> = {
+  order: 'Заказы',
+  review: 'Отзывы',
+  bonus: 'Бонусы',
+  promo: 'Акции',
+  system: 'Прочее',
+}
+
+export function notificationKind(n: ClientNotification): ClientNotificationKind {
+  if (n.kind) return n.kind
+  if (n.reviewId != null || n.action === 'reviews' || n.action === 'review') return 'review'
+  if (n.action === 'bonus' || (n.icon === '⭐' && /бонус/i.test(n.title))) return 'bonus'
+  if (n.action === 'promos' || n.icon === '🎉' || n.icon === '🔥') return 'promo'
+  if (n.orderId || n.action === 'orders' || n.action === 'order') return 'order'
+  return 'system'
+}
+
+export function resolveNotificationTarget(n: ClientNotification): {
+  page: string
+  params?: Record<string, string>
+} {
+  const kind = notificationKind(n)
+  if (kind === 'review') {
+    if (n.reviewId != null) return { page: 'reviews', params: { reviewId: String(n.reviewId) } }
+    return { page: 'reviews' }
+  }
+  if (kind === 'bonus') return { page: 'vip' }
+  if (kind === 'promo') return { page: 'promos' }
+  if (kind === 'order') {
+    return n.orderId ? { page: 'orders', params: { orderId: n.orderId } } : { page: 'orders' }
+  }
+  return { page: 'notifs' }
+}
+
+export function notificationOpenHint(n: ClientNotification): string {
+  const { page, params } = resolveNotificationTarget(n)
+  if (page === 'orders' && params?.orderId) return `Открыть заказ ${params.orderId} →`
+  if (page === 'reviews') return 'Открыть отзывы →'
+  if (page === 'vip') return 'Открыть бонусы VIP →'
+  if (page === 'promos') return 'Открыть акции →'
+  if (page === 'orders') return 'Открыть заказы →'
+  return ''
 }
 
 const BC_NAME = 'kakapo-notifs'
@@ -33,9 +85,9 @@ const DEMO_PHONES = new Set(['934567890', '901234567', '887890123'])
 type SeenReplies = Record<string, { admin?: string; rest?: string }>
 
 const DEMO_NOTIFS: ClientNotification[] = [
-  { id: 'demo-1', read: false, icon: '🛵', title: 'Курьер выехал', body: 'Фирдавс едет к вам · ~12 мин', time: '14:23', color: 'var(--blue)' },
-  { id: 'demo-2', read: false, icon: '⭐', title: 'Начислены бонусы', body: '+49 бонусов за заказ K-4832', time: '14:20', color: 'var(--gd)' },
-  { id: 'demo-3', read: true, icon: '🎉', title: 'Акция дня!', body: 'Скидка 30% на молочное до 22:00', time: '10:00', color: 'var(--gr)' },
+  { id: 'demo-1', read: false, icon: '🛵', title: 'Курьер выехал', body: 'Фирдавс едет к вам · ~12 мин', time: '14:23', color: 'var(--blue)', kind: 'order', action: 'order', orderId: 'K-4832' },
+  { id: 'demo-2', read: false, icon: '⭐', title: 'Начислены бонусы', body: '+49 бонусов за заказ K-4832', time: '14:20', color: 'var(--gd)', kind: 'bonus', action: 'bonus' },
+  { id: 'demo-3', read: true, icon: '🎉', title: 'Акция дня!', body: 'Скидка 30% на молочное до 22:00', time: '10:00', color: 'var(--gr)', kind: 'promo', action: 'promos' },
 ]
 
 type Listener = () => void
@@ -267,12 +319,19 @@ function makeNotification(payload: {
   body: string
   icon: string
   color?: string
-  action?: 'reviews' | 'orders'
+  kind?: ClientNotificationKind
+  action?: ClientNotificationAction
   orderId?: string
   reviewId?: number
   targetPhone?: string
   broadcast?: boolean
 }): ClientNotification {
+  const kind = payload.kind
+    || (payload.reviewId != null ? 'review' as const
+      : payload.action === 'bonus' ? 'bonus' as const
+      : payload.action === 'promos' ? 'promo' as const
+      : payload.orderId || payload.action === 'order' || payload.action === 'orders' ? 'order' as const
+      : undefined)
   return {
     id: payload.id || `push-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     read: false,
@@ -281,6 +340,7 @@ function makeNotification(payload: {
     body: payload.body,
     time: nowLabel(),
     color: payload.color || 'var(--gr)',
+    kind,
     action: payload.action,
     orderId: payload.orderId,
     reviewId: payload.reviewId,
@@ -295,7 +355,8 @@ export async function deliverClientPush(payload: {
   body: string
   icon: string
   color?: string
-  action?: 'reviews' | 'orders'
+  kind?: ClientNotificationKind
+  action?: ClientNotificationAction
   orderId?: string
   targetPhone?: string
 }) {
@@ -313,7 +374,7 @@ export async function deliverClientPush(payload: {
 
 export async function deliverClientPushBatch(
   phones: string[],
-  payload: { title: string; body: string; icon: string; action?: 'reviews' | 'orders'; campaignId?: string },
+  payload: { title: string; body: string; icon: string; kind?: ClientNotificationKind; action?: ClientNotificationAction; campaignId?: string },
 ) {
   const unique = [...new Set(phones.map(p => phoneDigits(p)).filter(Boolean))]
   if (!unique.length) return
@@ -336,7 +397,7 @@ export async function deliverClientPushBatch(
 
 /** Общая рассылка — видят все клиенты */
 export async function deliverClientPushBroadcast(
-  payload: { title: string; body: string; icon: string; action?: 'reviews' | 'orders'; campaignId?: string },
+  payload: { title: string; body: string; icon: string; kind?: ClientNotificationKind; action?: ClientNotificationAction; campaignId?: string },
 ) {
   const notif = makeNotification({ ...payload, broadcast: true, id: payload.campaignId ? `bc-${payload.campaignId}` : undefined })
   if (USE_API) {
@@ -394,7 +455,8 @@ export function syncReviewReplyNotifications(reviews: Review[], ownerPhone?: str
           ? `${r.restName || 'Ресторан'} · заказ ${r.orderId}: ${r.adminReply.slice(0, 100)}`
           : r.adminReply.slice(0, 120),
         color: 'var(--blue)',
-        action: 'reviews',
+        kind: 'review',
+        action: 'review',
         reviewId: r.id,
         orderId: r.orderId,
         targetPhone,
@@ -412,7 +474,8 @@ export function syncReviewReplyNotifications(reviews: Review[], ownerPhone?: str
           ? `${r.restName || 'Ресторан'} · заказ ${r.orderId}: ${r.restReply.slice(0, 100)}`
           : r.restReply.slice(0, 120),
         color: 'var(--gr)',
-        action: 'reviews',
+        kind: 'review',
+        action: 'review',
         reviewId: r.id,
         orderId: r.orderId,
         targetPhone,

@@ -49,6 +49,11 @@ import {
   subscribeClientNotifications,
   subscribeNotificationChannel,
   syncClientNotificationsFromApi,
+  notificationKind,
+  NOTIFICATION_KIND_LABELS,
+  resolveNotificationTarget,
+  notificationOpenHint,
+  type ClientNotificationKind,
 } from "@/lib/clientNotifications";
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
@@ -2880,11 +2885,12 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   );
 };
 
-const ClientReviewsPage = ({ go, user, sessionReady }) => {
+const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
   const apiOrders = useOrders(s => s.orders);
   const { restaurants } = useLiveCatalog();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const highlightId = params?.reviewId ? Number(params.reviewId) : null;
 
   const refresh = useCallback(async () => {
     if (!user) {
@@ -2913,6 +2919,12 @@ const ClientReviewsPage = ({ go, user, sessionReady }) => {
     const id = setInterval(refresh, 12000);
     return () => clearInterval(id);
   }, [refresh, user]);
+
+  useEffect(() => {
+    if (!highlightId || loading) return;
+    const el = document.getElementById(`client-review-${highlightId}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightId, loading, reviews]);
 
   if (!sessionReady) return <StoreSessionBoot />;
 
@@ -2963,7 +2975,7 @@ const ClientReviewsPage = ({ go, user, sessionReady }) => {
         {!loading && reviews.map((rev, i) => {
           const rest = restaurants.find(r => r.id === rev.restId);
           return (
-            <div key={rev.id} className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 12, animation: `fadeUp .4s ease ${i * .06}s both` }}>
+            <div key={rev.id} id={`client-review-${rev.id}`} className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 12, animation: `fadeUp .4s ease ${i * .06}s both`, border: highlightId === rev.id ? "1px solid rgba(59,142,240,.45)" : undefined, boxShadow: highlightId === rev.id ? "0 0 0 1px rgba(59,142,240,.15)" : undefined }}>
               <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 800 }}>{rest?.name || rev.restName || "Ресторан"}</div>
@@ -2976,7 +2988,7 @@ const ClientReviewsPage = ({ go, user, sessionReady }) => {
               <div style={{ padding: "14px 15px" }}>
                 <ClientReviewBlock review={rev} embedded />
                 {rev.orderId && (
-                  <button onClick={() => go("orders")} className="btn" style={{ width: "100%", marginTop: 4, padding: 10, fontSize: 12, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", color: "var(--t2)" }}>
+                  <button onClick={() => go("orders", { orderId: rev.orderId })} className="btn" style={{ width: "100%", marginTop: 4, padding: 10, fontSize: 12, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", color: "var(--t2)" }}>
                     Открыть заказ {rev.orderId}
                   </button>
                 )}
@@ -6132,6 +6144,7 @@ const CourierDashPage = ({go}) => {
 const NotifPage = ({go, user}) => {
   const phone = getActiveClientPhone(user);
   const [notifs, setNotifs] = useState(() => loadClientNotifications(!USE_API, phone));
+  const [tab, setTab] = useState<'all' | ClientNotificationKind>('all');
 
   useEffect(() => {
     const refresh = async () => {
@@ -6158,11 +6171,24 @@ const NotifPage = ({go, user}) => {
   const openNotif = (n) => {
     markNotificationRead(n.id, phone);
     setNotifs(loadClientNotifications(!USE_API, phone));
-    if (n.action === 'reviews') go('reviews');
-    else if (n.action === 'orders') go('orders');
+    const { page, params: navParams } = resolveNotificationTarget(n);
+    if (page === 'notifs') return;
+    go(page, navParams);
   };
 
   const unread = notifs.filter(n => !n.read).length;
+  const filtered = tab === 'all' ? notifs : notifs.filter(n => notificationKind(n) === tab);
+  const tabs: Array<{ id: 'all' | ClientNotificationKind; label: string }> = [
+    { id: 'all', label: 'Все' },
+    { id: 'order', label: NOTIFICATION_KIND_LABELS.order },
+    { id: 'review', label: NOTIFICATION_KIND_LABELS.review },
+    { id: 'bonus', label: NOTIFICATION_KIND_LABELS.bonus },
+    { id: 'promo', label: NOTIFICATION_KIND_LABELS.promo },
+  ];
+  const tabUnread = (id: typeof tab) => {
+    const list = id === 'all' ? notifs : notifs.filter(n => notificationKind(n) === id);
+    return list.filter(n => !n.read).length;
+  };
 
   return (
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
@@ -6175,12 +6201,29 @@ const NotifPage = ({go, user}) => {
           </div>
           {unread>0&&<button onClick={markAll} className="btn" style={{fontSize:11,color:'var(--gr)',background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',borderRadius:10,padding:'6px 12px',fontFamily:'Nunito',fontWeight:700}}>Прочитать все</button>}
         </div>
+        <div style={{ display:'flex', gap:6, padding:'0 18px 12px', overflowX:'auto' }}>
+          {tabs.map(t => {
+            const active = tab === t.id;
+            const cnt = tabUnread(t.id);
+            return (
+              <button key={t.id} type="button" onClick={() => setTab(t.id)} className="btn"
+                style={{
+                  flexShrink:0, padding:'7px 12px', borderRadius:999, fontSize:11, fontWeight:700,
+                  background: active ? 'rgba(31,215,96,.14)' : 'var(--l3)',
+                  border: active ? '1px solid rgba(31,215,96,.35)' : '1px solid var(--b1)',
+                  color: active ? 'var(--gr)' : 'var(--t2)',
+                }}>
+                {t.label}{cnt > 0 ? ` · ${cnt}` : ''}
+              </button>
+            );
+          })}
+        </div>
       </header>
       <div style={{padding:'14px 18px 100px',display:'flex',flexDirection:'column',gap:8}}>
-        {notifs.length === 0 && (
+        {filtered.length === 0 && (
           <div style={{ textAlign:'center', padding:'48px 20px', color:'var(--t3)', fontSize:13 }}>
             <div style={{ fontSize:40, marginBottom:10 }}>🔔</div>
-            Пока нет уведомлений
+            {notifs.length === 0 ? 'Пока нет уведомлений' : 'В этой категории пока пусто'}
             {!phone && (
               <div style={{ marginTop: 12, fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>
                 Войдите с телефоном из CRM — тогда push-рассылки будут приходить сюда
@@ -6188,7 +6231,7 @@ const NotifPage = ({go, user}) => {
             )}
           </div>
         )}
-        {notifs.map((n,i)=>(
+        {filtered.map((n,i)=>(
           <div key={n.id} onClick={()=>openNotif(n)}
             style={{display:'flex',gap:12,padding:'14px 16px',background:n.read?'var(--l2)':'rgba(31,215,96,.06)',border:`1px solid ${n.read?'var(--b1)':'rgba(31,215,96,.2)'}`,borderRadius:16,cursor:'pointer',animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both`}}>
             <div style={{width:42,height:42,borderRadius:13,background:`${n.color}14`,border:`1px solid ${n.color}25`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>{n.icon}</div>
@@ -6197,9 +6240,10 @@ const NotifPage = ({go, user}) => {
                 <span style={{fontSize:13,fontWeight:n.read?600:800,color:n.read?'var(--t1)':n.color}}>{n.title}</span>
                 <span style={{fontSize:10,color:'var(--t3)',flexShrink:0,marginLeft:8}}>{n.time}</span>
               </div>
+              <div style={{ fontSize:10, color:'var(--t3)', marginBottom:4 }}>{NOTIFICATION_KIND_LABELS[notificationKind(n)]}</div>
               <div style={{fontSize:12,color:'var(--t2)',lineHeight:1.5}}>{n.body}</div>
-              {n.action === 'reviews' && !n.read && (
-                <div style={{ fontSize:10, color:'var(--gr)', fontWeight:700, marginTop:6 }}>Нажмите, чтобы открыть отзывы →</div>
+              {!n.read && notificationOpenHint(n) && (
+                <div style={{ fontSize:10, color:'var(--gr)', fontWeight:700, marginTop:6 }}>{notificationOpenHint(n)}</div>
               )}
             </div>
             {!n.read&&<div style={{width:8,height:8,borderRadius:'50%',background:'var(--gr)',marginTop:4,flexShrink:0,animation:'pulse 2s infinite'}}/>}
@@ -8179,7 +8223,7 @@ function KakapoAppInner() {
       case "auth":             return <ClientLoginPage   go={go} setUser={setUser}/>;
       case "profile":          return <ProfilePage       {...shared} user={displayUser} setUser={setUser} onLogout={logout}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
-      case "reviews":          return <ClientReviewsPage   go={go} user={user} sessionReady={sessionReady}/>;
+      case "reviews":          return <ClientReviewsPage   go={go} user={user} sessionReady={sessionReady} params={params}/>;
       case "promos":           return <PromosPage        {...shared}/>;
       case "search":           return <SearchPage        {...shared}/>;
       case "faq":              return <FAQPage           {...shared}/>;

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useCallback } from 'react'
+import { phoneDigits } from './clientSession'
 import { USE_API } from './config'
 import {
   setCurrentClientPhone,
@@ -27,7 +28,7 @@ export function useClientNotificationSync(user?: { phone?: string; name?: string
     }
   }, [])
 
-  useWebSocket('client', onWsMessage)
+  useWebSocket('client', onWsMessage, { phone: user?.phone ? phoneDigits(user.phone) : undefined })
 
   useEffect(() => {
     if (!user?.phone) return

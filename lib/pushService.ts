@@ -21,7 +21,14 @@ function autoEnabled(id: PushAutoEventId): boolean {
 
 function pushToPhone(
   phone: string,
-  payload: { title: string; body: string; icon: string; action?: 'orders' | 'reviews'; orderId?: string },
+  payload: {
+    title: string
+    body: string
+    icon: string
+    kind?: import('./clientNotifications').ClientNotificationKind
+    action?: import('./clientNotifications').ClientNotificationAction
+    orderId?: string
+  },
 ) {
   if (!phone?.trim()) return
   void deliverClientPush({
@@ -43,9 +50,9 @@ export async function sendPushCampaign(params: {
   const id = campaignId()
 
   if (segment === 'all') {
-    await deliverClientPushBroadcast({ title, body, icon, action: 'orders', campaignId: id })
+    await deliverClientPushBroadcast({ title, body, icon, kind: 'promo', action: 'promos', campaignId: id })
   } else {
-    await deliverClientPushBatch(phones, { title, body, icon, action: 'orders', campaignId: id })
+    await deliverClientPushBatch(phones, { title, body, icon, kind: 'promo', action: 'promos', campaignId: id })
   }
 
   const delivered = segment === 'all' ? recipients.length : phones.length
@@ -84,7 +91,8 @@ export function onOrderStatusChange(prev: Order, next: Order) {
         title: 'Заказ принят',
         body: `${orderId} принят в работу · КАКАПО ${next.type === 'mixed' ? 'Market' : 'Market'}`,
         icon: '✅',
-        action: 'orders',
+        kind: 'order',
+        action: 'order',
         orderId,
       })
     }
@@ -106,7 +114,8 @@ export function onOrderStatusChange(prev: Order, next: Order) {
           title: 'Ресторан принял заказ',
           body: `${restName} готовит ваш заказ ${orderId}`,
           icon: '🍽',
-          action: 'orders',
+          kind: 'order',
+          action: 'order',
           orderId,
         })
       }
@@ -121,7 +130,8 @@ export function onOrderStatusChange(prev: Order, next: Order) {
         title: 'Курьер выехал',
         body: `${courierName} едет к вам · заказ ${orderId}`,
         icon: '🛵',
-        action: 'orders',
+        kind: 'order',
+        action: 'order',
         orderId,
       })
     }
@@ -133,7 +143,8 @@ export function onOrderStatusChange(prev: Order, next: Order) {
         title: 'Заказ доставлен',
         body: `${orderId} доставлен. Приятного аппетита!`,
         icon: '📦',
-        action: 'orders',
+        kind: 'order',
+        action: 'order',
         orderId,
       })
     }
@@ -146,7 +157,8 @@ export function onBonusCredited(phone: string, delta: number, cardNum?: string) 
     title: 'Начислены бонусы',
     body: `+${delta.toLocaleString()} ⭐${cardNum ? ` · карта ${cardNum}` : ''}`,
     icon: '⭐',
-    action: 'orders',
+    kind: 'bonus',
+    action: 'bonus',
   })
 }
 
@@ -158,7 +170,8 @@ export function onRestPartAccepted(order: Order, restName: string) {
     title: 'Ресторан принял заказ',
     body: `${restName} готовит заказ ${order.id}`,
     icon: '🍽',
-    action: 'orders',
+    kind: 'order',
+    action: 'order',
     orderId: String(order.id),
   })
 }

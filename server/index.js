@@ -115,9 +115,24 @@ function broadcastReview(review) {
 
 function broadcastNotification(notification) {
   const msg = JSON.stringify({ event: 'notification', notification })
+  const target = notification.broadcast ? null : phoneKey(notification.targetPhone || '')
   for (const ws of clients) {
-    if (ws.readyState === 1) ws.send(msg)
+    if (ws.readyState !== 1) continue
+    if (ws.wsRole !== 'client') continue
+    if (notification.broadcast) {
+      ws.send(msg)
+      continue
+    }
+    if (target && ws.clientPhone === target) ws.send(msg)
   }
+}
+
+function parseWsMeta(url) {
+  const raw = String(url || '')
+  const path = raw.split('?')[0]
+  const role = path.replace(/^\/ws\//, '') || 'client'
+  const params = new URLSearchParams(raw.includes('?') ? raw.split('?')[1] : '')
+  return { role, phone: phoneKey(params.get('phone') || '') }
 }
 
 function phoneKey(phone) {
@@ -1112,6 +1127,7 @@ app.post('/notifications/deliver', (req, res) => {
     body: String(item.body || ''),
     time: item.time || nowTime(),
     color: item.color || 'var(--gr)',
+    kind: item.kind,
     action: item.action,
     orderId: item.orderId,
     reviewId: item.reviewId,
@@ -1208,6 +1224,9 @@ httpServer.on('upgrade', (req, socket, head) => {
     return
   }
   wss.handleUpgrade(req, socket, head, (ws) => {
+    const { role, phone } = parseWsMeta(req.url)
+    ws.wsRole = role
+    ws.clientPhone = phone
     clients.add(ws)
     ws.on('message', (data) => { if (String(data) === 'ping') ws.send('pong') })
     ws.on('close', () => clients.delete(ws))

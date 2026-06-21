@@ -14,26 +14,34 @@ export interface WSMessage {
   review?: any
 }
 
-export function useWebSocket(role: WSRole, onMessage: (msg: WSMessage) => void) {
+export function useWebSocket(
+  role: WSRole,
+  onMessage: (msg: WSMessage) => void,
+  meta?: { phone?: string },
+) {
   const wsRef = useRef<WebSocket | null>(null)
   const onMsgRef = useRef(onMessage)
   const [connected, setConnected] = useState(false)
+  const phoneRef = useRef(meta?.phone)
+  phoneRef.current = meta?.phone
 
   useEffect(() => { onMsgRef.current = onMessage }, [onMessage])
 
   useEffect(() => {
     if (!USE_API) return
     let stopped = false
-    let reconnectTimer: any = null
-    let pingTimer: any = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let pingTimer: ReturnType<typeof setInterval> | null = null
     let attempt = 0
 
     const connect = () => {
       if (stopped) return
       const token = getToken() || ''
+      const phoneDigits = (phoneRef.current || '').replace(/\D/g, '').slice(-9)
+      const phoneQuery = role === 'client' && phoneDigits ? `&phone=${encodeURIComponent(phoneDigits)}` : ''
       let ws: WebSocket
       try {
-        ws = new WebSocket(`${getWsUrl()}/ws/${role}?token=${token}`)
+        ws = new WebSocket(`${getWsUrl()}/ws/${role}?token=${token}${phoneQuery}`)
       } catch {
         scheduleReconnect()
         return
@@ -82,7 +90,7 @@ export function useWebSocket(role: WSRole, onMessage: (msg: WSMessage) => void) 
       if (pingTimer) clearInterval(pingTimer)
       if (wsRef.current) { try { wsRef.current.close() } catch {} }
     }
-  }, [role])
+  }, [role, meta?.phone])
 
   return { connected }
 }
