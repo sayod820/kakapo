@@ -46,7 +46,12 @@ function TierPreviewCard({ tier }: { tier: LoyaltyTierConfig }) {
           <span style={{ fontSize: 22 }}>{tier.emoji}</span>
           <span className="ub" style={{ fontSize: 15, fontWeight: 900, color: tier.accent }}>{tier.label}</span>
         </div>
-        <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4 }}>Кэшбэк: <span style={{ color: tier.color, fontWeight: 700 }}>{tier.cashback}</span></div>
+        <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4 }}>
+          Кэшбэк: <span style={{ color: tier.color, fontWeight: 700 }}>{tier.bonusPercent > 0 ? `${tier.bonusPercent}%` : '—'}</span>
+          {tier.defaultDebtLimit > 0 && (
+            <span style={{ marginLeft: 8, color: '#3B8EF0' }}>· долг до {tier.defaultDebtLimit.toLocaleString()} ЅМ</span>
+          )}
+        </div>
         <div style={{ fontSize: 10, color: '#3D6645', lineHeight: 1.4 }}>{tier.perk}</div>
         {tier.id !== 'basic' && tier.id !== 'vip' && (
           <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>от {tier.minSpent.toLocaleString()} ЅМ</div>
@@ -65,18 +70,36 @@ function TierEditor({
   onChange: (patch: Partial<LoyaltyTierConfig>) => void
 }) {
   const showMinSpent = tier.id !== 'basic' && tier.id !== 'vip'
+  const showDebtLimit = tier.id === 'gold' || tier.id === 'platinum' || tier.id === 'vip'
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-      <NI lbl="Название" val={tier.label} set={v => onChange({ label: v })} />
-      <NI lbl="Эмодзи" val={tier.emoji} set={v => onChange({ emoji: v })} />
-      {showMinSpent && <NI lbl="Мин. траты ЅМ" val={String(tier.minSpent)} set={v => onChange({ minSpent: Math.max(0, parseFloat(v) || 0) })} type="number" />}
-      <NI lbl="Цвет" val={tier.color} set={v => onChange({ color: v, accent: v })} ph="#CD7F32" />
-      <NI lbl="Кэшбэк" val={tier.cashback} set={v => onChange({ cashback: v })} ph="2%" />
-      <NI lbl="Привилегия" val={tier.perk} set={v => onChange({ perk: v })} />
-      <NI lbl="Рамка (CSS)" val={tier.border} set={v => onChange({ border: v })} />
-      <NI lbl="Свечение (CSS)" val={tier.glow} set={v => onChange({ glow: v })} />
+      <NI lbl="Название уровня" val={tier.label} set={v => onChange({ label: v })} />
+      <NI
+        lbl="Кэшбэк, %"
+        val={String(tier.bonusPercent ?? 0)}
+        set={v => onChange({ bonusPercent: Math.max(0, parseFloat(v) || 0) })}
+        ph="2"
+        type="number"
+      />
+      {showMinSpent && (
+        <NI
+          lbl="Мин. траты для уровня, ЅМ"
+          val={String(tier.minSpent)}
+          set={v => onChange({ minSpent: Math.max(0, parseFloat(v) || 0) })}
+          type="number"
+        />
+      )}
+      {showDebtLimit && (
+        <NI
+          lbl="Лимит VIP-долга, ЅМ"
+          val={String(tier.defaultDebtLimit ?? 0)}
+          set={v => onChange({ defaultDebtLimit: Math.max(0, parseFloat(v) || 0) })}
+          ph="0 — без долга"
+          type="number"
+        />
+      )}
       <div style={{ gridColumn: '1 / -1' }}>
-        <NI lbl="Фон (gradient)" val={tier.bgGradient} set={v => onChange({ bgGradient: v })} />
+        <NI lbl="Привилегия (текст для клиента)" val={tier.perk} set={v => onChange({ perk: v })} ph="Бонусы за покупки" />
       </div>
     </div>
   )
@@ -235,7 +258,7 @@ export default function CardStatusAdminPanel() {
         >
           <div>
             <div className="ub" style={{ fontSize: 14, fontWeight: 900 }}>⚙️ Программа лояльности</div>
-            <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>Пороги уровней, VIP, оформление карточек</div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>Бонусы, пороги уровней и условия VIP</div>
           </div>
           <span style={{ fontSize: 12, color: '#8FB897' }}>{showProgram ? '▲ Свернуть' : '▼ Настроить'}</span>
         </button>
@@ -258,10 +281,11 @@ export default function CardStatusAdminPanel() {
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
-              <NI lbl="Порог Бронзы ЅМ" val={String(draft.bronzeMinSpent)} set={v => { setDraft(p => ({ ...p, bronzeMinSpent: Math.max(0, parseFloat(v) || 0) })); setSaved(false) }} type="number" />
+              <NI lbl="Бонус при регистрации ⭐" val={String(draft.welcomeBonus)} set={v => { setDraft(p => ({ ...p, welcomeBonus: Math.max(0, parseInt(v, 10) || 0) })); setSaved(false) }} type="number" />
+              <NI lbl="Порог Бронзы, ЅМ" val={String(draft.bronzeMinSpent)} set={v => { setDraft(p => ({ ...p, bronzeMinSpent: Math.max(0, parseFloat(v) || 0) })); setSaved(false) }} type="number" />
               <NI lbl="VIP: мин. заказов" val={String(draft.vipRules.minOrders)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minOrders: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
               <NI lbl="VIP: мин. отзывов" val={String(draft.vipRules.minReviews)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minReviews: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
-              <NI lbl="VIP: мин. траты ЅМ" val={String(draft.vipRules.minSpent)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minSpent: Math.max(0, parseFloat(v) || 0) } })); setSaved(false) }} type="number" />
+              <NI lbl="VIP: мин. траты, ЅМ" val={String(draft.vipRules.minSpent)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minSpent: Math.max(0, parseFloat(v) || 0) } })); setSaved(false) }} type="number" />
             </div>
 
             <div style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>Уровни</div>
@@ -287,6 +311,11 @@ export default function CardStatusAdminPanel() {
               <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 10 }}>
                 {editingTier.emoji} {editingTier.label}
               </div>
+              {selectedTier === 'basic' && (
+                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.18)' }}>
+                  При регистрации клиент получает <strong style={{ color: '#FFB800' }}>{draft.welcomeBonus} ⭐</strong> — настраивается выше в «Бонус при регистрации».
+                </div>
+              )}
               <TierEditor tier={editingTier} onChange={patch => patchTier(selectedTier, patch)} />
             </div>
           </div>

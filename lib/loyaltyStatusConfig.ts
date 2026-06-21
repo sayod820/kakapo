@@ -9,6 +9,10 @@ export type LoyaltyTierConfig = {
   label: string
   emoji: string
   minSpent: number
+  /** Процент бонусов (кэшбэк) за покупки */
+  bonusPercent: number
+  /** Лимит VIP-долга по умолчанию для уровня, ЅМ (0 — нет) */
+  defaultDebtLimit: number
   color: string
   cashback: string
   perk: string
@@ -24,6 +28,8 @@ export type LoyaltyStatusConfig = {
   basic: LoyaltyTierConfig
   tiers: LoyaltyTierConfig[]
   vip: LoyaltyTierConfig
+  /** Бонусы при регистрации нового клиента */
+  welcomeBonus: number
   vipRules: {
     minOrders: number
     minReviews: number
@@ -37,11 +43,14 @@ export const LOYALTY_STATUS_CONFIG_EVENT = 'kakapo-loyalty-status-config'
 
 export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
   bronzeMinSpent: 1,
+  welcomeBonus: 100,
   basic: {
     id: 'basic',
     label: 'Базовый',
     emoji: '👤',
     minSpent: 0,
+    bonusPercent: 0,
+    defaultDebtLimit: 0,
     color: '#8FB897',
     cashback: '—',
     perk: 'Привилегий пока нет',
@@ -58,6 +67,8 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       label: 'Бронза',
       emoji: '🥉',
       minSpent: 1,
+      bonusPercent: 2,
+      defaultDebtLimit: 0,
       color: '#CD7F32',
       cashback: '2%',
       perk: 'Бонусы за покупки',
@@ -73,6 +84,8 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       label: 'Серебро',
       emoji: '🥈',
       minSpent: 500,
+      bonusPercent: 3,
+      defaultDebtLimit: 0,
       color: '#C0C0C0',
       cashback: '3%',
       perk: 'Доп. скидки',
@@ -88,6 +101,8 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       label: 'Золото',
       emoji: '🥇',
       minSpent: 1500,
+      bonusPercent: 4,
+      defaultDebtLimit: 1000,
       color: '#FFB800',
       cashback: '4%',
       perk: 'Приоритет сборки',
@@ -103,6 +118,8 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       label: 'Platinum',
       emoji: '💎',
       minSpent: 3000,
+      bonusPercent: 5,
+      defaultDebtLimit: 2000,
       color: '#3B8EF0',
       cashback: '5%',
       perk: 'Кредитный лимит',
@@ -119,6 +136,8 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
     label: 'VIP Elite',
     emoji: '👑',
     minSpent: 3000,
+    bonusPercent: 5,
+    defaultDebtLimit: 3000,
     color: '#FFD700',
     cashback: '5%',
     perk: 'Все привилегии',
@@ -136,9 +155,27 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
   },
 }
 
+function parseBonusPercent(cashback: string | undefined, fallback = 0): number {
+  const m = String(cashback || '').match(/([\d.]+)/)
+  return m ? Math.max(0, parseFloat(m[1]) || 0) : fallback
+}
+
+function cashbackLabel(percent: number): string {
+  return percent > 0 ? `${percent}%` : '—'
+}
+
 function mergeTier(base: LoyaltyTierConfig, patch?: Partial<LoyaltyTierConfig>): LoyaltyTierConfig {
   if (!patch) return base
-  return { ...base, ...patch, id: base.id }
+  const merged = { ...base, ...patch, id: base.id }
+  const bonusPercent = patch.bonusPercent != null
+    ? Math.max(0, Number(patch.bonusPercent) || 0)
+    : (merged.bonusPercent != null ? merged.bonusPercent : parseBonusPercent(merged.cashback, base.bonusPercent))
+  merged.bonusPercent = bonusPercent
+  merged.cashback = patch.cashback != null && patch.bonusPercent == null
+    ? merged.cashback
+    : cashbackLabel(bonusPercent)
+  merged.defaultDebtLimit = Math.max(0, Number(merged.defaultDebtLimit) || 0)
+  return merged
 }
 
 function normalizeConfig(raw: Partial<LoyaltyStatusConfig> | null | undefined): LoyaltyStatusConfig {
@@ -146,6 +183,7 @@ function normalizeConfig(raw: Partial<LoyaltyStatusConfig> | null | undefined): 
   if (!raw) return d
   return {
     bronzeMinSpent: Number(raw.bronzeMinSpent) >= 0 ? Number(raw.bronzeMinSpent) : d.bronzeMinSpent,
+    welcomeBonus: Number(raw.welcomeBonus) >= 0 ? Number(raw.welcomeBonus) : d.welcomeBonus,
     basic: mergeTier(d.basic, raw.basic),
     vip: mergeTier(d.vip, raw.vip),
     vipRules: {
@@ -191,6 +229,10 @@ export function subscribeLoyaltyStatusConfig(cb: (cfg: LoyaltyStatusConfig) => v
   const handler = (e: Event) => cb((e as CustomEvent<LoyaltyStatusConfig>).detail || loadLoyaltyStatusConfig())
   window.addEventListener(LOYALTY_STATUS_CONFIG_EVENT, handler)
   return () => window.removeEventListener(LOYALTY_STATUS_CONFIG_EVENT, handler)
+}
+
+export function getRegistrationWelcomeBonus(cfg = loadLoyaltyStatusConfig()): number {
+  return Math.max(0, Number(cfg.welcomeBonus) || 0)
 }
 
 export function getLoyaltyTierById(id: LoyaltyTierId, cfg = loadLoyaltyStatusConfig()): LoyaltyTierConfig | undefined {

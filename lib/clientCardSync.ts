@@ -21,6 +21,7 @@ import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
 import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
+import { getRegistrationWelcomeBonus } from './loyaltyStatusConfig'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -86,8 +87,6 @@ export function lookupClientByPhone(phone: string, clients?: AdminClient[]): Adm
   return list.find(c => phonesMatch(c.phone, p))
 }
 
-const REGISTRATION_WELCOME_BONUS = 100
-
 export function newClientRegistrationDefaults(): Pick<
   AdminClient,
   'level' | 'vip' | 'debtEnabled' | 'loyaltyPeriod' | 'orders' | 'spent' | 'debt' | 'debtLimit'
@@ -123,7 +122,7 @@ export async function provisionLoyaltyCardForClient(client: AdminClient): Promis
   const enriched = normalizeClient({
     ...current,
     ...newClientRegistrationDefaults(),
-    bonus: Math.max(Number(current.bonus) || 0, REGISTRATION_WELCOME_BONUS),
+    bonus: Math.max(Number(current.bonus) || 0, getRegistrationWelcomeBonus()),
   })
 
   cardStore.assignToClient(card.num, enriched)
@@ -155,7 +154,7 @@ export async function registerClientAccount(
         phone: local.phone,
         email: local.email,
         addr: local.addr,
-        bonus: Math.max(Number(remote.bonus) || 0, REGISTRATION_WELCOME_BONUS),
+        bonus: Math.max(Number(remote.bonus) || 0, getRegistrationWelcomeBonus()),
       })
       useClientStore.getState().updateClient(local.id, merged, { skipApi: true })
       await api.updateClient(local.id, {
