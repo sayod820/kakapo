@@ -65,6 +65,14 @@ export interface Order {
   courierAtClient?: boolean
   /** Причина отмены заказа */
   cancelReason?: string
+  /** Списано бонусов при оформлении */
+  bonusSpent?: number
+  /** Начислено бонусов при доставке */
+  bonusEarned?: number
+  /** Бонусы уже начислены (идемпотентность) */
+  bonusCredited?: boolean
+  /** Выручка ресторану уже начислена */
+  revenueCredited?: boolean
 }
 
 export type SellType = 'piece' | 'weight'

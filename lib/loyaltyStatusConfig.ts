@@ -212,6 +212,23 @@ export function saveLoyaltyStatusConfig(config: LoyaltyStatusConfig) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
     window.dispatchEvent(new CustomEvent(LOYALTY_STATUS_CONFIG_EVENT, { detail: next }))
   }
+  if (typeof window !== 'undefined') {
+    import('./config').then(({ USE_API }) => {
+      if (!USE_API) return
+      import('./api').then(({ api }) => {
+        api.updateLoyalty({
+          welcomeBonus: next.welcomeBonus,
+          bronzeMinSpent: next.bronzeMinSpent,
+          basic: { bonusPercent: next.basic.bonusPercent },
+          bronze: { bonusPercent: next.tiers.find(t => t.id === 'bronze')?.bonusPercent ?? 2 },
+          silver: { bonusPercent: next.tiers.find(t => t.id === 'silver')?.bonusPercent ?? 3 },
+          gold: { bonusPercent: next.tiers.find(t => t.id === 'gold')?.bonusPercent ?? 4 },
+          platinum: { bonusPercent: next.tiers.find(t => t.id === 'platinum')?.bonusPercent ?? 5 },
+          vip: { bonusPercent: next.vip.bonusPercent },
+        }).catch(() => {})
+      })
+    })
+  }
   return next
 }
 

@@ -1,6 +1,7 @@
 import type { Order, OrderStatus, OrderType } from './types'
 import { enrichCourierOrderPayment, mapCourierPayLabel } from './courierPayment'
 import type { DemoCourierOrder } from './demoOrders'
+import { expectedOrderBonus } from './loyaltyBonus'
 import {
   allPartsDone,
   allRestPartsDone,
@@ -26,7 +27,10 @@ import {
 } from './orderParts'
 
 /** Заказы API → формат «Мои заказы» в StoreApp */
-export function mapOrdersForClient(orders: Order[]) {
+export function mapOrdersForClient(
+  orders: Order[],
+  profile?: { level?: string; vip?: boolean } | null,
+) {
   return orders.map(o => {
     const order = normalizeOrder(o)
     const status = clientStatus(order)
@@ -45,7 +49,8 @@ export function mapOrdersForClient(orders: Order[]) {
         price: it.price,
       })),
       total: order.total,
-      bonus: Math.round(order.total * 0.02),
+      bonus: expectedOrderBonus(order, profile?.level, profile?.vip),
+      bonusSpent: order.bonusSpent ?? 0,
       delivery: order.deliveryFee ?? 0,
       addr: order.client?.addr || '',
       restId: order.restId || order.items?.find(it => it.restId)?.restId || '',

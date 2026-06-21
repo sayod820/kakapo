@@ -17,6 +17,19 @@ import {
 } from './orderParts'
 import { ASSEMBLER_NAME } from './courierStats'
 import { onOrderStatusChange, onRestPartAccepted } from './pushService'
+import { creditBonusOnDeliveryLocal } from './loyaltyBonus'
+
+function applyDeliveryLoyalty(
+  set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
+  get: () => OrdersStore,
+  id: string,
+) {
+  const order = get().orders.find(o => o.id === id)
+  if (!order || order.status !== 'delivered' || order.bonusCredited) return
+  const patch = creditBonusOnDeliveryLocal(order)
+  if (!patch) return
+  patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...patch } : o)))
+}
 
 export { USE_API }
 
@@ -318,6 +331,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       payment_method: data.payment_method || data.pay || 'cash',
       pay: data.payment_method || data.pay || 'cash',
       creditAmount: data.creditAmount,
+      bonusSpent: data.bonusSpent,
       pickupIds: data.pickupIds,
       weightKg: data.weightKg,
     } as Order)
@@ -333,6 +347,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, status, ...patch } : o))
     const nextAfter = get().orders.find(o => o.id === id)
     if (prev && nextAfter) onOrderStatusChange(normalizeOrder(prev), normalizeOrder(nextAfter))
+    if (nextAfter?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(id, status, patch)
@@ -343,6 +358,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         }))
         const synced = get().orders.find(o => o.id === id)
         if (prev && synced) onOrderStatusChange(normalizeOrder(prev), normalizeOrder(synced))
+        if (synced?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
       } catch (e) {
         console.error(e)
         if (prev) patchOrders(set, get, s => s.map(o => o.id === id ? prev : o))
@@ -362,6 +378,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...optimistic } : o)))
     const nextAfter = get().orders.find(o => o.id === id)
     if (prev && nextAfter) onOrderStatusChange(prev, normalizeOrder(nextAfter))
+    if (nextAfter?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(id, status, patch)
@@ -377,6 +394,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         patchOrders(set, get, s => s.map(o => (o.id === id ? merged : o)))
         const synced = get().orders.find(o => o.id === id)
         if (prev && synced) onOrderStatusChange(prev, normalizeOrder(synced))
+        if (synced?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
       } catch (e) {
         console.error(e)
         if (!(e instanceof Error && e.message.includes('Сервер не сохранил'))) {
@@ -391,6 +409,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       const nextPins = { ...get().orderAdminPins }
       delete nextPins[id]
       set({ orderAdminPins: nextPins })
+      if (status === 'delivered') applyDeliveryLoyalty(set, get, id)
     }
   },
 

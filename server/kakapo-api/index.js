@@ -15,6 +15,17 @@ import {
 } from './ordersLogic.js'
 import { creditDeliveredOrder, processPayout, getPendingBalance } from './restaurantStats.js'
 import { lockOrderDeliveryFee } from './deliveryFee.js'
+import {
+  applyBonusSpendOnOrder,
+  creditClientBonusOnDelivery,
+  ensureLoyaltySettings,
+} from './loyaltyBonus.js'
+
+const loyaltyHooks = () => ({
+  findCardByNum,
+  ensureCardRowForClient,
+  syncClientFromCardRow,
+})
 
 const PORT = Number(process.env.PORT) || 8000
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
@@ -245,6 +256,22 @@ function onOrderStatusChangeServer(prev, next) {
       })
     }
   }
+
+  if (pushAutoEnabled('bonus_credited')) {
+    if (prevStatus !== 'delivered' && nextStatus === 'delivered' && next.bonusEarned > 0) {
+      deliverOrderNotification({
+        id: `ord-${orderId}-bonus`,
+        targetPhone: phone,
+        title: 'Начислены бонусы',
+        body: `+${next.bonusEarned.toLocaleString('ru-RU')} ⭐ за заказ ${orderId}`,
+        icon: '⭐',
+        color: 'var(--gd)',
+        kind: 'bonus',
+        action: 'bonus',
+        orderId,
+      })
+    }
+  }
 }
 
 function phoneKey(phone) {
@@ -420,10 +447,18 @@ app.post('/orders', (req, res) => {
     distanceKm: body.distanceKm,
     durationMin: body.durationMin,
     weightKg: body.weightKg,
+    bonusSpent: 0,
   }
   if (otype === 'mixed') {
     order.marketStatus = body.marketStatus || 'new'
     order.restParts = body.restParts || Object.fromEntries((body.restIds || []).map(r => [r, 'new']))
+  }
+  const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
+  if (bonusSpendReq > 0) {
+    const spendResult = applyBonusSpendOnOrder(db, order, bonusSpendReq, loyaltyHooks())
+    if (!spendResult.ok) {
+      return res.status(400).json({ detail: spendResult.error || 'Не удалось списать бонусы' })
+    }
   }
   db.orders.push(order)
   persist()
@@ -438,6 +473,7 @@ app.patch('/orders/:id/status', (req, res) => {
   if (updated.status === 'delivered' && prev.status !== 'delivered') {
     lockOrderDeliveryFee(updated, db.settings.pricing)
     creditDeliveredOrder(db, updated)
+    creditClientBonusOnDelivery(db, updated, loyaltyHooks())
   }
   db.orders[idx] = updated
   persist()
@@ -855,6 +891,15 @@ app.patch('/settings/pricing', (req, res) => {
   db.settings.pricing = { ...db.settings.pricing, ...req.body }
   persist()
   res.json(db.settings.pricing)
+})
+app.get('/settings/loyalty', (_req, res) => {
+  res.json(ensureLoyaltySettings(db))
+})
+app.patch('/settings/loyalty', (req, res) => {
+  const current = ensureLoyaltySettings(db)
+  db.settings.loyalty = { ...current, ...req.body }
+  persist()
+  res.json(db.settings.loyalty)
 })
 
 function migrateLoyaltyRows() {

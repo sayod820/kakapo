@@ -320,6 +320,9 @@ export const api = {
   getPricing: () => request<PricingConfig>('/settings/pricing'),
   updatePricing: (data: Partial<PricingConfig>) =>
     request<PricingConfig>('/settings/pricing', { method: 'PATCH', body: JSON.stringify(data) }),
+  getLoyalty: () => request<Record<string, unknown>>('/settings/loyalty'),
+  updateLoyalty: (data: Record<string, unknown>) =>
+    request('/settings/loyalty', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Карты ──
   getCards: () => requestColdStart<AdminCard[]>('/cards'),

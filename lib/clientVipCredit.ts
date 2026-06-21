@@ -5,6 +5,8 @@ import { useClientStore } from './clientStore'
 import { phonesMatch } from './clientCrm'
 import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync, fetchCrmStoreUser, findMergedClientByPhone } from './clientProfileSync'
+import { USE_API } from './config'
+import { api } from './api'
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson } from './clientAccountStorage'
 import type { StoreUser } from './clientSession'
 
@@ -264,6 +266,15 @@ export async function spendBonus(phone: string, amount: number, orderId: string)
   if (!merged) throw new Error('Клиент не найден')
   const use = Math.min(merged.bonus, Math.max(0, Math.floor(amount)))
   if (use <= 0) return merged.bonus
+
+  if (USE_API) {
+    const cardNum = merged.card
+    if (!cardNum) throw new Error('Карта клиента не найдена')
+    const newBonus = merged.bonus - use
+    await api.updateCard(cardNum, { bonus: newBonus })
+    return newBonus
+  }
+
   const newBonus = merged.bonus - use
   setDebtOnCard(phone, merged.debt, newBonus)
   return newBonus

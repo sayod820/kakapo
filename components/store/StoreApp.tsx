@@ -2041,6 +2041,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       pay,
       creditAmount: useCreditPay ? creditGoods : undefined,
       vip: !!user?.vip,
+      bonusSpent: bonusUsable > 0 ? bonusUsable : 0,
     };
 
     let order = null;
@@ -2059,7 +2060,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       setBonusSpent(bonusUsable);
       try {
         const ph = user?.phone || formatTjPhone(phone);
-        if (bonusUsable > 0) await spendBonus(ph, bonusUsable, order.id);
+        if (bonusUsable > 0 && !USE_API) await spendBonus(ph, bonusUsable, order.id);
         if (pay === 'credit' && creditGoods > 0) {
           const names = items.slice(0, 2).map(p => p.name || 'Товар')
           const itemsSummary = names.length
@@ -2568,13 +2569,13 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const ordersList = useMemo(() => {
     const mine = phoneDigits(user?.phone || getActiveClientPhone(user) || '');
     if (!mine) return [];
-    const fromApi = mapOrdersForClient(apiOrders).filter(o => phoneDigits(o.phone || '') === mine);
+    const fromApi = mapOrdersForClient(apiOrders, user).filter(o => phoneDigits(o.phone || '') === mine);
     if (USE_API) return fromApi;
     const demoStatic = ORDERS_LIST.filter(o => phoneDigits(o.phone || '') === mine);
     const byId = new Map<string, typeof fromApi[0]>();
     [...fromApi, ...demoStatic].forEach(o => byId.set(o.id, o));
     return Array.from(byId.values());
-  }, [apiOrders, user?.phone]);
+  }, [apiOrders, user?.phone, user?.level, user?.vip]);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [reviewed, setReviewed] = useState<Record<string, Review>>({});
@@ -3410,7 +3411,7 @@ function VipDebtSection({
     order: ReturnType<typeof mapOrdersForClient>[number] | null
   } | null>(null)
 
-  const clientOrders = useMemo(() => mapOrdersForClient(apiOrders), [apiOrders])
+  const clientOrders = useMemo(() => mapOrdersForClient(apiOrders, user), [apiOrders, user?.level, user?.vip])
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
 
