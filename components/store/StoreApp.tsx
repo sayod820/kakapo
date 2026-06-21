@@ -2304,8 +2304,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
       const stored = loadStoreUser()
       if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
       if (!next) return
-      const merged = { ...user, ...next, vip: !!next.vip }
-      if (!crmStoreUsersEqual(user, merged)) {
+      const merged = { ...stored, ...next, vip: !!next.vip }
+      if (!crmStoreUsersEqual(stored, merged)) {
         saveStoreUser(merged)
         setUser(merged)
       }
@@ -2316,19 +2316,17 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
         && !o.bonusCredited
         && phoneDigits(o.client?.phone || '') === phoneDigits(phone),
     )
-    const syncKey = `${phone}:${pending.map(o => o.id).sort().join(',')}`
+    const syncKey = pending.length
+      ? `${phone}:${pending.map(o => o.id).sort().join(',')}`
+      : `${phone}:once`
 
-    if (!pending.length) {
-      void refreshProfile()
-      return () => { cancelled = true }
-    }
     if (loyaltySyncKeyRef.current === syncKey) {
       void refreshProfile()
       return () => { cancelled = true }
     }
     loyaltySyncKeyRef.current = syncKey
 
-    void syncLoyaltyBonuses(phone, apiOrders).then(async credited => {
+    void syncLoyaltyBonuses(phone, apiOrders).then(async () => {
       if (cancelled) return
       if (USE_API) await fetchOrders().catch(() => {})
       await refreshProfile()
@@ -3424,12 +3422,14 @@ function VipDebtSection({
   creditUsed,
   creditLimit,
   apiOrders = [],
+  loyaltyProfile,
 }: {
   phone?: string
   cardNum?: string
   creditUsed: number
   creditLimit: number
   apiOrders?: import('@/lib/types').Order[]
+  loyaltyProfile?: { level?: string; vip?: boolean } | null
 }) {
   const [tab, setTab] = useState<DebtTab>('all')
   const [histTick, setHistTick] = useState(0)
@@ -3439,7 +3439,10 @@ function VipDebtSection({
     order: ReturnType<typeof mapOrdersForClient>[number] | null
   } | null>(null)
 
-  const clientOrders = useMemo(() => mapOrdersForClient(apiOrders, user), [apiOrders, user?.level, user?.vip])
+  const clientOrders = useMemo(
+    () => mapOrdersForClient(apiOrders, loyaltyProfile),
+    [apiOrders, loyaltyProfile?.level, loyaltyProfile?.vip],
+  )
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
 
@@ -4025,6 +4028,7 @@ const VIPPage = ({ go, user, setUser }) => {
             creditUsed={creditUsed}
             creditLimit={creditLimit}
             apiOrders={apiOrders}
+            loyaltyProfile={user ? { level: loyalty.level, vip: loyalty.isVip } : null}
           />
         )}
 

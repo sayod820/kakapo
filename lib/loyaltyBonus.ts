@@ -14,6 +14,7 @@ import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
 import { onBonusCredited } from './pushService'
 import { currentLoyaltyPeriod } from './loyaltyPeriod'
+import { findMergedClientByPhone } from './clientProfileSync'
 
 export type LoyaltyTierPercents = {
   basic: number
@@ -177,6 +178,90 @@ export function onOrderDeliveredLoyalty(order: Order, allOrders: Order[] = []) {
   creditBonusOnDeliveryLocal(order, allOrders)
 }
 
+function orderSortKey(order: Order): number {
+  const raw = order.deliveredAtIso || order.createdAtIso || order.createdAt || ''
+  const d = new Date(String(raw))
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime()
+}
+
+/** Начисление через PATCH карты — если /loyalty/sync ещё нет на сервере. */
+async function syncLoyaltyBonusesViaCardApi(phone: string, orders: Order[]): Promise<number> {
+  const merged = await findMergedClientByPhone(phone)
+  if (!merged?.card) return 0
+
+  const delivered = orders
+    .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
+    .sort((a, b) => orderSortKey(a) - orderSortKey(b))
+
+  const pending = delivered.filter(o => !o.bonusCredited)
+  if (!pending.length) return 0
+
+  let totalNew = 0
+  const processed: Order[] = []
+  let finalLevel = merged.level
+  const period = currentLoyaltyPeriod()
+
+  for (const order of delivered) {
+    const batch = [...processed, order]
+    const { spent, orderCount } = loyaltyStatsFromOrders(batch, phone)
+    const effectiveLevel = resolveEffectiveClientLevel(
+      spent,
+      orderCount,
+      merged.level,
+      merged.loyaltyPeriod,
+    ) as ClientLevel
+    finalLevel = effectiveLevel
+    if (!order.bonusCredited) {
+      const earned = calcOrderBonusEarned(
+        bonusEligibleTotal(order),
+        effectiveLevel,
+        merged.vip,
+      )
+      totalNew += earned
+    }
+    processed.push({ ...order, bonusCredited: true, bonusEarned: order.bonusEarned })
+  }
+
+  if (totalNew <= 0) return 0
+
+  const { spent, orderCount } = loyaltyStatsFromOrders(delivered, phone)
+  const newBonus = (merged.bonus || 0) + totalNew
+
+  await api.updateCard(merged.card, {
+    bonus: newBonus,
+    level: merged.vip ? merged.level : finalLevel,
+    loyaltyPeriod: period,
+  })
+  if (merged.id) {
+    await api.updateClient(merged.id, {
+      bonus: newBonus,
+      spent,
+      orders: orderCount,
+      level: merged.vip ? merged.level : finalLevel,
+      loyaltyPeriod: period,
+    }).catch(() => {})
+  }
+
+  if (totalNew > 0) onBonusCredited(phone, totalNew, merged.card)
+
+  const { useOrders } = await import('./store')
+  useOrders.setState(s => ({
+    orders: s.orders.map(o => {
+      const hit = pending.find(p => p.id === o.id)
+      if (!hit) return o
+      const batch = delivered.slice(0, delivered.findIndex(d => d.id === o.id) + 1)
+      const { spent: ms, orderCount: mc } = loyaltyStatsFromOrders(batch, phone)
+      const lvl = resolveEffectiveClientLevel(ms, mc, merged.level, merged.loyaltyPeriod) as ClientLevel
+      const earned = calcOrderBonusEarned(bonusEligibleTotal(hit), lvl, merged.vip)
+      return { ...o, bonusCredited: true, bonusEarned: earned }
+    }),
+  }))
+
+  void useClientStore.getState().fetchFromApi()
+  void useCardStore.getState().fetchFromApi()
+  return totalNew
+}
+
 /** Пересчитать пропущенные бонусы за доставленные заказы (локально или через API). */
 export async function syncLoyaltyBonuses(phone: string, orders: Order[]): Promise<number> {
   if (!phone.trim()) return 0
@@ -187,7 +272,7 @@ export async function syncLoyaltyBonuses(phone: string, orders: Order[]): Promis
       void useCardStore.getState().fetchFromApi()
       return r.credited || 0
     } catch {
-      return 0
+      return syncLoyaltyBonusesViaCardApi(phone, orders)
     }
   }
   let credited = 0
