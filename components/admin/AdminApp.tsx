@@ -72,7 +72,9 @@ import {
   clientNoteForCard,
   cardLoyaltyFromCard,
 } from '@/lib/clientCardSync'
-import { deleteClientFromCrm } from '@/lib/clientAccountDelete'
+import { deleteClientFromCrm, purgeAllDemoClientsFromCrm } from '@/lib/clientAccountDelete'
+import { isPhoneDeleted } from '@/lib/clientTombstones'
+import { isDemoSeedClient } from '@/lib/clientDemoSeed'
 import { isClientInRecovery, moveClientToRecovery, restoreClientFromRecovery } from '@/lib/clientRecovery'
 import { loadDebtHistory, subscribeDebtHistory, type DebtHistoryEntry } from '@/lib/clientVipCredit'
 import { loyaltyTierOptions, loadLoyaltyStatusConfig } from '@/lib/loyaltyStatusConfig'
@@ -2501,6 +2503,7 @@ function ClientsPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [recoveryConfirm, setRecoveryConfirm] = useState<AdminClient | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [purgingDemo, setPurgingDemo] = useState(false);
 
   useEffect(() => {
     if (USE_API) void syncClientsFromApi();
@@ -2514,6 +2517,7 @@ function ClientsPage() {
     const qDigits = q.replace(/\D/g, '');
     return clients.filter(c => {
       if (isClientPurged(c)) return false;
+      if (isPhoneDeleted(c.phone)) return false;
       if (filterAccount === 'active' && isClientInRecovery(c)) return false;
       if (filterAccount === 'recovery' && !isClientInRecovery(c)) return false;
       if (filterLevel !== 'all' && c.level !== filterLevel) return false;
@@ -2540,6 +2544,11 @@ function ClientsPage() {
     withDebt: clients.filter(c => !isClientPurged(c) && c.debt > 0 && !isClientInRecovery(c)).length,
     newMonth: clients.filter(c => !isClientPurged(c) && isNewThisMonth(c.createdAt) && !isClientInRecovery(c)).length,
   }), [clients]);
+
+  const hasDemoClients = useMemo(
+    () => clients.some(c => isDemoSeedClient(c.id, c.phone) && !isPhoneDeleted(c.phone)),
+    [clients],
+  );
 
   const detailClient = detailId ? clients.find(c => c.id === detailId) : null;
 
@@ -2650,6 +2659,21 @@ function ClientsPage() {
     refilterClientsStore();
   };
 
+  const handlePurgeDemo = async () => {
+    if (!window.confirm('Удалить всех тестовых клиентов (Диловар, Нилуфар… U-01…U-07)? Ваши реальные клиенты не затронуты.')) return;
+    setPurgingDemo(true);
+    try {
+      const { removed, errors } = await purgeAllDemoClientsFromCrm();
+      if (errors > 0) {
+        window.alert(`Удалено ${removed} демо-клиентов. Ошибок: ${errors}. Задеплойте backend на Render для полного удаления.`);
+      }
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Не удалось удалить демо-клиентов');
+    } finally {
+      setPurgingDemo(false);
+    }
+  };
+
   const handleMoveToRecovery = async (c: AdminClient) => {
     setActionId(c.id);
     try {
@@ -2737,10 +2761,27 @@ function ClientsPage() {
             Найдено: <strong style={{ color: '#1FD760' }}>{filtered.length}</strong>
           </span>
         )}
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {hasDemoClients && (
+            <button
+              type="button"
+              onClick={() => void handlePurgeDemo()}
+              disabled={purgingDemo}
+              className="ab"
+              style={{ padding: '8px 14px', fontSize: 12, border: '1px solid rgba(255,184,0,.35)', color: '#FFB800', background: 'rgba(255,184,0,.08)' }}
+            >
+              {purgingDemo ? 'Удаление демо…' : '🧹 Убрать демо-клиентов'}
+            </button>
+          )}
           <button onClick={openAdd} className="ab abp">+ Добавить клиента</button>
         </div>
       </div>
+
+      {hasDemoClients && (
+        <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.25)', fontSize: 12, color: '#FFB800' }}>
+          В списке тестовые клиенты из демо-базы (U-01…). Нажмите «Убрать демо-клиентов» — они исчезнут навсегда. Ваших клиентов это не удалит.
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         {[

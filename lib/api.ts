@@ -271,6 +271,10 @@ export const api = {
     request<AdminAssembler>(`/assemblers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   getClients: () => requestColdStart<AdminClient[]>('/clients'),
+  getDeletedPhones: () =>
+    request<{ phones: string[] }>('/clients/deleted-phones').catch(() => ({ phones: [] as string[] })),
+  purgeDemoClients: () =>
+    request<{ ok: boolean; removed: number }>('/clients/purge-demo', { method: 'POST' }),
   createClient: (data: Partial<AdminClient>) =>
     request<AdminClient>('/clients', { method: 'POST', body: JSON.stringify(data) }),
   updateClient: (id: string, data: Partial<AdminClient>) =>

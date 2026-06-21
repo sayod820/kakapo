@@ -4,12 +4,13 @@ import { api } from './api'
 import { USE_API } from './config'
 import { useCardStore, hydrateCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
-import { phonesMatch, normalizePhone, isClientPurged, normalizeClient, type AdminClient } from './clientCrm'
+import { phonesMatch, normalizePhone, isClientPurged, normalizeClient, DEFAULT_ADMIN_CLIENTS, type AdminClient } from './clientCrm'
 import { normalizeCard, cardNumsMatch, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { moveClientToRecovery } from './clientRecovery'
 import { legacyPurgeClientOnServer } from './clientLegacyBackend'
-import { markPhoneDeleted, isSyntheticOrderClientId } from './clientTombstones'
+import { markPhoneDeleted, markPhonesDeleted, isSyntheticOrderClientId } from './clientTombstones'
+import { demoSeedPhones } from './clientDemoSeed'
 import {
   findLocalClient,
   resolveServerClientId,
@@ -140,6 +141,39 @@ export async function deleteClientFromCrm(clientId: string, phone?: string): Pro
   }
 
   emitCrmSync()
+}
+
+/** Удалить всех демо-клиентов U-01…U-07 (тестовые данные) */
+export async function purgeAllDemoClientsFromCrm(): Promise<{ removed: number; errors: number }> {
+  markPhonesDeleted(demoSeedPhones())
+
+  let removed = 0
+  let errors = 0
+
+  if (USE_API) {
+    try {
+      const res = await api.purgeDemoClients()
+      removed = res.removed ?? DEFAULT_ADMIN_CLIENTS.length
+      useClientStore.getState().applyVisibleFilter()
+      emitCrmSync()
+      return { removed, errors: 0 }
+    } catch {
+      /* старый backend — удаляем по одному */
+    }
+  }
+
+  for (const demo of DEFAULT_ADMIN_CLIENTS) {
+    try {
+      await deleteClientFromCrm(demo.id, demo.phone)
+      removed += 1
+    } catch {
+      errors += 1
+    }
+  }
+
+  useClientStore.getState().applyVisibleFilter()
+  emitCrmSync()
+  return { removed, errors }
 }
 
 /** Самоудаление из профиля — клиент попадает в «Восстановление» */

@@ -672,6 +672,27 @@ app.post('/clients/delete-by-phone', (req, res) => {
   res.json({ ok: true })
 })
 
+app.get('/clients/deleted-phones', (_req, res) => {
+  ensureDeletedPhoneKeys()
+  res.json({ phones: [...db.deletedPhoneKeys] })
+})
+
+/** Удалить всех демо-клиентов U-01…U-07 и запомнить их телефоны навсегда */
+app.post('/clients/purge-demo', (_req, res) => {
+  if (!db.clients) db.clients = []
+  let removed = 0
+  for (const demo of DEFAULT_CLIENTS) {
+    rememberDeletedPhone(demo.phone)
+    const client = db.clients.find(c => c.id === demo.id)
+    if (client) {
+      removeClientAndUnlinkCards(client)
+      removed += 1
+    }
+  }
+  persist()
+  res.json({ ok: true, removed, phones: db.deletedPhoneKeys.length })
+})
+
 app.post('/clients/:id/delete', (req, res) => {
   if (!db.clients) db.clients = []
   const client = db.clients.find(x => x.id === req.params.id)

@@ -10,9 +10,9 @@ import {
   phonesMatch,
   type AdminClient,
 } from './clientCrm'
-import { isPhoneDeleted } from './clientTombstones'
-import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 import { markClientLoyaltySaved, mergeClientLoyaltyIfRecent } from './loyaltySaveGuard'
+import { isPhoneDeleted, mergeDeletedPhonesFromServer, unmarkPhoneDeleted } from './clientTombstones'
+import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const PENDING_CLIENT_MS = 120_000
@@ -126,6 +126,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
   },
   addClient: (data, opts) => {
     const clients = get().clients
+    if (data.phone) unmarkPhoneDeleted(data.phone)
     const row = normalizeClient({
       ...data,
       id: nextClientId(clients),
@@ -136,7 +137,21 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     const next = [...clients, row]
     saveClients(next)
     markPendingClientSync(row.id)
-    if (USE_API && !opts?.skipApi) api.createClient(row).catch(console.error)
+    if (USE_API && !opts?.skipApi) {
+      api.createClient(row)
+        .then(created => {
+          const normalized = normalizeClient(created)
+          unmarkPhoneDeleted(normalized.phone)
+          clearPendingClientSync(row.id)
+          set(s => ({
+            clients: filterVisibleClients(
+              s.clients.map(c => (c.id === row.id ? normalized : c)),
+            ),
+          }))
+          emitCrmSync()
+        })
+        .catch(console.error)
+    }
     set({ clients: next })
     return row
   },
@@ -166,6 +181,8 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     set({ apiSyncing: true, apiError: '' })
     try {
       clearAppDataLocalCache()
+      const deletedMeta = await api.getDeletedPhones()
+      mergeDeletedPhonesFromServer(deletedMeta.phones || [])
       const apiList = (await api.getClients())
         .map(c => normalizeClient(c))
         .filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
@@ -195,6 +212,12 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     }
   },
 }))
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('kakapo-deleted-phone', () => {
+    useClientStore.getState().applyVisibleFilter()
+  })
+}
 
 export function useClients() {
   return useClientStore(s => s.clients)

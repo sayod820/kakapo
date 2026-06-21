@@ -1,7 +1,5 @@
 'use client'
 
-import { refilterClientsStore } from './clientStore'
-
 const TOMBSTONES_KEY = 'kakapo-deleted-phones'
 
 function loadSet(): Set<string> {
@@ -28,6 +26,14 @@ function phoneKey(phone?: string | null): string {
   return (phone || '').replace(/\D/g, '').slice(-9)
 }
 
+function notifyTombstoneChange() {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new CustomEvent('kakapo-deleted-phone'))
+    window.dispatchEvent(new CustomEvent('kakapo-crm-sync'))
+  } catch { /* ignore */ }
+}
+
 export function isPhoneDeleted(phone?: string | null): boolean {
   const key = phoneKey(phone)
   if (!key) return false
@@ -38,22 +44,39 @@ export function markPhoneDeleted(phone?: string | null): void {
   const key = phoneKey(phone)
   if (!key) return
   const set = loadSet()
+  if (set.has(key)) return
   set.add(key)
   saveSet(set)
-  refilterClientsStore()
-  if (typeof window !== 'undefined') {
-    try {
-      window.dispatchEvent(new CustomEvent('kakapo-crm-sync'))
-    } catch { /* ignore */ }
+  notifyTombstoneChange()
+}
+
+export function markPhonesDeleted(phones: string[]): void {
+  const set = loadSet()
+  let changed = false
+  for (const phone of phones) {
+    const key = phoneKey(phone)
+    if (!key || set.has(key)) continue
+    set.add(key)
+    changed = true
   }
+  if (!changed) return
+  saveSet(set)
+  notifyTombstoneChange()
+}
+
+/** Подтянуть tombstones с Render — переживают другой браузер и redeploy frontend */
+export function mergeDeletedPhonesFromServer(phones: string[]): void {
+  if (!phones.length) return
+  markPhonesDeleted(phones)
 }
 
 export function unmarkPhoneDeleted(phone?: string | null): void {
   const key = phoneKey(phone)
   if (!key) return
   const set = loadSet()
-  set.delete(key)
+  if (!set.delete(key)) return
   saveSet(set)
+  notifyTombstoneChange()
 }
 
 /** ID из заказов вида U-501903141 — не существует на сервере */

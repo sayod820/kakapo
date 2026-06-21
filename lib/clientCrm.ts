@@ -107,6 +107,8 @@ export const DEFAULT_ADMIN_CLIENTS: AdminClient[] = [
   { id: 'U-07', name: 'Сайёд Гафуров', phone: '+992 50 190 31 41', email: '', addr: '', card: 'KAKAPO-0236', level: 'silver', orders: 0, spent: 0, debt: 0, bonus: 100, debtLimit: 0, blocked: false, createdAt: '2025-06-01' },
 ]
 
+export { isDemoSeedClient, demoSeedPhones } from './clientDemoSeed'
+
 export function normalizePhone(phone: string): string {
   return (phone || '').replace(/\D/g, '').slice(-9)
 }
