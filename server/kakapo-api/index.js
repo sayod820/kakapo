@@ -135,6 +135,118 @@ function parseWsMeta(url) {
   return { role, phone: phoneKey(params.get('phone') || '') }
 }
 
+function pushAutoEnabled(eventId) {
+  const settings = db.push?.autoSettings || []
+  const row = settings.find(s => s.id === eventId)
+  return row ? row.enabled !== false : true
+}
+
+function deliverOrderNotification(payload) {
+  ensureNotifications()
+  const target = phoneKey(payload.targetPhone || '')
+  if (!target || !payload.id) return
+  if ((db.notifications || []).some(n => n.id === payload.id)) return
+  const notif = {
+    id: payload.id,
+    read: false,
+    icon: payload.icon || '🔔',
+    title: String(payload.title || ''),
+    body: String(payload.body || ''),
+    time: nowTime(),
+    color: payload.color || 'var(--gr)',
+    kind: payload.kind || 'order',
+    action: payload.action || 'order',
+    orderId: payload.orderId,
+    targetPhone: target,
+    sentAt: new Date().toISOString(),
+  }
+  db.notifications.unshift(notif)
+  db.notifications = db.notifications.slice(0, 500)
+  persist()
+  broadcastNotification(notif)
+}
+
+function onOrderStatusChangeServer(prev, next) {
+  const phone = next.client?.phone || ''
+  if (!phone) return
+  const orderId = String(next.id)
+  const courierName = next.courier?.name || 'Курьер'
+  const prevStatus = prev.status
+  const nextStatus = next.status
+  const otype = inferType(next)
+
+  if (pushAutoEnabled('order_accepted')) {
+    const wasPending = ['new', 'pending'].includes(prevStatus)
+    const isAccepted = !['new', 'pending', 'cancelled'].includes(nextStatus)
+    if (wasPending && isAccepted && otype !== 'restaurant') {
+      deliverOrderNotification({
+        id: `ord-${orderId}-accepted`,
+        targetPhone: phone,
+        title: 'Заказ принят',
+        body: `${orderId} принят в работу · КАКАПО Market`,
+        icon: '✅',
+        color: 'var(--gr)',
+        orderId,
+      })
+    }
+  }
+
+  if (pushAutoEnabled('restaurant_accepted')) {
+    const isRest = otype === 'restaurant' || otype === 'mixed'
+    if (isRest) {
+      const prevCooking = prevStatus === 'cooking' || prevStatus === 'ready'
+      const nextCooking = nextStatus === 'cooking' || nextStatus === 'ready'
+      const prevRestParts = prev.restParts || {}
+      const nextRestParts = next.restParts || {}
+      const restAccepted = Object.keys(nextRestParts).some(
+        rid => nextRestParts[rid] === 'cooking' && prevRestParts[rid] !== 'cooking',
+      )
+      if ((!prevCooking && nextCooking) || restAccepted || (prevStatus === 'new' && nextStatus === 'cooking')) {
+        const restName = next.restName || 'Ресторан'
+        deliverOrderNotification({
+          id: `ord-${orderId}-restaurant`,
+          targetPhone: phone,
+          title: 'Ресторан принял заказ',
+          body: `${restName} готовит ваш заказ ${orderId}`,
+          icon: '🍽',
+          color: 'var(--gr)',
+          orderId,
+        })
+      }
+    }
+  }
+
+  if (pushAutoEnabled('courier_departed')) {
+    const wasNotEnRoute = !['courier_picked', 'delivering'].includes(prevStatus)
+    const isEnRoute = ['courier_picked', 'delivering'].includes(nextStatus)
+    if (wasNotEnRoute && isEnRoute) {
+      deliverOrderNotification({
+        id: `ord-${orderId}-courier`,
+        targetPhone: phone,
+        title: 'Курьер выехал',
+        body: `${courierName} едет к вам · заказ ${orderId}`,
+        icon: '🛵',
+        color: 'var(--blue)',
+        orderId,
+      })
+    }
+  }
+
+  if (pushAutoEnabled('order_delivered')) {
+    if (prevStatus !== 'delivered' && nextStatus === 'delivered') {
+      deliverOrderNotification({
+        id: `ord-${orderId}-delivered`,
+        targetPhone: phone,
+        title: 'Заказ доставлен',
+        body: `${orderId} доставлен. Приятного аппетита!`,
+        icon: '📦',
+        color: 'var(--gr)',
+        orderId,
+      })
+    }
+  }
+}
+
 function phoneKey(phone) {
   return (phone || '').replace(/\D/g, '').slice(-9)
 }
@@ -329,6 +441,7 @@ app.patch('/orders/:id/status', (req, res) => {
   }
   db.orders[idx] = updated
   persist()
+  onOrderStatusChangeServer(prev, db.orders[idx])
   broadcast('order_update', db.orders[idx])
   res.json(db.orders[idx])
 })
@@ -1112,7 +1225,7 @@ app.get('/notifications', (req, res) => {
   const key = phoneKey(String(req.query.phone || ''))
   let list = db.notifications || []
   if (!key) return res.json([])
-  list = list.filter(n => n.broadcast === true || n.targetPhone === key)
+  list = list.filter(n => n.broadcast === true || (n.targetPhone && n.targetPhone === key))
   res.json(list.slice(0, 80))
 })
 
@@ -1134,7 +1247,7 @@ app.post('/notifications/deliver', (req, res) => {
     broadcast: item.broadcast === true,
     targetPhone: item.broadcast ? undefined : (item.targetPhone ? phoneKey(item.targetPhone) : undefined),
     sentAt: item.sentAt || new Date().toISOString(),
-  })).filter(n => n.title && n.body)
+  })).filter(n => n.title && n.body && !(db.notifications || []).some(x => x.id === n.id))
 
   if (created.length) {
     db.notifications.unshift(...created)

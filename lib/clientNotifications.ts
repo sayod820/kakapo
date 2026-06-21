@@ -175,6 +175,28 @@ function sortNotifications(list: ClientNotification[]): ClientNotification[] {
   })
 }
 
+function notificationFingerprint(n: ClientNotification): string {
+  return n.id || `${notificationKind(n)}|${n.orderId || ''}|${n.reviewId ?? ''}|${n.title}|${phoneDigits(n.targetPhone || '')}`
+}
+
+function dedupeNotifications(list: ClientNotification[]): ClientNotification[] {
+  const byKey = new Map<string, ClientNotification>()
+  for (const n of list) {
+    const key = notificationFingerprint(n)
+    const prev = byKey.get(key)
+    if (!prev) {
+      byKey.set(key, n)
+      continue
+    }
+    byKey.set(key, {
+      ...prev,
+      ...n,
+      read: prev.read && n.read,
+    })
+  }
+  return sortNotifications(Array.from(byKey.values()))
+}
+
 function loadAccountNotifications(phone?: string): ClientNotification[] {
   const list = loadAccountJson<ClientNotification[]>(ACCOUNT_NS.notifications, [], phone)
   if (!Array.isArray(list)) return []
@@ -194,7 +216,7 @@ function saveAccountNotifications(list: ClientNotification[], phone?: string) {
 function loadMergedNotifications(phone?: string): ClientNotification[] {
   const personal = loadAccountNotifications(phone)
   const broadcast = loadBroadcastNotifications<ClientNotification>()
-  return sortNotifications([...personal, ...broadcast])
+  return dedupeNotifications([...personal, ...broadcast])
 }
 
 function mergeNotifications(local: ClientNotification[], remote: ClientNotification[]): ClientNotification[] {
@@ -252,7 +274,8 @@ export async function syncClientNotificationsFromApi(phone?: string): Promise<Cl
       const remote = await api.getNotifications(accountId)
       const { personal, broadcast } = splitRemoteNotifications(remote, accountId)
       mergeBroadcastNotifications(broadcast)
-      const merged = sortNotifications(mergeNotifications(loadAccountNotifications(viewerPhone), personal))
+      const local = loadAccountNotifications(viewerPhone)
+      const merged = dedupeNotifications(mergeNotifications(local, personal))
       saveAccountNotifications(merged, viewerPhone)
       return loadMergedNotifications(viewerPhone)
     } catch {
@@ -332,8 +355,13 @@ function makeNotification(payload: {
       : payload.action === 'promos' ? 'promo' as const
       : payload.orderId || payload.action === 'order' || payload.action === 'orders' ? 'order' as const
       : undefined)
+  const target = payload.broadcast ? undefined : (payload.targetPhone ? phoneDigits(payload.targetPhone) : undefined)
+  const stableId = payload.id
+    || (target && payload.orderId && kind === 'order'
+      ? `ord-${payload.orderId}-${payload.title.replace(/\s+/g, '-').slice(0, 24).toLowerCase()}`
+      : undefined)
   return {
-    id: payload.id || `push-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: stableId || `push-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     read: false,
     icon: payload.icon,
     title: payload.title,
@@ -351,6 +379,7 @@ function makeNotification(payload: {
 }
 
 export async function deliverClientPush(payload: {
+  id?: string
   title: string
   body: string
   icon: string
@@ -363,11 +392,14 @@ export async function deliverClientPush(payload: {
   const target = phoneDigits(payload.targetPhone || '')
   if (!target) return
   const notif = makeNotification({ ...payload, targetPhone: target })
+  const viewerId = viewerAccountId()
   if (USE_API) {
     await postNotificationsToApi([notif])
+    if (viewerId !== target) return
   }
   const list = loadAccountJson<ClientNotification[]>(ACCOUNT_NS.notifications, [], target)
-  const next = filterPersonalNotifications(Array.isArray(list) ? list : [], target)
+  const next = dedupeNotifications(filterPersonalNotifications(Array.isArray(list) ? list : [], target))
+  if (next.some(n => n.id === notif.id)) return
   next.unshift(notif)
   saveAccountNotifications(next, target)
 }
@@ -429,6 +461,7 @@ export function ingestNotificationFromServer(
 
   const list = loadAccountNotifications(viewerPhone)
   if (list.some(n => n.id === notification.id)) return
+  if (list.some(n => notificationFingerprint(n) === notificationFingerprint(notification))) return
   list.unshift(notification)
   saveAccountNotifications(list, viewerPhone)
 }

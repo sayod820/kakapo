@@ -8,6 +8,8 @@ import {
   type PushSegmentId,
 } from './pushCrm'
 import { deliverClientPush, deliverClientPushBatch, deliverClientPushBroadcast } from './clientNotifications'
+import { phoneDigits } from './clientSession'
+import { USE_API } from './config'
 import { usePushStore } from './pushStore'
 
 function campaignId() {
@@ -22,6 +24,7 @@ function autoEnabled(id: PushAutoEventId): boolean {
 function pushToPhone(
   phone: string,
   payload: {
+    id?: string
     title: string
     body: string
     icon: string
@@ -75,6 +78,7 @@ export async function sendPushCampaign(params: {
 
 export function onOrderStatusChange(prev: Order, next: Order) {
   if (typeof window === 'undefined') return
+  if (USE_API) return
   const phone = next.client?.phone || ''
   if (!phone) return
   const orderId = String(next.id)
@@ -88,6 +92,7 @@ export function onOrderStatusChange(prev: Order, next: Order) {
     const isAccepted = !['new', 'pending', 'cancelled'].includes(nextStatus)
     if (wasPending && isAccepted && next.type !== 'restaurant') {
       pushToPhone(phone, {
+        id: `ord-${orderId}-accepted`,
         title: 'Заказ принят',
         body: `${orderId} принят в работу · КАКАПО ${next.type === 'mixed' ? 'Market' : 'Market'}`,
         icon: '✅',
@@ -111,6 +116,7 @@ export function onOrderStatusChange(prev: Order, next: Order) {
       if ((!prevCooking && nextCooking) || restAccepted || (prevStatus === 'new' && nextStatus === 'cooking')) {
         const restName = next.restName || 'Ресторан'
         pushToPhone(phone, {
+          id: `ord-${orderId}-restaurant`,
           title: 'Ресторан принял заказ',
           body: `${restName} готовит ваш заказ ${orderId}`,
           icon: '🍽',
@@ -127,6 +133,7 @@ export function onOrderStatusChange(prev: Order, next: Order) {
     const isEnRoute = ['courier_picked', 'delivering'].includes(nextStatus)
     if (wasNotEnRoute && isEnRoute) {
       pushToPhone(phone, {
+        id: `ord-${orderId}-courier`,
         title: 'Курьер выехал',
         body: `${courierName} едет к вам · заказ ${orderId}`,
         icon: '🛵',
@@ -140,6 +147,7 @@ export function onOrderStatusChange(prev: Order, next: Order) {
   if (autoEnabled('order_delivered')) {
     if (prevStatus !== 'delivered' && nextStatus === 'delivered') {
       pushToPhone(phone, {
+        id: `ord-${orderId}-delivered`,
         title: 'Заказ доставлен',
         body: `${orderId} доставлен. Приятного аппетита!`,
         icon: '📦',
@@ -154,6 +162,7 @@ export function onOrderStatusChange(prev: Order, next: Order) {
 export function onBonusCredited(phone: string, delta: number, cardNum?: string) {
   if (!autoEnabled('bonus_credited') || delta <= 0 || !phone) return
   pushToPhone(phone, {
+    id: `bonus-${phoneDigits(phone)}-${Date.now()}`,
     title: 'Начислены бонусы',
     body: `+${delta.toLocaleString()} ⭐${cardNum ? ` · карта ${cardNum}` : ''}`,
     icon: '⭐',
@@ -163,10 +172,12 @@ export function onBonusCredited(phone: string, delta: number, cardNum?: string) 
 }
 
 export function onRestPartAccepted(order: Order, restName: string) {
+  if (USE_API) return
   if (!autoEnabled('restaurant_accepted')) return
   const phone = order.client?.phone
   if (!phone) return
   pushToPhone(phone, {
+    id: `ord-${order.id}-restaurant-${restName.slice(0, 12)}`,
     title: 'Ресторан принял заказ',
     body: `${restName} готовит заказ ${order.id}`,
     icon: '🍽',
