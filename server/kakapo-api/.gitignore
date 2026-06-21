@@ -1,0 +1,11 @@
+node_modules/
+data/
+.env
+.venv/
+venv/
+__pycache__/
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -10,3 +10,5 @@ backend/*.db
 backend/.venv/
 server/node_modules/
 server/data/
+server/kakapo-api/node_modules/
+server/kakapo-api/data/

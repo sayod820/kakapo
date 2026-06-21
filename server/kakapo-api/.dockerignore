@@ -1,0 +1,11 @@
+node_modules
+.git
+.env
+data
+app
+*.py
+__pycache__
+.venv
+venv
+docker-compose.yml
+requirements.txt
