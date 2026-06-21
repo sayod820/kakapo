@@ -19,6 +19,7 @@ const DEFAULT = {
     loyalty: {
       welcomeBonus: 100,
       bronzeMinSpent: 1,
+      tierMinSpent: { bronze: 1, silver: 500, gold: 1500, platinum: 3000 },
       basic: { bonusPercent: 0 },
       bronze: { bonusPercent: 2 },
       silver: { bonusPercent: 3 },

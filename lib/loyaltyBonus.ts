@@ -2,12 +2,17 @@
 
 import type { Order } from './types'
 import type { ClientLevel } from './clientCrm'
-import { phonesMatch } from './clientCrm'
+import {
+  phonesMatch,
+  loyaltyStatsFromOrders,
+  resolveEffectiveClientLevel,
+} from './clientCrm'
 import { USE_API } from './config'
 import { loadLoyaltyStatusConfig, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
 import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
 import { onBonusCredited } from './pushService'
+import { currentLoyaltyPeriod } from './loyaltyPeriod'
 
 export type LoyaltyTierPercents = {
   basic: number
@@ -81,7 +86,14 @@ export function expectedOrderBonus(
   vip?: boolean,
 ): number {
   if (order.bonusEarned != null && order.status === 'delivered') return order.bonusEarned
-  return calcOrderBonusEarned(bonusEligibleTotal(order), level, vip)
+  const cfg = loadLoyaltyStatusConfig()
+  const eligible = bonusEligibleTotal(order)
+  if (order.status !== 'delivered') {
+    const spentPreview = eligible
+    const previewLevel = resolveEffectiveClientLevel(spentPreview, 1, level, currentLoyaltyPeriod())
+    return calcOrderBonusEarned(eligible, previewLevel, vip, cfg)
+  }
+  return calcOrderBonusEarned(eligible, level, vip, cfg)
 }
 
 export type OrderLoyaltyPatch = {
@@ -90,9 +102,18 @@ export type OrderLoyaltyPatch = {
   bonusSpent?: number
 }
 
+function refreshCrmAfterDelivery() {
+  if (!USE_API) return
+  void useClientStore.getState().fetchFromApi()
+  void useCardStore.getState().fetchFromApi()
+}
+
 /** Локальный режим: начисление бонусов и обновление spent/orders при доставке. */
-export function creditBonusOnDeliveryLocal(order: Order): OrderLoyaltyPatch | null {
-  if (USE_API) return null
+export function creditBonusOnDeliveryLocal(order: Order, allOrders: Order[] = []): OrderLoyaltyPatch | null {
+  if (USE_API) {
+    refreshCrmAfterDelivery()
+    return null
+  }
   if (order.status !== 'delivered' || order.bonusCredited) return null
 
   const phone = order.client?.phone || ''
@@ -108,27 +129,49 @@ export function creditBonusOnDeliveryLocal(order: Order): OrderLoyaltyPatch | nu
     ? cardStore.cards.find(c => c.num === client.card && c.status !== 'unlinked')
     : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
 
-  const level = (client?.level || card?.level || 'basic') as ClientLevel
+  if (!client && !card) return null
+
+  const { spent: monthlySpent, orderCount } = loyaltyStatsFromOrders(allOrders, phone)
+  const effectiveLevel = resolveEffectiveClientLevel(
+    monthlySpent,
+    orderCount,
+    (client?.level || card?.level || 'basic') as ClientLevel,
+    client?.loyaltyPeriod || card?.loyaltyPeriod,
+  )
   const vip = !!(client?.vip || card?.vip)
   const eligible = bonusEligibleTotal(order)
-  const earned = calcOrderBonusEarned(eligible, level, vip)
-  const spentAdd = orderSpentContribution(order)
+  const earned = calcOrderBonusEarned(eligible, effectiveLevel, vip)
+  const period = currentLoyaltyPeriod()
 
   if (client) {
     clientStore.updateClient(client.id, {
-      orders: (client.orders || 0) + 1,
-      spent: Math.round(((client.spent || 0) + spentAdd) * 10) / 10,
+      orders: Math.max(client.orders || 0, orderCount),
+      spent: Math.max(client.spent || 0, monthlySpent),
+      level: vip ? client.level : effectiveLevel,
+      loyaltyPeriod: period,
     })
+  }
+
+  const loyaltyPatch = {
+    bonus: (card?.bonus || client?.bonus || 0) + earned,
+    level: vip ? (card?.level || effectiveLevel) : effectiveLevel,
+    loyaltyPeriod: period,
   }
 
   if (card) {
     const prevBonus = card.bonus || 0
-    const newBonus = prevBonus + earned
-    cardStore.updateCardLoyalty(card.num, { bonus: newBonus }, { skipApi: true })
+    cardStore.updateCardLoyalty(card.num, {
+      ...loyaltyPatch,
+      bonus: prevBonus + earned,
+    }, { skipApi: true })
     if (earned > 0) onBonusCredited(phone, earned, card.num)
   } else if (earned > 0 && client) {
     onBonusCredited(phone, earned, client.card)
   }
 
   return { bonusCredited: true, bonusEarned: earned }
+}
+
+export function onOrderDeliveredLoyalty(order: Order, allOrders: Order[] = []) {
+  creditBonusOnDeliveryLocal(order, allOrders)
 }

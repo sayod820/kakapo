@@ -221,6 +221,12 @@ export function saveLoyaltyStatusConfig(config: LoyaltyStatusConfig) {
           bronzeMinSpent: next.bronzeMinSpent,
           basic: { bonusPercent: next.basic.bonusPercent },
           bronze: { bonusPercent: next.tiers.find(t => t.id === 'bronze')?.bonusPercent ?? 2 },
+          tierMinSpent: {
+            bronze: next.bronzeMinSpent,
+            silver: next.tiers.find(t => t.id === 'silver')?.minSpent ?? 500,
+            gold: next.tiers.find(t => t.id === 'gold')?.minSpent ?? 1500,
+            platinum: next.tiers.find(t => t.id === 'platinum')?.minSpent ?? 3000,
+          },
           silver: { bonusPercent: next.tiers.find(t => t.id === 'silver')?.bonusPercent ?? 3 },
           gold: { bonusPercent: next.tiers.find(t => t.id === 'gold')?.bonusPercent ?? 4 },
           platinum: { bonusPercent: next.tiers.find(t => t.id === 'platinum')?.bonusPercent ?? 5 },

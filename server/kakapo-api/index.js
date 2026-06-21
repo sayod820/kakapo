@@ -293,7 +293,7 @@ function nowTime() {
 app.get('/health', (_req, res) => res.json({
   ok: true,
   service: 'kakapo-api',
-  version: '2.3-node-loyalty',
+  version: '2.4-node-loyalty-fix',
   loyaltyVip: true,
   dataDir: process.env.DATA_DIR || 'data',
 }))
@@ -429,6 +429,7 @@ app.post('/orders', (req, res) => {
     type: otype,
     status: 'new',
     createdAt: nowTime(),
+    createdAtIso: new Date().toISOString(),
     total: body.total || 0,
     deliveryFee: body.deliveryFee || 0,
     deliveryFeeLocked: body.deliveryFeeLocked === true || Number(body.deliveryFee) > 0,
@@ -471,6 +472,10 @@ app.patch('/orders/:id/status', (req, res) => {
   const prev = db.orders[idx]
   const updated = applyStatusPatch({ ...prev }, req.body)
   if (updated.status === 'delivered' && prev.status !== 'delivered') {
+    updated.deliveredAtIso = new Date().toISOString()
+    if (!updated.deliveredAt) {
+      updated.deliveredAt = nowTime()
+    }
     lockOrderDeliveryFee(updated, db.settings.pricing)
     creditDeliveredOrder(db, updated)
     creditClientBonusOnDelivery(db, updated, loyaltyHooks())
@@ -722,19 +727,23 @@ app.get('/clients', (_req, res) => res.json(listVisibleClients()))
 app.post('/clients', (req, res) => {
   if (!db.clients) db.clients = []
   if (req.body?.phone) forgetDeletedPhone(req.body.phone)
+  const loyalty = ensureLoyaltySettings(db)
   const nums = db.clients.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
   const n = (nums.length ? Math.max(...nums) : 0) + 1
+  const welcomeBonus = Number(loyalty.welcomeBonus) || 0
   const row = normalizeClientRow({
     id: `U-${String(n).padStart(2, '0')}`,
     level: 'basic',
     orders: 0,
     spent: 0,
     debt: 0,
-    bonus: 0,
+    bonus: welcomeBonus,
     debtLimit: 0,
     blocked: false,
+    loyaltyPeriod: currentLoyaltyPeriod(),
     createdAt: new Date().toISOString().slice(0, 10),
     ...req.body,
+    bonus: req.body?.bonus != null ? Number(req.body.bonus) || 0 : welcomeBonus,
   })
   db.clients.push(row)
   ensureCardRowForClient(row)

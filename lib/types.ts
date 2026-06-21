@@ -61,6 +61,10 @@ export interface Order {
   courierRoute?: string[]
   /** Время завершения доставки (HH:MM) */
   deliveredAt?: string
+  /** ISO-дата создания заказа (для лояльности) */
+  createdAtIso?: string
+  /** ISO-дата доставки (для лояльности) */
+  deliveredAtIso?: string
   /** Курьер на месте у клиента (перед подтверждением доставки) */
   courierAtClient?: boolean
   /** Причина отмены заказа */

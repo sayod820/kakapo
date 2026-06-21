@@ -24,22 +24,32 @@ export function loyaltyPeriodEndsLabel(period = currentLoyaltyPeriod()): string 
   return last.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
 }
 
-export function parseOrderLoyaltyDate(order: Pick<Order, 'createdAt'> & { date?: string }): Date | null {
-  const raw = order.createdAt || order.date
-  if (!raw) return null
+export function parseOrderLoyaltyDate(
+  order: Pick<Order, 'createdAt' | 'deliveredAt'> & { date?: string; createdAtIso?: string; deliveredAtIso?: string },
+): Date | null {
+  const raw = order.deliveredAtIso || order.createdAtIso || order.createdAt || order.date
+  if (!raw) return new Date()
   if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
     const d = new Date(raw)
-    return Number.isNaN(d.getTime()) ? null : d
+    return Number.isNaN(d.getTime()) ? new Date() : d
   }
-  return null
+  // Формат «14:23» с API — считаем заказ текущего месяца
+  if (/^\d{1,2}:\d{2}/.test(String(raw))) return new Date()
+  return new Date()
 }
 
 export function orderInLoyaltyPeriod(
-  order: Pick<Order, 'createdAt'> & { date?: string },
+  order: Pick<Order, 'createdAt' | 'deliveredAt' | 'status'> & { date?: string; createdAtIso?: string; deliveredAtIso?: string },
   period = currentLoyaltyPeriod(),
 ): boolean {
+  if (order.status === 'delivered') {
+    const d = parseOrderLoyaltyDate(order)
+    if (!d) return true
+    const [y, m] = period.split('-').map(Number)
+    return d.getFullYear() === y && d.getMonth() + 1 === m
+  }
   const d = parseOrderLoyaltyDate(order)
-  if (!d) return false
+  if (!d) return true
   const [y, m] = period.split('-').map(Number)
   return d.getFullYear() === y && d.getMonth() + 1 === m
 }

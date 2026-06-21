@@ -15,6 +15,7 @@ import { syncAutoLevelToCrm, syncMonthlyLoyaltyReset } from './clientCardSync'
 import { currentLoyaltyPeriod } from './loyaltyPeriod'
 import { USE_API } from './config'
 import { useClientStore } from './clientStore'
+import { phonesMatch } from './clientCrm'
 
 /** Ежемесячный сброс + автоповышение по заказам текущего месяца */
 export function useAutoLoyaltySync(
@@ -39,7 +40,19 @@ export function useAutoLoyaltySync(
     if (base.vip && !reset) return
 
     const { orderCount, spent } = loyaltyStatsFromOrders(orders, base.phone)
-    const effective = resolveEffectiveClientLevel(spent, orderCount, base.level, base.loyaltyPeriod)
+
+    // При API — подстраховка: если сервер уже обновил spent/level, берём максимум
+    let effectiveSpent = spent
+    let effectiveOrders = orderCount
+    if (USE_API) {
+      const crmClient = useClientStore.getState().clients.find(c => phonesMatch(c.phone, base.phone))
+      if (crmClient) {
+        effectiveSpent = Math.max(spent, crmClient.spent || 0)
+        effectiveOrders = Math.max(orderCount, crmClient.orders || 0)
+      }
+    }
+
+    const effective = resolveEffectiveClientLevel(effectiveSpent, effectiveOrders, base.level, base.loyaltyPeriod)
 
     if (reset || shouldAutoUpgradeLevel(base.level, effective, base.loyaltyPeriod)) {
       if (!reset && loyaltyTierIndex(effective) <= loyaltyTierIndex((base.level || 'basic') as ClientLevel)) {

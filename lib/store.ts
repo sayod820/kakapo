@@ -18,6 +18,8 @@ import {
 import { ASSEMBLER_NAME } from './courierStats'
 import { onOrderStatusChange, onRestPartAccepted } from './pushService'
 import { creditBonusOnDeliveryLocal } from './loyaltyBonus'
+import { useClientStore } from './clientStore'
+import { useCardStore } from './cardStore'
 
 function applyDeliveryLoyalty(
   set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
@@ -25,10 +27,17 @@ function applyDeliveryLoyalty(
   id: string,
 ) {
   const order = get().orders.find(o => o.id === id)
-  if (!order || order.status !== 'delivered' || order.bonusCredited) return
-  const patch = creditBonusOnDeliveryLocal(order)
-  if (!patch) return
-  patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...patch } : o)))
+  if (!order || order.status !== 'delivered' || order.bonusCredited) {
+    if (USE_API && order?.status === 'delivered') {
+      void useClientStore.getState().fetchFromApi()
+      void useCardStore.getState().fetchFromApi()
+    }
+    return
+  }
+  const patch = creditBonusOnDeliveryLocal(order, get().orders)
+  if (patch) {
+    patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...patch } : o)))
+  }
 }
 
 export { USE_API }
@@ -323,6 +332,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       id: `K-${Date.now()}`,
       status: 'new',
       createdAt: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+      createdAtIso: new Date().toISOString(),
       client: data.client || { name: data.client_name, phone: data.client_phone, addr: data.address },
       items: prepared.items || data.items || [],
       total: data.total || 0,
