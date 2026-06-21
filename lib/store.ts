@@ -177,6 +177,9 @@ export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOr
     status: USE_API
       ? mergeOrderStatus(local.status, remote.status ?? local.status)
       : (remote.status ?? local.status),
+    bonusCredited: remote.bonusCredited === true || local.bonusCredited === true,
+    bonusEarned: remote.bonusEarned ?? local.bonusEarned,
+    bonusSpent: remote.bonusSpent ?? local.bonusSpent,
     courier: useRemoteCourier ? remote.courier : local.courier,
     assembler: useRemoteAssembler ? remote.assembler : local.assembler,
     assemblerTeam: remote.assemblerTeam?.length ? remote.assemblerTeam : local.assemblerTeam,
