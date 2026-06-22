@@ -296,7 +296,7 @@ function nowTime() {
 app.get('/health', (_req, res) => res.json({
   ok: true,
   service: 'kakapo-api',
-  version: '2.5-loyalty-backfill',
+  version: '2.6-progressive-bonus',
   loyaltyVip: true,
   dataDir: process.env.DATA_DIR || 'data',
 }))
