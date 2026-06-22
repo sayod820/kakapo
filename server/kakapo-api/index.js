@@ -389,6 +389,8 @@ app.post('/products', (req, res) => {
     desc: req.body.desc, brand: req.body.brand, country: req.body.country, barcode: req.body.barcode,
     organic: !!req.body.organic, sellType: req.body.sellType || 'piece',
     unitGrams: req.body.unitGrams, weightStep: req.body.weightStep, minWeight: req.body.minWeight,
+    old: req.body.old ?? null,
+    bulkPricing: Array.isArray(req.body.bulkPricing) ? req.body.bulkPricing : undefined,
   }
   db.products.push(p)
   persist()

@@ -132,6 +132,7 @@ import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
 import { useProductPhotos } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
+import { formatBulkPricingHint, hasBulkPricing, normalizeBulkPricing } from '@/lib/productBulkPricing'
 import { api } from '@/lib/api'
 import type { Promo } from '@/lib/types'
 import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
@@ -976,6 +977,46 @@ function OrdersPage() {
 }
 
 /* ── PRODUCTS ───────────────────────────────────── */
+function BulkPricingFields({ tiers, onChange, sellType }) {
+  const rows = Array.isArray(tiers) && tiers.length ? tiers : []
+  const unit = sellType === 'weight' ? 'г' : 'шт'
+  const setRow = (i, patch) => {
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  }
+  return (
+    <div style={{ padding:'12px 14px', borderRadius:12, background:'#0C1C0F', border:'1px solid #162B1A' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+        <div style={{ fontSize:11, color:'#8FB897', fontWeight:700 }}>📦 Оптовые цены</div>
+        <button type="button" onClick={() => onChange([...rows, { minQty: '', price: '' }])} className="ab abg" style={{ padding:'4px 10px', fontSize:11 }}>+ Уровень</button>
+      </div>
+      <div style={{ fontSize:10, color:'#3D6645', marginBottom:10, lineHeight:1.45 }}>
+        При достижении количества цена за {sellType === 'weight' ? 'порцию' : 'шт'} меняется для всей позиции. Пример: кекс — от 24 шт по 1.8 ЅМ.
+      </div>
+      {!rows.length ? (
+        <div style={{ fontSize:11, color:'#3D6645' }}>Одна розничная цена. Нажмите «+ Уровень» для опта.</div>
+      ) : rows.map((row, i) => (
+        <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, marginBottom:8 }}>
+          <div>
+            <div style={{ fontSize:10, color:'#3D6645', marginBottom:4 }}>От ({unit})</div>
+            <input className="ai" type="number" value={row.minQty} onChange={e => setRow(i, { minQty: e.target.value })} placeholder="24" />
+          </div>
+          <div>
+            <div style={{ fontSize:10, color:'#3D6645', marginBottom:4 }}>Цена (ЅМ)</div>
+            <input className="ai" type="number" step="0.01" value={row.price} onChange={e => setRow(i, { price: e.target.value })} placeholder="1.80" />
+          </div>
+          <button type="button" onClick={() => onChange(rows.filter((_, idx) => idx !== i))} className="ab abd" style={{ alignSelf:'end', padding:'8px 10px', fontSize:11 }}>✕</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function serializeBulkPricing(rows) {
+  return normalizeBulkPricing(
+    (rows || []).map(r => ({ minQty: Number(r.minQty), price: Number(r.price) })),
+  )
+}
+
 function ProductsPage() {
   const { setPhoto, getPhoto, hydrate } = useProductPhotos();
   const apiProducts = useProducts(s => s.products);
@@ -1001,6 +1042,7 @@ function ProductsPage() {
   const [nWeightStep,setNWeightStep]=useState('100');
   const [nUnitGrams,setNUnitGrams]=useState('1000');
   const [nDesc,setNDesc]=useState('');
+  const [nBulkPricing, setNBulkPricing] = useState([]);
   const [editForm,setEditForm]=useState(null);
   const [ePhoto,  setEPhoto]  = useState('');
 
@@ -1027,6 +1069,7 @@ function ProductsPage() {
       unitGrams: editP.unitGrams || productUnitGrams(editP),
       hot: !!editP.hot,
       organic: !!editP.organic,
+      bulkPricing: (editP.bulkPricing || []).map(t => ({ minQty: t.minQty, price: t.price })),
     });
   }, [editP, getPhoto]);
 
@@ -1042,7 +1085,7 @@ function ProductsPage() {
   const resetAddForm = () => {
     setNName(''); setNArt(''); setNPrice(''); setNOld(''); setNUnit(''); setNStock('');
     setNEmoji('📦'); setNPhoto(''); setNOrganic(false); setNSellType('piece');
-    setNWeightStep('100'); setNUnitGrams('1000'); setNDesc('');
+    setNWeightStep('100'); setNUnitGrams('1000'); setNDesc(''); setNBulkPricing([]);
   };
 
   const closeAddModal = () => { setShowAdd(false); resetAddForm(); };
@@ -1063,6 +1106,7 @@ function ProductsPage() {
       } : {}),
       discount:nOld?Math.round((1-Number(nPrice)/Number(nOld))*100):0,
       photo:nPhoto||undefined,
+      bulkPricing: serializeBulkPricing(nBulkPricing),
     };
     const saved = await saveProduct(product);
     if (saved && nPhoto) setPhoto(saved.id, nPhoto);
@@ -1088,6 +1132,7 @@ function ProductsPage() {
         minWeight: Number(editForm.minWeight) || Number(editForm.weightStep) || 100,
         unitGrams: Number(editForm.unitGrams) || 1000,
       } : { weightStep: undefined, minWeight: undefined, unitGrams: undefined }),
+      bulkPricing: serializeBulkPricing(editForm.bulkPricing),
     };
     await saveProduct(updated);
     if (ePhoto) setPhoto(editP.id, ePhoto);
@@ -1099,31 +1144,31 @@ function ProductsPage() {
 
   const cats = CATS_LIST;
   const byCat = cats.map(c=>({...c, count: prods.filter(p=>p.catId===c.id).length}));
+  const withBulk = prods.filter(p => hasBulkPricing(p)).length;
 
   return (
     <div>
-      {/* Stats */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,marginBottom:18}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12,marginBottom:18}}>
         <StatCard l="Всего позиций" v={prods.length}/>
         <StatCard l="В наличии" v={prods.filter(p=>p.stock>3).length} c="#1FD760"/>
         <StatCard l="Мало (≤3)" v={prods.filter(p=>p.stock>0&&p.stock<=3).length} c="#FFB800"/>
         <StatCard l="Нет в наличии" v={prods.filter(p=>p.stock===0).length} c="#FF4545"/>
         <StatCard l="Со скидкой" v={prods.filter(p=>p.discount>0).length} c="#3B8EF0"/>
+        <StatCard l="С оптом" v={withBulk} c="#FF8C00"/>
       </div>
 
-      {/* Category cards */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(9,1fr)',gap:8,marginBottom:18}}>
-        <div onClick={()=>setCatFlt('all')} style={{padding:'10px 4px',borderRadius:11,background:catFlt==='all'?'rgba(31,215,96,.14)':'#091508',border:`1.5px solid ${catFlt==='all'?'rgba(31,215,96,.35)':'#162B1A'}`,cursor:'pointer',textAlign:'center'}}>
-          <div style={{fontSize:20,marginBottom:3}}>🏪</div>
-          <div style={{fontSize:9,fontWeight:700,color:catFlt==='all'?'#1FD760':'#8FB897'}}>Все</div>
-          <div style={{fontSize:9,color:'#3D6645'}}>{prods.length}</div>
-        </div>
+      <div style={{ display:'flex', gap:8, marginBottom:18, overflowX:'auto', paddingBottom:4 }}>
+        <button type="button" onClick={()=>setCatFlt('all')} className="ab" style={{ flexShrink:0, minWidth:72, padding:'10px 12px', borderRadius:12, textAlign:'center', background:catFlt==='all'?'rgba(31,215,96,.14)':'#091508', border:`1.5px solid ${catFlt==='all'?'rgba(31,215,96,.35)':'#162B1A'}`, color:catFlt==='all'?'#1FD760':'#8FB897' }}>
+          <div style={{ fontSize:18, marginBottom:2 }}>🏪</div>
+          <div style={{ fontSize:10, fontWeight:700 }}>Все</div>
+          <div style={{ fontSize:10, opacity:.7 }}>{prods.length}</div>
+        </button>
         {byCat.map(c=>(
-          <div key={c.id} onClick={()=>setCatFlt(c.id)} style={{padding:'10px 4px',borderRadius:11,background:catFlt===c.id?'rgba(31,215,96,.14)':'#091508',border:`1.5px solid ${catFlt===c.id?'rgba(31,215,96,.35)':'#162B1A'}`,cursor:'pointer',textAlign:'center'}}>
-            <div style={{fontSize:20,marginBottom:3}}>{c.e}</div>
-            <div style={{fontSize:9,fontWeight:700,color:catFlt===c.id?'#1FD760':'#8FB897',lineHeight:1.3}}>{c.name.split(' ')[0]}</div>
-            <div style={{fontSize:9,color:'#3D6645'}}>{c.count}</div>
-          </div>
+          <button key={c.id} type="button" onClick={()=>setCatFlt(c.id)} className="ab" style={{ flexShrink:0, minWidth:72, padding:'10px 12px', borderRadius:12, textAlign:'center', background:catFlt===c.id?'rgba(31,215,96,.14)':'#091508', border:`1.5px solid ${catFlt===c.id?'rgba(31,215,96,.35)':'#162B1A'}`, color:catFlt===c.id?'#1FD760':'#8FB897' }}>
+            <div style={{ fontSize:18, marginBottom:2 }}>{c.e}</div>
+            <div style={{ fontSize:10, fontWeight:700, lineHeight:1.2 }}>{c.name.split(' ')[0]}</div>
+            <div style={{ fontSize:10, opacity:.7 }}>{c.count}</div>
+          </button>
         ))}
       </div>
 
@@ -1146,55 +1191,60 @@ function ProductsPage() {
       <div style={{fontSize:12,color:'#3D6645',marginBottom:10}}>Показано {filtered.length} из {prods.length} товаров {catFlt!=='all'?`· ${CATS_LIST.find(c=>c.id===catFlt)?.name}`:''}</div>
 
       {/* Table */}
-      <div className="ac">
+      <div className="ac" style={{ overflow:'hidden' }}>
         <table className="at">
-          <thead><tr><th>Артикул</th><th>Товар</th><th>Категория</th><th>Цена</th><th>Скидка</th><th>Ед.изм.</th><th>Остаток</th><th>Хит</th><th>Орган.</th><th></th></tr></thead>
+          <thead><tr><th>Артикул</th><th>Товар</th><th>Категория</th><th>Цена</th><th>Опт</th><th>Ед.</th><th>Остаток</th><th>Хит</th><th>Орг.</th><th></th></tr></thead>
           <tbody>
             {filtered.map(p=>{
               const sc=p.stock===0?{c:'#FF4545',l:'Нет'}:p.stock<=3?{c:'#FFB800',l:'Мало'}:{c:'#1FD760',l:'Есть'};
+              const bulkHint = formatBulkPricingHint(p);
               return (
-                <tr key={p.id}>
+                <tr key={p.id} onClick={()=>setEditP(p)} style={{ cursor:'pointer', transition:'background .15s' }} onMouseEnter={e=>{ e.currentTarget.style.background='rgba(31,215,96,.04)'; }} onMouseLeave={e=>{ e.currentTarget.style.background='transparent'; }}>
                   <td><span className="ub" style={{fontSize:11,color:'#FFB800',letterSpacing:.5}}>{p.art}</span></td>
                   <td>
-                    <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <div style={{width:34,height:34,borderRadius:9,background:'#162B1A',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0,overflow:'hidden'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{width:40,height:40,borderRadius:10,background:'#162B1A',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0,overflow:'hidden',border:'1px solid #1E3522'}}>
                         {(p.photo || getPhoto(p.id))
                           ? <img src={p.photo || getPhoto(p.id)} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
                           : p.e
                         }
                       </div>
-                      <div><div style={{fontWeight:700,fontSize:13}}>{p.name}</div></div>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:13,lineHeight:1.25}}>{p.name}</div>
+                        {p.desc && <div style={{fontSize:10,color:'#3D6645',marginTop:2,maxWidth:220,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.desc}</div>}
+                      </div>
                     </div>
                   </td>
-                  <td><span style={{padding:'2px 7px',borderRadius:7,fontSize:10,fontWeight:700,background:'rgba(59,142,240,.1)',color:'#3B8EF0',border:'1px solid rgba(59,142,240,.2)'}}>{p.cat}</span></td>
+                  <td><span style={{padding:'3px 8px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(59,142,240,.1)',color:'#3B8EF0',border:'1px solid rgba(59,142,240,.2)'}}>{p.cat}</span></td>
                   <td>
-                    <div>
-                      <div className="ub" style={{fontSize:13,fontWeight:900}}>{p.price.toFixed(2)} <span style={{fontSize:9,color:'#FFB800'}}>ЅМ</span></div>
-                      {p.old&&<div style={{fontSize:10,color:'#3D6645',textDecoration:'line-through'}}>{p.old.toFixed(2)} ЅМ</div>}
-                    </div>
+                    <div className="ub" style={{fontSize:13,fontWeight:900}}>{p.price.toFixed(2)} <span style={{fontSize:9,color:'#FFB800'}}>ЅМ</span></div>
+                    {p.old > 0 && <div style={{fontSize:10,color:'#3D6645',textDecoration:'line-through'}}>{p.old.toFixed(2)}</div>}
+                    {p.discount > 0 && <Badge v={`-${p.discount}%`} c="#FF4545"/>}
                   </td>
-                  <td>{p.discount>0?<Badge v={`-${p.discount}%`} c="#FF4545"/>:<span style={{color:'#3D6645',fontSize:11}}>—</span>}</td>
+                  <td style={{ fontSize:10, color: bulkHint ? '#FF8C00' : '#3D6645', maxWidth:110, lineHeight:1.35 }}>
+                    {bulkHint || '—'}
+                  </td>
                   <td style={{fontSize:11,color:'#8FB897'}}>{p.unit}{isWeighted(p)?' ⚖️':''}</td>
-                  <td>
-                    <div style={{display:'flex',alignItems:'center',gap:6}}>
-                      <div style={{width:45,height:6,borderRadius:3,background:'#162B1A',overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,p.stock/25*100)}%`,background:sc.c,borderRadius:3}}/></div>
-                      <span style={{fontSize:12,fontWeight:700,color:sc.c}}>{p.stock}</span>
+                  <td onClick={e=>e.stopPropagation()}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{width:52,height:7,borderRadius:4,background:'#162B1A',overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,p.stock/25*100)}%`,background:sc.c,borderRadius:4}}/></div>
+                      <span style={{fontSize:12,fontWeight:800,color:sc.c,minWidth:18}}>{p.stock}</span>
                     </div>
                   </td>
-                  <td>
+                  <td onClick={e=>e.stopPropagation()}>
                     <div onClick={()=>saveProduct({ ...p, hot: !p.hot })} style={{width:36,height:20,borderRadius:10,background:p.hot?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
                       <div style={{position:'absolute',top:2,left:p.hot?17:2,width:16,height:16,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
                     </div>
                   </td>
-                  <td>
+                  <td onClick={e=>e.stopPropagation()}>
                     <div onClick={()=>saveProduct({ ...p, organic: !p.organic })} style={{width:36,height:20,borderRadius:10,background:p.organic?'#34D399':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
                       <div style={{position:'absolute',top:2,left:p.organic?17:2,width:16,height:16,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
                     </div>
                   </td>
-                  <td>
+                  <td onClick={e=>e.stopPropagation()}>
                     <div style={{display:'flex',gap:5}}>
-                      <button onClick={()=>setEditP(p)} className="ab abg" style={{padding:'4px 9px',fontSize:11}}>✏️</button>
-                      <button onClick={()=>delProd(p.id)} className="ab abd" style={{padding:'4px 9px',fontSize:11}}>🗑</button>
+                      <button onClick={()=>setEditP(p)} className="ab abg" style={{padding:'5px 9px',fontSize:11}}>✏️</button>
+                      <button onClick={()=>delProd(p.id)} className="ab abd" style={{padding:'5px 9px',fontSize:11}}>🗑</button>
                     </div>
                   </td>
                 </tr>
@@ -1249,6 +1299,7 @@ function ProductsPage() {
                   <div><div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Шаг в корзине (г)</div><input className="ai" value={nWeightStep} onChange={e=>setNWeightStep(e.target.value)} type="number"/></div>
                 </div>
               )}
+              <BulkPricingFields tiers={nBulkPricing} onChange={setNBulkPricing} sellType={nSellType} />
               <div style={{display:'flex',gap:16,padding:'10px 14px',borderRadius:11,background:'#0C1C0F',border:'1px solid #162B1A'}}>
                 <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,fontWeight:600}}>
                   <input type="checkbox" onChange={e=>setNOrganic(e.target.checked)} style={{width:16,height:16,accentColor:'#34D399'}}/>
@@ -1312,6 +1363,11 @@ function ProductsPage() {
                     : 'Клиент добавляет целыми штуками / упаковками'}
                 </div>
               </div>
+              <BulkPricingFields
+                tiers={editForm.bulkPricing}
+                onChange={bulkPricing => setEditForm(f => ({ ...f, bulkPricing }))}
+                sellType={editForm.sellType}
+              />
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ)</div><input className="ai" value={editForm.price} onChange={e=>setEditForm(f=>({...f,price:e.target.value}))} type="number"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Старая цена (ЅМ)</div><input className="ai" value={editForm.old} onChange={e=>setEditForm(f=>({...f,old:e.target.value}))} type="number" placeholder="Без скидки"/></div>

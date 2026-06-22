@@ -61,6 +61,7 @@ import {
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
 import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
+import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import type { Review } from "@/lib/types";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
@@ -1164,6 +1165,7 @@ const FAQ = () => {
 const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const qty  = cart[p.id] || 0;
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
+  const bulkHint = formatBulkPricingHint(p);
   const [pop, setPop] = useState(false);
   const photo = useProductPhotos(s => s.photos[p.id]);
   const add = e => { e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 300); onAdd(p.id); };
@@ -1176,6 +1178,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
         {disc > 0 && <span className="bdg b-rd">−{disc}%</span>}
         {p.isNew && <span className="bdg b-gr">NEW</span>}
         {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.12)", color:"#34D399", border:"1px solid rgba(52,211,153,.28)" }}>🌿</span>}
+        {hasBulkPricing(p) && <span className="bdg" style={{ background:"rgba(255,140,0,.12)", color:"#FF8C00", border:"1px solid rgba(255,140,0,.28)", fontSize:8 }}>ОПТ</span>}
       </div>
       <div style={{ height:110, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
         {photo
@@ -1192,6 +1195,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
           {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
         </div>
         <div style={{ fontSize:9, color:"var(--gd)", fontWeight:700 }}>⭐+{Math.ceil(p.price * .03)}</div>
+        {bulkHint && <div style={{ fontSize:9, color:"#FF8C00", fontWeight:700, lineHeight:1.3 }}>{bulkHint}</div>}
       </div>
       <div style={{ padding:"0 10px 10px" }}>
         {qty === 0 ? (
@@ -1578,6 +1582,16 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
             {p.old && <><span style={{ fontSize:16, color:"var(--t3)", textDecoration:"line-through", marginBottom:4 }}>{p.old.toFixed(2)} ЅМ</span><span className="bdg b-rd">−{disc}%</span></>}
           </div>
           <div style={{ fontSize:12, color:"var(--t2)", marginBottom:10 }}>{formatPriceLabel(p)}{weighted && <span style={{ color:"var(--org)", marginLeft:8 }}>⚖️ На развес</span>}</div>
+          {formatBulkPricingHint(p) && (
+            <div style={{ fontSize:11, color:"#FF8C00", fontWeight:700, marginBottom:10, padding:"8px 10px", borderRadius:10, background:"rgba(255,140,0,.08)", border:"1px solid rgba(255,140,0,.2)" }}>
+              📦 {formatBulkPricingHint(p)}
+            </div>
+          )}
+          {bulkPricingHintForQty(p, qty) && (
+            <div style={{ fontSize:11, color:qty > 0 && bulkPricingHintForQty(p, qty)?.startsWith('Опт') ? 'var(--gr)' : '#FF8C00', fontWeight:700, marginBottom:10 }}>
+              {bulkPricingHintForQty(p, qty)}
+            </div>
+          )}
           <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 13px", borderRadius:12, background:"rgba(255,184,0,.07)", border:"1px solid rgba(255,184,0,.22)", marginBottom:14 }}>
             <span style={{ fontSize:18 }}>⭐</span>
             <div><div style={{ fontSize:12, fontWeight:800, color:"var(--gd)" }}>+{Math.ceil(p.price*.03)} бонуса за покупку</div><div style={{ fontSize:10, color:"var(--t2)" }}>1 бонус = 1 ЅМ</div></div>
@@ -1714,6 +1728,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
             {items.map(p => {
               const disc2 = p.old ? Math.round((1-p.price/p.old)*100) : 0;
+              const bulkLine = !p.isRest ? bulkPricingHintForQty(p, p.qty) : null;
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"13px" }}>
                   <div style={{ width:62, height:62, borderRadius:15, background:p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative" }}>
@@ -1722,6 +1737,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:2 }}>{p.name}</div>
                     <div style={{ fontSize:11, color:"var(--t3)", marginBottom:6 }}>{p.isRest ? "🍽 Ресторан" : (isWeighted(p) ? `⚖️ ${formatCartQty(p, p.qty)}` : (p.unit||"шт"))}</div>
+                    {bulkLine && <div style={{ fontSize:10, color: bulkLine.startsWith('Опт') ? 'var(--gr)' : '#FF8C00', fontWeight:700, marginBottom:4 }}>{bulkLine}</div>}
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                       <div style={{ display:"flex", alignItems:"center", gap:0, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.25)", borderRadius:11, overflow:"hidden" }}>

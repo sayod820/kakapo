@@ -1,4 +1,5 @@
 import type { Product } from './types'
+import { effectiveUnitPrice } from './productBulkPricing'
 
 export type SellType = 'piece' | 'weight'
 
@@ -58,10 +59,13 @@ export function formatPriceLabel(p: Partial<Product>): string {
 }
 
 export function calcLineTotal(p: Partial<Product>, qty: number): number {
-  const price = Number(p.price) || 0
   if (!qty) return 0
-  if (!isWeighted(p)) return price * qty
-  return price * (qty / productUnitGrams(p))
+  if (!isWeighted(p)) {
+    const unit = effectiveUnitPrice(p, qty)
+    return Math.round(unit * qty * 100) / 100
+  }
+  const unit = effectiveUnitPrice(p, qty)
+  return Math.round(unit * (qty / productUnitGrams(p)) * 100) / 100
 }
 
 export function nextCartQty(p: Partial<Product>, current: number, add: boolean): number {

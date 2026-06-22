@@ -35,6 +35,7 @@ export function enrichProducts(api: Product[], seed: any[]): any[] {
       unitGrams: p.unitGrams || base.unitGrams,
       weightStep: p.weightStep || base.weightStep,
       minWeight: p.minWeight || base.minWeight,
+      bulkPricing: p.bulkPricing || base.bulkPricing,
       specs: base.specs || {},
       r: base.r ?? 4.8,
       rv: base.rv ?? 100,

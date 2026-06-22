@@ -112,6 +112,13 @@ export interface Product {
   weightStep?: number
   /** Минимальный заказ, г */
   minWeight?: number
+  /** Оптовые цены: от minQty шт (или г) — цена за единицу */
+  bulkPricing?: BulkPriceTier[]
+}
+
+export interface BulkPriceTier {
+  minQty: number
+  price: number
 }
 
 export interface Restaurant {
