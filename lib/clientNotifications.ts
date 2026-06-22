@@ -229,13 +229,35 @@ function mergeNotifications(local: ClientNotification[], remote: ClientNotificat
   return Array.from(byId.values())
 }
 
+export function clearPersonalNotificationsForPhone(phone?: string) {
+  const viewerPhone = resolveViewerPhone(phone)
+  const accountId = phoneDigits(viewerPhone)
+  if (!accountId) return
+  saveAccountNotifications([], viewerPhone)
+  emit()
+  if (USE_API) {
+    api.markAllNotificationsRead(viewerPhone).catch(() => {})
+  }
+}
+
+/** Чистый старт уведомлений для нового/восстановленного аккаунта */
+export async function resetClientNotificationsForAccount(phone: string, opts?: { clearServer?: boolean }) {
+  clearPersonalNotificationsForPhone(phone)
+  if (USE_API && opts?.clearServer !== false) {
+    try {
+      await api.markAllNotificationsRead(phoneDigits(phone) || phone)
+    } catch { /* ignore */ }
+  }
+}
+
 export function loadClientNotifications(useDemo = false, phone?: string): ClientNotification[] {
   const viewerPhone = resolveViewerPhone(phone)
   const accountId = phoneDigits(viewerPhone)
-  if (typeof window === 'undefined') return useDemo && DEMO_PHONES.has(accountId) ? DEMO_NOTIFS : []
+  if (typeof window === 'undefined') return []
   if (!accountId) return []
   const merged = loadMergedNotifications(viewerPhone)
-  if (merged.length) return merged
+  const personal = merged.filter(n => n.broadcast || notificationBelongsToAccount(n, accountId))
+  if (personal.length) return personal
   if (useDemo && DEMO_PHONES.has(accountId)) return DEMO_NOTIFS
   return []
 }

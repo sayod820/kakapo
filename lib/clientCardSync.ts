@@ -16,6 +16,7 @@ import {
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardNumsMatch, canonicalCardNum, resolveDebtEnabled } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 import { emitCrmSync } from './clientProfileSync'
+import { resetClientNotificationsForAccount } from './clientNotifications'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
 import { USE_API } from './config'
@@ -149,26 +150,35 @@ export async function registerClientAccount(
         ...local,
         ...remote,
         ...registration,
-        id: local.id,
+        id: remote.id || local.id,
         name: local.name,
         phone: local.phone,
         email: local.email,
         addr: local.addr,
         bonus: Math.max(Number(remote.bonus) || 0, getRegistrationWelcomeBonus()),
       })
-      useClientStore.getState().updateClient(local.id, merged, { skipApi: true })
-      await api.updateClient(local.id, {
+      useClientStore.getState().updateClient(local.id, { ...merged, id: merged.id }, { skipApi: true })
+      if (merged.id !== local.id) {
+        useClientStore.getState().setClients(
+          useClientStore.getState().clients.map(c => (c.id === local.id ? merged : c)),
+        )
+      }
+      await api.updateClient(merged.id, {
         level: 'basic',
         vip: false,
         debtEnabled: false,
         loyaltyPeriod: registration.loyaltyPeriod,
       })
-      client = useClientStore.getState().clients.find(c => c.id === local.id) || merged
+      client = useClientStore.getState().clients.find(c => c.id === merged.id || phonesMatch(c.phone, merged.phone)) || merged
       if (client.card) {
         await useCardStore.getState().fetchFromApi()
       }
+      await resetClientNotificationsForAccount(client.phone)
     } catch (e) {
-      console.error(e)
+      useClientStore.getState().setClients(
+        useClientStore.getState().clients.filter(c => c.id !== local.id),
+      )
+      throw e
     }
   }
 

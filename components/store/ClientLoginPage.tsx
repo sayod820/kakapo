@@ -16,7 +16,7 @@ import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { registerClientAccount } from '@/lib/clientCardSync'
 import { formatClientAddressLine, setRegistrationDefaultAddress, ensureClientDefaultAddress } from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
-import { setCurrentClientPhone } from '@/lib/clientNotifications'
+import { setCurrentClientPhone, resetClientNotificationsForAccount } from '@/lib/clientNotifications'
 
 const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
 
@@ -110,9 +110,12 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     return () => clearInterval(t)
   }, [step, cd])
 
-  const finishLogin = (user: StoreUser) => {
+  const finishLogin = (user: StoreUser, opts?: { freshAccount?: boolean }) => {
     saveStoreUser(user)
     setCurrentClientPhone(user.phone)
+    if (opts?.freshAccount) {
+      void resetClientNotificationsForAccount(user.phone)
+    }
     migrateLegacyClientData(user.phone)
     if (user.addr?.trim()) {
       void ensureClientDefaultAddress(user.phone, user.addr)
@@ -287,7 +290,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
           phone: formattedPhone,
         })
       }
-      finishLogin(storeUserFromClient(newClient))
+      finishLogin(storeUserFromClient(newClient), { freshAccount: true })
     } catch {
       setErr('Не удалось создать аккаунт. Попробуйте ещё раз.')
     } finally {

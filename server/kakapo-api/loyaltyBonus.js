@@ -265,17 +265,26 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   const monthly = monthlyDeliveredStats(db, phone, orderPeriod, order.id)
   const monthlySpent = Math.round((monthly.spent + spentAdd) * 10) / 10
   const monthlyOrders = monthly.orderCount + 1
-  const effectiveLevel = resolveEffectiveLevel(
+  const statusLevel = resolveEffectiveLevel(
     monthlySpent,
     monthlyOrders,
     client.level,
     client.loyaltyPeriod,
     loyalty,
   )
-  applyLevelUpgrade(client, card, effectiveLevel, orderPeriod)
+  const bonusLevel = resolveEffectiveLevel(
+    monthly.spent,
+    monthly.orderCount,
+    'basic',
+    orderPeriod,
+    loyalty,
+  )
+  applyLevelUpgrade(client, card, statusLevel, orderPeriod)
 
   const eligible = bonusEligibleTotal(order)
-  const percent = getBonusPercentForClient({ ...client, level: effectiveLevel }, loyalty)
+  const percent = client.vip
+    ? getBonusPercentForClient({ ...client, vip: true }, loyalty)
+    : getBonusPercentForClient({ ...client, level: bonusLevel }, loyalty)
   const earned = calcBonusEarned(eligible, percent)
 
   if (earned > 0) {

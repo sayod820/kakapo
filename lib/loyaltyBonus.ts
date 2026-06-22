@@ -63,21 +63,46 @@ function orderSortKey(order: Order): number {
   return Number.isNaN(d.getTime()) ? 0 : d.getTime()
 }
 
-/** Уровень (и % кэшбэка) на момент доставки заказа — по накопленным тратам за этот месяц. */
+/** % кэшбэка для заказа — по тратам ДО этого заказа (пороговый заказ без %). */
 export function resolveOrderBonusLevel(
   phone: string,
   allDelivered: Order[],
   order: Order,
-  vip?: boolean,
+  _vip?: boolean,
 ): ClientLevel {
   const period = loyaltyPeriodForOrder(order)
-  const prior = allDelivered.filter(o =>
+  const orderKey = orderSortKey(order)
+  const orderId = String(order.id)
+  const priorOnly = allDelivered.filter(o => {
+    if (!phonesMatch(o.client?.phone || '', phone)) return false
+    if (loyaltyPeriodForOrder(o) !== period) return false
+    if (String(o.id) === orderId) return false
+    const k = orderSortKey(o)
+    if (k < orderKey) return true
+    if (k > orderKey) return false
+    return String(o.id) < orderId
+  })
+  const { spent, orderCount } = loyaltyStatsFromOrders(priorOnly, phone, period)
+  return resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
+}
+
+/** Статус после доставки заказа — с учётом этого заказа (для отображения уровня). */
+export function resolveOrderStatusLevel(
+  phone: string,
+  allDelivered: Order[],
+  order: Order,
+  storedLevel?: ClientLevel | string,
+  storedPeriod?: string,
+): ClientLevel {
+  const period = loyaltyPeriodForOrder(order)
+  const including = allDelivered.filter(o =>
     phonesMatch(o.client?.phone || '', phone)
     && loyaltyPeriodForOrder(o) === period
-    && orderSortKey(o) <= orderSortKey(order),
+    && (orderSortKey(o) < orderSortKey(order)
+      || (orderSortKey(o) === orderSortKey(order) && String(o.id) <= String(order.id))),
   )
-  const { spent, orderCount } = loyaltyStatsFromOrders(prior, phone, period)
-  return resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
+  const { spent, orderCount } = loyaltyStatsFromOrders(including, phone, period)
+  return resolveEffectiveClientLevel(spent, orderCount, storedLevel, storedPeriod || period) as ClientLevel
 }
 
 /** Ожидаемый баланс: welcome + кэшбэк за доставленные заказы − списанные бонусы. */
@@ -191,13 +216,9 @@ export function expectedOrderBonus(
       bonusLevel = resolveOrderBonusLevel(phone, delivered, order, vip)
     } else {
       const period = currentLoyaltyPeriod()
-      const priorDelivered = delivered.filter(o =>
-        loyaltyPeriodForOrder(o) === period && orderSortKey(o) < orderSortKey(order),
-      )
+      const priorDelivered = delivered.filter(o => loyaltyPeriodForOrder(o) === period)
       const { spent, orderCount } = loyaltyStatsFromOrders(priorDelivered, phone, period)
-      const projectedSpent = spent + orderSpentContribution(order)
-      const projectedOrders = orderCount + 1
-      bonusLevel = resolveEffectiveClientLevel(projectedSpent, projectedOrders, 'basic', period) as ClientLevel
+      bonusLevel = resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
     }
     return calcOrderBonusEarned(eligible, bonusLevel, vip, cfg)
   }
@@ -244,37 +265,35 @@ export function creditBonusOnDeliveryLocal(order: Order, allOrders: Order[] = []
 
   if (!client && !card) return null
 
-  const { spent: monthlySpent, orderCount } = loyaltyStatsFromOrders(allOrders, phone)
   const orderPeriod = loyaltyPeriodForOrder(order)
-  const priorInMonth = allOrders.filter(o =>
-    o.status === 'delivered'
-    && phonesMatch(o.client?.phone || '', phone)
-    && loyaltyPeriodForOrder(o) === orderPeriod
-    && orderSortKey(o) <= orderSortKey(order),
+  const delivered = allOrders.filter(o =>
+    o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone),
   )
-  const { spent, orderCount: monthOrders } = loyaltyStatsFromOrders(priorInMonth, phone, orderPeriod)
-  const effectiveLevel = resolveEffectiveClientLevel(
-    spent,
-    monthOrders,
+  const bonusLevel = resolveOrderBonusLevel(phone, delivered, order)
+  const statusLevel = resolveOrderStatusLevel(
+    phone,
+    delivered,
+    order,
     (client?.level || card?.level || 'basic') as ClientLevel,
     orderPeriod,
   )
   const vip = !!(client?.vip || card?.vip)
   const eligible = bonusEligibleTotal(order)
-  const earned = calcOrderBonusEarned(eligible, effectiveLevel, vip)
+  const earned = calcOrderBonusEarned(eligible, bonusLevel, vip)
+  const { spent: monthlySpent, orderCount } = loyaltyStatsFromOrders(allOrders, phone)
 
   if (client) {
     clientStore.updateClient(client.id, {
       orders: Math.max(client.orders || 0, orderCount),
       spent: Math.max(client.spent || 0, monthlySpent),
-      level: vip ? client.level : effectiveLevel,
+      level: vip ? client.level : statusLevel,
       loyaltyPeriod: orderPeriod,
     })
   }
 
   const loyaltyPatch = {
     bonus: (card?.bonus || client?.bonus || 0) + earned,
-    level: vip ? (card?.level || effectiveLevel) : effectiveLevel,
+    level: vip ? (card?.level || statusLevel) : statusLevel,
     loyaltyPeriod: orderPeriod,
   }
 

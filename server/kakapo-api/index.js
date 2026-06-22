@@ -669,6 +669,15 @@ function rememberDeletedPhone(phone) {
   }
 }
 
+function clearPersonalNotificationsOnServer(phone) {
+  ensureNotifications()
+  const key = phoneKey(phone)
+  if (!key) return
+  const before = (db.notifications || []).length
+  db.notifications = (db.notifications || []).filter(n => n.broadcast === true || n.targetPhone !== key)
+  if (db.notifications.length !== before) persist()
+}
+
 function forgetDeletedPhone(phone) {
   ensureDeletedPhoneKeys()
   const key = normalizePhoneDigits(phone)
@@ -678,6 +687,7 @@ function forgetDeletedPhone(phone) {
     db.deletedPhoneKeys = next
     persist()
   }
+  clearPersonalNotificationsOnServer(phone)
 }
 
 function isPhoneTombstoned(phone) {
@@ -750,6 +760,7 @@ app.post('/clients', (req, res) => {
   })
   db.clients.push(row)
   ensureCardRowForClient(row)
+  clearPersonalNotificationsOnServer(row.phone)
   persist()
   res.json(row)
 })
