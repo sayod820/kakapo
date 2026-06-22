@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useRef } from 'react'
 import { USE_API } from './config'
-import { useProducts, useRestaurants, useOrders, mergeOrderFields, applyAdminPins } from './store'
+import { useProducts, useRestaurants, useOrders, usePromos, mergeOrderFields, applyAdminPins } from './store'
 import { syncCourierStoresFromApi } from './courierStore'
 import { syncClientsFromApi } from './clientStore'
 import { syncCardsFromApi } from './cardStore'
@@ -64,6 +64,7 @@ export function useApiSync(mode: SyncMode = 'all') {
       const tasks: Promise<unknown>[] = [
         syncLoyaltyStatusConfigFromApi(),
         useProducts.getState().fetchProducts(),
+        usePromos.getState().fetchPromos(),
         useRestaurants.getState().fetchRestaurants(),
         syncCourierStoresFromApi(),
       ]
@@ -93,6 +94,7 @@ export function hydrateAllFromApi() {
   clearAppDataLocalCacheOnce()
   void import('./loyaltyStatusConfig').then(m => m.syncLoyaltyStatusConfigFromApi()).catch(() => {})
   useProducts.getState().fetchProducts()
+  usePromos.getState().fetchPromos()
   useRestaurants.getState().fetchRestaurants()
   useOrders.getState().fetchOrders()
   void syncCourierStoresFromApi()

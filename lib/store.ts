@@ -1,6 +1,6 @@
 'use client'
 import { create } from 'zustand'
-import type { Order, OrderStatus, OrderItem, Product, Restaurant } from './types'
+import type { Order, OrderStatus, OrderItem, Product, Restaurant, Promo } from './types'
 import { INITIAL_ORDERS, PRODUCTS, RESTAURANTS } from './data'
 import { api, setToken, getToken } from './api'
 import { USE_API } from './config'
@@ -691,20 +691,20 @@ export const useProducts = create<ProductsStore>((set, get) => ({
       try {
         if (data.id) {
           const p = await api.updateProduct(data.id, {
-            name: data.name, price: data.price, old: data.old, stock: data.stock,
-            hot: data.hot, organic: data.organic, photo: data.photo,
-            art: data.art, e: data.e,
+            ...data,
+            old: null,
+            discount: 0,
           })
-          set(s => ({ products: s.products.map(x => x.id === p.id ? p : x) }))
-          return p
+          set(s => ({ products: s.products.map(x => x.id === p.id ? { ...p, old: null, discount: 0 } : x) }))
+          return { ...p, old: null, discount: 0 }
         }
         const p = await api.createProduct({
-          art: data.art, name: data.name!, price: data.price!, stock: data.stock ?? 0,
-          e: data.e, hot: data.hot, organic: data.organic, photo: data.photo,
-          unit: data.unit, old: data.old,
+          ...data,
+          old: null,
+          discount: 0,
         })
-        set(s => ({ products: [...s.products, p] }))
-        return p
+        set(s => ({ products: [...s.products, { ...p, old: null, discount: 0 }] }))
+        return { ...p, old: null, discount: 0 }
       } catch (e) { console.error(e); return null }
     }
     if (data.id) {
@@ -728,6 +728,21 @@ export const useProducts = create<ProductsStore>((set, get) => ({
     }
     set(s => ({ products: s.products.filter(p => p.id !== id) }))
   },
+}))
+
+// ── PROMOS ───────────────────────────────────────
+interface PromosStore {
+  promos: Promo[]
+  fetchPromos: () => Promise<void>
+  setPromos: (promos: Promo[]) => void
+}
+export const usePromos = create<PromosStore>((set) => ({
+  promos: [],
+  fetchPromos: async () => {
+    if (!USE_API) return
+    try { set({ promos: await api.getPromos() }) } catch (e) { console.error(e) }
+  },
+  setPromos: (promos) => set({ promos }),
 }))
 
 // ── RESTAURANTS ──────────────────────────────────

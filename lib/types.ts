@@ -232,7 +232,7 @@ export interface Client {
   bonus: number
 }
 
-export type PromoType = 'pct' | 'free' | 'first' | 'fixed'
+export type PromoType = 'pct' | 'free' | 'first' | 'fixed' | 'product'
 
 export interface Promo {
   id: number
@@ -246,4 +246,9 @@ export interface Promo {
   from?: string
   to?: string
   till?: string
+  /** Скидка на конкретный товар (type === 'product') */
+  productId?: number
+  salePrice?: number
+  oldPrice?: number
+  markHot?: boolean
 }
