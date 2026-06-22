@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
-const DEFAULT_BACKEND = 'https://kakapo-api.onrender.com'
+/** Локальный Docker (Hetzner): http://api:8000. Старый Render — fallback. */
+const DEFAULT_BACKEND = 'http://api:8000'
 
 function resolveBackendUrl() {
   for (const key of ['KAKAPO_BACKEND_URL', 'NEXT_PUBLIC_API_URL']) {

@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+server/kakapo-api/node_modules
+server/kakapo-api/data
+deploy/hetzner/.env
+terminals
+.cursor

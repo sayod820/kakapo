@@ -63,9 +63,15 @@ export function databaseFileExists() {
   return existsSync(DB_FILE)
 }
 
-/** Диск Render: данные в /data переживают деплой. Без этого пути база внутри контейнера — стирается. */
+/** Постоянное хранилище: Docker volume /data или каталог на VPS (Hetzner). */
 export function isPersistentDataDir() {
-  return DATA_DIR === '/data' || DATA_DIR.startsWith('/data/')
+  const d = String(DATA_DIR).replace(/\\/g, '/')
+  return (
+    d === '/data' ||
+    d.startsWith('/data/') ||
+    d === '/var/kakapo/data' ||
+    d.startsWith('/var/kakapo/')
+  )
 }
 
 export function getDbStats() {

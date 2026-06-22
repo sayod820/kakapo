@@ -1564,8 +1564,9 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`   DATA_DIR: ${stats.dataDir} | persistent: ${stats.persistent ? 'yes' : 'NO'}`)
   console.log(`   Записей: клиентов ${stats.clients}, заказов ${stats.orders}, карт ${stats.cards}`)
   if (process.env.NODE_ENV === 'production' && !stats.persistent) {
-    console.error('\n⚠️  ВНИМАНИЕ: DATA_DIR не /data — при каждом деплое Render база ОБНУЛЯЕТСЯ!')
-    console.error('   Render → Disks → mount /data, Environment → DATA_DIR=/data\n')
+    console.error('\n⚠️  ВНИМАНИЕ: DATA_DIR не на постоянном диске — база может обнуляться при деплое!')
+    console.error('   Hetzner/Docker: volume kakapo-data → /data (DATA_DIR=/data)')
+    console.error('   Render: Persistent Disk mount /data\n')
   }
   console.log(`   Health: http://0.0.0.0:${PORT}/health\n`)
 })
