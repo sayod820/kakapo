@@ -33,6 +33,10 @@ export interface AdminClient {
   loyaltyPeriod?: string
   /** С какого момента (ISO) начислять кэшбэк после ручной смены статуса */
   bonusEligibleFrom?: string
+  /** Поколение аккаунта: после полного удаления и новой регистрации +1 */
+  accountGeneration?: number
+  /** До какой даты можно восстановить аккаунт (recovery) */
+  recoveryExpiresAt?: string
   /** active — обычный клиент; recovery — удалил аккаунт / перенесён админом */
   accountStatus?: ClientAccountStatus
   /** Дата перевода в восстановление */
@@ -211,6 +215,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
+    accountGeneration: Number(raw.accountGeneration) > 0 ? Number(raw.accountGeneration) : 1,
+    recoveryExpiresAt: raw.recoveryExpiresAt || undefined,
     accountStatus: raw.accountStatus === 'recovery' || (raw.note || '').includes(RECOVERY_NOTE_PREFIX)
       ? 'recovery'
       : 'active',

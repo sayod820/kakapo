@@ -1,3 +1,5 @@
+import { orderBelongsToClientAccount } from './accountLifecycle.js'
+
 export const DEFAULT_LOYALTY = {
   welcomeBonus: 10,
   bronzeMinSpent: 500,
@@ -63,7 +65,9 @@ export function deliveredOrdersForClient(db, phone, client = null) {
   return (db.orders || []).filter(o => {
     if (o.status !== 'delivered') return false
     const op = normalizePhoneDigits(o.client?.phone)
-    return op && keys.has(op)
+    if (!op || !keys.has(op)) return false
+    if (resolved) return orderBelongsToClientAccount(o, resolved)
+    return true
   })
 }
 
@@ -94,11 +98,13 @@ export function orderSpentContribution(order) {
   return Math.round(((Number(order.total) || 0) + (Number(order.bonusSpent) || 0)) * 10) / 10
 }
 
-export function monthlyDeliveredStats(db, phone, period = currentLoyaltyPeriod(), excludeOrderId = null) {
+export function monthlyDeliveredStats(db, phone, period = currentLoyaltyPeriod(), excludeOrderId = null, client = null) {
   const key = normalizePhoneDigits(phone)
+  const resolved = client || findClientByPhone(db, phone)
   const delivered = (db.orders || []).filter(o => {
     if (o.status !== 'delivered') return false
     if (normalizePhoneDigits(o.client?.phone) !== key) return false
+    if (resolved && !orderBelongsToClientAccount(o, resolved)) return false
     if (excludeOrderId && String(o.id) === String(excludeOrderId)) return false
     return orderInPeriod(o, period)
   })

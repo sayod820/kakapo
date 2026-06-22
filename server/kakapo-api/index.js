@@ -25,6 +25,16 @@ import {
   reconcileAllClientBonuses,
   findClientByPhone,
 } from './loyaltyBonus.js'
+import {
+  RECOVERY_RETENTION_DAYS,
+  recoveryExpiresAtIso,
+  isRecoveryExpired,
+  expireRecoveryClients,
+  nextAccountGeneration,
+  defaultAccountGeneration,
+  stampOrderForClient,
+  hardDeleteClientProfile,
+} from './accountLifecycle.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
@@ -323,7 +333,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'kakapo-api',
-    version: '2.12-purge-account-on-delete',
+    version: '2.13-account-lifecycle',
     loyaltyVip: true,
     dataDir: stats.dataDir,
     dbFile: stats.path,
@@ -500,6 +510,8 @@ app.post('/orders', (req, res) => {
       return res.status(400).json({ detail: spendResult.error || 'Не удалось списать бонусы' })
     }
   }
+  const orderClient = findClientByPhone(db, client.phone || '')
+  stampOrderForClient(order, orderClient)
   db.orders.push(order)
   persist()
   broadcast('new_order', order)
@@ -722,7 +734,7 @@ function clearPersonalNotificationsOnServer(phone) {
   if (db.notifications.length !== before) persist()
 }
 
-/** Удалить заказы и отзывы по телефону клиента */
+/** Удалить заказы — только для демо/тестов, не для удаления клиентов */
 function purgeOrdersAndReviewsForPhone(phone) {
   const key = normalizePhoneDigits(phone)
   if (!key) return 0
@@ -739,26 +751,28 @@ function purgeOrdersAndReviewsForPhone(phone) {
   return before - (db.orders || []).length
 }
 
-/** Полное удаление аккаунта: клиент, карты, заказы, бонусы */
-function purgeAccountDataForPhone(phone, { rememberDeleted = false } = {}) {
+/** Полное удаление профилей по телефону — заказы остаются для отчётов */
+function purgeClientProfilesForPhone(phone, { rememberDeleted = false } = {}) {
   const key = normalizePhoneDigits(phone)
   if (!key) return { orders: 0, clients: 0 }
 
-  const ordersRemoved = purgeOrdersAndReviewsForPhone(phone)
-
   const toRemove = [...(db.clients || [])].filter(c => normalizePhoneDigits(c.phone) === key)
   for (const client of toRemove) {
-    unlinkCardsForClient(client)
-    const idx = db.clients.findIndex(x => x.id === client.id)
-    if (idx >= 0) db.clients.splice(idx, 1)
+    hardDeleteClientProfile(db, client, {
+      unlinkCardsForClient,
+      rememberDeleted,
+      rememberDeletedPhone: rememberDeleted ? rememberDeletedPhone : undefined,
+    })
   }
 
-  if (rememberDeleted) rememberDeletedPhone(phone)
-  else forgetDeletedPhone(phone)
-
+  if (!rememberDeleted) forgetDeletedPhone(phone)
   clearPersonalNotificationsOnServer(phone)
   persist()
-  return { orders: ordersRemoved, clients: toRemove.length }
+  return { orders: 0, clients: toRemove.length }
+}
+
+function runAccountLifecycleMaintenance() {
+  return expireRecoveryClients(db, { unlinkCardsForClient, persist })
 }
 
 function forgetDeletedPhone(phone) {
@@ -817,19 +831,41 @@ function normalizeClientRow(raw) {
     debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
     accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
     deletedAt: raw.deletedAt || undefined,
+    recoveryExpiresAt: raw.recoveryExpiresAt || undefined,
+    accountGeneration: defaultAccountGeneration(raw.accountGeneration),
   }
 }
 
-app.get('/clients', (_req, res) => res.json(listVisibleClients()))
+app.get('/clients', (_req, res) => {
+  runAccountLifecycleMaintenance()
+  res.json(listVisibleClients())
+})
 app.post('/clients', (req, res) => {
   if (!db.clients) db.clients = []
-  if (req.body?.phone) {
-    purgeAccountDataForPhone(req.body.phone, { rememberDeleted: false })
+  runAccountLifecycleMaintenance()
+
+  const phone = req.body?.phone || ''
+  const digits = normalizePhoneDigits(phone)
+  if (digits) {
+    const existing = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
+    if (existing) {
+      if (existing.accountStatus === 'recovery' && !isRecoveryExpired(existing)) {
+        return res.status(409).json({
+          detail: `Аккаунт можно восстановить до ${existing.recoveryExpiresAt || recoveryExpiresAtIso(existing.deletedAt)}`,
+        })
+      }
+      if (existing.accountStatus === 'active') {
+        return res.status(409).json({ detail: 'Клиент с этим телефоном уже зарегистрирован' })
+      }
+    }
+    forgetDeletedPhone(phone)
   }
+
   const loyalty = ensureLoyaltySettings(db)
   const nums = db.clients.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
   const n = (nums.length ? Math.max(...nums) : 0) + 1
   const welcomeBonus = Number(loyalty.welcomeBonus) || 0
+  const generation = digits ? nextAccountGeneration(db, phone) : 1
   const row = normalizeClientRow({
     id: `U-${String(n).padStart(2, '0')}`,
     level: 'basic',
@@ -840,9 +876,13 @@ app.post('/clients', (req, res) => {
     debtLimit: 0,
     blocked: false,
     loyaltyPeriod: currentLoyaltyPeriod(),
+    accountGeneration: generation,
+    accountStatus: 'active',
     createdAt: new Date().toISOString().slice(0, 10),
     ...req.body,
     bonus: welcomeBonus,
+    accountGeneration: generation,
+    accountStatus: 'active',
   })
   db.clients.push(row)
   ensureCardRowForClient(row)
@@ -910,31 +950,35 @@ function moveClientToRecoveryRecord(client) {
   unlinkCardsForClient(client)
   client.card = ''
   client.accountStatus = 'recovery'
-  client.deletedAt = new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10)
+  client.deletedAt = today
+  client.recoveryExpiresAt = recoveryExpiresAtIso(today)
   persist()
 }
 
 function restoreClientRecord(client) {
   client.accountStatus = 'active'
   client.deletedAt = undefined
+  client.recoveryExpiresAt = undefined
   client.blocked = false
   forgetDeletedPhone(client.phone)
   persist()
 }
 
 function removeClientAndUnlinkCards(client) {
-  purgeOrdersAndReviewsForPhone(client.phone)
-  rememberDeletedPhone(client.phone)
-  const idx = (db.clients || []).findIndex(x => x.id === client.id)
-  if (idx >= 0) db.clients.splice(idx, 1)
-  unlinkCardsForClient(client)
+  hardDeleteClientProfile(db, client, {
+    unlinkCardsForClient,
+    rememberDeleted: false,
+  })
   persist()
 }
 
+/** Полное удаление профиля (админ) — заказы сохраняются */
 app.post('/clients/purge-account', (req, res) => {
   const phone = req.body?.phone || ''
   if (!normalizePhoneDigits(phone)) return res.status(400).json({ detail: 'Укажите телефон' })
-  const result = purgeAccountDataForPhone(phone, { rememberDeleted: true })
+  runAccountLifecycleMaintenance()
+  const result = purgeClientProfilesForPhone(phone, { rememberDeleted: false })
   res.json({ ok: true, ...result })
 })
 
@@ -948,8 +992,14 @@ app.post('/clients/:id/recovery', (req, res) => {
 
 app.post('/clients/:id/restore', (req, res) => {
   if (!db.clients) db.clients = []
+  runAccountLifecycleMaintenance()
   const client = db.clients.find(x => x.id === req.params.id)
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  if (isRecoveryExpired(client)) {
+    hardDeleteClientProfile(db, client, { unlinkCardsForClient })
+    persist()
+    return res.status(410).json({ detail: 'Срок восстановления истёк — зарегистрируйтесь заново' })
+  }
   restoreClientRecord(client)
   res.json(client)
 })
@@ -966,7 +1016,8 @@ app.post('/clients/recovery-by-phone', (req, res) => {
 app.post('/clients/delete-by-phone', (req, res) => {
   const phone = req.body?.phone || ''
   if (!normalizePhoneDigits(phone)) return res.status(400).json({ detail: 'Укажите телефон' })
-  const result = purgeAccountDataForPhone(phone, { rememberDeleted: true })
+  runAccountLifecycleMaintenance()
+  const result = purgeClientProfilesForPhone(phone, { rememberDeleted: false })
   res.json({ ok: true, ...result })
 })
 
@@ -1331,8 +1382,26 @@ function ensureMissingSeedRows() {
 
 ensureMissingSeedRows()
 
+function backfillOrderAccountIds() {
+  let changed = false
+  for (const order of db.orders || []) {
+    if (order.clientAccountId && order.accountGeneration) continue
+    const client = findClientByPhone(db, order.client?.phone || '')
+    if (client) {
+      stampOrderForClient(order, client)
+      changed = true
+    } else if (!order.accountGeneration) {
+      order.accountGeneration = 1
+      changed = true
+    }
+  }
+  if (changed) persist()
+}
+
 function runLoyaltyBackfill() {
   try {
+    runAccountLifecycleMaintenance()
+    backfillOrderAccountIds()
     const r = backfillAllMissedBonuses(db, loyaltyHooks())
     if (r.totalOrders > 0) {
       console.log(`[loyalty] backfill: +${r.totalCredited} bonus, ${r.totalOrders} orders, ${r.clients} clients`)

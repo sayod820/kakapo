@@ -75,6 +75,10 @@ export interface Order {
   bonusEarned?: number
   /** Бонусы уже начислены (идемпотентность) */
   bonusCredited?: boolean
+  /** ID клиента на момент заказа (для разделения циклов аккаунта) */
+  clientAccountId?: string
+  /** Поколение аккаунта (1, 2, …) */
+  accountGeneration?: number
   /** Выручка ресторану уже начислена */
   revenueCredited?: boolean
 }

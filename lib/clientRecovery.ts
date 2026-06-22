@@ -9,6 +9,7 @@ import { normalizeCard, cardNumsMatch, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
 import { legacyMoveToRecoveryOnServer, legacyRestoreOnServer } from './clientLegacyBackend'
 import { unmarkPhoneDeleted } from './clientTombstones'
+import { isRecoveryExpired, recoveryExpiresAtIso } from './clientAccountLifecycle'
 import {
   findLocalClient,
   resolveServerClientId,
@@ -18,7 +19,8 @@ import {
 export type ClientAccountStatus = 'active' | 'recovery'
 
 export function isClientInRecovery(c?: AdminClient | null): boolean {
-  return c?.accountStatus === 'recovery'
+  if (c?.accountStatus !== 'recovery') return false
+  return !isRecoveryExpired(c)
 }
 
 export function isClientActiveAccount(c?: AdminClient | null): boolean {
@@ -102,6 +104,7 @@ export async function moveClientToRecovery(clientId: string, phone?: string): Pr
   applyLocalClientPatch(client?.id || clientId, targetPhone, {
     accountStatus: 'recovery',
     deletedAt,
+    recoveryExpiresAt: recoveryExpiresAtIso(deletedAt),
     card: '',
   })
 
@@ -124,6 +127,7 @@ export async function restoreClientFromRecovery(clientId: string, phone?: string
   applyLocalClientPatch(localId, targetPhone, {
     accountStatus: 'active',
     deletedAt: undefined,
+    recoveryExpiresAt: undefined,
     blocked: false,
   })
 

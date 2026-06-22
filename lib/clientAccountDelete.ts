@@ -7,6 +7,7 @@ import { useClientStore } from './clientStore'
 import { phonesMatch, normalizePhone, isClientPurged, normalizeClient, DEFAULT_ADMIN_CLIENTS, type AdminClient } from './clientCrm'
 import { normalizeCard, cardNumsMatch, type AdminCard } from './cardCrm'
 import { emitCrmSync } from './clientProfileSync'
+import { moveClientToRecovery } from './clientRecovery'
 import { legacyPurgeClientOnServer } from './clientLegacyBackend'
 import { markPhoneDeleted, markPhonesDeleted, isSyntheticOrderClientId } from './clientTombstones'
 import { demoSeedPhones, isDemoSeedClient } from './clientDemoSeed'
@@ -185,7 +186,7 @@ export async function purgeAllDemoClientsFromCrm(): Promise<{ removed: number; e
   return { removed, errors }
 }
 
-/** Самоудаление из профиля — полное удаление: клиент, заказы, бонусы */
+/** Самоудаление из профиля — 30 дней на восстановление, заказы остаются в отчётах */
 export async function deleteClientAccount(user: StoreUser): Promise<void> {
   const phone = user.phone?.trim()
   if (!phone) throw new Error('Нет данных аккаунта')
@@ -194,25 +195,20 @@ export async function deleteClientAccount(user: StoreUser): Promise<void> {
   const local = findLocalClient(clientId || '', phone)
   if (local) clientId = local.id
 
-  if (phone) markPhoneDeleted(phone)
-  applyLocalDelete(clientId || '', phone)
-
-  if (USE_API) {
+  if (!clientId && USE_API) {
     try {
-      await api.purgeAccountByPhone(phone)
-      const { useOrders } = await import('./store')
-      await useOrders.getState().fetchOrders()
-      await useClientStore.getState().fetchFromApi()
-      await useCardStore.getState().fetchFromApi()
-    } catch (e) {
-      throw e instanceof Error ? e : new Error('Не удалось удалить аккаунт')
+      const remote = await api.getClients()
+      const found = remote.find(c => phonesMatch(c.phone, phone))
+      if (found) clientId = found.id
+    } catch { /* локально */ }
+  }
+
+  try {
+    if (clientId || normalizePhone(phone)) {
+      await moveClientToRecovery(clientId || '', phone)
     }
-  } else {
-    const { useOrders } = await import('./store')
-    const { phonesMatch } = await import('./clientCrm')
-    useOrders.setState({
-      orders: useOrders.getState().orders.filter(o => !phonesMatch(o.client?.phone || '', phone)),
-    })
+  } catch (e) {
+    throw e instanceof Error ? e : new Error('Не удалось удалить аккаунт')
   }
 
   for (const ns of Object.values(ACCOUNT_NS)) {

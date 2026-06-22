@@ -16,7 +16,8 @@ import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
 import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
-import { loadStoreUser, saveStoreUser, clearClientSession, getActiveClientPhone, formatTjPhone, isClientSessionActive, phoneDigits, getSessionEpoch } from "@/lib/clientSession";
+import { loadStoreUser, saveStoreUser, clearClientSession, getActiveClientPhone, formatTjPhone, isClientSessionActive, phoneDigits, getSessionEpoch, type StoreUser } from "@/lib/clientSession";
+import { filterOrdersForStoreUser } from "@/lib/clientAccountLifecycle";
 import { fetchCrmStoreUser, crmStoreUsersEqual } from "@/lib/clientProfileSync";
 import { deleteClientAccount } from "@/lib/clientAccountDelete";
 import {
@@ -554,16 +555,17 @@ function ruCount(n: number, one: string, few: string, many: string) {
   return `${n} ${many}`
 }
 
-function clientLoyaltyTotals(apiOrders: import('@/lib/types').Order[], phone?: string) {
-  return loyaltyStatsFromOrders(apiOrders, phone || '')
+function clientLoyaltyTotals(apiOrders: import('@/lib/types').Order[], user?: StoreUser | null) {
+  const scoped = user ? filterOrdersForStoreUser(apiOrders, user) : apiOrders
+  return loyaltyStatsFromOrders(scoped, user?.phone || '')
 }
 
-function countClientSpent(apiOrders: import('@/lib/types').Order[], phone?: string) {
-  return clientLoyaltyTotals(apiOrders, phone).spent
+function countClientSpent(apiOrders: import('@/lib/types').Order[], user?: StoreUser | null) {
+  return clientLoyaltyTotals(apiOrders, user).spent
 }
 
-function countClientOrders(apiOrders: import('@/lib/types').Order[], phone?: string) {
-  return clientLoyaltyTotals(apiOrders, phone).orderCount
+function countClientOrders(apiOrders: import('@/lib/types').Order[], user?: StoreUser | null) {
+  return clientLoyaltyTotals(apiOrders, user).orderCount
 }
 
 function vipPageShell(isVip: boolean) {
@@ -1211,8 +1213,8 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const { prods, restaurants } = useLiveCatalog();
   const apiOrders = useOrders(s => s.orders);
-  const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
-  const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
+  const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   const loyalty = useMemo(
     () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod),
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
@@ -2292,8 +2294,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
-  const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
+  const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   const addrCount = useMemo(() => loadClientAddresses(user?.phone).length, [user?.phone]);
   const wishCount = useMemo(
     () => Object.keys(wished || {}).filter(id => wished[id]).length,
@@ -2526,7 +2528,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
             <div style={{ padding:"14px" }}>
               <div style={{ fontSize:13, fontWeight:800, color:"var(--red)", marginBottom:8 }}>Удалить аккаунт?</div>
               <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.5, marginBottom:14 }}>
-                Аккаунт, заказы и бонусы будут удалены безвозвратно. При повторной регистрации всё начнётся с нуля (только приветственный бонус).
+                Аккаунт попадёт в восстановление на 30 дней — можно вернуть профиль, заказы и бонусы. После этого срока регистрация начнётся заново. Заказы останутся в отчётах админа.
               </div>
               <div style={{ display:"flex", gap:8 }}>
                 <button
@@ -2596,7 +2598,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const ordersList = useMemo(() => {
     const mine = phoneDigits(user?.phone || getActiveClientPhone(user) || '');
     if (!mine) return [];
-    const fromApi = mapOrdersForClient(apiOrders, user).filter(o => phoneDigits(o.phone || '') === mine);
+    const fromApi = mapOrdersForClient(filterOrdersForStoreUser(apiOrders, user), user);
     if (USE_API) return fromApi;
     const demoStatic = ORDERS_LIST.filter(o => phoneDigits(o.phone || '') === mine);
     const byId = new Map<string, typeof fromApi[0]>();
@@ -3889,8 +3891,8 @@ function VipDebtSection({
 const VIPPage = ({ go, user, setUser }) => {
   const [reserveModal, setReserveModal] = useState(false);
   const apiOrders = useOrders(s => s.orders);
-  const orderCount = useMemo(() => countClientOrders(apiOrders, user?.phone), [apiOrders, user?.phone]);
-  const spentTotal = useMemo(() => countClientSpent(apiOrders, user?.phone), [apiOrders, user?.phone]);
+  const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
+  const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   const loyalty = useMemo(
     () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod),
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
