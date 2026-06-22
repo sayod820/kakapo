@@ -29,12 +29,15 @@ export function orderBelongsToClientAccount(
 ): boolean {
   const gen = defaultAccountGeneration(client.accountGeneration)
   const orderGen = defaultAccountGeneration(order.accountGeneration)
-  if (order.clientAccountId && client.id) {
-    return order.clientAccountId === client.id && orderGen === gen
+  if (order.clientAccountId) {
+    if (!client.id || order.clientAccountId !== client.id) return false
+    return orderGen === gen
   }
   const key = (client.phone || '').replace(/\D/g, '').slice(-9)
   const op = (order.client?.phone || '').replace(/\D/g, '').slice(-9)
-  return !!key && op === key && orderGen === gen
+  if (!key || op !== key) return false
+  if (gen > 1 && orderGen < gen) return false
+  return orderGen === gen
 }
 
 export function orderBelongsToStoreUser(

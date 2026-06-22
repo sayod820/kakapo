@@ -175,7 +175,12 @@ export function mergeStoreUserWithCrmLoyalty(
   const scoped = filterOrdersForStoreUser(orders, user)
   const { spent, orderCount } = loyaltyStatsFromOrders(scoped, user.phone)
   const loyalty = getLoyaltyProgress(spent, orderCount, reviewCount, user.level, user.vip, user.loyaltyPeriod)
-  const crmLevel = user.level && user.level !== 'basic' && user.level !== 'new' ? user.level : null
+  const hasAccountOrders = orderCount > 0 || spent > 0
+  const crmLevel = user.vip && user.level && user.level !== 'basic' && user.level !== 'new'
+    ? user.level
+    : hasAccountOrders && user.level && user.level !== 'basic' && user.level !== 'new'
+      ? user.level
+      : null
   return {
     ...user,
     vip: !!user.vip || loyalty.isVip,

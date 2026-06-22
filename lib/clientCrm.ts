@@ -376,13 +376,13 @@ export function statsFromOrders(
 export function enrichClientWithOrders(client: AdminClient, orders: Order[]): AdminClient & ClientOrderStats & { lastLabel: string } {
   const live = statsFromOrders(orders, client)
   const hasLive = orders.some(o => orderBelongsToClientAccount(o, client))
-  const crmMonthly = isLoyaltyPeriodCurrent(client.loyaltyPeriod)
-  const spent = hasLive ? live.spent : (crmMonthly ? client.spent : 0)
-  const ordersCount = hasLive ? live.orders : (crmMonthly ? client.orders : 0)
-  const level = hasLive || orders.length > 0
-    ? resolveEffectiveClientLevel(spent, ordersCount, client.level || 'basic', client.loyaltyPeriod)
-    : (client.level || 'basic')
-  const lastLabel = formatLastActivity(live.lastOrderAt || client.lastOrderAt)
+  const spent = hasLive ? live.spent : 0
+  const ordersCount = hasLive ? live.orders : 0
+  const storedLevel = client.vip ? (client.level || 'basic') : 'basic'
+  const level = hasLive
+    ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, client.loyaltyPeriod)
+    : storedLevel
+  const lastLabel = formatLastActivity(hasLive ? (live.lastOrderAt || client.lastOrderAt) : undefined)
   return {
     ...client,
     ...live,

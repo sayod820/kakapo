@@ -333,7 +333,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'kakapo-api',
-    version: '2.14-account-generation-loyalty',
+    version: '2.15-account-generation-reset',
     loyaltyVip: true,
     dataDir: stats.dataDir,
     dbFile: stats.path,
@@ -891,6 +891,7 @@ app.post('/clients', (req, res) => {
   db.clients.push(row)
   ensureCardRowForClient(row)
   clearPersonalNotificationsOnServer(row.phone)
+  reconcileClientBonuses(db, row.phone, loyaltyHooks())
   persist()
   res.json(row)
 })
@@ -1433,7 +1434,6 @@ function runLoyaltyBackfill() {
     console.error('[loyalty] backfill failed', e)
   }
 }
-runLoyaltyBackfill()
 
 app.post('/cards/ensure', (req, res) => {
   const body = req.body || {}
@@ -1724,4 +1724,5 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.error('   Render: Persistent Disk mount /data\n')
   }
   console.log(`   Health: http://0.0.0.0:${PORT}/health\n`)
+  setImmediate(() => runLoyaltyBackfill())
 })

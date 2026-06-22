@@ -18,10 +18,41 @@ source "$ENV_FILE"
 cd "$REPO_ROOT"
 
 echo "==> Сборка и запуск (API + Next.js + nginx)"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --pull
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate api web
 
-echo "==> Перезапуск nginx (после пересоздания web/api)"
+echo "==> Ожидание API..."
+for i in $(seq 1 40); do
+  if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T api node -e \
+    "fetch('http://127.0.0.1:8000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null; then
+    echo "   API готов (${i}с)"
+    break
+  fi
+  if [[ $i -eq 40 ]]; then
+    echo "❌ API не отвечает. Логи:"
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs --tail=80 api
+    exit 1
+  fi
+  sleep 2
+done
+
+echo "==> Ожидание Next.js..."
+for i in $(seq 1 60); do
+  if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T web node -e \
+    "fetch('http://127.0.0.1:3000/store').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null; then
+    echo "   Web готов (${i}с)"
+    break
+  fi
+  if [[ $i -eq 60 ]]; then
+    echo "❌ Next.js не отвечает. Логи:"
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs --tail=80 web
+    exit 1
+  fi
+  sleep 2
+done
+
+echo "==> Перезапуск nginx"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d nginx
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart nginx
 
 echo ""

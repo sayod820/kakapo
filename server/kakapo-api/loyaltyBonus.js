@@ -443,8 +443,18 @@ export function reconcileClientBonuses(db, phone, hooks) {
   const delivered = deliveredOrdersForClient(db, phone, client)
     .sort((a, b) => orderSortKey(a) - orderSortKey(b))
 
-  // Без заказов в базе — не трогаем баланс (иначе сброс до welcome)
+  // Нет заказов этого поколения аккаунта — обнуляем месячную статистику и уровень
   if (!delivered.length) {
+    const period = currentLoyaltyPeriod()
+    client.orders = 0
+    client.spent = 0
+    if (!client.vip) {
+      client.level = 'basic'
+      card.level = ''
+      client.loyaltyPeriod = period
+    }
+    syncClientMonthlyStats(db, client, phone, period)
+    hooks.syncClientFromCardRow(card)
     return { credited: 0, bonus: prevBonus, orders: 0, skipped: true }
   }
 
