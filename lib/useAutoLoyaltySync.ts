@@ -15,6 +15,7 @@ import { syncAutoLevelToCrm, syncMonthlyLoyaltyReset } from './clientCardSync'
 import { currentLoyaltyPeriod } from './loyaltyPeriod'
 import { USE_API } from './config'
 import { useClientStore } from './clientStore'
+import { filterOrdersForStoreUser } from './clientAccountLifecycle'
 
 /** Ежемесячный сброс + автоповышение по заказам текущего месяца */
 export function useAutoLoyaltySync(
@@ -39,8 +40,9 @@ export function useAutoLoyaltySync(
     // VIP назначенный админом — уровень не пересчитываем (кэшбэк по VIP %)
     if (base.vip && !reset) return
 
-    // Только траты текущего месяца из заказов — не смешиваем с lifetime CRM
-    const { orderCount, spent } = loyaltyStatsFromOrders(orders, base.phone)
+    // Только траты текущего месяца из заказов текущего поколения аккаунта
+    const scoped = filterOrdersForStoreUser(orders, base)
+    const { orderCount, spent } = loyaltyStatsFromOrders(scoped, base.phone)
     const effective = resolveEffectiveClientLevel(spent, orderCount, base.level, base.loyaltyPeriod)
 
     if (reset || shouldAutoUpgradeLevel(base.level, effective, base.loyaltyPeriod)) {

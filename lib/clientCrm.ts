@@ -5,6 +5,7 @@ import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
+import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 
 export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
@@ -237,11 +238,13 @@ export function loyaltyOrdersForClient(
   orders: Order[],
   phone: string,
   period = currentLoyaltyPeriod(),
+  account?: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration'> | null,
 ): Order[] {
   return orders.filter(
     o => phonesMatch(o.client?.phone || '', phone)
       && o.status === 'delivered'
-      && orderInLoyaltyPeriod(o, period),
+      && orderInLoyaltyPeriod(o, period)
+      && (!account || orderBelongsToClientAccount(o, account)),
   )
 }
 
@@ -249,8 +252,9 @@ export function loyaltyStatsFromOrders(
   orders: Order[],
   phone: string,
   period = currentLoyaltyPeriod(),
+  account?: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration'> | null,
 ): { orderCount: number; spent: number; period: string } {
-  const delivered = loyaltyOrdersForClient(orders, phone, period)
+  const delivered = loyaltyOrdersForClient(orders, phone, period, account)
   return {
     period,
     orderCount: delivered.length,
@@ -350,9 +354,13 @@ export type ClientOrderStats = {
   lastAddr?: string
 }
 
-export function statsFromOrders(orders: Order[], phone: string): ClientOrderStats {
-  const related = orders.filter(o => phonesMatch(o.client?.phone || '', phone))
-  const delivered = loyaltyOrdersForClient(orders, phone)
+export function statsFromOrders(
+  orders: Order[],
+  client: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration'>,
+): ClientOrderStats {
+  const phone = client.phone
+  const related = orders.filter(o => orderBelongsToClientAccount(o, client))
+  const delivered = loyaltyOrdersForClient(orders, phone, currentLoyaltyPeriod(), client)
   const active = related.filter(o => o.status !== 'cancelled')
   return {
     orders: delivered.length,
@@ -366,8 +374,8 @@ export function statsFromOrders(orders: Order[], phone: string): ClientOrderStat
 }
 
 export function enrichClientWithOrders(client: AdminClient, orders: Order[]): AdminClient & ClientOrderStats & { lastLabel: string } {
-  const live = statsFromOrders(orders, client.phone)
-  const hasLive = orders.some(o => phonesMatch(o.client?.phone || '', client.phone))
+  const live = statsFromOrders(orders, client)
+  const hasLive = orders.some(o => orderBelongsToClientAccount(o, client))
   const crmMonthly = isLoyaltyPeriodCurrent(client.loyaltyPeriod)
   const spent = hasLive ? live.spent : (crmMonthly ? client.spent : 0)
   const ordersCount = hasLive ? live.orders : (crmMonthly ? client.orders : 0)

@@ -114,11 +114,15 @@ export function monthlyDeliveredStats(db, phone, period = currentLoyaltyPeriod()
   }
 }
 
-export function lifetimeDeliveredStats(db, phone) {
+export function lifetimeDeliveredStats(db, phone, client = null) {
   const key = normalizePhoneDigits(phone)
-  const delivered = (db.orders || []).filter(
-    o => o.status === 'delivered' && normalizePhoneDigits(o.client?.phone) === key,
-  )
+  const resolved = client || findClientByPhone(db, phone)
+  const delivered = (db.orders || []).filter(o => {
+    if (o.status !== 'delivered') return false
+    if (normalizePhoneDigits(o.client?.phone) !== key) return false
+    if (resolved) return orderBelongsToClientAccount(o, resolved)
+    return true
+  })
   return {
     orderCount: delivered.length,
     spent: Math.round(delivered.reduce((s, o) => s + orderSpentContribution(o), 0) * 10) / 10,
@@ -287,10 +291,10 @@ function ensureClientPeriodForOrder(client, card, orderPeriod) {
 }
 
 function syncClientMonthlyStats(db, client, phone, period = currentLoyaltyPeriod()) {
-  const stats = monthlyDeliveredStats(db, phone, period)
+  const stats = monthlyDeliveredStats(db, phone, period, null, client)
   client.orders = stats.orderCount
   client.spent = stats.spent
-  const lifetime = lifetimeDeliveredStats(db, phone)
+  const lifetime = lifetimeDeliveredStats(db, phone, client)
   if (lifetime.orderCount > 0) {
     client.lastOrderAt = new Date().toISOString().slice(0, 10)
   }
@@ -391,7 +395,7 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   ensureClientPeriodForOrder(client, card, orderPeriod)
   const spentAdd = orderSpentContribution(order)
 
-  const monthly = monthlyDeliveredStats(db, phone, orderPeriod, order.id)
+  const monthly = monthlyDeliveredStats(db, phone, orderPeriod, order.id, client)
   const monthlySpent = Math.round((monthly.spent + spentAdd) * 10) / 10
   const monthlyOrders = monthly.orderCount + 1
   const statusLevel = resolveEffectiveLevel(
@@ -464,7 +468,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
 
   const period = currentLoyaltyPeriod()
   syncClientMonthlyStats(db, client, phone, period)
-  const stats = monthlyDeliveredStats(db, phone, period)
+  const stats = monthlyDeliveredStats(db, phone, period, null, client)
   const finalLevel = resolveEffectiveLevel(
     stats.spent,
     stats.orderCount,

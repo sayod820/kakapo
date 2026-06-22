@@ -333,7 +333,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'kakapo-api',
-    version: '2.13-account-lifecycle',
+    version: '2.14-account-generation-loyalty',
     loyaltyVip: true,
     dataDir: stats.dataDir,
     dbFile: stats.path,
@@ -883,6 +883,10 @@ app.post('/clients', (req, res) => {
     bonus: welcomeBonus,
     accountGeneration: generation,
     accountStatus: 'active',
+    level: 'basic',
+    orders: 0,
+    spent: 0,
+    vip: false,
   })
   db.clients.push(row)
   ensureCardRowForClient(row)
@@ -1385,12 +1389,8 @@ ensureMissingSeedRows()
 function backfillOrderAccountIds() {
   let changed = false
   for (const order of db.orders || []) {
-    if (order.clientAccountId && order.accountGeneration) continue
-    const client = findClientByPhone(db, order.client?.phone || '')
-    if (client) {
-      stampOrderForClient(order, client)
-      changed = true
-    } else if (!order.accountGeneration) {
+    if (order.clientAccountId) continue
+    if (!order.accountGeneration) {
       order.accountGeneration = 1
       changed = true
     }
@@ -1398,9 +1398,27 @@ function backfillOrderAccountIds() {
   if (changed) persist()
 }
 
+function repairMisstampedOrders() {
+  let changed = false
+  for (const order of db.orders || []) {
+    if (!order.clientAccountId) continue
+    const client = (db.clients || []).find(c => c.id === order.clientAccountId)
+    if (!client?.createdAt) continue
+    const raw = order.deliveredAtIso || order.createdAtIso || order.createdAt || ''
+    const orderDay = String(raw).slice(0, 10)
+    if (!orderDay || orderDay.length < 10 || orderDay >= client.createdAt) continue
+    const prevGen = Math.max(1, defaultAccountGeneration(client.accountGeneration) - 1)
+    order.clientAccountId = undefined
+    order.accountGeneration = prevGen
+    changed = true
+  }
+  if (changed) persist()
+}
+
 function runLoyaltyBackfill() {
   try {
     runAccountLifecycleMaintenance()
+    repairMisstampedOrders()
     backfillOrderAccountIds()
     const r = backfillAllMissedBonuses(db, loyaltyHooks())
     if (r.totalOrders > 0) {

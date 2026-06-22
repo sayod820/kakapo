@@ -8238,7 +8238,7 @@ function KakapoAppInner() {
     if (!user?.phone) {
       return getLoyaltyProgress(0, 0, 0, user?.level, user?.vip, user?.loyaltyPeriod)
     }
-    const { spent, orderCount } = loyaltyStatsFromOrders(apiOrders, user.phone)
+    const { spent, orderCount } = clientLoyaltyTotals(apiOrders, user)
     return getLoyaltyProgress(spent, orderCount, 0, user.level, user.vip, user.loyaltyPeriod)
   }, [apiOrders, user?.phone, user?.level, user?.vip, user?.loyaltyPeriod])
 

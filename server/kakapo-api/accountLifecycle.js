@@ -79,9 +79,25 @@ export function expireRecoveryClients(db, { unlinkCardsForClient, persist }) {
   return expired
 }
 
+/** Закрепить заказы за поколением аккаунта до удаления профиля */
+export function sealOrdersForClientAccount(db, client) {
+  if (!client) return
+  const key = normalizePhoneDigits(client.phone)
+  if (!key) return
+  for (const order of db.orders || []) {
+    if (normalizePhoneDigits(order.client?.phone) !== key) continue
+    if (!order.clientAccountId) {
+      stampOrderForClient(order, client)
+    } else if (!order.accountGeneration) {
+      order.accountGeneration = defaultAccountGeneration(client.accountGeneration)
+    }
+  }
+}
+
 /** Полное удаление профиля клиента — заказы в базе не трогаем */
 export function hardDeleteClientProfile(db, client, { unlinkCardsForClient, rememberDeleted = false, rememberDeletedPhone }) {
   if (!client) return
+  sealOrdersForClientAccount(db, client)
   if (rememberDeleted && rememberDeletedPhone) rememberDeletedPhone(client.phone)
   unlinkCardsForClient(client)
   const idx = (db.clients || []).findIndex(x => x.id === client.id)

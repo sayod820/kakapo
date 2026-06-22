@@ -21,6 +21,9 @@ echo "==> Сборка и запуск (API + Next.js + nginx)"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --pull
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
 
+echo "==> Перезапуск nginx (после пересоздания web/api)"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart nginx
+
 echo ""
 echo "==> Статус"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
