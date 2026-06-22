@@ -8,10 +8,11 @@ import { USE_API, getWsUrl } from './config'
 export type WSRole = 'client' | 'courier' | 'assembler' | 'restaurant' | 'admin'
 
 export interface WSMessage {
-  event: 'new_order' | 'order_update' | 'notification' | 'review_update'
+  event: 'new_order' | 'order_update' | 'notification' | 'review_update' | 'loyalty_update'
   order?: any
   notification?: any
   review?: any
+  loyalty?: { phone?: string; bonus?: number; card?: string }
 }
 
 export function useWebSocket(

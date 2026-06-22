@@ -21,6 +21,8 @@ import {
   ensureLoyaltySettings,
   backfillAllMissedBonuses,
   backfillClientBonuses,
+  reconcileClientBonuses,
+  reconcileAllClientBonuses,
   findClientByPhone,
 } from './loyaltyBonus.js'
 
@@ -138,6 +140,28 @@ function broadcastNotification(notification) {
       continue
     }
     if (target && ws.clientPhone === target) ws.send(msg)
+  }
+}
+
+function broadcastLoyalty(payload = {}) {
+  const target = phoneKey(payload.phone || '')
+  const msg = JSON.stringify({
+    event: 'loyalty_update',
+    loyalty: {
+      phone: payload.phone || '',
+      bonus: payload.bonus,
+      card: payload.card || '',
+    },
+  })
+  for (const ws of clients) {
+    if (ws.readyState !== 1) continue
+    if (ws.wsRole === 'admin') {
+      ws.send(msg)
+      continue
+    }
+    if (ws.wsRole === 'client' && target && ws.clientPhone === target) {
+      ws.send(msg)
+    }
   }
 }
 
@@ -296,7 +320,7 @@ function nowTime() {
 app.get('/health', (_req, res) => res.json({
   ok: true,
   service: 'kakapo-api',
-  version: '2.6-progressive-bonus',
+  version: '2.7-loyalty-sync',
   loyaltyVip: true,
   dataDir: process.env.DATA_DIR || 'data',
 }))
@@ -481,7 +505,15 @@ app.patch('/orders/:id/status', (req, res) => {
     }
     lockOrderDeliveryFee(updated, db.settings.pricing)
     creditDeliveredOrder(db, updated)
-    creditClientBonusOnDelivery(db, updated, loyaltyHooks())
+    const bonusEarned = creditClientBonusOnDelivery(db, updated, loyaltyHooks())
+    if (bonusEarned > 0) {
+      const client = findClientByPhone(db, updated.client?.phone || '')
+      broadcastLoyalty({
+        phone: updated.client?.phone || '',
+        bonus: client?.bonus,
+        card: client?.card || '',
+      })
+    }
   }
   db.orders[idx] = updated
   persist()
@@ -940,10 +972,14 @@ app.patch('/settings/loyalty', (req, res) => {
 app.post('/loyalty/sync', (req, res) => {
   const phone = String(req.body?.phone || req.query?.phone || '').trim()
   if (!phone) return res.status(400).json({ detail: 'Укажите телефон' })
-  const result = backfillClientBonuses(db, phone, loyaltyHooks())
+  backfillClientBonuses(db, phone, loyaltyHooks())
+  const result = reconcileClientBonuses(db, phone, loyaltyHooks())
   persist()
   const client = findClientByPhone(db, phone)
   const card = client?.card ? findCardByNum(client.card) : null
+  if (client) {
+    broadcastLoyalty({ phone: client.phone, bonus: client.bonus, card: client.card || '' })
+  }
   res.json({ ok: true, ...result, client, card })
 })
 
@@ -1174,9 +1210,13 @@ function runLoyaltyBackfill() {
   try {
     const r = backfillAllMissedBonuses(db, loyaltyHooks())
     if (r.totalOrders > 0) {
-      persist()
       console.log(`[loyalty] backfill: +${r.totalCredited} bonus, ${r.totalOrders} orders, ${r.clients} clients`)
     }
+    const rec = reconcileAllClientBonuses(db, loyaltyHooks())
+    if (rec.adjusted > 0) {
+      console.log(`[loyalty] reconcile: ${rec.adjusted} clients adjusted of ${rec.clients}`)
+    }
+    if (r.totalOrders > 0 || rec.adjusted > 0) persist()
   } catch (e) {
     console.error('[loyalty] backfill failed', e)
   }

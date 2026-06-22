@@ -26,6 +26,11 @@ export function useApiSync(mode: SyncMode = 'all') {
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
     if (!USE_API) return
+    if (msg.event === 'loyalty_update') {
+      void syncClientsFromApi()
+      void syncCardsFromApi()
+      return
+    }
     if (msg.order) {
       const pins = useOrders.getState().orderAdminPins
       const pin = pins[msg.order.id]

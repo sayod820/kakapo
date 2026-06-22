@@ -19,12 +19,20 @@ export function useStoreProfileSync(
   userRef.current = user
   const onRemovedRef = useRef(onAccountRemoved)
   onRemovedRef.current = onAccountRemoved
+  const loyaltySyncedRef = useRef(false)
 
   const refresh = useCallback(async () => {
     const phone = userRef.current?.phone
     if (!phone || !isClientSessionActive()) return
     const epoch = getSessionEpoch()
     const card = userRef.current?.card
+
+    if (USE_API && !loyaltySyncedRef.current) {
+      loyaltySyncedRef.current = true
+      const { syncLoyaltyBonuses } = await import('./loyaltyBonus')
+      const { useOrders } = await import('./store')
+      void syncLoyaltyBonuses(phone, useOrders.getState().orders)
+    }
 
     const active = await isStoreAccountActiveOnServer(phone)
     if (getSessionEpoch() !== epoch || !isClientSessionActive()) return
@@ -59,6 +67,7 @@ export function useStoreProfileSync(
 
   useEffect(() => {
     if (!user?.phone) return
+    loyaltySyncedRef.current = false
     let cancelled = false
 
     const run = () => {

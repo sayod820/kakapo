@@ -105,18 +105,18 @@ function CourierPaymentFooter({
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#FFB800' }}>👑 В ДОЛГ (VIP)</div>
             <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>товары — уже на карте клиента</div>
-          </div>
+      </div>
           <span className="ub" style={{ fontSize: amountSize - 6, fontWeight: 900, color: '#FFB800' }}>{pm.credit.toFixed(2)} ЅМ</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>💵 НАЛИЧНЫМИ</div>
             <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>только доставка</div>
-          </div>
-          <span className="ub" style={{ fontSize: amountSize, fontWeight: 900, color: '#1FD760' }}>{pm.cash.toFixed(2)} ЅМ</span>
         </div>
+          <span className="ub" style={{ fontSize: amountSize, fontWeight: 900, color: '#1FD760' }}>{pm.cash.toFixed(2)} ЅМ</span>
       </div>
-    )
+    </div>
+  )
   }
   return (
     <div style={{ borderTop: '1px dashed rgba(31,215,96,.3)', paddingTop: size === 'lg' ? 12 : 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -865,7 +865,7 @@ function CourierAppInner() {
   if (!sessionReady || (session && !courierProfile && (!teamHydrated || !teamApiReady))) {
     return (
       <>
-        <style>{CSS}</style>
+      <style>{CSS}</style>
         <CourierSessionBoot />
       </>
     );
@@ -945,7 +945,7 @@ function CourierAppInner() {
               <>
                 <div style={{ margin:'12px 0 0' }}>
                   <LeafletMap key="orders-map" orders={mapOrders} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} />
-                </div>
+          </div>
 
                 {/* BOTTOM SHEET — детали заказа, фиксированный оверлей */}
                 {selected && (
@@ -971,7 +971,7 @@ function CourierAppInner() {
                           {selected.mapStatus === 'ready' && (
                             <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:'rgba(31,215,96,.12)', color:'#1FD760', border:'1px solid rgba(31,215,96,.35)' }}>{courierMapStatusLabel('ready', selected.orderKind || 'market')}</span>
                           )}
-                        </div>
+          </div>
                         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                           <span style={{ padding:'4px 10px', borderRadius:10, fontSize:10, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>
                             🛣 {getOrderKm(selected, roadKm) != null ? formatKm(getOrderKm(selected, roadKm)!) : '…'}
@@ -1097,21 +1097,21 @@ function CourierAppInner() {
                         ) : !canAcceptMore().ok ? (
                           <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.35)', textAlign:'center', fontSize:12, fontWeight:700, color:'#FF4545' }}>
                             {canAcceptMore().msg}
-                  </div>
-                        ) : (
+            </div>
+          ) : (
                         <button onClick={()=>void accept(selectedLive)} disabled={!!acceptingId} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:acceptingId ? '#162B1A' : 'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:acceptingId ? '#8FB897' : '#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:acceptingId ? 0.7 : 1 }}>
                           <span>{acceptingId ? '⏳ Принимаем…' : '✓ Принять заказ'}</span>
                           <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>{selectedLive?.paymentMethod === 'credit' ? 'наличными за доставку' : 'наличными'} {courierCashToCollect(selectedLive, orderDelivery(selectedLive, roadKm, TARIFF))}</span>
                         </button>
                         )}
-                  </div>
+                    </div>
                       {acceptErr && (
                         <div style={{ marginTop:8, padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.3)', fontSize:12, color:'#FF4545', textAlign:'center' }}>
                           {acceptErr}
-                </div>
+                  </div>
                       )}
                     </div>
-                </div>
+                    </div>
               )}
 
                 {/* Выбор порядка забора при принятии */}
@@ -1132,14 +1132,14 @@ function CourierAppInner() {
                                 <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>{pid==='store'?'МАГАЗИН':'РЕСТОРАН'}</div>
                                 <div style={{ fontSize:15, fontWeight:800, color:pk.color }}>{pk.name}</div>
                                 <div style={{ fontSize:11, color:'#8FB897', marginTop:2 }}>{pk.addr}</div>
-                              </div>
+                  </div>
                               <span style={{ fontSize:18, color:pk.color }}>→</span>
                             </button>
                           );
                         })}
-                      </div>
-                    </div>
-            </div>
+                  </div>
+                  </div>
+                </div>
                 )}
 
                 <div style={{ padding:'18px 18px 0' }}>
@@ -1154,8 +1154,8 @@ function CourierAppInner() {
                         <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
                         <div style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>Нет доступных заказов</div>
                         <div style={{ fontSize:11, color:'#3D6645' }}>{myActiveOrders.length ? `${myActiveOrders.length} в доставке — вкладка «Доставка»` : 'Новые появятся после оформления в магазине'}</div>
-                      </div>
-                    )}
+                </div>
+              )}
                     {available.map((o,idx)=>{
                       const isSel = selected?.id === o.id;
                       const km = getOrderKm(o, roadKm);
@@ -1169,7 +1169,7 @@ function CourierAppInner() {
                               <div>
                                 <div className="ub" style={{ fontSize:13, fontWeight:800, color:'#3B8EF0' }}>{o.id}</div>
                                 <div style={{ fontSize:11, color:'#8FB897' }}>{o.client.split(' ')[0]} · {o.time}</div>
-                              </div>
+            </div>
                             </div>
                             <div style={{ textAlign:'right' }}>
                               <div className="ub" style={{ fontSize:17, fontWeight:900, color:'#1FD760' }}>{dlv ?? '…'} ЅМ</div>

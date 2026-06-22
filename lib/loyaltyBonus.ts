@@ -9,7 +9,12 @@ import {
 } from './clientCrm'
 import { USE_API } from './config'
 import { api } from './api'
-import { loadLoyaltyStatusConfig, type LoyaltyStatusConfig, getRegistrationWelcomeBonus } from './loyaltyStatusConfig'
+import {
+  loadLoyaltyStatusConfig,
+  type LoyaltyStatusConfig,
+  getRegistrationWelcomeBonus,
+  tierThresholdsFromConfig,
+} from './loyaltyStatusConfig'
 import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
 import { onBonusCredited } from './pushService'
@@ -63,16 +68,12 @@ function orderSortKey(order: Order): number {
   return Number.isNaN(d.getTime()) ? 0 : d.getTime()
 }
 
-/** Сумма трат (spent) до этого заказа в том же месяце. */
-export function spentBeforeDeliveredOrder(
-  phone: string,
-  allDelivered: Order[],
-  order: Order,
-): number {
+/** Доставленные заказы того же месяца, которые были раньше текущего. */
+function priorDeliveredOrders(phone: string, allDelivered: Order[], order: Order): Order[] {
   const period = loyaltyPeriodForOrder(order)
   const orderKey = orderSortKey(order)
   const orderId = String(order.id)
-  const priorOnly = allDelivered.filter(o => {
+  return allDelivered.filter(o => {
     if (!phonesMatch(o.client?.phone || '', phone)) return false
     if (loyaltyPeriodForOrder(o) !== period) return false
     if (String(o.id) === orderId) return false
@@ -81,57 +82,9 @@ export function spentBeforeDeliveredOrder(
     if (k > orderKey) return false
     return String(o.id) < orderId
   })
-  return loyaltyStatsFromOrders(priorOnly, phone, period).spent
 }
 
-type TierBonusBand = { from: number; to: number; percent: number }
-
-function tierBonusBands(cfg: LoyaltyStatusConfig = loadLoyaltyStatusConfig()): TierBonusBand[] {
-  const p = tierPercentsFromConfig(cfg)
-  const bronze = cfg.bronzeMinSpent
-  const silver = cfg.tiers.find(t => t.id === 'silver')?.minSpent ?? 1000
-  const gold = cfg.tiers.find(t => t.id === 'gold')?.minSpent ?? 2000
-  const platinum = cfg.tiers.find(t => t.id === 'platinum')?.minSpent ?? 3000
-  return [
-    { from: 0, to: bronze, percent: p.basic },
-    { from: bronze, to: silver, percent: p.bronze },
-    { from: silver, to: gold, percent: p.silver },
-    { from: gold, to: platinum, percent: p.gold },
-    { from: platinum, to: Infinity, percent: p.platinum },
-  ]
-}
-
-/** Кэшбэк по сегментам: часть заказа выше порога 500 получает % бронзы и т.д. */
-export function calcProgressiveBonusForOrder(
-  spentBefore: number,
-  order: Pick<Order, 'total' | 'deliveryFee' | 'bonusSpent'>,
-  vip?: boolean,
-  cfg?: LoyaltyStatusConfig,
-): number {
-  const config = cfg ?? loadLoyaltyStatusConfig()
-  const eligible = bonusEligibleTotal(order)
-  const spentAdd = orderSpentContribution(order)
-  if (eligible <= 0 || spentAdd <= 0) return 0
-  if (vip) {
-    const percent = tierPercentsFromConfig(config).vip
-    return Math.round(eligible * percent / 100)
-  }
-
-  const spentAfter = spentBefore + spentAdd
-  let earned = 0
-  for (const band of tierBonusBands(config)) {
-    if (band.percent <= 0) continue
-    const segStart = Math.max(spentBefore, band.from)
-    const segEnd = Math.min(spentAfter, band.to)
-    if (segEnd <= segStart) continue
-    const spentInSegment = segEnd - segStart
-    const eligibleInSegment = (spentInSegment / spentAdd) * eligible
-    earned += Math.round(eligibleInSegment * band.percent / 100)
-  }
-  return earned
-}
-
-/** % кэшбэка для заказа — по тратам ДО этого заказа (legacy preview). */
+/** % кэшбэка для заказа — по тратам ДО этого заказа (для отображения уровня %). */
 export function resolveOrderBonusLevel(
   phone: string,
   allDelivered: Order[],
@@ -139,19 +92,70 @@ export function resolveOrderBonusLevel(
   _vip?: boolean,
 ): ClientLevel {
   const period = loyaltyPeriodForOrder(order)
-  const orderKey = orderSortKey(order)
-  const orderId = String(order.id)
-  const priorOnly = allDelivered.filter(o => {
-    if (!phonesMatch(o.client?.phone || '', phone)) return false
-    if (loyaltyPeriodForOrder(o) !== period) return false
-    if (String(o.id) === orderId) return false
-    const k = orderSortKey(o)
-    if (k < orderKey) return true
-    if (k > orderKey) return false
-    return String(o.id) < orderId
-  })
+  const priorOnly = priorDeliveredOrders(phone, allDelivered, order)
   const { spent, orderCount } = loyaltyStatsFromOrders(priorOnly, phone, period)
   return resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
+}
+
+type MarginalBand = { from: number; to: number; percent: number }
+
+function marginalBandsFromConfig(cfg: LoyaltyStatusConfig): MarginalBand[] {
+  const t = tierThresholdsFromConfig(cfg)
+  const p = tierPercentsFromConfig(cfg)
+  return [
+    { from: 0, to: t.bronze, percent: 0 },
+    { from: t.bronze, to: t.silver, percent: p.bronze },
+    { from: t.silver, to: t.gold, percent: p.silver },
+    { from: t.gold, to: t.platinum, percent: p.gold },
+    { from: t.platinum, to: Infinity, percent: p.platinum },
+  ]
+}
+
+/** Кэшбэк по «ступенькам»: до 500 SM — 0%, сверх порога — % соответствующего уровня. */
+export function calcMarginalBonusEarned(
+  priorEligibleSpent: number,
+  orderEligible: number,
+  vip?: boolean,
+  cfg?: LoyaltyStatusConfig,
+): number {
+  const config = cfg ?? loadLoyaltyStatusConfig()
+  const percents = tierPercentsFromConfig(config)
+  const amount = Math.max(0, orderEligible)
+  if (amount <= 0) return 0
+  if (vip) {
+    if (percents.vip <= 0) return 0
+    return Math.round(amount * percents.vip / 100)
+  }
+
+  const bands = marginalBandsFromConfig(config)
+  const start = Math.max(0, priorEligibleSpent)
+  const end = start + amount
+  let earned = 0
+  for (const band of bands) {
+    const overlapStart = Math.max(start, band.from)
+    const overlapEnd = Math.min(end, band.to)
+    const bandAmount = Math.max(0, overlapEnd - overlapStart)
+    if (bandAmount > 0 && band.percent > 0) {
+      earned += Math.round(bandAmount * band.percent / 100)
+    }
+  }
+  return earned
+}
+
+export function priorBonusEligibleSpent(phone: string, allDelivered: Order[], order: Order): number {
+  return priorDeliveredOrders(phone, allDelivered, order)
+    .reduce((sum, o) => sum + bonusEligibleTotal(o), 0)
+}
+
+export function calcOrderMarginalBonusEarned(
+  phone: string,
+  allDelivered: Order[],
+  order: Order,
+  vip?: boolean,
+  cfg?: LoyaltyStatusConfig,
+): number {
+  const prior = priorBonusEligibleSpent(phone, allDelivered, order)
+  return calcMarginalBonusEarned(prior, bonusEligibleTotal(order), vip, cfg)
 }
 
 /** Статус после доставки заказа — с учётом этого заказа (для отображения уровня). */
@@ -185,8 +189,7 @@ export function computeExpectedClientBonus(
 
   let earned = 0
   for (const order of delivered) {
-    const spentBefore = spentBeforeDeliveredOrder(phone, delivered, order)
-    earned += calcProgressiveBonusForOrder(spentBefore, order, merged.vip)
+    earned += calcOrderMarginalBonusEarned(phone, delivered, order, merged.vip)
   }
 
   const bonusSpent = delivered.reduce((s, o) => s + (Number(o.bonusSpent) || 0), 0)
@@ -265,29 +268,31 @@ export function orderSpentContribution(order: Pick<Order, 'total' | 'bonusSpent'
 
 export function expectedOrderBonus(
   order: Order,
-  _level?: ClientLevel | string,
+  level?: ClientLevel | string,
   vip?: boolean,
   allOrders?: Order[],
 ): number {
   if (order.bonusEarned != null && order.status === 'delivered') return order.bonusEarned
   const cfg = loadLoyaltyStatusConfig()
+  const eligible = bonusEligibleTotal(order)
   const phone = order.client?.phone || ''
 
   if (allOrders?.length && phone) {
     const delivered = allOrders
       .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
       .sort((a, b) => orderSortKey(a) - orderSortKey(b))
-    const spentBefore = order.status === 'delivered'
-      ? spentBeforeDeliveredOrder(phone, delivered, order)
-      : loyaltyStatsFromOrders(
-        delivered.filter(o => loyaltyPeriodForOrder(o) === currentLoyaltyPeriod()),
-        phone,
-        currentLoyaltyPeriod(),
-      ).spent
-    return calcProgressiveBonusForOrder(spentBefore, order, vip, cfg)
+
+    if (order.status === 'delivered') {
+      return calcOrderMarginalBonusEarned(phone, delivered, order, vip, cfg)
+    }
+    const period = currentLoyaltyPeriod()
+    const priorEligible = delivered
+      .filter(o => loyaltyPeriodForOrder(o) === period)
+      .reduce((sum, o) => sum + bonusEligibleTotal(o), 0)
+    return calcMarginalBonusEarned(priorEligible, eligible, vip, cfg)
   }
 
-  return calcProgressiveBonusForOrder(0, order, vip, cfg)
+  return calcMarginalBonusEarned(0, eligible, vip, cfg)
 }
 
 export type OrderLoyaltyPatch = {
@@ -337,8 +342,7 @@ export function creditBonusOnDeliveryLocal(order: Order, allOrders: Order[] = []
     orderPeriod,
   )
   const vip = !!(client?.vip || card?.vip)
-  const spentBefore = spentBeforeDeliveredOrder(phone, delivered, order)
-  const earned = calcProgressiveBonusForOrder(spentBefore, order, vip)
+  const earned = calcOrderMarginalBonusEarned(phone, delivered, order, vip)
   const { spent: monthlySpent, orderCount } = loyaltyStatsFromOrders(allOrders, phone)
 
   if (client) {
@@ -374,62 +378,14 @@ export function onOrderDeliveredLoyalty(order: Order, allOrders: Order[] = []) {
   creditBonusOnDeliveryLocal(order, allOrders)
 }
 
-/** Привести баланс к ожидаемому (welcome + кэшбэк − списания). */
-async function reconcileBonusBalance(phone: string, orders: Order[]): Promise<number> {
+/** Начисление через PATCH карты — запасной путь, если /loyalty/sync недоступен. */
+async function syncLoyaltyBonusesViaCardApi(phone: string): Promise<number> {
   const merged = await findMergedClientByPhone(phone)
   if (!merged?.card) return 0
-
-  const expectedBonus = computeExpectedClientBonus(phone, orders, merged)
-  const currentBonus = Number(merged.bonus) || 0
-  if (Math.abs(currentBonus - expectedBonus) <= 0) return 0
-
-  const delivered = orders
-    .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
-    .sort((a, b) => orderSortKey(a) - orderSortKey(b))
-  const period = currentLoyaltyPeriod()
-  const monthDelivered = delivered.filter(o => loyaltyPeriodForOrder(o) === period)
-  const { spent, orderCount } = loyaltyStatsFromOrders(monthDelivered, phone, period)
-  const finalLevel = resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
-
-  await api.updateCard(merged.card, {
-    bonus: expectedBonus,
-    level: merged.vip ? merged.level : finalLevel,
-    loyaltyPeriod: period,
-  })
-  if (merged.id) {
-    await api.updateClient(merged.id, {
-      bonus: expectedBonus,
-      spent,
-      orders: orderCount,
-      level: merged.vip ? merged.level : finalLevel,
-      loyaltyPeriod: period,
-    }).catch(() => {})
-  }
-
-  markOrdersBonusSynced(phone, delivered.map(o => o.id))
 
   const { useOrders } = await import('./store')
-  useOrders.setState(s => ({
-    orders: s.orders.map(o => {
-      if (!delivered.some(d => d.id === o.id)) return o
-      const spentBefore = spentBeforeDeliveredOrder(phone, delivered, o)
-      const earned = calcProgressiveBonusForOrder(spentBefore, o, merged.vip)
-      return { ...o, bonusCredited: true, bonusEarned: earned }
-    }),
-  }))
-
-  void useClientStore.getState().fetchFromApi()
-  void useCardStore.getState().fetchFromApi()
-  return expectedBonus - currentBonus
-}
-
-/** Начисление через PATCH карты — если /loyalty/sync ещё нет на сервере. */
-async function syncLoyaltyBonusesViaCardApi(phone: string, orders: Order[]): Promise<number> {
-  const merged = await findMergedClientByPhone(phone)
-  if (!merged?.card) return 0
-
-  const pending = deliveredOrdersNeedingBonusSync(phone, orders)
-  if (!pending.length) return 0
+  await useOrders.getState().fetchOrders().catch(() => {})
+  const orders = useOrders.getState().orders
 
   const delivered = orders
     .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
@@ -437,7 +393,7 @@ async function syncLoyaltyBonusesViaCardApi(phone: string, orders: Order[]): Pro
 
   const expectedBonus = computeExpectedClientBonus(phone, orders, merged)
   const currentBonus = Number(merged.bonus) || 0
-  if (Math.abs(currentBonus - expectedBonus) <= 0) {
+  if (expectedBonus <= currentBonus) {
     markOrdersBonusSynced(phone, delivered.map(o => o.id))
     return 0
   }
@@ -471,15 +427,41 @@ async function syncLoyaltyBonusesViaCardApi(phone: string, orders: Order[]): Pro
   useOrders.setState(s => ({
     orders: s.orders.map(o => {
       if (!delivered.some(d => d.id === o.id)) return o
-      const spentBefore = spentBeforeDeliveredOrder(phone, delivered, o)
-      const earned = calcProgressiveBonusForOrder(spentBefore, o, merged.vip)
+      const earned = calcOrderMarginalBonusEarned(phone, delivered, o, merged.vip)
       return { ...o, bonusCredited: true, bonusEarned: earned }
     }),
   }))
 
   void useClientStore.getState().fetchFromApi()
   void useCardStore.getState().fetchFromApi()
+  const { emitCrmSync } = await import('./clientProfileSync')
+  emitCrmSync()
   return delta
+}
+
+async function refreshAfterApiLoyaltySync(phone: string) {
+  const { useOrders } = await import('./store')
+  const { emitCrmSync } = await import('./clientProfileSync')
+  await Promise.all([
+    useOrders.getState().fetchOrders().catch(() => {}),
+    useClientStore.getState().fetchFromApi(),
+    useCardStore.getState().fetchFromApi(),
+  ])
+  const delivered = useOrders.getState().orders
+    .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
+  markOrdersBonusSynced(phone, delivered.map(o => o.id))
+  emitCrmSync()
+}
+
+/** Сервер — единый источник правды: полный пересчёт по всем заказам в базе. */
+async function syncLoyaltyBonusesFromApi(phone: string): Promise<number> {
+  try {
+    const r = await api.syncLoyalty(phone)
+    await refreshAfterApiLoyaltySync(phone)
+    return r.credited ?? 0
+  } catch {
+    return syncLoyaltyBonusesViaCardApi(phone)
+  }
 }
 
 /** Пересчитать пропущенные бонусы за доставленные заказы (локально или через API). */
@@ -491,35 +473,12 @@ export async function syncLoyaltyBonuses(phone: string, orders: Order[]): Promis
   if (inflight) return inflight
 
   const run = (async () => {
-    const pending = deliveredOrdersNeedingBonusSync(phone, orders)
-      if (!pending.length) {
-      if (USE_API) return reconcileBonusBalance(phone, orders)
-      return 0
+    if (USE_API) {
+      return syncLoyaltyBonusesFromApi(phone)
     }
 
-    if (USE_API) {
-      try {
-        const r = await api.syncLoyalty(phone)
-        markOrdersBonusSynced(phone, pending.map(o => o.id))
-        void useClientStore.getState().fetchFromApi()
-        void useCardStore.getState().fetchFromApi()
-        const { useOrders } = await import('./store')
-        useOrders.setState(s => ({
-          orders: s.orders.map(o => {
-            if (!pending.some(p => p.id === o.id)) return o
-            const delivered = orders
-              .filter(x => x.status === 'delivered' && phonesMatch(x.client?.phone || '', phone))
-              .sort((a, b) => orderSortKey(a) - orderSortKey(b))
-            const spentBefore = spentBeforeDeliveredOrder(phone, delivered, o)
-            const earned = calcProgressiveBonusForOrder(spentBefore, o, undefined)
-            return { ...o, bonusCredited: true, bonusEarned: earned }
-          }),
-        }))
-        return r.credited || 0
-      } catch {
-        return syncLoyaltyBonusesViaCardApi(phone, orders)
-      }
-    }
+    const pending = deliveredOrdersNeedingBonusSync(phone, orders)
+    if (!pending.length) return 0
 
     let credited = 0
     for (const order of pending) {

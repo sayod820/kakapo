@@ -2324,13 +2324,14 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     }).catch(() => {})
 
     const orders = useOrders.getState().orders
-    const hasPendingBonuses = pendingBonusSyncCount > 0
 
-    void syncLoyaltyBonuses(phone, orders).then(async () => {
+    void (async () => {
+      if (USE_API) await fetchOrders().catch(() => {})
+      const freshOrders = USE_API ? useOrders.getState().orders : orders
+      await syncLoyaltyBonuses(phone, freshOrders)
       if (cancelled) return
-      if (USE_API && hasPendingBonuses) await fetchOrders().catch(() => {})
       await refreshProfile()
-    })
+    })()
 
     return () => { cancelled = true }
   }, [user?.phone, user?.card, pendingBonusSyncCount, setUser, fetchOrders])
