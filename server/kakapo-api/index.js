@@ -333,7 +333,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'kakapo-api',
-    version: '2.15-account-generation-reset',
+    version: '2.16-admin-orders-delete',
     loyaltyVip: true,
     dataDir: stats.dataDir,
     dbFile: stats.path,
@@ -544,6 +544,68 @@ app.patch('/orders/:id/status', (req, res) => {
   onOrderStatusChangeServer(prev, db.orders[idx])
   broadcast('order_update', db.orders[idx])
   res.json(db.orders[idx])
+})
+
+function removeOrderRecord(orderId) {
+  const id = String(orderId)
+  const idx = db.orders.findIndex(o => String(o.id) === id)
+  if (idx < 0) return { ok: false, status: 404, detail: 'Заказ не найден' }
+  const removed = db.orders[idx]
+  const phone = removed.client?.phone || ''
+  db.orders.splice(idx, 1)
+  if (Array.isArray(db.reviews)) {
+    db.reviews = db.reviews.filter(r => String(r.orderId) !== id)
+  }
+  persist()
+  if (phone) {
+    try {
+      reconcileClientBonuses(db, phone, loyaltyHooks())
+    } catch (e) {
+      console.error('[orders] reconcile after delete failed', e)
+    }
+  }
+  broadcast('order_deleted', { id })
+  return { ok: true, id, phone }
+}
+
+app.delete('/orders/:id', (req, res) => {
+  const result = removeOrderRecord(req.params.id)
+  if (!result.ok) return res.status(result.status || 404).json({ detail: result.detail || 'Заказ не найден' })
+  res.json(result)
+})
+
+app.post('/orders/bulk-delete', (req, res) => {
+  const raw = Array.isArray(req.body?.ids) ? req.body.ids : []
+  const ids = [...new Set(raw.map(x => String(x)).filter(Boolean))]
+  if (!ids.length) return res.status(400).json({ detail: 'Укажите ids заказов' })
+  const removed = []
+  const phones = new Set()
+  for (const id of ids) {
+    const idx = db.orders.findIndex(o => String(o.id) === id)
+    if (idx < 0) continue
+    const order = db.orders[idx]
+    if (order.client?.phone) phones.add(normalizePhoneDigits(order.client.phone))
+    db.orders.splice(idx, 1)
+    if (Array.isArray(db.reviews)) {
+      db.reviews = db.reviews.filter(r => String(r.orderId) !== id)
+    }
+    removed.push(id)
+  }
+  if (!removed.length) return res.status(404).json({ detail: 'Заказы не найдены' })
+  persist()
+  for (const key of phones) {
+    if (!key) continue
+    const client = (db.clients || []).find(c => normalizePhoneDigits(c.phone) === key)
+    if (client?.phone) {
+      try {
+        reconcileClientBonuses(db, client.phone, loyaltyHooks())
+      } catch (e) {
+        console.error('[orders] reconcile after bulk delete failed', e)
+      }
+    }
+  }
+  for (const id of removed) broadcast('order_deleted', { id })
+  res.json({ ok: true, removed: removed.length, ids: removed })
 })
 
 app.get('/restaurants', (_req, res) => res.json(db.restaurants))

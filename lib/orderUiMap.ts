@@ -1,4 +1,6 @@
 import type { Order, OrderStatus, OrderType } from './types'
+import type { AdminClient } from './clientCrm'
+import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { enrichCourierOrderPayment, mapCourierPayLabel } from './courierPayment'
 import type { DemoCourierOrder } from './demoOrders'
 import { expectedOrderBonus } from './loyaltyBonus'
@@ -226,15 +228,36 @@ export function resolveRestaurantName(
   return id
 }
 
+function phoneKeyForArchive(phone: string) {
+  return (phone || '').replace(/\D/g, '').slice(-9)
+}
+
+/** Заказ из прошлого аккаунта клиента — не влияет на текущий статус */
+export function isOrderArchivedForActiveClient(order: Order, activeClients: AdminClient[] = []): boolean {
+  const key = phoneKeyForArchive(order.client?.phone || '')
+  if (!key) return false
+  const client = activeClients.find(
+    c => phoneKeyForArchive(c.phone) === key && c.accountStatus !== 'recovery',
+  )
+  if (!client) return true
+  return !orderBelongsToClientAccount(normalizeOrder(order), client)
+}
+
 /** Админка — таблица заказов */
-export function mapOrdersForAdmin(orders: Order[], restaurants: RestCatalogEntry[] = []) {
+export function mapOrdersForAdmin(
+  orders: Order[],
+  restaurants: RestCatalogEntry[] = [],
+  activeClients: AdminClient[] = [],
+) {
   return orders.map(o => {
     const order = normalizeOrder(o)
+    const archived = isOrderArchivedForActiveClient(order, activeClients)
     return {
       id: order.id,
       type: order.type,
       client: order.client?.name || '',
       phone: order.client?.phone || '',
+      archived,
       items: (order.items || []).map(it => `${it.name}${it.qty > 1 ? ` ×${it.qty}` : ''}`).join(', '),
       itemsDetailed: (order.items || []).map(it => ({
         e: it.e,

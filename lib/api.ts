@@ -237,6 +237,13 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ status, ...extra }),
     }),
+  deleteOrder: (id: string | number) =>
+    request<{ ok: boolean; id: string }>(`/orders/${id}`, { method: 'DELETE' }),
+  bulkDeleteOrders: (ids: Array<string | number>) =>
+    request<{ ok: boolean; removed: number; ids: string[] }>('/orders/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
 
   // ── Рестораны ──
   getRestaurants: () => request<Restaurant[]>('/restaurants'),

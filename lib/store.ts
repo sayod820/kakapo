@@ -251,6 +251,8 @@ interface OrdersStore {
   adminUpdateStatus: (id: string, status: OrderStatus) => Promise<void>
   adminAssignCourier: (id: string, courier: { name: string; phone: string } | null) => Promise<void>
   adminAssignAssembler: (id: string, assembler: { name: string; id?: string } | null) => Promise<void>
+  adminRemoveOrder: (id: string) => Promise<void>
+  adminRemoveOrders: (ids: string[]) => Promise<{ removed: number }>
   acceptAssemblerOrder: (id: string, member: { name: string; id?: string }) => Promise<{ ok: true } | { ok: false; error: string }>
   startMarketPart: (id: string) => Promise<void>
   completeMarketPart: (id: string) => Promise<void>
@@ -451,6 +453,34 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         patchOrders(set, get, s => s.map(o => (o.id === id ? normalizeOrder({ ...o, ...updated }) : o)))
       } catch (e) { console.error(e) }
     }
+  },
+
+  adminRemoveOrder: async (id) => {
+    if (USE_API) await api.deleteOrder(id)
+    patchOrders(set, get, s => s.filter(o => o.id !== id))
+    const nextPins = { ...get().orderAdminPins }
+    delete nextPins[id]
+    set({ orderAdminPins: nextPins })
+  },
+
+  adminRemoveOrders: async (ids) => {
+    const unique = [...new Set(ids.map(String).filter(Boolean))]
+    if (!unique.length) return { removed: 0 }
+    if (USE_API) {
+      const res = await api.bulkDeleteOrders(unique)
+      const idSet = new Set((res.ids || unique).map(String))
+      patchOrders(set, get, s => s.filter(o => !idSet.has(String(o.id))))
+      const nextPins = { ...get().orderAdminPins }
+      unique.forEach(rid => { delete nextPins[rid] })
+      set({ orderAdminPins: nextPins })
+      return { removed: res.removed ?? idSet.size }
+    }
+    const idSet = new Set(unique)
+    patchOrders(set, get, s => s.filter(o => !idSet.has(String(o.id))))
+    const nextPins = { ...get().orderAdminPins }
+    unique.forEach(rid => { delete nextPins[rid] })
+    set({ orderAdminPins: nextPins })
+    return { removed: unique.length }
   },
 
   acceptAssemblerOrder: async (id, member) => {

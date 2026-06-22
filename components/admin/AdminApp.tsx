@@ -455,7 +455,7 @@ function OrderPersonSelect({ value, options, onChange, disabled = false, accent 
   )
 }
 
-function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onAssemblerChange, couriers, assemblers, statusBusy, courierBusy, assemblerBusy }) {
+function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onAssemblerChange, onDelete, couriers, assemblers, statusBusy, courierBusy, assemblerBusy, deleteBusy }) {
   if (!order) return null
   const st = adminStatusLabel(order.status)
   const showAssembler = order.type === 'market' || order.type === 'mixed'
@@ -469,6 +469,7 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
             <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
               <Badge v={st.l} c={st.c}/>
               <Badge v={order.type==='restaurant'?'🍽 Ресторан':order.type==='mixed'?'🔀 Смешанный':'🛒 Магазин'} c={order.type==='restaurant'?'#FF8C00':'#1FD760'}/>
+              {order.archived && <Badge v="архив" c="#FFB800"/>}
             </div>
           </div>
           <button onClick={onClose} className="btn" style={{ width:32, height:32, borderRadius:10, background:'#0C1C0F', border:'1px solid #162B1A', color:'#8FB897', fontSize:16 }}>✕</button>
@@ -567,6 +568,25 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
             <OrderStatusSelect value={order.status} disabled={statusBusy} onChange={s => onStatusChange(order, s)} />
           </div>
         )}
+
+        {onDelete && (
+          <div style={{ marginTop:16, paddingTop:14, borderTop:'1px solid #162B1A' }}>
+            {order.archived && (
+              <div style={{ fontSize:11, color:'#FFB800', marginBottom:10, lineHeight:1.45 }}>
+                Заказ из прошлого аккаунта клиента — в статус и бонусы текущего клиента не входит.
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={deleteBusy}
+              onClick={() => onDelete(order)}
+              className="ab abd"
+              style={{ width:'100%', padding:'10px 14px', fontSize:12, opacity: deleteBusy ? .6 : 1 }}
+            >
+              {deleteBusy ? 'Удаление…' : '🗑 Удалить заказ из базы'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -578,22 +598,35 @@ function OrdersPage() {
   const adminUpdateStatus = useOrders(s => s.adminUpdateStatus);
   const adminAssignCourier = useOrders(s => s.adminAssignCourier);
   const adminAssignAssembler = useOrders(s => s.adminAssignAssembler);
+  const adminRemoveOrder = useOrders(s => s.adminRemoveOrder);
+  const adminRemoveOrders = useOrders(s => s.adminRemoveOrders);
+  const storedClients = useClients();
+  const activeClients = useMemo(
+    () => storedClients.filter(c => c.accountStatus !== 'recovery'),
+    [storedClients],
+  );
   const couriers = useCourierTeam();
   const assemblers = useAssemblerTeam();
   const apiRests = useRestaurants(s => s.restaurants);
   const restaurants = USE_API && apiRests.length ? enrichRestaurants(apiRests, RESTAURANTS) : RESTAURANTS;
   const [demoPatch, setDemoPatch] = useState({});
   const [busyKey, setBusyKey] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [removedDemoIds, setRemovedDemoIds] = useState(new Set());
   const orders = useMemo(
     () => {
       const pinned = apiOrders.map(o => {
         const pin = adminPins[o.id]
         return pin ? { ...o, ...pin, status: pin.status ?? o.status } : o
       })
-      const base = USE_API ? mapOrdersForAdmin(pinned, restaurants) : ALL_ORDERS;
-      return base.map(o => (demoPatch[o.id] ? { ...o, ...demoPatch[o.id] } : o));
+      const base = USE_API ? mapOrdersForAdmin(pinned, restaurants, activeClients) : ALL_ORDERS;
+      return base
+        .map(o => (demoPatch[o.id] ? { ...o, ...demoPatch[o.id] } : o))
+        .filter(o => !removedDemoIds.has(o.id));
     },
-    [apiOrders, adminPins, demoPatch, restaurants]
+    [apiOrders, adminPins, demoPatch, restaurants, activeClients, removedDemoIds]
   );
   const [type,   setType]   = useState('all');
   const [status, setStatus] = useState('all');
@@ -614,6 +647,69 @@ function OrdersPage() {
     const matchId = matchesOrderId(o.id, orderSearch);
     return matchType && matchStatus && matchId;
   });
+  const allFilteredSelected = filtered.length > 0 && filtered.every(o => selectedIds.has(o.id));
+  const toggleSelectOrder = (id, e) => {
+    e?.stopPropagation?.();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filtered.forEach(o => next.delete(o.id));
+      else filtered.forEach(o => next.add(o.id));
+      return next;
+    });
+  };
+  const selectCancelledInView = () => {
+    setSelectedIds(new Set(filtered.filter(o => o.status === 'cancelled').map(o => o.id)));
+  };
+  const confirmRemoveOrders = (items) => {
+    if (!items.length) return false;
+    const delivered = items.filter(o => o.status === 'delivered').length;
+    const archived = items.filter(o => o.archived).length;
+    const lines = [
+      `Удалить ${items.length} заказ(ов) из базы?`,
+      'Действие необратимо.',
+    ];
+    if (delivered > 0) lines.push(`• ${delivered} доставленных — пересчитаются бонусы клиента.`);
+    if (archived > 0) lines.push(`• ${archived} архивных — старый аккаунт клиента.`);
+    return window.confirm(lines.join('\n'));
+  };
+  const removeOrders = async (items) => {
+    if (!items.length || !confirmRemoveOrders(items)) return;
+    const ids = items.map(o => o.id);
+    if (ids.length === 1) setDeletingId(ids[0]);
+    else setBulkDeleting(true);
+    try {
+      if (USE_API) {
+        if (ids.length === 1) await adminRemoveOrder(ids[0]);
+        else await adminRemoveOrders(ids);
+      } else {
+        setRemovedDemoIds(prev => new Set([...prev, ...ids]));
+      }
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
+      if (detail && ids.includes(detail.id)) setDetail(null);
+      setDemoPatch(prev => {
+        const next = { ...prev };
+        ids.forEach(id => { delete next[id]; });
+        return next;
+      });
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Не удалось удалить заказы');
+    } finally {
+      setDeletingId(null);
+      setBulkDeleting(false);
+    }
+  };
   const changeStatus = async (o, newStatus) => {
     if (!newStatus || newStatus === o.status) return;
     if (newStatus === 'cancelled' && !window.confirm(`Отменить заказ ${o.id}?`)) return;
@@ -713,15 +809,17 @@ function OrdersPage() {
           onStatusChange={changeStatus}
           onCourierChange={applyCourier}
           onAssemblerChange={applyAssembler}
+          onDelete={o => removeOrders([o])}
           couriers={couriers.filter(c => !c.blocked)}
           assemblers={assemblers.filter(a => !a.blocked)}
           statusBusy={busyKey === `${detail.id}:status`}
           courierBusy={busyKey === `${detail.id}:courier`}
           assemblerBusy={busyKey === `${detail.id}:assembler`}
+          deleteBusy={deletingId === detail.id || bulkDeleting}
         />
       )}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:18}}>
-        {['all','new','assembling','delivering','delivered'].map(s=>{
+      <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:10,marginBottom:18}}>
+        {['all','new','assembling','delivering','delivered','cancelled'].map(s=>{
           const cnt = s==='all' ? orders.length
             : s==='assembling' ? orders.filter(o=>ACTIVE_STATUSES.includes(o.status)).length
             : orders.filter(o=>o.status===s).length;
@@ -765,14 +863,66 @@ function OrdersPage() {
             Найдено: <strong style={{color:'#1FD760'}}>{filtered.length}</strong>
           </span>
         )}
+        {filtered.some(o => o.status === 'cancelled') && (
+          <button
+            type="button"
+            onClick={selectCancelledInView}
+            className="ab"
+            style={{ padding:'7px 14px', fontSize:12, background:'rgba(255,69,69,.08)', border:'1px solid rgba(255,69,69,.25)', color:'#FF8C8C' }}
+          >
+            Выбрать отменённые
+          </button>
+        )}
       </div>
+
+      {selectedIds.size > 0 && (
+        <div style={{
+          display:'flex', flexWrap:'wrap', alignItems:'center', gap:10, marginBottom:12,
+          padding:'10px 14px', borderRadius:12, background:'rgba(255,69,69,.08)', border:'1px solid rgba(255,69,69,.25)',
+        }}>
+          <span style={{ fontSize:13, color:'#EBF5ED' }}>
+            Выбрано: <strong style={{ color:'#FF4545' }}>{selectedIds.size}</strong>
+          </span>
+          <button
+            type="button"
+            onClick={() => removeOrders(filtered.filter(o => selectedIds.has(o.id)))}
+            disabled={bulkDeleting}
+            className="ab abd"
+            style={{ padding:'6px 14px', fontSize:12, opacity: bulkDeleting ? .6 : 1 }}
+          >
+            {bulkDeleting ? 'Удаление…' : '🗑 Удалить выбранные'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            disabled={bulkDeleting}
+            className="ab"
+            style={{ padding:'6px 14px', fontSize:12, background:'#0C1C0F', border:'1px solid #162B1A', color:'#8FB897' }}
+          >
+            Снять выбор
+          </button>
+        </div>
+      )}
+
       <div className="ac">
         <table className="at">
-          <thead><tr><th>ID</th><th>Тип</th><th>Клиент</th><th>Адрес</th><th>Состав</th><th>Сумма</th><th>Курьер</th><th>Сборщик</th><th>Статус</th><th>Время</th></tr></thead>
+          <thead><tr>
+            <th style={{ width:36 }}>
+              <input
+                type="checkbox"
+                checked={allFilteredSelected}
+                onChange={toggleSelectAllFiltered}
+                disabled={filtered.length === 0 || bulkDeleting}
+                title="Выбрать все в списке"
+                style={{ width:16, height:16, cursor: filtered.length === 0 ? 'default' : 'pointer', accentColor:'#1FD760' }}
+              />
+            </th>
+            <th>ID</th><th>Тип</th><th>Клиент</th><th>Адрес</th><th>Состав</th><th>Сумма</th><th>Курьер</th><th>Сборщик</th><th>Статус</th><th>Время</th><th></th>
+          </tr></thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={10} style={{textAlign:'center',padding:'28px 14px',color:'#8FB897',fontSize:13}}>
+                <td colSpan={12} style={{textAlign:'center',padding:'28px 14px',color:'#8FB897',fontSize:13}}>
                   {orderSearch.trim()
                     ? `Заказ «${orderSearch.trim()}» не найден`
                     : 'Нет заказов по выбранным фильтрам'}
@@ -780,7 +930,19 @@ function OrdersPage() {
               </tr>
             ) : filtered.map(o=>(
                 <tr key={o.id} onClick={()=>setDetail(o)} style={{ cursor:'pointer' }}>
-                  <td><span className="ub" style={{fontSize:11,color:'#1FD760'}}>{o.id}</span></td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(o.id)}
+                      onChange={e => toggleSelectOrder(o.id, e)}
+                      disabled={bulkDeleting}
+                      style={{ width:16, height:16, accentColor:'#1FD760', cursor:'pointer' }}
+                    />
+                  </td>
+                  <td>
+                    <span className="ub" style={{fontSize:11,color:'#1FD760'}}>{o.id}</span>
+                    {o.archived && <div style={{ fontSize:9, color:'#FFB800', marginTop:2 }}>архив</div>}
+                  </td>
                   <td><span style={{fontSize:10,padding:'2px 7px',borderRadius:6,background:o.type==='restaurant'?'rgba(255,140,0,.12)':'rgba(31,215,96,.1)',color:o.type==='restaurant'?'#FF8C00':'#1FD760'}}>{o.type==='restaurant'?`🍽 ${o.rest||''}` :o.type==='mixed'?'🔀 Смеш.':'🛒'}</span></td>
                   <td><div style={{fontWeight:600,fontSize:12}}>{o.client}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.phone}</div></td>
                   <td style={{fontSize:10,color:'#8FB897',maxWidth:100}}>{o.addr||'—'}</td>
@@ -792,6 +954,18 @@ function OrdersPage() {
                     {(() => { const sc = adminStatusLabel(o.status); return <Badge v={sc.l} c={sc.c}/>; })()}
                   </td>
                   <td style={{fontSize:11,color:'#3D6645'}}>{o.time}</td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      title="Удалить заказ"
+                      disabled={bulkDeleting || deletingId === o.id}
+                      onClick={() => removeOrders([o])}
+                      className="btn"
+                      style={{ width:30, height:30, borderRadius:8, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.25)', color:'#FF4545', fontSize:13 }}
+                    >
+                      🗑
+                    </button>
+                  </td>
                 </tr>
               ))}
           </tbody>
