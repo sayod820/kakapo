@@ -29,7 +29,7 @@ import {
 /** Заказы API → формат «Мои заказы» в StoreApp */
 export function mapOrdersForClient(
   orders: Order[],
-  profile?: { level?: string; vip?: boolean } | null,
+  profile?: { level?: string; vip?: boolean; loyaltyPeriod?: string; bonusEligibleFrom?: string } | null,
 ) {
   return orders.map(o => {
     const order = normalizeOrder(o)
@@ -49,7 +49,10 @@ export function mapOrdersForClient(
         price: it.price,
       })),
       total: order.total,
-      bonus: expectedOrderBonus(order, profile?.level, profile?.vip, orders),
+      bonus: expectedOrderBonus(order, profile?.level, profile?.vip, orders, {
+        loyaltyPeriod: profile?.loyaltyPeriod,
+        bonusEligibleFrom: profile?.bonusEligibleFrom,
+      }),
       bonusSpent: order.bonusSpent ?? 0,
       delivery: order.deliveryFee ?? 0,
       addr: order.client?.addr || '',

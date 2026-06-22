@@ -283,6 +283,10 @@ export async function saveCardLoyalty(
   const phone = (form.phone || client?.phone || '').trim()
   if (!phone) throw new Error('Выберите клиента или укажите телефон')
 
+  const prevLevel = (card.level || client?.level || 'basic') as ClientLevel
+  const prevVip = !!(card.vip ?? client?.vip)
+  const statusChanged = !!form.vip !== prevVip || form.level !== prevLevel
+
   const loyalty = {
     level: form.level,
     debtLimit: Math.max(0, Number(form.debtLimit) || 0),
@@ -291,6 +295,7 @@ export async function saveCardLoyalty(
     vip: !!form.vip,
     debtEnabled: !!form.debtEnabled,
     loyaltyPeriod: currentLoyaltyPeriod(),
+    ...(statusChanged ? { bonusEligibleFrom: new Date().toISOString() } : {}),
   }
 
   const prevDebt = Math.max(0, Number(card.debt) || 0)

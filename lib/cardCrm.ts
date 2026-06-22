@@ -20,6 +20,8 @@ export interface AdminCard {
   debtEnabled?: boolean
   /** Месяц (YYYY-MM), за который действует статус на карте */
   loyaltyPeriod?: string
+  /** С какого момента (ISO) начислять кэшбэк после ручной смены статуса */
+  bonusEligibleFrom?: string
 }
 
 export function cardHasDebtSection(card: Pick<AdminCard, 'debtEnabled' | 'debt' | 'debtLimit'>): boolean {
@@ -103,6 +105,7 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
       || debtFromNote(raw.note)
       || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
+    bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
   }
 }
 

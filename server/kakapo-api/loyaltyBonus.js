@@ -212,13 +212,14 @@ export function calcMarginalBonusEarned(priorEligibleSpent, orderEligible, loyal
   return earned
 }
 
-function priorBonusEligibleSpent(db, phone, order, client = null) {
+function priorBonusEligibleSpent(db, phone, order, client = null, card = null) {
   const orderPeriod = loyaltyPeriodForOrder(order)
   const orderKey = orderSortKey(order)
   const orderId = String(order.id)
   const delivered = deliveredOrdersForClient(db, phone, client)
   return delivered
     .filter(o => {
+      if (!isOrderBonusEligible(o, client, card)) return false
       if (loyaltyPeriodForOrder(o) !== orderPeriod) return false
       if (String(o.id) === orderId) return false
       const k = orderSortKey(o)
@@ -294,6 +295,50 @@ function orderSortKey(order) {
   return d.getTime()
 }
 
+/** С какого момента начислять кэшбэк (после ручной смены статуса в админке). */
+export function getBonusEligibleFromMs(client, card = null) {
+  const raw = client?.bonusEligibleFrom || card?.bonusEligibleFrom
+  if (raw) {
+    const d = new Date(raw)
+    if (!Number.isNaN(d.getTime())) return d.getTime()
+  }
+  // VIP без метки: не начислять за заказы до месяца назначения
+  if (client?.vip) {
+    const period = client.loyaltyPeriod || card?.loyaltyPeriod
+    if (period) {
+      const [y, m] = period.split('-').map(Number)
+      return new Date(y, m - 1, 1).getTime()
+    }
+    return Date.now()
+  }
+  return null
+}
+
+export function markBonusEligibleFrom(client, card, at = new Date()) {
+  const iso = at.toISOString()
+  client.bonusEligibleFrom = iso
+  if (card) card.bonusEligibleFrom = iso
+}
+
+export function isOrderBonusEligible(order, client, card = null) {
+  const fromMs = getBonusEligibleFromMs(client, card)
+  if (fromMs == null) return true
+  return orderSortKey(order) >= fromMs
+}
+
+function shouldUseVipBonus(client, card, order) {
+  if (!client?.vip) return false
+  return isOrderBonusEligible(order, client, card)
+}
+
+function earnBonusForOrder(db, phone, order, client, card, loyalty) {
+  if (!isOrderBonusEligible(order, client, card)) return 0
+  const eligible = bonusEligibleTotal(order)
+  const prior = priorBonusEligibleSpent(db, phone, order, client, card)
+  const vip = shouldUseVipBonus(client, card, order)
+  return calcMarginalBonusEarned(prior, eligible, loyalty, vip)
+}
+
 /**
  * Списание бонусов при оформлении заказа.
  */
@@ -352,9 +397,7 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   )
   applyLevelUpgrade(client, card, statusLevel, orderPeriod)
 
-  const eligible = bonusEligibleTotal(order)
-  const priorEligible = priorBonusEligibleSpent(db, phone, order, client)
-  const earned = calcMarginalBonusEarned(priorEligible, eligible, loyalty, !!client.vip)
+  const earned = earnBonusForOrder(db, phone, order, client, card, loyalty)
 
   if (earned > 0) {
     card.bonus = (Number(card.bonus) || 0) + earned
@@ -397,9 +440,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
 
   let earned = 0
   for (const order of delivered) {
-    const prior = priorBonusEligibleSpent(db, phone, order, client)
-    const eligible = bonusEligibleTotal(order)
-    const orderEarned = calcMarginalBonusEarned(prior, eligible, loyalty, !!client.vip)
+    const orderEarned = earnBonusForOrder(db, phone, order, client, card, loyalty)
     earned += orderEarned
     order.bonusCredited = true
     order.bonusEarned = orderEarned

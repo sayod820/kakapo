@@ -323,7 +323,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'kakapo-api',
-    version: '2.10-persistent-db',
+    version: '2.11-bonus-from-status-change',
     loyaltyVip: true,
     dataDir: stats.dataDir,
     dbFile: stats.path,
@@ -774,6 +774,7 @@ function normalizeClientRow(raw) {
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod,
+    bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
     debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
     accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
     deletedAt: raw.deletedAt || undefined,
@@ -820,6 +821,21 @@ app.patch('/clients/:id', (req, res) => {
     const next = Number(patch.bonus) || 0
     const prev = Number(c.bonus) || 0
     if (next < prev) delete patch.bonus
+  }
+  const vipChanged = patch.vip !== undefined && !!patch.vip !== !!c.vip
+  const levelChanged = patch.level != null && patch.level !== c.level
+  if (vipChanged || levelChanged) {
+    patch.loyaltyPeriod = currentLoyaltyPeriod()
+    patch.bonusEligibleFrom = new Date().toISOString()
+    if (c.card) {
+      const linked = findCardByNum(c.card)
+      if (linked) {
+        linked.loyaltyPeriod = patch.loyaltyPeriod
+        linked.bonusEligibleFrom = patch.bonusEligibleFrom
+        if (patch.level != null) linked.level = patch.level
+        if (patch.vip !== undefined) linked.vip = !!patch.vip
+      }
+    }
   }
   Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
   persist()
@@ -1115,6 +1131,7 @@ function normalizeCardRow(raw) {
     vip: !!raw.vip || vipFromNote(raw.note),
     debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
+    bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
   }
 }
 
@@ -1224,6 +1241,7 @@ function syncClientFromCardRow(card) {
   client.vip = !!card.vip
   client.blocked = card.status === 'blocked'
   if (card.loyaltyPeriod) client.loyaltyPeriod = card.loyaltyPeriod
+  if (card.bonusEligibleFrom) client.bonusEligibleFrom = card.bonusEligibleFrom
   client.debtEnabled = !!(card.debtEnabled || debtFromNote(card.note))
 }
 
@@ -1299,7 +1317,10 @@ app.post('/cards/ensure', (req, res) => {
   if (card) {
     const patch = { ...body, num: card.num }
     delete patch.unlink
-    if (patch.vip === true || patch.level != null) patch.loyaltyPeriod = currentLoyaltyPeriod()
+    if (patch.vip !== undefined || patch.level != null) {
+      patch.loyaltyPeriod = currentLoyaltyPeriod()
+      patch.bonusEligibleFrom = new Date().toISOString()
+    }
     Object.assign(card, normalizeCardRow({ ...card, ...patch, num: card.num }))
     syncClientFromCardRow(card)
   } else {
@@ -1358,8 +1379,9 @@ app.patch('/cards/:num', (req, res) => {
       const prev = Number(card.bonus) || 0
       if (next < prev) delete body.bonus
     }
-    if (body.vip === true || body.level != null) {
+    if (body.vip !== undefined || body.level != null) {
       body.loyaltyPeriod = currentLoyaltyPeriod()
+      body.bonusEligibleFrom = new Date().toISOString()
     }
     Object.assign(card, normalizeCardRow({ ...card, ...body, num }))
     syncClientFromCardRow(card)
