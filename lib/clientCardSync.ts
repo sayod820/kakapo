@@ -140,12 +140,17 @@ export async function registerClientAccount(
   hydrateCardStore()
 
   const registration = newClientRegistrationDefaults()
-  const local = useClientStore.getState().addClient({ ...data, ...registration }, { skipApi: true })
+  const welcomeBonus = getRegistrationWelcomeBonus()
+  const local = useClientStore.getState().addClient(
+    { ...data, ...registration, bonus: welcomeBonus },
+    { skipApi: true },
+  )
 
   let client = local
   if (USE_API) {
     try {
-      const remote = await api.createClient({ ...local, ...registration })
+      const { bonus: _drop, ...forApi } = { ...local, ...registration }
+      const remote = await api.createClient(forApi)
       const merged = normalizeClient({
         ...local,
         ...remote,
@@ -155,7 +160,7 @@ export async function registerClientAccount(
         phone: local.phone,
         email: local.email,
         addr: local.addr,
-        bonus: Math.max(Number(remote.bonus) || 0, getRegistrationWelcomeBonus()),
+        bonus: Number(remote.bonus) || welcomeBonus,
       })
       useClientStore.getState().updateClient(local.id, { ...merged, id: merged.id }, { skipApi: true })
       if (merged.id !== local.id) {

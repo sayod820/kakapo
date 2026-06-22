@@ -6495,6 +6495,7 @@ const AddressesPage = ({ go, user }) => {
 };
 const ReferralPage = ({ go, user }) => {
   const [copied, setCopied] = useState(false);
+  const welcomeBonus = getRegistrationWelcomeBonus();
   const code = 'КАКАПО-D7F2';
   const stats = [{l:'Приглашено',v:'7',c:'var(--blue)'},{l:'Зарегистрировалось',v:'4',c:'var(--gr)'},{l:'Сделали заказ',v:'3',c:'var(--gd)'},{l:'Ваш заработок',v:'150 ⭐',c:'var(--gd)'}];
   const friends = [
@@ -6524,7 +6525,7 @@ const ReferralPage = ({ go, user }) => {
           <div className="ub" style={{fontSize:18,fontWeight:900,marginBottom:6}}>Пригласи — получи бонусы</div>
           <div style={{fontSize:13,color:'var(--t2)',lineHeight:1.65,marginBottom:16}}>
             За каждого друга который сделает первый заказ —<br/>
-            <span style={{color:'var(--gr)',fontWeight:700}}>ты +50 бонусов</span>, он <span style={{color:'var(--gd)',fontWeight:700}}>+100 бонусов</span>
+            <span style={{color:'var(--gr)',fontWeight:700}}>ты +50 бонусов</span>, он <span style={{color:'var(--gd)',fontWeight:700}}>+{welcomeBonus} бонусов</span>
           </div>
           <div style={{background:'var(--bg)',borderRadius:14,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',border:'1px solid rgba(31,215,96,.25)'}}>
             <div>
@@ -6581,7 +6582,7 @@ const ReferralPage = ({ go, user }) => {
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
           {[
             {n:'1',t:'Поделись кодом',d:'Отправь свой код другу в WhatsApp или Telegram',c:'var(--blue)'},
-            {n:'2',t:'Друг регистрируется',d:'Он вводит твой код при регистрации и получает +100 бонусов',c:'var(--gr)'},
+            {n:'2',t:'Друг регистрируется',d:`Он вводит твой код при регистрации и получает +${welcomeBonus} бонусов`,c:'var(--gr)'},
             {n:'3',t:'Друг делает заказ',d:'После первого заказа тебе начисляются +50 бонусов',c:'var(--gd)'},
           ].map((s,i)=>(
             <div key={i} style={{display:'flex',gap:12,alignItems:'center',padding:'14px',background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:14}}>

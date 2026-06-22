@@ -788,7 +788,7 @@ app.post('/clients', (req, res) => {
     loyaltyPeriod: currentLoyaltyPeriod(),
     createdAt: new Date().toISOString().slice(0, 10),
     ...req.body,
-    bonus: req.body?.bonus != null ? Number(req.body.bonus) || 0 : welcomeBonus,
+    bonus: welcomeBonus,
   })
   db.clients.push(row)
   ensureCardRowForClient(row)

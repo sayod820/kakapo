@@ -14,6 +14,7 @@ import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
 import { hydrateCardStore } from '@/lib/cardStore'
 import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { registerClientAccount } from '@/lib/clientCardSync'
+import { getRegistrationWelcomeBonus, subscribeLoyaltyStatusConfig, syncLoyaltyStatusConfigFromApi } from '@/lib/loyaltyStatusConfig'
 import { formatClientAddressLine, setRegistrationDefaultAddress, ensureClientDefaultAddress } from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
 import { setCurrentClientPhone, resetClientNotificationsForAccount } from '@/lib/clientNotifications'
@@ -91,6 +92,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const [cd, setCd] = useState(0)
   const [focusedOtp, setFocusedOtp] = useState(-1)
   const [recoveryClient, setRecoveryClient] = useState<AdminClient | null>(null)
+  const [welcomeBonus, setWelcomeBonus] = useState(() => getRegistrationWelcomeBonus())
   const refs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -102,6 +104,10 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     clearAppDataLocalCacheOnce()
     hydrateClientStore()
     hydrateCardStore()
+    void syncLoyaltyStatusConfigFromApi()
+      .then(cfg => setWelcomeBonus(cfg.welcomeBonus))
+      .catch(() => {})
+    return subscribeLoyaltyStatusConfig(cfg => setWelcomeBonus(cfg.welcomeBonus))
   }, [])
 
   useEffect(() => {
@@ -277,7 +283,6 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
         card: '',
         blocked: false,
         note: '',
-        bonus: 100,
       })
       if (savedAddr.coords) {
         setRegistrationDefaultAddress({
@@ -652,7 +657,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                 padding: '12px 14px', borderRadius: 12, marginBottom: 16, textAlign: 'center',
                 background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.25)',
               }}>
-                <div className="sl-ub" style={{ fontSize: 13, fontWeight: 800, color: '#FFB800' }}>🎁 +100 приветственных бонусов</div>
+                <div className="sl-ub" style={{ fontSize: 13, fontWeight: 800, color: '#FFB800' }}>🎁 +{welcomeBonus} приветственных бонусов</div>
               </div>
 
               <button type="button" onClick={saveRegister} disabled={load} className="sl-btn sl-ub"
