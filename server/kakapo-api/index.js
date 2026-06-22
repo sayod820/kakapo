@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
-import { loadDb, saveDb } from './db.js'
+import { loadDb, saveDb, getDbStats, isPersistentDataDir } from './db.js'
 import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, DEFAULT_REVIEWS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
 import {
   applyStatusPatch,
@@ -317,13 +317,25 @@ function nowTime() {
   return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
 
-app.get('/health', (_req, res) => res.json({
-  ok: true,
-  service: 'kakapo-api',
-  version: '2.9-bonus-protect',
-  loyaltyVip: true,
-  dataDir: process.env.DATA_DIR || 'data',
-}))
+app.get('/health', (_req, res) => {
+  const stats = getDbStats()
+  const persistent = stats.persistent
+  res.json({
+    ok: true,
+    service: 'kakapo-api',
+    version: '2.10-persistent-db',
+    loyaltyVip: true,
+    dataDir: stats.dataDir,
+    dbFile: stats.path,
+    persistentDisk: persistent,
+    clients: stats.clients,
+    orders: stats.orders,
+    cards: stats.cards,
+    warning: process.env.NODE_ENV === 'production' && !persistent
+      ? 'Подключите Render Disk (/data) и DATA_DIR=/data — иначе клиенты удаляются при каждом деплое'
+      : undefined,
+  })
+})
 
 app.get('/', (_req, res) => {
   res.type('html').send(`<!DOCTYPE html>
@@ -1546,8 +1558,14 @@ httpServer.on('upgrade', (req, socket, head) => {
 })
 
 httpServer.listen(PORT, '0.0.0.0', () => {
-  const dataPath = process.env.DATA_DIR ? `${process.env.DATA_DIR}/kakapo.json` : 'data/kakapo.json'
+  const stats = getDbStats()
   console.log(`\n✅ КАКАПО Backend: http://0.0.0.0:${PORT}`)
-  console.log(`   База: ${dataPath}`)
+  console.log(`   База: ${stats.path}`)
+  console.log(`   DATA_DIR: ${stats.dataDir} | persistent: ${stats.persistent ? 'yes' : 'NO'}`)
+  console.log(`   Записей: клиентов ${stats.clients}, заказов ${stats.orders}, карт ${stats.cards}`)
+  if (process.env.NODE_ENV === 'production' && !stats.persistent) {
+    console.error('\n⚠️  ВНИМАНИЕ: DATA_DIR не /data — при каждом деплое Render база ОБНУЛЯЕТСЯ!')
+    console.error('   Render → Disks → mount /data, Environment → DATA_DIR=/data\n')
+  }
   console.log(`   Health: http://0.0.0.0:${PORT}/health\n`)
 })

@@ -3,7 +3,7 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = process.env.DATA_DIR || join(__dirname, 'data')
+export const DATA_DIR = process.env.DATA_DIR || join(__dirname, 'data')
 const DB_FILE = join(DATA_DIR, 'kakapo.json')
 
 const DEFAULT = {
@@ -54,6 +54,33 @@ const DEFAULT = {
 }
 
 let cache = null
+
+export function getDbFilePath() {
+  return DB_FILE
+}
+
+export function databaseFileExists() {
+  return existsSync(DB_FILE)
+}
+
+/** Диск Render: данные в /data переживают деплой. Без этого пути база внутри контейнера — стирается. */
+export function isPersistentDataDir() {
+  return DATA_DIR === '/data' || DATA_DIR.startsWith('/data/')
+}
+
+export function getDbStats() {
+  const db = loadDb()
+  return {
+    path: DB_FILE,
+    dataDir: DATA_DIR,
+    persistent: isPersistentDataDir(),
+    fileExists: databaseFileExists(),
+    clients: Array.isArray(db.clients) ? db.clients.length : 0,
+    orders: Array.isArray(db.orders) ? db.orders.length : 0,
+    cards: Array.isArray(db.cards) ? db.cards.length : 0,
+    products: Array.isArray(db.products) ? db.products.length : 0,
+  }
+}
 
 export function loadDb() {
   if (cache) return cache
