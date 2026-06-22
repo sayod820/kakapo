@@ -26,7 +26,7 @@ const BONUS_SYNC_KEY = 'kakapo-bonus-synced-orders'
 const syncInFlight = new Map<string, Promise<number>>()
 
 function readSyncedOrderIds(phone: string): Set<string> {
-  if (typeof window === 'undefined') return new Set()
+  if (USE_API || typeof window === 'undefined') return new Set()
   try {
     const raw = localStorage.getItem(BONUS_SYNC_KEY)
     if (!raw) return new Set()
@@ -38,7 +38,7 @@ function readSyncedOrderIds(phone: string): Set<string> {
 }
 
 function markOrdersBonusSynced(phone: string, orderIds: string[]) {
-  if (typeof window === 'undefined' || !orderIds.length) return
+  if (USE_API || typeof window === 'undefined' || !orderIds.length) return
   try {
     const key = phoneDigits(phone)
     const raw = localStorage.getItem(BONUS_SYNC_KEY)
@@ -378,67 +378,6 @@ export function onOrderDeliveredLoyalty(order: Order, allOrders: Order[] = []) {
   creditBonusOnDeliveryLocal(order, allOrders)
 }
 
-/** Начисление через PATCH карты — запасной путь, если /loyalty/sync недоступен. */
-async function syncLoyaltyBonusesViaCardApi(phone: string): Promise<number> {
-  const merged = await findMergedClientByPhone(phone)
-  if (!merged?.card) return 0
-
-  const { useOrders } = await import('./store')
-  await useOrders.getState().fetchOrders().catch(() => {})
-  const orders = useOrders.getState().orders
-
-  const delivered = orders
-    .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
-    .sort((a, b) => orderSortKey(a) - orderSortKey(b))
-
-  const expectedBonus = computeExpectedClientBonus(phone, orders, merged)
-  const currentBonus = Number(merged.bonus) || 0
-  if (expectedBonus <= currentBonus) {
-    markOrdersBonusSynced(phone, delivered.map(o => o.id))
-    return 0
-  }
-
-  const delta = expectedBonus - currentBonus
-
-  const period = currentLoyaltyPeriod()
-  const monthDelivered = delivered.filter(o => loyaltyPeriodForOrder(o) === period)
-  const { spent, orderCount } = loyaltyStatsFromOrders(monthDelivered, phone, period)
-  const finalLevel = resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
-
-  await api.updateCard(merged.card, {
-    bonus: expectedBonus,
-    level: merged.vip ? merged.level : finalLevel,
-    loyaltyPeriod: period,
-  })
-  if (merged.id) {
-    await api.updateClient(merged.id, {
-      bonus: expectedBonus,
-      spent,
-      orders: orderCount,
-      level: merged.vip ? merged.level : finalLevel,
-      loyaltyPeriod: period,
-    }).catch(() => {})
-  }
-
-  markOrdersBonusSynced(phone, delivered.map(o => o.id))
-  if (delta > 0) onBonusCredited(phone, delta, merged.card)
-
-  const { useOrders } = await import('./store')
-  useOrders.setState(s => ({
-    orders: s.orders.map(o => {
-      if (!delivered.some(d => d.id === o.id)) return o
-      const earned = calcOrderMarginalBonusEarned(phone, delivered, o, merged.vip)
-      return { ...o, bonusCredited: true, bonusEarned: earned }
-    }),
-  }))
-
-  void useClientStore.getState().fetchFromApi()
-  void useCardStore.getState().fetchFromApi()
-  const { emitCrmSync } = await import('./clientProfileSync')
-  emitCrmSync()
-  return delta
-}
-
 async function refreshAfterApiLoyaltySync(phone: string) {
   const { useOrders } = await import('./store')
   const { emitCrmSync } = await import('./clientProfileSync')
@@ -455,13 +394,9 @@ async function refreshAfterApiLoyaltySync(phone: string) {
 
 /** Сервер — единый источник правды: полный пересчёт по всем заказам в базе. */
 async function syncLoyaltyBonusesFromApi(phone: string): Promise<number> {
-  try {
-    const r = await api.syncLoyalty(phone)
-    await refreshAfterApiLoyaltySync(phone)
-    return r.credited ?? 0
-  } catch {
-    return syncLoyaltyBonusesViaCardApi(phone)
-  }
+  const r = await api.syncLoyalty(phone)
+  await refreshAfterApiLoyaltySync(phone)
+  return r.credited ?? 0
 }
 
 /** Пересчитать пропущенные бонусы за доставленные заказы (локально или через API). */
@@ -474,7 +409,13 @@ export async function syncLoyaltyBonuses(phone: string, orders: Order[]): Promis
 
   const run = (async () => {
     if (USE_API) {
-      return syncLoyaltyBonusesFromApi(phone)
+      try {
+        return await syncLoyaltyBonusesFromApi(phone)
+      } catch {
+        // Только читаем с сервера — никогда не пишем баланс с клиента
+        await refreshAfterApiLoyaltySync(phone)
+        return 0
+      }
     }
 
     const pending = deliveredOrdersNeedingBonusSync(phone, orders)

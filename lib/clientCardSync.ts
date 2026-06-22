@@ -311,6 +311,7 @@ export async function saveCardLoyalty(
     clientId: client.id,
     status: 'active' as const,
     note: loyaltyNote,
+    allowBonusDecrease: true,
     ...loyalty,
   }
 

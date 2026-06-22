@@ -28,6 +28,20 @@ const DEFAULT = {
       vip: { bonusPercent: 5 },
       vipRules: { minOrders: 30, minReviews: 5, minSpent: 3000 },
     },
+    admin: {
+      gbs: { enabled: false, ip: 'http://192.168.1.100', port: '8419', user: 'admin', pass: '' },
+      sms: { provider: 'smspro', apiKey: '' },
+      store: {
+        name: 'КАКАПО',
+        city: 'г. Яван, Таджикистан',
+        address: 'ул. Ленина, 42',
+        phone1: '+992 118 55-97-97',
+        phone2: '+992 553 55-98-98',
+        email: 'kakapo.tj@gmail.com',
+        telegram: '@kakapo_tj',
+        hours: '08:00 – 23:00',
+      },
+    },
   },
   users: [],
   cards: [],
@@ -51,6 +65,8 @@ export function loadDb() {
   }
   cache = JSON.parse(readFileSync(DB_FILE, 'utf8'))
   if (!Array.isArray(cache.deletedPhoneKeys)) cache.deletedPhoneKeys = []
+  if (!cache.settings) cache.settings = structuredClone(DEFAULT.settings)
+  if (!cache.settings.admin) cache.settings.admin = structuredClone(DEFAULT.settings.admin)
   return cache
 }
 

@@ -323,6 +323,16 @@ export const api = {
   getLoyalty: () => request<Record<string, unknown>>('/settings/loyalty'),
   updateLoyalty: (data: Record<string, unknown>) =>
     request('/settings/loyalty', { method: 'PATCH', body: JSON.stringify(data) }),
+  getAdminSettings: () => request<{
+    gbs: { enabled: boolean; ip: string; port: string; user: string; pass: string }
+    sms: { provider: string; apiKey: string }
+    store: Record<string, string>
+  }>('/settings/admin'),
+  updateAdminSettings: (data: {
+    gbs?: Record<string, unknown>
+    sms?: Record<string, unknown>
+    store?: Record<string, unknown>
+  }) => request('/settings/admin', { method: 'PATCH', body: JSON.stringify(data) }),
   syncLoyalty: (phone: string) =>
     request<{ ok: boolean; credited: number; orders: number; bonus: number }>('/loyalty/sync', {
       method: 'POST',
@@ -335,7 +345,7 @@ export const api = {
     request<{ ok: boolean; count: number; cards: AdminCard[] }>(`/cards/generate?count=${count}`, { method: 'POST' }),
   ensureCard: (data: Partial<AdminCard> & { num: string; clientId?: string }) =>
     request<AdminCard>('/cards/ensure', { method: 'POST', body: JSON.stringify(data) }),
-  updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean }) =>
+  updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean; allowBonusDecrease?: boolean }) =>
     request<AdminCard>(`/cards/${encodeURIComponent(num.trim())}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Отзывы ──

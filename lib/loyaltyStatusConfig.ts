@@ -1,5 +1,7 @@
 'use client'
 
+import { USE_API } from './config'
+
 import type { ClientLevel } from './clientCrm'
 
 export type LoyaltyTierId = ClientLevel | 'vip'
@@ -40,6 +42,9 @@ export type LoyaltyStatusConfig = {
 
 const STORAGE_KEY = 'kakapo-loyalty-status-config'
 export const LOYALTY_STATUS_CONFIG_EVENT = 'kakapo-loyalty-status-config'
+
+/** В API-режиме конфиг только в памяти — источник Render /settings/loyalty */
+let memoryLoyaltyConfig: LoyaltyStatusConfig | null = null
 
 export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
   bronzeMinSpent: 500,
@@ -272,7 +277,11 @@ export function statusConfigToApiPayload(cfg: LoyaltyStatusConfig): ApiLoyaltySe
 
 function applyLoyaltyConfigLocally(next: LoyaltyStatusConfig) {
   if (typeof window === 'undefined') return next
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  if (USE_API) {
+    memoryLoyaltyConfig = next
+  } else {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  }
   window.dispatchEvent(new CustomEvent(LOYALTY_STATUS_CONFIG_EVENT, { detail: next }))
   void import('./clientLoyalty').then(m => m.refreshLoyaltyTiersFromConfig()).catch(() => {})
   return next
@@ -286,15 +295,16 @@ export async function syncLoyaltyStatusConfigFromApi(): Promise<LoyaltyStatusCon
   try {
     const { api } = await import('./api')
     const remote = await api.getLoyalty() as ApiLoyaltySettings
-    const merged = apiLoyaltyToStatusConfig(remote, loadLoyaltyStatusConfig())
+    const merged = apiLoyaltyToStatusConfig(remote, DEFAULT_LOYALTY_STATUS_CONFIG)
     return applyLoyaltyConfigLocally(merged)
   } catch {
-    return loadLoyaltyStatusConfig()
+    return memoryLoyaltyConfig || DEFAULT_LOYALTY_STATUS_CONFIG
   }
 }
 
 export function loadLoyaltyStatusConfig(): LoyaltyStatusConfig {
   if (typeof window === 'undefined') return DEFAULT_LOYALTY_STATUS_CONFIG
+  if (USE_API) return memoryLoyaltyConfig || DEFAULT_LOYALTY_STATUS_CONFIG
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return DEFAULT_LOYALTY_STATUS_CONFIG

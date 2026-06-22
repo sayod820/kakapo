@@ -271,7 +271,7 @@ export async function spendBonus(phone: string, amount: number, orderId: string)
     const cardNum = merged.card
     if (!cardNum) throw new Error('Карта клиента не найдена')
     const newBonus = merged.bonus - use
-    await api.updateCard(cardNum, { bonus: newBonus })
+    await api.updateCard(cardNum, { bonus: newBonus, allowBonusDecrease: true })
     return newBonus
   }
 

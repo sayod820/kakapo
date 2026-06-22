@@ -43,6 +43,30 @@ export function normalizePhoneDigits(phone) {
   return String(phone || '').replace(/\D/g, '').slice(-9)
 }
 
+export function phonesMatchServer(a, b) {
+  const ka = normalizePhoneDigits(a)
+  const kb = normalizePhoneDigits(b)
+  return !!ka && !!kb && ka === kb
+}
+
+/** Доставленные заказы клиента (гибкое сравнение телефонов + телефон карты). */
+export function deliveredOrdersForClient(db, phone, client = null) {
+  const key = normalizePhoneDigits(phone)
+  if (!key) return []
+  const keys = new Set([key])
+  const resolved = client || findClientByPhone(db, phone)
+  if (resolved?.phone) keys.add(normalizePhoneDigits(resolved.phone))
+  if (resolved?.card) {
+    const card = (db.cards || []).find(c => String(c.num).toUpperCase() === String(resolved.card).toUpperCase())
+    if (card?.phone) keys.add(normalizePhoneDigits(card.phone))
+  }
+  return (db.orders || []).filter(o => {
+    if (o.status !== 'delivered') return false
+    const op = normalizePhoneDigits(o.client?.phone)
+    return op && keys.has(op)
+  })
+}
+
 export function findClientByPhone(db, phone) {
   const key = normalizePhoneDigits(phone)
   if (!key) return null
@@ -188,15 +212,13 @@ export function calcMarginalBonusEarned(priorEligibleSpent, orderEligible, loyal
   return earned
 }
 
-function priorBonusEligibleSpent(db, phone, order) {
+function priorBonusEligibleSpent(db, phone, order, client = null) {
   const orderPeriod = loyaltyPeriodForOrder(order)
   const orderKey = orderSortKey(order)
   const orderId = String(order.id)
-  const key = normalizePhoneDigits(phone)
-  return (db.orders || [])
+  const delivered = deliveredOrdersForClient(db, phone, client)
+  return delivered
     .filter(o => {
-      if (o.status !== 'delivered') return false
-      if (normalizePhoneDigits(o.client?.phone) !== key) return false
       if (loyaltyPeriodForOrder(o) !== orderPeriod) return false
       if (String(o.id) === orderId) return false
       const k = orderSortKey(o)
@@ -331,7 +353,7 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   applyLevelUpgrade(client, card, statusLevel, orderPeriod)
 
   const eligible = bonusEligibleTotal(order)
-  const priorEligible = priorBonusEligibleSpent(db, phone, order)
+  const priorEligible = priorBonusEligibleSpent(db, phone, order, client)
   const earned = calcMarginalBonusEarned(priorEligible, eligible, loyalty, !!client.vip)
 
   if (earned > 0) {
@@ -348,7 +370,7 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
 }
 
 /**
- * Полный пересчёт бонусов по маржинальным правилам (исправляет старые 0% на пороговом заказе).
+ * Пересчёт бонусов — только повышение, никогда не сбрасываем до welcome.
  */
 export function reconcileClientBonuses(db, phone, hooks) {
   const key = normalizePhoneDigits(phone)
@@ -361,16 +383,21 @@ export function reconcileClientBonuses(db, phone, hooks) {
   if (!card) card = hooks.ensureCardRowForClient(client)
   if (!card) return { credited: 0, bonus: 0, orders: 0 }
 
+  const prevBonus = Number(card.bonus) || 0
   const loyalty = ensureLoyaltySettings(db)
   const welcome = Math.max(0, Number(loyalty.welcomeBonus) || 0)
 
-  const delivered = (db.orders || [])
-    .filter(o => o.status === 'delivered' && normalizePhoneDigits(o.client?.phone) === key)
+  const delivered = deliveredOrdersForClient(db, phone, client)
     .sort((a, b) => orderSortKey(a) - orderSortKey(b))
+
+  // Без заказов в базе — не трогаем баланс (иначе сброс до welcome)
+  if (!delivered.length) {
+    return { credited: 0, bonus: prevBonus, orders: 0, skipped: true }
+  }
 
   let earned = 0
   for (const order of delivered) {
-    const prior = priorBonusEligibleSpent(db, phone, order)
+    const prior = priorBonusEligibleSpent(db, phone, order, client)
     const eligible = bonusEligibleTotal(order)
     const orderEarned = calcMarginalBonusEarned(prior, eligible, loyalty, !!client.vip)
     earned += orderEarned
@@ -380,11 +407,13 @@ export function reconcileClientBonuses(db, phone, hooks) {
 
   const bonusSpent = delivered.reduce((s, o) => s + (Number(o.bonusSpent) || 0), 0)
   const expectedBonus = Math.max(0, welcome + earned - bonusSpent)
-  const prevBonus = Number(card.bonus) || 0
-  const delta = expectedBonus - prevBonus
+  const finalBonus = Math.max(prevBonus, expectedBonus)
+  const delta = finalBonus - prevBonus
 
-  card.bonus = expectedBonus
-  client.bonus = expectedBonus
+  if (finalBonus !== prevBonus) {
+    card.bonus = finalBonus
+    client.bonus = finalBonus
+  }
 
   const period = currentLoyaltyPeriod()
   syncClientMonthlyStats(db, client, phone, period)
@@ -399,7 +428,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
   applyLevelUpgrade(client, card, finalLevel, period)
   hooks.syncClientFromCardRow(card)
 
-  return { credited: delta, bonus: expectedBonus, orders: delivered.length }
+  return { credited: delta, bonus: finalBonus, orders: delivered.length }
 }
 
 /**
@@ -409,10 +438,9 @@ export function backfillClientBonuses(db, phone, hooks) {
   const key = normalizePhoneDigits(phone)
   if (!key) return { credited: 0, orders: 0, bonus: 0 }
 
-  const pending = (db.orders || [])
-    .filter(o => o.status === 'delivered'
-      && !o.bonusCredited
-      && normalizePhoneDigits(o.client?.phone) === key)
+  const client = findClientByPhone(db, phone)
+  const pending = deliveredOrdersForClient(db, phone, client)
+    .filter(o => !o.bonusCredited)
     .sort((a, b) => orderSortKey(a) - orderSortKey(b))
 
   let totalEarned = 0
@@ -420,7 +448,6 @@ export function backfillClientBonuses(db, phone, hooks) {
     totalEarned += creditClientBonusOnDelivery(db, order, hooks)
   }
 
-  const client = findClientByPhone(db, phone)
   const card = client?.card ? hooks.findCardByNum(client.card) : null
   if (card && client) hooks.syncClientFromCardRow(card)
 
@@ -457,7 +484,7 @@ export function backfillAllMissedBonuses(db, hooks) {
   return { totalCredited, totalOrders, clients: phones.size }
 }
 
-/** Полный пересчёт бонусов всех клиентов (при старте сервера / после деплоя). */
+/** Пересчёт всех клиентов — только повышение баланса (при старте сервера). */
 export function reconcileAllClientBonuses(db, hooks) {
   const phones = new Set()
   for (const c of db.clients || []) {
@@ -479,7 +506,7 @@ export function reconcileAllClientBonuses(db, hooks) {
     )?.client?.phone
     if (!phone) continue
     const r = reconcileClientBonuses(db, phone, hooks)
-    if (r.credited !== 0) adjusted += 1
+    if (r.credited > 0) adjusted += 1
     clients += 1
   }
   return { clients, adjusted }

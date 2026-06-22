@@ -29,8 +29,13 @@ function applyDeliveryLoyalty(
   const order = get().orders.find(o => o.id === id)
   if (!order || order.status !== 'delivered') return
   if (USE_API) {
-    void useClientStore.getState().fetchFromApi()
-    void useCardStore.getState().fetchFromApi()
+    const phone = order.client?.phone || ''
+    if (phone) {
+      void import('./loyaltyBonus').then(m => m.syncLoyaltyBonuses(phone, get().orders)).catch(() => {})
+    } else {
+      void useClientStore.getState().fetchFromApi()
+      void useCardStore.getState().fetchFromApi()
+    }
     return
   }
   if (order.bonusCredited) return
@@ -136,10 +141,8 @@ const STATUS_RANK: Record<string, number> = {
 }
 
 function mergeOrderStatus(local: OrderStatus, remote: OrderStatus): OrderStatus {
-  if (remote === 'delivered' || remote === 'cancelled') return remote
-  if (local === 'delivered' || local === 'cancelled') return local
-  // Сервер — источник правды: админ может откатить заказ на «Новый»
   if (USE_API) return remote ?? local
+  if (remote === 'delivered' || remote === 'cancelled') return remote
   return (STATUS_RANK[local] ?? 0) >= (STATUS_RANK[remote] ?? 0) ? local : remote
 }
 

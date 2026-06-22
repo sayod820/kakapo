@@ -1,5 +1,6 @@
 'use client'
 
+import { USE_API } from './config'
 import { cardNumsMatch, canonicalCardNum, type AdminCard } from './cardCrm'
 import type { AdminClient } from './clientCrm'
 
@@ -31,7 +32,7 @@ function isRecent(map: Map<string, number>, key: string) {
 }
 
 export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCard): AdminCard {
-  if (!localCard || !isRecent(cardSavedAt, cardKey(apiCard.num))) return apiCard
+  if (USE_API || !localCard || !isRecent(cardSavedAt, cardKey(apiCard.num))) return apiCard
   return {
     ...apiCard,
     level: localCard.level || apiCard.level,
@@ -45,7 +46,7 @@ export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCa
 }
 
 export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?: AdminClient): AdminClient {
-  if (!localClient || !isRecent(clientSavedAt, localClient.id)) return apiClient
+  if (USE_API || !localClient || !isRecent(clientSavedAt, localClient.id)) return apiClient
   return {
     ...apiClient,
     level: localClient.level || apiClient.level,

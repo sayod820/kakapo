@@ -5513,34 +5513,63 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
   const [saveErr, setSaveErr] = useState('')
 
   useEffect(() => {
-    try {
-      const gbs = localStorage.getItem('kakapo_admin_gbs')
-      if (gbs) {
-        const p = JSON.parse(gbs)
-        if (typeof p.enabled === 'boolean') setGbsOn(p.enabled)
-        if (p.ip) setGbsIP(p.ip)
-        if (p.port) setGbsPort(p.port)
-        if (p.user) setGbsUser(p.user)
-        if (p.pass) setGbsPass(p.pass)
+    const loadLocal = () => {
+      try {
+        const gbs = localStorage.getItem('kakapo_admin_gbs')
+        if (gbs) {
+          const p = JSON.parse(gbs)
+          if (typeof p.enabled === 'boolean') setGbsOn(p.enabled)
+          if (p.ip) setGbsIP(p.ip)
+          if (p.port) setGbsPort(p.port)
+          if (p.user) setGbsUser(p.user)
+          if (p.pass) setGbsPass(p.pass)
+        }
+        const sms = localStorage.getItem('kakapo_admin_sms')
+        if (sms) {
+          const p = JSON.parse(sms)
+          if (p.provider) setSmsP(p.provider)
+          if (p.apiKey) setSmsKey(p.apiKey)
+        }
+        const store = localStorage.getItem('kakapo_admin_store')
+        if (store) setStoreInfo({ ...DEFAULT_STORE_INFO, ...JSON.parse(store) })
+      } catch { /* private mode */ }
+    }
+
+    if (!USE_API) {
+      loadLocal()
+      return
+    }
+
+    void api.getAdminSettings().then(remote => {
+      if (remote.gbs) {
+        setGbsOn(!!remote.gbs.enabled)
+        if (remote.gbs.ip) setGbsIP(remote.gbs.ip)
+        if (remote.gbs.port) setGbsPort(remote.gbs.port)
+        if (remote.gbs.user) setGbsUser(remote.gbs.user)
+        if (remote.gbs.pass != null) setGbsPass(remote.gbs.pass)
       }
-      const sms = localStorage.getItem('kakapo_admin_sms')
-      if (sms) {
-        const p = JSON.parse(sms)
-        if (p.provider) setSmsP(p.provider)
-        if (p.apiKey) setSmsKey(p.apiKey)
+      if (remote.sms) {
+        if (remote.sms.provider) setSmsP(remote.sms.provider)
+        if (remote.sms.apiKey != null) setSmsKey(remote.sms.apiKey)
       }
-      const store = localStorage.getItem('kakapo_admin_store')
-      if (store) setStoreInfo({ ...DEFAULT_STORE_INFO, ...JSON.parse(store) })
-    } catch { /* private mode */ }
+      if (remote.store) setStoreInfo({ ...DEFAULT_STORE_INFO, ...remote.store })
+    }).catch(() => loadLocal())
   }, [])
 
   const saveAll = async () => {
+    const payload = {
+      gbs: { enabled: gbsOn, ip: gbsIP, port: gbsPort, user: gbsUser, pass: gbsPass },
+      sms: { provider: smsP, apiKey: smsKey },
+      store: storeInfo,
+    }
     try {
-      localStorage.setItem('kakapo_admin_gbs', JSON.stringify({
-        enabled: gbsOn, ip: gbsIP, port: gbsPort, user: gbsUser, pass: gbsPass,
-      }))
-      localStorage.setItem('kakapo_admin_sms', JSON.stringify({ provider: smsP, apiKey: smsKey }))
-      localStorage.setItem('kakapo_admin_store', JSON.stringify(storeInfo))
+      if (USE_API) {
+        await api.updateAdminSettings(payload)
+      } else {
+        localStorage.setItem('kakapo_admin_gbs', JSON.stringify(payload.gbs))
+        localStorage.setItem('kakapo_admin_sms', JSON.stringify(payload.sms))
+        localStorage.setItem('kakapo_admin_store', JSON.stringify(payload.store))
+      }
       setSaveErr('')
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)

@@ -320,7 +320,7 @@ function nowTime() {
 app.get('/health', (_req, res) => res.json({
   ok: true,
   service: 'kakapo-api',
-  version: '2.7-loyalty-sync',
+  version: '2.9-bonus-protect',
   loyaltyVip: true,
   dataDir: process.env.DATA_DIR || 'data',
 }))
@@ -803,7 +803,12 @@ app.patch('/clients/:id', (req, res) => {
     removeClientAndUnlinkCards(c)
     return res.json({ ok: true })
   }
-  const { purge, ...patch } = req.body || {}
+  const { purge, allowBonusDecrease, ...patch } = req.body || {}
+  if (patch.bonus != null && !allowBonusDecrease) {
+    const next = Number(patch.bonus) || 0
+    const prev = Number(c.bonus) || 0
+    if (next < prev) delete patch.bonus
+  }
   Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
   persist()
   res.json(c)
@@ -968,6 +973,50 @@ app.patch('/settings/loyalty', (req, res) => {
   persist()
   res.json(db.settings.loyalty)
 })
+
+const DEFAULT_ADMIN_SETTINGS = {
+  gbs: { enabled: false, ip: 'http://192.168.1.100', port: '8419', user: 'admin', pass: '' },
+  sms: { provider: 'smspro', apiKey: '' },
+  store: {
+    name: 'КАКАПО',
+    city: 'г. Яван, Таджикистан',
+    address: 'ул. Ленина, 42',
+    phone1: '+992 118 55-97-97',
+    phone2: '+992 553 55-98-98',
+    email: 'kakapo.tj@gmail.com',
+    telegram: '@kakapo_tj',
+    hours: '08:00 – 23:00',
+  },
+}
+
+function ensureAdminSettings() {
+  if (!db.settings) db.settings = {}
+  if (!db.settings.admin) {
+    db.settings.admin = structuredClone(DEFAULT_ADMIN_SETTINGS)
+  }
+  const a = db.settings.admin
+  if (!a.gbs) a.gbs = { ...DEFAULT_ADMIN_SETTINGS.gbs }
+  if (!a.sms) a.sms = { ...DEFAULT_ADMIN_SETTINGS.sms }
+  if (!a.store) a.store = { ...DEFAULT_ADMIN_SETTINGS.store }
+  return a
+}
+
+app.get('/settings/admin', (_req, res) => {
+  res.json(ensureAdminSettings())
+})
+
+app.patch('/settings/admin', (req, res) => {
+  const current = ensureAdminSettings()
+  const body = req.body || {}
+  db.settings.admin = {
+    gbs: { ...current.gbs, ...body.gbs },
+    sms: { ...current.sms, ...body.sms },
+    store: { ...current.store, ...body.store },
+  }
+  persist()
+  res.json(db.settings.admin)
+})
+ensureAdminSettings()
 
 app.post('/loyalty/sync', (req, res) => {
   const phone = String(req.body?.phone || req.query?.phone || '').trim()
@@ -1290,6 +1339,13 @@ app.patch('/cards/:num', (req, res) => {
     }))
   } else {
     const body = { ...req.body }
+    const allowDecrease = body.allowBonusDecrease === true
+    delete body.allowBonusDecrease
+    if (body.bonus != null && !allowDecrease) {
+      const next = Number(body.bonus) || 0
+      const prev = Number(card.bonus) || 0
+      if (next < prev) delete body.bonus
+    }
     if (body.vip === true || body.level != null) {
       body.loyaltyPeriod = currentLoyaltyPeriod()
     }
