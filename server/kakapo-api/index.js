@@ -323,7 +323,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'kakapo-api',
-    version: '2.11-bonus-from-status-change',
+    version: '2.12-purge-account-on-delete',
     loyaltyVip: true,
     dataDir: stats.dataDir,
     dbFile: stats.path,
@@ -722,6 +722,45 @@ function clearPersonalNotificationsOnServer(phone) {
   if (db.notifications.length !== before) persist()
 }
 
+/** Удалить заказы и отзывы по телефону клиента */
+function purgeOrdersAndReviewsForPhone(phone) {
+  const key = normalizePhoneDigits(phone)
+  if (!key) return 0
+  const orderIds = new Set(
+    (db.orders || [])
+      .filter(o => normalizePhoneDigits(o.client?.phone) === key)
+      .map(o => String(o.id)),
+  )
+  const before = (db.orders || []).length
+  db.orders = (db.orders || []).filter(o => !orderIds.has(String(o.id)))
+  if (Array.isArray(db.reviews) && orderIds.size) {
+    db.reviews = db.reviews.filter(r => !r.orderId || !orderIds.has(String(r.orderId)))
+  }
+  return before - (db.orders || []).length
+}
+
+/** Полное удаление аккаунта: клиент, карты, заказы, бонусы */
+function purgeAccountDataForPhone(phone, { rememberDeleted = false } = {}) {
+  const key = normalizePhoneDigits(phone)
+  if (!key) return { orders: 0, clients: 0 }
+
+  const ordersRemoved = purgeOrdersAndReviewsForPhone(phone)
+
+  const toRemove = [...(db.clients || [])].filter(c => normalizePhoneDigits(c.phone) === key)
+  for (const client of toRemove) {
+    unlinkCardsForClient(client)
+    const idx = db.clients.findIndex(x => x.id === client.id)
+    if (idx >= 0) db.clients.splice(idx, 1)
+  }
+
+  if (rememberDeleted) rememberDeletedPhone(phone)
+  else forgetDeletedPhone(phone)
+
+  clearPersonalNotificationsOnServer(phone)
+  persist()
+  return { orders: ordersRemoved, clients: toRemove.length }
+}
+
 function forgetDeletedPhone(phone) {
   ensureDeletedPhoneKeys()
   const key = normalizePhoneDigits(phone)
@@ -784,7 +823,9 @@ function normalizeClientRow(raw) {
 app.get('/clients', (_req, res) => res.json(listVisibleClients()))
 app.post('/clients', (req, res) => {
   if (!db.clients) db.clients = []
-  if (req.body?.phone) forgetDeletedPhone(req.body.phone)
+  if (req.body?.phone) {
+    purgeAccountDataForPhone(req.body.phone, { rememberDeleted: false })
+  }
   const loyalty = ensureLoyaltySettings(db)
   const nums = db.clients.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
   const n = (nums.length ? Math.max(...nums) : 0) + 1
@@ -882,12 +923,20 @@ function restoreClientRecord(client) {
 }
 
 function removeClientAndUnlinkCards(client) {
+  purgeOrdersAndReviewsForPhone(client.phone)
   rememberDeletedPhone(client.phone)
   const idx = (db.clients || []).findIndex(x => x.id === client.id)
   if (idx >= 0) db.clients.splice(idx, 1)
   unlinkCardsForClient(client)
   persist()
 }
+
+app.post('/clients/purge-account', (req, res) => {
+  const phone = req.body?.phone || ''
+  if (!normalizePhoneDigits(phone)) return res.status(400).json({ detail: 'Укажите телефон' })
+  const result = purgeAccountDataForPhone(phone, { rememberDeleted: true })
+  res.json({ ok: true, ...result })
+})
 
 app.post('/clients/:id/recovery', (req, res) => {
   if (!db.clients) db.clients = []
@@ -915,13 +964,10 @@ app.post('/clients/recovery-by-phone', (req, res) => {
 })
 
 app.post('/clients/delete-by-phone', (req, res) => {
-  if (!db.clients) db.clients = []
-  const digits = normalizePhoneDigits(req.body?.phone || '')
-  if (!digits) return res.status(400).json({ detail: 'Укажите телефон' })
-  const client = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
-  if (client) removeClientAndUnlinkCards(client)
-  else rememberDeletedPhone(digits)
-  res.json({ ok: true })
+  const phone = req.body?.phone || ''
+  if (!normalizePhoneDigits(phone)) return res.status(400).json({ detail: 'Укажите телефон' })
+  const result = purgeAccountDataForPhone(phone, { rememberDeleted: true })
+  res.json({ ok: true, ...result })
 })
 
 app.get('/clients/deleted-phones', (_req, res) => {

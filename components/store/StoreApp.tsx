@@ -2526,7 +2526,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
             <div style={{ padding:"14px" }}>
               <div style={{ fontSize:13, fontWeight:800, color:"var(--red)", marginBottom:8 }}>Удалить аккаунт?</div>
               <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.5, marginBottom:14 }}>
-                Аккаунт будет перемещён в раздел «Восстановление». При повторном входе клиент сможет восстановить профиль. Карта отвяжется.
+                Аккаунт, заказы и бонусы будут удалены безвозвратно. При повторной регистрации всё начнётся с нуля (только приветственный бонус).
               </div>
               <div style={{ display:"flex", gap:8 }}>
                 <button

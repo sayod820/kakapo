@@ -296,6 +296,13 @@ export const api = {
       body: JSON.stringify({ phone: digits }),
     })
   },
+  purgeAccountByPhone: (phone: string) => {
+    const digits = (phone || '').replace(/\D/g, '').slice(-9)
+    return request<{ ok: boolean; orders: number; clients: number }>('/clients/purge-account', {
+      method: 'POST',
+      body: JSON.stringify({ phone: digits }),
+    })
+  },
   moveClientToRecovery: (id: string, phone?: string) =>
     requestApp<AdminClient>(`/api/kakapo/clients/${encodeURIComponent(id)}/recovery`, {
       method: 'POST',

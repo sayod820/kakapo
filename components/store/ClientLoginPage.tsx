@@ -14,6 +14,8 @@ import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
 import { hydrateCardStore } from '@/lib/cardStore'
 import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { registerClientAccount } from '@/lib/clientCardSync'
+import { api } from '@/lib/api'
+import { USE_API } from '@/lib/config'
 import { getRegistrationWelcomeBonus, subscribeLoyaltyStatusConfig, syncLoyaltyStatusConfigFromApi } from '@/lib/loyaltyStatusConfig'
 import { formatClientAddressLine, setRegistrationDefaultAddress, ensureClientDefaultAddress } from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
@@ -201,6 +203,28 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     setPhone('')
     setOtp(['', '', '', ''])
     setErr('')
+  }
+
+  const startFreshAccount = async () => {
+    if (load) return
+    setLoad(true)
+    setErr('')
+    try {
+      if (USE_API) {
+        await api.purgeAccountByPhone(phone)
+      }
+      setRecoveryClient(null)
+      setReg({ firstName: '', lastName: '', email: '' })
+      setSavedAddr(emptyRegAddress())
+      setShowAddrSheet(false)
+      setMapOpen(false)
+      setAddrErr('')
+      setStep('register')
+    } catch {
+      setErr('Не удалось начать заново. Проверьте связь с сервером.')
+    } finally {
+      setLoad(false)
+    }
   }
 
   const handleOtp = (i: number, v: string) => {
@@ -574,13 +598,13 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                 }}>
                 {load ? <Spinner /> : <>✓ Да, восстановить</>}
               </button>
-              <button type="button" onClick={declineRestore} disabled={load} className="sl-btn"
+              <button type="button" onClick={startFreshAccount} disabled={load} className="sl-btn"
                 style={{
                   width: '100%', padding: 14, borderRadius: 16,
                   background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#8FB897',
                   fontWeight: 700, fontSize: 13,
                 }}>
-                Нет, оставить удалённым
+                Создать новый аккаунт с нуля
               </button>
             </div>
           )}
