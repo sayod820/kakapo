@@ -60,7 +60,7 @@ import {
 } from "@/lib/clientNotifications";
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
-import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
+import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import type { Review } from "@/lib/types";
 
@@ -1706,9 +1706,13 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
     qty: cart[id], isRest: true, restId: cartMeta[id].restId
   }));
   const items = [...prodItems, ...restItems];
+  const retailSub = items.reduce((s, p) => s + (p.isRest ? (Number(p.price) || 0) * p.qty : lineRetailTotal(p, p.qty)), 0);
+  const bulkSaved = prodItems.reduce((s, p) => s + lineBulkSavings(p, p.qty), 0);
+  const saleSaved = prodItems.reduce((s, p) => s + lineSaleSavings(p, p.qty), 0);
   const sub   = items.reduce((s,p) => s + calcLineTotal(p, p.qty), 0);
   const disc  = promoOk ? sub * .1 : 0;
   const total = sub - disc;
+  const totalSaved = Math.round((bulkSaved + saleSaved + disc) * 100) / 100;
   const tqty  = items.length;
   const applyPromo = () => {
     const p = promo.trim().toUpperCase()
@@ -1737,6 +1741,10 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
             {items.map(p => {
               const disc2 = p.old ? Math.round((1-p.price/p.old)*100) : 0;
               const bulkLine = !p.isRest ? bulkPricingHintForQty(p, p.qty) : null;
+              const itemSaved = p.isRest ? 0 : lineTotalSavings(p, p.qty);
+              const itemRetail = p.isRest ? (Number(p.price) || 0) * p.qty : lineRetailTotal(p, p.qty);
+              const itemBulk = p.isRest ? 0 : lineBulkSavings(p, p.qty);
+              const itemSale = p.isRest ? 0 : lineSaleSavings(p, p.qty);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"13px" }}>
                   <div style={{ width:62, height:62, borderRadius:15, background:p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative" }}>
@@ -1746,8 +1754,17 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:2 }}>{p.name}</div>
                     <div style={{ fontSize:11, color:"var(--t3)", marginBottom:6 }}>{p.isRest ? "🍽 Ресторан" : (isWeighted(p) ? `⚖️ ${formatCartQty(p, p.qty)}` : (p.unit||"шт"))}</div>
                     {bulkLine && <div style={{ fontSize:10, color: bulkLine.startsWith('Опт') ? 'var(--gr)' : '#FF8C00', fontWeight:700, marginBottom:4 }}>{bulkLine}</div>}
+                    {(itemBulk > 0 || itemSale > 0) && (
+                      <div style={{ fontSize:10, color:'var(--gr)', fontWeight:700, marginBottom:4, display:'flex', flexWrap:'wrap', gap:6 }}>
+                        {itemBulk > 0 && <span>📦 Опт −{itemBulk.toFixed(2)} ЅМ</span>}
+                        {itemSale > 0 && <span>🏷️ Акция −{itemSale.toFixed(2)} ЅМ</span>}
+                      </div>
+                    )}
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                      <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                      <div>
+                        {itemSaved > 0 && <div style={{ fontSize:10, color:'var(--t3)', textDecoration:'line-through', marginBottom:2 }}>{itemRetail.toFixed(2)} ЅМ</div>}
+                        <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                      </div>
                       <div style={{ display:"flex", alignItems:"center", gap:0, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.25)", borderRadius:11, overflow:"hidden" }}>
                         <button onClick={() => (isWeighted(p) ? p.qty <= (p.minWeight || 100) : p.qty===1) ? onDel(p.id) : onRm(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:(!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100)) ? "var(--red)" : "var(--gr)", background:"transparent", fontSize:16 }}>
                           {((!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100))) ? <Ic n="trash" s={13} c="var(--red)"/> : "−"}
@@ -1773,9 +1790,24 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
             {promoErr && <div style={{ marginTop:7, fontSize:11, color:"var(--red)", fontWeight:700 }}>✗ Неверный промокод. Попробуйте КАКАПО10</div>}
           </div>
           <div className="card" style={{ padding:"16px", marginBottom:14 }}>
-            {[{l:`Товары (${tqty} шт)`,v:`${sub.toFixed(2)} ЅМ`,c:"var(--t1)"},...(promoOk?[{l:"Промокод -10%",v:`−${disc.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[])].map((r,i) => (
+            {retailSub > sub && (
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                <span style={{ fontSize:12, color:"var(--t2)" }}>Без скидок</span>
+                <span style={{ fontSize:13, fontWeight:700, color:"var(--t3)", textDecoration:"line-through" }}>{retailSub.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            {[{l:`Товары (${tqty} поз.)`,v:`${sub.toFixed(2)} ЅМ`,c:"var(--t1)"},
+              ...(bulkSaved>0?[{l:"Оптовая скидка",v:`−${bulkSaved.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[]),
+              ...(saleSaved>0?[{l:"Скидка по акции",v:`−${saleSaved.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[]),
+              ...(promoOk?[{l:"Промокод −10%",v:`−${disc.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[]),
+            ].map((r,i) => (
               <div key={i} style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}><span style={{ fontSize:12, color:"var(--t2)" }}>{r.l}</span><span style={{ fontSize:13, fontWeight:700, color:r.c }}>{r.v}</span></div>
             ))}
+            {totalSaved > 0 && (
+              <div style={{ marginBottom:10, padding:'10px 12px', borderRadius:11, background:'rgba(31,215,96,.08)', border:'1px solid rgba(31,215,96,.2)' }}>
+                <div style={{ fontSize:12, fontWeight:800, color:'var(--gr)' }}>🎉 Вы сэкономили {totalSaved.toFixed(2)} ЅМ</div>
+              </div>
+            )}
             <div style={{ height:1, background:"var(--b1)", margin:"8px 0" }}/>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
               <span style={{ fontSize:14, fontWeight:700 }}>Итого</span>
@@ -1789,9 +1821,10 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
           <div style={{ display:"flex", gap:10, alignItems:"center" }}>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div>
-              <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
+              <div style={{ display:"flex", alignItems:"baseline", gap:5, flexWrap:'wrap' }}>
                 <span className="ub" style={{ fontSize:22, fontWeight:900 }}>{total.toFixed(2)}</span>
                 <span style={{ fontSize:13, color:"var(--gd)", fontWeight:800 }}>ЅМ</span>
+                {totalSaved > 0 && <span style={{ fontSize:10, color:'var(--gr)', fontWeight:700 }}>−{totalSaved.toFixed(2)}</span>}
           </div>
             </div>
             <button onClick={() => go("checkout")} className="btn" style={{ flex:2, padding:"14px 12px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
@@ -1978,6 +2011,9 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     restId: cartMeta[id].restId,
   }));
   const items = [...prodItems, ...restItems];
+  const bulkSaved = prodItems.reduce((s, p) => s + lineBulkSavings(p, p.qty), 0);
+  const saleSaved = prodItems.reduce((s, p) => s + lineSaleSavings(p, p.qty), 0);
+  const totalSaved = Math.round((bulkSaved + saleSaved) * 100) / 100;
   const sub = items.reduce((s, p) => s + calcLineTotal(p, p.qty), 0);
   const weightKg = estimateCartWeightKg(prodItems.map(p => ({ p, qty: p.qty })));
   const pickupIds = resolveCheckoutPickupIds({
@@ -2258,6 +2294,21 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               <span style={{ color: 'var(--t2)' }}>Товары</span>
               <span>{sub.toFixed(2)} ЅМ</span>
             </div>
+            {bulkSaved > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6, color: 'var(--gr)' }}>
+                <span>Оптовая скидка</span>
+                <span>−{bulkSaved.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            {saleSaved > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6, color: 'var(--gr)' }}>
+                <span>Скидка по акции</span>
+                <span>−{saleSaved.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            {totalSaved > 0 && (
+              <div style={{ fontSize:11, color:'var(--gr)', fontWeight:700, marginBottom: 6 }}>🎉 Сэкономили {totalSaved.toFixed(2)} ЅМ</div>
+            )}
             {effectiveDelivery > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6 }}>
                 <span style={{ color: 'var(--t2)' }}>Доставка</span>

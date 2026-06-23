@@ -68,6 +68,34 @@ export function calcLineTotal(p: Partial<Product>, qty: number): number {
   return Math.round(unit * (qty / productUnitGrams(p)) * 100) / 100
 }
 
+/** Сумма по розничной цене каталога без опта */
+export function lineRetailTotal(p: Partial<Product>, qty: number): number {
+  if (!qty) return 0
+  const unit = Number(p.price) || 0
+  if (!isWeighted(p)) return Math.round(unit * qty * 100) / 100
+  return Math.round(unit * (qty / productUnitGrams(p)) * 100) / 100
+}
+
+/** Экономия за счёт оптовой цены */
+export function lineBulkSavings(p: Partial<Product>, qty: number): number {
+  if (!qty) return 0
+  const saved = lineRetailTotal(p, qty) - calcLineTotal(p, qty)
+  return saved > 0 ? Math.round(saved * 100) / 100 : 0
+}
+
+/** Экономия по акции (зачёркнутая старая цена) */
+export function lineSaleSavings(p: Partial<Product>, qty: number): number {
+  const old = Number(p.old) || 0
+  const price = Number(p.price) || 0
+  if (!qty || !old || old <= price) return 0
+  if (!isWeighted(p)) return Math.round((old - price) * qty * 100) / 100
+  return Math.round((old - price) * (qty / productUnitGrams(p)) * 100) / 100
+}
+
+export function lineTotalSavings(p: Partial<Product>, qty: number): number {
+  return Math.round((lineBulkSavings(p, qty) + lineSaleSavings(p, qty)) * 100) / 100
+}
+
 export function nextCartQty(p: Partial<Product>, current: number, add: boolean): number {
   if (!isWeighted(p)) return add ? current + 1 : Math.max(0, current - 1)
   const step = weightStep(p)
