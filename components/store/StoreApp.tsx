@@ -60,7 +60,7 @@ import {
 } from "@/lib/clientNotifications";
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
-import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
+import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import type { Review } from "@/lib/types";
 
@@ -1745,6 +1745,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
               const itemRetail = p.isRest ? (Number(p.price) || 0) * p.qty : lineRetailTotal(p, p.qty);
               const itemBulk = p.isRest ? 0 : lineBulkSavings(p, p.qty);
               const itemSale = p.isRest ? 0 : lineSaleSavings(p, p.qty);
+              const unitPrice = cartUnitPrice(p, p.qty, !!p.isRest);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"13px" }}>
                   <div style={{ width:62, height:62, borderRadius:15, background:p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative" }}>
@@ -1752,7 +1753,19 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:2 }}>{p.name}</div>
-                    <div style={{ fontSize:11, color:"var(--t3)", marginBottom:6 }}>{p.isRest ? "🍽 Ресторан" : (isWeighted(p) ? `⚖️ ${formatCartQty(p, p.qty)}` : (p.unit||"шт"))}</div>
+                    <div style={{ fontSize:11, color:"var(--t3)", marginBottom:4 }}>{p.isRest ? "🍽 Ресторан" : (isWeighted(p) ? `⚖️ ${formatCartQty(p, p.qty)}` : (p.unit||"шт"))}</div>
+                    <div style={{ fontSize:10, color:"var(--t2)", marginBottom:6 }}>
+                      {unitPrice.current < unitPrice.base && (
+                        <span style={{ textDecoration:"line-through", marginRight:6, color:"var(--t3)" }}>{unitPrice.base.toFixed(2)}</span>
+                      )}
+                      {p.old > p.price && unitPrice.current >= unitPrice.base && (
+                        <span style={{ textDecoration:"line-through", marginRight:6, color:"var(--t3)" }}>{Number(p.old).toFixed(2)}</span>
+                      )}
+                      <span style={{ fontWeight:700, color: unitPrice.current < unitPrice.base || (p.old > p.price) ? "var(--gr)" : "var(--t1)" }}>
+                        {unitPrice.current.toFixed(2)} ЅМ
+                      </span>
+                      <span> / {unitPrice.suffix}</span>
+                    </div>
                     {bulkLine && <div style={{ fontSize:10, color: bulkLine.startsWith('Опт') ? 'var(--gr)' : '#FF8C00', fontWeight:700, marginBottom:4 }}>{bulkLine}</div>}
                     {(itemBulk > 0 || itemSale > 0) && (
                       <div style={{ fontSize:10, color:'var(--gr)', fontWeight:700, marginBottom:4, display:'flex', flexWrap:'wrap', gap:6 }}>

@@ -1,8 +1,6 @@
 import type { Product } from './types'
 import { effectiveUnitPrice } from './productBulkPricing'
 
-export type SellType = 'piece' | 'weight'
-
 export function isWeighted(p: Partial<Product> | null | undefined): boolean {
   return p?.sellType === 'weight'
 }
@@ -56,6 +54,25 @@ export function formatPriceLabel(p: Partial<Product>): string {
   if (ug === 1000) return `${price.toFixed(2)} ЅМ / кг`
   if (ug === 100) return `${price.toFixed(2)} ЅМ / 100 г`
   return `${price.toFixed(2)} ЅМ / ${formatWeightGrams(ug)}`
+}
+
+export function unitPriceSuffix(p: Partial<Product>): string {
+  if (!isWeighted(p)) return p.unit || 'шт'
+  const ug = productUnitGrams(p)
+  if (ug === 1000) return 'кг'
+  if (ug === 100) return '100 г'
+  return formatWeightGrams(ug)
+}
+
+/** Цена за единицу в корзине (с учётом опта) */
+export function cartUnitPrice(p: Partial<Product>, qty: number, isRest = false): { current: number; base: number; suffix: string } {
+  if (isRest) {
+    const price = Number(p.price) || 0
+    return { current: price, base: price, suffix: 'порция' }
+  }
+  const base = Number(p.price) || 0
+  const current = effectiveUnitPrice(p, qty)
+  return { current, base, suffix: unitPriceSuffix(p) }
 }
 
 export function calcLineTotal(p: Partial<Product>, qty: number): number {
