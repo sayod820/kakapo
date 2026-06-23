@@ -1540,6 +1540,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const cartBadgeNum = sumCartUnits(cart, prods);
   const weighted = isWeighted(p);
   const qtyLabel = weighted ? formatCartQtyStepper(p, qty) : qty;
+  const nextQty = nextCartQty(p, qty, true);
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
   return (
@@ -1599,7 +1600,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           <div style={{ display:"flex", gap:10, alignItems:"center" }}>
             <QtyStepper qty={qty} label={qtyLabel} onAdd={add} onRm={rm}/>
             <button onClick={add} className="btn" style={{ flex:1, padding:"14px", fontSize:14, borderRadius:14, background:qty>0?"rgba(31,215,96,.14)":"linear-gradient(135deg,var(--gr2),var(--gr))", border:qty>0?"1.5px solid rgba(31,215,96,.35)":"none", color:qty>0?"var(--gr)":"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:qty>0?"none":"0 6px 20px rgba(31,215,96,.28)" }}>
-              <Ic n="bag" s={18} c={qty>0?"var(--gr)":"white"}/>{qty===0 ? (weighted ? "В корзину" : "В корзину") : `Добавить · ${calcLineTotal(p, qty).toFixed(2)} ЅМ`}
+              <Ic n="bag" s={18} c={qty>0?"var(--gr)":"white"}/>{qty===0 ? (weighted ? "В корзину" : "В корзину") : `Добавить · ${calcLineTotal(p, nextQty).toFixed(2)} ЅМ`}
             </button>
           </div>
         </div>
