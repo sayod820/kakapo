@@ -272,17 +272,19 @@ const Badge = ({v,c}) => (
 );
 
 const StatCard = ({l,v,c,e,sub,onClick,active}) => (
-  <div
+  <button
+    type="button"
     className="ac"
     onClick={onClick}
-    role={onClick ? 'button' : undefined}
     style={{
+      width:'100%',
       padding:'16px 18px',
       cursor:onClick?'pointer':'default',
       border:active?`1.5px solid ${c||'rgba(31,215,96,.45)'}`:'1px solid #162B1A',
-      background:active?'rgba(31,215,96,.08)':undefined,
+      background:active?'rgba(31,215,96,.08)':'#091508',
       transition:'border .15s, background .15s, transform .12s',
-      transform:active?'scale(1.02)':undefined,
+      transform:active?'scale(1.02)':'none',
+      textAlign:'left',
     }}
   >
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
@@ -291,7 +293,7 @@ const StatCard = ({l,v,c,e,sub,onClick,active}) => (
     </div>
     <div className="ub" style={{fontSize:22,fontWeight:900,color:c||'#EBF5ED'}}>{v}</div>
     {sub&&<div style={{fontSize:10,color:'#3D6645',marginTop:4}}>{sub}</div>}
-  </div>
+  </button>
 );
 
 const NI = ({lbl,val,set,ph='',type='text',suf=''}) => (
