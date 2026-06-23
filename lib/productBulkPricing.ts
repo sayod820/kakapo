@@ -39,7 +39,7 @@ export function formatBulkPricingHint(p: Partial<Product>): string | null {
   if (!tiers.length) return null
   const best = tiers[tiers.length - 1]
   const unit = isWeighted(p) ? formatWeightGrams(best.minQty) : `${best.minQty} шт`
-  return `от ${best.price.toFixed(2)} ЅМ при ${unit}+`
+  return `При ${unit}+ цена станет ${best.price.toFixed(2)} ЅМ/${isWeighted(p) ? 'порция' : 'шт'}`
 }
 
 /** Подсказка в корзине: сколько не хватает до оптовой цены */
@@ -54,7 +54,7 @@ export function bulkPricingHintForQty(p: Partial<Product>, qty: number): string 
   if (!next) return null
   const need = next.minQty - qty
   const needLabel = isWeighted(p) ? formatWeightGrams(need) : `${need} шт`
-  return `Ещё ${needLabel} → ${next.price.toFixed(2)} ЅМ/${isWeighted(p) ? 'порция' : 'шт'}`
+  return `Ещё ${needLabel} и цена станет ${next.price.toFixed(2)} ЅМ/${isWeighted(p) ? 'порция' : 'шт'}`
 }
 
 export function hasBulkPricing(p: Partial<Product>): boolean {

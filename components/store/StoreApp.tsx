@@ -1529,6 +1529,13 @@ const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const { prods } = useLiveCatalog();
   const p = prods.find(x => x.id == params?.id) || prods[0];
+  if (!p) {
+    return (
+      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", padding:"40px 18px", color:"var(--t2)" }}>
+        Загрузка товара...
+      </div>
+    );
+  }
   const qty = cart[p.id] || 0;
   const [tab, setTab] = useState("desc");
   const [myRating, setMyRating] = useState(0);

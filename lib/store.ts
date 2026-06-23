@@ -679,7 +679,7 @@ interface ProductsStore {
   removeProduct: (id: number) => Promise<void>
 }
 export const useProducts = create<ProductsStore>((set, get) => ({
-  products: PRODUCTS,
+  products: USE_API ? [] : PRODUCTS,
 
   fetchProducts: async () => {
     if (!USE_API) return
@@ -756,7 +756,7 @@ interface RestaurantsStore {
   toggleMenuItem: (restId: string, menuId: number) => Promise<void>
 }
 export const useRestaurants = create<RestaurantsStore>((set, get) => ({
-  restaurants: RESTAURANTS,
+  restaurants: USE_API ? [] : RESTAURANTS,
 
   fetchRestaurants: async () => {
     if (!USE_API) return

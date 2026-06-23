@@ -10,14 +10,14 @@ export function useCatalogData(fallbackProds: any[], fallbackRests: any[]) {
   const promos = usePromos(s => s.promos)
   const restaurants = useRestaurants(s => s.restaurants)
   return useMemo(() => {
-    const rawProds = USE_API && products.length > 0
-      ? enrichProducts(products, fallbackProds)
+    const rawProds = USE_API
+      ? (products.length > 0 ? enrichProducts(products, fallbackProds) : [])
       : fallbackProds
     const prods = applyActiveProductPromos(rawProds, promos)
     return {
       prods,
-      restaurants: USE_API && restaurants.length > 0
-        ? enrichRestaurants(restaurants, fallbackRests)
+      restaurants: USE_API
+        ? (restaurants.length > 0 ? enrichRestaurants(restaurants, fallbackRests) : [])
         : fallbackRests,
     }
   }, [products, promos, restaurants, fallbackProds, fallbackRests])
