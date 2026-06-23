@@ -1674,7 +1674,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           <div style={{ flex:1 }}>
             <div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div>
             <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
-              <span className="ub" style={{ fontSize:22, fontWeight:900 }}>{qty>0?(p.price*qty).toFixed(2):p.price.toFixed(2)}</span>
+              <span className="ub" style={{ fontSize:22, fontWeight:900 }}>{qty>0?lineTotal.toFixed(2):p.price.toFixed(2)}</span>
               <span style={{ fontSize:13, color:"var(--gd)", fontWeight:700 }}>ЅМ</span>
             </div>
           </div>
