@@ -1736,7 +1736,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
           <button onClick={() => go("catalog")} className="btn" style={{ padding:"14px 32px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:14 }}>Перейти в каталог</button>
         </div>
       ) : (
-        <div style={{ padding:"14px 18px calc(120px + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ padding:"14px 18px calc(260px + env(safe-area-inset-bottom, 0px))" }}>
           <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
             {items.map(p => {
               const disc2 = p.old ? Math.round((1-p.price/p.old)*100) : 0;
@@ -1802,48 +1802,53 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
             {promoOk && <div style={{ marginTop:7, fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:5 }}><Ic n="check" s={11} c="var(--gr)" w={2.5}/>КАКАПО10 — скидка 10% применена!</div>}
             {promoErr && <div style={{ marginTop:7, fontSize:11, color:"var(--red)", fontWeight:700 }}>✗ Неверный промокод. Попробуйте КАКАПО10</div>}
           </div>
-          <div className="card" style={{ padding:"16px", marginBottom:14 }}>
-            {retailSub > sub && (
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
-                <span style={{ fontSize:12, color:"var(--t2)" }}>Без скидок</span>
-                <span style={{ fontSize:13, fontWeight:700, color:"var(--t3)", textDecoration:"line-through" }}>{retailSub.toFixed(2)} ЅМ</span>
-              </div>
-            )}
-            {[{l:`Товары (${tqty} поз.)`,v:`${sub.toFixed(2)} ЅМ`,c:"var(--t1)"},
-              ...(bulkSaved>0?[{l:"Оптовая скидка",v:`−${bulkSaved.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[]),
-              ...(saleSaved>0?[{l:"Скидка по акции",v:`−${saleSaved.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[]),
-              ...(promoOk?[{l:"Промокод −10%",v:`−${disc.toFixed(2)} ЅМ`,c:"var(--gr)"}]:[]),
-            ].map((r,i) => (
-              <div key={i} style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}><span style={{ fontSize:12, color:"var(--t2)" }}>{r.l}</span><span style={{ fontSize:13, fontWeight:700, color:r.c }}>{r.v}</span></div>
-            ))}
-            {totalSaved > 0 && (
-              <div style={{ marginBottom:10, padding:'10px 12px', borderRadius:11, background:'rgba(31,215,96,.08)', border:'1px solid rgba(31,215,96,.2)' }}>
-                <div style={{ fontSize:12, fontWeight:800, color:'var(--gr)' }}>🎉 Вы сэкономили {totalSaved.toFixed(2)} ЅМ</div>
-              </div>
-            )}
-            <div style={{ height:1, background:"var(--b1)", margin:"8px 0" }}/>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
-              <span style={{ fontSize:14, fontWeight:700 }}>Итого</span>
-              <span className="ub" style={{ fontSize:24, fontWeight:900 }}>{total.toFixed(2)} <span style={{ fontSize:14, color:"var(--gd)" }}>ЅМ</span></span>
-            </div>
-          </div>
         </div>
       )}
       {items.length > 0 && (
-        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:210, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(16px + env(safe-area-inset-bottom, 0px))" }}>
-          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div>
-              <div style={{ display:"flex", alignItems:"baseline", gap:5, flexWrap:'wrap' }}>
-                <span className="ub" style={{ fontSize:22, fontWeight:900 }}>{total.toFixed(2)}</span>
-                <span style={{ fontSize:13, color:"var(--gd)", fontWeight:800 }}>ЅМ</span>
-                {totalSaved > 0 && <span style={{ fontSize:10, color:'var(--gr)', fontWeight:700 }}>−{totalSaved.toFixed(2)}</span>}
-          </div>
+        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:210, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(14px + env(safe-area-inset-bottom, 0px))" }}>
+          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
+            {retailSub > sub && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--t3)", marginBottom:6 }}>
+                <span>Без скидок</span>
+                <span style={{ textDecoration:"line-through" }}>{retailSub.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bulkSaved > 0 || saleSaved > 0 || promoOk ? 6 : 0 }}>
+              <span style={{ color:"var(--t2)" }}>Товары ({tqty} поз.)</span>
+              <span style={{ fontWeight:700 }}>{sub.toFixed(2)} ЅМ</span>
             </div>
-            <button onClick={() => go("checkout")} className="btn" style={{ flex:2, padding:"14px 12px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
-              <Ic n="bag" s={18} c="white"/>Оформить · {tqty} шт
-          </button>
+            {bulkSaved > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
+                <span>Оптовая скидка</span>
+                <span style={{ fontWeight:700 }}>−{bulkSaved.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            {saleSaved > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
+                <span>Скидка по акции</span>
+                <span style={{ fontWeight:700 }}>−{saleSaved.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            {promoOk && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
+                <span>Промокод −10%</span>
+                <span style={{ fontWeight:700 }}>−{disc.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            {totalSaved > 0 && (
+              <div style={{ marginTop:6, padding:"8px 10px", borderRadius:9, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", fontSize:12, fontWeight:800, color:"var(--gr)" }}>
+                🎉 Вы сэкономили {totalSaved.toFixed(2)} ЅМ
+              </div>
+            )}
+            <div style={{ height:1, background:"var(--b1)", margin:"10px 0 8px" }}/>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+              <span style={{ fontSize:13, fontWeight:700 }}>Итого</span>
+              <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{total.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
+            </div>
           </div>
+          <button onClick={() => go("checkout")} className="btn" style={{ width:"100%", padding:"14px 12px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
+            <Ic n="bag" s={18} c="white"/>Оформить · {tqty} поз.
+          </button>
         </div>
       )}
     </div>
