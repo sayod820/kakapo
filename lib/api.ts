@@ -50,15 +50,15 @@ function stripHtmlError(text: string): string {
   if (pre) {
     const msg = pre[1].replace(/<[^>]+>/g, '').trim()
     if (/Cannot DELETE/i.test(msg)) {
-      return 'На сервере нет удаления клиентов — обновите backend на Render'
+      return 'На сервере нет удаления клиентов — обновите backend API'
     }
     if (/Cannot POST/i.test(msg)) {
-      return 'На сервере нет этого API — обновите backend на Render'
+      return 'На сервере нет этого API — обновите backend API'
     }
     return msg.slice(0, 200)
   }
   if (/Cannot DELETE/i.test(text)) {
-    return 'На сервере нет удаления клиентов — обновите backend на Render'
+    return 'На сервере нет удаления клиентов — обновите backend API'
   }
   return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
 }
@@ -76,12 +76,9 @@ async function parseErrorResponse(res: Response): Promise<string> {
 }
 
 const RETRY_STATUS = new Set([500, 502, 503, 504])
-const REQUEST_TIMEOUT_MS = 15000
-/** Render free tier: первый запрос после простоя может идти 30–90 с */
-const COLD_START_TIMEOUT_MS = 50000
-const COLD_START_MAX_ATTEMPTS = 3
-/** Render free tier cold start может занимать 30–60 с */
-const GET_TIMEOUT_MS = 45000
+const REQUEST_TIMEOUT_MS = 25000
+const LIST_TIMEOUT_MS = 35000
+const MAX_ATTEMPTS = 3
 
 function withTimeout<T>(promise: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -107,11 +104,11 @@ async function request<T>(path: string, options: RequestInit = {}, attempt = 0, 
   return requestUrl<T>(`${getApiUrl()}${path}`, options, attempt, timeoutMs)
 }
 
-async function requestColdStart<T>(path: string, options: RequestInit = {}): Promise<T> {
-  return request<T>(path, options, 0, COLD_START_TIMEOUT_MS)
+async function requestLongList<T>(path: string, options: RequestInit = {}): Promise<T> {
+  return request<T>(path, options, 0, LIST_TIMEOUT_MS)
 }
 
-/** Маршруты Next.js вне proxy /api/kakapo → Render */
+/** Маршруты Next.js вне proxy /api/kakapo */
 async function requestApp<T>(path: string, options: RequestInit = {}, attempt = 0): Promise<T> {
   return requestUrl<T>(path, options, attempt)
 }
@@ -129,12 +126,12 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
     res = await withTimeout(fetch(url, { ...options, headers }), timeoutMs)
   } catch (e) {
     const timedOut = e instanceof Error && e.message.includes('Сервер не отвечает')
-    if (timedOut && attempt < COLD_START_MAX_ATTEMPTS - 1) {
+    if (timedOut && attempt < MAX_ATTEMPTS - 1) {
       await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
       return requestUrl<T>(url, options, attempt + 1, timeoutMs)
     }
     if (timedOut) {
-      throw new Error('Сервер Render просыпается — подождите до минуты и обновите страницу.')
+      throw new Error('Сервер не отвечает. Подождите немного и обновите страницу.')
     }
     throw new Error('Нет связи с сервером. Проверьте интернет.')
   }
@@ -277,7 +274,7 @@ export const api = {
   updateAssembler: (id: string, data: Partial<AdminAssembler>) =>
     request<AdminAssembler>(`/assemblers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  getClients: () => requestColdStart<AdminClient[]>('/clients'),
+  getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>
     request<{ phones: string[] }>('/clients/deleted-phones').catch(() => ({ phones: [] as string[] })),
   purgeDemoClients: () =>
@@ -354,7 +351,7 @@ export const api = {
     }),
 
   // ── Карты ──
-  getCards: () => requestColdStart<AdminCard[]>('/cards'),
+  getCards: () => requestLongList<AdminCard[]>('/cards'),
   generateCards: (count: number) =>
     request<{ ok: boolean; count: number; cards: AdminCard[] }>(`/cards/generate?count=${count}`, { method: 'POST' }),
   ensureCard: (data: Partial<AdminCard> & { num: string; clientId?: string }) =>

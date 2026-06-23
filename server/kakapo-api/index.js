@@ -85,7 +85,7 @@ ensureAssemblers()
 function ensureClients() {
   if (!Array.isArray(db.clients)) db.clients = []
   ensureDeletedPhoneKeys()
-  // Не восстанавливать демо-клиентов после полного удаления — иначе после рестарта Render
+  // Не восстанавливать демо-клиентов после полного удаления — иначе после рестарта API
   // снова появляются U-01…U-07 и пропадают реальные клиенты админа.
 }
 ensureClients()
@@ -343,7 +343,7 @@ app.get('/health', (_req, res) => {
     orders: stats.orders,
     cards: stats.cards,
     warning: process.env.NODE_ENV === 'production' && !persistent
-      ? 'Подключите Render Disk (/data) и DATA_DIR=/data — иначе клиенты удаляются при каждом деплое'
+      ? 'Подключите постоянный диск (DATA_DIR=/data) — иначе клиенты удаляются при каждом деплое'
       : undefined,
   })
 })
@@ -1788,8 +1788,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`   Записей: клиентов ${stats.clients}, заказов ${stats.orders}, карт ${stats.cards}`)
   if (process.env.NODE_ENV === 'production' && !stats.persistent) {
     console.error('\n⚠️  ВНИМАНИЕ: DATA_DIR не на постоянном диске — база может обнуляться при деплое!')
-    console.error('   Hetzner/Docker: volume kakapo-data → /data (DATA_DIR=/data)')
-    console.error('   Render: Persistent Disk mount /data\n')
+    console.error('   Hetzner/Docker: volume kakapo-data → /data (DATA_DIR=/data)\n')
   }
   console.log(`   Health: http://0.0.0.0:${PORT}/health\n`)
   setImmediate(() => runLoyaltyBackfill())

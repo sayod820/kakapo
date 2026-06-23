@@ -19,23 +19,27 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
     let cancelled = false
 
     const load = async () => {
-      const { useProducts, useRestaurants, useOrders } = await import('@/lib/store')
-      const { syncCourierStoresFromApi } = await import('@/lib/courierStore')
-      const { syncClientsFromApi } = await import('@/lib/clientStore')
-      const { syncCardsFromApi } = await import('@/lib/cardStore')
-      const { syncLoyaltyStatusConfigFromApi } = await import('@/lib/loyaltyStatusConfig')
-      const tasks = [
-        syncLoyaltyStatusConfigFromApi(),
-        useProducts.getState().fetchProducts(),
-        useRestaurants.getState().fetchRestaurants(),
-        syncCourierStoresFromApi(),
-        syncClientsFromApi(),
-        syncCardsFromApi(),
-      ]
-      if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
-      else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
-      else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
-      if (!cancelled) await Promise.all(tasks)
+      try {
+        const { useProducts, useRestaurants, useOrders } = await import('@/lib/store')
+        const { syncCourierStoresFromApi } = await import('@/lib/courierStore')
+        const { syncClientsFromApi } = await import('@/lib/clientStore')
+        const { syncCardsFromApi } = await import('@/lib/cardStore')
+        const { syncLoyaltyStatusConfigFromApi } = await import('@/lib/loyaltyStatusConfig')
+        const tasks = [
+          syncLoyaltyStatusConfigFromApi(),
+          useProducts.getState().fetchProducts(),
+          useRestaurants.getState().fetchRestaurants(),
+          syncCourierStoresFromApi(),
+          syncClientsFromApi(),
+          syncCardsFromApi(),
+        ]
+        if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
+        else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
+        else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
+        if (!cancelled) await Promise.allSettled(tasks)
+      } catch (e) {
+        console.error('[kakapo] ApiSyncProvider load failed', e)
+      }
     }
 
     load()

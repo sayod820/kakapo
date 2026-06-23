@@ -57,28 +57,32 @@ export function useApiSync(mode: SyncMode = 'all') {
     if (!USE_API) return
 
     const load = async () => {
-      if (mode === 'all') {
-        await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
+      try {
+        if (mode === 'all') {
+          await Promise.allSettled([syncClientsFromApi(), syncCardsFromApi()])
+        }
+        const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
+        const tasks: Promise<unknown>[] = [
+          syncLoyaltyStatusConfigFromApi(),
+          useProducts.getState().fetchProducts(),
+          usePromos.getState().fetchPromos(),
+          useRestaurants.getState().fetchRestaurants(),
+          syncCourierStoresFromApi(),
+        ]
+        if (mode === 'all') {
+          tasks.push(
+            syncAssemblerTeamFromApi(),
+            syncPushFromApi(),
+          )
+        }
+        if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
+        else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
+        else if (mode === 'restaurant') tasks.push(useOrders.getState().fetchRestaurantOrders())
+        else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
+        await Promise.allSettled(tasks)
+      } catch (e) {
+        console.error('[kakapo] useApiSync load failed', e)
       }
-      const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
-      const tasks: Promise<unknown>[] = [
-        syncLoyaltyStatusConfigFromApi(),
-        useProducts.getState().fetchProducts(),
-        usePromos.getState().fetchPromos(),
-        useRestaurants.getState().fetchRestaurants(),
-        syncCourierStoresFromApi(),
-      ]
-      if (mode === 'all') {
-        tasks.push(
-          syncAssemblerTeamFromApi(),
-          syncPushFromApi(),
-        )
-      }
-      if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
-      else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
-      else if (mode === 'restaurant') tasks.push(useOrders.getState().fetchRestaurantOrders())
-      else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
-      await Promise.all(tasks)
     }
 
     load()

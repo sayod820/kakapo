@@ -2937,7 +2937,7 @@ function ClientsPage() {
     try {
       const { removed, errors } = await purgeAllDemoClientsFromCrm();
       if (errors > 0) {
-        window.alert(`Удалено ${removed} демо-клиентов. Ошибок: ${errors}. Задеплойте backend на Render для полного удаления.`);
+        window.alert(`Удалено ${removed} демо-клиентов. Ошибок: ${errors}.`);
       }
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'Не удалось удалить демо-клиентов');
@@ -3195,7 +3195,7 @@ function ClientsPage() {
                 <td colSpan={11} style={{ textAlign: 'center', color: '#8FB897', padding: 28 }}>
                   <div style={{ marginBottom: 8 }}>Загрузка клиентов…</div>
                   <div style={{ fontSize: 11, color: '#3D6645', lineHeight: 1.5 }}>
-                    Сервер Render может «просыпаться» до 60 сек после простоя — это нормально.
+                    Если долго не грузится — проверьте, что API-сервер запущен, и нажмите «Повторить».
                   </div>
                 </td>
               </tr>

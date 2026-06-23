@@ -79,7 +79,7 @@ async function clientStillOnServer(phone: string): Promise<boolean> {
   }
 }
 
-/** Удаление на Render: новый API → PATCH purge → legacy-анонимизация (старый backend) */
+/** Удаление на сервере: новый API → PATCH purge → legacy-анонимизация (старый backend) */
 async function purgeClientOnServer(clientId: string, phone: string): Promise<void> {
   const serverId = await resolveServerClientId(clientId, phone)
   const id = serverId || clientId
@@ -118,7 +118,7 @@ async function purgeClientOnServer(clientId: string, phone: string): Promise<voi
   }
 
   if (await clientStillOnServer(phone)) {
-    throw lastErr || new Error('Клиент остался на сервере. Обновите backend на Render и попробуйте снова.')
+    throw lastErr || new Error('Клиент остался на сервере. Проверьте API и попробуйте снова.')
   }
 }
 

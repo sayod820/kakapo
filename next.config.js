@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-/** Локальный Docker (Hetzner): http://api:8000. Старый Render — fallback. */
+/** Docker (Hetzner): http://api:8000 */
 const DEFAULT_BACKEND = 'http://api:8000'
 
 function resolveBackendUrl() {

@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { emitCrmSync } from './clientProfileSync'
 import { USE_API } from './config'
 import { api } from './api'
+import { ensureArray } from './apiGuards'
 import { useClientStore } from './clientStore'
 import { phonesMatch, type AdminClient, type ClientLevel } from './clientCrm'
 import { onBonusCredited } from './pushService'
@@ -345,7 +346,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
     set({ apiSyncing: true, apiError: '' })
     try {
       clearAppDataLocalCache()
-      const apiList = await api.getCards()
+      const apiList = ensureArray<AdminCard>(await api.getCards(), 'cards')
       const local = get().cards
       const apiCards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
       const merged = apiCards.map(ac => {

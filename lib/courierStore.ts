@@ -5,6 +5,7 @@ import { DEFAULT_PRICING, type PricingConfig } from './courierData';
 import { DEFAULT_PICKUPS, pickupsToLocationMap, type PickupPoint, type PickupLocationMap, upsertRestaurantPickup, type RestaurantPickupSync, restIdToPickupId } from './pickups';
 import { USE_API } from './config';
 import { api } from './api';
+import { ensureArray } from './apiGuards';
 import { hydrateCourierTeamStore, syncCourierTeamFromApi } from './courierTeamStore';
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache';
 
@@ -174,7 +175,7 @@ export function hydrateCourierStores() {
   hydrateCourierTeamStore();
 }
 
-/** Загрузить pickups + pricing с API (Render) */
+/** Загрузить pickups + pricing с API */
 export async function syncCourierStoresFromApi() {
   if (!USE_API) {
     hydrateCourierStores();
@@ -182,10 +183,11 @@ export async function syncCourierStoresFromApi() {
   }
   try {
     clearAppDataLocalCache();
-    const [pickups, pricing] = await Promise.all([
+    const [pickupsRaw, pricing] = await Promise.all([
       api.getPickups(),
       api.getPricing(),
     ]);
+    const pickups = ensureArray<PickupPoint>(pickupsRaw, 'pickups');
     await syncCourierTeamFromApi();
     usePickupStore.setState({ pickups, hydrated: true });
     usePricingStore.setState({ pricing: { ...DEFAULT_PRICING, ...pricing }, hydrated: true });

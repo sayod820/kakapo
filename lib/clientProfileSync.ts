@@ -241,7 +241,7 @@ export async function isStoreAccountActiveOnServer(phone: string): Promise<boole
       .find(c => c.status !== 'unlinked' && c.phone && phonesMatch(c.phone, phone))
     return !!card
   } catch {
-    // Сеть / cold start Render — не считаем аккаунт удалённым
+    // Сеть / таймаут API — не считаем аккаунт удалённым
     return true
   }
 }

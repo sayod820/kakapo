@@ -26,12 +26,12 @@ export function persistAppDataLocally(): boolean {
   return !USE_API
 }
 
-/** При USE_API все операционные данные только с Render — не пишем в localStorage. */
+/** При USE_API все операционные данные только с backend — не пишем в localStorage. */
 export function isServerSourceOfTruth(): boolean {
   return USE_API
 }
 
-/** Очистить устаревший кэш — при USE_API источник только Render */
+/** Очистить устаревший кэш — при USE_API источник только backend */
 export function clearAppDataLocalCache() {
   if (!USE_API || typeof window === 'undefined') return
   for (const key of APP_DATA_LOCAL_KEYS) {

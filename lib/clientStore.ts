@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { emitCrmSync } from './clientProfileSync'
 import { USE_API } from './config'
 import { api } from './api'
+import { ensureArray } from './apiGuards'
 import {
   DEFAULT_ADMIN_CLIENTS,
   normalizeClient,
@@ -183,7 +184,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       clearAppDataLocalCache()
       const deletedMeta = await api.getDeletedPhones()
       mergeDeletedPhonesFromServer(deletedMeta.phones || [])
-      const apiList = (await api.getClients())
+      const apiList = ensureArray<AdminClient>(await api.getClients(), 'clients')
         .map(c => normalizeClient(c))
         .filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
       const local = prev

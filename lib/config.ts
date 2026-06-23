@@ -1,7 +1,7 @@
 /** true = данные с backend API, false = локально в браузере (localStorage) */
 export const USE_API = process.env.NEXT_PUBLIC_USE_API === 'true'
 
-/** Адрес backend (Render / локально) — для SSR и proxy в next.config.js */
+/** Адрес backend — для SSR и proxy в next.config.js */
 export const BACKEND_URL =
   process.env.KAKAPO_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
@@ -16,8 +16,12 @@ export function getApiUrl(): string {
   return BACKEND_URL
 }
 
-/** WebSocket: на Vercel — напрямую на Render (wss://) */
+/** WebSocket: в браузере — same-origin (nginx /ws/), иначе явный URL или backend */
 export function getWsUrl(): string {
+  if (typeof window !== 'undefined') {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${window.location.host}`
+  }
   const explicit = process.env.NEXT_PUBLIC_WS_URL
   if (explicit) return explicit.replace(/\/$/, '')
 

@@ -43,7 +43,7 @@ export type LoyaltyStatusConfig = {
 const STORAGE_KEY = 'kakapo-loyalty-status-config'
 export const LOYALTY_STATUS_CONFIG_EVENT = 'kakapo-loyalty-status-config'
 
-/** В API-режиме конфиг только в памяти — источник Render /settings/loyalty */
+/** В API-режиме конфиг только в памяти — источник /settings/loyalty */
 let memoryLoyaltyConfig: LoyaltyStatusConfig | null = null
 
 export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {

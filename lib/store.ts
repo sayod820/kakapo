@@ -16,6 +16,7 @@ import {
   normalizeOrders,
 } from './orderParts'
 import { ASSEMBLER_NAME } from './courierStats'
+import { ensureArray } from './apiGuards'
 import { onOrderStatusChange, onRestPartAccepted } from './pushService'
 import { creditBonusOnDeliveryLocal } from './loyaltyBonus'
 import { useClientStore } from './clientStore'
@@ -273,7 +274,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (!USE_API) return
     set({ loading: true })
     try {
-      const raw = await api.getOrders()
+      const raw = ensureArray<Order>(await api.getOrders(), 'orders')
       const pins = get().orderAdminPins
       const current = get().orders
       const orders = applyAdminPins(
@@ -404,7 +405,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         if (!orderMatchesAdminPin(merged, pin)) {
           set({ orderAdminPins: { ...get().orderAdminPins, [id]: pin } })
           patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...pin, status: pin.status ?? status } : o)))
-          throw new Error('Сервер не сохранил статус. Задеплойте бэкенд на Render и повторите.')
+          throw new Error('Сервер не сохранил статус. Проверьте API и повторите.')
         }
         const nextPins = { ...get().orderAdminPins }
         delete nextPins[id]
@@ -683,7 +684,7 @@ export const useProducts = create<ProductsStore>((set, get) => ({
 
   fetchProducts: async () => {
     if (!USE_API) return
-    try { set({ products: await api.getProducts() }) } catch (e) { console.error(e) }
+    try { set({ products: ensureArray<Product>(await api.getProducts(), 'products') }) } catch (e) { console.error(e) }
   },
 
   saveProduct: async (data) => {
@@ -740,7 +741,7 @@ export const usePromos = create<PromosStore>((set) => ({
   promos: [],
   fetchPromos: async () => {
     if (!USE_API) return
-    try { set({ promos: await api.getPromos() }) } catch (e) { console.error(e) }
+    try { set({ promos: ensureArray<Promo>(await api.getPromos(), 'promos') }) } catch (e) { console.error(e) }
   },
   setPromos: (promos) => set({ promos }),
 }))
@@ -760,7 +761,7 @@ export const useRestaurants = create<RestaurantsStore>((set, get) => ({
 
   fetchRestaurants: async () => {
     if (!USE_API) return
-    try { set({ restaurants: await api.getRestaurants() }) } catch (e) { console.error(e) }
+    try { set({ restaurants: ensureArray<Restaurant>(await api.getRestaurants(), 'restaurants') }) } catch (e) { console.error(e) }
   },
 
   toggleOpen: async (id) => {

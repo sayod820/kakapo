@@ -1,6 +1,7 @@
 'use client'
 
 import { api } from './api'
+import { ensureArray } from './apiGuards'
 import { phonesMatch, PURGED_NOTE, RECOVERY_NOTE_PREFIX, type AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 
@@ -20,15 +21,15 @@ function linkedCards(client: AdminClient, cards: AdminCard[]): AdminCard[] {
 }
 
 async function unlinkRemoteCards(client: AdminClient): Promise<void> {
-  const cards = await api.getCards().catch(() => [] as AdminCard[])
+  const cards = ensureArray<AdminCard>(await api.getCards().catch(() => []), 'cards')
   for (const card of linkedCards(client, cards)) {
     await api.updateCard(card.num, { unlink: true }).catch(() => {})
   }
 }
 
-/** Старый Render: только GET + PATCH — полное «удаление» через анонимизацию */
+/** Legacy backend: только GET + PATCH — полное «удаление» через анонимизацию */
 export async function legacyPurgeClientOnServer(clientId: string, phone?: string): Promise<void> {
-  const clients = await api.getClients()
+  const clients = ensureArray<AdminClient>(await api.getClients(), 'clients')
   const client = findRemoteClient(clients, clientId, phone)
   if (!client) return
 
@@ -46,9 +47,9 @@ export async function legacyPurgeClientOnServer(clientId: string, phone?: string
   })
 }
 
-/** Старый Render: перевод в восстановление через note-маркер */
+/** Legacy backend: перевод в восстановление через note-маркер */
 export async function legacyMoveToRecoveryOnServer(clientId: string, phone?: string): Promise<void> {
-  const clients = await api.getClients()
+  const clients = ensureArray<AdminClient>(await api.getClients(), 'clients')
   const client = findRemoteClient(clients, clientId, phone)
   if (!client) throw new Error('Клиент не найден')
 
@@ -63,7 +64,7 @@ export async function legacyMoveToRecoveryOnServer(clientId: string, phone?: str
 }
 
 export async function legacyRestoreOnServer(clientId: string): Promise<void> {
-  const clients = await api.getClients()
+  const clients = ensureArray<AdminClient>(await api.getClients(), 'clients')
   const client = clients.find(c => c.id === clientId)
   if (!client) throw new Error('Клиент не найден')
 

@@ -14,8 +14,9 @@ export function productCatSlug(p: { catId?: string; cat?: string }): string {
 
 /** Дополняет товар из API полями UI (grad, desc…) из локального seed */
 export function enrichProducts(api: Product[], seed: any[]): any[] {
-  if (!api.length) return seed
-  return api.map(p => {
+  const list = Array.isArray(api) ? api : []
+  if (!list.length) return seed
+  return list.map(p => {
     const base = seed.find(s => s.id === p.id || s.art === p.art) || {}
     const discount = p.discount ?? (p.old && p.old > p.price ? Math.round((1 - p.price / p.old) * 100) : 0)
     const catId = productCatSlug({ catId: p.catId || base.catId, cat: base.cat })
@@ -47,8 +48,9 @@ export function enrichProducts(api: Product[], seed: any[]): any[] {
 
 /** Дополняет ресторан из API полями UI из seed */
 export function enrichRestaurants(api: Restaurant[], seed: any[]): any[] {
-  if (!api.length) return seed
-  return api.map(r => {
+  const list = Array.isArray(api) ? api : []
+  if (!list.length) return seed
+  return list.map(r => {
     const base = seed.find(s => s.id === r.id) || {}
     return {
       ...base,

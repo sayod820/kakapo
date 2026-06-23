@@ -64,7 +64,7 @@ export function markPhonesDeleted(phones: string[]): void {
   notifyTombstoneChange()
 }
 
-/** Подтянуть tombstones с Render — переживают другой браузер и redeploy frontend */
+/** Подтянуть tombstones с сервера — переживают другой браузер и redeploy frontend */
 export function mergeDeletedPhonesFromServer(phones: string[]): void {
   if (!phones.length) return
   markPhonesDeleted(phones)

@@ -1,4 +1,4 @@
-/** Нормализация заказа под KAKAPO API (Render) */
+/** Нормализация заказа под KAKAPO API */
 import { restIdToPickupId } from './pickups'
 import { getRestIdsFromOrder, getMarketItems, inferOrderType } from './orderParts'
 import type { OrderItem } from './types'
