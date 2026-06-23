@@ -7,6 +7,7 @@ import {
   loyaltyStatsFromOrders,
   resolveEffectiveClientLevel,
 } from './clientCrm'
+import { bonusEligibleTotal } from './orderLoyaltyAmount'
 import { USE_API } from './config'
 import { api } from './api'
 import {
@@ -285,13 +286,8 @@ export function getBonusPercentForClient(
   return percents.basic
 }
 
-/** Сумма товаров, с которой начисляются бонусы (без доставки, с учётом списанных бонусов). */
-export function bonusEligibleTotal(order: Pick<Order, 'total' | 'deliveryFee' | 'bonusSpent'>): number {
-  const total = Number(order.total) || 0
-  const bonusSpent = Number(order.bonusSpent) || 0
-  const delivery = Number(order.deliveryFee) || 0
-  return Math.max(0, Math.round((total + bonusSpent - delivery) * 100) / 100)
-}
+/** Сумма товаров, с которой начисляются бонусы (без доставки). */
+export { bonusEligibleTotal, orderSpentContribution } from './orderLoyaltyAmount'
 
 export function calcOrderBonusEarned(
   eligibleTotal: number,
@@ -302,10 +298,6 @@ export function calcOrderBonusEarned(
   const percent = getBonusPercentForClient(level, vip, tierPercentsFromConfig(cfg))
   if (eligibleTotal <= 0 || percent <= 0) return 0
   return Math.floor(eligibleTotal * percent / 100)
-}
-
-export function orderSpentContribution(order: Pick<Order, 'total' | 'bonusSpent'>): number {
-  return Math.round(((Number(order.total) || 0) + (Number(order.bonusSpent) || 0)) * 10) / 10
 }
 
 export function expectedOrderBonus(

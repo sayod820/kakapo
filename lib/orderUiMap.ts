@@ -3,6 +3,7 @@ import type { AdminClient } from './clientCrm'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { enrichCourierOrderPayment, mapCourierPayLabel } from './courierPayment'
 import type { DemoCourierOrder } from './demoOrders'
+import { orderGoodsTotal } from './orderLoyaltyAmount'
 import { expectedOrderBonus } from './loyaltyBonus'
 import {
   allPartsDone,
@@ -50,7 +51,7 @@ export function mapOrdersForClient(
         qty: it.qty,
         price: it.price,
       })),
-      total: order.total,
+      total: orderGoodsTotal(order),
       bonus: expectedOrderBonus(order, profile?.level, profile?.vip, orders, {
         loyaltyPeriod: profile?.loyaltyPeriod,
         bonusEligibleFrom: profile?.bonusEligibleFrom,
@@ -267,7 +268,7 @@ export function mapOrdersForAdmin(
         source: it.source,
         restId: it.restId,
       })),
-      total: order.total,
+      total: orderGoodsTotal(order),
       deliveryFee: order.deliveryFee,
       status: o.status ?? order.status,
       courier: order.courier?.name || '—',

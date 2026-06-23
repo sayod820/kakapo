@@ -2045,7 +2045,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const vipFreeDelivery = !!user?.vip && !useCreditPay;
   const effectiveDelivery = vipFreeDelivery ? 0 : deliveryFee;
   const orderTotal = sub + effectiveDelivery;
-  const bonusUsable = useBonus ? getBonusUsable(user, orderTotal) : 0;
+  const bonusUsable = useBonus ? getBonusUsable(user, sub) : 0;
   const payable = Math.max(0, Math.round((orderTotal - bonusUsable) * 100) / 100);
   const creditGoods = useCreditPay ? Math.max(0, Math.round((payable - effectiveDelivery) * 100) / 100) : 0;
 
@@ -2300,7 +2300,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         <div className="card" style={{ padding:"16px", marginBottom:13, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <span style={{ fontSize:20 }}>⭐</span>
-            <div><div style={{ fontSize:13, fontWeight:700 }}>Списать бонусы</div><div style={{ fontSize:11, color:"var(--t3)" }}>Баланс: {(user.bonus || 0).toLocaleString()} · до −{getBonusUsable(user, orderTotal)} ЅМ</div></div>
+            <div><div style={{ fontSize:13, fontWeight:700 }}>Списать бонусы</div><div style={{ fontSize:11, color:"var(--t3)" }}>Баланс: {(user.bonus || 0).toLocaleString()} · до −{getBonusUsable(user, sub)} ЅМ</div></div>
           </div>
           <div className={`toggle ${useBonus?"on":""}`} onClick={() => setUseBonus(v => !v)}><div className="toggle-dot"/></div>
         </div>
@@ -8194,17 +8194,39 @@ export default function KakapoApp() {
   );
 }
 
+function hydrateStoreSessionFromStorage(): {
+  user: StoreUser | null
+  cart: Record<string, number>
+  cartMeta: Record<string, unknown>
+  wished: Record<string, boolean>
+} {
+  if (typeof window === 'undefined') {
+    return { user: null, cart: {}, cartMeta: {}, wished: {} };
+  }
+  const user = loadStoreUser();
+  if (!user?.phone) {
+    return { user, cart: {}, cartMeta: {}, wished: {} };
+  }
+  migrateLegacyClientData(user.phone);
+  return {
+    user,
+    cart: loadAccountJson(ACCOUNT_NS.cart, {}, user.phone),
+    cartMeta: loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone),
+    wished: loadAccountJson(ACCOUNT_NS.wished, {}, user.phone),
+  };
+}
+
 function KakapoAppInner() {
   useApiSync('all');
   const { prods } = useLiveCatalog();
   const { page, params, go } = useAppNavigation('home');
-  const [cart,   setCart]   = useState({});
-  const [cartMeta, setCartMeta] = useState({});
-  const [wished, setWished] = useState({});
-  const [user,   setUser]   = useState<StoreUser | null>(null);
+  const [sessionBoot] = useState(hydrateStoreSessionFromStorage);
+  const [cart,   setCart]   = useState(sessionBoot.cart);
+  const [cartMeta, setCartMeta] = useState(sessionBoot.cartMeta);
+  const [wished, setWished] = useState(sessionBoot.wished);
+  const [user,   setUser]   = useState<StoreUser | null>(sessionBoot.user);
   const [sessionReady, setSessionReady] = useState(false);
   const userPersistReadyRef = useRef(false);
-  const cartSyncReadyRef = useRef(false);
   const [cartSyncReady, setCartSyncReady] = useState(false);
   const [toast,  setToast]  = useState(null);
   const [, setLoyaltyCfgTick] = useState(0);
@@ -8212,7 +8234,6 @@ function KakapoAppInner() {
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
 
   useLayoutEffect(() => {
-    setUser(loadStoreUser());
     setSessionReady(true);
   }, []);
 
@@ -8228,51 +8249,49 @@ function KakapoAppInner() {
 
   useEffect(() => {
     if (!user?.phone) {
-      cartSyncReadyRef.current = false;
       setCartSyncReady(false);
-      setCart({});
-      setCartMeta({});
-      setWished({});
+      if (!user) {
+        setCart({});
+        setCartMeta({});
+        setWished({});
+      }
       return;
     }
-    cartSyncReadyRef.current = false;
+
     setCartSyncReady(false);
     migrateLegacyClientData(user.phone);
     const localCart = loadAccountJson(ACCOUNT_NS.cart, {}, user.phone);
     const localMeta = loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone);
+    setCart(localCart);
+    setCartMeta(localMeta);
     setWished(loadAccountJson(ACCOUNT_NS.wished, {}, user.phone));
 
     let cancelled = false;
-    const loadCart = async () => {
-      if (USE_API && user.clientId) {
-        try {
-          const remote = await fetchRemoteCart(user.phone, user.clientId);
-          const merged = mergeCartData(
-            { cart: localCart, cartMeta: localMeta },
-            remote,
-          );
-          if (cancelled) return;
-          setCart(merged.cart);
-          setCartMeta(merged.cartMeta);
-          const remoteEmpty = !Object.keys(remote.cart).length;
-          const localHasItems = Object.keys(localCart).length > 0;
-          if (remoteEmpty && localHasItems) {
-            void saveRemoteCart(user.clientId, merged.cart, merged.cartMeta);
-          }
-          return;
-        } catch { /* fallback to local */ }
+    const syncRemote = async () => {
+      if (!USE_API || !user.clientId) {
+        if (!cancelled) setCartSyncReady(true);
+        return;
       }
-      if (!cancelled) {
-        setCart(localCart);
-        setCartMeta(localMeta);
+      try {
+        const remote = await fetchRemoteCart(user.phone, user.clientId);
+        const merged = mergeCartData(
+          { cart: localCart, cartMeta: localMeta },
+          remote,
+        );
+        if (cancelled) return;
+        setCart(merged.cart);
+        setCartMeta(merged.cartMeta);
+        const remoteEmpty = !Object.keys(remote.cart).length;
+        const localHasItems = Object.keys(localCart).length > 0;
+        if (remoteEmpty && localHasItems) {
+          void saveRemoteCart(user.clientId, merged.cart, merged.cartMeta);
+        }
+      } catch { /* оставляем локальную корзину */ }
+      finally {
+        if (!cancelled) setCartSyncReady(true);
       }
     };
-    void loadCart().finally(() => {
-      if (!cancelled) {
-        cartSyncReadyRef.current = true;
-        setCartSyncReady(true);
-      }
-    });
+    void syncRemote();
     return () => { cancelled = true; };
   }, [user?.phone, user?.clientId]);
 

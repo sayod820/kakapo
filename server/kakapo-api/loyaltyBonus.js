@@ -94,8 +94,26 @@ function orderInPeriod(order, period) {
   return d.getFullYear() === y && d.getMonth() + 1 === m
 }
 
+function orderItemsSubtotal(order) {
+  const items = Array.isArray(order?.items) ? order.items : []
+  if (!items.length) return 0
+  return Math.round(
+    items.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0) * 100,
+  ) / 100
+}
+
 export function orderSpentContribution(order) {
-  return Math.round(((Number(order.total) || 0) + (Number(order.bonusSpent) || 0)) * 10) / 10
+  return bonusEligibleTotal(order)
+}
+
+export function bonusEligibleTotal(order) {
+  const fromItems = orderItemsSubtotal(order)
+  if (fromItems > 0) return fromItems
+
+  const total = Number(order.total) || 0
+  const bonusSpent = Number(order.bonusSpent) || 0
+  const delivery = Number(order.deliveryFee) || 0
+  return Math.max(0, Math.round((total + bonusSpent - delivery) * 100) / 100)
 }
 
 export function monthlyDeliveredStats(db, phone, period = currentLoyaltyPeriod(), excludeOrderId = null, client = null) {
@@ -171,13 +189,6 @@ export function getBonusPercentForClient(client, loyalty = DEFAULT_LOYALTY) {
   if (level === 'gold') return Number(loyalty.gold?.bonusPercent) || 0
   if (level === 'platinum') return Number(loyalty.platinum?.bonusPercent) || 0
   return Number(loyalty.basic?.bonusPercent) || 0
-}
-
-export function bonusEligibleTotal(order) {
-  const total = Number(order.total) || 0
-  const bonusSpent = Number(order.bonusSpent) || 0
-  const delivery = Number(order.deliveryFee) || 0
-  return Math.max(0, Math.round((total + bonusSpent - delivery) * 100) / 100)
 }
 
 export function calcBonusEarned(eligibleTotal, percent) {
@@ -364,7 +375,8 @@ export function applyBonusSpendOnOrder(db, order, amount, hooks) {
   if (!card) return { ok: false, error: 'Карта клиента не найдена' }
 
   const balance = Number(card.bonus) || 0
-  const deduct = Math.min(balance, use)
+  const goodsCap = Math.floor(bonusEligibleTotal(order))
+  const deduct = Math.min(balance, use, goodsCap)
   if (deduct <= 0) return { ok: true, bonusSpent: 0 }
 
   card.bonus = Math.max(0, balance - deduct)

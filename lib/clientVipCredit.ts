@@ -152,10 +152,11 @@ export function canPayWithCredit(user: Partial<StoreUser> | null | undefined, am
   return { ok: true }
 }
 
-export function getBonusUsable(user: Partial<StoreUser> | null | undefined, orderTotal: number): number {
+export function getBonusUsable(user: Partial<StoreUser> | null | undefined, goodsSubtotal: number): number {
   const bonus = Number(user?.bonus) || 0
-  if (bonus <= 0 || orderTotal <= 0) return 0
-  return Math.min(bonus, Math.floor(orderTotal))
+  const goods = Math.max(0, Number(goodsSubtotal) || 0)
+  if (bonus <= 0 || goods <= 0) return 0
+  return Math.min(bonus, Math.floor(goods))
 }
 
 function ensureCrmStores() {

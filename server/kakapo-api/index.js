@@ -24,6 +24,7 @@ import {
   reconcileClientBonuses,
   reconcileAllClientBonuses,
   findClientByPhone,
+  bonusEligibleTotal,
 } from './loyaltyBonus.js'
 import {
   RECOVERY_RETENTION_DAYS,
@@ -1719,7 +1720,7 @@ app.get('/finance/summary', (_req, res) => {
     if (items.length) {
       return s + items.reduce((a, it) => a + (Number(it.price) || 0) * (Number(it.qty) || 1), 0)
     }
-    if (inferType(o) === 'market') return s + Math.max(0, Number(o.total) || 0)
+    if (inferType(o) === 'market') return s + bonusEligibleTotal(o)
     return s
   }, 0)
   const shopOrders = delivered.filter(o => inferType(o) !== 'restaurant').length
@@ -1753,7 +1754,7 @@ app.get('/finance/summary', (_req, res) => {
 app.get('/admin/dashboard', (_req, res) => {
   res.json({
     ordersToday: db.orders.length,
-    revenueToday: db.orders.reduce((s, o) => s + (o.total || 0), 0),
+    revenueToday: db.orders.reduce((s, o) => s + bonusEligibleTotal(o), 0),
     activeCouriers: 2,
     activeRestaurants: db.restaurants.length,
   })

@@ -6,6 +6,7 @@ import {
 } from './courierData'
 import { courierDeliveryEarning } from './courierStats'
 import { isOrderDeliveryFeeLocked, orderWeightKg, resolveOrderDeliveryFee } from './deliveryFee'
+import { orderGoodsTotal } from './orderLoyaltyAmount'
 import { inferOrderType } from './orderParts'
 import type { Order } from './types'
 import type { AdminCourier } from './courierTeam'
@@ -136,8 +137,9 @@ export function previewOrdersForTab(
     const weight = orderWeightKg(o)
     const locked = isOrderDeliveryFeeLocked(o)
     const fee = resolveOrderDeliveryFee(o, pricing, roadKm)
+    const goodsTotal = orderGoodsTotal(o)
     const livePreview = locked ? null : calcDeliveryPrice({
-      orderAmount: o.total,
+      orderAmount: goodsTotal,
       distanceKm: km,
       weightKg: weight,
       pricing,
@@ -148,7 +150,7 @@ export function previewOrdersForTab(
       client: o.client?.name || 'Клиент',
       km: Math.round(km * 10) / 10,
       weight,
-      orderTotal: o.total,
+      orderTotal: goodsTotal,
       fee,
       isFree: fee === 0,
       breakdown: livePreview?.breakdown ?? [`🔒 Зафиксировано: ${fee} ЅМ`],

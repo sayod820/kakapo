@@ -6,6 +6,7 @@ import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
+import { bonusEligibleTotal } from './orderLoyaltyAmount'
 
 export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
@@ -265,7 +266,7 @@ export function loyaltyStatsFromOrders(
   return {
     period,
     orderCount: delivered.length,
-    spent: Math.round(delivered.reduce((s, o) => s + (o.total || 0) + (o.bonusSpent || 0), 0) * 10) / 10,
+    spent: Math.round(delivered.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10,
   }
 }
 
@@ -371,7 +372,7 @@ export function statsFromOrders(
   const active = related.filter(o => o.status !== 'cancelled')
   return {
     orders: delivered.length,
-    spent: Math.round(delivered.reduce((s, o) => s + (o.total || 0) + (o.bonusSpent || 0), 0) * 10) / 10,
+    spent: Math.round(delivered.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10,
     marketOrders: active.filter(o => o.type === 'market').length,
     restaurantOrders: active.filter(o => o.type === 'restaurant').length,
     mixedOrders: active.filter(o => o.type === 'mixed').length,

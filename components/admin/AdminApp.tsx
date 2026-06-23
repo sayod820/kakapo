@@ -129,6 +129,7 @@ import {
 } from '@/lib/courierTeam'
 import { restIdToPickupId } from '@/lib/pickups'
 import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
+import { orderGoodsTotal } from '@/lib/orderLoyaltyAmount'
 import { useProductPhotos } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
@@ -575,7 +576,10 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
             <div style={{ fontSize:10, color:'#3D6645' }}>Создан: {order.time || '—'}{order.deliveredAt ? ` · Доставлен: ${order.deliveredAt}` : ''}</div>
             {order.comment && <div style={{ fontSize:11, color:'#8FB897', marginTop:4 }}>💬 {order.comment}</div>}
           </div>
-          <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{order.total} ЅМ</div>
+          <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{orderGoodsTotal(order)} ЅМ</div>
+          {(order.deliveryFee || 0) > 0 && (
+            <div style={{ fontSize:10, color:'#3B8EF0', marginTop:4, textAlign:'right' }}>+ доставка {order.deliveryFee} ЅМ · курьер</div>
+          )}
         </div>
 
         {onStatusChange && (
@@ -5717,7 +5721,7 @@ function FinancePage() {
     { l: 'Выручка магазина', v: formatSm(summary.shop.revenue), c: '#1FD760', e: '🛒' },
     { l: 'Заказов доставлено', v: summary.shop.orders, c: '#3B8EF0', e: '📦' },
     { l: 'Средний чек', v: formatSm(summary.shop.avgCheck), c: '#00D4C8', e: '🧾' },
-    { l: 'Доставка (сбор)', v: formatSm(summary.shop.deliveryFees), c: '#FFB800', e: '🛵' },
+    { l: 'Оборот товаров', v: formatSm(summary.totalTurnover), c: '#9B6DFF', e: '📈' },
   ] : tab === 'restaurants' ? [
     { l: 'Рестораны/мес', v: formatSm(summary.restaurantGross), c: '#FF8C00', e: '🍽' },
     { l: 'Комиссия КАКАПО', v: formatSm(summary.restaurantCommission), c: '#FFB800', e: '💰' },
@@ -5726,8 +5730,8 @@ function FinancePage() {
   ] : tab === 'couriers' ? [
     { l: 'Курьеров', v: summary.couriers.length, c: '#3B8EF0', e: '🛵' },
     { l: 'Доставок', v: summary.couriers.reduce((s, c) => s + c.deliveries, 0), c: '#1FD760', e: '📦' },
+    { l: 'Сбор за доставку', v: formatSm(summary.courierDeliveryFees), c: '#00D4C8', e: '💵' },
     { l: 'Выплаты курьерам', v: formatSm(summary.couriers.reduce((s, c) => s + c.earnings, 0)), c: '#FFB800', e: '💰' },
-    { l: 'Ср. за доставку', v: formatSm(summary.couriers.length ? Math.round(summary.couriers.reduce((s, c) => s + c.earnings, 0) / Math.max(1, summary.couriers.reduce((s, c) => s + c.deliveries, 0))) : 0), c: '#9B6DFF', e: '📊' },
   ] : [
     { l: 'Сборщиков', v: summary.assemblers.length, c: '#9B6DFF', e: '📦' },
     { l: 'Собрано заказов', v: summary.assemblers.reduce((s, a) => s + a.assembled, 0), c: '#1FD760', e: '🛒' },

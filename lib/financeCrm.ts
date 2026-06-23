@@ -6,6 +6,7 @@ import { getMarketItems, getRestItems, inferOrderType, getRestIdsFromOrder, norm
 import { matchesCourierAssignment } from './courierTeam'
 import { matchesAssemblerAssignment } from './assemblerTeam'
 import { courierDeliveryEarning } from './courierStats'
+import { orderGoodsTotal } from './orderLoyaltyAmount'
 
 export type FinanceTab = 'shop' | 'restaurants' | 'couriers' | 'assemblers'
 
@@ -63,11 +64,12 @@ export interface ShopFinanceSummary {
   revenue: number
   orders: number
   avgCheck: number
-  deliveryFees: number
 }
 
 export interface FinanceSummary {
   shop: ShopFinanceSummary
+  /** Сумма доставки, оплаченная клиентами — только для раздела курьеров */
+  courierDeliveryFees: number
   restaurantGross: number
   restaurantCommission: number
   restaurantPendingNet: number
@@ -114,7 +116,7 @@ export function marketRevenueFromOrder(order: Order): number {
     return items.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0)
   }
   const t = inferOrderType(order)
-  if (t === 'market') return Math.max(0, Number(order.total) || 0)
+  if (t === 'market') return orderGoodsTotal(order)
   return 0
 }
 
@@ -216,7 +218,7 @@ export function buildFinanceSummary(
   const delivered = orders.filter(isDelivered)
   const shopOrders = delivered.filter(o => inferOrderType(o) === 'market' || inferOrderType(o) === 'mixed')
   const shopRevenue = delivered.reduce((s, o) => s + marketRevenueFromOrder(o), 0)
-  const shopDeliveryFees = delivered.reduce((s, o) => s + (Number(o.deliveryFee) || 0), 0)
+  const courierDeliveryFees = delivered.reduce((s, o) => s + (Number(o.deliveryFee) || 0), 0)
 
   const restRows: RestaurantFinanceRow[] = restaurants.map(r => ({
     id: r.id,
@@ -235,11 +237,11 @@ export function buildFinanceSummary(
     revenue: shopRevenue,
     orders: shopOrders.length,
     avgCheck: shopOrders.length ? Math.round(shopRevenue / shopOrders.length) : 0,
-    deliveryFees: shopDeliveryFees,
   }
 
   return {
     shop,
+    courierDeliveryFees,
     restaurantGross,
     restaurantCommission,
     restaurantPendingNet,
