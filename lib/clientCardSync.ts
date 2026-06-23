@@ -1,5 +1,5 @@
 'use client'
-import { useClientStore, markClientLoyaltySaved } from './clientStore'
+import { useClientStore, markClientLoyaltySaved, syncClientsFromApi } from './clientStore'
 import { useCardStore } from './cardStore'
 import {
   phonesMatch,
@@ -15,7 +15,7 @@ import {
 } from './clientCrm'
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardNumsMatch, canonicalCardNum, resolveDebtEnabled } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
-import { emitCrmSync } from './clientProfileSync'
+import { emitCrmSync, findMergedClientByPhone } from './clientProfileSync'
 import { resetClientNotificationsForAccount } from './clientNotifications'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
@@ -35,6 +35,11 @@ function isCardMissingOnServer(err: unknown): boolean {
 function isMissingApiRoute(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return /404|cannot post|нет этого api|not found/i.test(msg)
+}
+
+function isClientAlreadyExists(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /409|уже зарегистрирован|already registered/i.test(msg)
 }
 
 /** Сохранить лояльность на сервер; карта должна быть записана вместе с клиентом */
@@ -183,6 +188,19 @@ export async function registerClientAccount(
       useClientStore.getState().setClients(
         useClientStore.getState().clients.filter(c => c.id !== local.id),
       )
+      if (isClientAlreadyExists(e)) {
+        await syncClientsFromApi()
+        hydrateCardStore()
+        const existing = await findMergedClientByPhone(data.phone)
+        if (existing) {
+          unmarkPhoneDeleted(data.phone)
+          if (!existing.card) {
+            return provisionLoyaltyCardForClient(existing)
+          }
+          emitCrmSync()
+          return existing
+        }
+      }
       throw e
     }
   }

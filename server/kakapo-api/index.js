@@ -897,6 +897,9 @@ function normalizeClientRow(raw) {
     deletedAt: raw.deletedAt || undefined,
     recoveryExpiresAt: raw.recoveryExpiresAt || undefined,
     accountGeneration: defaultAccountGeneration(raw.accountGeneration),
+    cart: raw.cart && typeof raw.cart === 'object' && !Array.isArray(raw.cart) ? raw.cart : {},
+    cartMeta: raw.cartMeta && typeof raw.cartMeta === 'object' && !Array.isArray(raw.cartMeta) ? raw.cartMeta : {},
+    cartUpdatedAt: raw.cartUpdatedAt || undefined,
   }
 }
 

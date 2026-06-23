@@ -42,6 +42,10 @@ export interface AdminClient {
   accountStatus?: ClientAccountStatus
   /** Дата перевода в восстановление */
   deletedAt?: string
+  /** Корзина магазина (синхронизация между устройствами) */
+  cart?: Record<string, number>
+  cartMeta?: Record<string, { emoji?: string; name?: string; price?: number; restId?: string }>
+  cartUpdatedAt?: string
 }
 
 /** Маркеры в note для старого backend без accountStatus / delete API */
@@ -222,6 +226,9 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
       ? 'recovery'
       : 'active',
     deletedAt: raw.deletedAt || parseRecoveryDeletedAt(raw.note || ''),
+    cart: raw.cart && typeof raw.cart === 'object' && !Array.isArray(raw.cart) ? raw.cart : undefined,
+    cartMeta: raw.cartMeta && typeof raw.cartMeta === 'object' && !Array.isArray(raw.cartMeta) ? raw.cartMeta : undefined,
+    cartUpdatedAt: raw.cartUpdatedAt || undefined,
   }
 }
 

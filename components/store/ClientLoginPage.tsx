@@ -10,8 +10,8 @@ import {
 } from '@/lib/clientSession'
 import { normalizePhone, type AdminClient } from '@/lib/clientCrm'
 import { isClientInRecovery, restoreClientFromRecovery } from '@/lib/clientRecovery'
-import { useClientStore, hydrateClientStore } from '@/lib/clientStore'
-import { hydrateCardStore } from '@/lib/cardStore'
+import { useClientStore, hydrateClientStore, syncClientsFromApi } from '@/lib/clientStore'
+import { hydrateCardStore, syncCardsFromApi } from '@/lib/cardStore'
 import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { registerClientAccount } from '@/lib/clientCardSync'
 import { recoveryExpiresAtIso, isRecoveryExpired } from '@/lib/clientAccountLifecycle'
@@ -156,7 +156,14 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
         refs[0].current?.focus()
         return
       }
-      const match = await findStoreClientByPhone(phone)
+      await syncClientsFromApi()
+      await syncCardsFromApi()
+      let match = await findStoreClientByPhone(phone)
+      if (!match) {
+        await new Promise(r => setTimeout(r, 600))
+        await syncClientsFromApi()
+        match = await findStoreClientByPhone(phone)
+      }
       if (match) {
         if (match.blocked) {
           setErr('Доступ заблокирован администратором')

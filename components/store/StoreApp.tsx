@@ -37,6 +37,7 @@ import {
 import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine, ensureClientDefaultAddress } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
+import { fetchRemoteCart, mergeCartData, saveRemoteCart } from "@/lib/clientCartSync";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
@@ -8203,6 +8204,8 @@ function KakapoAppInner() {
   const [user,   setUser]   = useState<StoreUser | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const userPersistReadyRef = useRef(false);
+  const cartSyncReadyRef = useRef(false);
+  const [cartSyncReady, setCartSyncReady] = useState(false);
   const [toast,  setToast]  = useState(null);
   const [, setLoyaltyCfgTick] = useState(0);
 
@@ -8225,26 +8228,63 @@ function KakapoAppInner() {
 
   useEffect(() => {
     if (!user?.phone) {
+      cartSyncReadyRef.current = false;
+      setCartSyncReady(false);
       setCart({});
       setCartMeta({});
       setWished({});
       return;
     }
+    cartSyncReadyRef.current = false;
+    setCartSyncReady(false);
     migrateLegacyClientData(user.phone);
-    setCart(loadAccountJson(ACCOUNT_NS.cart, {}, user.phone));
-    setCartMeta(loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone));
+    const localCart = loadAccountJson(ACCOUNT_NS.cart, {}, user.phone);
+    const localMeta = loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone);
     setWished(loadAccountJson(ACCOUNT_NS.wished, {}, user.phone));
-  }, [user?.phone]);
+
+    let cancelled = false;
+    const loadCart = async () => {
+      if (USE_API && user.clientId) {
+        try {
+          const remote = await fetchRemoteCart(user.phone, user.clientId);
+          const merged = mergeCartData(
+            { cart: localCart, cartMeta: localMeta },
+            remote,
+          );
+          if (cancelled) return;
+          setCart(merged.cart);
+          setCartMeta(merged.cartMeta);
+          const remoteEmpty = !Object.keys(remote.cart).length;
+          const localHasItems = Object.keys(localCart).length > 0;
+          if (remoteEmpty && localHasItems) {
+            void saveRemoteCart(user.clientId, merged.cart, merged.cartMeta);
+          }
+          return;
+        } catch { /* fallback to local */ }
+      }
+      if (!cancelled) {
+        setCart(localCart);
+        setCartMeta(localMeta);
+      }
+    };
+    void loadCart().finally(() => {
+      if (!cancelled) {
+        cartSyncReadyRef.current = true;
+        setCartSyncReady(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [user?.phone, user?.clientId]);
 
   useEffect(() => {
-    if (!user?.phone) return;
+    if (!user?.phone || !cartSyncReady) return;
     saveAccountJson(ACCOUNT_NS.cart, cart, user.phone);
-  }, [cart, user?.phone]);
-
-  useEffect(() => {
-    if (!user?.phone) return;
-    saveAccountJson(ACCOUNT_NS.cartMeta, cartMeta, user.phone);
-  }, [cartMeta, user?.phone]);
+    if (!USE_API || !user.clientId) return;
+    const t = setTimeout(() => {
+      void saveRemoteCart(user.clientId!, cart, cartMeta);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [cart, cartMeta, user?.phone, user?.clientId, cartSyncReady]);
 
   useEffect(() => {
     if (!user?.phone) return;

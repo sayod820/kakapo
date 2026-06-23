@@ -12,7 +12,7 @@ import {
   type ClientLevel,
 } from './clientCrm'
 import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, type AdminCard } from './cardCrm'
-import { isPhoneDeleted } from './clientTombstones'
+import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 
 const CLIENTS_KEY = 'kakapo-clients'
@@ -172,7 +172,7 @@ async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard
     try {
       const [clients, cards] = await Promise.all([api.getClients(), api.getCards()])
       return {
-        clients: clients.map(c => normalizeClient(c)).filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone)),
+        clients: clients.map(c => normalizeClient(c)).filter(c => !isClientPurged(c)),
         cards: cards.map(c => normalizeCard(c)),
       }
     } catch {
@@ -185,11 +185,14 @@ async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard
 }
 
 export async function findMergedClientByPhone(phone: string, cardNum?: string): Promise<AdminClient | null> {
-  if (isPhoneDeleted(phone)) return null
-
   const { clients, cards } = await loadCrmData()
-  const activeClients = clients.filter(c => !isClientPurged(c) && !isClientInRecovery(c))
-  const phoneMatches = activeClients.filter(c => phonesMatch(c.phone, phone))
+  const eligible = clients.filter(c => !isClientPurged(c))
+  const phoneMatches = eligible.filter(c => phonesMatch(c.phone, phone))
+  if (phoneMatches.length) {
+    unmarkPhoneDeleted(phone)
+  } else if (isPhoneDeleted(phone)) {
+    return null
+  }
   const client = phoneMatches.find(c => c.card && cardNum && cardNumsMatch(c.card, cardNum))
     || phoneMatches.find(c => c.card)
     || phoneMatches[0]
