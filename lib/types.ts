@@ -91,6 +91,8 @@ export interface Product {
   e: string
   name: string
   price: number
+  /** Цена прихода / закупки (только админ, не для витрины) */
+  costPrice?: number | null
   old?: number | null
   cat: string
   catId: string

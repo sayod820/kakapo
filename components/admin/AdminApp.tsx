@@ -1032,6 +1032,7 @@ function ProductsPage() {
   const [nName,   setNName]   = useState('');
   const [nArt,    setNArt]    = useState('');
   const [nPrice,  setNPrice]  = useState('');
+  const [nCostPrice, setNCostPrice] = useState('');
   const [nCat,    setNCat]    = useState('veg');
   const [nUnit,   setNUnit]   = useState('');
   const [nEmoji,  setNEmoji]  = useState('📦');
@@ -1059,6 +1060,7 @@ function ProductsPage() {
       country: editP.country || '',
       barcode: editP.barcode || '',
       price: editP.price,
+      costPrice: editP.costPrice ?? '',
       stock: editP.stock,
       unit: editP.unit || 'шт',
       catId: editP.catId,
@@ -1082,7 +1084,7 @@ function ProductsPage() {
   });
 
   const resetAddForm = () => {
-    setNName(''); setNArt(''); setNPrice(''); setNUnit(''); setNStock('');
+    setNName(''); setNArt(''); setNPrice(''); setNCostPrice(''); setNUnit(''); setNStock('');
     setNEmoji('📦'); setNPhoto(''); setNOrganic(false); setNSellType('piece');
     setNWeightStep('100'); setNUnitGrams('1000'); setNDesc(''); setNBulkPricing([]);
   };
@@ -1095,6 +1097,7 @@ function ProductsPage() {
     const nextArt = 'KAK-'+String(newId).padStart(4,'0');
     const product = {
       id:newId, art:nArt||nextArt, e:nEmoji, name:nName, price:Number(nPrice),
+      costPrice: nCostPrice ? Number(nCostPrice) : null,
       cat:CATS_LIST.find(c=>c.id===nCat)?.name||nCat, catId:nCat,
       unit:nUnit||'шт', stock:Number(nStock)||0, hot:false, organic:nOrganic,
       desc:nDesc||undefined, sellType:nSellType,
@@ -1114,10 +1117,12 @@ function ProductsPage() {
   const saveEdit = async () => {
     if (!editP || !editForm) return;
     const price = Number(editForm.price);
+    const costPrice = editForm.costPrice !== '' && editForm.costPrice != null ? Number(editForm.costPrice) : null;
     const updated = {
       ...editP,
       ...editForm,
       price,
+      costPrice,
       stock: Number(editForm.stock),
       catId: editForm.catId,
       cat: CATS_LIST.find(c=>c.id===editForm.catId)?.name || editP.cat,
@@ -1264,8 +1269,9 @@ function ProductsPage() {
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div><input className="ai" value={nName} onChange={e=>setNName(e.target.value)} placeholder="Название товара"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Артикул</div><input className="ai" value={nArt} onChange={e=>setNArt(e.target.value)} placeholder="KAK-XXXX (авто)"/></div>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ) *</div><input className="ai" value={nPrice} onChange={e=>setNPrice(e.target.value)} type="number" placeholder="0.00"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена прихода (ЅМ)</div><input className="ai" value={nCostPrice} onChange={e=>setNCostPrice(e.target.value)} type="number" step="0.01" placeholder="Закупка"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Остаток</div><input className="ai" value={nStock} onChange={e=>setNStock(e.target.value)} type="number" placeholder="0"/></div>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
@@ -1356,11 +1362,19 @@ function ProductsPage() {
                 onChange={bulkPricing => setEditForm(f => ({ ...f, bulkPricing }))}
                 sellType={editForm.sellType}
               />
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ)</div><input className="ai" value={editForm.price} onChange={e=>setEditForm(f=>({...f,price:e.target.value}))} type="number"/></div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена продажи (ЅМ)</div><input className="ai" value={editForm.price} onChange={e=>setEditForm(f=>({...f,price:e.target.value}))} type="number" step="0.01"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена прихода (ЅМ)</div><input className="ai" value={editForm.costPrice} onChange={e=>setEditForm(f=>({...f,costPrice:e.target.value}))} type="number" step="0.01" placeholder="Закупка"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Остаток</div><input className="ai" value={editForm.stock} onChange={e=>setEditForm(f=>({...f,stock:e.target.value}))} type="number"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Единица (отображение)</div><input className="ai" value={editForm.unit} onChange={e=>setEditForm(f=>({...f,unit:e.target.value}))} placeholder="500 гр / шт / 1 л"/></div>
               </div>
+              {editForm.costPrice !== '' && editForm.price && Number(editForm.price) > Number(editForm.costPrice) && (
+                <div style={{fontSize:11,color:'#8FB897',padding:'8px 12px',borderRadius:9,background:'rgba(31,215,96,.06)',border:'1px solid rgba(31,215,96,.15)'}}>
+                  Наценка: <span style={{color:'#1FD760',fontWeight:800}}>+{(Number(editForm.price) - Number(editForm.costPrice)).toFixed(2)} ЅМ</span>
+                  {' · '}
+                  <span style={{color:'#1FD760',fontWeight:700}}>{Math.round((1 - Number(editForm.costPrice) / Number(editForm.price)) * 100)}% маржа</span>
+                </div>
+              )}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
                 <div>
                   <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Категория</div>

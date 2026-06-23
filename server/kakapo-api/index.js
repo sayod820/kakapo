@@ -384,7 +384,7 @@ app.post('/products', (req, res) => {
   const id = ++db._seq.product
   const p = {
     id, art: req.body.art || `KAK-${String(id).padStart(4, '0')}`, e: req.body.e || '📦',
-    name: req.body.name, price: req.body.price || 0, cat: req.body.cat || '', catId: req.body.catId || '',
+    name: req.body.name, price: req.body.price || 0, costPrice: req.body.costPrice ?? null, cat: req.body.cat || '', catId: req.body.catId || '',
     unit: req.body.unit || 'шт', stock: req.body.stock || 0, hot: !!req.body.hot,
     desc: req.body.desc, brand: req.body.brand, country: req.body.country, barcode: req.body.barcode,
     organic: !!req.body.organic, sellType: req.body.sellType || 'piece',
