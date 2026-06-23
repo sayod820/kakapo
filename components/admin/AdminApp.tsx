@@ -271,8 +271,20 @@ const Badge = ({v,c}) => (
   <span style={{padding:'2px 8px',borderRadius:7,fontSize:10,fontWeight:800,background:`${c}18`,color:c,border:`1px solid ${c}28`}}>{v}</span>
 );
 
-const StatCard = ({l,v,c,e,sub}) => (
-  <div className="ac" style={{padding:'16px 18px'}}>
+const StatCard = ({l,v,c,e,sub,onClick,active}) => (
+  <div
+    className="ac"
+    onClick={onClick}
+    role={onClick ? 'button' : undefined}
+    style={{
+      padding:'16px 18px',
+      cursor:onClick?'pointer':'default',
+      border:active?`1.5px solid ${c||'rgba(31,215,96,.45)'}`:'1px solid #162B1A',
+      background:active?'rgba(31,215,96,.08)':undefined,
+      transition:'border .15s, background .15s, transform .12s',
+      transform:active?'scale(1.02)':undefined,
+    }}
+  >
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
       <div style={{fontSize:11,color:'#8FB897',fontWeight:600}}>{l}</div>
       {e&&<span style={{fontSize:22}}>{e}</span>}
@@ -1026,6 +1038,7 @@ function ProductsPage() {
   const prods = useMemo(() => stripProductSaleFields(enrichProducts(apiProducts, PRODS)), [apiProducts]);
   const [search,  setSearch]  = useState('');
   const [catFlt,  setCatFlt]  = useState('all');
+  const [statFlt, setStatFlt] = useState('all');
   const [syncMsg, setSyncMsg] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editP,   setEditP]   = useState(null);
@@ -1076,11 +1089,31 @@ function ProductsPage() {
 
   const syncGBS = () => { setSyncMsg('loading'); setTimeout(()=>setSyncMsg('ok'),1800); setTimeout(()=>setSyncMsg(''),5000); };
 
+  const toggleStatFlt = (id) => setStatFlt(s => s === id ? 'all' : id);
+
+  const statLabels = {
+    all: 'Все',
+    inStock: 'В наличии',
+    low: 'Мало (≤3)',
+    out: 'Нет в наличии',
+    hot: 'Хиты',
+    bulk: 'С оптом',
+  };
+
+  const matchStat = (p) => {
+    if (statFlt === 'inStock') return p.stock > 3;
+    if (statFlt === 'low') return p.stock > 0 && p.stock <= 3;
+    if (statFlt === 'out') return p.stock === 0;
+    if (statFlt === 'hot') return !!p.hot;
+    if (statFlt === 'bulk') return hasBulkPricing(p);
+    return true;
+  };
+
   const filtered = prods.filter(p => {
     const q = search.toLowerCase();
     const matchQ = !search || p.name.toLowerCase().includes(q) || p.art.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q);
     const matchC = catFlt==='all' || p.catId===catFlt;
-    return matchQ && matchC;
+    return matchQ && matchC && matchStat(p);
   });
 
   const resetAddForm = () => {
@@ -1150,12 +1183,12 @@ function ProductsPage() {
   return (
     <div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12,marginBottom:18}}>
-        <StatCard l="Всего позиций" v={prods.length}/>
-        <StatCard l="В наличии" v={prods.filter(p=>p.stock>3).length} c="#1FD760"/>
-        <StatCard l="Мало (≤3)" v={prods.filter(p=>p.stock>0&&p.stock<=3).length} c="#FFB800"/>
-        <StatCard l="Нет в наличии" v={prods.filter(p=>p.stock===0).length} c="#FF4545"/>
-        <StatCard l="Хиты" v={prods.filter(p=>p.hot).length} c="#FF8C00"/>
-        <StatCard l="С оптом" v={withBulk} c="#FF8C00"/>
+        <StatCard l="Всего позиций" v={prods.length} onClick={()=>setStatFlt('all')} active={statFlt==='all'}/>
+        <StatCard l="В наличии" v={prods.filter(p=>p.stock>3).length} c="#1FD760" onClick={()=>toggleStatFlt('inStock')} active={statFlt==='inStock'}/>
+        <StatCard l="Мало (≤3)" v={prods.filter(p=>p.stock>0&&p.stock<=3).length} c="#FFB800" onClick={()=>toggleStatFlt('low')} active={statFlt==='low'}/>
+        <StatCard l="Нет в наличии" v={prods.filter(p=>p.stock===0).length} c="#FF4545" onClick={()=>toggleStatFlt('out')} active={statFlt==='out'}/>
+        <StatCard l="Хиты" v={prods.filter(p=>p.hot).length} c="#FF8C00" onClick={()=>toggleStatFlt('hot')} active={statFlt==='hot'}/>
+        <StatCard l="С оптом" v={withBulk} c="#FF8C00" onClick={()=>toggleStatFlt('bulk')} active={statFlt==='bulk'}/>
       </div>
 
       <div style={{ display:'flex', gap:8, marginBottom:18, overflowX:'auto', paddingBottom:4 }}>
@@ -1189,7 +1222,11 @@ function ProductsPage() {
         </div>
       </div>
 
-      <div style={{fontSize:12,color:'#3D6645',marginBottom:10}}>Показано {filtered.length} из {prods.length} товаров {catFlt!=='all'?`· ${CATS_LIST.find(c=>c.id===catFlt)?.name}`:''}</div>
+      <div style={{fontSize:12,color:'#3D6645',marginBottom:10}}>
+        Показано {filtered.length} из {prods.length} товаров
+        {statFlt!=='all'?` · ${statLabels[statFlt]}`:''}
+        {catFlt!=='all'?` · ${CATS_LIST.find(c=>c.id===catFlt)?.name}`:''}
+      </div>
 
       {/* Table */}
       <div className="ac" style={{ overflow:'hidden' }}>
