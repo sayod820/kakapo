@@ -425,7 +425,57 @@ app.delete('/categories/:id', (req, res) => {
   res.json({ ok: true })
 })
 
-app.get('/promos', (_req, res) => res.json(db.promos))
+app.get('/promos', (_req, res) => {
+  if (syncAllPromosLifecycle()) persist()
+  res.json(db.promos)
+})
+
+function syncPromoLifecycle(promo) {
+  if (!promo || !promo.on) return false
+  let changed = false
+  const limit = Number(promo.stockLimit)
+  if (Number.isFinite(limit) && limit > 0) {
+    const sold = Number(promo.stockSold) || 0
+    if (sold >= limit) {
+      promo.on = false
+      return true
+    }
+  }
+  if (promo.endsAt) {
+    const end = new Date(promo.endsAt)
+    if (!Number.isNaN(end.getTime()) && Date.now() >= end.getTime()) {
+      promo.on = false
+      changed = true
+    }
+  }
+  return changed
+}
+
+function syncAllPromosLifecycle() {
+  if (!Array.isArray(db.promos)) return false
+  let changed = false
+  for (const promo of db.promos) {
+    if (syncPromoLifecycle(promo)) changed = true
+  }
+  return changed
+}
+
+function consumePromoStockOnOrder(order) {
+  if (!Array.isArray(order.items) || !Array.isArray(db.promos)) return
+  for (const item of order.items) {
+    const pid = Number(item.productId ?? item.id)
+    if (!pid) continue
+    const promo = db.promos.find(p => p.type === 'product' && p.on && Number(p.productId) === pid)
+    if (!promo) continue
+    const limit = Number(promo.stockLimit)
+    if (!Number.isFinite(limit) || limit <= 0) continue
+    const add = Number(item.promoUnits ?? item.qty) || 0
+    if (add <= 0) continue
+    promo.stockSold = (Number(promo.stockSold) || 0) + add
+    syncPromoLifecycle(promo)
+  }
+}
+
 app.post('/promos', (req, res) => {
   const id = ++db._seq.promo
   const p = {
@@ -515,6 +565,7 @@ app.post('/orders', (req, res) => {
   }
   const orderClient = findClientByPhone(db, client.phone || '')
   stampOrderForClient(order, orderClient)
+  consumePromoStockOnOrder(order)
   db.orders.push(order)
   persist()
   broadcast('new_order', order)

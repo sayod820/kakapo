@@ -1,13 +1,18 @@
-import type { Product } from './types'
-import type { Promo } from './types'
+import type { Product, Promo } from './types'
 import { isPromoScheduleActive } from './promoSchedule'
+import { isPromoStockAvailable, promoStockPercent, promoStockRemaining } from './promoStock'
 
 export function isProductPromo(p: Promo): boolean {
   return p.type === 'product' && p.productId != null
 }
 
+export function isPromoActive(p: Promo): boolean {
+  if (!p.on) return false
+  return isPromoScheduleActive(p) && isPromoStockAvailable(p)
+}
+
 export function activeProductPromos(promos: Promo[]): Promo[] {
-  return promos.filter(p => isProductPromo(p) && isPromoScheduleActive(p))
+  return promos.filter(p => isProductPromo(p) && isPromoActive(p))
 }
 
 /** Базовый каталог без зачёркнутых цен — скидки только из раздела «Акции» */
@@ -44,6 +49,8 @@ export function applyActiveProductPromos(products: Product[], promos: Promo[]): 
       old: oldPrice > salePrice ? oldPrice : null,
       discount,
       hot: promo.markHot ?? p.hot,
+      promoStockLeft: promoStockRemaining(promo),
+      promoStockPct: promoStockPercent(promo),
     }
   })
 }

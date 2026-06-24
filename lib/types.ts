@@ -256,3 +256,9 @@ export interface Promo {
   scheduleMode?: 'always' | 'daily' | 'flash'
   startsAt?: string
   endsAt?: string
+  /** Лимит по акции: штуки или граммы (0/пусто = без лимита) */
+  stockLimit?: number
+  /** Продано по акции — обновляется при заказах */
+  stockSold?: number
+  markHot?: boolean
+}

@@ -65,6 +65,8 @@ import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
 import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import { formatCountdownParts, nextFlashCountdownSeconds } from "@/lib/promoSchedule";
+import { activeProductPromos } from "@/lib/productPromos";
+import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
@@ -3164,9 +3166,18 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
   const copy = code => { setCopied(code); setTimeout(() => setCopied(null), 2000); };
   const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   const FLASH = prods
-    .filter(p => num(p.old) > num(p.price))
-    .map(p => ({ ...p, price: num(p.price), old: num(p.old), now: num(p.price), was: num(p.old), stock: ((Number(p.id) * 37) % 56) + 5 }))
-    .slice(0, 5);
+    .filter(p => num(p.old) > num(p.price) && (p.promoStockLeft == null || p.promoStockLeft > 0))
+    .map(p => ({
+      ...p,
+      price: num(p.price),
+      old: num(p.old),
+      stockPct: p.promoStockPct ?? (p.promoStockLeft != null ? 0 : 55),
+      stockLabel: formatPromoStockLeft(
+        apiPromos.find(pr => pr.type === 'product' && Number(pr.productId) === Number(p.id)),
+        p,
+      ),
+    }))
+    .slice(0, 8);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
   return (
@@ -3247,7 +3258,10 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
                         <span className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--red)" }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                         <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>
                       </div>
-                      <div style={{ height:4, background:"var(--b1)", borderRadius:2, marginTop:6 }}><div style={{ height:"100%", width:`${((p.id * 53) % 51) + 10}%`, background:"var(--gr)", borderRadius:2 }}/></div>
+                      <div style={{ height:4, background:"var(--b1)", borderRadius:2, marginTop:6 }}>
+                        <div style={{ height:"100%", width:`${p.stockPct}%`, background:"var(--gr)", borderRadius:2 }}/>
+                      </div>
+                      {p.stockLabel && <div style={{ fontSize:9, color:"var(--t3)", marginTop:4 }}>{p.stockLabel}</div>}
                     </div>
                     <div style={{ padding:"0 10px 10px" }}>
                       {qty===0 ? <button onClick={() => onAdd(p.id)} className="btn" style={{ width:"100%", padding:"8px", fontSize:11, borderRadius:10, background:"linear-gradient(135deg,#CC2A2A,var(--red))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><Ic n="plus" s={11} c="white" w={2.5}/>В корзину</button> :
@@ -8369,12 +8383,26 @@ function KakapoAppInner() {
     setTimeout(() => setToast(null), 2200);
   }, []);
 
+  const apiPromos = usePromos(s => s.promos);
+
   const addItem = useCallback((id, price, name, emoji, restId, silent) => {
     const p = prods.find(x => x.id == id);
     if (p && !restId) {
+      const promo = activeProductPromos(apiPromos).find(pr => Number(pr.productId) === Number(p.id));
       setCart(c => {
         const cur = c[id] || 0;
-        const next = nextCartQty(p, cur, true);
+        let next = nextCartQty(p, cur, true);
+        if (promo) {
+          const room = promoCartRoom(promo, cur);
+          if (room != null && room <= 0) {
+            if (!silent) showToast('По акции больше нет');
+            return c;
+          }
+          if (room != null && next > cur + room) {
+            next = cur + room;
+            if (!silent) showToast(`По акции осталось: ${formatPromoStockLeft(promo, p)}`);
+          }
+        }
         if (!silent && next > 0) showToast(`${p.e} ${p.name} — ${formatCartQty(p, next)}`);
         if (next === 0) return c;
         return { ...c, [id]: next };
@@ -8386,7 +8414,7 @@ function KakapoAppInner() {
       setCartMeta(m => ({ ...m, [id]: { price, name, emoji: emoji || '🍽', restId } }));
       if (!silent) showToast(`${emoji || '🍽'} ${name} в корзине`);
     }
-  }, [showToast, prods]);
+  }, [showToast, prods, apiPromos]);
 
   const rmItem = useCallback((id) => {
     const p = prods.find(x => x.id == id);

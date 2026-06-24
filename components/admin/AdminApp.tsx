@@ -136,6 +136,7 @@ import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWei
 import { formatBulkPricingHint, hasBulkPricing, normalizeBulkPricing } from '@/lib/productBulkPricing'
 import { isProductPromo, productPromoLabel, stripProductSaleFields } from '@/lib/productPromos'
 import { formatPromoScheduleLabel, hasFlashEnd, isPromoScheduleActive } from '@/lib/promoSchedule'
+import { formatPromoStockAdmin, isPromoStockAvailable, isPromoStockExhausted, promoLimitUnit, stockLimitFromAdminInput, stockLimitToAdminInput } from '@/lib/promoStock'
 import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
 import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
 import { api } from '@/lib/api'
@@ -4756,7 +4757,7 @@ function PromosPage() {
     { id: 7, e: '🎁', title: 'Первый заказ', sub: '15% скидка на первый заказ', disc: 15, on: true, cat: 'Магазин', type: 'first', from: '00:00', to: '23:59', till: 'Всегда' },
   ]
   const emptyForm = { e: '🎁', title: '', sub: '', disc: '0', cat: 'Магазин' as Promo['cat'], type: 'pct' as Promo['type'], on: true, schedule: { scheduleMode: 'daily' as PromoScheduleForm['scheduleMode'], from: '08:00', to: '22:00', till: 'Всегда', startsAt: '', endsAt: '' } }
-  const emptyProductForm = { productId: '', salePrice: '', oldPrice: '', markHot: false, on: true, schedule: { scheduleMode: 'always' as PromoScheduleForm['scheduleMode'], from: '08:00', to: '22:00', till: 'Всегда', startsAt: '', endsAt: '' } }
+  const emptyProductForm = { productId: '', salePrice: '', oldPrice: '', markHot: false, on: true, stockLimit: '', resetStockSold: false, schedule: { scheduleMode: 'always' as PromoScheduleForm['scheduleMode'], from: '08:00', to: '22:00', till: 'Всегда', startsAt: '', endsAt: '' } }
 
   const apiProducts = useProducts(s => s.products)
   const catalogProds = useMemo(() => stripProductSaleFields(enrichProducts(apiProducts, PRODS)), [apiProducts])
@@ -4833,6 +4834,7 @@ function PromosPage() {
   }
 
   const openProductEdit = (p: Promo) => {
+    const prod = catalogProds.find(x => x.id === p.productId)
     setEditProductId(p.id)
     setProductForm({
       productId: String(p.productId ?? ''),
@@ -4840,6 +4842,8 @@ function PromosPage() {
       oldPrice: p.oldPrice != null ? String(p.oldPrice) : '',
       markHot: !!p.markHot,
       on: p.on,
+      stockLimit: stockLimitToAdminInput(p.stockLimit, prod),
+      resetStockSold: false,
       schedule: scheduleFromPromo(p),
     })
     setShowProductModal(true)
@@ -4913,6 +4917,9 @@ function PromosPage() {
     const old = productForm.oldPrice !== '' ? Number(productForm.oldPrice) : (product?.price ?? 0)
     const disc = old > sale ? Math.round((1 - sale / old) * 100) : 0
     const schedule = scheduleToPromoPayload(productForm.schedule)
+    const stockLimit = stockLimitFromAdminInput(productForm.stockLimit, product)
+    const prevSold = productForm.resetStockSold ? 0 : (editingProductPromo?.stockSold ?? 0)
+    const stockExhausted = !!stockLimit && prevSold >= stockLimit
     const payload = {
       type: 'product' as const,
       e: product?.e || '🏷️',
@@ -4920,11 +4927,13 @@ function PromosPage() {
       sub: productPromoLabel({ salePrice: sale, oldPrice: old } as Promo, product),
       disc,
       cat: 'Магазин' as const,
-      on: productForm.on,
+      on: productForm.on && !stockExhausted,
       productId: pid,
       salePrice: sale,
       oldPrice: old > sale ? old : undefined,
       markHot: productForm.markHot,
+      stockLimit,
+      ...(productForm.resetStockSold ? { stockSold: 0 } : {}),
       ...schedule,
     }
     setSaving(true)
@@ -5001,6 +5010,7 @@ function PromosPage() {
 
   const setF = (k: keyof typeof form, v: string | boolean) => setForm(f => ({ ...f, [k]: v }))
   const selectedProduct = catalogProds.find(p => p.id === Number(productForm.productId))
+  const editingProductPromo = editProductId != null ? productPromos.find(p => p.id === editProductId) : null
   const productPreviewDisc = selectedProduct && productForm.salePrice
     && Number(productForm.oldPrice || selectedProduct.price) > Number(productForm.salePrice)
     ? Math.round((1 - Number(productForm.salePrice) / Number(productForm.oldPrice || selectedProduct.price)) * 100)
@@ -5089,7 +5099,11 @@ function PromosPage() {
                           База: {prod ? `${prod.price.toFixed(2)} ЅМ` : '—'}
                           {p.salePrice != null && <> → <span style={{color:'#FF4545',fontWeight:700}}>{Number(p.salePrice).toFixed(2)} ЅМ</span></>}
                         </div>
-                        <div style={{fontSize:10,color:'#3D6645',marginTop:4}}>{formatPromoScheduleLabel(p)}{p.on && !isPromoScheduleActive(p) ? ' · ⏸ вне расписания' : ''}</div>
+                        <div style={{fontSize:10,color:'#3D6645',marginTop:4}}>
+                          {formatPromoScheduleLabel(p)}{p.on && !isPromoScheduleActive(p) ? ' · ⏸ вне расписания' : ''}
+                          {formatPromoStockAdmin(p, prod) ? ` · 📦 ${formatPromoStockAdmin(p, prod)}` : ''}
+                          {p.on && isPromoStockExhausted(p) ? ' · закончилось' : ''}
+                        </div>
                       </div>
                       <div style={{display:'flex',alignItems:'center',gap:10}}>
                         <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
@@ -5207,6 +5221,34 @@ function PromosPage() {
                   Скидка: <span style={{color:'#FF4545',fontWeight:800}}>−{productPreviewDisc}%</span>
                 </div>
               )}
+              <div>
+                <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>
+                  Лимит по акции ({selectedProduct ? promoLimitUnit(selectedProduct) : 'шт'})
+                </div>
+                <input
+                  className="ai"
+                  type="number"
+                  min="0.1"
+                  step={selectedProduct?.sellType === 'weight' ? '0.1' : '1'}
+                  value={productForm.stockLimit}
+                  onChange={e => setProductForm(f => ({ ...f, stockLimit: e.target.value }))}
+                  placeholder={selectedProduct?.sellType === 'weight' ? 'Напр. 50 кг' : 'Напр. 100 шт'}
+                />
+                <div style={{fontSize:10,color:'#3D6645',marginTop:5,lineHeight:1.45}}>
+                  {selectedProduct?.sellType === 'weight'
+                    ? 'Для весовых товаров укажите лимит в килограммах. Когда лимит исчерпан — акция автоматически выключается.'
+                    : 'Для штучных товаров — количество штук. Когда лимит исчерпан — акция автоматически выключается.'}
+                </div>
+                {editingProductPromo && Number(editingProductPromo.stockLimit) > 0 && (
+                  <div style={{marginTop:8,padding:'8px 10px',borderRadius:9,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.15)',fontSize:11,color:'#8FB897'}}>
+                    Продано: <strong style={{color:'#EBF5ED'}}>{formatPromoStockAdmin(editingProductPromo, selectedProduct)}</strong>
+                    <label style={{display:'flex',alignItems:'center',gap:8,marginTop:8,cursor:'pointer'}}>
+                      <input type="checkbox" checked={productForm.resetStockSold} onChange={e => setProductForm(f => ({ ...f, resetStockSold: e.target.checked }))}/>
+                      Сбросить счётчик продаж
+                    </label>
+                  </div>
+                )}
+              </div>
               <PromoScheduleFields
                 compact
                 value={productForm.schedule}
