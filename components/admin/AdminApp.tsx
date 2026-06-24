@@ -5221,23 +5221,30 @@ function PromosPage() {
                     <div className="ub" style={{fontSize:15,fontWeight:800}}>{activeCat.name}</div>
                     <div style={{fontSize:11,color:'#8FB897'}}>{activeCatItems.length} акционных товаров</div>
                   </div>
-                  <button onClick={() => openProductCreate({ catId: activeCat.id === '_other' ? undefined : activeCat.id })} className="ab abp">+ Скидка</button>
+                  <button onClick={() => openProductCreate({ catId: activeCat.id === '_other' ? undefined : activeCat.id })} className="ab abp" style={{padding:'8px 16px',fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>+ Скидка на товар</button>
                 </>
               )
             })()}
           </div>
           {activeCatItems.length === 0 ? (
-            <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13}}>В этой категории пока нет акций</div>
+            <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13}}>
+              <div style={{marginBottom:14}}>В этой категории пока нет акций</div>
+              <button onClick={() => openProductCreate({ catId: activeCat.id === '_other' ? undefined : activeCat.id })} className="ab abp" style={{padding:'10px 20px',fontSize:13,fontWeight:700}}>+ Скидка на товар</button>
+            </div>
           ) : (
             <div style={{display:'flex',flexDirection:'column',gap:10}}>{activeCatItems.map(renderPromoRow)}</div>
           )}
         </>
       ) : (
         <>
-          <div style={{fontSize:11,color:'#8FB897',marginBottom:14}}>Категории появляются автоматически, когда добавляете скидку на товар</div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:14}}>
+            <div style={{fontSize:11,color:'#8FB897',flex:1}}>Категории появляются автоматически, когда добавляете скидку на товар</div>
+            <button onClick={() => openProductCreate()} className="ab abp" style={{padding:'8px 16px',fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>+ Скидка на товар</button>
+          </div>
           {promosByCategory.length === 0 ? (
             <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>
-              Пока нет категорий с акциями. Добавьте скидку на товар — его категория появится здесь.
+              <div style={{marginBottom:14}}>Пока нет категорий с акциями. Добавьте скидку на товар — его категория появится здесь.</div>
+              <button onClick={() => openProductCreate()} className="ab abp" style={{padding:'10px 20px',fontSize:13,fontWeight:700}}>+ Скидка на товар</button>
             </div>
           ) : (
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
