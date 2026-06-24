@@ -3116,6 +3116,44 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
   );
 };
 
+const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
+  const shortLabel = cat.label.split(" ")[0];
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        borderRadius: 18,
+        background: cat.bg,
+        border: `1px solid ${cat.color}28`,
+        padding: "14px 14px 12px",
+        cursor: "pointer",
+        minHeight: 110,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        animation: `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both`,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 30, marginBottom: 8, lineHeight: 1 }}>{cat.e}</div>
+        <div className="ub" style={{ fontSize: 15, fontWeight: 800, color: "#fff", lineHeight: 1.2 }}>{shortLabel}</div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+        <span style={{
+          padding: "4px 10px",
+          borderRadius: 8,
+          background: `${cat.color}22`,
+          border: `1px solid ${cat.color}40`,
+          fontSize: 12,
+          fontWeight: 800,
+          color: cat.color,
+        }}>−{maxDisc}%</span>
+        <span style={{ fontSize: 15, color: "rgba(255,255,255,.4)", fontWeight: 300 }}>→</span>
+      </div>
+    </div>
+  );
+};
+
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
   const qty = cart[p.id] || 0;
   return (
@@ -3182,7 +3220,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const { prods } = useLiveCatalog();
   const apiPromos = usePromos(s => s.promos) || [];
   const { isVip } = resolveUserVip(user);
-  const [filter, setFilter] = useState("all");
+  const [selectedCat, setSelectedCat] = useState(null);
   const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   const isSaleProduct = p => num(p.old) > num(p.price) && (p.promoStockLeft == null || p.promoStockLeft > 0);
   const saleDisc = p => {
@@ -3219,13 +3257,18 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
       const items = saleProds.filter(p => parentCatForProduct(p) === cat.id);
       if (!items.length) continue;
       items.forEach(p => used.add(p.id));
-      groups.push({ cat, items });
+      groups.push({
+        cat,
+        items,
+        maxDisc: Math.max(...items.map(saleDisc)),
+      });
     }
     const other = saleProds.filter(p => !used.has(p.id));
     if (other.length) {
       groups.push({
-        cat: { id: "_other", e: "🏷️", label: "Другие акции", color: "var(--gr)", bg: "var(--l2)", saleCount: other.length },
+        cat: { id: "_other", e: "🏷️", label: "Другие акции", color: "var(--gr)", bg: "var(--l2)" },
         items: other,
+        maxDisc: Math.max(...other.map(saleDisc)),
       });
     }
     return groups;
@@ -3245,34 +3288,57 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const pad2 = n => String(n).padStart(2, "0");
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
-  const chipStyle = active => ({
-    padding: "8px 13px",
-    borderRadius: 50,
-    fontSize: 12,
-    fontWeight: 700,
-    whiteSpace: "nowrap",
-    flexShrink: 0,
-    border: `1.5px solid ${active ? "rgba(31,215,96,.42)" : "var(--b1)"}`,
-    background: active ? "rgba(31,215,96,.13)" : "var(--l2)",
-    color: active ? "var(--gr)" : "var(--t2)",
-    fontFamily: "Nunito",
-    cursor: "pointer",
-  });
-  const showFlashBlock = filter === "all" && flashProds.length > 0;
-  const showCategoryBlocks = filter === "all";
-  const showFlashOnly = filter === "flash";
-  const activeCategory = filter !== "all" && filter !== "flash"
-    ? saleByCategory.find(g => g.cat.id === filter)
-    : null;
+  const activeGroup = selectedCat ? saleByCategory.find(g => g.cat.id === selectedCat) : null;
+
+  if (activeGroup) {
+    const { cat, items } = activeGroup;
+    return (
+      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+        <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+          <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+            <button onClick={() => setSelectedCat(null)} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Ic n="arrL" s={17} c="var(--t2)"/>
+            </button>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: cat.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{cat.e}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{cat.label}</div>
+              <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 2 }}>Только акционные · {formatProductCount(items.length)}</div>
+            </div>
+            <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
+          </div>
+        </header>
+        <div style={{ padding: "14px 18px 110px" }}>
+          {items.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "52px 22px" }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>🏷️</div>
+              <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>Акций в этой категории нет</div>
+              <button onClick={() => setSelectedCat(null)} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "var(--l2)", border: "1px solid var(--b1)", color: "var(--t2)", fontSize: 13 }}>← Назад к акциям</button>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {items.map((p, i) => (
+                <div key={p.id} style={{ animation: `fadeUp .4s cubic-bezier(.16,1,.3,1) ${Math.min(i, 8) * .04}s both` }}>
+                  <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />}
+        <Nav page="promos" go={go} user={user}/>
+      </div>
+    );
+  }
+
   return (
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
       <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
-        <div style={{ padding: "13px 18px 10px", display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
           <div style={{ flex: 1 }}>
             <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Акции</div>
             <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>
-              {saleProds.length ? `Только товары со скидкой · ${saleProds.length}` : "Сейчас нет акционных товаров"}
+              {saleProds.length ? `${saleProds.length} товаров со скидкой` : "Сейчас нет акционных товаров"}
             </div>
           </div>
           <button onClick={() => go("search")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -3280,28 +3346,15 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
           </button>
           <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
         </div>
-        {saleProds.length > 0 && (
-          <div className="hscroll" style={{ padding: "0 18px 12px", gap: 8 }}>
-            <button type="button" className="btn" onClick={() => setFilter("all")} style={chipStyle(filter === "all")}>Все</button>
-            {flashProds.length > 0 && (
-              <button type="button" className="btn" onClick={() => setFilter("flash")} style={chipStyle(filter === "flash")}>⚡ Флэш</button>
-            )}
-            {saleByCategory.map(({ cat, items }) => (
-              <button key={cat.id} type="button" className="btn" onClick={() => setFilter(cat.id)} style={chipStyle(filter === cat.id)}>
-                {cat.e} {cat.label.split(" ")[0]}
-              </button>
-            ))}
-          </div>
-        )}
       </header>
 
-      <div style={{ padding: "14px 18px 100px" }}>
+      <div style={{ padding: "14px 18px 110px" }}>
         {saleProds.length === 0 ? (
           <div style={{ textAlign: "center", padding: "52px 22px", background: "var(--l2)", border: "1px solid var(--b1)", borderRadius: 20 }}>
             <div style={{ fontSize: 52, marginBottom: 14 }}>🏷️</div>
             <div className="ub" style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Акций пока нет</div>
             <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 22, lineHeight: 1.55 }}>
-              Здесь появятся только товары со скидкой —<br/>сгруппированные по категориям
+              Здесь появятся товары со скидкой —<br/>по категориям
             </div>
             <button onClick={() => go("catalog")} className="btn" style={{ padding: "12px 26px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "#fff", fontSize: 13, fontWeight: 700 }}>
               Перейти в каталог
@@ -3309,8 +3362,8 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
           </div>
         ) : (
           <>
-            {showFlashBlock && (
-              <section style={{ marginBottom: 24 }}>
+            {flashProds.length > 0 && (
+              <section style={{ marginBottom: 22 }}>
                 <div style={{ borderRadius: 20, padding: "16px 16px 14px", background: "linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)", border: "1px solid rgba(255,69,69,.2)", boxShadow: "0 10px 32px rgba(255,69,69,.06)" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12, gap: 10 }}>
                     <div>
@@ -3352,95 +3405,31 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
               </section>
             )}
 
-            {showFlashOnly && (
-              <section style={{ marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                  <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>⚡ Флэш-товары</div>
-                  <span style={{ fontSize: 11, color: "var(--t3)" }}>{formatProductCount(flashProds.length)}</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {(flashProds.length ? flashProds : saleProds).map((p, i) => (
-                    <div key={p.id} style={{ animation: `fadeUp .4s cubic-bezier(.16,1,.3,1) ${Math.min(i, 8) * .04}s both` }}>
-                      <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
-                    </div>
+            {saleByCategory.length > 0 && (
+              <section>
+                <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: "#5B9CF5", marginBottom: 14 }}>По категориям</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {saleByCategory.map(({ cat, maxDisc }, i) => (
+                    <PromoCategoryCard
+                      key={cat.id}
+                      cat={cat}
+                      maxDisc={maxDisc}
+                      onClick={() => setSelectedCat(cat.id)}
+                      animDelay={i * 0.04}
+                    />
                   ))}
                 </div>
               </section>
             )}
-
-            {activeCategory && (
-              <section>
-                <CategoryPromoSection
-                  cat={activeCategory.cat}
-                  items={activeCategory.items}
-                  cart={cart}
-                  onAdd={onAdd}
-                  onRm={onRm}
-                  onWish={onWish}
-                  wished={wished}
-                  go={go}
-                  saleDisc={saleDisc}
-                  catMetaForProduct={catMetaForProduct}
-                />
-              </section>
-            )}
-
-            {showCategoryBlocks && saleByCategory.map(({ cat, items }, gi) => {
-              const visible = items.filter(p => !flashProds.some(f => f.id === p.id));
-              if (!visible.length) return null;
-              return (
-                <CategoryPromoSection
-                  key={cat.id}
-                  cat={cat}
-                  items={visible}
-                  cart={cart}
-                  onAdd={onAdd}
-                  onRm={onRm}
-                  onWish={onWish}
-                  wished={wished}
-                  go={go}
-                  saleDisc={saleDisc}
-                  catMetaForProduct={catMetaForProduct}
-                  animDelay={gi * 0.05}
-                />
-              );
-            })}
           </>
         )}
       </div>
+      {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />}
       <Nav page="promos" go={go} user={user}/>
     </div>
   );
 };
 
-const CategoryPromoSection = ({ cat, items, cart, onAdd, onRm, onWish, wished, go, saleDisc, catMetaForProduct, animDelay = 0 }) => (
-  <section style={{ marginBottom: 26, animation: `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both` }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-      <div style={{ width: 40, height: 40, borderRadius: 12, background: cat.bg || "var(--l2)", border: `1px solid ${cat.color || "var(--b1)"}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
-        {cat.e}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{cat.label}</div>
-        <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>{formatProductCount(items.length)} по акции</div>
-      </div>
-      <button
-        type="button"
-        onClick={() => go("plist", { cat: cat.id })}
-        className="btn"
-        style={{ fontSize: 11, color: cat.color || "var(--gr)", background: `${cat.color || "var(--gr)"}12`, border: `1px solid ${cat.color || "var(--gr)"}30`, borderRadius: 10, padding: "6px 10px", flexShrink: 0 }}
-      >
-        Каталог →
-      </button>
-    </div>
-    <div style={{ display: "grid", gridTemplateColumns: items.length === 1 ? "1fr" : "1fr 1fr", gap: 12, maxWidth: items.length === 1 ? 220 : "100%" }}>
-      {items.map((p, i) => (
-        <div key={p.id} style={{ position: "relative", animation: `fadeUp .4s cubic-bezier(.16,1,.3,1) ${(animDelay + i * 0.04)}s both` }}>
-          <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
-        </div>
-      ))}
-    </div>
-  </section>
-);
 const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
   const { prods } = useLiveCatalog();
   const { isVip } = resolveUserVip(user);
