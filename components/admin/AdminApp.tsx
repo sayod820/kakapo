@@ -216,6 +216,18 @@ const REST_ORDERS = [
   {id:'K-4828',restId:'R-02',client:'Рустам Д.',   phone:'+992 93 654 32 10',items:['🍔 Бургер ×2','🍟 Картошка ×1'],total:51,status:'delivered', time:'13:40'},
 ];
 
+const ADMIN_CAT_VISUAL: Record<string, { bg: string; color: string }> = {
+  veg: { bg: 'linear-gradient(145deg,#0D2A0D,#1A4A1A)', color: '#56C956' },
+  meat: { bg: 'linear-gradient(145deg,#2A0A0A,#4A1818)', color: '#FF6B6B' },
+  dairy: { bg: 'linear-gradient(145deg,#0A1828,#163050)', color: '#93C5FD' },
+  bread: { bg: 'linear-gradient(145deg,#281806,#4A2E12)', color: '#FCD34D' },
+  drinks: { bg: 'linear-gradient(145deg,#041820,#0C2E3A)', color: '#67E8F9' },
+  grains: { bg: 'linear-gradient(145deg,#281806,#4A2E12)', color: '#D4A574' },
+  frozen: { bg: 'linear-gradient(145deg,#051822,#0E2C3E)', color: '#7DD3FC' },
+  sweets: { bg: 'linear-gradient(145deg,#1A0C28,#2E1848)', color: '#C084FC' },
+  house: { bg: 'linear-gradient(145deg,#062018,#103A28)', color: '#6EE7B7' },
+}
+
 const CATS_LIST = [
   {id:'veg',   e:'🥦', name:'Овощи и фрукты'},
   {id:'meat',  e:'🥩', name:'Мясо и птица'},
@@ -4758,14 +4770,22 @@ function PromosPage() {
     usePromos.getState().setPromos(list)
   }
   const [loading, setLoading] = useState(true)
+  const [section, setSection] = useState<'flash' | 'categories'>('flash')
+  const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [showProductModal, setShowProductModal] = useState(false)
   const [editProductId, setEditProductId] = useState<number | null>(null)
   const [productForm, setProductForm] = useState(emptyProductForm)
+  const [pickerCatFilter, setPickerCatFilter] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const productPromos = promos.filter(isProductPromo)
   const prodForPromo = (p: Promo) => catalogProds.find(x => x.id === p.productId)
   const catIdForPromo = (p: Promo) => prodForPromo(p)?.catId || null
+  const saleDiscPromo = (p: Promo) => {
+    const sale = Number(p.salePrice)
+    const old = Number(p.oldPrice) || prodForPromo(p)?.price || 0
+    return old > sale ? Math.round((1 - sale / old) * 100) : 0
+  }
   const catLabelForPromo = (p: Promo) => {
     const cid = catIdForPromo(p)
     const cat = cid ? CATS_LIST.find(c => c.id === cid) : null
@@ -4779,6 +4799,39 @@ function PromosPage() {
     () => productPromos.filter(p => inferScheduleMode(p) !== 'flash'),
     [productPromos],
   )
+  const promosByCategory = useMemo(() => {
+    const groups: { cat: typeof CATS_LIST[0]; items: Promo[]; maxDisc: number }[] = []
+    for (const cat of CATS_LIST) {
+      const items = productPromos.filter(p => catIdForPromo(p) === cat.id)
+      if (!items.length) continue
+      groups.push({ cat, items, maxDisc: Math.max(...items.map(saleDiscPromo)) })
+    }
+    const other = productPromos.filter(p => {
+      const cid = catIdForPromo(p)
+      return !cid || !CATS_LIST.some(c => c.id === cid)
+    })
+    if (other.length) {
+      groups.push({
+        cat: { id: '_other', e: '🏷️', name: 'Другие' },
+        items: other,
+        maxDisc: Math.max(...other.map(saleDiscPromo)),
+      })
+    }
+    return groups
+  }, [productPromos, catalogProds])
+  const activeCat = selectedCat
+    ? (CATS_LIST.find(c => c.id === selectedCat) || (selectedCat === '_other' ? { id: '_other', e: '🏷️', name: 'Другие' } : null))
+    : null
+  const activeCatItems = useMemo(() => {
+    if (!selectedCat) return []
+    if (selectedCat === '_other') {
+      return productPromos.filter(p => {
+        const cid = catIdForPromo(p)
+        return !cid || !CATS_LIST.some(c => c.id === cid)
+      })
+    }
+    return productPromos.filter(p => catIdForPromo(p) === selectedCat)
+  }, [selectedCat, productPromos, catalogProds])
 
   const persistLocal = (list: Promo[]) => {
     if (typeof window !== 'undefined') localStorage.setItem(LOCAL_KEY, JSON.stringify(list))
@@ -4813,7 +4866,8 @@ function PromosPage() {
     return { scheduleMode: 'flash', from: '08:00', to: '20:00', till: 'Флэш', startsAt: '', endsAt: `${date}T20:00` }
   }
 
-  const openProductCreate = (opts?: { flash?: boolean }) => {
+  const openProductCreate = (opts?: { flash?: boolean; catId?: string }) => {
+    setPickerCatFilter(opts?.catId ?? null)
     setEditProductId(null)
     setProductForm({
       ...emptyProductForm,
@@ -4841,6 +4895,7 @@ function PromosPage() {
   const closeProductModal = () => {
     setShowProductModal(false)
     setEditProductId(null)
+    setPickerCatFilter(null)
     setProductForm(emptyProductForm)
   }
 
@@ -4906,6 +4961,14 @@ function PromosPage() {
         }
       }
       closeProductModal()
+      const isFlash = inferScheduleMode({ ...payload, scheduleMode: productForm.schedule.scheduleMode } as Promo) === 'flash'
+      if (!isFlash && product?.catId) {
+        setSection('categories')
+        setSelectedCat(product.catId)
+      } else if (isFlash) {
+        setSection('flash')
+        setSelectedCat(null)
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось сохранить скидку')
     } finally {
@@ -4951,10 +5014,11 @@ function PromosPage() {
 
   const selectedProduct = catalogProds.find(p => p.id === Number(productForm.productId))
   const editingProductPromo = editProductId != null ? productPromos.find(p => p.id === editProductId) : null
-  const pickerProducts = useMemo(
-    () => catalogProds.map(p => ({ id: p.id, name: p.name, e: p.e, art: p.art, price: p.price })),
-    [catalogProds],
-  )
+  const pickerProducts = useMemo(() => {
+    let list = catalogProds
+    if (pickerCatFilter) list = list.filter(p => p.catId === pickerCatFilter)
+    return list.map(p => ({ id: p.id, name: p.name, e: p.e, art: p.art, price: p.price }))
+  }, [catalogProds, pickerCatFilter])
   const productPreviewDisc = selectedProduct && productForm.salePrice
     && Number(productForm.oldPrice || selectedProduct.price) > Number(productForm.salePrice)
     ? Math.round((1 - Number(productForm.salePrice) / Number(productForm.oldPrice || selectedProduct.price)) * 100)
@@ -5094,52 +5158,125 @@ function PromosPage() {
   return (
     <div>
       <div style={{fontSize:12,color:'#8FB897',marginBottom:14,padding:'10px 14px',borderRadius:11,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.15)',lineHeight:1.5}}>
-        Создайте скидку на товар — в магазине он сам попадёт в свою категорию. Флэш-товары показываются сверху в разделе «Акции».
+        Создайте скидку — категория появится сама по товару. Флэш отдельно сверху в магазине.
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
         <StatCard l="Всего" v={productPromos.length}/>
         <StatCard l="Активных" v={productPromos.filter(p=>p.on).length} c="#1FD760"/>
         <StatCard l="Флэш" v={flashPromos.length} c="#FF4545"/>
-        <StatCard l="Выключено" v={productPromos.filter(p=>!p.on).length} c="#3D6645"/>
+        <StatCard l="Категорий" v={promosByCategory.length} c="#5B9CF5"/>
+      </div>
+
+      <div style={{display:'flex',gap:8,marginBottom:18}}>
+        {[
+          { id: 'flash' as const, label: '⚡ Флэш-распродажа', count: flashPromos.length },
+          { id: 'categories' as const, label: '📁 По категориям', count: promosByCategory.length },
+        ].map(t => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => { setSection(t.id); setSelectedCat(null) }}
+            className="ab"
+            style={{
+              flex: 1,
+              padding: '12px 14px',
+              fontSize: 13,
+              fontWeight: 700,
+              background: section === t.id ? (t.id === 'flash' ? 'rgba(255,69,69,.12)' : 'rgba(59,142,240,.12)') : '#091508',
+              border: `1.5px solid ${section === t.id ? (t.id === 'flash' ? 'rgba(255,69,69,.35)' : 'rgba(59,142,240,.35)') : '#162B1A'}`,
+              color: section === t.id ? (t.id === 'flash' ? '#FF8C8C' : '#5B9CF5') : '#8FB897',
+            }}
+          >
+            {t.label}
+            <span style={{ marginLeft: 8, fontSize: 11, opacity: 0.75 }}>({t.count})</span>
+          </button>
+        ))}
       </div>
 
       {loading ? (
         <div style={{padding:24,textAlign:'center',color:'#8FB897'}}>Загрузка…</div>
+      ) : section === 'flash' ? (
+        <>
+          <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
+            <button onClick={() => openProductCreate({ flash: true })} className="ab" style={{padding:'8px 16px',fontSize:12,fontWeight:700,background:'rgba(255,69,69,.15)',border:'1px solid rgba(255,69,69,.3)',color:'#FF8C8C'}}>+ Флэш-товар</button>
+          </div>
+          {flashPromos.length === 0 ? (
+            <div style={{padding:'32px 16px',textAlign:'center',color:'#3D6645',fontSize:13,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>
+              Нет флэш-акций. Создайте скидку с режимом «⚡ Флэш».
+            </div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>{flashPromos.map(renderPromoRow)}</div>
+          )}
+        </>
+      ) : activeCat ? (
+        <>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+            <button type="button" onClick={() => setSelectedCat(null)} className="ab abg" style={{padding:'8px 12px',fontSize:12}}>← Категории</button>
+            {(() => {
+              const vis = ADMIN_CAT_VISUAL[activeCat.id] || { bg: '#162B1A', color: '#1FD760' }
+              return (
+                <>
+                  <div style={{width:36,height:36,borderRadius:10,background:vis.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>{activeCat.e}</div>
+                  <div style={{flex:1}}>
+                    <div className="ub" style={{fontSize:15,fontWeight:800}}>{activeCat.name}</div>
+                    <div style={{fontSize:11,color:'#8FB897'}}>{activeCatItems.length} акционных товаров</div>
+                  </div>
+                  <button onClick={() => openProductCreate({ catId: activeCat.id === '_other' ? undefined : activeCat.id })} className="ab abp">+ Скидка</button>
+                </>
+              )
+            })()}
+          </div>
+          {activeCatItems.length === 0 ? (
+            <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13}}>В этой категории пока нет акций</div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>{activeCatItems.map(renderPromoRow)}</div>
+          )}
+        </>
       ) : (
         <>
-          <section style={{marginBottom:22}}>
-            <div style={{borderRadius:16,padding:'14px 16px',background:'linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)',border:'1px solid rgba(255,69,69,.2)',marginBottom:12}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
-                <div>
-                  <div className="ub" style={{fontSize:15,fontWeight:900,color:'#FF8C8C',marginBottom:4}}>⚡ Флэш-распродажа</div>
-                  <div style={{fontSize:11,color:'rgba(255,200,200,.55)'}}>Показывается сверху в разделе «Акции» · режим ⚡ Флэш</div>
-                </div>
-                <button onClick={() => openProductCreate({ flash: true })} className="ab" style={{padding:'8px 14px',fontSize:12,fontWeight:700,background:'rgba(255,69,69,.15)',border:'1px solid rgba(255,69,69,.3)',color:'#FF8C8C'}}>+ Флэш-товар</button>
-              </div>
+          <div style={{fontSize:11,color:'#8FB897',marginBottom:14}}>Категории появляются автоматически, когда добавляете скидку на товар</div>
+          {promosByCategory.length === 0 ? (
+            <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>
+              Пока нет категорий с акциями. Добавьте скидку на товар — его категория появится здесь.
             </div>
-            {flashPromos.length === 0 ? (
-              <div style={{padding:'20px 16px',textAlign:'center',color:'#3D6645',fontSize:12,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>Нет флэш-акций. Создайте скидку с режимом «⚡ Флэш».</div>
-            ) : (
-              <div style={{display:'flex',flexDirection:'column',gap:10}}>{flashPromos.map(renderPromoRow)}</div>
-            )}
-          </section>
-
-          <section>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-              <div>
-                <div className="ub" style={{fontSize:16,fontWeight:900,color:'#5B9CF5'}}>Все акции</div>
-                <div style={{fontSize:11,color:'#8FB897',marginTop:4}}>Категория в магазине появится автоматически</div>
-              </div>
-              <button onClick={() => openProductCreate()} className="ab abp">+ Скидка на товар</button>
+          ) : (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+              {promosByCategory.map(({ cat, items, maxDisc }) => {
+                const vis = ADMIN_CAT_VISUAL[cat.id] || { bg: '#162B1A', color: '#1FD760' }
+                const shortLabel = cat.name.split(' ')[0]
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setSelectedCat(cat.id)}
+                    className="ab"
+                    style={{
+                      borderRadius: 16,
+                      background: vis.bg,
+                      border: `1px solid ${vis.color}28`,
+                      padding: '14px 14px 12px',
+                      minHeight: 110,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div>
+                      <div style={{fontSize: 28, marginBottom: 8}}>{cat.e}</div>
+                      <div className="ub" style={{fontSize: 14, fontWeight: 800, color: '#fff', marginBottom: 4}}>{shortLabel}</div>
+                      <div style={{fontSize: 10, color: 'rgba(255,255,255,.45)'}}>{items.length} товаров</div>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
+                      <span style={{padding:'4px 10px',borderRadius:8,background:`${vis.color}22`,border:`1px solid ${vis.color}40`,fontSize:12,fontWeight:800,color:vis.color}}>−{maxDisc}%</span>
+                      <span style={{fontSize:15,color:'rgba(255,255,255,.4)'}}>→</span>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
-            {regularPromos.length === 0 ? (
-              <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>
-                Нет обычных акций. Добавьте скидку на товар — категория появится в магазине сама.
-              </div>
-            ) : (
-              <div style={{display:'flex',flexDirection:'column',gap:10}}>{regularPromos.map(renderPromoRow)}</div>
-            )}
-          </section>
+          )}
         </>
       )}
 
