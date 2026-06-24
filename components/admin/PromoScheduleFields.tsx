@@ -1,7 +1,7 @@
 'use client'
 
 import type { PromoScheduleMode } from '@/lib/promoSchedule'
-import { datetimeLocalToIso, isoToDatetimeLocal } from '@/lib/promoSchedule'
+import { datetimeLocalToIso, isoToDatetimeLocal, splitDatetimeLocal, joinDatetimeLocal } from '@/lib/promoSchedule'
 
 export type PromoScheduleForm = {
   scheduleMode: PromoScheduleMode
@@ -36,7 +36,19 @@ export default function PromoScheduleFields({ value, onChange, compact }: Props)
             <button
               key={m.id}
               type="button"
-              onClick={() => onChange({ scheduleMode: m.id })}
+              onClick={() => {
+                if (m.id === 'flash' && !splitDatetimeLocal(value.endsAt, value.to || '20:00').date) {
+                  const today = new Date()
+                  const pad = (n: number) => String(n).padStart(2, '0')
+                  const date = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
+                  onChange({
+                    scheduleMode: m.id,
+                    endsAt: joinDatetimeLocal(date, value.to || '20:00', value.to || '20:00'),
+                  })
+                } else {
+                  onChange({ scheduleMode: m.id })
+                }
+              }}
               className="ab"
               style={{
                 flex: compact ? '1 1 auto' : '1 1 30%',
@@ -79,11 +91,52 @@ export default function PromoScheduleFields({ value, onChange, compact }: Props)
         <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : '1fr 1fr', gap: 10 }}>
           <div>
             <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Начало (необяз.)</div>
-            <input className="ai" type="datetime-local" value={value.startsAt} onChange={e => onChange({ startsAt: e.target.value })} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 8 }}>
+              <input
+                className="ai"
+                type="date"
+                value={splitDatetimeLocal(value.startsAt, value.from || '08:00').date}
+                onChange={e => {
+                  const { time } = splitDatetimeLocal(value.startsAt, value.from || '08:00')
+                  onChange({ startsAt: joinDatetimeLocal(e.target.value, time, value.from || '08:00') })
+                }}
+              />
+              <input
+                className="ai"
+                type="time"
+                value={splitDatetimeLocal(value.startsAt, value.from || '08:00').time}
+                onChange={e => {
+                  const { date } = splitDatetimeLocal(value.startsAt, value.from || '08:00')
+                  if (!date) return
+                  onChange({ startsAt: joinDatetimeLocal(date, e.target.value, value.from || '08:00') })
+                }}
+              />
+            </div>
           </div>
           <div>
             <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Окончание *</div>
-            <input className="ai" type="datetime-local" value={value.endsAt} onChange={e => onChange({ endsAt: e.target.value })} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 8 }}>
+              <input
+                className="ai"
+                type="date"
+                value={splitDatetimeLocal(value.endsAt, value.to || '20:00').date}
+                onChange={e => {
+                  const { time } = splitDatetimeLocal(value.endsAt, value.to || '20:00')
+                  onChange({ endsAt: joinDatetimeLocal(e.target.value, time, value.to || '20:00') })
+                }}
+              />
+              <input
+                className="ai"
+                type="time"
+                value={splitDatetimeLocal(value.endsAt, value.to || '20:00').time}
+                onChange={e => {
+                  const { date } = splitDatetimeLocal(value.endsAt, value.to || '20:00')
+                  if (!date) return
+                  onChange({ endsAt: joinDatetimeLocal(date, e.target.value, value.to || '20:00') })
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 5 }}>Если время не менять — берётся из «Часы показа» справа</div>
           </div>
           <div style={{ gridColumn: compact ? undefined : '1 / -1' }}>
             <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Часы показа в магазине</div>
@@ -131,7 +184,7 @@ export function scheduleToPromoPayload(form: PromoScheduleForm) {
     till: form.scheduleMode === 'flash'
       ? (form.endsAt ? 'Флэш' : 'Сегодня')
       : (form.till || 'Всегда'),
-    startsAt: form.scheduleMode === 'flash' ? datetimeLocalToIso(form.startsAt) : undefined,
-    endsAt: form.scheduleMode === 'flash' ? datetimeLocalToIso(form.endsAt) : undefined,
+    startsAt: form.scheduleMode === 'flash' ? datetimeLocalToIso(form.startsAt, form.from || '08:00') : undefined,
+    endsAt: form.scheduleMode === 'flash' ? datetimeLocalToIso(form.endsAt, form.to || '20:00') : undefined,
   }
 }

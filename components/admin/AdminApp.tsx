@@ -135,7 +135,7 @@ import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
 import { formatBulkPricingHint, hasBulkPricing, normalizeBulkPricing } from '@/lib/productBulkPricing'
 import { isProductPromo, productPromoLabel, stripProductSaleFields } from '@/lib/productPromos'
-import { formatPromoScheduleLabel, isPromoScheduleActive } from '@/lib/promoSchedule'
+import { formatPromoScheduleLabel, hasFlashEnd, isPromoScheduleActive } from '@/lib/promoSchedule'
 import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
 import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
 import { api } from '@/lib/api'
@@ -4859,8 +4859,8 @@ function PromosPage() {
 
   const savePromo = async () => {
     if (!form.title.trim()) return
-    if (form.schedule.scheduleMode === 'flash' && !form.schedule.endsAt.trim()) {
-      alert('Укажите дату и время окончания флэш-акции')
+    if (form.schedule.scheduleMode === 'flash' && !hasFlashEnd(form.schedule)) {
+      alert('Укажите дату окончания флэш-акции')
       return
     }
     setSaving(true)
@@ -4905,8 +4905,8 @@ function PromosPage() {
     const pid = Number(productForm.productId)
     const sale = Number(productForm.salePrice)
     if (!pid || !Number.isFinite(sale) || sale <= 0) return
-    if (productForm.schedule.scheduleMode === 'flash' && !productForm.schedule.endsAt.trim()) {
-      alert('Укажите дату и время окончания флэш-акции')
+    if (productForm.schedule.scheduleMode === 'flash' && !hasFlashEnd(productForm.schedule)) {
+      alert('Укажите дату окончания флэш-акции')
       return
     }
     const product = catalogProds.find(p => p.id === pid)

@@ -123,9 +123,28 @@ export function isoToDatetimeLocal(iso?: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export function datetimeLocalToIso(v: string): string | undefined {
-  if (!v.trim()) return undefined
-  const d = new Date(v)
+export function splitDatetimeLocal(v: string, defaultTime = '20:00'): { date: string; time: string } {
+  if (!v?.trim()) return { date: '', time: defaultTime }
+  const [date, time = ''] = v.split('T')
+  return { date: date || '', time: time.slice(0, 5) || defaultTime }
+}
+
+export function joinDatetimeLocal(date: string, time: string, defaultTime = '20:00'): string {
+  if (!date?.trim()) return ''
+  const hm = (time || defaultTime).slice(0, 5)
+  return `${date}T${hm}`
+}
+
+export function datetimeLocalToIso(v: string, defaultTime = '20:00'): string | undefined {
+  const raw = v.trim()
+  if (!raw) return undefined
+  const normalized = raw.includes('T') ? raw : joinDatetimeLocal(raw, defaultTime, defaultTime)
+  const d = new Date(normalized)
   if (Number.isNaN(d.getTime())) return undefined
   return d.toISOString()
+}
+
+export function hasFlashEnd(form: { endsAt: string; to?: string }): boolean {
+  const { date } = splitDatetimeLocal(form.endsAt, form.to || '20:00')
+  return !!date
 }
