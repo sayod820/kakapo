@@ -1,28 +1,30 @@
 import type { Product, Promo } from './types'
 
-export function promoStockLimit(promo: Promo): number {
-  const n = Number(promo.stockLimit)
+export function promoStockLimit(promo?: Promo | null): number {
+  const n = Number(promo?.stockLimit)
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-export function promoStockSold(promo: Promo): number {
-  const n = Number(promo.stockSold)
+export function promoStockSold(promo?: Promo | null): number {
+  const n = Number(promo?.stockSold)
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 /** Остаток по акции: null = без лимита */
-export function promoStockRemaining(promo: Promo): number | null {
+export function promoStockRemaining(promo?: Promo | null): number | null {
+  if (!promo) return null
   const limit = promoStockLimit(promo)
   if (!limit) return null
   return Math.max(0, limit - promoStockSold(promo))
 }
 
-export function isPromoStockAvailable(promo: Promo): boolean {
+export function isPromoStockAvailable(promo?: Promo | null): boolean {
   const left = promoStockRemaining(promo)
   return left === null || left > 0
 }
 
-export function promoStockPercent(promo: Promo): number | null {
+export function promoStockPercent(promo?: Promo | null): number | null {
+  if (!promo) return null
   const limit = promoStockLimit(promo)
   if (!limit) return null
   const left = promoStockRemaining(promo) ?? 0
@@ -57,7 +59,8 @@ export function stockLimitToAdminInput(limit?: number, product?: Partial<Product
   return String(Math.round(n))
 }
 
-export function formatPromoStockLeft(promo: Promo, product?: Partial<Product> | null): string | null {
+export function formatPromoStockLeft(promo?: Promo | null, product?: Partial<Product> | null): string | null {
+  if (!promo) return null
   const left = promoStockRemaining(promo)
   if (left == null) return null
   if (isWeightedPromoProduct(product)) {
@@ -78,14 +81,15 @@ export function formatPromoStockAdmin(promo: Promo, product?: Partial<Product> |
   return `${sold} / ${limit} шт`
 }
 
-export function isPromoStockExhausted(promo: Promo): boolean {
+export function isPromoStockExhausted(promo?: Promo | null): boolean {
+  if (!promo) return false
   const limit = promoStockLimit(promo)
   if (!limit) return false
   return promoStockSold(promo) >= limit
 }
 
 /** Сколько ещё можно добавить в корзину по акции */
-export function promoCartRoom(promo: Promo, currentCartQty: number): number | null {
+export function promoCartRoom(promo?: Promo | null, currentCartQty: number): number | null {
   const left = promoStockRemaining(promo)
   if (left == null) return null
   return Math.max(0, left - (Number(currentCartQty) || 0))

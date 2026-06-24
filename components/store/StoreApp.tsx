@@ -3116,9 +3116,9 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
   );
 };
 
-const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
+const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const { prods } = useLiveCatalog();
-  const apiPromos = usePromos(s => s.promos);
+  const apiPromos = usePromos(s => s.promos) || [];
   const { isVip } = resolveUserVip(user);
   const [tab, setTab] = useState("all");
   const [saleCat, setSaleCat] = useState(null);
@@ -3138,27 +3138,28 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
     if (!cat) return null;
     return cat.parentId || cat.id;
   };
+  const findProductPromo = p => apiPromos.find(pr => pr.type === 'product' && Number(pr.productId) === Number(p.id));
   const saleProds = useMemo(
-    () => prods.filter(isSaleProduct).sort((a, b) => saleDisc(b) - saleDisc(a)),
+    () => (prods || []).filter(isSaleProduct).sort((a, b) => saleDisc(b) - saleDisc(a)),
     [prods],
   );
   const flashProds = useMemo(
     () => saleProds.filter(p => {
-      const promo = apiPromos.find(pr => pr.type === 'product' && Number(pr.productId) === Number(p.id));
+      const promo = findProductPromo(p);
       return promo && inferScheduleMode(promo) === 'flash';
     }),
     [saleProds, apiPromos],
   );
-  const FLASH = (flashProds.length ? flashProds : saleProds).slice(0, 8).map(p => ({
-    ...p,
-    price: num(p.price),
-    old: num(p.old),
-    stockPct: p.promoStockPct ?? (p.promoStockLeft != null ? 0 : 55),
-    stockLabel: formatPromoStockLeft(
-      apiPromos.find(pr => pr.type === 'product' && Number(pr.productId) === Number(p.id)),
-      p,
-    ),
-  }));
+  const FLASH = (flashProds.length ? flashProds : saleProds).slice(0, 8).map(p => {
+    const promo = findProductPromo(p);
+    return {
+      ...p,
+      price: num(p.price),
+      old: num(p.old),
+      stockPct: p.promoStockPct ?? (p.promoStockLeft != null ? 0 : 55),
+      stockLabel: promo ? formatPromoStockLeft(promo, p) : null,
+    };
+  });
   const saleCats = useMemo(() => {
     const counts = new Map();
     const maxDisc = new Map();
@@ -3312,7 +3313,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               {listProds.map((p, i) => (
                 <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
-                  <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
+                  <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
                 </div>
               ))}
             </div>
