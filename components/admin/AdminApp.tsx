@@ -135,7 +135,7 @@ import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
 import { formatBulkPricingHint, hasBulkPricing, normalizeBulkPricing } from '@/lib/productBulkPricing'
 import { isProductPromo, productPromoLabel, stripProductSaleFields } from '@/lib/productPromos'
-import { formatPromoScheduleLabel, hasFlashEnd, isPromoScheduleActive } from '@/lib/promoSchedule'
+import { formatPromoScheduleLabel, hasFlashEnd, inferScheduleMode, isPromoScheduleActive } from '@/lib/promoSchedule'
 import { formatPromoStockAdmin, isPromoStockAvailable, isPromoStockExhausted, promoLimitUnit, stockLimitFromAdminInput, stockLimitToAdminInput } from '@/lib/promoStock'
 import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
 import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
@@ -215,6 +215,18 @@ const REST_ORDERS = [
   {id:'K-4829',restId:'R-03',client:'Мадина О.',   phone:'+992 91 111 22 33',items:['🌯 Филадельфия ×2'],            total:64,status:'new',       time:'14:01'},
   {id:'K-4828',restId:'R-02',client:'Рустам Д.',   phone:'+992 93 654 32 10',items:['🍔 Бургер ×2','🍟 Картошка ×1'],total:51,status:'delivered', time:'13:40'},
 ];
+
+const ADMIN_CAT_VISUAL: Record<string, { bg: string; color: string }> = {
+  veg: { bg: 'linear-gradient(145deg,#0D2A0D,#1A4A1A)', color: '#56C956' },
+  meat: { bg: 'linear-gradient(145deg,#2A0A0A,#4A1818)', color: '#FF6B6B' },
+  dairy: { bg: 'linear-gradient(145deg,#0A1828,#163050)', color: '#93C5FD' },
+  bread: { bg: 'linear-gradient(145deg,#281806,#4A2E12)', color: '#FCD34D' },
+  drinks: { bg: 'linear-gradient(145deg,#041820,#0C2E3A)', color: '#67E8F9' },
+  grains: { bg: 'linear-gradient(145deg,#281806,#4A2E12)', color: '#D4A574' },
+  frozen: { bg: 'linear-gradient(145deg,#051822,#0E2C3E)', color: '#7DD3FC' },
+  sweets: { bg: 'linear-gradient(145deg,#1A0C28,#2E1848)', color: '#C084FC' },
+  house: { bg: 'linear-gradient(145deg,#062018,#103A28)', color: '#6EE7B7' },
+}
 
 const CATS_LIST = [
   {id:'veg',   e:'🥦', name:'Овощи и фрукты'},
@@ -4747,38 +4759,69 @@ function CategoriesPage() {
 
 function PromosPage() {
   const LOCAL_KEY = 'kakapo_admin_promos'
-  const defaultPromos: Promo[] = [
-    { id: 1, e: '🥛', title: 'Молочная среда', sub: 'Скидка 30% на молочное', disc: 30, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Среда' },
-    { id: 2, e: '🥩', title: 'Мясные выходные', sub: 'Скидка 25% на мясо и птицу', disc: 25, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Сб–Вс' },
-    { id: 3, e: '🥦', title: 'Органик-день', sub: 'Скидка 20% на органик продукты', disc: 20, on: false, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Пятница' },
-    { id: 4, e: '⚡', title: 'Флэш-распродажа', sub: 'Только до 20:00 сегодня', disc: 40, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '20:00', till: 'Сегодня' },
-    { id: 5, e: '🚀', title: 'Бесплатная доставка', sub: 'При заказе от 30 ЅМ', disc: 0, on: true, cat: 'Магазин', type: 'free', from: '08:00', to: '22:00', till: 'Всегда' },
-    { id: 6, e: '🍽', title: 'Скидка в ресторанах', sub: '10% в Чайхоне и Суши', disc: 10, on: false, cat: 'Рестораны', type: 'pct', from: '10:00', to: '23:00', till: 'Всегда' },
-    { id: 7, e: '🎁', title: 'Первый заказ', sub: '15% скидка на первый заказ', disc: 15, on: true, cat: 'Магазин', type: 'first', from: '00:00', to: '23:59', till: 'Всегда' },
-  ]
-  const emptyForm = { e: '🎁', title: '', sub: '', disc: '0', cat: 'Магазин' as Promo['cat'], type: 'pct' as Promo['type'], on: true, schedule: { scheduleMode: 'daily' as PromoScheduleForm['scheduleMode'], from: '08:00', to: '22:00', till: 'Всегда', startsAt: '', endsAt: '' } }
   const emptyProductForm = { productId: '', salePrice: '', oldPrice: '', markHot: false, on: true, stockLimit: '', resetStockSold: false, schedule: { scheduleMode: 'always' as PromoScheduleForm['scheduleMode'], from: '08:00', to: '22:00', till: 'Всегда', startsAt: '', endsAt: '' } }
 
   const apiProducts = useProducts(s => s.products)
   const catalogProds = useMemo(() => stripProductSaleFields(enrichProducts(apiProducts, PRODS)), [apiProducts])
 
-  const [tab, setTab] = useState<'campaigns' | 'products'>('campaigns')
   const [promos, setPromosLocal] = useState<Promo[]>([])
   const syncPromos = (list: Promo[]) => {
     setPromosLocal(list)
     usePromos.getState().setPromos(list)
   }
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
+  const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [showProductModal, setShowProductModal] = useState(false)
-  const [editId, setEditId] = useState<number | null>(null)
   const [editProductId, setEditProductId] = useState<number | null>(null)
-  const [form, setForm] = useState(emptyForm)
   const [productForm, setProductForm] = useState(emptyProductForm)
+  const [pickerCatFilter, setPickerCatFilter] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const campaignPromos = promos.filter(p => !isProductPromo(p))
   const productPromos = promos.filter(isProductPromo)
+  const prodForPromo = (p: Promo) => catalogProds.find(x => x.id === p.productId)
+  const catIdForPromo = (p: Promo) => prodForPromo(p)?.catId || null
+  const saleDiscPromo = (p: Promo) => {
+    const sale = Number(p.salePrice)
+    const old = Number(p.oldPrice) || prodForPromo(p)?.price || 0
+    return old > sale ? Math.round((1 - sale / old) * 100) : 0
+  }
+  const flashPromos = useMemo(
+    () => productPromos.filter(p => inferScheduleMode(p) === 'flash'),
+    [productPromos],
+  )
+  const promosByCategory = useMemo(() => {
+    const groups: { cat: typeof CATS_LIST[0]; items: Promo[]; totalCount: number; maxDisc: number }[] = []
+    for (const cat of CATS_LIST) {
+      const allItems = productPromos.filter(p => catIdForPromo(p) === cat.id)
+      if (!allItems.length) continue
+      const hubItems = allItems.filter(p => inferScheduleMode(p) !== 'flash')
+      groups.push({
+        cat,
+        items: hubItems,
+        totalCount: allItems.length,
+        maxDisc: Math.max(...allItems.map(saleDiscPromo)),
+      })
+    }
+    const flashIds = new Set(flashPromos.map(p => p.id))
+    const other = productPromos.filter(p => {
+      if (flashIds.has(p.id)) return false
+      const cid = catIdForPromo(p)
+      return !cid || !CATS_LIST.some(c => c.id === cid)
+    })
+    const otherAll = productPromos.filter(p => {
+      const cid = catIdForPromo(p)
+      return !cid || !CATS_LIST.some(c => c.id === cid)
+    })
+    if (otherAll.length) {
+      groups.push({
+        cat: { id: '_other', e: '🏷️', name: 'Другие' },
+        items: other,
+        totalCount: otherAll.length,
+        maxDisc: Math.max(...otherAll.map(saleDiscPromo)),
+      })
+    }
+    return groups
+  }, [productPromos, catalogProds, flashPromos])
 
   const persistLocal = (list: Promo[]) => {
     if (typeof window !== 'undefined') localStorage.setItem(LOCAL_KEY, JSON.stringify(list))
@@ -4794,11 +4837,11 @@ function PromosPage() {
           if (!cancelled) syncPromos(list)
         } else {
           const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_KEY) : null
-          const list = raw ? (JSON.parse(raw) as Promo[]) : defaultPromos
+          const list = raw ? (JSON.parse(raw) as Promo[]).filter(isProductPromo) : []
           if (!cancelled) syncPromos(list)
         }
       } catch {
-        if (!cancelled) syncPromos(defaultPromos)
+        if (!cancelled) syncPromos([])
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -4806,30 +4849,20 @@ function PromosPage() {
     return () => { cancelled = true }
   }, [])
 
-  const openCreate = () => {
-    setEditId(null)
-    setForm(emptyForm)
-    setShowModal(true)
+  const flashSchedulePreset = (): PromoScheduleForm => {
+    const today = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const date = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
+    return { scheduleMode: 'flash', from: '08:00', to: '20:00', till: 'Флэш', startsAt: '', endsAt: `${date}T20:00` }
   }
 
-  const openEdit = (p: Promo) => {
-    setEditId(p.id)
-    setForm({
-      e: p.e,
-      title: p.title,
-      sub: p.sub,
-      disc: String(p.disc),
-      cat: p.cat,
-      type: p.type || 'pct',
-      on: p.on,
-      schedule: scheduleFromPromo(p),
-    })
-    setShowModal(true)
-  }
-
-  const openProductCreate = () => {
+  const openProductCreate = (opts?: { catId?: string; flash?: boolean }) => {
+    setPickerCatFilter(opts?.catId ?? null)
     setEditProductId(null)
-    setProductForm(emptyProductForm)
+    setProductForm({
+      ...emptyProductForm,
+      schedule: opts?.flash ? flashSchedulePreset() : emptyProductForm.schedule,
+    })
     setShowProductModal(true)
   }
 
@@ -4849,60 +4882,11 @@ function PromosPage() {
     setShowProductModal(true)
   }
 
-  const closeModal = () => {
-    setShowModal(false)
-    setEditId(null)
-    setForm(emptyForm)
-  }
-
   const closeProductModal = () => {
     setShowProductModal(false)
     setEditProductId(null)
+    setPickerCatFilter(null)
     setProductForm(emptyProductForm)
-  }
-
-  const savePromo = async () => {
-    if (!form.title.trim()) return
-    if (form.schedule.scheduleMode === 'flash' && !hasFlashEnd(form.schedule)) {
-      alert('Укажите дату окончания флэш-акции')
-      return
-    }
-    setSaving(true)
-    const schedule = scheduleToPromoPayload(form.schedule)
-    const payload = {
-      e: form.e || '🎁',
-      title: form.title.trim(),
-      sub: form.sub.trim(),
-      disc: form.type === 'free' ? 0 : Number(form.disc) || 0,
-      cat: form.cat,
-      type: form.type,
-      on: form.on,
-      ...schedule,
-    }
-    try {
-      if (USE_API) {
-        if (editId !== null) {
-          const updated = await api.updatePromo(editId, payload)
-          syncPromos(promos.map(x => (x.id === editId ? updated : x)))
-        } else {
-          const created = await api.createPromo(payload)
-          syncPromos([...promos, created])
-        }
-      } else {
-        if (editId !== null) {
-          const next = promos.map(x => (x.id === editId ? { ...x, ...payload, id: editId } : x))
-          persistLocal(next)
-        } else {
-          const created: Promo = { ...payload, id: Date.now() }
-          persistLocal([...promos, created])
-        }
-      }
-      closeModal()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Не удалось сохранить акцию')
-    } finally {
-      setSaving(false)
-    }
   }
 
   const saveProductPromo = async () => {
@@ -4999,284 +4983,278 @@ function PromosPage() {
   }
 
   const discBadge = (p: Promo) => {
-    if (isProductPromo(p)) {
-      const label = productPromoLabel(p, catalogProds.find(x => x.id === p.productId))
-      return label ? <Badge v={label} c="#FF4545"/> : null
-    }
-    if (p.type === 'free') return <Badge v="Бесплатная доставка" c="#1FD760"/>
-    if (p.disc > 0) return <Badge v={`-${p.disc}%`} c="#FF4545"/>
+    const label = productPromoLabel(p, catalogProds.find(x => x.id === p.productId))
+    return label ? <Badge v={label} c="#FF4545"/> : null
+  }
+
+  const scheduleBadge = (p: Promo) => {
+    const mode = inferScheduleMode(p)
+    if (mode === 'flash') return <Badge v="⚡ Флэш" c="#FF4545"/>
+    if (mode === 'daily') return <Badge v="🕐 По расписанию" c="#3B8EF0"/>
     return null
   }
 
-  const setF = (k: keyof typeof form, v: string | boolean) => setForm(f => ({ ...f, [k]: v }))
   const selectedProduct = catalogProds.find(p => p.id === Number(productForm.productId))
   const editingProductPromo = editProductId != null ? productPromos.find(p => p.id === editProductId) : null
+  const pickerProducts = useMemo(() => {
+    let list = catalogProds
+    if (pickerCatFilter) list = list.filter(p => p.catId === pickerCatFilter)
+    return list.map(p => ({ id: p.id, name: p.name, e: p.e, art: p.art, price: p.price }))
+  }, [catalogProds, pickerCatFilter])
   const productPreviewDisc = selectedProduct && productForm.salePrice
     && Number(productForm.oldPrice || selectedProduct.price) > Number(productForm.salePrice)
     ? Math.round((1 - Number(productForm.salePrice) / Number(productForm.oldPrice || selectedProduct.price)) * 100)
     : 0
+  const activeCat = selectedCat
+    ? (CATS_LIST.find(c => c.id === selectedCat) || (selectedCat === '_other' ? { id: '_other', e: '🏷️', name: 'Другие' } : null))
+    : null
+  const activeCatItems = useMemo(() => {
+    if (!selectedCat) return []
+    if (selectedCat === '_other') {
+      return productPromos.filter(p => {
+        const cid = catIdForPromo(p)
+        return !cid || !CATS_LIST.some(c => c.id === cid)
+      })
+    }
+    return productPromos.filter(p => catIdForPromo(p) === selectedCat)
+  }, [selectedCat, productPromos, catalogProds])
+
+  const productModalJsx = (
+    <div className="amod">
+      <div className="amodbg" onClick={closeProductModal}/>
+      <div className="amodbox" style={{maxWidth:480}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+          <div className="ub" style={{fontSize:15,fontWeight:800}}>{editProductId !== null ? 'Редактировать скидку' : 'Скидка на товар'}</div>
+          <button onClick={closeProductModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div>
+            <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Товар *</div>
+            <ProductSearchPicker
+              products={pickerProducts}
+              value={productForm.productId}
+              disabled={editProductId !== null}
+              onChange={(id, p) => setProductForm(f => ({
+                ...f,
+                productId: id,
+                oldPrice: f.oldPrice || (p ? String(p.price) : ''),
+              }))}
+            />
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div>
+              <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена по акции (ЅМ) *</div>
+              <input className="ai" type="number" step="0.01" value={productForm.salePrice} onChange={e=>setProductForm(f=>({...f,salePrice:e.target.value}))} placeholder="5.50"/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Старая цена (ЅМ)</div>
+              <input className="ai" type="number" step="0.01" value={productForm.oldPrice} onChange={e=>setProductForm(f=>({...f,oldPrice:e.target.value}))} placeholder={selectedProduct ? String(selectedProduct.price) : 'Базовая цена'}/>
+            </div>
+          </div>
+          {productPreviewDisc > 0 && (
+            <div style={{padding:'8px 12px',borderRadius:9,background:'rgba(255,69,69,.07)',border:'1px solid rgba(255,69,69,.2)',fontSize:12,color:'#8FB897'}}>
+              Скидка: <span style={{color:'#FF4545',fontWeight:800}}>−{productPreviewDisc}%</span>
+            </div>
+          )}
+          <div>
+            <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>
+              Лимит по акции ({selectedProduct ? promoLimitUnit(selectedProduct) : 'шт'})
+            </div>
+            <input
+              className="ai"
+              type="number"
+              min="0.1"
+              step={selectedProduct?.sellType === 'weight' ? '0.1' : '1'}
+              value={productForm.stockLimit}
+              onChange={e => setProductForm(f => ({ ...f, stockLimit: e.target.value }))}
+              placeholder={selectedProduct?.sellType === 'weight' ? 'Напр. 50 кг' : 'Напр. 100 шт'}
+            />
+            <div style={{fontSize:10,color:'#3D6645',marginTop:5,lineHeight:1.45}}>
+              {selectedProduct?.sellType === 'weight'
+                ? 'Для весовых товаров укажите лимит в килограммах. Когда лимит исчерпан — акция автоматически выключается.'
+                : 'Для штучных товаров — количество штук. Когда лимит исчерпан — акция автоматически выключается.'}
+            </div>
+            {editingProductPromo && Number(editingProductPromo.stockLimit) > 0 && (
+              <div style={{marginTop:8,padding:'8px 10px',borderRadius:9,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.15)',fontSize:11,color:'#8FB897'}}>
+                Продано: <strong style={{color:'#EBF5ED'}}>{formatPromoStockAdmin(editingProductPromo, selectedProduct)}</strong>
+                <label style={{display:'flex',alignItems:'center',gap:8,marginTop:8,cursor:'pointer'}}>
+                  <input type="checkbox" checked={productForm.resetStockSold} onChange={e => setProductForm(f => ({ ...f, resetStockSold: e.target.checked }))}/>
+                  Сбросить счётчик продаж
+                </label>
+              </div>
+            )}
+          </div>
+          <PromoScheduleFields
+            compact
+            value={productForm.schedule}
+            onChange={patch => setProductForm(f => ({ ...f, schedule: { ...f.schedule, ...patch } }))}
+          />
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#8FB897',cursor:'pointer'}}>
+            <input type="checkbox" checked={productForm.markHot} onChange={e=>setProductForm(f=>({...f,markHot:e.target.checked}))}/>
+            🔥 Показывать как «Хит» в магазине
+          </label>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#8FB897',cursor:'pointer'}}>
+            <input type="checkbox" checked={productForm.on} onChange={e=>setProductForm(f=>({...f,on:e.target.checked}))}/>
+            Акция активна
+          </label>
+          <div style={{display:'flex',gap:10,marginTop:4}}>
+            <button
+              onClick={saveProductPromo}
+              disabled={saving || !productForm.productId || !productForm.salePrice}
+              className="ab abp"
+              style={{flex:1,padding:12,opacity:saving||!productForm.productId||!productForm.salePrice?0.6:1}}
+            >
+              {saving ? 'Сохранение…' : editProductId !== null ? '✓ Сохранить' : '✓ Создать скидку'}
+            </button>
+            <button onClick={closeProductModal} className="ab abg">Отмена</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderPromoRow = (p: Promo) => {
+    const prod = prodForPromo(p)
+    return (
+      <div key={p.id} className="ac" style={{ padding: '14px 16px', opacity: p.on ? 1 : 0.6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 13, background: '#162B1A', border: '1px solid #1E3522', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{prod?.e || p.e}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14, fontWeight: 800 }}>{prod?.name || p.title}</span>
+              {discBadge(p)}
+              {scheduleBadge(p)}
+              {p.markHot && <Badge v="🔥 Хит" c="#FF8C00"/>}
+              <span style={{ fontSize: 10, color: '#3D6645' }}>{prod?.art}</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#8FB897' }}>
+              База: {prod ? `${prod.price.toFixed(2)} ЅМ` : '—'}
+              {p.salePrice != null && <> → <span style={{ color: '#FF4545', fontWeight: 700 }}>{Number(p.salePrice).toFixed(2)} ЅМ</span></>}
+            </div>
+            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 4 }}>
+              {formatPromoScheduleLabel(p)}{p.on && !isPromoScheduleActive(p) ? ' · ⏸ вне расписания' : ''}
+              {formatPromoStockAdmin(p, prod) ? ` · 📦 ${formatPromoStockAdmin(p, prod)}` : ''}
+              {p.on && isPromoStockExhausted(p) ? ' · закончилось' : ''}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: p.on ? '#1FD760' : '#3D6645', fontWeight: 700 }}>{p.on ? 'Вкл' : 'Выкл'}</span>
+            <Tog on={p.on} set={() => togglePromo(p)}/>
+            <button onClick={() => openProductEdit(p)} className="ab abg" style={{ padding: '5px 10px', fontSize: 11 }}>✏️</button>
+            <button onClick={() => removePromo(p.id)} className="ab abd" style={{ padding: '5px 10px', fontSize: 11 }}>🗑</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (activeCat) {
+    const cat = activeCat
+    const items = activeCatItems
+    const vis = ADMIN_CAT_VISUAL[cat.id] || { bg: '#162B1A', color: '#1FD760' }
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <button type="button" onClick={() => setSelectedCat(null)} className="ab abg" style={{ padding: '8px 12px', fontSize: 12 }}>← Назад</button>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: vis.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{cat.e}</div>
+          <div>
+            <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{cat.name}</div>
+            <div style={{ fontSize: 11, color: '#8FB897' }}>{items.length} акционных товаров</div>
+          </div>
+          <button onClick={() => openProductCreate({ catId: cat.id === '_other' ? undefined : cat.id })} className="ab abp" style={{ marginLeft: 'auto' }}>+ Скидка</button>
+        </div>
+        {items.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: '#3D6645', fontSize: 13 }}>В этой категории нет акций</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{items.map(renderPromoRow)}</div>
+        )}
+        {showProductModal && productModalJsx}
+      </div>
+    )
+  }
 
   return (
     <div>
-      <div style={{display:'flex',gap:8,marginBottom:16}}>
-        {[{id:'campaigns' as const,l:'📢 Кампании'},{id:'products' as const,l:'🏷️ Скидки на товары'}].map(t=>(
-          <button key={t.id} type="button" onClick={()=>setTab(t.id)} className="ab" style={{padding:'10px 16px',fontSize:13,fontWeight:700,background:tab===t.id?'rgba(31,215,96,.14)':'#091508',border:`1.5px solid ${tab===t.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:tab===t.id?'#1FD760':'#8FB897'}}>{t.l}</button>
-        ))}
+      <div style={{fontSize:12,color:'#8FB897',marginBottom:14,padding:'10px 14px',borderRadius:11,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.15)',lineHeight:1.5}}>
+        Как в магазине: сверху <strong style={{color:'#EBF5ED'}}>⚡ флэш-распродажа</strong>, ниже — акции по категориям. В каталоге только базовые цены.
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
+        <StatCard l="Всего" v={productPromos.length}/>
+        <StatCard l="Активных" v={productPromos.filter(p=>p.on).length} c="#1FD760"/>
+        <StatCard l="Флэш" v={flashPromos.length} c="#FF4545"/>
+        <StatCard l="Выключено" v={productPromos.filter(p=>!p.on).length} c="#3D6645"/>
       </div>
 
-      {tab === 'campaigns' ? (
-        <>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:18}}>
-            <StatCard l="Кампаний" v={campaignPromos.length}/>
-            <StatCard l="Активных" v={campaignPromos.filter(p=>p.on).length} c="#1FD760"/>
-            <StatCard l="Выключено" v={campaignPromos.filter(p=>!p.on).length} c="#3D6645"/>
-          </div>
-          <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
-            <button onClick={openCreate} className="ab abp">+ Создать акцию</button>
-          </div>
-          {loading ? (
-            <div style={{padding:24,textAlign:'center',color:'#8FB897'}}>Загрузка…</div>
-          ) : (
-            <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              {campaignPromos.map(p=>(
-                <div key={p.id} className="ac" style={{padding:'14px 16px',opacity:p.on?1:.6,transition:'opacity .2s'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:12}}>
-                    <div style={{width:44,height:44,borderRadius:13,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{p.e}</div>
-                    <div style={{flex:1}}>
-                      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3,flexWrap:'wrap'}}>
-                        <span style={{fontSize:14,fontWeight:800}}>{p.title}</span>
-                        {discBadge(p)}
-                        <Badge v={p.cat} c={p.cat==='Рестораны'?'#FF8C00':'#3B8EF0'}/>
-                      </div>
-                      <div style={{fontSize:12,color:'#8FB897'}}>{p.sub}</div>
-                      <div style={{fontSize:10,color:'#3D6645',marginTop:4}}>{formatPromoScheduleLabel(p)}{p.on && !isPromoScheduleActive(p) ? ' · ⏸ вне расписания' : ''}</div>
-                    </div>
-                    <div style={{display:'flex',alignItems:'center',gap:10}}>
-                      <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
-                      <Tog on={p.on} set={()=>togglePromo(p)}/>
-                      <button onClick={()=>openEdit(p)} className="ab abg" style={{padding:'5px 10px',fontSize:11}}>✏️</button>
-                      <button onClick={()=>removePromo(p.id)} className="ab abd" style={{padding:'5px 10px',fontSize:11}}>🗑</button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
+      {loading ? (
+        <div style={{padding:24,textAlign:'center',color:'#8FB897'}}>Загрузка…</div>
       ) : (
         <>
-          <div style={{fontSize:12,color:'#8FB897',marginBottom:14,padding:'10px 14px',borderRadius:11,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.15)'}}>
-            Скидки на конкретные товары настраиваются здесь. В разделе «Товары» только базовая цена — без старой цены и процента скидки.
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:18}}>
-            <StatCard l="Товарных скидок" v={productPromos.length}/>
-            <StatCard l="Активных" v={productPromos.filter(p=>p.on).length} c="#1FD760"/>
-            <StatCard l="Выключено" v={productPromos.filter(p=>!p.on).length} c="#3D6645"/>
-          </div>
-          <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
-            <button onClick={openProductCreate} className="ab abp">+ Скидка на товар</button>
-          </div>
-          {loading ? (
-            <div style={{padding:24,textAlign:'center',color:'#8FB897'}}>Загрузка…</div>
-          ) : productPromos.length === 0 ? (
-            <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13}}>Нет скидок на товары. Нажмите «+ Скидка на товар».</div>
-          ) : (
-            <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              {productPromos.map(p=>{
-                const prod = catalogProds.find(x => x.id === p.productId)
-                return (
-                  <div key={p.id} className="ac" style={{padding:'14px 16px',opacity:p.on?1:.6}}>
-                    <div style={{display:'flex',alignItems:'center',gap:12}}>
-                      <div style={{width:44,height:44,borderRadius:13,background:'#162B1A',border:'1px solid #1E3522',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{prod?.e || p.e}</div>
-                      <div style={{flex:1}}>
-                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3,flexWrap:'wrap'}}>
-                          <span style={{fontSize:14,fontWeight:800}}>{prod?.name || p.title}</span>
-                          {discBadge(p)}
-                          {p.markHot && <Badge v="🔥 Хит" c="#FF8C00"/>}
-                          <span style={{fontSize:10,color:'#3D6645'}}>{prod?.art}</span>
-                        </div>
-                        <div style={{fontSize:12,color:'#8FB897'}}>
-                          База: {prod ? `${prod.price.toFixed(2)} ЅМ` : '—'}
-                          {p.salePrice != null && <> → <span style={{color:'#FF4545',fontWeight:700}}>{Number(p.salePrice).toFixed(2)} ЅМ</span></>}
-                        </div>
-                        <div style={{fontSize:10,color:'#3D6645',marginTop:4}}>
-                          {formatPromoScheduleLabel(p)}{p.on && !isPromoScheduleActive(p) ? ' · ⏸ вне расписания' : ''}
-                          {formatPromoStockAdmin(p, prod) ? ` · 📦 ${formatPromoStockAdmin(p, prod)}` : ''}
-                          {p.on && isPromoStockExhausted(p) ? ' · закончилось' : ''}
-                        </div>
-                      </div>
-                      <div style={{display:'flex',alignItems:'center',gap:10}}>
-                        <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
-                        <Tog on={p.on} set={()=>togglePromo(p)}/>
-                        <button onClick={()=>openProductEdit(p)} className="ab abg" style={{padding:'5px 10px',fontSize:11}}>✏️</button>
-                        <button onClick={()=>removePromo(p.id)} className="ab abd" style={{padding:'5px 10px',fontSize:11}}>🗑</button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+          <section style={{marginBottom:22}}>
+            <div style={{borderRadius:16,padding:'14px 16px',background:'linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)',border:'1px solid rgba(255,69,69,.2)',marginBottom:12}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                <div>
+                  <div className="ub" style={{fontSize:15,fontWeight:900,color:'#FF8C8C',marginBottom:4}}>⚡ Флэш-распродажа</div>
+                  <div style={{fontSize:11,color:'rgba(255,200,200,.55)'}}>Показывается сверху в разделе «Акции» · режим ⚡ Флэш</div>
+                </div>
+                <button onClick={() => openProductCreate({ flash: true })} className="ab" style={{padding:'8px 14px',fontSize:12,fontWeight:700,background:'rgba(255,69,69,.15)',border:'1px solid rgba(255,69,69,.3)',color:'#FF8C8C'}}>+ Флэш-товар</button>
+              </div>
             </div>
-          )}
+            {flashPromos.length === 0 ? (
+              <div style={{padding:'20px 16px',textAlign:'center',color:'#3D6645',fontSize:12,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>Нет флэш-акций. Создайте скидку с режимом «⚡ Флэш».</div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>{flashPromos.map(renderPromoRow)}</div>
+            )}
+          </section>
+
+          <section>
+            <div className="ub" style={{fontSize:16,fontWeight:900,color:'#5B9CF5',marginBottom:14}}>По категориям</div>
+            {promosByCategory.length === 0 ? (
+              <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>
+                Нет акционных товаров. Добавьте флэш или скидку в категории.
+              </div>
+            ) : (
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+                {promosByCategory.map(({ cat, totalCount, maxDisc }) => {
+                  const vis = ADMIN_CAT_VISUAL[cat.id] || { bg: '#162B1A', color: '#1FD760' }
+                  const shortLabel = cat.name.split(' ')[0]
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setSelectedCat(cat.id)}
+                      className="ab"
+                      style={{
+                        borderRadius: 16,
+                        background: vis.bg,
+                        border: `1px solid ${vis.color}28`,
+                        padding: '14px 14px 12px',
+                        minHeight: 110,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{fontSize: 28, marginBottom: 8}}>{cat.e}</div>
+                        <div className="ub" style={{fontSize: 14, fontWeight: 800, color: '#fff', marginBottom: 4}}>{shortLabel}</div>
+                        <div style={{fontSize: 10, color: 'rgba(255,255,255,.45)'}}>{totalCount} товаров</div>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
+                        <span style={{padding:'4px 10px',borderRadius:8,background:`${vis.color}22`,border:`1px solid ${vis.color}40`,fontSize:12,fontWeight:800,color:vis.color}}>−{maxDisc}%</span>
+                        <span style={{fontSize:15,color:'rgba(255,255,255,.4)'}}>→</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </section>
         </>
       )}
 
-      {showModal && (
-        <div className="amod">
-          <div className="amodbg" onClick={closeModal}/>
-          <div className="amodbox" style={{maxWidth:520}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-              <div className="ub" style={{fontSize:15,fontWeight:800}}>{editId !== null ? 'Редактировать акцию' : 'Новая акция'}</div>
-              <button onClick={closeModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <div style={{display:'grid',gridTemplateColumns:'70px 1fr',gap:12}}>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div>
-                  <input className="ai" value={form.e} onChange={e=>setF('e', e.target.value)} style={{textAlign:'center',fontSize:26,height:50}}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div>
-                  <input className="ai" value={form.title} onChange={e=>setF('title', e.target.value)} placeholder="Название акции"/>
-                </div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Тип акции</div>
-                  <select className="ai" value={form.type} onChange={e=>setF('type', e.target.value)} style={{cursor:'pointer'}}>
-                    <option value="pct">% скидка</option>
-                    <option value="free">Бесплатная доставка</option>
-                    <option value="first">Первый заказ</option>
-                    <option value="fixed">Фиксированная (ЅМ)</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Скидка (%)</div>
-                  <input className="ai" value={form.disc} onChange={e=>setF('disc', e.target.value)} type="number" placeholder="30" disabled={form.type==='free'}/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Раздел</div>
-                  <select className="ai" value={form.cat} onChange={e=>setF('cat', e.target.value)} style={{cursor:'pointer'}}>
-                    <option value="Магазин">Магазин</option>
-                    <option value="Рестораны">Рестораны</option>
-                  </select>
-                </div>
-              </div>
-              <PromoScheduleFields
-                value={form.schedule}
-                onChange={patch => setForm(f => ({ ...f, schedule: { ...f.schedule, ...patch } }))}
-              />
-              <div>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div>
-                <input className="ai" value={form.sub} onChange={e=>setF('sub', e.target.value)} placeholder="Короткое описание для клиентов"/>
-              </div>
-              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#8FB897',cursor:'pointer'}}>
-                <input type="checkbox" checked={form.on} onChange={e=>setF('on', e.target.checked)}/>
-                Акция активна
-              </label>
-              <div style={{display:'flex',gap:10,marginTop:4}}>
-                <button onClick={savePromo} disabled={saving || !form.title.trim()} className="ab abp" style={{flex:1,padding:12,opacity:saving||!form.title.trim()?0.6:1}}>
-                  {saving ? 'Сохранение…' : editId !== null ? '✓ Сохранить' : '✓ Создать акцию'}
-                </button>
-                <button onClick={closeModal} className="ab abg">Отмена</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showProductModal && (
-        <div className="amod">
-          <div className="amodbg" onClick={closeProductModal}/>
-          <div className="amodbox" style={{maxWidth:480}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-              <div className="ub" style={{fontSize:15,fontWeight:800}}>{editProductId !== null ? 'Редактировать скидку' : 'Скидка на товар'}</div>
-              <button onClick={closeProductModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <div>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Товар *</div>
-                <ProductSearchPicker
-                  products={catalogProds.map(p => ({ id: p.id, name: p.name, e: p.e, art: p.art, price: p.price }))}
-                  value={productForm.productId}
-                  disabled={editProductId !== null}
-                  onChange={(id, p) => setProductForm(f => ({
-                    ...f,
-                    productId: id,
-                    oldPrice: f.oldPrice || (p ? String(p.price) : ''),
-                  }))}
-                />
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена по акции (ЅМ) *</div>
-                  <input className="ai" type="number" step="0.01" value={productForm.salePrice} onChange={e=>setProductForm(f=>({...f,salePrice:e.target.value}))} placeholder="5.50"/>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Старая цена (ЅМ)</div>
-                  <input className="ai" type="number" step="0.01" value={productForm.oldPrice} onChange={e=>setProductForm(f=>({...f,oldPrice:e.target.value}))} placeholder={selectedProduct ? String(selectedProduct.price) : 'Базовая цена'}/>
-                </div>
-              </div>
-              {productPreviewDisc > 0 && (
-                <div style={{padding:'8px 12px',borderRadius:9,background:'rgba(255,69,69,.07)',border:'1px solid rgba(255,69,69,.2)',fontSize:12,color:'#8FB897'}}>
-                  Скидка: <span style={{color:'#FF4545',fontWeight:800}}>−{productPreviewDisc}%</span>
-                </div>
-              )}
-              <div>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>
-                  Лимит по акции ({selectedProduct ? promoLimitUnit(selectedProduct) : 'шт'})
-                </div>
-                <input
-                  className="ai"
-                  type="number"
-                  min="0.1"
-                  step={selectedProduct?.sellType === 'weight' ? '0.1' : '1'}
-                  value={productForm.stockLimit}
-                  onChange={e => setProductForm(f => ({ ...f, stockLimit: e.target.value }))}
-                  placeholder={selectedProduct?.sellType === 'weight' ? 'Напр. 50 кг' : 'Напр. 100 шт'}
-                />
-                <div style={{fontSize:10,color:'#3D6645',marginTop:5,lineHeight:1.45}}>
-                  {selectedProduct?.sellType === 'weight'
-                    ? 'Для весовых товаров укажите лимит в килограммах. Когда лимит исчерпан — акция автоматически выключается.'
-                    : 'Для штучных товаров — количество штук. Когда лимит исчерпан — акция автоматически выключается.'}
-                </div>
-                {editingProductPromo && Number(editingProductPromo.stockLimit) > 0 && (
-                  <div style={{marginTop:8,padding:'8px 10px',borderRadius:9,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.15)',fontSize:11,color:'#8FB897'}}>
-                    Продано: <strong style={{color:'#EBF5ED'}}>{formatPromoStockAdmin(editingProductPromo, selectedProduct)}</strong>
-                    <label style={{display:'flex',alignItems:'center',gap:8,marginTop:8,cursor:'pointer'}}>
-                      <input type="checkbox" checked={productForm.resetStockSold} onChange={e => setProductForm(f => ({ ...f, resetStockSold: e.target.checked }))}/>
-                      Сбросить счётчик продаж
-                    </label>
-                  </div>
-                )}
-              </div>
-              <PromoScheduleFields
-                compact
-                value={productForm.schedule}
-                onChange={patch => setProductForm(f => ({ ...f, schedule: { ...f.schedule, ...patch } }))}
-              />
-              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#8FB897',cursor:'pointer'}}>
-                <input type="checkbox" checked={productForm.markHot} onChange={e=>setProductForm(f=>({...f,markHot:e.target.checked}))}/>
-                🔥 Показывать как «Хит» в магазине
-              </label>
-              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#8FB897',cursor:'pointer'}}>
-                <input type="checkbox" checked={productForm.on} onChange={e=>setProductForm(f=>({...f,on:e.target.checked}))}/>
-                Акция активна
-              </label>
-              <div style={{display:'flex',gap:10,marginTop:4}}>
-                <button
-                  onClick={saveProductPromo}
-                  disabled={saving || !productForm.productId || !productForm.salePrice}
-                  className="ab abp"
-                  style={{flex:1,padding:12,opacity:saving||!productForm.productId||!productForm.salePrice?0.6:1}}
-                >
-                  {saving ? 'Сохранение…' : editProductId !== null ? '✓ Сохранить' : '✓ Создать скидку'}
-                </button>
-                <button onClick={closeProductModal} className="ab abg">Отмена</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {showProductModal && productModalJsx}
     </div>
   );
 }
@@ -7136,7 +7114,7 @@ function AdminAppInner() {
     return () => {};
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки для магазина и ресторанов',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · флэш и категории как в магазине',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
