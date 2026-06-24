@@ -3161,6 +3161,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
       onClick={() => go("product", { id: p.id })}
       style={{
         width: 158,
+        height: 252,
         flexShrink: 0,
         borderRadius: 18,
         overflow: "hidden",
@@ -3168,49 +3169,53 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
         border: "1px solid rgba(255,69,69,.22)",
         boxShadow: "0 8px 28px rgba(255,69,69,.08)",
         cursor: "pointer",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <div style={{ height: 88, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: p.grad || "rgba(255,69,69,.06)" }}>
+      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: p.grad || "rgba(255,69,69,.06)" }}>
         {p.e}
         <div className="ub" style={{ position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 8, background: "var(--red)", fontSize: 10, fontWeight: 900, color: "#fff" }}>−{disc}%</div>
       </div>
-      <div style={{ padding: "10px 11px 11px" }}>
-        {catLabel && (
-          <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,140,140,.85)", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {catLabel}
-          </div>
-        )}
-        <div style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.35, minHeight: 30, marginBottom: 6 }}>{p.name}</div>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: stockLabel ? 6 : 8 }}>
+      <div style={{ padding: "10px 11px 11px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: catLabel ? "rgba(255,140,140,.85)" : "transparent", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4, minHeight: 11, lineHeight: 1 }}>
+          {catLabel || "·"}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.35, height: 30, marginBottom: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{p.name}</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 6 }}>
           <span className="ub" style={{ fontSize: 14, fontWeight: 900, color: "#FF6B6B" }}>{Number(p.price).toFixed(2)}<span style={{ fontSize: 8, color: "var(--gd)", marginLeft: 2 }}> ЅМ</span></span>
           {p.old > p.price && <span style={{ fontSize: 10, color: "var(--t3)", textDecoration: "line-through" }}>{Number(p.old).toFixed(2)}</span>}
         </div>
-        {stockLabel && (
-          <>
-            <div style={{ height: 3, background: "rgba(255,255,255,.08)", borderRadius: 2, marginBottom: 4 }}>
-              <div style={{ height: "100%", width: `${stockPct ?? 50}%`, background: "linear-gradient(90deg,#FF4545,#FF8C6B)", borderRadius: 2 }}/>
+        <div style={{ minHeight: 22, marginBottom: 8 }}>
+          {stockLabel ? (
+            <>
+              <div style={{ height: 3, background: "rgba(255,255,255,.08)", borderRadius: 2, marginBottom: 4 }}>
+                <div style={{ height: "100%", width: `${stockPct ?? 50}%`, background: "linear-gradient(90deg,#FF4545,#FF8C6B)", borderRadius: 2 }}/>
+              </div>
+              <div style={{ fontSize: 9, color: "var(--t3)", lineHeight: 1.2 }}>{stockLabel}</div>
+            </>
+          ) : null}
+        </div>
+        <div style={{ marginTop: "auto" }}>
+          {qty === 0 ? (
+            <button
+              onClick={e => { e.stopPropagation(); onAdd(p.id); }}
+              className="btn"
+              style={{ width: "100%", padding: "8px", fontSize: 11, borderRadius: 10, background: "linear-gradient(135deg,#CC2A2A,var(--red))", color: "#fff", fontWeight: 700 }}
+            >
+              + В корзину
+            </button>
+          ) : (
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,69,69,.12)", border: "1px solid rgba(255,69,69,.25)", borderRadius: 10, padding: "3px 6px" }}
+            >
+              <button onClick={() => onRm(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>−</button>
+              <span className="ub" style={{ fontSize: 12, fontWeight: 900, color: "var(--red)" }}>{formatCartQtyStepper(p, qty)}</span>
+              <button onClick={() => onAdd(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>+</button>
             </div>
-            <div style={{ fontSize: 9, color: "var(--t3)", marginBottom: 8 }}>{stockLabel}</div>
-          </>
-        )}
-        {qty === 0 ? (
-          <button
-            onClick={e => { e.stopPropagation(); onAdd(p.id); }}
-            className="btn"
-            style={{ width: "100%", padding: "8px", fontSize: 11, borderRadius: 10, background: "linear-gradient(135deg,#CC2A2A,var(--red))", color: "#fff", fontWeight: 700 }}
-          >
-            + В корзину
-          </button>
-        ) : (
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,69,69,.12)", border: "1px solid rgba(255,69,69,.25)", borderRadius: 10, padding: "3px 6px" }}
-          >
-            <button onClick={() => onRm(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>−</button>
-            <span className="ub" style={{ fontSize: 12, fontWeight: 900, color: "var(--red)" }}>{formatCartQtyStepper(p, qty)}</span>
-            <button onClick={() => onAdd(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>+</button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
