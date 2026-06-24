@@ -1,12 +1,13 @@
 import type { Product } from './types'
 import type { Promo } from './types'
+import { isPromoScheduleActive } from './promoSchedule'
 
 export function isProductPromo(p: Promo): boolean {
   return p.type === 'product' && p.productId != null
 }
 
 export function activeProductPromos(promos: Promo[]): Promo[] {
-  return promos.filter(p => p.on && isProductPromo(p))
+  return promos.filter(p => isProductPromo(p) && isPromoScheduleActive(p))
 }
 
 /** Базовый каталог без зачёркнутых цен — скидки только из раздела «Акции» */

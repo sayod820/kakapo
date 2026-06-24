@@ -135,6 +135,9 @@ import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
 import { formatBulkPricingHint, hasBulkPricing, normalizeBulkPricing } from '@/lib/productBulkPricing'
 import { isProductPromo, productPromoLabel, stripProductSaleFields } from '@/lib/productPromos'
+import { formatPromoScheduleLabel, isPromoScheduleActive } from '@/lib/promoSchedule'
+import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
+import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
 import { api } from '@/lib/api'
 import type { Promo } from '@/lib/types'
 import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
@@ -4752,8 +4755,8 @@ function PromosPage() {
     { id: 6, e: '🍽', title: 'Скидка в ресторанах', sub: '10% в Чайхоне и Суши', disc: 10, on: false, cat: 'Рестораны', type: 'pct', from: '10:00', to: '23:00', till: 'Всегда' },
     { id: 7, e: '🎁', title: 'Первый заказ', sub: '15% скидка на первый заказ', disc: 15, on: true, cat: 'Магазин', type: 'first', from: '00:00', to: '23:59', till: 'Всегда' },
   ]
-  const emptyForm = { e: '🎁', title: '', sub: '', disc: '0', cat: 'Магазин' as Promo['cat'], type: 'pct' as Promo['type'], from: '08:00', to: '22:00', till: 'Всегда', on: true }
-  const emptyProductForm = { productId: '', salePrice: '', oldPrice: '', markHot: false, on: true }
+  const emptyForm = { e: '🎁', title: '', sub: '', disc: '0', cat: 'Магазин' as Promo['cat'], type: 'pct' as Promo['type'], on: true, schedule: { scheduleMode: 'daily' as PromoScheduleForm['scheduleMode'], from: '08:00', to: '22:00', till: 'Всегда', startsAt: '', endsAt: '' } }
+  const emptyProductForm = { productId: '', salePrice: '', oldPrice: '', markHot: false, on: true, schedule: { scheduleMode: 'always' as PromoScheduleForm['scheduleMode'], from: '08:00', to: '22:00', till: 'Всегда', startsAt: '', endsAt: '' } }
 
   const apiProducts = useProducts(s => s.products)
   const catalogProds = useMemo(() => stripProductSaleFields(enrichProducts(apiProducts, PRODS)), [apiProducts])
@@ -4817,10 +4820,8 @@ function PromosPage() {
       disc: String(p.disc),
       cat: p.cat,
       type: p.type || 'pct',
-      from: p.from || '08:00',
-      to: p.to || '22:00',
-      till: p.till || 'Всегда',
       on: p.on,
+      schedule: scheduleFromPromo(p),
     })
     setShowModal(true)
   }
@@ -4839,6 +4840,7 @@ function PromosPage() {
       oldPrice: p.oldPrice != null ? String(p.oldPrice) : '',
       markHot: !!p.markHot,
       on: p.on,
+      schedule: scheduleFromPromo(p),
     })
     setShowProductModal(true)
   }
@@ -4857,7 +4859,12 @@ function PromosPage() {
 
   const savePromo = async () => {
     if (!form.title.trim()) return
+    if (form.schedule.scheduleMode === 'flash' && !form.schedule.endsAt.trim()) {
+      alert('Укажите дату и время окончания флэш-акции')
+      return
+    }
     setSaving(true)
+    const schedule = scheduleToPromoPayload(form.schedule)
     const payload = {
       e: form.e || '🎁',
       title: form.title.trim(),
@@ -4865,10 +4872,8 @@ function PromosPage() {
       disc: form.type === 'free' ? 0 : Number(form.disc) || 0,
       cat: form.cat,
       type: form.type,
-      from: form.from,
-      to: form.to,
-      till: form.till || 'Всегда',
       on: form.on,
+      ...schedule,
     }
     try {
       if (USE_API) {
@@ -4900,9 +4905,14 @@ function PromosPage() {
     const pid = Number(productForm.productId)
     const sale = Number(productForm.salePrice)
     if (!pid || !Number.isFinite(sale) || sale <= 0) return
+    if (productForm.schedule.scheduleMode === 'flash' && !productForm.schedule.endsAt.trim()) {
+      alert('Укажите дату и время окончания флэш-акции')
+      return
+    }
     const product = catalogProds.find(p => p.id === pid)
     const old = productForm.oldPrice !== '' ? Number(productForm.oldPrice) : (product?.price ?? 0)
     const disc = old > sale ? Math.round((1 - sale / old) * 100) : 0
+    const schedule = scheduleToPromoPayload(productForm.schedule)
     const payload = {
       type: 'product' as const,
       e: product?.e || '🏷️',
@@ -4915,9 +4925,7 @@ function PromosPage() {
       salePrice: sale,
       oldPrice: old > sale ? old : undefined,
       markHot: productForm.markHot,
-      from: '00:00',
-      to: '23:59',
-      till: 'Всегда',
+      ...schedule,
     }
     setSaving(true)
     try {
@@ -5031,6 +5039,7 @@ function PromosPage() {
                         <Badge v={p.cat} c={p.cat==='Рестораны'?'#FF8C00':'#3B8EF0'}/>
                       </div>
                       <div style={{fontSize:12,color:'#8FB897'}}>{p.sub}</div>
+                      <div style={{fontSize:10,color:'#3D6645',marginTop:4}}>{formatPromoScheduleLabel(p)}{p.on && !isPromoScheduleActive(p) ? ' · ⏸ вне расписания' : ''}</div>
                     </div>
                     <div style={{display:'flex',alignItems:'center',gap:10}}>
                       <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
@@ -5080,6 +5089,7 @@ function PromosPage() {
                           База: {prod ? `${prod.price.toFixed(2)} ЅМ` : '—'}
                           {p.salePrice != null && <> → <span style={{color:'#FF4545',fontWeight:700}}>{Number(p.salePrice).toFixed(2)} ЅМ</span></>}
                         </div>
+                        <div style={{fontSize:10,color:'#3D6645',marginTop:4}}>{formatPromoScheduleLabel(p)}{p.on && !isPromoScheduleActive(p) ? ' · ⏸ вне расписания' : ''}</div>
                       </div>
                       <div style={{display:'flex',alignItems:'center',gap:10}}>
                         <span style={{fontSize:11,color:p.on?'#1FD760':'#3D6645',fontWeight:700}}>{p.on?'Вкл':'Выкл'}</span>
@@ -5137,11 +5147,10 @@ function PromosPage() {
                   </select>
                 </div>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Начало</div><input className="ai" type="time" value={form.from} onChange={e=>setF('from', e.target.value)}/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Конец</div><input className="ai" type="time" value={form.to} onChange={e=>setF('to', e.target.value)}/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Действует до</div><input className="ai" value={form.till} onChange={e=>setF('till', e.target.value)} placeholder="Напр: Среда"/></div>
-              </div>
+              <PromoScheduleFields
+                value={form.schedule}
+                onChange={patch => setForm(f => ({ ...f, schedule: { ...f.schedule, ...patch } }))}
+              />
               <div>
                 <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div>
                 <input className="ai" value={form.sub} onChange={e=>setF('sub', e.target.value)} placeholder="Короткое описание для клиентов"/>
@@ -5172,18 +5181,16 @@ function PromosPage() {
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
               <div>
                 <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Товар *</div>
-                <select
-                  className="ai"
+                <ProductSearchPicker
+                  products={catalogProds.map(p => ({ id: p.id, name: p.name, e: p.e, art: p.art, price: p.price }))}
                   value={productForm.productId}
-                  onChange={e => setProductForm(f => ({ ...f, productId: e.target.value, oldPrice: f.oldPrice || '' }))}
                   disabled={editProductId !== null}
-                  style={{cursor:'pointer'}}
-                >
-                  <option value="">Выберите товар…</option>
-                  {catalogProds.map(p => (
-                    <option key={p.id} value={p.id}>{p.e} {p.name} — {p.price.toFixed(2)} ЅМ ({p.art})</option>
-                  ))}
-                </select>
+                  onChange={(id, p) => setProductForm(f => ({
+                    ...f,
+                    productId: id,
+                    oldPrice: f.oldPrice || (p ? String(p.price) : ''),
+                  }))}
+                />
               </div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                 <div>
@@ -5200,6 +5207,11 @@ function PromosPage() {
                   Скидка: <span style={{color:'#FF4545',fontWeight:800}}>−{productPreviewDisc}%</span>
                 </div>
               )}
+              <PromoScheduleFields
+                compact
+                value={productForm.schedule}
+                onChange={patch => setProductForm(f => ({ ...f, schedule: { ...f.schedule, ...patch } }))}
+              />
               <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#8FB897',cursor:'pointer'}}>
                 <input type="checkbox" checked={productForm.markHot} onChange={e=>setProductForm(f=>({...f,markHot:e.target.checked}))}/>
                 🔥 Показывать как «Хит» в магазине

@@ -1,0 +1,137 @@
+'use client'
+
+import type { PromoScheduleMode } from '@/lib/promoSchedule'
+import { datetimeLocalToIso, isoToDatetimeLocal } from '@/lib/promoSchedule'
+
+export type PromoScheduleForm = {
+  scheduleMode: PromoScheduleMode
+  from: string
+  to: string
+  till: string
+  startsAt: string
+  endsAt: string
+}
+
+type Props = {
+  value: PromoScheduleForm
+  onChange: (patch: Partial<PromoScheduleForm>) => void
+  compact?: boolean
+}
+
+const MODES: { id: PromoScheduleMode; label: string; hint: string }[] = [
+  { id: 'always', label: '♾️ Всегда', hint: 'Без ограничения по времени' },
+  { id: 'daily', label: '🕐 Ежедневно', hint: 'Каждый день в указанные часы' },
+  { id: 'flash', label: '⚡ Флэш', hint: 'До конкретной даты и времени' },
+]
+
+export default function PromoScheduleFields({ value, onChange, compact }: Props) {
+  const mode = value.scheduleMode
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div>
+        <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>Когда действует</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {MODES.map(m => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onChange({ scheduleMode: m.id })}
+              className="ab"
+              style={{
+                flex: compact ? '1 1 auto' : '1 1 30%',
+                minWidth: compact ? 90 : 120,
+                padding: '8px 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                background: mode === m.id ? 'rgba(31,215,96,.14)' : '#091508',
+                border: `1.5px solid ${mode === m.id ? 'rgba(31,215,96,.35)' : '#162B1A'}`,
+                color: mode === m.id ? '#1FD760' : '#8FB897',
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>
+          {MODES.find(m => m.id === mode)?.hint}
+        </div>
+      </div>
+
+      {mode === 'daily' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>С</div>
+            <input className="ai" type="time" value={value.from} onChange={e => onChange({ from: e.target.value })} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>До</div>
+            <input className="ai" type="time" value={value.to} onChange={e => onChange({ to: e.target.value })} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Подпись</div>
+            <input className="ai" value={value.till} onChange={e => onChange({ till: e.target.value })} placeholder="Среда, Сб–Вс…" />
+          </div>
+        </div>
+      )}
+
+      {mode === 'flash' && (
+        <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : '1fr 1fr', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Начало (необяз.)</div>
+            <input className="ai" type="datetime-local" value={value.startsAt} onChange={e => onChange({ startsAt: e.target.value })} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Окончание *</div>
+            <input className="ai" type="datetime-local" value={value.endsAt} onChange={e => onChange({ endsAt: e.target.value })} />
+          </div>
+          <div style={{ gridColumn: compact ? undefined : '1 / -1' }}>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Часы показа в магазине</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <input className="ai" type="time" value={value.from} onChange={e => onChange({ from: e.target.value })} />
+              <input className="ai" type="time" value={value.to} onChange={e => onChange({ to: e.target.value })} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mode === 'always' && !compact && (
+        <div>
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>Подпись для клиентов</div>
+          <input className="ai" value={value.till} onChange={e => onChange({ till: e.target.value })} placeholder="Всегда" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function scheduleFromPromo(p: {
+  scheduleMode?: PromoScheduleMode
+  from?: string
+  to?: string
+  till?: string
+  startsAt?: string
+  endsAt?: string
+}): PromoScheduleForm {
+  return {
+    scheduleMode: p.scheduleMode || (p.endsAt ? 'flash' : p.from && p.to && (p.from !== '00:00' || p.to !== '23:59') ? 'daily' : 'always'),
+    from: p.from || '08:00',
+    to: p.to || '22:00',
+    till: p.till || 'Всегда',
+    startsAt: isoToDatetimeLocal(p.startsAt),
+    endsAt: isoToDatetimeLocal(p.endsAt),
+  }
+}
+
+export function scheduleToPromoPayload(form: PromoScheduleForm) {
+  return {
+    scheduleMode: form.scheduleMode,
+    from: form.scheduleMode === 'always' ? '00:00' : form.from,
+    to: form.scheduleMode === 'always' ? '23:59' : form.to,
+    till: form.scheduleMode === 'flash'
+      ? (form.endsAt ? 'Флэш' : 'Сегодня')
+      : (form.till || 'Всегда'),
+    startsAt: form.scheduleMode === 'flash' ? datetimeLocalToIso(form.startsAt) : undefined,
+    endsAt: form.scheduleMode === 'flash' ? datetimeLocalToIso(form.endsAt) : undefined,
+  }
+}

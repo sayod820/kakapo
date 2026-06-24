@@ -252,5 +252,7 @@ export interface Promo {
   productId?: number
   salePrice?: number
   oldPrice?: number
-  markHot?: boolean
-}
+  /** always | daily (часы) | flash (до даты) */
+  scheduleMode?: 'always' | 'daily' | 'flash'
+  startsAt?: string
+  endsAt?: string

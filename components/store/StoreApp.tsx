@@ -7,7 +7,7 @@ import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
 import { productCatSlug } from "@/lib/enrichCatalog";
-import { useOrders, USE_API, useRestaurants } from "@/lib/store";
+import { useOrders, USE_API, useRestaurants, usePromos } from "@/lib/store";
 import { api } from "@/lib/api";
 import { enrichRestaurants } from "@/lib/enrichCatalog";
 import { mapOrdersForClient } from "@/lib/orderUiMap";
@@ -64,6 +64,7 @@ import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
 import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
 import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
+import { formatCountdownParts, nextFlashCountdownSeconds } from "@/lib/promoSchedule";
 import type { Review } from "@/lib/types";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
@@ -3141,13 +3142,23 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
 
 const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
   const { prods } = useLiveCatalog();
+  const apiPromos = usePromos(s => s.promos);
   const { isVip } = resolveUserVip(user);
   const [tab, setTab] = useState("all");
   const [bi, setBi] = useState(0);
   const [copied, setCopied] = useState(null);
-  const [timer, setTimer] = useState({ h:3, m:24, s:18 });
+  const [flashSec, setFlashSec] = useState(() => nextFlashCountdownSeconds(apiPromos) ?? 3 * 3600 + 24 * 60 + 18);
   useEffect(() => { const t = setInterval(() => setBi(b => (b+1)%BANNERS.length), 4500); return () => clearInterval(t); }, []);
-  useEffect(() => { const t = setInterval(() => setTimer(t => { if(t.s>0) return {...t,s:t.s-1}; if(t.m>0) return {...t,m:t.m-1,s:59}; if(t.h>0) return {h:t.h-1,m:59,s:59}; return t; }), 1000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    const tick = () => {
+      const sec = nextFlashCountdownSeconds(apiPromos);
+      if (sec != null) setFlashSec(sec);
+    };
+    tick();
+    const t = setInterval(() => setFlashSec(s => (s > 0 ? s - 1 : nextFlashCountdownSeconds(apiPromos) ?? 0)), 1000);
+    return () => clearInterval(t);
+  }, [apiPromos]);
+  const timer = formatCountdownParts(flashSec);
   const pad = n => String(n).padStart(2,"0");
   const b = BANNERS[bi];
   const copy = code => { setCopied(code); setTimeout(() => setCopied(null), 2000); };
