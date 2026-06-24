@@ -64,7 +64,6 @@ import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
 import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
 import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
-import { formatCountdownParts, nextFlashCountdownSeconds } from "@/lib/promoSchedule";
 import { activeProductPromos } from "@/lib/productPromos";
 import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
@@ -1702,9 +1701,6 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
 };
 const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady = true, user }) => {
   const { prods } = useLiveCatalog();
-  const [promo, setPromo] = useState("");
-  const [promoOk, setPromoOk] = useState(false);
-  const [promoErr, setPromoErr] = useState(false);
   const items = buildCartLineItems(cart, cartMeta, prods);
   const prodItems = items.filter(p => !p.isRest);
   const cartBoot =
@@ -1715,15 +1711,9 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
   const bulkSaved = prodItems.reduce((s, p) => s + lineBulkSavings(p, p.qty), 0);
   const saleSaved = prodItems.reduce((s, p) => s + lineSaleSavings(p, p.qty), 0);
   const sub   = items.reduce((s,p) => s + calcLineTotal(p, p.qty), 0);
-  const disc  = promoOk ? sub * .1 : 0;
-  const total = sub - disc;
-  const totalSaved = Math.round((bulkSaved + saleSaved + disc) * 100) / 100;
+  const total = sub;
+  const totalSaved = Math.round((bulkSaved + saleSaved) * 100) / 100;
   const tqty  = items.length;
-  const applyPromo = () => {
-    const p = promo.trim().toUpperCase()
-    if (p === "КАКАПО10" || p === "KAKAPO10") { setPromoOk(true); setPromoErr(false); }
-    else { setPromoErr(true); setTimeout(() => setPromoErr(false), 2200); }
-  };
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
@@ -1796,17 +1786,6 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               );
             })}
           </div>
-          <div className="card" style={{ padding:"16px", marginBottom:14 }}>
-            <div style={{ fontSize:13, fontWeight:700, marginBottom:10, display:"flex", alignItems:"center", gap:6 }}><Ic n="percent" s={15} c="var(--gr)"/>Промокод</div>
-            <div style={{ display:"flex", gap:8 }}>
-              <input className={`inp ${promoErr?"inp-err":promoOk?"inp-ok":""}`} value={promo} onChange={e => { setPromo(e.target.value); setPromoErr(false); }} placeholder="Введите промокод..." style={{ flex:1 }}/>
-              <button onClick={applyPromo} className="btn" style={{ padding:"12px 16px", borderRadius:13, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13, flexShrink:0 }}>
-                {promoOk ? <Ic n="check" s={16} c="white" w={2.5}/> : "Применить"}
-              </button>
-            </div>
-            {promoOk && <div style={{ marginTop:7, fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:5 }}><Ic n="check" s={11} c="var(--gr)" w={2.5}/>КАКАПО10 — скидка 10% применена!</div>}
-            {promoErr && <div style={{ marginTop:7, fontSize:11, color:"var(--red)", fontWeight:700 }}>✗ Неверный промокод. Попробуйте КАКАПО10</div>}
-          </div>
         </div>
       )}
       {items.length > 0 && (
@@ -1818,7 +1797,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
                 <span style={{ textDecoration:"line-through" }}>{retailSub.toFixed(2)} ЅМ</span>
               </div>
             )}
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bulkSaved > 0 || saleSaved > 0 || promoOk ? 6 : 0 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bulkSaved > 0 || saleSaved > 0 ? 6 : 0 }}>
               <span style={{ color:"var(--t2)" }}>Товары ({tqty} поз.)</span>
               <span style={{ fontWeight:700 }}>{sub.toFixed(2)} ЅМ</span>
             </div>
@@ -1832,12 +1811,6 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
                 <span>Скидка по акции</span>
                 <span style={{ fontWeight:700 }}>−{saleSaved.toFixed(2)} ЅМ</span>
-              </div>
-            )}
-            {promoOk && (
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
-                <span>Промокод −10%</span>
-                <span style={{ fontWeight:700 }}>−{disc.toFixed(2)} ЅМ</span>
               </div>
             )}
             {totalSaved > 0 && (
@@ -3148,22 +3121,8 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
   const { isVip } = resolveUserVip(user);
   const [tab, setTab] = useState("all");
   const [bi, setBi] = useState(0);
-  const [copied, setCopied] = useState(null);
-  const [flashSec, setFlashSec] = useState(() => nextFlashCountdownSeconds(apiPromos) ?? 3 * 3600 + 24 * 60 + 18);
   useEffect(() => { const t = setInterval(() => setBi(b => (b+1)%BANNERS.length), 4500); return () => clearInterval(t); }, []);
-  useEffect(() => {
-    const tick = () => {
-      const sec = nextFlashCountdownSeconds(apiPromos);
-      if (sec != null) setFlashSec(sec);
-    };
-    tick();
-    const t = setInterval(() => setFlashSec(s => (s > 0 ? s - 1 : nextFlashCountdownSeconds(apiPromos) ?? 0)), 1000);
-    return () => clearInterval(t);
-  }, [apiPromos]);
-  const timer = formatCountdownParts(flashSec);
-  const pad = n => String(n).padStart(2,"0");
   const b = BANNERS[bi];
-  const copy = code => { setCopied(code); setTimeout(() => setCopied(null), 2000); };
   const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   const FLASH = prods
     .filter(p => num(p.old) > num(p.price) && (p.promoStockLeft == null || p.promoStockLeft > 0))
@@ -3195,7 +3154,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
           <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
             </div>
         <div className="hscroll" style={{ padding:"0 18px 10px", gap:6 }}>
-            {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"},{id:"codes",l:"🏷 Промокоды"}].map(t => (
+            {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"}].map(t => (
               <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
             ))}
         </div>
@@ -3228,20 +3187,8 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
         {(tab==="all"||tab==="flash") && (
           <div style={{ marginBottom:22 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-              <div>
-                <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:6 }}>⚡ Флэш-распродажа</div>
-                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  <Ic n="clock" s={13} c="var(--red)"/>
-                  <div style={{ display:"flex", gap:3 }}>
-                    {[pad(timer.h),pad(timer.m),pad(timer.s)].map((v,i) => (
-                      <span key={i} style={{ display:"flex", alignItems:"center", gap:3 }}>
-                        <span style={{ background:"rgba(255,69,69,.15)", border:"1px solid rgba(255,69,69,.3)", borderRadius:6, padding:"2px 6px", fontFamily:"Unbounded", fontSize:12, fontWeight:900, color:"var(--red)" }}>{v}</span>
-                        {i<2 && <span style={{ color:"var(--red)", fontWeight:900 }}>:</span>}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <div className="ub" style={{ fontSize:15, fontWeight:800 }}>⚡ Флэш-распродажа</div>
+              <div style={{ fontSize:11, color:"var(--t3)" }}>Быстрые скидки</div>
             </div>
             <div className="hscroll">
               {FLASH.map(p => {
@@ -3293,33 +3240,6 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-        {(tab==="all"||tab==="codes") && (
-          <div>
-            <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>🏷 Промокоды</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
-              {[{code:"КАКАПО10",desc:"Скидка 10% на первый заказ",e:"🎉",expires:"31 мая"},{code:"YAVAN5",desc:"5 ЅМ для жителей Явана",e:"📍",expires:"30 мая"},{code:"SUMMER25",desc:"Летняя акция — скидка 25%",e:"☀️",expires:"1 июня"}].map(pc => (
-                <div key={pc.code} style={{ background:"var(--l2)", border:"1.5px solid rgba(31,215,96,.2)", borderRadius:15, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
-                  <div style={{ width:42, height:42, borderRadius:12, background:"rgba(31,215,96,.12)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{pc.e}</div>
-                  <div style={{ flex:1 }}>
-                    <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gr)", marginBottom:3 }}>{pc.code}</div>
-                    <div style={{ fontSize:11, color:"var(--t2)", marginBottom:2 }}>{pc.desc}</div>
-                    <div style={{ fontSize:10, color:"var(--t3)" }}>До {pc.expires}</div>
-                  </div>
-                  <button onClick={() => copy(pc.code)} className="btn" style={{ width:36, height:36, borderRadius:10, background:copied===pc.code?"rgba(31,215,96,.14)":"var(--l3)", border:`1px solid ${copied===pc.code?"rgba(31,215,96,.4)":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                    {copied===pc.code ? <Ic n="check" s={15} c="var(--gr)" w={2.5}/> : <Ic n="copy" s={15} c="var(--t2)"/>}
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:15, padding:"16px" }}>
-              <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>Есть промокод?</div>
-              <div style={{ display:"flex", gap:8 }}>
-                <input className="inp" placeholder="Введите промокод..." style={{ flex:1 }}/>
-                <button className="btn" style={{ padding:"12px 16px", borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13, flexShrink:0 }}>Применить</button>
-              </div>
             </div>
           </div>
         )}
@@ -5357,36 +5277,6 @@ const AdminPromosPage = ({go}) => {
             </div>
           </div>
         ))}
-      </div>
-
-      <div style={{marginTop:20}}>
-        <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>Промокоды</div>
-        <div className="ac" style={{overflow:'hidden'}}>
-          <table className="at">
-            <thead><tr><th>Промокод</th><th>Скидка</th><th>Использований</th><th>Действует до</th><th>Статус</th><th></th></tr></thead>
-            <tbody>
-              {[
-                {code:'КАКАПО10',disc:'10%',used:124,till:'31 мая',on:true},
-                {code:'YAVAN5',  disc:'5 ЅМ',used:89, till:'30 мая',on:true},
-                {code:'SUMMER25',disc:'25%',used:12, till:'1 июня', on:false},
-              ].map((c,i)=>(
-                <tr key={i}>
-                  <td><span className="ub" style={{fontSize:13,fontWeight:900,color:'var(--gr)',letterSpacing:1}}>{c.code}</span></td>
-                  <td style={{fontWeight:700,color:'var(--red)',fontFamily:'Unbounded'}}>{c.disc}</td>
-                  <td style={{color:'#8FB897'}}>{c.used} раз</td>
-                  <td style={{color:'#8FB897',fontSize:12}}>{c.till}</td>
-                  <td><Tog on={c.on} onToggle={()=>{}}/></td>
-                  <td><button className="ab abd" style={{padding:'4px 9px',fontSize:11}}>🗑</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{padding:'12px 16px',borderTop:'1px solid #162B1A',display:'flex',gap:10}}>
-            <input className="ai" placeholder="Новый промокод..." style={{flex:1}}/>
-            <input className="ai" placeholder="Скидка %" type="number" style={{width:100}}/>
-            <button className="ab abp" style={{padding:'8px 16px',fontSize:12,flexShrink:0}}>+ Создать</button>
-          </div>
-        </div>
       </div>
 
       {showAdd&&(
