@@ -61,7 +61,7 @@ import {
 } from "@/lib/clientNotifications";
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
-import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
+import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import type { Review } from "@/lib/types";
 
@@ -1696,18 +1696,17 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
     </div>
   );
 };
-const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
+const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady = true, user }) => {
   const { prods } = useLiveCatalog();
   const [promo, setPromo] = useState("");
   const [promoOk, setPromoOk] = useState(false);
   const [promoErr, setPromoErr] = useState(false);
-  const prodItems = prods.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty:cart[p.id] }));
-  const restItems = Object.keys(cartMeta).filter(id => cart[id] > 0).map(id => ({
-    id, e: cartMeta[id].emoji, name: cartMeta[id].name, price: cartMeta[id].price,
-    qty: cart[id], isRest: true, restId: cartMeta[id].restId
-  }));
-  const items = [...prodItems, ...restItems];
-  if (cartHasQty(cart) && items.length === 0) return <CartPageBoot go={go} />;
+  const items = buildCartLineItems(cart, cartMeta, prods);
+  const prodItems = items.filter(p => !p.isRest);
+  const cartBoot =
+    (cartHasQty(cart) && items.length === 0) ||
+    (!cartSyncReady && !!user?.phone && !cartHasQty(cart));
+  if (cartBoot) return <CartPageBoot go={go} />;
   const retailSub = items.reduce((s, p) => s + (p.isRest ? (Number(p.price) || 0) * p.qty : lineRetailTotal(p, p.qty)), 0);
   const bulkSaved = prodItems.reduce((s, p) => s + lineBulkSavings(p, p.qty), 0);
   const saleSaved = prodItems.reduce((s, p) => s + lineSaleSavings(p, p.qty), 0);
@@ -2021,16 +2020,9 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     }
   };
 
-  const prodItems = prods.filter(p => cart[p.id] > 0).map(p => ({ ...p, qty: cart[p.id] }));
-  const restItems = Object.keys(cartMeta).filter(id => cart[id] > 0).map(id => ({
-    id,
-    e: cartMeta[id].emoji,
-    name: cartMeta[id].name,
-    price: cartMeta[id].price,
-    qty: cart[id],
-    restId: cartMeta[id].restId,
-  }));
-  const items = [...prodItems, ...restItems];
+  const items = buildCartLineItems(cart, cartMeta, prods);
+  const prodItems = items.filter(p => !p.isRest);
+  const restItems = items.filter(p => p.isRest);
   const bulkSaved = prodItems.reduce((s, p) => s + lineBulkSavings(p, p.qty), 0);
   const saleSaved = prodItems.reduce((s, p) => s + lineSaleSavings(p, p.qty), 0);
   const totalSaved = Math.round((bulkSaved + saleSaved) * 100) / 100;
@@ -2375,10 +2367,6 @@ function StoreSessionBoot() {
   return (
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }} />
   );
-}
-
-function cartHasQty(cart: Record<string, number> = {}): boolean {
-  return Object.values(cart).some(q => Number(q) > 0);
 }
 
 function CartPageBoot({ go }: { go: (p: string) => void }) {
@@ -8251,7 +8239,11 @@ function KakapoAppInner() {
   const [user,   setUser]   = useState<StoreUser | null>(sessionBoot.user);
   const [sessionReady, setSessionReady] = useState(false);
   const userPersistReadyRef = useRef(false);
-  const [cartSyncReady, setCartSyncReady] = useState(false);
+  const [cartSyncReady, setCartSyncReady] = useState(() => {
+    if (!USE_API) return true;
+    const boot = sessionBoot;
+    return !boot.user?.phone || !boot.user?.clientId;
+  });
   const [toast,  setToast]  = useState(null);
   const [, setLoyaltyCfgTick] = useState(0);
 
@@ -8320,8 +8312,13 @@ function KakapoAppInner() {
   }, [user?.phone, user?.clientId]);
 
   useEffect(() => {
-    if (!user?.phone || !cartSyncReady) return;
+    if (!user?.phone) return;
     saveAccountJson(ACCOUNT_NS.cart, cart, user.phone);
+    saveAccountJson(ACCOUNT_NS.cartMeta, cartMeta, user.phone);
+  }, [cart, cartMeta, user?.phone]);
+
+  useEffect(() => {
+    if (!user?.phone || !cartSyncReady) return;
     if (!USE_API || !user.clientId) return;
     const t = setTimeout(() => {
       void saveRemoteCart(user.clientId!, cart, cartMeta);
@@ -8424,7 +8421,7 @@ function KakapoAppInner() {
   )
   const isVipUser = !!(displayUser?.vip || storeLoyalty.isVip)
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser, sessionReady };
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser, sessionReady, cartSyncReady };
 
   const render = () => {
     switch (page) {
