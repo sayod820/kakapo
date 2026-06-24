@@ -62,6 +62,7 @@ import {
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
 import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
+import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import type { Review } from "@/lib/types";
 
