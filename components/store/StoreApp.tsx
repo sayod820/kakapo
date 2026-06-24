@@ -3222,7 +3222,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
 };
 
 const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
-  const { prods } = useLiveCatalog();
+  const { prods, catalogReady, promosReady } = useLiveCatalog();
   const apiPromos = usePromos(s => s.promos) || [];
   const { isVip } = resolveUserVip(user);
   const [selectedCat, setSelectedCat] = useState(null);
@@ -3280,7 +3280,31 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   }, [saleProds]);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
+  const promosBoot = USE_API && (!catalogReady || !promosReady);
   const activeGroup = selectedCat ? saleByCategory.find(g => g.cat.id === selectedCat) : null;
+
+  if (promosBoot) {
+    return (
+      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+        <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+          <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
+            <div style={{ flex: 1 }}>
+              <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Акции</div>
+              <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>Загрузка…</div>
+            </div>
+            <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
+          </div>
+        </header>
+        <div style={{ textAlign: "center", padding: "72px 24px 110px" }}>
+          <div style={{ fontSize: 52, marginBottom: 16, animation: "float 3s ease-in-out infinite" }}>🏷️</div>
+          <div className="ub" style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>Загрузка акций…</div>
+          <div style={{ fontSize: 13, color: "var(--t2)" }}>Подождите немного</div>
+        </div>
+        <Nav page="promos" go={go} user={user}/>
+      </div>
+    );
+  }
 
   if (activeGroup) {
     const { cat, items } = activeGroup;

@@ -2,9 +2,9 @@
 import { createContext, useContext } from 'react'
 import { useCatalogData } from '@/lib/useCatalogData'
 
-type Catalog = { prods: any[]; restaurants: any[]; catalogReady: boolean }
+type Catalog = { prods: any[]; restaurants: any[]; catalogReady: boolean; promosReady: boolean }
 
-const Ctx = createContext<Catalog>({ prods: [], restaurants: [], catalogReady: false })
+const Ctx = createContext<Catalog>({ prods: [], restaurants: [], catalogReady: false, promosReady: false })
 
 export function LiveCatalogProvider({
   fallbackProds,

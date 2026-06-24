@@ -734,14 +734,24 @@ export const useProducts = create<ProductsStore>((set, get) => ({
 // ── PROMOS ───────────────────────────────────────
 interface PromosStore {
   promos: Promo[]
+  loaded: boolean
   fetchPromos: () => Promise<void>
   setPromos: (promos: Promo[]) => void
 }
 export const usePromos = create<PromosStore>((set) => ({
   promos: [],
+  loaded: !USE_API,
   fetchPromos: async () => {
-    if (!USE_API) return
-    try { set({ promos: ensureArray<Promo>(await api.getPromos(), 'promos') }) } catch (e) { console.error(e) }
+    if (!USE_API) {
+      set({ loaded: true })
+      return
+    }
+    try {
+      set({ promos: ensureArray<Promo>(await api.getPromos(), 'promos'), loaded: true })
+    } catch (e) {
+      console.error(e)
+      set({ loaded: true })
+    }
   },
   setPromos: (promos) => set({ promos }),
 }))
