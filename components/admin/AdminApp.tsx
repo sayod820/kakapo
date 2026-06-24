@@ -216,18 +216,6 @@ const REST_ORDERS = [
   {id:'K-4828',restId:'R-02',client:'Рустам Д.',   phone:'+992 93 654 32 10',items:['🍔 Бургер ×2','🍟 Картошка ×1'],total:51,status:'delivered', time:'13:40'},
 ];
 
-const ADMIN_CAT_VISUAL: Record<string, { bg: string; color: string }> = {
-  veg: { bg: 'linear-gradient(145deg,#0D2A0D,#1A4A1A)', color: '#56C956' },
-  meat: { bg: 'linear-gradient(145deg,#2A0A0A,#4A1818)', color: '#FF6B6B' },
-  dairy: { bg: 'linear-gradient(145deg,#0A1828,#163050)', color: '#93C5FD' },
-  bread: { bg: 'linear-gradient(145deg,#281806,#4A2E12)', color: '#FCD34D' },
-  drinks: { bg: 'linear-gradient(145deg,#041820,#0C2E3A)', color: '#67E8F9' },
-  grains: { bg: 'linear-gradient(145deg,#281806,#4A2E12)', color: '#D4A574' },
-  frozen: { bg: 'linear-gradient(145deg,#051822,#0E2C3E)', color: '#7DD3FC' },
-  sweets: { bg: 'linear-gradient(145deg,#1A0C28,#2E1848)', color: '#C084FC' },
-  house: { bg: 'linear-gradient(145deg,#062018,#103A28)', color: '#6EE7B7' },
-}
-
 const CATS_LIST = [
   {id:'veg',   e:'🥦', name:'Овощи и фрукты'},
   {id:'meat',  e:'🥩', name:'Мясо и птица'},
@@ -4770,58 +4758,27 @@ function PromosPage() {
     usePromos.getState().setPromos(list)
   }
   const [loading, setLoading] = useState(true)
-  const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const [showProductModal, setShowProductModal] = useState(false)
   const [editProductId, setEditProductId] = useState<number | null>(null)
   const [productForm, setProductForm] = useState(emptyProductForm)
-  const [pickerCatFilter, setPickerCatFilter] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const productPromos = promos.filter(isProductPromo)
   const prodForPromo = (p: Promo) => catalogProds.find(x => x.id === p.productId)
   const catIdForPromo = (p: Promo) => prodForPromo(p)?.catId || null
-  const saleDiscPromo = (p: Promo) => {
-    const sale = Number(p.salePrice)
-    const old = Number(p.oldPrice) || prodForPromo(p)?.price || 0
-    return old > sale ? Math.round((1 - sale / old) * 100) : 0
+  const catLabelForPromo = (p: Promo) => {
+    const cid = catIdForPromo(p)
+    const cat = cid ? CATS_LIST.find(c => c.id === cid) : null
+    return cat ? `${cat.e} ${cat.name.split(' ')[0]}` : null
   }
   const flashPromos = useMemo(
     () => productPromos.filter(p => inferScheduleMode(p) === 'flash'),
     [productPromos],
   )
-  const promosByCategory = useMemo(() => {
-    const groups: { cat: typeof CATS_LIST[0]; items: Promo[]; totalCount: number; maxDisc: number }[] = []
-    for (const cat of CATS_LIST) {
-      const allItems = productPromos.filter(p => catIdForPromo(p) === cat.id)
-      if (!allItems.length) continue
-      const hubItems = allItems.filter(p => inferScheduleMode(p) !== 'flash')
-      groups.push({
-        cat,
-        items: hubItems,
-        totalCount: allItems.length,
-        maxDisc: Math.max(...allItems.map(saleDiscPromo)),
-      })
-    }
-    const flashIds = new Set(flashPromos.map(p => p.id))
-    const other = productPromos.filter(p => {
-      if (flashIds.has(p.id)) return false
-      const cid = catIdForPromo(p)
-      return !cid || !CATS_LIST.some(c => c.id === cid)
-    })
-    const otherAll = productPromos.filter(p => {
-      const cid = catIdForPromo(p)
-      return !cid || !CATS_LIST.some(c => c.id === cid)
-    })
-    if (otherAll.length) {
-      groups.push({
-        cat: { id: '_other', e: '🏷️', name: 'Другие' },
-        items: other,
-        totalCount: otherAll.length,
-        maxDisc: Math.max(...otherAll.map(saleDiscPromo)),
-      })
-    }
-    return groups
-  }, [productPromos, catalogProds, flashPromos])
+  const regularPromos = useMemo(
+    () => productPromos.filter(p => inferScheduleMode(p) !== 'flash'),
+    [productPromos],
+  )
 
   const persistLocal = (list: Promo[]) => {
     if (typeof window !== 'undefined') localStorage.setItem(LOCAL_KEY, JSON.stringify(list))
@@ -4856,8 +4813,7 @@ function PromosPage() {
     return { scheduleMode: 'flash', from: '08:00', to: '20:00', till: 'Флэш', startsAt: '', endsAt: `${date}T20:00` }
   }
 
-  const openProductCreate = (opts?: { catId?: string; flash?: boolean }) => {
-    setPickerCatFilter(opts?.catId ?? null)
+  const openProductCreate = (opts?: { flash?: boolean }) => {
     setEditProductId(null)
     setProductForm({
       ...emptyProductForm,
@@ -4885,7 +4841,6 @@ function PromosPage() {
   const closeProductModal = () => {
     setShowProductModal(false)
     setEditProductId(null)
-    setPickerCatFilter(null)
     setProductForm(emptyProductForm)
   }
 
@@ -4996,28 +4951,14 @@ function PromosPage() {
 
   const selectedProduct = catalogProds.find(p => p.id === Number(productForm.productId))
   const editingProductPromo = editProductId != null ? productPromos.find(p => p.id === editProductId) : null
-  const pickerProducts = useMemo(() => {
-    let list = catalogProds
-    if (pickerCatFilter) list = list.filter(p => p.catId === pickerCatFilter)
-    return list.map(p => ({ id: p.id, name: p.name, e: p.e, art: p.art, price: p.price }))
-  }, [catalogProds, pickerCatFilter])
+  const pickerProducts = useMemo(
+    () => catalogProds.map(p => ({ id: p.id, name: p.name, e: p.e, art: p.art, price: p.price })),
+    [catalogProds],
+  )
   const productPreviewDisc = selectedProduct && productForm.salePrice
     && Number(productForm.oldPrice || selectedProduct.price) > Number(productForm.salePrice)
     ? Math.round((1 - Number(productForm.salePrice) / Number(productForm.oldPrice || selectedProduct.price)) * 100)
     : 0
-  const activeCat = selectedCat
-    ? (CATS_LIST.find(c => c.id === selectedCat) || (selectedCat === '_other' ? { id: '_other', e: '🏷️', name: 'Другие' } : null))
-    : null
-  const activeCatItems = useMemo(() => {
-    if (!selectedCat) return []
-    if (selectedCat === '_other') {
-      return productPromos.filter(p => {
-        const cid = catIdForPromo(p)
-        return !cid || !CATS_LIST.some(c => c.id === cid)
-      })
-    }
-    return productPromos.filter(p => catIdForPromo(p) === selectedCat)
-  }, [selectedCat, productPromos, catalogProds])
 
   const productModalJsx = (
     <div className="amod">
@@ -5115,6 +5056,7 @@ function PromosPage() {
 
   const renderPromoRow = (p: Promo) => {
     const prod = prodForPromo(p)
+    const catLabel = catLabelForPromo(p)
     return (
       <div key={p.id} className="ac" style={{ padding: '14px 16px', opacity: p.on ? 1 : 0.6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -5122,6 +5064,7 @@ function PromosPage() {
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 14, fontWeight: 800 }}>{prod?.name || p.title}</span>
+              {catLabel && <Badge v={catLabel} c="#3B8EF0"/>}
               {discBadge(p)}
               {scheduleBadge(p)}
               {p.markHot && <Badge v="🔥 Хит" c="#FF8C00"/>}
@@ -5148,35 +5091,10 @@ function PromosPage() {
     )
   }
 
-  if (activeCat) {
-    const cat = activeCat
-    const items = activeCatItems
-    const vis = ADMIN_CAT_VISUAL[cat.id] || { bg: '#162B1A', color: '#1FD760' }
-    return (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-          <button type="button" onClick={() => setSelectedCat(null)} className="ab abg" style={{ padding: '8px 12px', fontSize: 12 }}>← Назад</button>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: vis.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{cat.e}</div>
-          <div>
-            <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{cat.name}</div>
-            <div style={{ fontSize: 11, color: '#8FB897' }}>{items.length} акционных товаров</div>
-          </div>
-          <button onClick={() => openProductCreate({ catId: cat.id === '_other' ? undefined : cat.id })} className="ab abp" style={{ marginLeft: 'auto' }}>+ Скидка</button>
-        </div>
-        {items.length === 0 ? (
-          <div style={{ padding: 32, textAlign: 'center', color: '#3D6645', fontSize: 13 }}>В этой категории нет акций</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{items.map(renderPromoRow)}</div>
-        )}
-        {showProductModal && productModalJsx}
-      </div>
-    )
-  }
-
   return (
     <div>
       <div style={{fontSize:12,color:'#8FB897',marginBottom:14,padding:'10px 14px',borderRadius:11,background:'rgba(59,142,240,.06)',border:'1px solid rgba(59,142,240,.15)',lineHeight:1.5}}>
-        Как в магазине: сверху <strong style={{color:'#EBF5ED'}}>⚡ флэш-распродажа</strong>, ниже — акции по категориям. В каталоге только базовые цены.
+        Создайте скидку на товар — в магазине он сам попадёт в свою категорию. Флэш-товары показываются сверху в разделе «Акции».
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
         <StatCard l="Всего" v={productPromos.length}/>
@@ -5207,48 +5125,19 @@ function PromosPage() {
           </section>
 
           <section>
-            <div className="ub" style={{fontSize:16,fontWeight:900,color:'#5B9CF5',marginBottom:14}}>По категориям</div>
-            {promosByCategory.length === 0 ? (
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+              <div>
+                <div className="ub" style={{fontSize:16,fontWeight:900,color:'#5B9CF5'}}>Все акции</div>
+                <div style={{fontSize:11,color:'#8FB897',marginTop:4}}>Категория в магазине появится автоматически</div>
+              </div>
+              <button onClick={() => openProductCreate()} className="ab abp">+ Скидка на товар</button>
+            </div>
+            {regularPromos.length === 0 ? (
               <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>
-                Нет акционных товаров. Добавьте флэш или скидку в категории.
+                Нет обычных акций. Добавьте скидку на товар — категория появится в магазине сама.
               </div>
             ) : (
-              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
-                {promosByCategory.map(({ cat, totalCount, maxDisc }) => {
-                  const vis = ADMIN_CAT_VISUAL[cat.id] || { bg: '#162B1A', color: '#1FD760' }
-                  const shortLabel = cat.name.split(' ')[0]
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setSelectedCat(cat.id)}
-                      className="ab"
-                      style={{
-                        borderRadius: 16,
-                        background: vis.bg,
-                        border: `1px solid ${vis.color}28`,
-                        padding: '14px 14px 12px',
-                        minHeight: 110,
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <div style={{fontSize: 28, marginBottom: 8}}>{cat.e}</div>
-                        <div className="ub" style={{fontSize: 14, fontWeight: 800, color: '#fff', marginBottom: 4}}>{shortLabel}</div>
-                        <div style={{fontSize: 10, color: 'rgba(255,255,255,.45)'}}>{totalCount} товаров</div>
-                      </div>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
-                        <span style={{padding:'4px 10px',borderRadius:8,background:`${vis.color}22`,border:`1px solid ${vis.color}40`,fontSize:12,fontWeight:800,color:vis.color}}>−{maxDisc}%</span>
-                        <span style={{fontSize:15,color:'rgba(255,255,255,.4)'}}>→</span>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>{regularPromos.map(renderPromoRow)}</div>
             )}
           </section>
         </>
@@ -7114,7 +7003,7 @@ function AdminAppInner() {
     return () => {};
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · флэш и категории как в магазине',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
