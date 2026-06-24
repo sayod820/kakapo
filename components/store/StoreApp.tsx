@@ -65,7 +65,7 @@ import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
 import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import { activeProductPromos } from "@/lib/productPromos";
-import { inferScheduleMode, promoCountdownSeconds, formatCountdownParts } from "@/lib/promoSchedule";
+import { inferScheduleMode } from "@/lib/promoSchedule";
 import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
 
@@ -3278,19 +3278,6 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
     }
     return groups;
   }, [saleProds]);
-  const flashCountdown = useMemo(() => {
-    let best = null;
-    for (const p of flashProds) {
-      const promo = findProductPromo(p);
-      if (!promo) continue;
-      const sec = promoCountdownSeconds(promo);
-      if (sec == null) continue;
-      if (best == null || sec < best) best = sec;
-    }
-    return best;
-  }, [flashProds, apiPromos]);
-  const flashTimer = flashCountdown != null ? formatCountdownParts(flashCountdown) : null;
-  const pad2 = n => String(n).padStart(2, "0");
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
   const activeGroup = selectedCat ? saleByCategory.find(g => g.cat.id === selectedCat) : null;
@@ -3370,21 +3357,9 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
             {flashProds.length > 0 && (
               <section style={{ marginBottom: 22 }}>
                 <div style={{ borderRadius: 20, padding: "16px 16px 14px", background: "linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)", border: "1px solid rgba(255,69,69,.2)", boxShadow: "0 10px 32px rgba(255,69,69,.06)" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12, gap: 10 }}>
-                    <div>
-                      <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: "#FF8C8C", marginBottom: 4 }}>⚡ Флэш-распродажа</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,200,200,.55)" }}>Быстрые скидки — успейте забрать</div>
-                    </div>
-                    {flashTimer && (
-                      <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
-                        {[flashTimer.h, flashTimer.m, flashTimer.s].map((v, i) => (
-                          <span key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                            <span className="ub" style={{ minWidth: 26, textAlign: "center", padding: "3px 5px", borderRadius: 6, background: "rgba(255,69,69,.18)", border: "1px solid rgba(255,69,69,.28)", fontSize: 11, fontWeight: 900, color: "#FF6B6B" }}>{pad2(v)}</span>
-                            {i < 2 && <span style={{ color: "rgba(255,100,100,.5)", fontSize: 10 }}>:</span>}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                  <div style={{ marginBottom: 12 }}>
+                    <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: "#FF8C8C", marginBottom: 4 }}>⚡ Флэш-распродажа</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,200,200,.55)" }}>Быстрые скидки — успейте забрать</div>
                   </div>
                   <div className="hscroll" style={{ gap: 10, margin: "0 -4px", padding: "0 2px 2px" }}>
                     {flashProds.map(p => {
