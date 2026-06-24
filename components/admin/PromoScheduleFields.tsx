@@ -16,6 +16,8 @@ type Props = {
   value: PromoScheduleForm
   onChange: (patch: Partial<PromoScheduleForm>) => void
   compact?: boolean
+  /** flash — только флэш; category — всегда/ежедневно без флэш */
+  context?: 'flash' | 'category'
 }
 
 const MODES: { id: PromoScheduleMode; label: string; hint: string }[] = [
@@ -24,15 +26,34 @@ const MODES: { id: PromoScheduleMode; label: string; hint: string }[] = [
   { id: 'flash', label: '⚡ Флэш', hint: 'До конкретной даты и времени' },
 ]
 
-export default function PromoScheduleFields({ value, onChange, compact }: Props) {
+export default function PromoScheduleFields({ value, onChange, compact, context }: Props) {
   const mode = value.scheduleMode
+  const visibleModes = context === 'flash'
+    ? MODES.filter(m => m.id === 'flash')
+    : context === 'category'
+      ? MODES.filter(m => m.id !== 'flash')
+      : MODES
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div>
         <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>Когда действует</div>
+        {context === 'flash' ? (
+          <div style={{
+            padding: '8px 12px',
+            borderRadius: 9,
+            background: 'rgba(255,69,69,.1)',
+            border: '1px solid rgba(255,69,69,.25)',
+            fontSize: 12,
+            fontWeight: 700,
+            color: '#FF8C8C',
+          }}>
+            ⚡ Флэш-распродажа
+            <div style={{ fontSize: 10, color: '#8FB897', fontWeight: 500, marginTop: 4 }}>До конкретной даты и времени</div>
+          </div>
+        ) : (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {MODES.map(m => (
+          {visibleModes.map(m => (
             <button
               key={m.id}
               type="button"
@@ -65,9 +86,12 @@ export default function PromoScheduleFields({ value, onChange, compact }: Props)
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>
-          {MODES.find(m => m.id === mode)?.hint}
-        </div>
+        )}
+        {context !== 'flash' && (
+          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>
+            {visibleModes.find(m => m.id === mode)?.hint}
+          </div>
+        )}
       </div>
 
       {mode === 'daily' && (

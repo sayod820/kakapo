@@ -4776,6 +4776,7 @@ function PromosPage() {
   const [editProductId, setEditProductId] = useState<number | null>(null)
   const [productForm, setProductForm] = useState(emptyProductForm)
   const [pickerCatFilter, setPickerCatFilter] = useState<string | null>(null)
+  const [modalContext, setModalContext] = useState<'flash' | 'category'>('category')
   const [saving, setSaving] = useState(false)
 
   const productPromos = promos.filter(isProductPromo)
@@ -4867,17 +4868,22 @@ function PromosPage() {
   }
 
   const openProductCreate = (opts?: { flash?: boolean; catId?: string }) => {
+    const isFlash = !!opts?.flash
     setPickerCatFilter(opts?.catId ?? null)
+    setModalContext(isFlash ? 'flash' : 'category')
     setEditProductId(null)
     setProductForm({
       ...emptyProductForm,
-      schedule: opts?.flash ? flashSchedulePreset() : emptyProductForm.schedule,
+      schedule: isFlash ? flashSchedulePreset() : emptyProductForm.schedule,
     })
     setShowProductModal(true)
   }
 
   const openProductEdit = (p: Promo) => {
     const prod = catalogProds.find(x => x.id === p.productId)
+    const isFlash = inferScheduleMode(p) === 'flash'
+    setModalContext(isFlash ? 'flash' : 'category')
+    setPickerCatFilter(isFlash ? null : (catIdForPromo(p) ?? null))
     setEditProductId(p.id)
     setProductForm({
       productId: String(p.productId ?? ''),
@@ -4903,6 +4909,14 @@ function PromosPage() {
     const pid = Number(productForm.productId)
     const sale = Number(productForm.salePrice)
     if (!pid || !Number.isFinite(sale) || sale <= 0) return
+    if (modalContext === 'flash' && productForm.schedule.scheduleMode !== 'flash') {
+      alert('Флэш-акция должна иметь режим «Флэш»')
+      return
+    }
+    if (modalContext === 'category' && productForm.schedule.scheduleMode === 'flash') {
+      alert('Для категорийной акции выберите «Всегда» или «Ежедневно»')
+      return
+    }
     if (productForm.schedule.scheduleMode === 'flash' && !hasFlashEnd(productForm.schedule)) {
       alert('Укажите дату окончания флэш-акции')
       return
@@ -5029,7 +5043,9 @@ function PromosPage() {
       <div className="amodbg" onClick={closeProductModal}/>
       <div className="amodbox" style={{maxWidth:480}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-          <div className="ub" style={{fontSize:15,fontWeight:800}}>{editProductId !== null ? 'Редактировать скидку' : 'Скидка на товар'}</div>
+          <div className="ub" style={{fontSize:15,fontWeight:800}}>
+            {editProductId !== null ? 'Редактировать скидку' : (modalContext === 'flash' ? 'Флэш-товар' : 'Скидка на товар')}
+          </div>
           <button onClick={closeProductModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
@@ -5091,6 +5107,7 @@ function PromosPage() {
           </div>
           <PromoScheduleFields
             compact
+            context={modalContext}
             value={productForm.schedule}
             onChange={patch => setProductForm(f => ({ ...f, schedule: { ...f.schedule, ...patch } }))}
           />
