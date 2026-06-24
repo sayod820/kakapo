@@ -3120,11 +3120,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const { prods } = useLiveCatalog();
   const apiPromos = usePromos(s => s.promos) || [];
   const { isVip } = resolveUserVip(user);
-  const [tab, setTab] = useState("all");
-  const [saleCat, setSaleCat] = useState(null);
-  const [bi, setBi] = useState(0);
-  useEffect(() => { const t = setInterval(() => setBi(b => (b+1)%BANNERS.length), 4500); return () => clearInterval(t); }, []);
-  const b = BANNERS[bi];
+  const [filter, setFilter] = useState('all');
   const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   const isSaleProduct = p => num(p.old) > num(p.price) && (p.promoStockLeft == null || p.promoStockLeft > 0);
   const saleDisc = p => {
@@ -3150,179 +3146,115 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
     }),
     [saleProds, apiPromos],
   );
-  const FLASH = (flashProds.length ? flashProds : saleProds).slice(0, 8).map(p => {
-    const promo = findProductPromo(p);
-    return {
-      ...p,
-      price: num(p.price),
-      old: num(p.old),
-      stockPct: p.promoStockPct ?? (p.promoStockLeft != null ? 0 : 55),
-      stockLabel: promo ? formatPromoStockLeft(promo, p) : null,
-    };
-  });
   const saleCats = useMemo(() => {
     const counts = new Map();
-    const maxDisc = new Map();
     for (const p of saleProds) {
       const pid = parentCatForProduct(p);
       if (!pid) continue;
       counts.set(pid, (counts.get(pid) || 0) + 1);
-      const d = saleDisc(p);
-      maxDisc.set(pid, Math.max(maxDisc.get(pid) || 0, d));
     }
     return CATS
       .filter(c => !c.parentId && counts.has(c.id))
-      .map(c => ({ ...c, saleCount: counts.get(c.id) || 0, maxDisc: maxDisc.get(c.id) || 0 }));
+      .map(c => ({ ...c, saleCount: counts.get(c.id) || 0 }));
   }, [saleProds]);
-  const filteredSale = useMemo(() => {
-    if (!saleCat) return saleProds;
-    return saleProds.filter(p => parentCatForProduct(p) === saleCat);
-  }, [saleProds, saleCat]);
-  const listProds = tab === 'flash'
-    ? (flashProds.length ? flashProds : saleProds.slice(0, 12))
-    : filteredSale;
-  const tickerItems = useMemo(() => {
-    const live = apiPromos
-      .filter(p => p.on && p.title && p.type !== 'product')
-      .slice(0, 4)
-      .map(p => `${p.e || '🎁'} ${p.title}${p.disc ? ` −${p.disc}%` : ''}`);
-    if (live.length) return live;
-    return saleProds.slice(0, 4).map(p => `🏷️ ${p.name} −${saleDisc(p)}%`);
-  }, [apiPromos, saleProds]);
+  const listProds = useMemo(() => {
+    if (filter === 'flash') return flashProds.length ? flashProds : saleProds;
+    if (filter !== 'all') return saleProds.filter(p => parentCatForProduct(p) === filter);
+    return saleProds;
+  }, [filter, saleProds, flashProds]);
+  const topCampaign = useMemo(
+    () => apiPromos.find(p => p.on && p.type !== 'product' && p.title),
+    [apiPromos],
+  );
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
+  const chipBtn = (active) => ({
+    padding: '8px 12px',
+    borderRadius: 50,
+    fontSize: 12,
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+    border: `1.5px solid ${active ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`,
+    background: active ? 'rgba(31,215,96,.12)' : 'var(--l2)',
+    color: active ? 'var(--gr)' : 'var(--t2)',
+    fontFamily: 'Nunito',
+    cursor: 'pointer',
+  });
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:40, height:40, borderRadius:12, background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:17, fontWeight:900, color: isVip ? "#1a1000" : "var(--bg)", animation: isVip ? "vipGlow 3s ease-in-out infinite" : "glow 3s ease-in-out infinite", boxShadow: isVip ? "0 4px 16px rgba(255,184,0,.45)" : "0 4px 16px rgba(31,215,96,.4)", flexShrink:0, position:"relative" }}>
+          <div style={{ width:40, height:40, borderRadius:12, background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:17, fontWeight:900, color: isVip ? "#1a1000" : "var(--bg)", flexShrink:0 }}>
             K
-            {isVip && <span style={{ position:"absolute", top:-4, right:-4, fontSize:10 }}>👑</span>}
           </div>
-          <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900, ...(isVip ? { background:"linear-gradient(135deg,#FFD700,#FFB800)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" } : {}) }}>Акции</div>
-          <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background: isVip ? "rgba(255,184,0,.1)" : "var(--l3)", border: isVip ? "1px solid rgba(255,184,0,.25)" : "1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <Ic n="search" s={17} c={isVip ? "rgba(255,220,100,.78)" : "var(--t2)"}/>
+          <div style={{ flex:1 }}>
+            <div className="ub" style={{ fontSize:16, fontWeight:900 }}>Акции</div>
+            <div style={{ fontSize:11, color:"var(--t3)", marginTop:2 }}>
+              {saleProds.length ? `${saleProds.length} ${saleProds.length === 1 ? 'товар' : saleProds.length < 5 ? 'товара' : 'товаров'} со скидкой` : 'Пока нет скидок'}
+            </div>
+          </div>
+          <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <Ic n="search" s={17} c="var(--t2)"/>
           </button>
           <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-            </div>
-        <div className="hscroll" style={{ padding:"0 18px 10px", gap:6 }}>
-            {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"}].map(t => (
-              <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
+        </div>
+        {saleProds.length > 0 && (
+          <div className="hscroll" style={{ padding:"0 18px 12px", gap:8 }}>
+            <button type="button" className="btn" onClick={() => setFilter('all')} style={chipBtn(filter === 'all')}>
+              Все · {saleProds.length}
+            </button>
+            {flashProds.length > 0 && (
+              <button type="button" className="btn" onClick={() => setFilter('flash')} style={chipBtn(filter === 'flash')}>
+                ⚡ Флэш · {flashProds.length}
+              </button>
+            )}
+            {saleCats.map(c => (
+              <button key={c.id} type="button" className="btn" onClick={() => setFilter(c.id)} style={chipBtn(filter === c.id)}>
+                {c.e} {c.label.split(' ')[0]} · {c.saleCount}
+              </button>
             ))}
-        </div>
-        {tickerItems.length > 0 && (
-        <div style={{ background:"rgba(255,69,69,.08)", borderTop:"1px solid rgba(255,69,69,.12)", padding:"5px 0", overflow:"hidden" }}>
-          <div style={{ display:"flex", animation:"ticker 20s linear infinite", width:"200%" }}>
-            {[...Array(2)].map((_,si) => <div key={si} style={{ display:"flex", flexShrink:0, width:"100%" }}>{tickerItems.map((t,i) => <span key={i} style={{ fontSize:11, fontWeight:700, color:"var(--red)", whiteSpace:"nowrap", padding:"0 24px" }}>{t}</span>)}</div>)}
           </div>
-        </div>
         )}
       </header>
       <div style={{ padding:"14px 18px 100px" }}>
-        {(tab==="all") && (
-          <div style={{ borderRadius:22, overflow:"hidden", marginBottom:20, cursor:"pointer" }} onClick={() => setBi(c => (c+1)%BANNERS.length)}>
-            <div style={{ background:b.bg, padding:"22px 20px 18px", position:"relative", overflow:"hidden" }}>
-              <div style={{ position:"absolute", left:0, right:0, height:1, background:`linear-gradient(90deg,transparent,${b.ac}55,transparent)`, animation:"scanLine 3s linear infinite" }}/>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div>
-                  <span className="bdg" style={{ background:`${b.ac}20`, color:b.ac, border:`1px solid ${b.ac}40`, marginBottom:10, display:"inline-flex" }}>✦ {b.badge}</span>
-                  <div className="ub" style={{ fontSize:22, fontWeight:900, color:"#fff", lineHeight:1.2, marginBottom:6 }}>{b.title}</div>
-                  <div style={{ fontSize:12, color:"rgba(255,255,255,.6)", marginBottom:12 }}>{b.sub}</div>
-                  {b.disc && <div style={{ padding:"7px 16px", borderRadius:11, background:b.ac, color:"white", fontFamily:"Unbounded", fontSize:20, fontWeight:900, display:"inline-block" }}>−{b.disc}%</div>}
-                </div>
-                <div style={{ fontSize:52, animation:"float 2.5s ease-in-out infinite", flexShrink:0 }}>{b.e}</div>
-              </div>
-              <div style={{ display:"flex", gap:5, marginTop:12 }}>
-                {BANNERS.map((_,i) => <div key={i} onClick={e=>{e.stopPropagation();setBi(i);}} style={{ width:i===bi?20:6, height:6, borderRadius:3, background:i===bi?b.ac:"rgba(255,255,255,.2)", transition:"all .3s", cursor:"pointer" }}/>)}
-              </div>
+        {topCampaign && filter === 'all' && (
+          <div style={{ marginBottom:16, padding:"14px 16px", borderRadius:16, background:"var(--l2)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:44, height:44, borderRadius:12, background:"var(--l3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{topCampaign.e || '🎁'}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:800, marginBottom:2 }}>{topCampaign.title}</div>
+              <div style={{ fontSize:11, color:"var(--t2)" }}>{topCampaign.sub || 'Акция в магазине'}</div>
             </div>
-          </div>
-        )}
-        {(tab==="all"||tab==="flash") && FLASH.length > 0 && tab === "all" && (
-          <div style={{ marginBottom:22 }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-              <div className="ub" style={{ fontSize:15, fontWeight:800 }}>⚡ Флэш-распродажа</div>
-              <div style={{ fontSize:11, color:"var(--t3)" }}>{FLASH.length} {FLASH.length === 1 ? 'товар' : FLASH.length < 5 ? 'товара' : 'товаров'}</div>
-            </div>
-            <div className="hscroll">
-              {FLASH.map(p => {
-                const qty=cart[p.id]||0, disc=saleDisc(p);
-                return (
-                  <div key={p.id} style={{ width:148, flexShrink:0, background:"var(--l2)", border:"1.5px solid rgba(255,69,69,.25)", borderRadius:16, overflow:"hidden", display:"flex", flexDirection:"column" }}>
-                    <div style={{ height:96, background:"linear-gradient(145deg,#180808,#2A1010)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, position:"relative" }}>
-                      {p.e}
-                      <div style={{ position:"absolute", top:8, left:8, padding:"3px 8px", borderRadius:8, background:"var(--red)", fontFamily:"Unbounded", fontSize:10, fontWeight:900, color:"white" }}>-{disc}%</div>
-                    </div>
-                    <div style={{ padding:"10px 11px 8px", flex:1 }}>
-                      <div style={{ fontSize:11, fontWeight:700, marginBottom:4 }}>{p.name}</div>
-                      <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
-                        <span className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--red)" }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
-                        <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>
-                      </div>
-                      <div style={{ height:4, background:"var(--b1)", borderRadius:2, marginTop:6 }}>
-                        <div style={{ height:"100%", width:`${p.stockPct}%`, background:"var(--gr)", borderRadius:2 }}/>
-                      </div>
-                      {p.stockLabel && <div style={{ fontSize:9, color:"var(--t3)", marginTop:4 }}>{p.stockLabel}</div>}
-                    </div>
-                    <div style={{ padding:"0 10px 10px" }}>
-                      {qty===0 ? <button onClick={() => onAdd(p.id)} className="btn" style={{ width:"100%", padding:"8px", fontSize:11, borderRadius:10, background:"linear-gradient(135deg,#CC2A2A,var(--red))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><Ic n="plus" s={11} c="white" w={2.5}/>В корзину</button> :
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(255,69,69,.1)", border:"1px solid rgba(255,69,69,.28)", borderRadius:10, padding:"4px 7px" }}>
-                          <button onClick={() => onRm(p.id)} className="btn" style={{ width:26, height:26, borderRadius:7, background:"rgba(255,69,69,.18)", color:"var(--red)", fontSize:15, fontWeight:700 }}>−</button>
-                          <span className="ub" style={{ fontSize:12, fontWeight:900, color:"var(--red)" }}>{formatCartQtyStepper(p, qty)}</span>
-                          <button onClick={() => onAdd(p.id)} className="btn" style={{ width:26, height:26, borderRadius:7, background:"rgba(255,69,69,.18)", color:"var(--red)", fontSize:15, fontWeight:700 }}>+</button>
-                        </div>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        <div style={{ marginBottom:22 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-            <div>
-              <div className="ub" style={{ fontSize:15, fontWeight:800 }}>{tab === "flash" ? "⚡ Флэш-товары" : "Скидки на товары"}</div>
-              <div style={{ fontSize:11, color:"var(--t3)", marginTop:4 }}>{formatProductCount(listProds.length)} из каталога</div>
-            </div>
-            {tab === "all" && saleProds.length > 0 && (
-              <button onClick={() => go("catalog")} className="btn" style={{ fontSize:11, color:"var(--gr)", background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", borderRadius:10, padding:"6px 10px" }}>Каталог →</button>
+            {topCampaign.disc > 0 && (
+              <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--red)", flexShrink:0 }}>−{topCampaign.disc}%</div>
             )}
           </div>
-          {tab === "all" && saleCats.length > 0 && (
-            <div className="hscroll" style={{ gap:8, marginBottom:14 }}>
-              <button onClick={() => setSaleCat(null)} className="btn chip" style={{ borderColor: !saleCat ? "rgba(31,215,96,.38)" : "var(--b1)", background: !saleCat ? "rgba(31,215,96,.12)" : "var(--l2)", color: !saleCat ? "var(--gr)" : "var(--t2)" }}>
-                Все · {saleProds.length}
-              </button>
-              {saleCats.map(c => (
-                <button key={c.id} onClick={() => setSaleCat(c.id)} className="btn chip" style={{ borderColor: saleCat === c.id ? "rgba(31,215,96,.38)" : "var(--b1)", background: saleCat === c.id ? "rgba(31,215,96,.12)" : "var(--l2)", color: saleCat === c.id ? "var(--gr)" : "var(--t2)", display:"flex", alignItems:"center", gap:6 }}>
-                  <span>{c.e}</span>
-                  <span>{c.label.split(" ")[0]}</span>
-                  <span style={{ fontSize:10, opacity:0.8 }}>−{c.maxDisc}% · {c.saleCount}</span>
-                </button>
-              ))}
+        )}
+        {listProds.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"48px 20px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18 }}>
+            <div style={{ fontSize:48, marginBottom:12 }}>🏷️</div>
+            <div className="ub" style={{ fontSize:17, fontWeight:800, marginBottom:8 }}>Скидок пока нет</div>
+            <div style={{ fontSize:13, color:"var(--t2)", marginBottom:20, lineHeight:1.5 }}>Когда админ включит акцию на товар,<br/>он появится здесь автоматически</div>
+            <button onClick={() => go("catalog")} className="btn" style={{ padding:"12px 24px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13, fontWeight:700 }}>Открыть каталог</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+              <div className="ub" style={{ fontSize:14, fontWeight:800 }}>
+                {filter === 'flash' ? '⚡ Флэш' : filter === 'all' ? 'Все скидки' : (saleCats.find(c => c.id === filter)?.label || 'Скидки')}
+              </div>
+              <span style={{ fontSize:11, color:"var(--t3)" }}>{formatProductCount(listProds.length)}</span>
             </div>
-          )}
-          {listProds.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"36px 20px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18 }}>
-              <div style={{ fontSize:44, marginBottom:10 }}>🏷️</div>
-              <div className="ub" style={{ fontSize:16, fontWeight:800, marginBottom:6 }}>Сейчас нет активных скидок</div>
-              <div style={{ fontSize:12, color:"var(--t2)", marginBottom:16 }}>Когда админ включит акцию на товар, он сразу появится здесь</div>
-              <button onClick={() => go("catalog")} className="btn" style={{ padding:"12px 22px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>Перейти в каталог</button>
-            </div>
-          ) : (
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               {listProds.map((p, i) => (
-                <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
+                <div key={p.id} style={{ animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${Math.min(i, 8) * .04}s both` }}>
                   <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
                 </div>
               ))}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
-      {totalQtyNum > 0 && (
-        <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />
-      )}
       <Nav page="promos" go={go} user={user}/>
     </div>
   );
