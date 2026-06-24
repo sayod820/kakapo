@@ -1707,6 +1707,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel }) => {
     qty: cart[id], isRest: true, restId: cartMeta[id].restId
   }));
   const items = [...prodItems, ...restItems];
+  if (cartHasQty(cart) && items.length === 0) return <CartPageBoot go={go} />;
   const retailSub = items.reduce((s, p) => s + (p.isRest ? (Number(p.price) || 0) * p.qty : lineRetailTotal(p, p.qty)), 0);
   const bulkSaved = prodItems.reduce((s, p) => s + lineBulkSavings(p, p.qty), 0);
   const saleSaved = prodItems.reduce((s, p) => s + lineSaleSavings(p, p.qty), 0);
@@ -2373,6 +2374,29 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 function StoreSessionBoot() {
   return (
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }} />
+  );
+}
+
+function cartHasQty(cart: Record<string, number> = {}): boolean {
+  return Object.values(cart).some(q => Number(q) > 0);
+}
+
+function CartPageBoot({ go }: { go: (p: string) => void }) {
+  return (
+    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.96)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+        <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => go("home")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
+          <div style={{ flex: 1 }}>
+            <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Корзина</div>
+            <div style={{ fontSize: 10, color: "var(--t2)", marginTop: 1 }}>Загрузка…</div>
+          </div>
+        </div>
+      </header>
+      <div style={{ padding: "48px 24px", textAlign: "center" }}>
+        <div style={{ width: 36, height: 36, margin: "0 auto", borderRadius: "50%", border: "3px solid rgba(31,215,96,.2)", borderTopColor: "var(--gr)", animation: "spin 0.8s linear infinite" }} />
+      </div>
+    </div>
   );
 }
 
