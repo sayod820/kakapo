@@ -65,7 +65,7 @@ import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
 import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import { activeProductPromos } from "@/lib/productPromos";
-import { inferScheduleMode } from "@/lib/promoSchedule";
+import { inferScheduleMode, promoCountdownSeconds, formatCountdownParts } from "@/lib/promoSchedule";
 import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
 
@@ -3116,11 +3116,73 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
   );
 };
 
+const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
+  const qty = cart[p.id] || 0;
+  return (
+    <div
+      onClick={() => go("product", { id: p.id })}
+      style={{
+        width: 158,
+        flexShrink: 0,
+        borderRadius: 18,
+        overflow: "hidden",
+        background: "linear-gradient(160deg,#1A0808 0%,#2A1018 55%,#120608 100%)",
+        border: "1px solid rgba(255,69,69,.22)",
+        boxShadow: "0 8px 28px rgba(255,69,69,.08)",
+        cursor: "pointer",
+      }}
+    >
+      <div style={{ height: 88, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: p.grad || "rgba(255,69,69,.06)" }}>
+        {p.e}
+        <div className="ub" style={{ position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 8, background: "var(--red)", fontSize: 10, fontWeight: 900, color: "#fff" }}>−{disc}%</div>
+      </div>
+      <div style={{ padding: "10px 11px 11px" }}>
+        {catLabel && (
+          <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,140,140,.85)", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {catLabel}
+          </div>
+        )}
+        <div style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.35, minHeight: 30, marginBottom: 6 }}>{p.name}</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: stockLabel ? 6 : 8 }}>
+          <span className="ub" style={{ fontSize: 14, fontWeight: 900, color: "#FF6B6B" }}>{Number(p.price).toFixed(2)}<span style={{ fontSize: 8, color: "var(--gd)", marginLeft: 2 }}> ЅМ</span></span>
+          {p.old > p.price && <span style={{ fontSize: 10, color: "var(--t3)", textDecoration: "line-through" }}>{Number(p.old).toFixed(2)}</span>}
+        </div>
+        {stockLabel && (
+          <>
+            <div style={{ height: 3, background: "rgba(255,255,255,.08)", borderRadius: 2, marginBottom: 4 }}>
+              <div style={{ height: "100%", width: `${stockPct ?? 50}%`, background: "linear-gradient(90deg,#FF4545,#FF8C6B)", borderRadius: 2 }}/>
+            </div>
+            <div style={{ fontSize: 9, color: "var(--t3)", marginBottom: 8 }}>{stockLabel}</div>
+          </>
+        )}
+        {qty === 0 ? (
+          <button
+            onClick={e => { e.stopPropagation(); onAdd(p.id); }}
+            className="btn"
+            style={{ width: "100%", padding: "8px", fontSize: 11, borderRadius: 10, background: "linear-gradient(135deg,#CC2A2A,var(--red))", color: "#fff", fontWeight: 700 }}
+          >
+            + В корзину
+          </button>
+        ) : (
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,69,69,.12)", border: "1px solid rgba(255,69,69,.25)", borderRadius: 10, padding: "3px 6px" }}
+          >
+            <button onClick={() => onRm(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>−</button>
+            <span className="ub" style={{ fontSize: 12, fontWeight: 900, color: "var(--red)" }}>{formatCartQtyStepper(p, qty)}</span>
+            <button onClick={() => onAdd(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>+</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const { prods } = useLiveCatalog();
   const apiPromos = usePromos(s => s.promos) || [];
   const { isVip } = resolveUserVip(user);
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState("all");
   const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   const isSaleProduct = p => num(p.old) > num(p.price) && (p.promoStockLeft == null || p.promoStockLeft > 0);
   const saleDisc = p => {
@@ -3134,7 +3196,11 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
     if (!cat) return null;
     return cat.parentId || cat.id;
   };
-  const findProductPromo = p => apiPromos.find(pr => pr.type === 'product' && Number(pr.productId) === Number(p.id));
+  const catMetaForProduct = p => {
+    const pid = parentCatForProduct(p);
+    return pid ? CATS.find(c => c.id === pid) : null;
+  };
+  const findProductPromo = p => apiPromos.find(pr => pr.type === "product" && Number(pr.productId) === Number(p.id));
   const saleProds = useMemo(
     () => (prods || []).filter(isSaleProduct).sort((a, b) => saleDisc(b) - saleDisc(a)),
     [prods],
@@ -3142,116 +3208,203 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const flashProds = useMemo(
     () => saleProds.filter(p => {
       const promo = findProductPromo(p);
-      return promo && inferScheduleMode(promo) === 'flash';
+      return promo && inferScheduleMode(promo) === "flash";
     }),
     [saleProds, apiPromos],
   );
-  const saleCats = useMemo(() => {
-    const counts = new Map();
-    for (const p of saleProds) {
-      const pid = parentCatForProduct(p);
-      if (!pid) continue;
-      counts.set(pid, (counts.get(pid) || 0) + 1);
+  const saleByCategory = useMemo(() => {
+    const used = new Set();
+    const groups = [];
+    for (const cat of CATS.filter(c => !c.parentId)) {
+      const items = saleProds.filter(p => parentCatForProduct(p) === cat.id);
+      if (!items.length) continue;
+      items.forEach(p => used.add(p.id));
+      groups.push({ cat, items });
     }
-    return CATS
-      .filter(c => !c.parentId && counts.has(c.id))
-      .map(c => ({ ...c, saleCount: counts.get(c.id) || 0 }));
+    const other = saleProds.filter(p => !used.has(p.id));
+    if (other.length) {
+      groups.push({
+        cat: { id: "_other", e: "🏷️", label: "Другие акции", color: "var(--gr)", bg: "var(--l2)", saleCount: other.length },
+        items: other,
+      });
+    }
+    return groups;
   }, [saleProds]);
-  const listProds = useMemo(() => {
-    if (filter === 'flash') return flashProds.length ? flashProds : saleProds;
-    if (filter !== 'all') return saleProds.filter(p => parentCatForProduct(p) === filter);
-    return saleProds;
-  }, [filter, saleProds, flashProds]);
-  const topCampaign = useMemo(
-    () => apiPromos.find(p => p.on && p.type !== 'product' && p.title),
-    [apiPromos],
-  );
+  const flashCountdown = useMemo(() => {
+    let best = null;
+    for (const p of flashProds) {
+      const promo = findProductPromo(p);
+      if (!promo) continue;
+      const sec = promoCountdownSeconds(promo);
+      if (sec == null) continue;
+      if (best == null || sec < best) best = sec;
+    }
+    return best;
+  }, [flashProds, apiPromos]);
+  const flashTimer = flashCountdown != null ? formatCountdownParts(flashCountdown) : null;
+  const pad2 = n => String(n).padStart(2, "0");
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
-  const chipBtn = (active) => ({
-    padding: '8px 12px',
+  const chipStyle = active => ({
+    padding: "8px 13px",
     borderRadius: 50,
     fontSize: 12,
     fontWeight: 700,
-    whiteSpace: 'nowrap',
+    whiteSpace: "nowrap",
     flexShrink: 0,
-    border: `1.5px solid ${active ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`,
-    background: active ? 'rgba(31,215,96,.12)' : 'var(--l2)',
-    color: active ? 'var(--gr)' : 'var(--t2)',
-    fontFamily: 'Nunito',
-    cursor: 'pointer',
+    border: `1.5px solid ${active ? "rgba(31,215,96,.42)" : "var(--b1)"}`,
+    background: active ? "rgba(31,215,96,.13)" : "var(--l2)",
+    color: active ? "var(--gr)" : "var(--t2)",
+    fontFamily: "Nunito",
+    cursor: "pointer",
   });
+  const showFlashBlock = filter === "all" && flashProds.length > 0;
+  const showCategoryBlocks = filter === "all";
+  const showFlashOnly = filter === "flash";
+  const activeCategory = filter !== "all" && filter !== "flash"
+    ? saleByCategory.find(g => g.cat.id === filter)
+    : null;
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)" }}>
-        <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:40, height:40, borderRadius:12, background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:17, fontWeight:900, color: isVip ? "#1a1000" : "var(--bg)", flexShrink:0 }}>
-            K
-          </div>
-          <div style={{ flex:1 }}>
-            <div className="ub" style={{ fontSize:16, fontWeight:900 }}>Акции</div>
-            <div style={{ fontSize:11, color:"var(--t3)", marginTop:2 }}>
-              {saleProds.length ? `${saleProds.length} ${saleProds.length === 1 ? 'товар' : saleProds.length < 5 ? 'товара' : 'товаров'} со скидкой` : 'Пока нет скидок'}
+    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+        <div style={{ padding: "13px 18px 10px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
+          <div style={{ flex: 1 }}>
+            <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Акции</div>
+            <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>
+              {saleProds.length ? `Только товары со скидкой · ${saleProds.length}` : "Сейчас нет акционных товаров"}
             </div>
           </div>
-          <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <button onClick={() => go("search")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Ic n="search" s={17} c="var(--t2)"/>
           </button>
           <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
         </div>
         {saleProds.length > 0 && (
-          <div className="hscroll" style={{ padding:"0 18px 12px", gap:8 }}>
-            <button type="button" className="btn" onClick={() => setFilter('all')} style={chipBtn(filter === 'all')}>
-              Все · {saleProds.length}
-            </button>
+          <div className="hscroll" style={{ padding: "0 18px 12px", gap: 8 }}>
+            <button type="button" className="btn" onClick={() => setFilter("all")} style={chipStyle(filter === "all")}>Все</button>
             {flashProds.length > 0 && (
-              <button type="button" className="btn" onClick={() => setFilter('flash')} style={chipBtn(filter === 'flash')}>
-                ⚡ Флэш · {flashProds.length}
-              </button>
+              <button type="button" className="btn" onClick={() => setFilter("flash")} style={chipStyle(filter === "flash")}>⚡ Флэш</button>
             )}
-            {saleCats.map(c => (
-              <button key={c.id} type="button" className="btn" onClick={() => setFilter(c.id)} style={chipBtn(filter === c.id)}>
-                {c.e} {c.label.split(' ')[0]} · {c.saleCount}
+            {saleByCategory.map(({ cat, items }) => (
+              <button key={cat.id} type="button" className="btn" onClick={() => setFilter(cat.id)} style={chipStyle(filter === cat.id)}>
+                {cat.e} {cat.label.split(" ")[0]}
               </button>
             ))}
           </div>
         )}
       </header>
-      <div style={{ padding:"14px 18px 100px" }}>
-        {topCampaign && filter === 'all' && (
-          <div style={{ marginBottom:16, padding:"14px 16px", borderRadius:16, background:"var(--l2)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{ width:44, height:44, borderRadius:12, background:"var(--l3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{topCampaign.e || '🎁'}</div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:13, fontWeight:800, marginBottom:2 }}>{topCampaign.title}</div>
-              <div style={{ fontSize:11, color:"var(--t2)" }}>{topCampaign.sub || 'Акция в магазине'}</div>
+
+      <div style={{ padding: "14px 18px 100px" }}>
+        {saleProds.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "52px 22px", background: "var(--l2)", border: "1px solid var(--b1)", borderRadius: 20 }}>
+            <div style={{ fontSize: 52, marginBottom: 14 }}>🏷️</div>
+            <div className="ub" style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Акций пока нет</div>
+            <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 22, lineHeight: 1.55 }}>
+              Здесь появятся только товары со скидкой —<br/>сгруппированные по категориям
             </div>
-            {topCampaign.disc > 0 && (
-              <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--red)", flexShrink:0 }}>−{topCampaign.disc}%</div>
-            )}
-          </div>
-        )}
-        {listProds.length === 0 ? (
-          <div style={{ textAlign:"center", padding:"48px 20px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18 }}>
-            <div style={{ fontSize:48, marginBottom:12 }}>🏷️</div>
-            <div className="ub" style={{ fontSize:17, fontWeight:800, marginBottom:8 }}>Скидок пока нет</div>
-            <div style={{ fontSize:13, color:"var(--t2)", marginBottom:20, lineHeight:1.5 }}>Когда админ включит акцию на товар,<br/>он появится здесь автоматически</div>
-            <button onClick={() => go("catalog")} className="btn" style={{ padding:"12px 24px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13, fontWeight:700 }}>Открыть каталог</button>
+            <button onClick={() => go("catalog")} className="btn" style={{ padding: "12px 26px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "#fff", fontSize: 13, fontWeight: 700 }}>
+              Перейти в каталог
+            </button>
           </div>
         ) : (
           <>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-              <div className="ub" style={{ fontSize:14, fontWeight:800 }}>
-                {filter === 'flash' ? '⚡ Флэш' : filter === 'all' ? 'Все скидки' : (saleCats.find(c => c.id === filter)?.label || 'Скидки')}
-              </div>
-              <span style={{ fontSize:11, color:"var(--t3)" }}>{formatProductCount(listProds.length)}</span>
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-              {listProds.map((p, i) => (
-                <div key={p.id} style={{ animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${Math.min(i, 8) * .04}s both` }}>
-                  <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
+            {showFlashBlock && (
+              <section style={{ marginBottom: 24 }}>
+                <div style={{ borderRadius: 20, padding: "16px 16px 14px", background: "linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)", border: "1px solid rgba(255,69,69,.2)", boxShadow: "0 10px 32px rgba(255,69,69,.06)" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12, gap: 10 }}>
+                    <div>
+                      <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: "#FF8C8C", marginBottom: 4 }}>⚡ Флэш-распродажа</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,200,200,.55)" }}>Быстрые скидки — успейте забрать</div>
+                    </div>
+                    {flashTimer && (
+                      <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+                        {[flashTimer.h, flashTimer.m, flashTimer.s].map((v, i) => (
+                          <span key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <span className="ub" style={{ minWidth: 26, textAlign: "center", padding: "3px 5px", borderRadius: 6, background: "rgba(255,69,69,.18)", border: "1px solid rgba(255,69,69,.28)", fontSize: 11, fontWeight: 900, color: "#FF6B6B" }}>{pad2(v)}</span>
+                            {i < 2 && <span style={{ color: "rgba(255,100,100,.5)", fontSize: 10 }}>:</span>}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="hscroll" style={{ gap: 10, margin: "0 -4px", padding: "0 2px 2px" }}>
+                    {flashProds.map(p => {
+                      const promo = findProductPromo(p);
+                      const cat = catMetaForProduct(p);
+                      return (
+                        <PromoFlashCard
+                          key={p.id}
+                          p={p}
+                          cart={cart}
+                          onAdd={onAdd}
+                          onRm={onRm}
+                          disc={saleDisc(p)}
+                          stockLabel={promo ? formatPromoStockLeft(promo, p) : null}
+                          stockPct={p.promoStockPct ?? (p.promoStockLeft != null ? 0 : null)}
+                          catLabel={cat ? cat.label.split(" ")[0] : null}
+                          go={go}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
-              ))}
-            </div>
+              </section>
+            )}
+
+            {showFlashOnly && (
+              <section style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>⚡ Флэш-товары</div>
+                  <span style={{ fontSize: 11, color: "var(--t3)" }}>{formatProductCount(flashProds.length)}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {(flashProds.length ? flashProds : saleProds).map((p, i) => (
+                    <div key={p.id} style={{ animation: `fadeUp .4s cubic-bezier(.16,1,.3,1) ${Math.min(i, 8) * .04}s both` }}>
+                      <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {activeCategory && (
+              <section>
+                <CategoryPromoSection
+                  cat={activeCategory.cat}
+                  items={activeCategory.items}
+                  cart={cart}
+                  onAdd={onAdd}
+                  onRm={onRm}
+                  onWish={onWish}
+                  wished={wished}
+                  go={go}
+                  saleDisc={saleDisc}
+                  catMetaForProduct={catMetaForProduct}
+                />
+              </section>
+            )}
+
+            {showCategoryBlocks && saleByCategory.map(({ cat, items }, gi) => {
+              const visible = items.filter(p => !flashProds.some(f => f.id === p.id));
+              if (!visible.length) return null;
+              return (
+                <CategoryPromoSection
+                  key={cat.id}
+                  cat={cat}
+                  items={visible}
+                  cart={cart}
+                  onAdd={onAdd}
+                  onRm={onRm}
+                  onWish={onWish}
+                  wished={wished}
+                  go={go}
+                  saleDisc={saleDisc}
+                  catMetaForProduct={catMetaForProduct}
+                  animDelay={gi * 0.05}
+                />
+              );
+            })}
           </>
         )}
       </div>
@@ -3259,6 +3412,35 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
     </div>
   );
 };
+
+const CategoryPromoSection = ({ cat, items, cart, onAdd, onRm, onWish, wished, go, saleDisc, catMetaForProduct, animDelay = 0 }) => (
+  <section style={{ marginBottom: 26, animation: `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both` }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+      <div style={{ width: 40, height: 40, borderRadius: 12, background: cat.bg || "var(--l2)", border: `1px solid ${cat.color || "var(--b1)"}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+        {cat.e}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{cat.label}</div>
+        <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>{formatProductCount(items.length)} по акции</div>
+      </div>
+      <button
+        type="button"
+        onClick={() => go("plist", { cat: cat.id })}
+        className="btn"
+        style={{ fontSize: 11, color: cat.color || "var(--gr)", background: `${cat.color || "var(--gr)"}12`, border: `1px solid ${cat.color || "var(--gr)"}30`, borderRadius: 10, padding: "6px 10px", flexShrink: 0 }}
+      >
+        Каталог →
+      </button>
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: items.length === 1 ? "1fr" : "1fr 1fr", gap: 12, maxWidth: items.length === 1 ? 220 : "100%" }}>
+      {items.map((p, i) => (
+        <div key={p.id} style={{ position: "relative", animation: `fadeUp .4s cubic-bezier(.16,1,.3,1) ${(animDelay + i * 0.04)}s both` }}>
+          <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
+        </div>
+      ))}
+    </div>
+  </section>
+);
 const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
   const { prods } = useLiveCatalog();
   const { isVip } = resolveUserVip(user);
