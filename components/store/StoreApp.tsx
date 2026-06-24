@@ -65,6 +65,7 @@ import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
 import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import { activeProductPromos } from "@/lib/productPromos";
+import { inferScheduleMode } from "@/lib/promoSchedule";
 import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
 
@@ -3115,28 +3116,78 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
   );
 };
 
-const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
+const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const { prods } = useLiveCatalog();
   const apiPromos = usePromos(s => s.promos);
   const { isVip } = resolveUserVip(user);
   const [tab, setTab] = useState("all");
+  const [saleCat, setSaleCat] = useState(null);
   const [bi, setBi] = useState(0);
   useEffect(() => { const t = setInterval(() => setBi(b => (b+1)%BANNERS.length), 4500); return () => clearInterval(t); }, []);
   const b = BANNERS[bi];
   const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-  const FLASH = prods
-    .filter(p => num(p.old) > num(p.price) && (p.promoStockLeft == null || p.promoStockLeft > 0))
-    .map(p => ({
-      ...p,
-      price: num(p.price),
-      old: num(p.old),
-      stockPct: p.promoStockPct ?? (p.promoStockLeft != null ? 0 : 55),
-      stockLabel: formatPromoStockLeft(
-        apiPromos.find(pr => pr.type === 'product' && Number(pr.productId) === Number(p.id)),
-        p,
-      ),
-    }))
-    .slice(0, 8);
+  const isSaleProduct = p => num(p.old) > num(p.price) && (p.promoStockLeft == null || p.promoStockLeft > 0);
+  const saleDisc = p => {
+    const old = num(p.old);
+    const price = num(p.price);
+    return old > price ? Math.round((1 - price / old) * 100) : 0;
+  };
+  const parentCatForProduct = p => {
+    const slug = productCatSlug(p);
+    const cat = CATS.find(c => c.id === slug);
+    if (!cat) return null;
+    return cat.parentId || cat.id;
+  };
+  const saleProds = useMemo(
+    () => prods.filter(isSaleProduct).sort((a, b) => saleDisc(b) - saleDisc(a)),
+    [prods],
+  );
+  const flashProds = useMemo(
+    () => saleProds.filter(p => {
+      const promo = apiPromos.find(pr => pr.type === 'product' && Number(pr.productId) === Number(p.id));
+      return promo && inferScheduleMode(promo) === 'flash';
+    }),
+    [saleProds, apiPromos],
+  );
+  const FLASH = (flashProds.length ? flashProds : saleProds).slice(0, 8).map(p => ({
+    ...p,
+    price: num(p.price),
+    old: num(p.old),
+    stockPct: p.promoStockPct ?? (p.promoStockLeft != null ? 0 : 55),
+    stockLabel: formatPromoStockLeft(
+      apiPromos.find(pr => pr.type === 'product' && Number(pr.productId) === Number(p.id)),
+      p,
+    ),
+  }));
+  const saleCats = useMemo(() => {
+    const counts = new Map();
+    const maxDisc = new Map();
+    for (const p of saleProds) {
+      const pid = parentCatForProduct(p);
+      if (!pid) continue;
+      counts.set(pid, (counts.get(pid) || 0) + 1);
+      const d = saleDisc(p);
+      maxDisc.set(pid, Math.max(maxDisc.get(pid) || 0, d));
+    }
+    return CATS
+      .filter(c => !c.parentId && counts.has(c.id))
+      .map(c => ({ ...c, saleCount: counts.get(c.id) || 0, maxDisc: maxDisc.get(c.id) || 0 }));
+  }, [saleProds]);
+  const filteredSale = useMemo(() => {
+    if (!saleCat) return saleProds;
+    return saleProds.filter(p => parentCatForProduct(p) === saleCat);
+  }, [saleProds, saleCat]);
+  const listProds = tab === 'flash'
+    ? (flashProds.length ? flashProds : saleProds.slice(0, 12))
+    : filteredSale;
+  const tickerItems = useMemo(() => {
+    const live = apiPromos
+      .filter(p => p.on && p.title && p.type !== 'product')
+      .slice(0, 4)
+      .map(p => `${p.e || '🎁'} ${p.title}${p.disc ? ` −${p.disc}%` : ''}`);
+    if (live.length) return live;
+    return saleProds.slice(0, 4).map(p => `🏷️ ${p.name} −${saleDisc(p)}%`);
+  }, [apiPromos, saleProds]);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
   return (
@@ -3154,15 +3205,17 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
           <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
             </div>
         <div className="hscroll" style={{ padding:"0 18px 10px", gap:6 }}>
-            {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"},{id:"cats",l:"По категориям"}].map(t => (
+            {[{id:"all",l:"Все"},{id:"flash",l:"⚡ Флэш"}].map(t => (
               <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
             ))}
         </div>
+        {tickerItems.length > 0 && (
         <div style={{ background:"rgba(255,69,69,.08)", borderTop:"1px solid rgba(255,69,69,.12)", padding:"5px 0", overflow:"hidden" }}>
           <div style={{ display:"flex", animation:"ticker 20s linear infinite", width:"200%" }}>
-            {[...Array(2)].map((_,si) => <div key={si} style={{ display:"flex", flexShrink:0, width:"100%" }}>{["🔥 Молочная среда −30%","⚡ Флэш до 20:00","🥩 Мясные выходные −25%","🎁 Бесплатная доставка от 30 ЅМ"].map((t,i) => <span key={i} style={{ fontSize:11, fontWeight:700, color:"var(--red)", whiteSpace:"nowrap", padding:"0 24px" }}>{t}</span>)}</div>)}
+            {[...Array(2)].map((_,si) => <div key={si} style={{ display:"flex", flexShrink:0, width:"100%" }}>{tickerItems.map((t,i) => <span key={i} style={{ fontSize:11, fontWeight:700, color:"var(--red)", whiteSpace:"nowrap", padding:"0 24px" }}>{t}</span>)}</div>)}
           </div>
         </div>
+        )}
       </header>
       <div style={{ padding:"14px 18px 100px" }}>
         {(tab==="all") && (
@@ -3184,15 +3237,15 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
             </div>
           </div>
         )}
-        {(tab==="all"||tab==="flash") && (
+        {(tab==="all"||tab==="flash") && FLASH.length > 0 && tab === "all" && (
           <div style={{ marginBottom:22 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
               <div className="ub" style={{ fontSize:15, fontWeight:800 }}>⚡ Флэш-распродажа</div>
-              <div style={{ fontSize:11, color:"var(--t3)" }}>Быстрые скидки</div>
+              <div style={{ fontSize:11, color:"var(--t3)" }}>{FLASH.length} {FLASH.length === 1 ? 'товар' : FLASH.length < 5 ? 'товара' : 'товаров'}</div>
             </div>
             <div className="hscroll">
               {FLASH.map(p => {
-                const qty=cart[p.id]||0, disc=p.old > 0 ? Math.round((1-p.price/p.old)*100) : 0;
+                const qty=cart[p.id]||0, disc=saleDisc(p);
                 return (
                   <div key={p.id} style={{ width:148, flexShrink:0, background:"var(--l2)", border:"1.5px solid rgba(255,69,69,.25)", borderRadius:16, overflow:"hidden", display:"flex", flexDirection:"column" }}>
                     <div style={{ height:96, background:"linear-gradient(145deg,#180808,#2A1010)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, position:"relative" }}>
@@ -3224,25 +3277,47 @@ const PromosPage = ({ go, cart, onAdd, onRm, user }) => {
             </div>
           </div>
         )}
-        {(tab==="all"||tab==="cats") && (
-          <div style={{ marginBottom:22 }}>
-            <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>По категориям</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              {CATS.filter(c=>!c.parentId).slice(0,6).map((c,i) => (
-                <div key={c.id} onClick={() => go("plist",{cat:c.id})} className="card" style={{ background:c.bg, border:`1px solid ${c.color}22`, cursor:"pointer" }}>
-                  <div style={{ padding:"14px 12px" }}>
-                    <div style={{ fontSize:28, marginBottom:8 }}>{c.e}</div>
-                    <div className="ub" style={{ fontSize:12, fontWeight:800, color:"#fff", marginBottom:3 }}>{c.label.split(" ")[0]}</div>
-                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:8 }}>
-                      <div style={{ padding:"4px 10px", borderRadius:8, background:`${c.color}22`, border:`1px solid ${c.color}44` }}><span className="ub" style={{ fontSize:12, fontWeight:900, color:c.color }}>−{10+i*3}%</span></div>
-                      <Ic n="arr" s={13} c={c.color}/>
-                    </div>
-                  </div>
+        <div style={{ marginBottom:22 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+            <div>
+              <div className="ub" style={{ fontSize:15, fontWeight:800 }}>{tab === "flash" ? "⚡ Флэш-товары" : "Скидки на товары"}</div>
+              <div style={{ fontSize:11, color:"var(--t3)", marginTop:4 }}>{formatProductCount(listProds.length)} из каталога</div>
+            </div>
+            {tab === "all" && saleProds.length > 0 && (
+              <button onClick={() => go("catalog")} className="btn" style={{ fontSize:11, color:"var(--gr)", background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", borderRadius:10, padding:"6px 10px" }}>Каталог →</button>
+            )}
+          </div>
+          {tab === "all" && saleCats.length > 0 && (
+            <div className="hscroll" style={{ gap:8, marginBottom:14 }}>
+              <button onClick={() => setSaleCat(null)} className="btn chip" style={{ borderColor: !saleCat ? "rgba(31,215,96,.38)" : "var(--b1)", background: !saleCat ? "rgba(31,215,96,.12)" : "var(--l2)", color: !saleCat ? "var(--gr)" : "var(--t2)" }}>
+                Все · {saleProds.length}
+              </button>
+              {saleCats.map(c => (
+                <button key={c.id} onClick={() => setSaleCat(c.id)} className="btn chip" style={{ borderColor: saleCat === c.id ? "rgba(31,215,96,.38)" : "var(--b1)", background: saleCat === c.id ? "rgba(31,215,96,.12)" : "var(--l2)", color: saleCat === c.id ? "var(--gr)" : "var(--t2)", display:"flex", alignItems:"center", gap:6 }}>
+                  <span>{c.e}</span>
+                  <span>{c.label.split(" ")[0]}</span>
+                  <span style={{ fontSize:10, opacity:0.8 }}>−{c.maxDisc}% · {c.saleCount}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {listProds.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"36px 20px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18 }}>
+              <div style={{ fontSize:44, marginBottom:10 }}>🏷️</div>
+              <div className="ub" style={{ fontSize:16, fontWeight:800, marginBottom:6 }}>Сейчас нет активных скидок</div>
+              <div style={{ fontSize:12, color:"var(--t2)", marginBottom:16 }}>Когда админ включит акцию на товар, он сразу появится здесь</div>
+              <button onClick={() => go("catalog")} className="btn" style={{ padding:"12px 22px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>Перейти в каталог</button>
+            </div>
+          ) : (
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              {listProds.map((p, i) => (
+                <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
+                  <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
       {totalQtyNum > 0 && (
         <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />
