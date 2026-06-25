@@ -1,4 +1,12 @@
 import { orderBelongsToClientAccount } from './accountLifecycle.js'
+import {
+  loyaltyLockRecord,
+  isLevelLocked,
+  isAutoLevelActive,
+  isLoyaltyPeriodCurrent,
+  clearLevelLock,
+  inferLevelAssignMode,
+} from './loyaltyLock.js'
 
 export const DEFAULT_LOYALTY = {
   welcomeBonus: 10,
@@ -195,6 +203,32 @@ export function suggestLevel(spent, loyalty = DEFAULT_LOYALTY) {
   return 'basic'
 }
 
+export function earnedLevelForPeriod(spent, orderCount, loyalty = DEFAULT_LOYALTY) {
+  if (!hasEarnedBronze(spent, orderCount, loyalty)) return 'basic'
+  return suggestLevel(spent, loyalty)
+}
+
+const TIER_ORDER = ['basic', 'bronze', 'silver', 'gold', 'platinum']
+
+function tierIndex(level) {
+  const i = TIER_ORDER.indexOf(level || 'basic')
+  return i >= 0 ? i : 0
+}
+
+function shouldAutoUpgradeLevel(stored, effective, storedPeriod, lock) {
+  if (isLevelLocked(lock)) return false
+  const period = currentLoyaltyPeriod()
+  if (!storedPeriod) {
+    if (!stored || stored === 'basic') return effective !== 'basic'
+    return tierIndex(effective) > tierIndex(stored)
+  }
+  if (!isLoyaltyPeriodCurrent(storedPeriod) && effective === 'basic' && stored !== 'basic') return true
+  if (effective === stored && isLoyaltyPeriodCurrent(storedPeriod)) return false
+  if (!stored || stored === 'basic') return effective !== 'basic'
+  if (!isLoyaltyPeriodCurrent(storedPeriod)) return effective !== 'basic'
+  return tierIndex(effective) > tierIndex(stored)
+}
+
 export function resolveEffectiveLevel(spent, orderCount, storedLevel, storedPeriod, loyalty) {
   const period = currentLoyaltyPeriod()
   const stored = storedLevel && storedLevel !== 'new' ? storedLevel : 'basic'
@@ -302,16 +336,47 @@ function findClientForOrder(db, order, hooks) {
   return null
 }
 
-function applyLevelUpgrade(client, card, effectiveLevel, period) {
-  const lock = client.levelLockedPeriod || card?.levelLockedPeriod
-  if (lock && lock === period) return
+function applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty) {
   if (client.vip && isForcedVipActive(client)) return
-  if (effectiveLevel === client.level && client.loyaltyPeriod === period) return
-  client.level = effectiveLevel
-  client.loyaltyPeriod = period
+
+  const lock = loyaltyLockRecord(client, card)
+  const mode = lock.levelAssignMode
+  const stats = monthlyDeliveredStats(db, phone, orderPeriod, null, client)
+  const earned = earnedLevelForPeriod(stats.spent, stats.orderCount, loyalty)
+  const effective = resolveEffectiveLevel(
+    stats.spent,
+    stats.orderCount,
+    client.level,
+    client.loyaltyPeriod,
+    loyalty,
+  )
+
+  if (mode === 'manual' && isLevelLocked(lock)) return
+
+  let nextLevel = client.level || 'basic'
+
+  if (mode === 'manual' && !isLevelLocked(lock) && nextLevel !== 'basic') {
+    nextLevel = earned
+    clearLevelLock(client, card)
+    client.levelAssignMode = 'auto'
+    if (card) card.levelAssignMode = 'auto'
+  } else if (mode === 'auto' && !isAutoLevelActive(lock)) {
+    nextLevel = earned
+  } else if (mode === 'auto' && isAutoLevelActive(lock)) {
+    if (!shouldAutoUpgradeLevel(client.level, effective, client.loyaltyPeriod, lock)) return
+    nextLevel = effective
+  } else {
+    return
+  }
+
+  if (nextLevel === (client.level || 'basic') && client.loyaltyPeriod === orderPeriod) return
+
+  client.level = nextLevel
+  client.loyaltyPeriod = orderPeriod
   if (card) {
-    card.level = effectiveLevel
-    card.loyaltyPeriod = period
+    card.level = nextLevel === 'basic' ? '' : nextLevel
+    card.loyaltyPeriod = orderPeriod
+    if (client.levelAssignMode) card.levelAssignMode = client.levelAssignMode
   }
 }
 
@@ -323,30 +388,59 @@ function isForcedVipActive(client) {
   return Date.now() <= until
 }
 
-/** Сброс уровня в начале нового месяца (VIP не трогаем). */
-function ensureClientPeriodForOrder(client, card, orderPeriod) {
+/** Сброс уровня в начале нового месяца с учётом auto/manual. */
+function ensureClientPeriodForOrder(db, phone, client, card, orderPeriod, loyalty) {
   if (client.vip && isForcedVipActive(client)) {
     if (!client.loyaltyPeriod) client.loyaltyPeriod = orderPeriod
     if (card && !card.loyaltyPeriod) card.loyaltyPeriod = orderPeriod
     return
   }
+
   const stored = client.loyaltyPeriod || card?.loyaltyPeriod
-  if (stored && stored !== orderPeriod) {
-    const hadLock = client.levelLockedPeriod === stored || card?.levelLockedPeriod === stored
-    if (!hadLock) {
-      client.level = 'basic'
-      if (card) card.level = 'basic'
-    }
-    client.loyaltyPeriod = orderPeriod
-    client.levelLockedPeriod = undefined
-    if (card) {
-      card.loyaltyPeriod = orderPeriod
-      card.levelLockedPeriod = undefined
-    }
+  if (!stored || stored === orderPeriod) {
+    if (!client.loyaltyPeriod) client.loyaltyPeriod = orderPeriod
+    if (card && !card.loyaltyPeriod) card.loyaltyPeriod = orderPeriod
     return
   }
-  if (!client.loyaltyPeriod) client.loyaltyPeriod = orderPeriod
-  if (card && !card.loyaltyPeriod) card.loyaltyPeriod = orderPeriod
+
+  const assignMode = inferLevelAssignMode(client, card)
+  const levelValidUntil = client.levelValidUntil || card?.levelValidUntil
+  const untilExpired = !!(levelValidUntil && Date.now() > new Date(levelValidUntil).getTime())
+  const manualLockMonth = !!(client.levelLockedPeriod === stored || card?.levelLockedPeriod === stored)
+  const stillManualLocked = assignMode === 'manual'
+    && !untilExpired
+    && !manualLockMonth
+    && (levelValidUntil || client.levelLockedPeriod || card?.levelLockedPeriod)
+
+  const stats = monthlyDeliveredStats(db, phone, stored, null, client)
+  const earned = earnedLevelForPeriod(stats.spent, stats.orderCount, loyalty)
+  const curLevel = client.level || 'basic'
+
+  let nextLevel = 'basic'
+  if (assignMode === 'manual' && stillManualLocked) {
+    nextLevel = curLevel
+  } else if (assignMode === 'manual' && (manualLockMonth || untilExpired)) {
+    nextLevel = earned
+  } else if (assignMode === 'auto') {
+    nextLevel = 'basic'
+  } else if (manualLockMonth) {
+    nextLevel = earned
+  }
+
+  const clearManualLock = manualLockMonth || untilExpired
+  client.level = nextLevel
+  client.loyaltyPeriod = orderPeriod
+  client.levelLockedPeriod = clearManualLock ? undefined : client.levelLockedPeriod
+  client.levelValidUntil = untilExpired ? undefined : levelValidUntil
+  client.levelAssignMode = (clearManualLock && assignMode === 'manual') ? 'auto' : assignMode
+
+  if (card) {
+    card.level = nextLevel === 'basic' ? '' : nextLevel
+    card.loyaltyPeriod = orderPeriod
+    card.levelLockedPeriod = clearManualLock ? undefined : card.levelLockedPeriod
+    card.levelValidUntil = untilExpired ? undefined : levelValidUntil
+    card.levelAssignMode = client.levelAssignMode
+  }
 }
 
 function syncClientMonthlyStats(db, client, phone, period = currentLoyaltyPeriod()) {
@@ -452,20 +546,9 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
 
   const loyalty = ensureLoyaltySettings(db)
   const orderPeriod = loyaltyPeriodForOrder(order)
-  ensureClientPeriodForOrder(client, card, orderPeriod)
-  const spentAdd = orderSpentContribution(order)
+  ensureClientPeriodForOrder(db, phone, client, card, orderPeriod, loyalty)
 
-  const monthly = monthlyDeliveredStats(db, phone, orderPeriod, order.id, client)
-  const monthlySpent = Math.round((monthly.spent + spentAdd) * 10) / 10
-  const monthlyOrders = monthly.orderCount + 1
-  const statusLevel = resolveEffectiveLevel(
-    monthlySpent,
-    monthlyOrders,
-    client.level,
-    client.loyaltyPeriod,
-    loyalty,
-  )
-  applyLevelUpgrade(client, card, statusLevel, orderPeriod)
+  applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty)
 
   const earned = earnBonusForOrder(db, phone, order, client, card, loyalty)
 
@@ -509,8 +592,11 @@ export function reconcileClientBonuses(db, phone, hooks) {
     client.orders = 0
     client.spent = 0
     if (!client.vip) {
-      client.level = 'basic'
-      card.level = ''
+      const lock = loyaltyLockRecord(client, card)
+      if (!(inferLevelAssignMode(client, card) === 'manual' && isLevelLocked(lock))) {
+        client.level = 'basic'
+        card.level = ''
+      }
       client.loyaltyPeriod = period
     }
     syncClientMonthlyStats(db, client, phone, period)
@@ -538,15 +624,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
 
   const period = currentLoyaltyPeriod()
   syncClientMonthlyStats(db, client, phone, period)
-  const stats = monthlyDeliveredStats(db, phone, period, null, client)
-  const finalLevel = resolveEffectiveLevel(
-    stats.spent,
-    stats.orderCount,
-    client.level,
-    client.loyaltyPeriod,
-    loyalty,
-  )
-  applyLevelUpgrade(client, card, finalLevel, period)
+  applyLevelUpgrade(db, phone, client, card, period, loyalty)
   hooks.syncClientFromCardRow(card)
 
   return { credited: delta, bonus: finalBonus, orders: delivered.length }

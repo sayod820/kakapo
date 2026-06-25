@@ -27,6 +27,7 @@ import {
   findClientByPhone,
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
+import { normalizeLevelAssignMode } from './loyaltyLock.js'
 import {
   RECOVERY_RETENTION_DAYS,
   recoveryExpiresAtIso,
@@ -1316,7 +1317,13 @@ app.post('/loyalty/sync', (req, res) => {
 function migrateLoyaltyRows() {
   let changed = false
   if (Array.isArray(db.cards)) {
-    const next = db.cards.map(c => normalizeCardRow({ ...c, num: c.num }))
+    const next = db.cards.map(c => {
+      const row = normalizeCardRow({ ...c, num: c.num })
+      if (!row.levelAssignMode) {
+        row.levelAssignMode = normalizeLevelAssignMode(row)
+      }
+      return row
+    })
     if (JSON.stringify(db.cards) !== JSON.stringify(next)) {
       db.cards = next
       changed = true
@@ -1331,7 +1338,13 @@ function migrateLoyaltyRows() {
       else if (!c.card && prev.card) { /* keep prev */ }
       else if ((c.level || '') !== 'basic' && (prev.level || 'basic') === 'basic') byId.set(c.id, c)
     }
-    const deduped = Array.from(byId.values()).map(c => normalizeClientRow({ ...c, id: c.id }))
+    const deduped = Array.from(byId.values()).map(c => {
+      const row = normalizeClientRow({ ...c, id: c.id })
+      if (!row.levelAssignMode) {
+        row.levelAssignMode = normalizeLevelAssignMode(row)
+      }
+      return row
+    })
     if (JSON.stringify(db.clients) !== JSON.stringify(deduped)) {
       db.clients = deduped
       changed = true

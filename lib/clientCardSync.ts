@@ -16,7 +16,7 @@ import {
 } from './clientCrm'
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardNumsMatch, canonicalCardNum, resolveDebtEnabled } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
-import { emitCrmSync, findMergedClientByPhone } from './clientProfileSync'
+import { emitCrmSync, findMergedClientByPhone, fetchCrmStoreUser, crmStoreUsersEqual } from './clientProfileSync'
 import { resetClientNotificationsForAccount } from './clientNotifications'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
@@ -68,6 +68,22 @@ function isCardMissingOnServer(err: unknown): boolean {
 function isMissingApiRoute(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return /404|cannot post|нет этого api|not found/i.test(msg)
+}
+
+/** Если клиент сейчас в приложении — сразу подтянуть уровень/VIP из CRM после сохранения в админке */
+async function syncActiveStoreSessionFromPhone(phone: string) {
+  if (typeof window === 'undefined') return
+  const { loadStoreUser, saveStoreUser, isClientSessionActive } = await import('./clientSession')
+  if (!isClientSessionActive()) return
+  const stored = loadStoreUser()
+  if (!stored || !phonesMatch(stored.phone, phone)) return
+  const next = await fetchCrmStoreUser(phone, stored.card)
+  if (!next) return
+  const merged = { ...stored, ...next, vip: !!next.vip }
+  if (!crmStoreUsersEqual(stored, merged)) {
+    saveStoreUser(merged)
+    emitCrmSync()
+  }
 }
 
 function isClientAlreadyExists(err: unknown): boolean {
@@ -439,6 +455,7 @@ export async function saveCardLoyalty(
   emitCrmSync()
   markCardLoyaltySaved(cardKey)
   markClientLoyaltySaved(client.id)
+  void syncActiveStoreSessionFromPhone(phone)
 }
 
 /** Сброс статуса и VIP в начале нового месяца */
