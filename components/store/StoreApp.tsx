@@ -6554,7 +6554,7 @@ const AddressesPage = ({ go, user }) => {
     setComment('');
     setCoords(null);
     setLabel('🏠 Дом');
-    setMapOpen(false);
+    setMapOpen(true);
     setShowAdd(true);
   };
 
@@ -6569,6 +6569,14 @@ const AddressesPage = ({ go, user }) => {
     setCoords(a.lat != null && a.lng != null ? { lat: a.lat, lng: a.lng } : null);
     setMapOpen(false);
     setShowAdd(true);
+  };
+
+  const mapPickerHeight = typeof window !== 'undefined' ? Math.max(320, window.innerHeight - 220) : 420;
+
+  const handleMapSelect = ({ lat, lng, address }: { lat: number; lng: number; address: string }) => {
+    setCoords({ lat, lng });
+    setStreet(address);
+    setMapOpen(false);
   };
 
   const setDef = (id) => setAddrs(as => as.map(a => ({ ...a, def: a.id === id })));
@@ -6631,7 +6639,34 @@ const AddressesPage = ({ go, user }) => {
           <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>С точкой на карте для курьера</div>
         </div>
       </div>
-      {showAdd && (
+      {showAdd && mapOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 320, display: 'flex', flexDirection: 'column', background: 'var(--bg)', maxWidth: 480, margin: '0 auto', left: 0, right: 0 }}>
+          <header style={{ flexShrink: 0, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--b1)', background: 'rgba(3,11,5,.96)' }}>
+            <button
+              type="button"
+              onClick={() => (editId != null || coords ? setMapOpen(false) : resetForm())}
+              className="btn"
+              style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--l3)', border: '1px solid var(--b1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Ic n="arrL" s={17} c="var(--t2)" />
+            </button>
+            <div style={{ flex: 1 }}>
+              <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{editId != null ? 'Точка на карте' : 'Новый адрес'}</div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Двигайте карту — метка по центру</div>
+            </div>
+          </header>
+          <div style={{ flex: 1, padding: '12px 16px calc(16px + env(safe-area-inset-bottom, 0px))', overflowY: 'auto' }}>
+            <AddressMapPicker
+              key={editId != null ? `edit-map-${editId}-${coords?.lat}-${coords?.lng}` : 'new-map'}
+              pickMode="center"
+              mapHeight={mapPickerHeight}
+              initial={coords}
+              onSelect={handleMapSelect}
+            />
+          </div>
+        </div>
+      )}
+      {showAdd && !mapOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={resetForm} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
           <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 16px calc(40px + env(safe-area-inset-bottom, 0px))', maxHeight: '92vh', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
@@ -6643,29 +6678,14 @@ const AddressesPage = ({ go, user }) => {
               ))}
             </div>
 
-            {!mapOpen ? (
-              <button
-                type="button"
-                onClick={() => setMapOpen(true)}
-                className="btn"
-                style={{ width: '100%', marginBottom: 12, padding: '14px', borderRadius: 14, background: coords ? 'rgba(59,142,240,.1)' : 'rgba(31,215,96,.08)', border: `1.5px solid ${coords ? 'rgba(59,142,240,.35)' : 'rgba(31,215,96,.35)'}`, color: coords ? 'var(--sky)' : 'var(--gr)', fontSize: 13, fontWeight: 700, fontFamily: 'Nunito' }}
-              >
-                {coords ? '✓ Точка выбрана · изменить на карте' : '🗺 Указать точку на карте'}
-              </button>
-            ) : (
-              <div style={{ marginBottom: 12 }}>
-                <button type="button" onClick={() => setMapOpen(false)} className="btn" style={{ marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontSize: 11, fontWeight: 700, fontFamily: 'Nunito' }}>← Назад к полям</button>
-                <AddressMapPicker
-                  key={editId != null ? `edit-${editId}-${coords?.lat}-${coords?.lng}` : 'new'}
-                  initial={coords}
-                  onSelect={({ lat, lng, address }) => {
-                    setCoords({ lat, lng });
-                    setStreet(address);
-                    setMapOpen(false);
-                  }}
-                />
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => setMapOpen(true)}
+              className="btn"
+              style={{ width: '100%', marginBottom: 12, padding: '14px', borderRadius: 14, background: coords ? 'rgba(59,142,240,.1)' : 'rgba(31,215,96,.08)', border: `1.5px solid ${coords ? 'rgba(59,142,240,.35)' : 'rgba(31,215,96,.35)'}`, color: coords ? 'var(--sky)' : 'var(--gr)', fontSize: 13, fontWeight: 700, fontFamily: 'Nunito' }}
+            >
+              {coords ? '✓ Точка выбрана · изменить на карте' : '🗺 Указать точку на карте'}
+            </button>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>

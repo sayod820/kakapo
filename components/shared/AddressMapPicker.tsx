@@ -15,11 +15,14 @@ interface Props {
   variant?: 'client' | 'admin';
   hint?: string;
   mapHeight?: number;
+  /** center — метка по центру, карту двигает пользователь; tap — тап/drag маркера */
+  pickMode?: 'tap' | 'center';
 }
 
 const THEMES = {
   client: {
     hint: 'Нажмите на карту — курьер увидит эту точку',
+    centerHint: 'Двигайте карту — метка по центру показывает ваш дом',
     pin: 'linear-gradient(135deg,#1E5BB5,#3B8EF0)',
     gpsPin: 'linear-gradient(135deg,#0F8A3A,#1FD760)',
     btnBg: '#0C1C0F',
@@ -36,6 +39,7 @@ const THEMES = {
   },
   admin: {
     hint: '1. Нажмите на карту  2. «Подтвердить точку»  3. «Сохранить»',
+    centerHint: 'Двигайте карту под меткой  ·  «Подтвердить точку»',
     pin: 'linear-gradient(135deg,#17B34E,#1FD760)',
     gpsPin: 'linear-gradient(135deg,#1E5BB5,#3B8EF0)',
     btnBg: '#0C1C0F',
@@ -74,9 +78,10 @@ export default function AddressMapPicker({
   variant = 'client',
   hint,
   mapHeight = 220,
+  pickMode = 'tap',
 }: Props) {
   const theme = THEMES[variant];
-  const hintText = hint ?? theme.hint;
+  const hintText = hint ?? (pickMode === 'center' ? theme.centerHint : theme.hint);
   const pinGradientRef = useRef(theme.pin);
   pinGradientRef.current = theme.pin;
 
@@ -117,7 +122,7 @@ export default function AddressMapPicker({
       const start = pinRef.current ?? { lat: COURIER_MAP_VIEW.lat, lng: COURIER_MAP_VIEW.lng };
       const map = L.map(containerRef.current!, {
         center: [start.lat, start.lng],
-        zoom: COURIER_MAP_VIEW.zoom,
+        zoom: pinRef.current ? 17 : COURIER_MAP_VIEW.zoom,
         zoomControl: true,
         attributionControl: false,
         zoomAnimation: false,
@@ -125,6 +130,11 @@ export default function AddressMapPicker({
         markerZoomAnimation: false,
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+      const syncCenterPin = () => {
+        const c = map.getCenter();
+        setPin({ lat: c.lat, lng: c.lng });
+      };
 
       const placeMarker = (lat: number, lng: number, gradient = pinGradientRef.current) => {
         if (markerRef.current) {
@@ -143,13 +153,17 @@ export default function AddressMapPicker({
         });
       };
 
-      if (pinRef.current) placeMarker(pinRef.current.lat, pinRef.current.lng);
-
-      map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
-        const { lat, lng } = e.latlng;
-        setPin({ lat, lng });
-        placeMarker(lat, lng);
-      });
+      if (pickMode === 'center') {
+        map.on('moveend', syncCenterPin);
+        syncCenterPin();
+      } else {
+        if (pinRef.current) placeMarker(pinRef.current.lat, pinRef.current.lng);
+        map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
+          const { lat, lng } = e.latlng;
+          setPin({ lat, lng });
+          placeMarker(lat, lng);
+        });
+      }
 
       mapRef.current = map;
       map.whenReady(() => {
@@ -168,7 +182,7 @@ export default function AddressMapPicker({
       mapRef.current = null;
       setReady(false);
     };
-  }, []);
+  }, [pickMode]);
 
   const useGPS = () => {
     if (!navigator.geolocation) {
@@ -183,21 +197,23 @@ export default function AddressMapPicker({
         const lng = pos.coords.longitude;
         setPin({ lat, lng });
         if (mapRef.current) {
-          import('leaflet').then(L => {
-            if (markerRef.current) try { markerRef.current.remove(); } catch {}
-            const icon = L.divIcon({
-              html: pinIconHtml(theme.gpsPin),
-              className: '',
-              iconSize: [36, 36],
-              iconAnchor: [18, 36],
+          mapRef.current.setView([lat, lng], 17, { animate: false });
+          if (pickMode !== 'center') {
+            import('leaflet').then(L => {
+              if (markerRef.current) try { markerRef.current.remove(); } catch {}
+              const icon = L.divIcon({
+                html: pinIconHtml(theme.gpsPin),
+                className: '',
+                iconSize: [36, 36],
+                iconAnchor: [18, 36],
+              });
+              markerRef.current = L.marker([lat, lng], { icon, draggable: true, zIndexOffset: 1000 }).addTo(mapRef.current);
+              markerRef.current.on('dragend', () => {
+                const p = markerRef.current.getLatLng();
+                setPin({ lat: p.lat, lng: p.lng });
+              });
             });
-            markerRef.current = L.marker([lat, lng], { icon, draggable: true, zIndexOffset: 1000 }).addTo(mapRef.current);
-            markerRef.current.on('dragend', () => {
-              const p = markerRef.current.getLatLng();
-              setPin({ lat: p.lat, lng: p.lng });
-            });
-            mapRef.current.setView([lat, lng], 17, { animate: false });
-          });
+          }
         }
         setGpsLoading(false);
       },
@@ -210,19 +226,27 @@ export default function AddressMapPicker({
   };
 
   const confirm = async () => {
-    if (!pin) {
-      setError('Сначала нажмите на карту или используйте GPS');
+    const activePin = pickMode === 'center' && mapRef.current
+      ? (() => {
+          const c = mapRef.current.getCenter();
+          return { lat: c.lat, lng: c.lng };
+        })()
+      : pin;
+    if (!activePin) {
+      setError(pickMode === 'center' ? 'Подождите загрузки карты' : 'Сначала нажмите на карту или используйте GPS');
       return;
     }
     setConfirmLoading(true);
     setError('');
     try {
-      const address = await reverseGeocode(pin.lat, pin.lng);
-      const text = address || `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`;
-      onSelect({ lat: pin.lat, lng: pin.lng, address: text });
+      const address = await reverseGeocode(activePin.lat, activePin.lng);
+      const text = address || `${activePin.lat.toFixed(5)}, ${activePin.lng.toFixed(5)}`;
+      onSelect({ lat: activePin.lat, lng: activePin.lng, address: text });
+      setPin(activePin);
       setConfirmed(true);
     } catch {
-      onSelect({ lat: pin.lat, lng: pin.lng, address: `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` });
+      onSelect({ lat: activePin.lat, lng: activePin.lng, address: `${activePin.lat.toFixed(5)}, ${activePin.lng.toFixed(5)}` });
+      setPin(activePin);
       setConfirmed(true);
     } finally {
       setConfirmLoading(false);
@@ -237,6 +261,20 @@ export default function AddressMapPicker({
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050F08' }}>
             <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid rgba(31,215,96,.2)', borderTopColor: theme.spinner, animation: 'spin 1s linear infinite' }} />
           </div>
+        )}
+        {pickMode === 'center' && ready && (
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              transform: 'translate(-50%, -100%)',
+              pointerEvents: 'none',
+              zIndex: 500,
+              filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.45))',
+            }}
+            dangerouslySetInnerHTML={{ __html: pinIconHtml(theme.pin) }}
+          />
         )}
         <div style={{ position: 'absolute', top: 10, left: 10, right: 10, padding: '6px 10px', borderRadius: 10, background: 'rgba(3,11,5,.88)', fontSize: 11, color: theme.btnText, pointerEvents: 'none' }}>
           {hintText}
@@ -256,15 +294,15 @@ export default function AddressMapPicker({
         <button
           type="button"
           onClick={confirm}
-          disabled={!pin || confirmLoading}
+          disabled={(pickMode === 'center' ? !ready : !pin) || confirmLoading}
           className="btn"
           style={{
             flex: 1.2,
             padding: '11px',
             borderRadius: 12,
-            background: pin ? theme.confirm : theme.btnBg,
-            border: pin ? 'none' : `1.5px solid ${theme.btnBorder}`,
-            color: pin ? theme.confirmText : theme.btnMuted,
+            background: (pickMode === 'center' ? ready : pin) ? theme.confirm : theme.btnBg,
+            border: (pickMode === 'center' ? ready : pin) ? 'none' : `1.5px solid ${theme.btnBorder}`,
+            color: (pickMode === 'center' ? ready : pin) ? theme.confirmText : theme.btnMuted,
             fontSize: 12,
             fontWeight: 800,
             fontFamily: 'Nunito',
@@ -277,7 +315,7 @@ export default function AddressMapPicker({
 
       {pin && (
         <div style={{ padding: '8px 12px', borderRadius: 10, background: theme.coordsBg, border: `1px solid ${theme.coordsBorder}`, fontSize: 11, color: theme.coordsText, marginBottom: 8 }}>
-          📍 {pin.lat.toFixed(5)}, {pin.lng.toFixed(5)} · маркер можно перетащить
+          📍 {pin.lat.toFixed(5)}, {pin.lng.toFixed(5)}{pickMode === 'center' ? ' · двигайте карту' : ' · маркер можно перетащить'}
         </div>
       )}
       {confirmed && (
