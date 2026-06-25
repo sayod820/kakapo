@@ -376,17 +376,7 @@ export default function CardStatusAdminPanel() {
       {/* Назначение клиентам */}
       <div className="ac">
         <div style={{ padding: '14px 16px', borderBottom: '1px solid #162B1A' }}>
-          <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 4 }}>👥 Статусы клиентов</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 10 }}>
-            <div style={{ padding: '10px 12px', borderRadius: 12, background: 'rgba(31,215,96,.06)', border: '1px solid rgba(31,215,96,.2)' }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#1FD760', marginBottom: 4 }}>🔄 Автоматически</div>
-              <div style={{ fontSize: 10, color: '#8FB897', lineHeight: 1.45 }}>Уровень растёт по заказам за месяц. Выберите срок — после него уровень пересчитается по тратам.</div>
-            </div>
-            <div style={{ padding: '10px 12px', borderRadius: 12, background: 'rgba(255,184,0,.06)', border: '1px solid rgba(255,184,0,.2)' }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#FFB800', marginBottom: 4 }}>✋ Ручной</div>
-              <div style={{ fontSize: 10, color: '#8FB897', lineHeight: 1.45 }}>Назначаете уровень сами. Закрепляется на выбранный срок, затем — по заработанному уровню.</div>
-            </div>
-          </div>
+          <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 10 }}>👥 Статусы клиентов</div>
           <div style={{ position: 'relative', maxWidth: 360 }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: .5 }}>🔍</span>
             <input
