@@ -4777,6 +4777,7 @@ function PromosPage() {
   const [productForm, setProductForm] = useState(emptyProductForm)
   const [pickerCatFilter, setPickerCatFilter] = useState<string | null>(null)
   const [modalContext, setModalContext] = useState<'flash' | 'category'>('category')
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [saving, setSaving] = useState(false)
 
   const productPromos = promos.filter(isProductPromo)
@@ -4859,6 +4860,22 @@ function PromosPage() {
     })()
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    setSelectedIds([])
+  }, [section, selectedCat])
+
+  const togglePromoSelect = (id: number) => {
+    setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+  }
+
+  const toggleSelectAll = (items: Promo[]) => {
+    const ids = items.map(p => p.id)
+    const allSelected = ids.length > 0 && ids.every(id => selectedIds.includes(id))
+    setSelectedIds(prev => (
+      allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]
+    ))
+  }
 
   const flashSchedulePreset = (): PromoScheduleForm => {
     const today = new Date()
@@ -5005,12 +5022,31 @@ function PromosPage() {
     if (!confirm('Удалить акцию?')) return
     const prev = promos
     syncPromos(promos.filter(x => x.id !== id))
+    setSelectedIds(prevIds => prevIds.filter(x => x !== id))
     try {
       if (USE_API) await api.deletePromo(id)
       else persistLocal(prev.filter(x => x.id !== id))
     } catch {
       syncPromos(prev)
       alert('Не удалось удалить акцию')
+    }
+  }
+
+  const removeSelectedPromos = async (items: Promo[]) => {
+    const ids = selectedIds.filter(id => items.some(p => p.id === id))
+    if (!ids.length) return
+    const n = ids.length
+    const word = n === 1 ? 'акцию' : n < 5 ? 'акции' : 'акций'
+    if (!confirm(`Удалить ${n} ${word}?`)) return
+    const prev = promos
+    syncPromos(promos.filter(x => !ids.includes(x.id)))
+    setSelectedIds(prevIds => prevIds.filter(id => !ids.includes(id)))
+    try {
+      if (USE_API) await Promise.all(ids.map(id => api.deletePromo(id)))
+      else persistLocal(prev.filter(x => !ids.includes(x.id)))
+    } catch {
+      syncPromos(prev)
+      alert('Не удалось удалить выбранные акции')
     }
   }
 
@@ -5135,12 +5171,61 @@ function PromosPage() {
     </div>
   )
 
+  const renderPromoSelectionBar = (items: Promo[]) => {
+    if (!items.length) return null
+    const ids = items.map(p => p.id)
+    const selectedInList = selectedIds.filter(id => ids.includes(id))
+    const allSelected = ids.length > 0 && ids.every(id => selectedIds.includes(id))
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 12,
+        padding: '10px 14px',
+        borderRadius: 11,
+        background: selectedInList.length ? 'rgba(255,69,69,.06)' : '#091508',
+        border: `1px solid ${selectedInList.length ? 'rgba(255,69,69,.2)' : '#162B1A'}`,
+        flexWrap: 'wrap',
+      }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#8FB897', cursor: 'pointer' }}>
+          <input type="checkbox" checked={allSelected} onChange={() => toggleSelectAll(items)}/>
+          Выбрать все
+        </label>
+        {selectedInList.length > 0 && (
+          <>
+            <span style={{ fontSize: 12, color: '#8FB897' }}>
+              Выбрано: <strong style={{ color: '#EBF5ED' }}>{selectedInList.length}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => removeSelectedPromos(items)}
+              className="ab abd"
+              style={{ marginLeft: 'auto', padding: '6px 14px', fontSize: 12, fontWeight: 700 }}
+            >
+              🗑 Удалить выбранные
+            </button>
+          </>
+        )}
+      </div>
+    )
+  }
+
   const renderPromoRow = (p: Promo) => {
     const prod = prodForPromo(p)
     const catLabel = catLabelForPromo(p)
+    const isSelected = selectedIds.includes(p.id)
     return (
-      <div key={p.id} className="ac" style={{ padding: '14px 16px', opacity: p.on ? 1 : 0.6 }}>
+      <div key={p.id} className="ac" style={{
+        padding: '14px 16px',
+        opacity: p.on ? 1 : 0.6,
+        border: isSelected ? '1.5px solid rgba(255,69,69,.35)' : undefined,
+        background: isSelected ? 'rgba(255,69,69,.04)' : undefined,
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label style={{ flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+            <input type="checkbox" checked={isSelected} onChange={() => togglePromoSelect(p.id)}/>
+          </label>
           <div style={{ width: 44, height: 44, borderRadius: 13, background: '#162B1A', border: '1px solid #1E3522', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{prod?.e || p.e}</div>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
@@ -5222,7 +5307,10 @@ function PromosPage() {
               Нет флэш-акций. Создайте скидку с режимом «⚡ Флэш».
             </div>
           ) : (
-            <div style={{display:'flex',flexDirection:'column',gap:10}}>{flashPromos.map(renderPromoRow)}</div>
+            <>
+              {renderPromoSelectionBar(flashPromos)}
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>{flashPromos.map(renderPromoRow)}</div>
+            </>
           )}
         </>
       ) : activeCat ? (
@@ -5249,7 +5337,10 @@ function PromosPage() {
               <button onClick={() => openProductCreate({ catId: activeCat.id === '_other' ? undefined : activeCat.id })} className="ab abp" style={{padding:'10px 20px',fontSize:13,fontWeight:700}}>+ Скидка на товар</button>
             </div>
           ) : (
-            <div style={{display:'flex',flexDirection:'column',gap:10}}>{activeCatItems.map(renderPromoRow)}</div>
+            <>
+              {renderPromoSelectionBar(activeCatItems)}
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>{activeCatItems.map(renderPromoRow)}</div>
+            </>
           )}
         </>
       ) : (
