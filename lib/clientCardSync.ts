@@ -24,7 +24,7 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, resolveLevelLockFromUntil, inferLevelAssignMode } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
@@ -345,14 +345,7 @@ export async function saveCardLoyalty(
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
 
   const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
-  const lockFields = form.levelValidUntil !== undefined || form.levelPermanent !== undefined
-    ? resolveLevelLockFromUntil(
-      assignMode,
-      form.level,
-      form.levelPermanent ? null : form.levelValidUntil,
-      !!form.levelPermanent,
-    )
-    : resolveLevelLockFromTerm(assignMode, form.level, form.levelTermDays ?? 0)
+  const lockFields = resolveLevelLockFromTerm(assignMode, form.level, form.levelTermDays ?? 0)
 
   const loyalty = {
     level: form.level,
