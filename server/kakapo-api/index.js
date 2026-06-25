@@ -924,6 +924,17 @@ function listVisibleClients() {
   return (db.clients || []).filter(isClientRowVisible).map(c => normalizeClientRow({ ...c, id: c.id }))
 }
 
+const VIP_NOTE_MARKER = 'kakapo-vip'
+const DEBT_NOTE_MARKER = 'kakapo-debt'
+
+function vipFromNote(note) {
+  return !!(note && String(note).includes(VIP_NOTE_MARKER))
+}
+
+function debtFromNote(note) {
+  return !!(note && String(note).includes(DEBT_NOTE_MARKER))
+}
+
 function normalizeClientRow(raw) {
   const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : 'basic'
   return {
@@ -1322,8 +1333,6 @@ function migrateLoyaltyRows() {
   if (changed) persist()
 }
 
-migrateLoyaltyRows()
-
 app.get('/cards', (_req, res) => {
   const list = (db.cards || [])
     .filter(c => !c.phone || !isPhoneTombstoned(c.phone))
@@ -1335,17 +1344,6 @@ function currentLoyaltyPeriod(date = new Date()) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   return `${y}-${m}`
-}
-
-const VIP_NOTE_MARKER = 'kakapo-vip'
-const DEBT_NOTE_MARKER = 'kakapo-debt'
-
-function vipFromNote(note) {
-  return !!(note && String(note).includes(VIP_NOTE_MARKER))
-}
-
-function debtFromNote(note) {
-  return !!(note && String(note).includes(DEBT_NOTE_MARKER))
 }
 
 function normalizeCardRow(raw) {
@@ -1371,6 +1369,8 @@ function normalizeCardRow(raw) {
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
   }
 }
+
+migrateLoyaltyRows()
 
 function issueCardForNewClient(client) {
   if (!db.cards) db.cards = []
