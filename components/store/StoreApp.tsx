@@ -6652,7 +6652,7 @@ const AddressesPage = ({ go, user }) => {
             </button>
             <div style={{ flex: 1 }}>
               <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{editId != null ? 'Точка на карте' : 'Новый адрес'}</div>
-              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Двигайте карту — метка по центру</div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Двигайте карту — остриё метки = точка</div>
             </div>
           </header>
           <div style={{ flex: 1, padding: '12px 16px calc(16px + env(safe-area-inset-bottom, 0px))', overflowY: 'auto' }}>

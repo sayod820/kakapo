@@ -22,8 +22,10 @@ interface Props {
 const THEMES = {
   client: {
     hint: 'Нажмите на карту — курьер увидит эту точку',
-    centerHint: 'Двигайте карту — метка по центру показывает ваш дом',
+    centerHint: 'Двигайте карту — остриё метки показывает ваш дом',
     pin: 'linear-gradient(135deg,#1E5BB5,#3B8EF0)',
+    centerPinFill: '#1FD760',
+    centerPinDark: '#0F8A3A',
     gpsPin: 'linear-gradient(135deg,#0F8A3A,#1FD760)',
     btnBg: '#0C1C0F',
     btnBorder: '#162B1A',
@@ -39,8 +41,10 @@ const THEMES = {
   },
   admin: {
     hint: '1. Нажмите на карту  2. «Подтвердить точку»  3. «Сохранить»',
-    centerHint: 'Двигайте карту под меткой  ·  «Подтвердить точку»',
+    centerHint: 'Двигайте карту — остриё метки = точка доставки',
     pin: 'linear-gradient(135deg,#17B34E,#1FD760)',
+    centerPinFill: '#1FD760',
+    centerPinDark: '#0F8A3A',
     gpsPin: 'linear-gradient(135deg,#1E5BB5,#3B8EF0)',
     btnBg: '#0C1C0F',
     btnBorder: '#162B1A',
@@ -56,6 +60,10 @@ const THEMES = {
   },
 } as const;
 
+/** Масштаб при выборе точки — несколько кварталов (как на экране «Новый адрес») */
+const CENTER_PICK_ZOOM = COURIER_MAP_VIEW.zoom;
+const CENTER_PICK_GPS_ZOOM = 15;
+
 function destroyMap(map: any, container?: HTMLDivElement | null) {
   if (!map) return;
   try {
@@ -69,6 +77,48 @@ function destroyMap(map: any, container?: HTMLDivElement | null) {
 
 function pinIconHtml(gradient: string) {
   return `<div style="width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${gradient};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.3)"><span style="transform:rotate(45deg);font-size:16px">📍</span></div>`;
+}
+
+/** Метка по центру карты: остриё строго в гео-точке (50% × 50%) */
+function CenterPinOverlay({ fill, fillDark }: { fill: string; fillDark: string }) {
+  const pinH = 58;
+  const pinW = 44;
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        width: pinW,
+        height: pinH,
+        marginLeft: -pinW / 2,
+        marginTop: -pinH,
+        pointerEvents: 'none',
+        zIndex: 500,
+        filter: 'drop-shadow(0 8px 16px rgba(0,0,0,.45))',
+      }}
+    >
+      <svg width={pinW} height={pinH} viewBox="0 0 44 58" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="22" cy="55" rx="7" ry="2" fill="rgba(0,0,0,.22)" />
+        <path
+          d="M22 57.5C22 57.5 7.5 32.5 7.5 21.5C7.5 12.85 14.07 6 22 6C29.93 6 36.5 12.85 36.5 21.5C36.5 32.5 22 57.5 22 57.5Z"
+          fill={`url(#cpg-${fill.replace('#', '')})`}
+          stroke="rgba(255,255,255,.4)"
+          strokeWidth="1.25"
+        />
+        <circle cx="22" cy="21" r="10.5" fill="#fff" fillOpacity="0.96" />
+        <circle cx="22" cy="21" r="5.5" fill={fill} />
+        <circle cx="22" cy="57.5" r="2.75" fill={fill} stroke="#fff" strokeWidth="1.5" />
+        <defs>
+          <linearGradient id={`cpg-${fill.replace('#', '')}`} x1="8" y1="6" x2="36" y2="56" gradientUnits="userSpaceOnUse">
+            <stop stopColor={fillDark} />
+            <stop offset="1" stopColor={fill} />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+  );
 }
 
 /** Интерактивная карта: выбор точки (тап, перетаскивание или GPS) */
@@ -120,9 +170,14 @@ export default function AddressMapPicker({
       }
 
       const start = pinRef.current ?? { lat: COURIER_MAP_VIEW.lat, lng: COURIER_MAP_VIEW.lng };
+      const startZoom = pickMode === 'center'
+        ? CENTER_PICK_ZOOM
+        : (pinRef.current ? 17 : COURIER_MAP_VIEW.zoom);
       const map = L.map(containerRef.current!, {
         center: [start.lat, start.lng],
-        zoom: pinRef.current ? 17 : COURIER_MAP_VIEW.zoom,
+        zoom: startZoom,
+        minZoom: 12,
+        maxZoom: 19,
         zoomControl: true,
         attributionControl: false,
         zoomAnimation: false,
@@ -197,7 +252,8 @@ export default function AddressMapPicker({
         const lng = pos.coords.longitude;
         setPin({ lat, lng });
         if (mapRef.current) {
-          mapRef.current.setView([lat, lng], 17, { animate: false });
+          const gpsZoom = pickMode === 'center' ? CENTER_PICK_GPS_ZOOM : 17;
+          mapRef.current.setView([lat, lng], gpsZoom, { animate: false });
           if (pickMode !== 'center') {
             import('leaflet').then(L => {
               if (markerRef.current) try { markerRef.current.remove(); } catch {}
@@ -263,18 +319,7 @@ export default function AddressMapPicker({
           </div>
         )}
         {pickMode === 'center' && ready && (
-          <div
-            style={{
-              position: 'absolute',
-              left: '50%',
-              top: '50%',
-              transform: 'translate(-50%, -100%)',
-              pointerEvents: 'none',
-              zIndex: 500,
-              filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.45))',
-            }}
-            dangerouslySetInnerHTML={{ __html: pinIconHtml(theme.pin) }}
-          />
+          <CenterPinOverlay fill={theme.centerPinFill} fillDark={theme.centerPinDark} />
         )}
         <div style={{ position: 'absolute', top: 10, left: 10, right: 10, padding: '6px 10px', borderRadius: 10, background: 'rgba(3,11,5,.88)', fontSize: 11, color: theme.btnText, pointerEvents: 'none' }}>
           {hintText}
@@ -315,7 +360,7 @@ export default function AddressMapPicker({
 
       {pin && (
         <div style={{ padding: '8px 12px', borderRadius: 10, background: theme.coordsBg, border: `1px solid ${theme.coordsBorder}`, fontSize: 11, color: theme.coordsText, marginBottom: 8 }}>
-          📍 {pin.lat.toFixed(5)}, {pin.lng.toFixed(5)}{pickMode === 'center' ? ' · двигайте карту' : ' · маркер можно перетащить'}
+          📍 {pin.lat.toFixed(5)}, {pin.lng.toFixed(5)}{pickMode === 'center' ? ' · остриё метки = точка' : ' · маркер можно перетащить'}
         </div>
       )}
       {confirmed && (
