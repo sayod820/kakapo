@@ -37,7 +37,8 @@ import {
 import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine, ensureClientDefaultAddress } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
-import { fetchRemoteCart, mergeCartData, saveRemoteCart, cartSyncTimestamp } from "@/lib/clientCartSync";
+import { mergeCartData, saveRemoteCart, cartSyncTimestamp, findSyncClient, clientCartPayload } from "@/lib/clientCartSync";
+import { mergeWishData, saveRemoteWish, wishBundleFromClient } from "@/lib/clientWishSync";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
@@ -8493,13 +8494,14 @@ function hydrateStoreSessionFromStorage(): {
   cartMeta: Record<string, unknown>
   cartUpdatedAt: string
   wished: Record<string, boolean>
+  wishedUpdatedAt: string
 } {
   if (typeof window === 'undefined') {
-    return { user: null, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {} };
+    return { user: null, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {}, wishedUpdatedAt: '' };
   }
   const user = loadStoreUser();
   if (!user?.phone) {
-    return { user, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {} };
+    return { user, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {}, wishedUpdatedAt: '' };
   }
   migrateLegacyClientData(user.phone);
   return {
@@ -8508,6 +8510,7 @@ function hydrateStoreSessionFromStorage(): {
     cartMeta: loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone),
     cartUpdatedAt: loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', user.phone),
     wished: loadAccountJson(ACCOUNT_NS.wished, {}, user.phone),
+    wishedUpdatedAt: loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', user.phone),
   };
 }
 
@@ -8520,6 +8523,7 @@ function KakapoAppInner() {
   const [cartMeta, setCartMeta] = useState(sessionBoot.cartMeta);
   const [cartUpdatedAt, setCartUpdatedAt] = useState(sessionBoot.cartUpdatedAt);
   const [wished, setWished] = useState(sessionBoot.wished);
+  const [wishedUpdatedAt, setWishedUpdatedAt] = useState(sessionBoot.wishedUpdatedAt);
   const [user,   setUser]   = useState<StoreUser | null>(sessionBoot.user);
   const [sessionReady, setSessionReady] = useState(false);
   const userPersistReadyRef = useRef(false);
@@ -8527,6 +8531,9 @@ function KakapoAppInner() {
   const cartMutatedByUserRef = useRef(false);
   const cartRef = useRef(sessionBoot.cart);
   const cartMetaRef = useRef(sessionBoot.cartMeta);
+  const wishedUpdatedAtRef = useRef(sessionBoot.wishedUpdatedAt);
+  const wishMutatedByUserRef = useRef(false);
+  const wishedRef = useRef(sessionBoot.wished);
   const [cartSyncReady, setCartSyncReady] = useState(() => {
     if (!USE_API) return true;
     const boot = sessionBoot;
@@ -8555,11 +8562,13 @@ function KakapoAppInner() {
     if (!user?.phone) {
       setCartSyncReady(false);
       cartUpdatedAtRef.current = '';
+      wishedUpdatedAtRef.current = '';
       if (!user) {
         setCart({});
         setCartMeta({});
         setCartUpdatedAt('');
         setWished({});
+        setWishedUpdatedAt('');
       }
       return;
     }
@@ -8571,10 +8580,15 @@ function KakapoAppInner() {
     const localUpdatedAt = loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', user.phone);
     const localBundle = { cart: localCart, cartMeta: localMeta, cartUpdatedAt: localUpdatedAt };
     cartUpdatedAtRef.current = localUpdatedAt;
+    const localWished = loadAccountJson(ACCOUNT_NS.wished, {}, user.phone);
+    const localWishedUpdatedAt = loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', user.phone);
+    const localWishBundle = { wished: localWished, wishedUpdatedAt: localWishedUpdatedAt };
+    wishedUpdatedAtRef.current = localWishedUpdatedAt;
     setCart(localCart);
     setCartMeta(localMeta);
     setCartUpdatedAt(localUpdatedAt);
-    setWished(loadAccountJson(ACCOUNT_NS.wished, {}, user.phone));
+    setWished(localWished);
+    setWishedUpdatedAt(localWishedUpdatedAt);
 
     let cancelled = false;
     const syncRemote = async () => {
@@ -8583,8 +8597,11 @@ function KakapoAppInner() {
         return;
       }
       try {
-        const remote = await fetchRemoteCart(user.phone, user.clientId);
+        const remoteClient = await findSyncClient(user.phone, user.clientId);
+        const remote = clientCartPayload(remoteClient);
+        const remoteWish = wishBundleFromClient(remoteClient);
         const merged = mergeCartData(localBundle, remote);
+        const mergedWish = mergeWishData(localWishBundle, remoteWish);
         if (cancelled) return;
         cartMutatedByUserRef.current = false;
         cartUpdatedAtRef.current = merged.cartUpdatedAt || '';
@@ -8599,7 +8616,21 @@ function KakapoAppInner() {
         if (localTs > remoteTs || (localTs === remoteTs && Object.keys(localCart).length > 0 && !Object.keys(remote.cart).length)) {
           void saveRemoteCart(user.clientId, merged.cart, merged.cartMeta, merged.cartUpdatedAt);
         }
-      } catch { /* оставляем локальную корзину */ }
+        wishMutatedByUserRef.current = false;
+        wishedUpdatedAtRef.current = mergedWish.wishedUpdatedAt || '';
+        setWished(mergedWish.wished);
+        setWishedUpdatedAt(mergedWish.wishedUpdatedAt || '');
+        saveAccountJson(ACCOUNT_NS.wished, mergedWish.wished, user.phone);
+        saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, mergedWish.wishedUpdatedAt || '', user.phone);
+        const localWishTs = cartSyncTimestamp(localWishedUpdatedAt);
+        const remoteWishTs = cartSyncTimestamp(remoteWish.wishedUpdatedAt);
+        if (
+          localWishTs > remoteWishTs
+          || (localWishTs === remoteWishTs && Object.keys(localWished).length > 0 && !Object.keys(remoteWish.wished).length)
+        ) {
+          void saveRemoteWish(user.clientId, mergedWish.wished, mergedWish.wishedUpdatedAt);
+        }
+      } catch { /* оставляем локальные данные */ }
       finally {
         if (!cancelled) setCartSyncReady(true);
       }
@@ -8643,36 +8674,57 @@ function KakapoAppInner() {
   useEffect(() => {
     if (!USE_API || !user?.clientId || !user?.phone || !cartSyncReady) return;
 
-    const pullRemoteCart = async () => {
+    const pullRemoteClientData = async () => {
       try {
-        const remote = await fetchRemoteCart(user.phone, user.clientId);
-        const localBundle = {
+        const remoteClient = await findSyncClient(user.phone, user.clientId);
+        const remote = clientCartPayload(remoteClient);
+        const remoteWish = wishBundleFromClient(remoteClient);
+
+        const localCartBundle = {
           cart: cartRef.current,
           cartMeta: cartMetaRef.current,
           cartUpdatedAt: cartUpdatedAtRef.current,
         };
-        const merged = mergeCartData(localBundle, remote);
-        const changed =
-          cartSyncTimestamp(merged.cartUpdatedAt) !== cartSyncTimestamp(cartUpdatedAtRef.current)
-          || JSON.stringify(merged.cart) !== JSON.stringify(cartRef.current);
-        if (!changed) return;
-        cartMutatedByUserRef.current = false;
-        cartUpdatedAtRef.current = merged.cartUpdatedAt || '';
-        setCart(merged.cart);
-        setCartMeta(merged.cartMeta);
-        setCartUpdatedAt(merged.cartUpdatedAt || '');
-        saveAccountJson(ACCOUNT_NS.cart, merged.cart, user.phone);
-        saveAccountJson(ACCOUNT_NS.cartMeta, merged.cartMeta, user.phone);
-        saveAccountJson(ACCOUNT_NS.cartUpdatedAt, merged.cartUpdatedAt || '', user.phone);
+        const mergedCart = mergeCartData(localCartBundle, remote);
+        const cartChanged =
+          cartSyncTimestamp(mergedCart.cartUpdatedAt) !== cartSyncTimestamp(cartUpdatedAtRef.current)
+          || JSON.stringify(mergedCart.cart) !== JSON.stringify(cartRef.current);
+        if (cartChanged) {
+          cartMutatedByUserRef.current = false;
+          cartUpdatedAtRef.current = mergedCart.cartUpdatedAt || '';
+          setCart(mergedCart.cart);
+          setCartMeta(mergedCart.cartMeta);
+          setCartUpdatedAt(mergedCart.cartUpdatedAt || '');
+          saveAccountJson(ACCOUNT_NS.cart, mergedCart.cart, user.phone);
+          saveAccountJson(ACCOUNT_NS.cartMeta, mergedCart.cartMeta, user.phone);
+          saveAccountJson(ACCOUNT_NS.cartUpdatedAt, mergedCart.cartUpdatedAt || '', user.phone);
+        }
+
+        const localWishBundle = {
+          wished: wishedRef.current,
+          wishedUpdatedAt: wishedUpdatedAtRef.current,
+        };
+        const mergedWish = mergeWishData(localWishBundle, remoteWish);
+        const wishChanged =
+          cartSyncTimestamp(mergedWish.wishedUpdatedAt) !== cartSyncTimestamp(wishedUpdatedAtRef.current)
+          || JSON.stringify(mergedWish.wished) !== JSON.stringify(wishedRef.current);
+        if (wishChanged) {
+          wishMutatedByUserRef.current = false;
+          wishedUpdatedAtRef.current = mergedWish.wishedUpdatedAt || '';
+          setWished(mergedWish.wished);
+          setWishedUpdatedAt(mergedWish.wishedUpdatedAt || '');
+          saveAccountJson(ACCOUNT_NS.wished, mergedWish.wished, user.phone);
+          saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, mergedWish.wishedUpdatedAt || '', user.phone);
+        }
       } catch { /* ignore */ }
     };
 
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void pullRemoteCart();
+      if (document.visibilityState === 'visible') void pullRemoteClientData();
     };
     window.addEventListener('focus', onVisible);
     document.addEventListener('visibilitychange', onVisible);
-    const timer = setInterval(() => { void pullRemoteCart(); }, 25000);
+    const timer = setInterval(() => { void pullRemoteClientData(); }, 25000);
     return () => {
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
@@ -8681,9 +8733,31 @@ function KakapoAppInner() {
   }, [user?.clientId, user?.phone, cartSyncReady]);
 
   useEffect(() => {
+    wishedRef.current = wished;
+  }, [wished]);
+
+  useEffect(() => {
     if (!user?.phone) return;
+    let ts = wishedUpdatedAtRef.current;
+    if (wishMutatedByUserRef.current) {
+      ts = new Date().toISOString();
+      wishedUpdatedAtRef.current = ts;
+      setWishedUpdatedAt(ts);
+      wishMutatedByUserRef.current = false;
+    }
     saveAccountJson(ACCOUNT_NS.wished, wished, user.phone);
+    saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, ts, user.phone);
   }, [wished, user?.phone]);
+
+  useEffect(() => {
+    if (!user?.phone || !cartSyncReady) return;
+    if (!USE_API || !user.clientId) return;
+    const ts = wishedUpdatedAtRef.current || wishedUpdatedAt || new Date().toISOString();
+    const t = setTimeout(() => {
+      void saveRemoteWish(user.clientId!, wished, ts);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [wished, wishedUpdatedAt, user?.phone, user?.clientId, cartSyncReady]);
 
   const apiOrders = useOrders(s => s.orders);
 
@@ -8695,6 +8769,8 @@ function KakapoAppInner() {
     setCartUpdatedAt('');
     cartUpdatedAtRef.current = '';
     setWished({});
+    setWishedUpdatedAt('');
+    wishedUpdatedAtRef.current = '';
     go('profile');
   }, [go]);
 
@@ -8717,6 +8793,10 @@ function KakapoAppInner() {
 
   const markCartTouched = useCallback(() => {
     cartMutatedByUserRef.current = true;
+  }, []);
+
+  const markWishTouched = useCallback(() => {
+    wishMutatedByUserRef.current = true;
   }, []);
 
   const addItem = useCallback((id, price, name, emoji, restId, silent) => {
@@ -8774,10 +8854,16 @@ function KakapoAppInner() {
   }, [markCartTouched]);
 
   const toggleWish = useCallback((id) => {
-    setWished(w => { const n = {...w, [id]: !w[id]}; return n; });
+    markWishTouched();
+    setWished(w => {
+      const n = { ...w };
+      if (n[id]) delete n[id];
+      else n[id] = true;
+      return n;
+    });
     const p = prods.find(x => x.id === id);
     if (p && !wished[id]) showToast(`❤️ ${p.name} в избранном`);
-  }, [wished, showToast, prods]);
+  }, [wished, showToast, prods, markWishTouched]);
 
   const clearCart = useCallback(() => {
     const ts = new Date().toISOString();

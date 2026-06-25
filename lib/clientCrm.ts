@@ -47,6 +47,9 @@ export interface AdminClient {
   cart?: Record<string, number>
   cartMeta?: Record<string, { emoji?: string; name?: string; price?: number; restId?: string }>
   cartUpdatedAt?: string
+  /** Избранные товары (синхронизация между устройствами) */
+  wished?: Record<string, boolean>
+  wishedUpdatedAt?: string
 }
 
 /** Маркеры в note для старого backend без accountStatus / delete API */
@@ -230,6 +233,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     cart: raw.cart && typeof raw.cart === 'object' && !Array.isArray(raw.cart) ? raw.cart : undefined,
     cartMeta: raw.cartMeta && typeof raw.cartMeta === 'object' && !Array.isArray(raw.cartMeta) ? raw.cartMeta : undefined,
     cartUpdatedAt: raw.cartUpdatedAt || undefined,
+    wished: raw.wished && typeof raw.wished === 'object' && !Array.isArray(raw.wished) ? raw.wished : undefined,
+    wishedUpdatedAt: raw.wishedUpdatedAt || undefined,
   }
 }
 

@@ -953,6 +953,8 @@ function normalizeClientRow(raw) {
     cart: raw.cart && typeof raw.cart === 'object' && !Array.isArray(raw.cart) ? raw.cart : {},
     cartMeta: raw.cartMeta && typeof raw.cartMeta === 'object' && !Array.isArray(raw.cartMeta) ? raw.cartMeta : {},
     cartUpdatedAt: raw.cartUpdatedAt || undefined,
+    wished: raw.wished && typeof raw.wished === 'object' && !Array.isArray(raw.wished) ? raw.wished : {},
+    wishedUpdatedAt: raw.wishedUpdatedAt || undefined,
   }
 }
 

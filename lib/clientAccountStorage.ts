@@ -10,6 +10,7 @@ export const ACCOUNT_NS = {
   cartMeta: 'cart_meta',
   cartUpdatedAt: 'cart_updated_at',
   wished: 'wished',
+  wishedUpdatedAt: 'wished_updated_at',
   reviewsLocal: 'reviews_local',
   debtHistory: 'debt_history',
 } as const

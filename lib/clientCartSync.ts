@@ -34,12 +34,20 @@ export function cartSyncTimestamp(ts?: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
-function clientCartPayload(client?: AdminClient | null): CartBundle {
+export function clientCartPayload(client?: AdminClient | null): CartBundle {
   return {
     cart: sanitizeCart(client?.cart),
     cartMeta: sanitizeCartMeta(client?.cartMeta),
     cartUpdatedAt: client?.cartUpdatedAt,
   }
+}
+
+export async function findSyncClient(phone: string, clientId?: string): Promise<AdminClient | undefined> {
+  if (!USE_API) return undefined
+  const clients = (await api.getClients()).map(c => normalizeClient(c))
+  return clientId
+    ? clients.find(c => c.id === clientId)
+    : clients.find(c => phonesMatch(c.phone, phone))
 }
 
 /** Последняя запись побеждает; пустая корзина после заказа не затирается старой локальной копией. */
@@ -89,11 +97,7 @@ export async function fetchRemoteCart(
   clientId?: string,
 ): Promise<CartBundle> {
   if (!USE_API) return { cart: {}, cartMeta: {} }
-  const clients = (await api.getClients()).map(c => normalizeClient(c))
-  const client = clientId
-    ? clients.find(c => c.id === clientId)
-    : clients.find(c => phonesMatch(c.phone, phone))
-  return clientCartPayload(client)
+  return clientCartPayload(await findSyncClient(phone, clientId))
 }
 
 export async function saveRemoteCart(
