@@ -6512,6 +6512,8 @@ const AddressesPage = ({ go, user }) => {
   const [showAdd, setShowAdd] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [street, setStreet] = useState('');
+  const [mapStreet, setMapStreet] = useState('');
+  const [house, setHouse] = useState('');
   const [apt, setApt] = useState('');
   const [floor, setFloor] = useState('');
   const [ent, setEnt] = useState('');
@@ -6537,6 +6539,8 @@ const AddressesPage = ({ go, user }) => {
     setMapOpen(false);
     setEditId(null);
     setStreet('');
+    setMapStreet('');
+    setHouse('');
     setApt('');
     setFloor('');
     setEnt('');
@@ -6548,6 +6552,8 @@ const AddressesPage = ({ go, user }) => {
   const openAdd = () => {
     setEditId(null);
     setStreet('');
+    setMapStreet('');
+    setHouse('');
     setApt('');
     setFloor('');
     setEnt('');
@@ -6561,6 +6567,9 @@ const AddressesPage = ({ go, user }) => {
   const openEdit = (a) => {
     setEditId(a.id);
     setLabel(a.label);
+    const streetParts = (a.street || '').split(',').map(s => s.trim()).filter(Boolean);
+    setMapStreet(streetParts[0] || a.street || '');
+    setHouse(streetParts[1] || '');
     setStreet(a.street);
     setApt(a.apt || '');
     setFloor(a.floor || '');
@@ -6571,11 +6580,36 @@ const AddressesPage = ({ go, user }) => {
     setShowAdd(true);
   };
 
-  const mapPickerHeight = typeof window !== 'undefined' ? Math.max(320, window.innerHeight - 220) : 420;
+  const mapPickerHeight = typeof window !== 'undefined'
+    ? Math.min(280, Math.max(220, Math.round(window.innerHeight * 0.34)))
+    : 260;
 
-  const handleMapSelect = ({ lat, lng, address }: { lat: number; lng: number; address: string }) => {
+  const handleMapCenterChange = ({ lat, lng, address }: { lat: number; lng: number; address: string }) => {
     setCoords({ lat, lng });
-    setStreet(address);
+    if (address) setMapStreet(address);
+  };
+
+  const buildFullStreet = () => {
+    const parts = [mapStreet.trim(), house.trim()].filter(Boolean);
+    return parts.join(', ');
+  };
+
+  const confirmAndSave = () => {
+    const fullStreet = buildFullStreet();
+    if (!fullStreet || !coords) return;
+    setStreet(fullStreet);
+    if (editId != null) {
+      setAddrs(as => as.map(a => a.id === editId
+        ? { ...a, label, street: fullStreet, apt, floor, ent, comment, lat: coords.lat, lng: coords.lng }
+        : a
+      ));
+    } else {
+      setAddrs(as => [...as, {
+        id: Date.now(), label, street: fullStreet, apt, floor, ent, comment,
+        lat: coords.lat, lng: coords.lng, def: false,
+      }]);
+    }
+    resetForm();
   };
 
   const setDef = (id) => setAddrs(as => as.map(a => ({ ...a, def: a.id === id })));
@@ -6654,54 +6688,59 @@ const AddressesPage = ({ go, user }) => {
               <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Точку ставьте по карте, дом лучше вписать вручную</div>
             </div>
           </header>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: '0 0 calc(12px + env(safe-area-inset-bottom, 0px))' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto', padding: '0 0 calc(12px + env(safe-area-inset-bottom, 0px))' }}>
             <AddressMapPicker
               key={editId != null ? `edit-map-${editId}-${coords?.lat}-${coords?.lng}` : 'new-map'}
               pickMode="center"
               mapHeight={mapPickerHeight}
               initial={coords}
+              hideConfirm
               addressLabel="Куда"
-              addressHelper="Это ближайший адрес. Дом и корпус лучше вписать вручную"
-              onSelect={handleMapSelect}
+              addressHelper="Улица подставится автоматически. Дом введите ниже"
+              onCenterChange={handleMapCenterChange}
             />
-            {coords && (
-              <div style={{ padding: '0 16px', marginTop: 4, overflowY: 'auto' }}>
-                <div style={{ borderRadius: 18, background: 'var(--l1)', border: '1px solid var(--b1)', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица, дом *</div>
-                    <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="ул. Ленина, 42" style={{ width: '100%' }} />
-                    <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 5 }}>
-                      Проверьте номер дома вручную. Точка на карте уже выбрана точно.
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Квартира</div>
-                      <input className="inp" value={apt} onChange={e => setApt(e.target.value)} placeholder="15" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Этаж</div>
-                      <input className="inp" value={floor} onChange={e => setFloor(e.target.value)} placeholder="3" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
-                    </div>
-                    <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Подъезд</div>
-                      <input className="inp" value={ent} onChange={e => setEnt(e.target.value)} placeholder="2" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Комментарий</div>
-                    <input className="inp" value={comment} onChange={e => setComment(e.target.value)} placeholder="Домофон, пожелания..." />
-                  </div>
-                  <button
-                    onClick={save}
-                    className="btn"
-                    style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'linear-gradient(135deg,var(--gr2),var(--gr))', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: street && coords ? 1 : 0.5 }}
-                  >
-                    📍 {editId != null ? 'Сохранить изменения' : 'Сохранить адрес'}
-                  </button>
-                </div>
+            <div style={{ padding: '8px 16px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {['🏠 Дом', '💼 Работа', '📍 Другое'].map(l => (
+                  <button key={l} onClick={() => setLabel(l)} className="btn" style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${label === l ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`, background: label === l ? 'rgba(31,215,96,.1)' : 'var(--l3)', color: label === l ? 'var(--gr)' : 'var(--t2)', fontFamily: 'Nunito' }}>{l}</button>
+                ))}
               </div>
-            )}
+              <div style={{ borderRadius: 18, background: 'var(--l1)', border: '1px solid var(--b1)', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица</div>
+                  <input className="inp" value={mapStreet} readOnly placeholder="Двигайте карту — улица появится сама" style={{ width: '100%', opacity: mapStreet ? 1 : 0.7 }} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Номер дома *</div>
+                    <input className="inp" value={house} onChange={e => setHouse(e.target.value)} placeholder="144" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Подъезд</div>
+                    <input className="inp" value={ent} onChange={e => setEnt(e.target.value)} placeholder="2" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Квартира</div>
+                    <input className="inp" value={apt} onChange={e => setApt(e.target.value)} placeholder="15" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Этаж</div>
+                    <input className="inp" value={floor} onChange={e => setFloor(e.target.value)} placeholder="3" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Комментарий</div>
+                  <input className="inp" value={comment} onChange={e => setComment(e.target.value)} placeholder="Домофон, пожелания..." />
+                </div>
+                <button
+                  onClick={confirmAndSave}
+                  className="btn"
+                  style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'linear-gradient(135deg,var(--gr2),var(--gr))', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: buildFullStreet() && coords ? 1 : 0.5 }}
+                >
+                  ✓ Подтвердить и сохранить адрес
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

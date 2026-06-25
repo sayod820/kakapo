@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { COURIER_MAP_VIEW } from '@/lib/courierData';
-import { reverseGeocode } from '@/lib/geocode';
+import { reverseGeocode, reverseGeocodeParts } from '@/lib/geocode';
 
 export interface MapPinResult {
   lat: number;
@@ -10,7 +10,7 @@ export interface MapPinResult {
 }
 
 interface Props {
-  onSelect: (result: MapPinResult) => void;
+  onSelect?: (result: MapPinResult) => void;
   initial?: { lat?: number; lng?: number } | null;
   variant?: 'client' | 'admin';
   hint?: string;
@@ -21,6 +21,10 @@ interface Props {
   addressLabel?: string;
   /** Короткая подсказка под адресом */
   addressHelper?: string;
+  /** Обновление точки при движении карты (без подтверждения) */
+  onCenterChange?: (result: MapPinResult) => void;
+  /** Скрыть кнопку «Подтвердить точку» — детали вводятся ниже */
+  hideConfirm?: boolean;
 }
 
 const THEMES = {
@@ -234,7 +238,7 @@ function CenterPinOverlay({
 
 /** Интерактивная карта: выбор точки (тап, перетаскивание или GPS) */
 export default function AddressMapPicker({
-  onSelect,
+  onSelect = () => {},
   initial,
   variant = 'client',
   hint,
@@ -242,6 +246,8 @@ export default function AddressMapPicker({
   pickMode = 'tap',
   addressLabel = 'Адрес доставки',
   addressHelper = 'Номер дома лучше вписать вручную ниже',
+  onCenterChange,
+  hideConfirm = false,
 }: Props) {
   const theme = THEMES[variant];
   const hintText = hint ?? (pickMode === 'center' ? theme.centerHint : theme.hint);
@@ -269,6 +275,8 @@ export default function AddressMapPicker({
   const [dropKey, setDropKey] = useState(0);
   const geocodeReqRef = useRef(0);
   const geocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCenterChangeRef = useRef(onCenterChange);
+  onCenterChangeRef.current = onCenterChange;
 
   const resolveAddress = (lat: number, lng: number, delayMs = 0) => {
     if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
@@ -277,14 +285,18 @@ export default function AddressMapPicker({
       setAddressLoading(true);
       setAddressVisible(false);
       try {
-        const address = await reverseGeocode(lat, lng);
+        const parts = await reverseGeocodeParts(lat, lng);
         if (req !== geocodeReqRef.current) return;
-        setLiveAddress(address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        const text = parts.street || parts.display || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        setLiveAddress(text);
         setAddressVisible(true);
+        onCenterChangeRef.current?.({ lat, lng, address: parts.street || text });
       } catch {
         if (req === geocodeReqRef.current) {
-          setLiveAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+          const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          setLiveAddress(fallback);
           setAddressVisible(true);
+          onCenterChangeRef.current?.({ lat, lng, address: fallback });
         }
       } finally {
         if (req === geocodeReqRef.current) setAddressLoading(false);
@@ -381,6 +393,7 @@ export default function AddressMapPicker({
         map.on('moveend', () => {
           requestAnimationFrame(() => {
             const c = updateCenterCoords();
+            onCenterChangeRef.current?.({ lat: c.lat, lng: c.lng, address: '' });
             if (wasDragging) {
               setMapMoving(false);
               setDropKey(k => k + 1);
@@ -450,14 +463,18 @@ export default function AddressMapPicker({
           if (pickMode === 'center') {
             setAddressVisible(false);
             setAddressLoading(true);
-            reverseGeocode(lat, lng).then(addr => {
-              setLiveAddress(addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+            reverseGeocodeParts(lat, lng).then(parts => {
+              const text = parts.street || parts.display || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+              setLiveAddress(text);
               setAddressLoading(false);
               setAddressVisible(true);
+              onCenterChangeRef.current?.({ lat, lng, address: parts.street || text });
             }).catch(() => {
-              setLiveAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+              const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+              setLiveAddress(fallback);
               setAddressLoading(false);
               setAddressVisible(true);
+              onCenterChangeRef.current?.({ lat, lng, address: fallback });
             });
           } else {
             import('leaflet').then(L => {
@@ -526,7 +543,7 @@ export default function AddressMapPicker({
 
   return (
     <div>
-      <div style={{ position: 'relative', borderRadius: 14, overflow: pickMode === 'center' ? 'visible' : 'hidden', border: pickMode === 'center' ? 'none' : `1px solid ${theme.coordsBorder}`, marginBottom: 10 }}>
+      <div style={{ position: 'relative', borderRadius: 14, overflow: pickMode === 'center' ? 'visible' : 'hidden', border: pickMode === 'center' ? 'none' : `1px solid ${theme.coordsBorder}`, marginBottom: 10, padding: pickMode === 'center' ? '0 16px' : 0 }}>
         <div ref={containerRef} style={{ width: '100%', height: mapHeight, background: '#050F08' }} />
         {!ready && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050F08' }}>
@@ -553,7 +570,7 @@ export default function AddressMapPicker({
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: hideConfirm ? 0 : 10, padding: pickMode === 'center' ? '0 16px' : 0 }}>
         <button
           type="button"
           onClick={useGPS}
@@ -563,26 +580,28 @@ export default function AddressMapPicker({
         >
           {gpsLoading ? '…' : '📡'} GPS
         </button>
-        <button
-          type="button"
-          onClick={confirm}
-          disabled={(pickMode === 'center' ? !ready : !pin) || confirmLoading}
-          className="btn"
-          style={{
-            flex: 1.2,
-            padding: '11px',
-            borderRadius: 12,
-            background: (pickMode === 'center' ? ready : pin) ? theme.confirm : theme.btnBg,
-            border: (pickMode === 'center' ? ready : pin) ? 'none' : `1.5px solid ${theme.btnBorder}`,
-            color: (pickMode === 'center' ? ready : pin) ? theme.confirmText : theme.btnMuted,
-            fontSize: 12,
-            fontWeight: 800,
-            fontFamily: 'Nunito',
-            opacity: confirmLoading ? 0.7 : 1,
-          }}
-        >
-          {confirmLoading ? '…' : confirmed ? '✓ Подтверждено' : '✓ Подтвердить точку'}
-        </button>
+        {!hideConfirm && (
+          <button
+            type="button"
+            onClick={confirm}
+            disabled={(pickMode === 'center' ? !ready : !pin) || confirmLoading}
+            className="btn"
+            style={{
+              flex: 1.2,
+              padding: '11px',
+              borderRadius: 12,
+              background: (pickMode === 'center' ? ready : pin) ? theme.confirm : theme.btnBg,
+              border: (pickMode === 'center' ? ready : pin) ? 'none' : `1.5px solid ${theme.btnBorder}`,
+              color: (pickMode === 'center' ? ready : pin) ? theme.confirmText : theme.btnMuted,
+              fontSize: 12,
+              fontWeight: 800,
+              fontFamily: 'Nunito',
+              opacity: confirmLoading ? 0.7 : 1,
+            }}
+          >
+            {confirmLoading ? '…' : confirmed ? '✓ Подтверждено' : '✓ Подтвердить точку'}
+          </button>
+        )}
       </div>
 
       {pin && pickMode !== 'center' && (
