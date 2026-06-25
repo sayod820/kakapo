@@ -19,6 +19,8 @@ interface Props {
   pickMode?: 'tap' | 'center';
   /** Подпись над адресом в режиме center (как «Откуда» в такси) */
   addressLabel?: string;
+  /** Короткая подсказка под адресом */
+  addressHelper?: string;
 }
 
 const THEMES = {
@@ -184,6 +186,11 @@ function CenterPinOverlay({
             <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', lineHeight: 1.35, fontFamily: 'Nunito', wordBreak: 'break-word' }}>
               {loading ? 'Определяем адрес…' : address}
             </div>
+            {!loading && !!address && (
+              <div style={{ fontSize: 10, color: '#6B7280', marginTop: 5, lineHeight: 1.35, fontFamily: 'Nunito' }}>
+                {addressHelper}
+              </div>
+            )}
           </div>
         )}
 
@@ -232,6 +239,7 @@ export default function AddressMapPicker({
   mapHeight = 220,
   pickMode = 'tap',
   addressLabel = 'Адрес доставки',
+  addressHelper = 'Номер дома лучше вписать вручную ниже',
 }: Props) {
   const theme = THEMES[variant];
   const hintText = hint ?? (pickMode === 'center' ? theme.centerHint : theme.hint);

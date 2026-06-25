@@ -6652,7 +6652,7 @@ const AddressesPage = ({ go, user }) => {
             </button>
             <div style={{ flex: 1 }}>
               <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{editId != null ? 'Точка на карте' : 'Новый адрес'}</div>
-              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Адрес обновляется при движении карты</div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Точку ставьте по карте, дом лучше вписать вручную</div>
             </div>
           </header>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: '0 0 calc(12px + env(safe-area-inset-bottom, 0px))' }}>
@@ -6662,6 +6662,7 @@ const AddressesPage = ({ go, user }) => {
               mapHeight={mapPickerHeight}
               initial={coords}
               addressLabel="Куда"
+              addressHelper="Это ближайший адрес. Дом и корпус лучше вписать вручную"
               onSelect={handleMapSelect}
             />
           </div>
@@ -6692,6 +6693,9 @@ const AddressesPage = ({ go, user }) => {
               <div>
                 <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица, дом *</div>
                 <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="ул. Ленина, 42" style={{ width: '100%' }} />
+                <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 5 }}>
+                  Карта подсказывает ближайшую улицу, номер дома лучше проверить и вписать вручную.
+                </div>
             </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div style={{ minWidth: 0 }}>
