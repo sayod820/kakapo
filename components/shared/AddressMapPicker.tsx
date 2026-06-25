@@ -93,6 +93,7 @@ function CenterPinOverlay({
   addressVisible,
   dropKey,
   addressLabel = 'Адрес',
+  addressHelper = '',
 }: {
   fill: string;
   fillDark: string;
@@ -102,6 +103,7 @@ function CenterPinOverlay({
   addressVisible: boolean;
   dropKey: number;
   addressLabel?: string;
+  addressHelper?: string;
 }) {
   const lift = moving ? 20 : 0;
   const pinH = 54;
@@ -541,6 +543,7 @@ export default function AddressMapPicker({
             addressVisible={addressVisible}
             dropKey={dropKey}
             addressLabel={addressLabel}
+            addressHelper={addressHelper}
           />
         )}
         {pickMode !== 'center' && (
