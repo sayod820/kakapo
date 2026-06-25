@@ -12,6 +12,7 @@ import {
   type ClientLevel,
 } from './clientCrm'
 import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, type AdminCard } from './cardCrm'
+import { resolveEffectiveDebtLimit } from './loyaltyStatusConfig'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 
@@ -107,6 +108,14 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
   const base = normalizeClient(client)
   if (!card || card.status === 'unlinked') return base
   const level = (card.level || base.level) as ClientLevel
+  const vip = !!(card.vip || base.vip)
+  const debtEnabled = resolveDebtEnabled(card, base)
+  const debtLimit = resolveEffectiveDebtLimit({
+    level,
+    vip,
+    debtLimit: card.debtLimit ?? base.debtLimit,
+    debtEnabled,
+  })
   return normalizeClient({
     ...base,
     card: card.num,
@@ -115,9 +124,9 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     level,
     bonus: card.bonus ?? base.bonus,
     debt: card.debt ?? base.debt,
-    debtLimit: card.debtLimit ?? base.debtLimit,
-    vip: !!(card.vip || base.vip),
-    debtEnabled: resolveDebtEnabled(card, base),
+    debtLimit,
+    vip,
+    debtEnabled,
     blocked: card.status === 'blocked' || base.blocked,
     loyaltyPeriod: card.loyaltyPeriod || base.loyaltyPeriod,
     bonusEligibleFrom: card.bonusEligibleFrom || base.bonusEligibleFrom,
@@ -127,6 +136,13 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
 }
 
 export function crmToStoreUser(c: AdminClient, card?: AdminCard | null): CrmStoreUser {
+  const debtEnabled = !!c.debtEnabled
+  const debtLimit = resolveEffectiveDebtLimit({
+    level: c.level,
+    vip: !!c.vip,
+    debtLimit: c.debtLimit,
+    debtEnabled,
+  })
   return {
     name: c.name,
     phone: c.phone,
@@ -138,8 +154,8 @@ export function crmToStoreUser(c: AdminClient, card?: AdminCard | null): CrmStor
     vip: !!c.vip,
     card: c.card || '',
     debt: c.debt || 0,
-    debtLimit: c.debtLimit || 0,
-    debtEnabled: !!c.debtEnabled,
+    debtLimit,
+    debtEnabled,
     blocked: !!c.blocked,
     loyaltyPeriod: c.loyaltyPeriod,
     bonusEligibleFrom: c.bonusEligibleFrom,

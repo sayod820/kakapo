@@ -401,3 +401,35 @@ export function tierTopGlowMap(cfg = loadLoyaltyStatusConfig()) {
   for (const t of [cfg.basic, ...cfg.tiers, cfg.vip]) map[t.id] = t.topGlow
   return map
 }
+
+/** Лимит долга по умолчанию для уровня из программы лояльности. */
+export function getTierDefaultDebtLimit(
+  level: ClientLevel | 'new' | undefined,
+  isVip: boolean,
+  cfg = loadLoyaltyStatusConfig(),
+): number {
+  if (isVip) return Math.max(0, Number(cfg.vip.defaultDebtLimit) || 0)
+  if (!level || level === 'basic' || level === 'new') return 0
+  const tier = cfg.tiers.find(t => t.id === level)
+  if (tier && (tier.id === 'gold' || tier.id === 'platinum')) {
+    return Math.max(0, Number(tier.defaultDebtLimit) || 0)
+  }
+  return 0
+}
+
+/** Эффективный лимит карты: из программы лояльности + сохранённый на карте. */
+export function resolveEffectiveDebtLimit(
+  user: {
+    level?: ClientLevel | 'new'
+    vip?: boolean
+    debtLimit?: number
+    debtEnabled?: boolean
+  },
+  cfg = loadLoyaltyStatusConfig(),
+): number {
+  const stored = Math.max(0, Number(user.debtLimit) || 0)
+  const tierDefault = getTierDefaultDebtLimit(user.level, !!user.vip, cfg)
+  if (!user.debtEnabled && !user.vip) return stored
+  if (tierDefault > 0) return Math.max(stored, tierDefault)
+  return stored
+}

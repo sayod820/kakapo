@@ -45,7 +45,7 @@ import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/cl
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
 import { syncLoyaltyBonuses, deliveredOrdersNeedingBonusSync } from "@/lib/loyaltyBonus";
 import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
-import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig, getRegistrationWelcomeBonus } from "@/lib/loyaltyStatusConfig";
+import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig, getRegistrationWelcomeBonus, resolveEffectiveDebtLimit } from "@/lib/loyaltyStatusConfig";
 import { getVipRules } from "@/lib/clientLoyalty";
 import {
   getUnreadNotificationCount,
@@ -2014,7 +2014,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     restIds: [...new Set(restItems.map(r => r.restId).filter(Boolean))],
   });
   const total = sub;
-  const credit = useMemo(() => getVipCreditState(user), [user?.vip, user?.debt, user?.debtLimit, user?.bonus, user?.blocked]);
+  const credit = useMemo(() => getVipCreditState(user), [user?.vip, user?.debt, user?.debtLimit, user?.debtEnabled, user?.level, user?.bonus, user?.blocked]);
   const useCreditPay = pay === 'credit';
   const vipFreeDelivery = !!user?.vip && !useCreditPay;
   const effectiveDelivery = vipFreeDelivery ? 0 : deliveryFee;
@@ -4194,9 +4194,11 @@ function VipDebtSection({
 
 const VIPPage = ({ go, user, setUser }) => {
   const [reserveModal, setReserveModal] = useState(false);
+  const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0);
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
+  useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
   const loyalty = useMemo(
     () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod),
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
@@ -4204,7 +4206,12 @@ const VIPPage = ({ go, user, setUser }) => {
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const { isVip, theme, tier } = resolveUserVip(vipUser)
   const creditUsed = user?.debt ?? 0;
-  const creditLimit = user?.debtLimit ?? 0;
+  const creditLimit = useMemo(() => resolveEffectiveDebtLimit({
+    level: user?.level,
+    vip: loyalty.isVip || user?.vip,
+    debtLimit: user?.debtLimit,
+    debtEnabled: user?.debtEnabled,
+  }), [user?.level, user?.vip, user?.debtLimit, user?.debtEnabled, loyalty.isVip, loyaltyCfgTick]);
   const debtSectionOn = !!user?.debtEnabled;
   const creditPct = creditLimit > 0 ? Math.min(100, Math.round((creditUsed / creditLimit) * 100)) : 0;
   const cardLabel = user?.card

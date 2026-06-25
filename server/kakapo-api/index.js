@@ -19,6 +19,7 @@ import {
   applyBonusSpendOnOrder,
   creditClientBonusOnDelivery,
   ensureLoyaltySettings,
+  syncCardDebtLimitsFromLoyalty,
   backfillAllMissedBonuses,
   backfillClientBonuses,
   reconcileClientBonuses,
@@ -1222,6 +1223,7 @@ app.patch('/settings/loyalty', (req, res) => {
     platinum: { ...current.platinum, ...body.platinum },
     vip: { ...current.vip, ...body.vip },
   }
+  syncCardDebtLimitsFromLoyalty(db, syncClientFromCardRow)
   persist()
   res.json(db.settings.loyalty)
 })

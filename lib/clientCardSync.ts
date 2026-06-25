@@ -22,10 +22,40 @@ import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
 import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
-import { getRegistrationWelcomeBonus } from './loyaltyStatusConfig'
+import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
+
+export async function syncCardDebtLimitsFromLoyaltyConfig(cfg?: LoyaltyStatusConfig) {
+  const { loadLoyaltyStatusConfig } = await import('./loyaltyStatusConfig')
+  const config = cfg || loadLoyaltyStatusConfig()
+  const cardStore = useCardStore.getState()
+  const clientStore = useClientStore.getState()
+  if (!cardStore.hydrated) cardStore.hydrate()
+  if (!clientStore.hydrated) clientStore.hydrate()
+
+  for (const card of cardStore.cards) {
+    if (card.status !== 'active') continue
+    const client = card.clientId ? clientStore.clients.find(c => c.id === card.clientId) : undefined
+    const merged = cardLoyaltyFromCard(card, client)
+    const tierLimit = getTierDefaultDebtLimit(merged.level, merged.vip, config)
+    const eligible = merged.vip || merged.debtEnabled || merged.level === 'gold' || merged.level === 'platinum'
+    if (!eligible || tierLimit <= 0) continue
+    if (Number(card.debtLimit) === tierLimit) continue
+
+    if (USE_API) {
+      try {
+        await api.updateCard(card.num, { debtLimit: tierLimit })
+      } catch {
+        // ignore per-card failures
+      }
+    } else {
+      cardStore.updateCardLoyalty(card.num, { debtLimit: tierLimit })
+    }
+  }
+  emitCrmSync()
+}
 
 function isCardMissingOnServer(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
@@ -304,10 +334,15 @@ export async function saveCardLoyalty(
   const prevLevel = (card.level || client?.level || 'basic') as ClientLevel
   const prevVip = !!(card.vip ?? client?.vip)
   const statusChanged = !!form.vip !== prevVip || form.level !== prevLevel
+  const tierLimit = getTierDefaultDebtLimit(form.level, !!form.vip)
+  const debtEligible = !!form.vip || !!form.debtEnabled || form.level === 'gold' || form.level === 'platinum'
+  const resolvedDebtLimit = debtEligible && tierLimit > 0
+    ? Math.max(Math.max(0, Number(form.debtLimit) || 0), tierLimit)
+    : Math.max(0, Number(form.debtLimit) || 0)
 
   const loyalty = {
     level: form.level,
-    debtLimit: Math.max(0, Number(form.debtLimit) || 0),
+    debtLimit: resolvedDebtLimit,
     bonus: Math.max(0, Number(form.bonus) || 0),
     debt: Math.max(0, Number(form.debt) || 0),
     vip: !!form.vip,

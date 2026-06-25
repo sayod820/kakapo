@@ -37,6 +37,30 @@ export function ensureLoyaltySettings(db) {
   return l
 }
 
+export function getTierDefaultDebtLimit(level, isVip, loyalty = DEFAULT_LOYALTY) {
+  if (isVip) return Math.max(0, Number(loyalty.vip?.defaultDebtLimit) || 0)
+  if (!level || level === 'basic' || level === 'new') return 0
+  if (level === 'gold') return Math.max(0, Number(loyalty.gold?.defaultDebtLimit) || 0)
+  if (level === 'platinum') return Math.max(0, Number(loyalty.platinum?.defaultDebtLimit) || 0)
+  return 0
+}
+
+export function syncCardDebtLimitsFromLoyalty(db, syncClientFromCardRow) {
+  const loyalty = ensureLoyaltySettings(db)
+  for (const card of db.cards || []) {
+    if (card.status !== 'active') continue
+    const isVip = !!card.vip
+    const debtEnabled = !!card.debtEnabled
+    const level = card.level
+    if (!isVip && !debtEnabled && level !== 'gold' && level !== 'platinum') continue
+    const tierLimit = getTierDefaultDebtLimit(level, isVip, loyalty)
+    if (tierLimit <= 0) continue
+    if (Number(card.debtLimit) === tierLimit) continue
+    card.debtLimit = tierLimit
+    if (typeof syncClientFromCardRow === 'function') syncClientFromCardRow(card)
+  }
+}
+
 export function currentLoyaltyPeriod(date = new Date()) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')

@@ -9,6 +9,7 @@ import { USE_API } from './config'
 import { api } from './api'
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson } from './clientAccountStorage'
 import type { StoreUser } from './clientSession'
+import { resolveEffectiveDebtLimit } from './loyaltyStatusConfig'
 
 const DEBT_HIST = ACCOUNT_NS.debtHistory
 export const DEBT_HISTORY_EVT = 'kakapo_debt_history'
@@ -126,7 +127,12 @@ export function splitDebtHistoryBySettlement(
 
 export function getVipCreditState(user?: Partial<StoreUser> | null): VipCreditState {
   const debt = Number(user?.debt) || 0
-  const debtLimit = Number(user?.debtLimit) || 0
+  const debtLimit = resolveEffectiveDebtLimit({
+    level: user?.level,
+    vip: !!user?.vip,
+    debtLimit: user?.debtLimit,
+    debtEnabled: user?.debtEnabled,
+  })
   const isVip = !!user?.vip
   const blocked = !!user?.blocked
   const enabled = isVip && debtLimit > 0 && !blocked

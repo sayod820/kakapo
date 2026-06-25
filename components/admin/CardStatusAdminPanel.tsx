@@ -16,7 +16,7 @@ import { refreshLoyaltyTiersFromConfig } from '@/lib/clientLoyalty'
 import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
 import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/cardCrm'
-import { saveCardLoyalty, cardLoyaltyFromCard } from '@/lib/clientCardSync'
+import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig } from '@/lib/clientCardSync'
 import { useCards } from '@/lib/cardStore'
 import { useClients } from '@/lib/clientStore'
 
@@ -184,10 +184,11 @@ export default function CardStatusAdminPanel() {
     setSaved(false)
   }
 
-  const saveConfig = () => {
+  const saveConfig = async () => {
     try {
-      saveLoyaltyStatusConfig(draft)
+      const next = saveLoyaltyStatusConfig(draft)
       refreshLoyaltyTiersFromConfig()
+      await syncCardDebtLimitsFromLoyaltyConfig(next)
       draftDirtyRef.current = false
       setSaved(true)
       setConfigErr('')
