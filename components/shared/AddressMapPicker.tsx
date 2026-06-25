@@ -81,7 +81,7 @@ function pinIconHtml(gradient: string) {
   return `<div style="width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${gradient};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.3)"><span style="transform:rotate(45deg);font-size:16px">📍</span></div>`;
 }
 
-/** Метка в стиле такси: при движении поднимается, после остановки опускается → адрес */
+/** Цельная метка (как в такси): круг + короткий ножок, без разрыва; при движении вся метка поднимается */
 function CenterPinOverlay({
   fill,
   fillDark,
@@ -101,22 +101,23 @@ function CenterPinOverlay({
   dropKey: number;
   addressLabel?: string;
 }) {
-  const pinSize = 46;
-  const lift = moving ? 28 : 0;
-  const stemH = moving ? 22 : 8;
+  const lift = moving ? 22 : 0;
+  const pinH = 54;
+  const pinW = 48;
   const showBubble = !moving && (loading || addressVisible);
+  const gradId = `kpin-${fill.replace('#', '')}`;
 
   return (
     <>
       <style>{`
         @keyframes kakapoPinDrop {
-          0% { transform: translateY(-28px); }
-          55% { transform: translateY(4px); }
-          75% { transform: translateY(-2px); }
-          100% { transform: translateY(0); }
+          0% { transform: translate(-50%, calc(-100% - 22px)); }
+          55% { transform: translate(-50%, calc(-100% + 4px)); }
+          75% { transform: translate(-50%, calc(-100% - 2px)); }
+          100% { transform: translate(-50%, -100%); }
         }
         @keyframes kakapoBubbleIn {
-          from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.96); }
+          from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.96); }
           to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
         }
       `}</style>
@@ -126,19 +127,23 @@ function CenterPinOverlay({
           position: 'absolute',
           left: '50%',
           top: '50%',
-          transform: 'translate(-50%, -50%)',
+          width: pinW,
+          transform: moving
+            ? `translate(-50%, calc(-100% - ${lift}px))`
+            : dropKey > 0
+              ? undefined
+              : 'translate(-50%, -100%)',
+          animation: !moving && dropKey > 0 ? 'kakapoPinDrop 0.45s cubic-bezier(.34,1.2,.64,1) both' : undefined,
+          transition: moving ? 'transform 0.18s ease-out' : undefined,
           pointerEvents: 'none',
           zIndex: 500,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
         }}
       >
         {showBubble && (
           <div
             style={{
               position: 'absolute',
-              bottom: pinSize + stemH + lift + 18,
+              bottom: pinH + 10,
               left: '50%',
               transform: 'translateX(-50%)',
               padding: '10px 14px',
@@ -159,70 +164,37 @@ function CenterPinOverlay({
           </div>
         )}
 
-        <div
-          key={`pin-drop-${dropKey}`}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            transform: moving ? `translateY(-${lift}px)` : undefined,
-            animation: !moving && dropKey > 0 ? 'kakapoPinDrop 0.45s cubic-bezier(.34,1.2,.64,1) both' : undefined,
-            transition: moving ? 'transform 0.18s ease-out' : undefined,
-            filter: 'drop-shadow(0 6px 14px rgba(0,0,0,.35))',
-          }}
+        <svg
+          width={pinW}
+          height={pinH}
+          viewBox="0 0 48 54"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          style={{ display: 'block', filter: 'drop-shadow(0 5px 12px rgba(0,0,0,.32))' }}
         >
-          <div
-            style={{
-              width: pinSize,
-              height: pinSize,
-              borderRadius: '50%',
-              background: `linear-gradient(145deg, ${fillDark}, ${fill})`,
-              border: '3.5px solid #fff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxSizing: 'border-box',
-            }}
-          >
-            {loading && !moving ? (
-              <div
-                style={{
-                  width: 18,
-                  height: 18,
-                  borderRadius: '50%',
-                  border: '2.5px solid rgba(255,255,255,.35)',
-                  borderTopColor: '#fff',
-                  animation: 'spin 0.7s linear infinite',
-                }}
-              />
-            ) : (
-              <div style={{ width: 16, height: 3.5, borderRadius: 2, background: 'rgba(255,255,255,.9)' }} />
-            )}
-          </div>
-          <div
-            style={{
-              width: 5,
-              height: stemH,
-              background: fill,
-              borderRadius: 3,
-              marginTop: -2,
-              transition: 'height 0.18s ease-out',
-            }}
+          <ellipse cx="24" cy="51.5" rx={moving ? 4 : 8} ry={moving ? 1.2 : 2.2} fill="rgba(0,0,0,.18)" style={{ transition: 'all 0.18s ease-out' }} />
+          <path
+            d="M24 52.5 C24 52.5 8.5 34 8.5 21.5 C8.5 12.4 15.4 5 24 5 C32.6 5 39.5 12.4 39.5 21.5 C39.5 34 24 52.5 24 52.5 Z"
+            fill={`url(#${gradId})`}
+            stroke="#fff"
+            strokeWidth="3"
+            strokeLinejoin="round"
           />
-        </div>
-
-        <div
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            background: fill,
-            border: '2.5px solid #fff',
-            marginTop: 2,
-            boxShadow: `0 0 0 3px ${fill}33, 0 2px 8px rgba(0,0,0,.25)`,
-            flexShrink: 0,
-          }}
-        />
+          <circle cx="24" cy="21" r="11.5" fill="#fff" />
+          {loading && !moving ? (
+            <circle cx="24" cy="21" r="6" stroke={fill} strokeWidth="2.5" fill="none" strokeLinecap="round" strokeDasharray="10 16">
+              <animateTransform attributeName="transform" type="rotate" from="0 24 21" to="360 24 21" dur="0.8s" repeatCount="indefinite" />
+            </circle>
+          ) : (
+            <rect x="16.5" y="19.4" width="15" height="3.2" rx="1.6" fill={fill} />
+          )}
+          <defs>
+            <linearGradient id={gradId} x1="10" y1="5" x2="38" y2="52" gradientUnits="userSpaceOnUse">
+              <stop stopColor={fillDark} />
+              <stop offset="1" stopColor={fill} />
+            </linearGradient>
+          </defs>
+        </svg>
       </div>
     </>
   );
