@@ -21,6 +21,7 @@ export type StoreUser = {
   bonusEligibleFrom?: string
   accountGeneration?: number
   recoveryExpiresAt?: string
+  memberSince?: string
 }
 
 const USER_KEY = 'kakapo_store_user'

@@ -39,6 +39,7 @@ import { loadClientAddresses, saveClientAddresses, formatClientAddressLine, ensu
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import { mergeCartData, saveRemoteCart, cartSyncTimestamp, findSyncClient, clientCartPayload } from "@/lib/clientCartSync";
 import { mergeWishData, saveRemoteWish, wishBundleFromClient } from "@/lib/clientWishSync";
+import { formatMemberSinceLabel } from "@/lib/cardCrm";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
@@ -4209,6 +4210,7 @@ const VIPPage = ({ go, user, setUser }) => {
   const cardLabel = user?.card
     ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")
     : "•••• •••• •••• —";
+  const memberSinceLabel = formatMemberSinceLabel(user?.memberSince);
 
   const PERKS = [
     { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
@@ -4270,7 +4272,7 @@ const VIPPage = ({ go, user, setUser }) => {
               </div>
               <div style={{ textAlign:"right" }}>
                 <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Клиент с</div>
-                <div style={{ fontSize:11, fontWeight:700, color:"var(--gd)" }}>2022 года</div>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--gd)" }}>{memberSinceLabel}</div>
               </div>
             </div>
             <div className="ub" style={{ fontSize:20, letterSpacing:3, color:"var(--gd)", marginBottom:16, textShadow:"0 2px 12px rgba(255,184,0,.5)" }}>

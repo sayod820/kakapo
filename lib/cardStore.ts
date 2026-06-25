@@ -12,6 +12,7 @@ import {
   normalizeCard,
   cardNumsMatch,
   canonicalCardNum,
+  memberSinceDate,
   type AdminCard,
   type CardStatus,
 } from './cardCrm'
@@ -207,6 +208,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
     })
   },
   assignToClient: (num, client) => {
+    const issued = memberSinceDate(client)
     get().updateCardLoyalty(num, {
       client: client.name,
       phone: client.phone,
@@ -218,6 +220,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
       debtLimit: client.debtLimit,
       vip: !!client.vip,
       debtEnabled: !!client.debtEnabled,
+      ...(issued ? { issued } : {}),
     })
     useClientStore.getState().updateClient(client.id, { card: num })
   },

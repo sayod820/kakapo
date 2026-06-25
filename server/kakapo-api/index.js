@@ -1364,6 +1364,7 @@ function issueCardForNewClient(client) {
   const nums = db.cards.map(c => parseInt(String(c.num).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
   const n = (nums.length ? Math.max(...nums) : 0) + 1
   const num = `КАКАПО-${String(n).padStart(4, '0')}`
+  const issued = (client.createdAt || new Date().toISOString().slice(0, 10)).slice(0, 10)
   const card = normalizeCardRow({
     num,
     client: client.name || 'Клиент',
@@ -1374,7 +1375,7 @@ function issueCardForNewClient(client) {
     bonus: Number(client.bonus) || 0,
     debt: 0,
     debtLimit: 0,
-    issued: new Date().toISOString().slice(0, 10),
+    issued,
   })
   db.cards.push(card)
   client.card = num
@@ -1403,6 +1404,7 @@ function ensureCardRowForClient(client) {
     return card
   }
   if (!db.cards) db.cards = []
+  const issued = (client.createdAt || new Date().toISOString().slice(0, 10)).slice(0, 10)
   card = normalizeCardRow({
     num: String(client.card).toUpperCase(),
     client: client.name || '',
@@ -1416,7 +1418,7 @@ function ensureCardRowForClient(client) {
     vip: !!client.vip,
     debtEnabled: !!client.debtEnabled,
     loyaltyPeriod: client.loyaltyPeriod,
-    issued: new Date().toISOString().slice(0, 10),
+    issued,
   })
   db.cards.push(card)
   return card

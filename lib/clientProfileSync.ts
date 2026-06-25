@@ -11,7 +11,7 @@ import {
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
-import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, type AdminCard } from './cardCrm'
+import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, type AdminCard } from './cardCrm'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 
@@ -37,6 +37,9 @@ export type CrmStoreUser = {
   debtEnabled?: boolean
   loyaltyPeriod?: string
   bonusEligibleFrom?: string
+  accountGeneration?: number
+  recoveryExpiresAt?: string
+  memberSince?: string
 }
 
 function loadLocalClients(): AdminClient[] {
@@ -123,7 +126,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
   })
 }
 
-export function crmToStoreUser(c: AdminClient): CrmStoreUser {
+export function crmToStoreUser(c: AdminClient, card?: AdminCard | null): CrmStoreUser {
   return {
     name: c.name,
     phone: c.phone,
@@ -142,6 +145,7 @@ export function crmToStoreUser(c: AdminClient): CrmStoreUser {
     bonusEligibleFrom: c.bonusEligibleFrom,
     accountGeneration: c.accountGeneration,
     recoveryExpiresAt: c.recoveryExpiresAt,
+    memberSince: memberSinceDate(c, card),
   }
 }
 
@@ -220,7 +224,9 @@ export async function fetchCrmStoreUser(phone: string, cardNum?: string): Promis
   if (isPhoneDeleted(phone)) return null
   const merged = await findMergedClientByPhone(phone, cardNum)
   if (!merged || isClientPurged(merged) || isClientInRecovery(merged)) return null
-  return crmToStoreUser(merged)
+  const { cards } = await loadCrmData()
+  const card = findLinkedCard(merged, cards)
+  return crmToStoreUser(merged, card)
 }
 
 /** Только сервер: есть ли активный аккаунт (для автовыхода после удаления в админке) */
@@ -247,7 +253,7 @@ export async function isStoreAccountActiveOnServer(phone: string): Promise<boole
 }
 
 const SYNC_KEYS: (keyof CrmStoreUser)[] = [
-  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt',
+  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
 ]
 
 export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmStoreUser | null | undefined): boolean {

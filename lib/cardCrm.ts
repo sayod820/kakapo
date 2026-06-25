@@ -222,6 +222,7 @@ export function mergeCardsWithClients(cards: AdminCard[], clients: AdminClient[]
         debt: client.debt,
         vip: !!client.vip,
         debtEnabled: client.debtEnabled,
+        issued: client.createdAt,
       }))
     }
   }
@@ -231,6 +232,21 @@ export function mergeCardsWithClients(cards: AdminCard[], clients: AdminClient[]
     const nb = parseInt(b.num.replace(/\D/g, ''), 10) || 0
     return na - nb
   })
+}
+
+export function formatMemberSinceLabel(dateStr?: string): string {
+  const raw = String(dateStr || '').slice(0, 10)
+  const y = raw.slice(0, 4)
+  if (!/^\d{4}$/.test(y)) return '—'
+  return `${y} года`
+}
+
+export function memberSinceDate(
+  client?: Pick<AdminClient, 'createdAt'> | null,
+  card?: Pick<AdminCard, 'issued'> | null,
+): string | undefined {
+  const raw = (card?.issued || client?.createdAt || '').slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined
 }
 
 export function cardMatchesSearch(card: AdminCard, query: string): boolean {
