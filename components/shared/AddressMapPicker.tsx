@@ -328,7 +328,10 @@ export default function AddressMapPicker({
         fadeAnimation: false,
         markerZoomAnimation: false,
       });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd',
+        maxZoom: 20,
+      }).addTo(map);
 
       const getPickerCenter = () => {
         const el = containerRef.current!;
