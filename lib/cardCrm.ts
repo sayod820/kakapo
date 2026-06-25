@@ -1,6 +1,6 @@
 import type { AdminClient, ClientLevel } from './clientCrm'
 import { normalizePhone, phonesMatch, vipFromNote, debtFromNote } from './clientCrm'
-import { inferLevelAssignMode, inferLevelTermDays } from './loyaltyAdminLock'
+import { inferLevelAssignMode, inferLevelDuration, VIP_PERMANENT_DAYS } from './loyaltyAdminLock'
 
 export type CardStatus = 'active' | 'unlinked' | 'blocked'
 
@@ -150,6 +150,8 @@ export type CardLoyaltyForm = {
   vipUntil?: string | null
   levelAssignMode?: 'auto' | 'manual'
   levelTermDays?: number
+  levelValidUntil?: string | null
+  levelPermanent?: boolean
 }
 
 export function emptyCardLoyaltyForm(): CardLoyaltyForm {
@@ -172,7 +174,9 @@ export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): Card
     debtEnabled: resolveDebtEnabled(card, client),
     vipUntil: card.vipUntil || client?.vipUntil,
     levelAssignMode: mode,
-    levelTermDays: inferLevelTermDays(mode, level, levelValidUntil, levelLockedPeriod),
+    levelValidUntil: levelValidUntil || undefined,
+    levelPermanent: inferLevelDuration(mode, level, levelValidUntil, levelLockedPeriod).permanent,
+    levelTermDays: inferLevelDuration(mode, level, levelValidUntil, levelLockedPeriod).permanent ? VIP_PERMANENT_DAYS : 0,
   }
 }
 

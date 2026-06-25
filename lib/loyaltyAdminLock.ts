@@ -80,7 +80,93 @@ export function formatVipUntilLabel(vipUntil?: string): string {
   if (!vipUntil) return 'бессрочно'
   const d = new Date(vipUntil)
   if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+  return d.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+}
+
+export function isoToDatetimeLocal(iso?: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+export function datetimeLocalToIso(local: string): string | undefined {
+  if (!local) return undefined
+  const d = new Date(local)
+  if (Number.isNaN(d.getTime())) return undefined
+  return d.toISOString()
+}
+
+export function addDurationToNow(days: number, hours: number, minutes: number, from = new Date()): string {
+  const d = new Date(from)
+  d.setDate(d.getDate() + Math.max(0, days))
+  d.setHours(d.getHours() + Math.max(0, hours))
+  d.setMinutes(d.getMinutes() + Math.max(0, minutes))
+  d.setSeconds(59, 999)
+  return d.toISOString()
+}
+
+export type LevelDurationParts = { days: number; hours: number; minutes: number; permanent: boolean }
+
+export function inferLevelDuration(
+  mode: LevelAssignMode,
+  level?: ClientLevel | '',
+  levelValidUntil?: string | null,
+  levelLockedPeriod?: string,
+): LevelDurationParts {
+  if (mode === 'manual' && (!level || level === 'basic')) {
+    return { days: 0, hours: 0, minutes: 0, permanent: true }
+  }
+  if (!levelValidUntil) {
+    const hasMonthLock = !!(levelLockedPeriod && isLoyaltyPeriodCurrent(levelLockedPeriod))
+    if (hasMonthLock) {
+      return { days: 0, hours: 0, minutes: 0, permanent: false }
+    }
+    return { days: 0, hours: 0, minutes: 0, permanent: true }
+  }
+  const until = new Date(levelValidUntil).getTime()
+  if (Number.isNaN(until)) return { days: 0, hours: 0, minutes: 0, permanent: false }
+  const endMonthMs = new Date(endOfLoyaltyPeriodIso()).getTime()
+  if (Math.abs(until - endMonthMs) < 60000) {
+    return { days: 0, hours: 0, minutes: 0, permanent: false }
+  }
+  const now = Date.now()
+  if (until <= now) return { days: 0, hours: 0, minutes: 0, permanent: false }
+  let ms = until - now
+  const days = Math.floor(ms / 86400000)
+  ms -= days * 86400000
+  const hours = Math.floor(ms / 3600000)
+  ms -= hours * 3600000
+  const minutes = Math.ceil(ms / 60000)
+  return { days, hours, minutes, permanent: false }
+}
+
+export function resolveLevelLockFromUntil(
+  mode: LevelAssignMode,
+  level: ClientLevel,
+  untilIso?: string | null,
+  permanent = false,
+): { levelAssignMode: LevelAssignMode; levelValidUntil?: string; levelLockedPeriod?: string } {
+  if (mode === 'auto') {
+    if (permanent || !untilIso) {
+      return { levelAssignMode: 'auto', levelValidUntil: undefined, levelLockedPeriod: undefined }
+    }
+    return { levelAssignMode: 'auto', levelValidUntil: untilIso, levelLockedPeriod: undefined }
+  }
+  if (level === 'basic' || permanent || !untilIso) {
+    return { levelAssignMode: 'manual', levelValidUntil: undefined, levelLockedPeriod: undefined }
+  }
+  const endMonth = endOfLoyaltyPeriodIso()
+  const isEndMonth = Math.abs(new Date(untilIso).getTime() - new Date(endMonth).getTime()) < 60000
+  if (isEndMonth) {
+    return {
+      levelAssignMode: 'manual',
+      levelValidUntil: untilIso,
+      levelLockedPeriod: currentLoyaltyPeriod(),
+    }
+  }
+  return { levelAssignMode: 'manual', levelValidUntil: untilIso, levelLockedPeriod: undefined }
 }
 
 export function formatLevelLockLabel(period?: string): string {
