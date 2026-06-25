@@ -176,11 +176,42 @@ export function buildCourierFinance(
       name: c.name,
       vehicle: c.vehicle,
       deliveries: mine.length,
-      earnings: Math.round(earnings),
+      earnings: Math.round(earnings * 100) / 100,
       weekDeliveries: c.week || mine.length,
       rating: c.rating,
     }
   }).sort((a, b) => b.earnings - a.earnings)
+}
+
+export interface CourierDeliveryOrderRow {
+  id: string
+  courier: string
+  client: string
+  time: string
+  goodsTotal: number
+  deliveryFee: number
+  km: number
+}
+
+export function buildCourierDeliveryOrderRows(
+  orders: Order[],
+  roadKm: Record<string, number>,
+  tariff: PricingConfig,
+  limit = 40,
+): CourierDeliveryOrderRow[] {
+  return orders
+    .filter(isDelivered)
+    .map(o => ({
+      id: o.id,
+      courier: o.courier?.name || '—',
+      client: o.client?.name || '—',
+      time: o.deliveredAt || o.createdAt || '',
+      goodsTotal: orderGoodsTotal(o),
+      deliveryFee: courierDeliveryEarning(o, roadKm, tariff),
+      km: Math.round((roadKm[o.id] ?? o.distanceKm ?? 0) * 10) / 10,
+    }))
+    .sort((a, b) => b.time.localeCompare(a.time))
+    .slice(0, limit)
 }
 
 export function buildAssemblerFinance(

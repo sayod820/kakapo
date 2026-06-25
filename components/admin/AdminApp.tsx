@@ -97,6 +97,8 @@ import {
 import { sendPushCampaign } from '@/lib/pushService'
 import {
   buildFinanceSummary,
+  buildCourierFinance,
+  buildCourierDeliveryOrderRows,
   downloadCsv,
   printFinanceReport,
   formatSm,
@@ -2497,6 +2499,31 @@ function CouriersPage() {
   const couriers = useCourierTeam();
   const { addCourier, updateCourier, toggleBlock } = useCourierTeamStore();
   const apiOrders = useOrders(s => s.orders);
+  const pricing = usePricingStore(s => s.pricing);
+  const tariff = useMemo(() => normalizePricing({ ...DEFAULT_PRICING, ...pricing }), [pricing]);
+  const { roadKm } = useOrderRoadKm(apiOrders);
+  const financeRows = useMemo(
+    () => buildCourierFinance(apiOrders, couriers, roadKm, tariff),
+    [apiOrders, couriers, roadKm, tariff],
+  );
+  const financeById = useMemo(
+    () => Object.fromEntries(financeRows.map(r => [r.id, r])),
+    [financeRows],
+  );
+  const deliveryOrders = useMemo(
+    () => buildCourierDeliveryOrderRows(apiOrders, roadKm, tariff),
+    [apiOrders, roadKm, tariff],
+  );
+  const reportSummary = useMemo(
+    () => courierTariffSummary(apiOrders, couriers, tariff, roadKm),
+    [apiOrders, couriers, tariff, roadKm],
+  );
+  const clientDeliveryTotal = useMemo(
+    () => apiOrders
+      .filter(o => o.status === 'delivered')
+      .reduce((s, o) => s + (Number(o.deliveryFee) || 0), 0),
+    [apiOrders],
+  );
   const [editId, setEditId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(emptyCourierForm());
@@ -2561,13 +2588,46 @@ function CouriersPage() {
   const setF = <K extends keyof typeof form>(key: K, val: (typeof form)[K]) =>
     setForm(prev => ({ ...prev, [key]: val }));
 
+  const exportCourierReport = () => {
+    downloadCsv(
+      `kakapo-couriers-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Курьер', 'Транспорт', 'Доставок', 'За доставку ЅМ', 'Рейтинг'],
+      financeRows.map(r => [
+        r.name,
+        vehicleLabel(r.vehicle as AdminCourier['vehicle']),
+        r.deliveries,
+        r.earnings,
+        r.rating,
+      ]),
+    );
+  };
+
+  const printCourierReport = () => {
+    const courierTable = `<table><thead><tr><th>Курьер</th><th>Доставок</th><th>За доставку</th><th>Рейтинг</th></tr></thead><tbody>${
+      financeRows.map(r => `<tr><td>${r.name}</td><td>${r.deliveries}</td><td>${formatSm(r.earnings)}</td><td>${r.rating}</td></tr>`).join('')
+    }</tbody></table>`;
+    const ordersTable = `<h2 style="font-size:14px;margin:24px 0 8px">Доставленные заказы</h2><table><thead><tr><th>Заказ</th><th>Курьер</th><th>Товары</th><th>Доставка</th><th>Км</th></tr></thead><tbody>${
+      deliveryOrders.map(o => `<tr><td>${o.id}</td><td>${o.courier}</td><td>${formatSm(o.goodsTotal)}</td><td>${formatSm(o.deliveryFee)}</td><td>${o.km}</td></tr>`).join('')
+    }</tbody></table>`;
+    printFinanceReport(
+      'Отчёт курьеров — доставка',
+      `<p>Доставок: ${reportSummary.deliveries} · Выплаты курьерам: ${formatSm(reportSummary.totalEarnings)} · Клиенты заплатили за доставку: ${formatSm(clientDeliveryTotal)}</p>${courierTable}${ordersTable}`,
+    );
+  };
+
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 12 }}>
         <StatCard l="Всего" v={couriers.length} />
         <StatCard l="Свободных" v={couriers.filter(c => c.status === 'available' && !c.blocked).length} c="#1FD760" />
         <StatCard l="В заказе" v={couriers.filter(c => c.status === 'busy').length} c="#FFB800" />
         <StatCard l="Офлайн" v={couriers.filter(c => c.status === 'offline' || c.blocked).length} c="#3D6645" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
+        <StatCard l="Доставок" v={reportSummary.deliveries} c="#3B8EF0" e="📦" />
+        <StatCard l="Выплаты курьерам" v={`${formatSm(reportSummary.totalEarnings)}`} c="#FFB800" e="💰" />
+        <StatCard l="Ср. за доставку" v={`${formatSm(reportSummary.avgPerDelivery)}`} c="#1FD760" e="📊" />
+        <StatCard l="Оплата клиентами" v={`${formatSm(clientDeliveryTotal)}`} c="#00D4C8" e="🛵" sub="только доставка" />
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button onClick={openAdd} className="ab abp" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>+ Добавить курьера</button>
@@ -2581,9 +2641,9 @@ function CouriersPage() {
               <th>Статус</th>
               <th>Макс. заказов</th>
               <th>Рейтинг</th>
-              <th>Сегодня</th>
-              <th>Неделя</th>
-              <th>Заказов</th>
+              <th>Доставок</th>
+              <th>За доставку</th>
+              <th>Всего заказов</th>
               <th></th>
             </tr>
           </thead>
@@ -2591,6 +2651,7 @@ function CouriersPage() {
             {couriers.map(c => {
               const s = c.blocked ? { l: 'Заблокирован', c: '#FF4545' } : SC[c.status];
               const active = countCourierActiveOrders(apiOrders, c);
+              const fin = financeById[c.id];
               return (
                 <tr key={c.id} style={c.blocked ? { opacity: .65 } : undefined}>
                   <td>
@@ -2613,8 +2674,8 @@ function CouriersPage() {
                     </span>
                   </td>
                   <td style={{ color: '#FFB800', fontWeight: 700 }}>★ {c.rating}</td>
-                  <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#FFB800' }}>{c.today} ЅМ</span></td>
-                  <td><span className="ub" style={{ fontSize: 12 }}>{c.week} ЅМ</span></td>
+                  <td style={{ color: '#8FB897' }}>{fin?.deliveries ?? 0}</td>
+                  <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#3B8EF0' }}>{formatSm(fin?.earnings ?? 0)}</span></td>
                   <td style={{ color: '#8FB897' }}>{c.orders}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 5 }}>
@@ -2631,6 +2692,86 @@ function CouriersPage() {
           </tbody>
         </table>
       </div>
+
+      <div className="ac" style={{ marginTop: 18 }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>📊 Отчёт по доставкам</div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginTop: 4 }}>Только сумма доставки · товары не включены</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={exportCourierReport} className="ab abg" style={{ padding: '7px 14px', fontSize: 12 }}>📊 Excel</button>
+            <button type="button" onClick={printCourierReport} className="ab abg" style={{ padding: '7px 14px', fontSize: 12 }}>📄 PDF</button>
+            <Link href="/admin?p=finance" className="ab abg" style={{ padding: '7px 14px', fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>💰 Финансы</Link>
+          </div>
+        </div>
+        <table className="at">
+          <thead>
+            <tr>
+              <th>Курьер</th>
+              <th>Транспорт</th>
+              <th>Доставок</th>
+              <th>За доставку</th>
+              <th>Ср. за заказ</th>
+              <th>Рейтинг</th>
+            </tr>
+          </thead>
+          <tbody>
+            {financeRows.map(r => (
+              <tr key={r.id}>
+                <td style={{ fontWeight: 700 }}>🛵 {r.name}</td>
+                <td style={{ fontSize: 12, color: '#8FB897' }}>{vehicleLabel(r.vehicle as AdminCourier['vehicle'])}</td>
+                <td>{r.deliveries}</td>
+                <td><span className="ub" style={{ color: '#3B8EF0', fontWeight: 800 }}>{formatSm(r.earnings)}</span></td>
+                <td style={{ color: '#8FB897' }}>{r.deliveries ? formatSm(r.earnings / r.deliveries) : '—'}</td>
+                <td style={{ color: '#FFB800' }}>★ {r.rating}</td>
+              </tr>
+            ))}
+            {!financeRows.length && (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: 24, color: '#3D6645' }}>Нет данных по курьерам</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="ac" style={{ marginTop: 14 }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', fontWeight: 800, fontSize: 13 }}>
+          Доставленные заказы · детализация
+        </div>
+        <table className="at">
+          <thead>
+            <tr>
+              <th>Заказ</th>
+              <th>Курьер</th>
+              <th>Клиент</th>
+              <th>Товары</th>
+              <th>Доставка</th>
+              <th>Км</th>
+              <th>Время</th>
+            </tr>
+          </thead>
+          <tbody>
+            {deliveryOrders.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: 24, color: '#3D6645' }}>Пока нет доставленных заказов</td>
+              </tr>
+            ) : deliveryOrders.map(o => (
+              <tr key={o.id}>
+                <td><span className="ub" style={{ fontSize: 11, color: '#1FD760' }}>{o.id}</span></td>
+                <td style={{ fontSize: 12, fontWeight: 600 }}>{o.courier}</td>
+                <td style={{ fontSize: 12, color: '#8FB897' }}>{o.client}</td>
+                <td style={{ color: '#8FB897' }}>{formatSm(o.goodsTotal)}</td>
+                <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#3B8EF0' }}>{formatSm(o.deliveryFee)}</span></td>
+                <td style={{ fontSize: 11, color: '#8FB897' }}>{o.km ? formatKm(o.km) : '—'}</td>
+                <td style={{ fontSize: 11, color: '#3D6645' }}>{o.time || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       {showAdd && (
         <div className="amod">
           <div className="amodbg" onClick={closeModal} />
