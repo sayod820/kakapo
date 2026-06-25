@@ -6576,7 +6576,6 @@ const AddressesPage = ({ go, user }) => {
   const handleMapSelect = ({ lat, lng, address }: { lat: number; lng: number; address: string }) => {
     setCoords({ lat, lng });
     setStreet(address);
-    setMapOpen(false);
   };
 
   const setDef = (id) => setAddrs(as => as.map(a => ({ ...a, def: a.id === id })));
@@ -6665,6 +6664,44 @@ const AddressesPage = ({ go, user }) => {
               addressHelper="Это ближайший адрес. Дом и корпус лучше вписать вручную"
               onSelect={handleMapSelect}
             />
+            {coords && (
+              <div style={{ padding: '0 16px', marginTop: 4, overflowY: 'auto' }}>
+                <div style={{ borderRadius: 18, background: 'var(--l1)', border: '1px solid var(--b1)', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица, дом *</div>
+                    <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="ул. Ленина, 42" style={{ width: '100%' }} />
+                    <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 5 }}>
+                      Проверьте номер дома вручную. Точка на карте уже выбрана точно.
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Квартира</div>
+                      <input className="inp" value={apt} onChange={e => setApt(e.target.value)} placeholder="15" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Этаж</div>
+                      <input className="inp" value={floor} onChange={e => setFloor(e.target.value)} placeholder="3" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Подъезд</div>
+                      <input className="inp" value={ent} onChange={e => setEnt(e.target.value)} placeholder="2" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Комментарий</div>
+                    <input className="inp" value={comment} onChange={e => setComment(e.target.value)} placeholder="Домофон, пожелания..." />
+                  </div>
+                  <button
+                    onClick={save}
+                    className="btn"
+                    style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'linear-gradient(135deg,var(--gr2),var(--gr))', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: street && coords ? 1 : 0.5 }}
+                  >
+                    📍 {editId != null ? 'Сохранить изменения' : 'Сохранить адрес'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
