@@ -17,6 +17,8 @@ interface Props {
   mapHeight?: number;
   /** center — метка по центру, карту двигает пользователь; tap — тап/drag маркера */
   pickMode?: 'tap' | 'center';
+  /** Подпись над адресом в режиме center (как «Откуда» в такси) */
+  addressLabel?: string;
 }
 
 const THEMES = {
@@ -79,10 +81,28 @@ function pinIconHtml(gradient: string) {
   return `<div style="width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${gradient};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.3)"><span style="transform:rotate(45deg);font-size:16px">📍</span></div>`;
 }
 
-/** Метка по центру карты: остриё строго в гео-точке (50% × 50%) */
-function CenterPinOverlay({ fill, fillDark }: { fill: string; fillDark: string }) {
-  const pinH = 58;
-  const pinW = 44;
+/** Метка в стиле такси: пузырь с адресом + круглая метка, остриё в центре карты */
+function CenterPinOverlay({
+  fill,
+  fillDark,
+  address,
+  loading,
+  moving,
+  addressLabel = 'Адрес',
+}: {
+  fill: string;
+  fillDark: string;
+  address: string;
+  loading: boolean;
+  moving: boolean;
+  addressLabel?: string;
+}) {
+  const pinSize = 44;
+  const stemH = 10;
+  const displayText = loading
+    ? 'Определяем адрес…'
+    : (address || 'Двигайте карту');
+
   return (
     <div
       aria-hidden
@@ -90,33 +110,91 @@ function CenterPinOverlay({ fill, fillDark }: { fill: string; fillDark: string }
         position: 'absolute',
         left: '50%',
         top: '50%',
-        width: pinW,
-        height: pinH,
-        marginLeft: -pinW / 2,
-        marginTop: -pinH,
+        transform: `translate(-50%, -100%) translateY(${moving ? -14 : 0}px)`,
+        transition: 'transform 0.22s cubic-bezier(.16,1,.3,1)',
         pointerEvents: 'none',
         zIndex: 500,
-        filter: 'drop-shadow(0 8px 16px rgba(0,0,0,.45))',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        maxWidth: '88%',
+        width: 'max-content',
       }}
     >
-      <svg width={pinW} height={pinH} viewBox="0 0 44 58" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <ellipse cx="22" cy="55" rx="7" ry="2" fill="rgba(0,0,0,.22)" />
-        <path
-          d="M22 57.5C22 57.5 7.5 32.5 7.5 21.5C7.5 12.85 14.07 6 22 6C29.93 6 36.5 12.85 36.5 21.5C36.5 32.5 22 57.5 22 57.5Z"
-          fill={`url(#cpg-${fill.replace('#', '')})`}
-          stroke="rgba(255,255,255,.4)"
-          strokeWidth="1.25"
+      <div
+        style={{
+          marginBottom: 10,
+          padding: '10px 14px',
+          borderRadius: 14,
+          background: '#fff',
+          boxShadow: '0 4px 20px rgba(0,0,0,.18), 0 1px 4px rgba(0,0,0,.08)',
+          minWidth: 160,
+          maxWidth: 280,
+          opacity: moving ? 0.88 : 1,
+          transition: 'opacity 0.2s',
+        }}
+      >
+        <div style={{ fontSize: 10, color: '#8A8A8A', fontWeight: 600, marginBottom: 3, fontFamily: 'Nunito' }}>
+          {addressLabel}
+        </div>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: '#1A1A1A',
+            lineHeight: 1.35,
+            fontFamily: 'Nunito',
+            wordBreak: 'break-word',
+          }}
+        >
+          {displayText}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', filter: 'drop-shadow(0 6px 14px rgba(0,0,0,.35))' }}>
+        <div
+          style={{
+            width: pinSize,
+            height: pinSize,
+            borderRadius: '50%',
+            background: `linear-gradient(145deg, ${fillDark}, ${fill})`,
+            border: '3px solid #fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            style={{
+              width: 14,
+              height: 3,
+              borderRadius: 2,
+              background: 'rgba(255,255,255,.85)',
+            }}
+          />
+        </div>
+        <div
+          style={{
+            width: 4,
+            height: stemH,
+            background: fill,
+            borderRadius: '0 0 2px 2px',
+            marginTop: -1,
+          }}
         />
-        <circle cx="22" cy="21" r="10.5" fill="#fff" fillOpacity="0.96" />
-        <circle cx="22" cy="21" r="5.5" fill={fill} />
-        <circle cx="22" cy="57.5" r="2.75" fill={fill} stroke="#fff" strokeWidth="1.5" />
-        <defs>
-          <linearGradient id={`cpg-${fill.replace('#', '')}`} x1="8" y1="6" x2="36" y2="56" gradientUnits="userSpaceOnUse">
-            <stop stopColor={fillDark} />
-            <stop offset="1" stopColor={fill} />
-          </linearGradient>
-        </defs>
-      </svg>
+        <div
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: fill,
+            border: '2px solid #fff',
+            marginTop: -2,
+            boxShadow: `0 0 0 2px ${fill}44`,
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -129,6 +207,7 @@ export default function AddressMapPicker({
   hint,
   mapHeight = 220,
   pickMode = 'tap',
+  addressLabel = 'Адрес доставки',
 }: Props) {
   const theme = THEMES[variant];
   const hintText = hint ?? (pickMode === 'center' ? theme.centerHint : theme.hint);
@@ -149,9 +228,37 @@ export default function AddressMapPicker({
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState('');
+  const [liveAddress, setLiveAddress] = useState('');
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [mapMoving, setMapMoving] = useState(false);
+  const geocodeReqRef = useRef(0);
+  const geocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resolveAddress = (lat: number, lng: number, delayMs = 0) => {
+    if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
+    geocodeTimerRef.current = setTimeout(async () => {
+      const req = ++geocodeReqRef.current;
+      setAddressLoading(true);
+      try {
+        const address = await reverseGeocode(lat, lng);
+        if (req !== geocodeReqRef.current) return;
+        setLiveAddress(address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+      } catch {
+        if (req === geocodeReqRef.current) {
+          setLiveAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        }
+      } finally {
+        if (req === geocodeReqRef.current) setAddressLoading(false);
+      }
+    }, delayMs);
+  };
 
   useEffect(() => { pinRef.current = pin; }, [pin]);
   useEffect(() => { setConfirmed(false); }, [pin?.lat, pin?.lng]);
+
+  useEffect(() => () => {
+    if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !containerRef.current) return;
@@ -186,9 +293,10 @@ export default function AddressMapPicker({
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-      const syncCenterPin = () => {
+      const syncCenterPin = (geocodeDelay = 350) => {
         const c = map.getCenter();
         setPin({ lat: c.lat, lng: c.lng });
+        resolveAddress(c.lat, c.lng, geocodeDelay);
       };
 
       const placeMarker = (lat: number, lng: number, gradient = pinGradientRef.current) => {
@@ -209,8 +317,12 @@ export default function AddressMapPicker({
       };
 
       if (pickMode === 'center') {
-        map.on('moveend', syncCenterPin);
-        syncCenterPin();
+        map.on('movestart', () => setMapMoving(true));
+        map.on('moveend', () => {
+          setMapMoving(false);
+          syncCenterPin(300);
+        });
+        syncCenterPin(0);
       } else {
         if (pinRef.current) placeMarker(pinRef.current.lat, pinRef.current.lng);
         map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
@@ -231,6 +343,7 @@ export default function AddressMapPicker({
 
     return () => {
       cancelled = true;
+      if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
       genRef.current += 1;
       if (markerRef.current) { try { markerRef.current.remove(); } catch {} markerRef.current = null; }
       destroyMap(mapRef.current, containerRef.current);
@@ -254,7 +367,16 @@ export default function AddressMapPicker({
         if (mapRef.current) {
           const gpsZoom = pickMode === 'center' ? CENTER_PICK_GPS_ZOOM : 17;
           mapRef.current.setView([lat, lng], gpsZoom, { animate: false });
-          if (pickMode !== 'center') {
+          if (pickMode === 'center') {
+            setAddressLoading(true);
+            reverseGeocode(lat, lng).then(addr => {
+              setLiveAddress(addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+              setAddressLoading(false);
+            }).catch(() => {
+              setLiveAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+              setAddressLoading(false);
+            });
+          } else {
             import('leaflet').then(L => {
               if (markerRef.current) try { markerRef.current.remove(); } catch {}
               const icon = L.divIcon({
@@ -295,13 +417,18 @@ export default function AddressMapPicker({
     setConfirmLoading(true);
     setError('');
     try {
-      const address = await reverseGeocode(activePin.lat, activePin.lng);
-      const text = address || `${activePin.lat.toFixed(5)}, ${activePin.lng.toFixed(5)}`;
+      let text = liveAddress.trim();
+      if (!text || addressLoading) {
+        text = await reverseGeocode(activePin.lat, activePin.lng);
+      }
+      if (!text) text = `${activePin.lat.toFixed(5)}, ${activePin.lng.toFixed(5)}`;
       onSelect({ lat: activePin.lat, lng: activePin.lng, address: text });
       setPin(activePin);
+      setLiveAddress(text);
       setConfirmed(true);
     } catch {
-      onSelect({ lat: activePin.lat, lng: activePin.lng, address: `${activePin.lat.toFixed(5)}, ${activePin.lng.toFixed(5)}` });
+      const fallback = liveAddress || `${activePin.lat.toFixed(5)}, ${activePin.lng.toFixed(5)}`;
+      onSelect({ lat: activePin.lat, lng: activePin.lng, address: fallback });
       setPin(activePin);
       setConfirmed(true);
     } finally {
@@ -311,7 +438,7 @@ export default function AddressMapPicker({
 
   return (
     <div>
-      <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', border: `1px solid ${theme.coordsBorder}`, marginBottom: 10 }}>
+      <div style={{ position: 'relative', borderRadius: 14, overflow: pickMode === 'center' ? 'visible' : 'hidden', border: pickMode === 'center' ? 'none' : `1px solid ${theme.coordsBorder}`, marginBottom: 10 }}>
         <div ref={containerRef} style={{ width: '100%', height: mapHeight, background: '#050F08' }} />
         {!ready && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050F08' }}>
@@ -319,11 +446,20 @@ export default function AddressMapPicker({
           </div>
         )}
         {pickMode === 'center' && ready && (
-          <CenterPinOverlay fill={theme.centerPinFill} fillDark={theme.centerPinDark} />
+          <CenterPinOverlay
+            fill={theme.centerPinFill}
+            fillDark={theme.centerPinDark}
+            address={liveAddress}
+            loading={addressLoading}
+            moving={mapMoving}
+            addressLabel={addressLabel}
+          />
         )}
-        <div style={{ position: 'absolute', top: 10, left: 10, right: 10, padding: '6px 10px', borderRadius: 10, background: 'rgba(3,11,5,.88)', fontSize: 11, color: theme.btnText, pointerEvents: 'none' }}>
-          {hintText}
-        </div>
+        {pickMode !== 'center' && (
+          <div style={{ position: 'absolute', top: 10, left: 10, right: 10, padding: '6px 10px', borderRadius: 10, background: 'rgba(3,11,5,.88)', fontSize: 11, color: theme.btnText, pointerEvents: 'none' }}>
+            {hintText}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -358,9 +494,9 @@ export default function AddressMapPicker({
         </button>
       </div>
 
-      {pin && (
+      {pin && pickMode !== 'center' && (
         <div style={{ padding: '8px 12px', borderRadius: 10, background: theme.coordsBg, border: `1px solid ${theme.coordsBorder}`, fontSize: 11, color: theme.coordsText, marginBottom: 8 }}>
-          📍 {pin.lat.toFixed(5)}, {pin.lng.toFixed(5)}{pickMode === 'center' ? ' · остриё метки = точка' : ' · маркер можно перетащить'}
+          📍 {pin.lat.toFixed(5)}, {pin.lng.toFixed(5)} · маркер можно перетащить
         </div>
       )}
       {confirmed && (

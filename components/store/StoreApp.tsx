@@ -6652,15 +6652,16 @@ const AddressesPage = ({ go, user }) => {
             </button>
             <div style={{ flex: 1 }}>
               <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{editId != null ? 'Точка на карте' : 'Новый адрес'}</div>
-              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Двигайте карту — остриё метки = точка</div>
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Адрес обновляется при движении карты</div>
             </div>
           </header>
-          <div style={{ flex: 1, padding: '12px 16px calc(16px + env(safe-area-inset-bottom, 0px))', overflowY: 'auto' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: '0 0 calc(12px + env(safe-area-inset-bottom, 0px))' }}>
             <AddressMapPicker
               key={editId != null ? `edit-map-${editId}-${coords?.lat}-${coords?.lng}` : 'new-map'}
               pickMode="center"
               mapHeight={mapPickerHeight}
               initial={coords}
+              addressLabel="Куда"
               onSelect={handleMapSelect}
             />
           </div>
