@@ -28,6 +28,8 @@ export function vipUntilAfterDays(days: number, from = new Date()): string {
 
 export function isLevelLocked(record?: LoyaltyLockFields | null): boolean {
   if (!record?.levelLockedPeriod) return false
+  const lvl = record.level
+  if (!lvl || lvl === 'basic') return false
   return isLoyaltyPeriodCurrent(record.levelLockedPeriod)
 }
 
@@ -67,4 +69,36 @@ export function formatLevelLockLabel(period?: string): string {
   if (!y || !m) return ''
   const last = new Date(y, m, 0)
   return `до ${last.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`
+}
+
+/** -1 = постоянный VIP */
+export const VIP_PERMANENT_DAYS = -1
+
+export function vipUntilForTermDays(days: number): string | null | undefined {
+  if (days === VIP_PERMANENT_DAYS) return null
+  if (days <= 0) return endOfLoyaltyPeriodIso()
+  return vipUntilAfterDays(days)
+}
+
+export function inferVipTermDays(vip?: boolean, vipUntil?: string): number {
+  if (!vip) return 0
+  if (!vipUntil) return VIP_PERMANENT_DAYS
+  return 0
+}
+
+export function formatAdminLevelExpiry(record: LoyaltyLockFields): string {
+  const lvl = record.level
+  if (!lvl || lvl === 'basic') return 'Постоянно'
+  if (isLevelLocked(record)) {
+    const label = formatLevelLockLabel(record.levelLockedPeriod)
+    return label ? label : 'до конца месяца'
+  }
+  return 'По заказам'
+}
+
+export function formatAdminVipExpiry(record: LoyaltyLockFields): string {
+  if (!record.vip) return '—'
+  if (!record.vipUntil) return 'Постоянно'
+  if (!isForcedVipActive(record)) return `истёк ${formatVipUntilLabel(record.vipUntil)}`
+  return `до ${formatVipUntilLabel(record.vipUntil)}`
 }

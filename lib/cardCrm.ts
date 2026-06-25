@@ -140,7 +140,7 @@ export type CardLoyaltyForm = {
   debt: number
   vip: boolean
   debtEnabled: boolean
-  vipUntil?: string
+  vipUntil?: string | null
 }
 
 export function emptyCardLoyaltyForm(): CardLoyaltyForm {

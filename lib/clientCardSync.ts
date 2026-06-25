@@ -354,11 +354,13 @@ export async function saveCardLoyalty(
     debtEnabled: !!form.debtEnabled,
     loyaltyPeriod: currentLoyaltyPeriod(),
     levelLockedPeriod: levelChanged
-      ? currentLoyaltyPeriod()
-      : (card.levelLockedPeriod || client?.levelLockedPeriod),
-    vipUntil: form.vip
-      ? (form.vipUntil || endOfLoyaltyPeriodIso())
-      : undefined,
+      ? (form.level === 'basic' ? undefined : currentLoyaltyPeriod())
+      : (form.level === 'basic' ? undefined : (card.levelLockedPeriod || client?.levelLockedPeriod)),
+    vipUntil: !form.vip
+      ? undefined
+      : form.vipUntil === null
+        ? undefined
+        : (form.vipUntil || endOfLoyaltyPeriodIso()),
     ...(statusChanged ? { bonusEligibleFrom: new Date().toISOString() } : {}),
   }
 

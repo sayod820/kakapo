@@ -17,7 +17,7 @@ import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
 import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/cardCrm'
 import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig } from '@/lib/clientCardSync'
-import { endOfLoyaltyPeriodIso, vipUntilAfterDays, formatLevelLockLabel, formatVipUntilLabel, isLevelLocked } from '@/lib/loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, vipUntilAfterDays, formatLevelLockLabel, formatAdminLevelExpiry, formatAdminVipExpiry, isLevelLocked, inferVipTermDays, VIP_PERMANENT_DAYS, vipUntilForTermDays } from '@/lib/loyaltyAdminLock'
 import { useCards } from '@/lib/cardStore'
 import { useClients } from '@/lib/clientStore'
 
@@ -120,15 +120,12 @@ type AssignRow = {
 }
 
 const VIP_TERM_OPTIONS = [
+  { days: VIP_PERMANENT_DAYS, label: 'Постоянно' },
   { days: 0, label: 'До конца месяца' },
   { days: 7, label: '7 дней' },
   { days: 30, label: '30 дней' },
   { days: 90, label: '90 дней' },
 ]
-
-function vipUntilForDays(days: number): string {
-  return days <= 0 ? endOfLoyaltyPeriodIso() : vipUntilAfterDays(days)
-}
 
 export default function CardStatusAdminPanel() {
   const stored = useCards()
@@ -231,7 +228,7 @@ export default function CardStatusAdminPanel() {
       level: meta?.level ?? form.level,
       vip: meta?.vip ?? form.vip,
       debtEnabled: meta?.debtEnabled ?? form.debtEnabled,
-      vipDays: meta?.vipDays ?? 0,
+      vipDays: meta?.vipDays ?? inferVipTermDays(form.vip, card.vipUntil || client?.vipUntil),
       saving: !!meta?.saving,
       saved: !!meta?.saved,
       err: meta?.err || '',
@@ -255,7 +252,7 @@ export default function CardStatusAdminPanel() {
         level: next.level,
         vip: next.vip,
         debtEnabled: next.debtEnabled,
-        vipUntil: next.vip ? vipUntilForDays(next.vipDays) : undefined,
+        vipUntil: next.vip ? vipUntilForTermDays(next.vipDays) : undefined,
       }, 'edit')
       setAssignRows(p => ({ ...p, [num]: { saving: false, saved: true, err: '' } }))
       window.setTimeout(() => {
@@ -392,6 +389,7 @@ export default function CardStatusAdminPanel() {
                 <th>Клиент / карта</th>
                 <th>Уровень</th>
                 <th>VIP</th>
+                <th>Срок</th>
                 <th>Раздел долга</th>
                 <th></th>
               </tr>
@@ -399,12 +397,14 @@ export default function CardStatusAdminPanel() {
             <tbody>
               {filteredCards.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: 28, color: '#3D6645' }}>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 28, color: '#3D6645' }}>
                     Нет активных карт с клиентами
                   </td>
                 </tr>
               ) : filteredCards.map(card => {
                 const st = getRow(card)
+                const levelExpiry = formatAdminLevelExpiry({ ...card, level: st.level })
+                const vipExpiry = formatAdminVipExpiry({ ...card, vip: st.vip })
                 return (
                   <tr key={card.num}>
                     <td>
@@ -424,20 +424,22 @@ export default function CardStatusAdminPanel() {
                           <option key={o.id} value={o.id}>{o.emoji} {o.label}</option>
                         ))}
                       </select>
-                      {isLevelLocked(card) && (
+                      {st.level === 'basic' ? (
+                        <div style={{ fontSize: 9, color: '#8FB897', marginTop: 4 }}>♾ Постоянно</div>
+                      ) : isLevelLocked({ ...card, level: st.level }) ? (
                         <div style={{ fontSize: 9, color: '#FFB800', marginTop: 4 }}>
                           🔒 {formatLevelLockLabel(card.levelLockedPeriod)}
                         </div>
-                      )}
+                      ) : null}
                     </td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
-                        <Tog on={st.vip} set={() => !st.saving && applyStatus(card.num, { vip: !st.vip, vipDays: st.vipDays })} />
+                        <Tog on={st.vip} set={() => !st.saving && applyStatus(card.num, { vip: !st.vip, vipDays: st.vip ? st.vipDays : VIP_PERMANENT_DAYS })} />
                         {st.vip && (
                           <select
                             className="ai"
                             value={String(st.vipDays)}
-                            onChange={e => applyStatus(card.num, { vip: true, vipDays: Number(e.target.value) || 0 })}
+                            onChange={e => applyStatus(card.num, { vip: true, vipDays: Number(e.target.value) })}
                             disabled={st.saving}
                             style={{ fontSize: 10, padding: '4px 6px', minWidth: 120 }}
                           >
@@ -446,10 +448,11 @@ export default function CardStatusAdminPanel() {
                             ))}
                           </select>
                         )}
-                        {st.vip && card.vipUntil && (
-                          <div style={{ fontSize: 9, color: '#8FB897' }}>до {formatVipUntilLabel(card.vipUntil)}</div>
-                        )}
                       </div>
+                    </td>
+                    <td style={{ fontSize: 10, color: '#8FB897', lineHeight: 1.5, minWidth: 100 }}>
+                      <div><span style={{ color: '#3D6645' }}>Уровень:</span> {levelExpiry}</div>
+                      {st.vip && <div style={{ marginTop: 4 }}><span style={{ color: '#3D6645' }}>VIP:</span> {vipExpiry}</div>}
                     </td>
                     <td>
                       <Tog on={st.debtEnabled} set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled })} />

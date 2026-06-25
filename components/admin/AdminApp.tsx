@@ -76,6 +76,7 @@ import { isDemoSeedClient } from '@/lib/clientDemoSeed'
 import { isClientInRecovery, moveClientToRecovery, restoreClientFromRecovery } from '@/lib/clientRecovery'
 import { loadDebtHistory, subscribeDebtHistory, type DebtHistoryEntry } from '@/lib/clientVipCredit'
 import { loyaltyTierOptions, loadLoyaltyStatusConfig } from '@/lib/loyaltyStatusConfig'
+import { formatAdminLevelExpiry, formatAdminVipExpiry } from '@/lib/loyaltyAdminLock'
 import CardStatusAdminPanel from '@/components/admin/CardStatusAdminPanel'
 import {
   enrichClientsForPush,
@@ -4284,9 +4285,19 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                   <td>
                     {c.level
                       ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <Badge v={CARD_LEVEL_RU[c.level as ClientLevel] || c.level} c={LVC[c.level] || '#8FB897'} />
-                          {c.vip && <Badge v="VIP" c="#FFB800" />}
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <Badge v={CARD_LEVEL_RU[c.level as ClientLevel] || c.level} c={LVC[c.level] || '#8FB897'} />
+                            {c.vip && <Badge v="VIP" c="#FFB800" />}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#8FB897', marginTop: 4, lineHeight: 1.4 }}>
+                            {formatAdminLevelExpiry({ level: c.level as ClientLevel, levelLockedPeriod: c.levelLockedPeriod })}
+                            {c.vip && (
+                              <span style={{ display: 'block', marginTop: 2 }}>
+                                VIP: {formatAdminVipExpiry({ vip: c.vip, vipUntil: c.vipUntil })}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )
                       : <span style={{ color: '#3D6645' }}>—</span>}
@@ -4344,6 +4355,8 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                 { l: 'Лимит долга', v: detail.debtLimit > 0 ? `${detail.debtLimit} ЅМ` : 'Нет', c: '#1FD760' },
                 { l: 'Долг', v: detail.debt > 0 ? `${detail.debt} ЅМ` : '—', c: detail.debt > 0 ? '#FF4545' : '#3D6645' },
                 { l: 'VIP', v: detail.vip ? '👑 Включён' : 'Выключен', c: detail.vip ? '#FFB800' : '#3D6645' },
+                { l: 'Срок уровня', v: formatAdminLevelExpiry({ level: detail.level as ClientLevel, levelLockedPeriod: detail.levelLockedPeriod }), c: '#8FB897' },
+                { l: 'Срок VIP', v: detail.vip ? formatAdminVipExpiry({ vip: detail.vip, vipUntil: detail.vipUntil }) : '—', c: '#8FB897' },
                 { l: 'Выдана', v: detail.issued || '—', c: '#8FB897' },
               ].map(row => (
                 <div key={row.l} style={{ background: '#0C1C0F', borderRadius: 12, padding: '11px 13px', border: '1px solid #162B1A' }}>

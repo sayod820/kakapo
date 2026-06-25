@@ -1049,7 +1049,7 @@ app.patch('/clients/:id', (req, res) => {
   if (vipChanged || levelChanged) {
     patch.loyaltyPeriod = currentLoyaltyPeriod()
     patch.bonusEligibleFrom = new Date().toISOString()
-    if (levelChanged) patch.levelLockedPeriod = currentLoyaltyPeriod()
+    if (levelChanged) patch.levelLockedPeriod = patch.level === 'basic' ? undefined : currentLoyaltyPeriod()
     if (vipChanged && patch.vip) {
       patch.vipUntil = patch.vipUntil || endOfLoyaltyPeriodIsoServer()
     }
@@ -1661,10 +1661,13 @@ app.patch('/cards/:num', (req, res) => {
       body.loyaltyPeriod = currentLoyaltyPeriod()
       body.bonusEligibleFrom = new Date().toISOString()
       if (body.level != null && body.level !== card.level) {
-        body.levelLockedPeriod = currentLoyaltyPeriod()
+        body.levelLockedPeriod = body.level === 'basic' ? undefined : currentLoyaltyPeriod()
       }
-      if (body.vip === true && !body.vipUntil) {
+      if (body.vip === true && body.vipUntil === undefined && !('vipUntil' in req.body)) {
         body.vipUntil = endOfLoyaltyPeriodIsoServer()
+      }
+      if (body.vip === true && req.body.vipUntil === null) {
+        body.vipUntil = undefined
       }
       if (body.vip === false) body.vipUntil = undefined
     }
