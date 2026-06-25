@@ -68,6 +68,7 @@ import { activeProductPromos } from "@/lib/productPromos";
 import { inferScheduleMode } from "@/lib/promoSchedule";
 import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
+import { preloadLeaflet } from "@/lib/leafletLoader";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
@@ -6581,8 +6582,20 @@ const AddressesPage = ({ go, user }) => {
   };
 
   const mapPickerHeight = typeof window !== 'undefined'
-    ? Math.min(280, Math.max(220, Math.round(window.innerHeight * 0.34)))
-    : 260;
+    ? Math.min(460, Math.max(320, Math.round(window.innerHeight * 0.56)))
+    : 380;
+
+  useEffect(() => {
+    preloadLeaflet();
+    void import('@/components/shared/AddressMapPicker');
+  }, []);
+
+  useEffect(() => {
+    if (!showAdd || !mapOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [showAdd, mapOpen]);
 
   const handleMapCenterChange = ({ lat, lng, address }: { lat: number; lng: number; address: string }) => {
     setCoords({ lat, lng });
@@ -6673,7 +6686,7 @@ const AddressesPage = ({ go, user }) => {
         </div>
       </div>
       {showAdd && mapOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 320, display: 'flex', flexDirection: 'column', background: 'var(--bg)', maxWidth: 480, margin: '0 auto', left: 0, right: 0 }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 320, display: 'flex', flexDirection: 'column', background: 'var(--bg)', maxWidth: 480, margin: '0 auto', left: 0, right: 0, height: '100dvh', overflow: 'hidden' }}>
           <header style={{ flexShrink: 0, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--b1)', background: 'rgba(3,11,5,.96)' }}>
             <button
               type="button"
@@ -6688,18 +6701,20 @@ const AddressesPage = ({ go, user }) => {
               <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Точку ставьте по карте, дом лучше вписать вручную</div>
             </div>
           </header>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto', padding: '0 0 calc(12px + env(safe-area-inset-bottom, 0px))' }}>
-            <AddressMapPicker
-              key={editId != null ? `edit-map-${editId}-${coords?.lat}-${coords?.lng}` : 'new-map'}
-              pickMode="center"
-              mapHeight={mapPickerHeight}
-              initial={coords}
-              hideConfirm
-              addressLabel="Куда"
-              addressHelper="Улица подставится автоматически. Дом введите ниже"
-              onCenterChange={handleMapCenterChange}
-            />
-            <div style={{ padding: '8px 16px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ flexShrink: 0 }}>
+              <AddressMapPicker
+                key={editId != null ? `edit-map-${editId}-${coords?.lat}-${coords?.lng}` : 'new-map'}
+                pickMode="center"
+                mapHeight={mapPickerHeight}
+                initial={coords}
+                hideConfirm
+                addressLabel="Куда"
+                addressHelper="Улица подставится автоматически. Дом введите ниже"
+                onCenterChange={handleMapCenterChange}
+              />
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', touchAction: 'pan-y', padding: '8px 16px calc(12px + env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', gap: 8 }}>
                 {['🏠 Дом', '💼 Работа', '📍 Другое'].map(l => (
                   <button key={l} onClick={() => setLabel(l)} className="btn" style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${label === l ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`, background: label === l ? 'rgba(31,215,96,.1)' : 'var(--l3)', color: label === l ? 'var(--gr)' : 'var(--t2)', fontFamily: 'Nunito' }}>{l}</button>

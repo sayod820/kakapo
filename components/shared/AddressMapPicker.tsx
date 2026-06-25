@@ -72,6 +72,8 @@ const THEMES = {
 const CENTER_PICK_ZOOM = COURIER_MAP_VIEW.zoom;
 const CENTER_PICK_GPS_ZOOM = 15;
 
+import { loadLeaflet } from '@/lib/leafletLoader';
+
 function destroyMap(map: any, container?: HTMLDivElement | null) {
   if (!map) return;
   try {
@@ -324,7 +326,7 @@ export default function AddressMapPicker({
     const gen = ++genRef.current;
     let cancelled = false;
 
-    import('leaflet').then(L => {
+    loadLeaflet().then(L => {
       if (cancelled || gen !== genRef.current || !containerRef.current || (containerRef.current as any)._leaflet_id) return;
 
       if (!document.getElementById('leaflet-css')) {
@@ -350,9 +352,12 @@ export default function AddressMapPicker({
         fadeAnimation: false,
         markerZoomAnimation: false,
       });
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd',
-        maxZoom: 20,
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        subdomains: ['a', 'b', 'c'],
+        maxZoom: 19,
+        updateWhenIdle: true,
+        updateWhenZooming: false,
+        keepBuffer: 2,
       }).addTo(map);
 
       const getPickerCenter = () => {
@@ -385,31 +390,32 @@ export default function AddressMapPicker({
       };
 
       if (pickMode === 'center') {
-        let wasDragging = false;
-        map.on('movestart', () => {
-          wasDragging = true;
+        let userDragging = false;
+        map.on('dragstart', () => {
+          userDragging = true;
           onMapMoveStart();
         });
         map.on('moveend', () => {
           requestAnimationFrame(() => {
             const c = updateCenterCoords();
             onCenterChangeRef.current?.({ lat: c.lat, lng: c.lng, address: '' });
-            if (wasDragging) {
+            if (userDragging) {
               setMapMoving(false);
               setDropKey(k => k + 1);
             }
-            wasDragging = false;
-            resolveAddress(c.lat, c.lng, 300);
+            userDragging = false;
+            resolveAddress(c.lat, c.lng, 200);
           });
         });
         map.on('zoomend', () => {
           requestAnimationFrame(() => {
             const c = updateCenterCoords();
-            resolveAddress(c.lat, c.lng, 300);
+            resolveAddress(c.lat, c.lng, 200);
           });
         });
         const c0 = updateCenterCoords();
-        resolveAddress(c0.lat, c0.lng, 250);
+        onCenterChangeRef.current?.({ lat: c0.lat, lng: c0.lng, address: '' });
+        resolveAddress(c0.lat, c0.lng, 80);
       } else {
         if (pinRef.current) placeMarker(pinRef.current.lat, pinRef.current.lng);
         map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
@@ -425,12 +431,13 @@ export default function AddressMapPicker({
         setTimeout(() => {
           try {
             map.invalidateSize();
+            map.dragging.enable();
             if (pickMode === 'center') {
               const c = updateCenterCoords();
-              resolveAddress(c.lat, c.lng, 200);
+              resolveAddress(c.lat, c.lng, 80);
             }
           } catch {}
-        }, 100);
+        }, 50);
       }
     });
 
@@ -445,6 +452,42 @@ export default function AddressMapPicker({
     };
   }, [pickMode]);
 
+  const syncCenterFromMap = (lat: number, lng: number) => {
+    const map = mapRef.current;
+    if (!map || !containerRef.current) return;
+    const el = containerRef.current;
+    map.stop();
+    map.setView([lat, lng], CENTER_PICK_GPS_ZOOM, { animate: false });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          map.invalidateSize();
+          map.dragging.enable();
+          map.touchZoom.enable();
+        } catch {}
+        const c = map.containerPointToLatLng({ x: el.clientWidth / 2, y: el.clientHeight / 2 });
+        setPin({ lat: c.lat, lng: c.lng });
+        setMapMoving(false);
+        setDropKey(k => k + 1);
+        setAddressVisible(false);
+        setAddressLoading(true);
+        reverseGeocodeParts(c.lat, c.lng).then(parts => {
+          const text = parts.street || parts.display || `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+          setLiveAddress(text);
+          setAddressLoading(false);
+          setAddressVisible(true);
+          onCenterChangeRef.current?.({ lat: c.lat, lng: c.lng, address: parts.street || text });
+        }).catch(() => {
+          const fallback = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+          setLiveAddress(fallback);
+          setAddressLoading(false);
+          setAddressVisible(true);
+          onCenterChangeRef.current?.({ lat: c.lat, lng: c.lng, address: fallback });
+        });
+      });
+    });
+  };
+
   const useGPS = () => {
     if (!navigator.geolocation) {
       setError('GPS недоступен');
@@ -458,26 +501,19 @@ export default function AddressMapPicker({
         const lng = pos.coords.longitude;
         setPin({ lat, lng });
         if (mapRef.current) {
-          const gpsZoom = pickMode === 'center' ? CENTER_PICK_GPS_ZOOM : 17;
-          mapRef.current.setView([lat, lng], gpsZoom, { animate: false });
           if (pickMode === 'center') {
-            setAddressVisible(false);
-            setAddressLoading(true);
-            reverseGeocodeParts(lat, lng).then(parts => {
-              const text = parts.street || parts.display || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-              setLiveAddress(text);
-              setAddressLoading(false);
-              setAddressVisible(true);
-              onCenterChangeRef.current?.({ lat, lng, address: parts.street || text });
-            }).catch(() => {
-              const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-              setLiveAddress(fallback);
-              setAddressLoading(false);
-              setAddressVisible(true);
-              onCenterChangeRef.current?.({ lat, lng, address: fallback });
-            });
+            syncCenterFromMap(lat, lng);
           } else {
-            import('leaflet').then(L => {
+            const gpsZoom = 17;
+            mapRef.current.setView([lat, lng], gpsZoom, { animate: false });
+            setTimeout(() => {
+              try {
+                mapRef.current?.invalidateSize();
+                mapRef.current?.dragging.enable();
+                mapRef.current?.touchZoom.enable();
+              } catch {}
+            }, 50);
+            loadLeaflet().then(L => {
               if (markerRef.current) try { markerRef.current.remove(); } catch {}
               const icon = L.divIcon({
                 html: pinIconHtml(theme.gpsPin),
@@ -544,7 +580,7 @@ export default function AddressMapPicker({
   return (
     <div>
       <div style={{ position: 'relative', borderRadius: 14, overflow: pickMode === 'center' ? 'visible' : 'hidden', border: pickMode === 'center' ? 'none' : `1px solid ${theme.coordsBorder}`, marginBottom: 10, padding: pickMode === 'center' ? '0 16px' : 0 }}>
-        <div ref={containerRef} style={{ width: '100%', height: mapHeight, background: '#050F08' }} />
+        <div ref={containerRef} style={{ width: '100%', height: mapHeight, background: '#050F08', touchAction: 'none' }} />
         {!ready && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050F08' }}>
             <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid rgba(31,215,96,.2)', borderTopColor: theme.spinner, animation: 'spin 1s linear infinite' }} />
