@@ -1228,7 +1228,10 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod),
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, {
+      levelLockedPeriod: user?.levelLockedPeriod,
+      vipUntil: user?.vipUntil,
+    }),
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
@@ -2390,7 +2393,10 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     [wished],
   );
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod),
+    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod, {
+      levelLockedPeriod: user?.levelLockedPeriod,
+      vipUntil: user?.vipUntil,
+    }),
     [spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod],
   );
 
@@ -4200,7 +4206,10 @@ const VIPPage = ({ go, user, setUser }) => {
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod),
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, {
+      levelLockedPeriod: user?.levelLockedPeriod,
+      vipUntil: user?.vipUntil,
+    }),
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
@@ -8893,11 +8902,17 @@ function KakapoAppInner() {
 
   const storeLoyalty = useMemo(() => {
     if (!user?.phone) {
-      return getLoyaltyProgress(0, 0, 0, user?.level, user?.vip, user?.loyaltyPeriod)
+      return getLoyaltyProgress(0, 0, 0, user?.level, user?.vip, user?.loyaltyPeriod, {
+        levelLockedPeriod: user?.levelLockedPeriod,
+        vipUntil: user?.vipUntil,
+      })
     }
     const { spent, orderCount } = clientLoyaltyTotals(apiOrders, user)
-    return getLoyaltyProgress(spent, orderCount, 0, user.level, user.vip, user.loyaltyPeriod)
-  }, [apiOrders, user?.phone, user?.level, user?.vip, user?.loyaltyPeriod])
+    return getLoyaltyProgress(spent, orderCount, 0, user.level, user.vip, user.loyaltyPeriod, {
+      levelLockedPeriod: user.levelLockedPeriod,
+      vipUntil: user.vipUntil,
+    })
+  }, [apiOrders, user?.phone, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelLockedPeriod, user?.vipUntil])
 
   const displayUser = useMemo(
     () => (user ? mergeStoreUserWithCrmLoyalty(user, apiOrders) : null),

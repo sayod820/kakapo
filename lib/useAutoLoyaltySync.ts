@@ -13,6 +13,7 @@ import {
 } from './clientCrm'
 import { syncAutoLevelToCrm, syncMonthlyLoyaltyReset } from './clientCardSync'
 import { currentLoyaltyPeriod } from './loyaltyPeriod'
+import { isForcedVipActive, isLevelLocked } from './loyaltyAdminLock'
 import { USE_API } from './config'
 import { useClientStore } from './clientStore'
 import { filterOrdersForStoreUser } from './clientAccountLifecycle'
@@ -32,20 +33,27 @@ export function useAutoLoyaltySync(
     if (USE_API && !useClientStore.getState().apiReady) return
 
     const epoch = getSessionEpoch()
-    const reset = syncMonthlyLoyaltyReset(cur.phone, cur.card)
+    const reset = syncMonthlyLoyaltyReset(cur.phone, cur.card, orders)
     const base = reset
       ? { ...cur, level: 'basic' as const, loyaltyPeriod: currentLoyaltyPeriod() }
       : cur
 
-    // VIP назначенный админом — уровень не пересчитываем (кэшбэк по VIP %)
-    if (base.vip && !reset) return
+    const lock = { levelLockedPeriod: base.levelLockedPeriod, vipUntil: base.vipUntil }
 
-    // Только траты текущего месяца из заказов текущего поколения аккаунта
+    if (isLevelLocked(lock) && !reset) return
+    if (isForcedVipActive({ vip: base.vip, vipUntil: base.vipUntil }) && !reset) return
+
     const scoped = filterOrdersForStoreUser(orders, base)
     const { orderCount, spent } = loyaltyStatsFromOrders(scoped, base.phone)
-    const effective = resolveEffectiveClientLevel(spent, orderCount, base.level, base.loyaltyPeriod)
+    const effective = resolveEffectiveClientLevel(
+      spent,
+      orderCount,
+      base.level,
+      base.loyaltyPeriod,
+      lock,
+    )
 
-    if (reset || shouldAutoUpgradeLevel(base.level, effective, base.loyaltyPeriod)) {
+    if (reset || shouldAutoUpgradeLevel(base.level, effective, base.loyaltyPeriod, lock)) {
       if (!reset && loyaltyTierIndex(effective) <= loyaltyTierIndex((base.level || 'basic') as ClientLevel)) {
         return
       }
@@ -67,5 +75,5 @@ export function useAutoLoyaltySync(
       saveStoreUser(next)
       setUser(next)
     }
-  }, [user?.phone, user?.level, user?.card, user?.loyaltyPeriod, user?.vip, orders, setUser])
+  }, [user?.phone, user?.level, user?.card, user?.loyaltyPeriod, user?.vip, user?.levelLockedPeriod, user?.vipUntil, orders, setUser])
 }

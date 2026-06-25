@@ -7,6 +7,7 @@ import {
   normalizeClient,
   withLoyaltyNote,
   maxClientLevel,
+  loyaltyStatsFromOrders,
   type AdminClient,
   type ClientLevel,
   type ClientProfileForm,
@@ -23,6 +24,8 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip } from './loyaltyAdminLock'
+import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
@@ -334,6 +337,7 @@ export async function saveCardLoyalty(
   const prevLevel = (card.level || client?.level || 'basic') as ClientLevel
   const prevVip = !!(card.vip ?? client?.vip)
   const statusChanged = !!form.vip !== prevVip || form.level !== prevLevel
+  const levelChanged = form.level !== prevLevel
   const tierLimit = getTierDefaultDebtLimit(form.level, !!form.vip)
   const debtEligible = !!form.vip || !!form.debtEnabled || form.level === 'gold' || form.level === 'platinum'
   const formLimit = Math.max(0, Number(form.debtLimit) || 0)
@@ -349,6 +353,12 @@ export async function saveCardLoyalty(
     vip: !!form.vip,
     debtEnabled: !!form.debtEnabled,
     loyaltyPeriod: currentLoyaltyPeriod(),
+    levelLockedPeriod: levelChanged
+      ? currentLoyaltyPeriod()
+      : (card.levelLockedPeriod || client?.levelLockedPeriod),
+    vipUntil: form.vip
+      ? (form.vipUntil || endOfLoyaltyPeriodIso())
+      : undefined,
     ...(statusChanged ? { bonusEligibleFrom: new Date().toISOString() } : {}),
   }
 
@@ -428,7 +438,7 @@ export async function saveCardLoyalty(
 }
 
 /** Сброс статуса и VIP в начале нового месяца */
-export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string): boolean {
+export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?: Order[]): boolean {
   const clientStore = useClientStore.getState()
   const cardStore = useCardStore.getState()
   const client = clientStore.clients.find(c => phonesMatch(c.phone, phone))
@@ -441,8 +451,32 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string): boolea
   if (!storedPeriod) return false
   if (isLoyaltyPeriodCurrent(storedPeriod)) return false
 
+  const oldPeriod = storedPeriod
   const period = currentLoyaltyPeriod()
-  const patch = { level: 'basic' as ClientLevel, loyaltyPeriod: period }
+  const hadLevelLock = !!(card?.levelLockedPeriod === oldPeriod || client?.levelLockedPeriod === oldPeriod)
+  const account = client || undefined
+  const { spent, orderCount } = orders?.length
+    ? loyaltyStatsFromOrders(orders, phone, oldPeriod, account)
+    : { spent: client?.spent || 0, orderCount: client?.orders || 0 }
+
+  let nextLevel: ClientLevel = 'basic'
+  if (hadLevelLock) {
+    nextLevel = earnedLevelForPeriod(spent, orderCount)
+  }
+
+  let nextVip = !!(card?.vip ?? client?.vip)
+  const vipUntil = card?.vipUntil || client?.vipUntil
+  if (vipUntil && Date.now() > new Date(vipUntil).getTime()) {
+    nextVip = qualifiesAutoVip(spent, orderCount, 0)
+  }
+
+  const patch = {
+    level: nextLevel,
+    loyaltyPeriod: period,
+    levelLockedPeriod: undefined as string | undefined,
+    vip: nextVip,
+    vipUntil: nextVip && vipUntil && Date.now() <= new Date(vipUntil).getTime() ? vipUntil : undefined,
+  }
 
   if (card) cardStore.updateCardLoyalty(card.num, patch)
   if (client) clientStore.updateClient(client.id, { ...patch, ...(card ? { card: card.num } : {}) })

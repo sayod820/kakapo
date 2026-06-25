@@ -1,6 +1,7 @@
 import { suggestLevel, resolveEffectiveClientLevel, loyaltyStatsFromOrders, type ClientLevel } from './clientCrm'
 import { filterOrdersForStoreUser } from './clientAccountLifecycle'
 import { isLoyaltyPeriodCurrent, loyaltyPeriodEndsLabel, loyaltyPeriodLabel, currentLoyaltyPeriod } from './loyaltyPeriod'
+import { isForcedVipActive, isLevelLocked } from './loyaltyAdminLock'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 import type { StoreUser } from './clientSession'
 import type { Order } from './types'
@@ -76,9 +77,13 @@ function tierIndex(level: ClientLevel): number {
   return LOYALTY_TIERS.findIndex(t => t.id === level)
 }
 
-export function resolveAdminVipActive(adminVip?: boolean, _storedPeriod?: string): boolean {
-  // Назначение админки: флаг vip на карте/клиенте — источник правды до месячного сброса на сервере
-  return !!adminVip
+export function resolveAdminVipActive(
+  adminVip?: boolean,
+  _storedPeriod?: string,
+  vipUntil?: string,
+): boolean {
+  if (!adminVip) return false
+  return isForcedVipActive({ vip: adminVip, vipUntil })
 }
 
 export function getLoyaltyProgress(
@@ -88,13 +93,20 @@ export function getLoyaltyProgress(
   storedLevel?: ClientLevel | 'new',
   adminVip?: boolean,
   storedPeriod?: string,
+  lock?: { levelLockedPeriod?: string; vipUntil?: string },
 ): LoyaltyProgress {
   refreshLoyaltyTiersFromConfig()
   const cfg = loadLoyaltyStatusConfig()
   const vipRules = cfg.vipRules
   const period = currentLoyaltyPeriod()
-  const effectiveLevel = resolveEffectiveClientLevel(spent, orderCount, storedLevel, storedPeriod)
-  const adminVipActive = resolveAdminVipActive(adminVip, storedPeriod)
+  const effectiveLevel = resolveEffectiveClientLevel(
+    spent,
+    orderCount,
+    storedLevel,
+    storedPeriod,
+    lock,
+  )
+  const adminVipActive = resolveAdminVipActive(adminVip, storedPeriod, lock?.vipUntil)
 
   const isBasicClient = effectiveLevel === 'basic' && !adminVipActive
 
@@ -174,7 +186,23 @@ export function mergeStoreUserWithCrmLoyalty(
 ): StoreUser {
   const scoped = filterOrdersForStoreUser(orders, user)
   const { spent, orderCount } = loyaltyStatsFromOrders(scoped, user.phone)
-  const loyalty = getLoyaltyProgress(spent, orderCount, reviewCount, user.level, user.vip, user.loyaltyPeriod)
+  const lock = { levelLockedPeriod: user.levelLockedPeriod, vipUntil: user.vipUntil }
+  const loyalty = getLoyaltyProgress(
+    spent,
+    orderCount,
+    reviewCount,
+    user.level,
+    user.vip,
+    user.loyaltyPeriod,
+    lock,
+  )
+  if (isLevelLocked(lock) && user.level && user.level !== 'basic') {
+    return {
+      ...user,
+      vip: !!user.vip || loyalty.isVip,
+      level: user.level,
+    }
+  }
   const hasAccountOrders = orderCount > 0 || spent > 0
   const crmLevel = user.vip && user.level && user.level !== 'basic' && user.level !== 'new'
     ? user.level

@@ -5,6 +5,7 @@ import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
+import { isLevelLocked } from './loyaltyAdminLock'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { bonusEligibleTotal } from './orderLoyaltyAmount'
 
@@ -33,6 +34,10 @@ export interface AdminClient {
   lastOrderAt?: string
   /** Месяц (YYYY-MM), за который действует текущий статус и VIP */
   loyaltyPeriod?: string
+  /** Месяц (YYYY-MM), в котором уровень закреплён админом */
+  levelLockedPeriod?: string
+  /** До какой даты (ISO) действует принудительный VIP */
+  vipUntil?: string
   /** С какого момента (ISO) начислять кэшбэк после ручной смены статуса */
   bonusEligibleFrom?: string
   /** Поколение аккаунта: после полного удаления и новой регистрации +1 */
@@ -223,6 +228,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
+    levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
     accountGeneration: Number(raw.accountGeneration) > 0 ? Number(raw.accountGeneration) : 1,
     recoveryExpiresAt: raw.recoveryExpiresAt || undefined,
@@ -292,8 +299,14 @@ export function resolveEffectiveClientLevel(
   orderCount: number,
   storedLevel?: ClientLevel | 'new',
   storedPeriod?: string,
+  lock?: { levelLockedPeriod?: string },
 ): ClientLevel {
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+
+  if (isLevelLocked(lock) && normalizedStored && normalizedStored !== 'basic') {
+    return normalizedStored
+  }
+
   const storedActive = isLoyaltyPeriodCurrent(storedPeriod)
   const adminAssignedLegacy = !!normalizedStored && normalizedStored !== 'basic' && !storedPeriod
   const storedForMonth = storedActive && normalizedStored && normalizedStored !== 'basic'
@@ -320,7 +333,9 @@ export function shouldAutoUpgradeLevel(
   stored: ClientLevel | undefined,
   effective: ClientLevel,
   storedPeriod?: string,
+  lock?: { levelLockedPeriod?: string },
 ): boolean {
+  if (isLevelLocked(lock)) return false
   if (!storedPeriod) {
     if (!stored || stored === 'basic') return effective !== 'basic'
     return loyaltyTierIndex(effective) > loyaltyTierIndex(stored)
@@ -393,7 +408,9 @@ export function enrichClientWithOrders(client: AdminClient, orders: Order[]): Ad
   const ordersCount = hasLive ? live.orders : 0
   const storedLevel = client.vip ? (client.level || 'basic') : 'basic'
   const level = hasLive
-    ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, client.loyaltyPeriod)
+    ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, client.loyaltyPeriod, {
+      levelLockedPeriod: client.levelLockedPeriod,
+    })
     : storedLevel
   const lastLabel = formatLastActivity(hasLive ? (live.lastOrderAt || client.lastOrderAt) : undefined)
   return {

@@ -20,6 +20,10 @@ export interface AdminCard {
   debtEnabled?: boolean
   /** Месяц (YYYY-MM), за который действует статус на карте */
   loyaltyPeriod?: string
+  /** Месяц (YYYY-MM), в котором уровень закреплён админом */
+  levelLockedPeriod?: string
+  /** До какой даты (ISO) действует принудительный VIP */
+  vipUntil?: string
   /** С какого момента (ISO) начислять кэшбэк после ручной смены статуса */
   bonusEligibleFrom?: string
 }
@@ -105,6 +109,8 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
       || debtFromNote(raw.note)
       || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
+    levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
   }
 }
@@ -134,6 +140,7 @@ export type CardLoyaltyForm = {
   debt: number
   vip: boolean
   debtEnabled: boolean
+  vipUntil?: string
 }
 
 export function emptyCardLoyaltyForm(): CardLoyaltyForm {
@@ -150,6 +157,7 @@ export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): Card
     debt: card.debt ?? client?.debt ?? 0,
     vip: !!(card.vip ?? client?.vip),
     debtEnabled: resolveDebtEnabled(card, client),
+    vipUntil: card.vipUntil || client?.vipUntil,
   }
 }
 

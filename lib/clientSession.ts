@@ -18,6 +18,8 @@ export type StoreUser = {
   blocked?: boolean
   debtEnabled?: boolean
   loyaltyPeriod?: string
+  levelLockedPeriod?: string
+  vipUntil?: string
   bonusEligibleFrom?: string
   accountGeneration?: number
   recoveryExpiresAt?: string

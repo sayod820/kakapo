@@ -36,6 +36,8 @@ export type CrmStoreUser = {
   blocked?: boolean
   debtEnabled?: boolean
   loyaltyPeriod?: string
+  levelLockedPeriod?: string
+  vipUntil?: string
   bonusEligibleFrom?: string
   accountGeneration?: number
   recoveryExpiresAt?: string
@@ -122,6 +124,8 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     debtEnabled,
     blocked: card.status === 'blocked' || base.blocked,
     loyaltyPeriod: card.loyaltyPeriod || base.loyaltyPeriod,
+    levelLockedPeriod: card.levelLockedPeriod || base.levelLockedPeriod,
+    vipUntil: card.vipUntil || base.vipUntil,
     bonusEligibleFrom: card.bonusEligibleFrom || base.bonusEligibleFrom,
     accountGeneration: card.accountGeneration || base.accountGeneration,
     recoveryExpiresAt: card.recoveryExpiresAt || base.recoveryExpiresAt,
@@ -144,6 +148,8 @@ export function crmToStoreUser(c: AdminClient, card?: AdminCard | null): CrmStor
     debtEnabled: !!c.debtEnabled,
     blocked: !!c.blocked,
     loyaltyPeriod: c.loyaltyPeriod,
+    levelLockedPeriod: c.levelLockedPeriod,
+    vipUntil: c.vipUntil,
     bonusEligibleFrom: c.bonusEligibleFrom,
     accountGeneration: c.accountGeneration,
     recoveryExpiresAt: c.recoveryExpiresAt,
@@ -255,7 +261,7 @@ export async function isStoreAccountActiveOnServer(phone: string): Promise<boole
 }
 
 const SYNC_KEYS: (keyof CrmStoreUser)[] = [
-  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
+  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'levelLockedPeriod', 'vipUntil', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
 ]
 
 export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmStoreUser | null | undefined): boolean {

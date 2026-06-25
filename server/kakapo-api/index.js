@@ -945,6 +945,8 @@ function normalizeClientRow(raw) {
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod,
+    levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
     debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
     accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
@@ -1036,6 +1038,11 @@ app.patch('/clients/:id', (req, res) => {
   if (vipChanged || levelChanged) {
     patch.loyaltyPeriod = currentLoyaltyPeriod()
     patch.bonusEligibleFrom = new Date().toISOString()
+    if (levelChanged) patch.levelLockedPeriod = currentLoyaltyPeriod()
+    if (vipChanged && patch.vip) {
+      patch.vipUntil = patch.vipUntil || endOfLoyaltyPeriodIsoServer()
+    }
+    if (vipChanged && !patch.vip) patch.vipUntil = undefined
     if (c.card) {
       const linked = findCardByNum(c.card)
       if (linked) {
@@ -1043,6 +1050,8 @@ app.patch('/clients/:id', (req, res) => {
         linked.bonusEligibleFrom = patch.bonusEligibleFrom
         if (patch.level != null) linked.level = patch.level
         if (patch.vip !== undefined) linked.vip = !!patch.vip
+        if (patch.levelLockedPeriod !== undefined) linked.levelLockedPeriod = patch.levelLockedPeriod
+        if (patch.vipUntil !== undefined) linked.vipUntil = patch.vipUntil
       }
     }
   }
@@ -1357,6 +1366,8 @@ function normalizeCardRow(raw) {
     vip: !!raw.vip || vipFromNote(raw.note),
     debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
+    levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
   }
 }
@@ -1426,6 +1437,12 @@ function ensureCardRowForClient(client) {
   return card
 }
 
+function endOfLoyaltyPeriodIsoServer(period = currentLoyaltyPeriod()) {
+  const [y, m] = period.split('-').map(Number)
+  if (!y || !m) return new Date().toISOString()
+  return new Date(y, m, 0, 23, 59, 59, 999).toISOString()
+}
+
 function syncClientFromCardRow(card) {
   if (!Array.isArray(db.clients)) db.clients = []
   if (card.status === 'unlinked') {
@@ -1469,6 +1486,8 @@ function syncClientFromCardRow(card) {
   client.vip = !!card.vip
   client.blocked = card.status === 'blocked'
   if (card.loyaltyPeriod) client.loyaltyPeriod = card.loyaltyPeriod
+  if (card.levelLockedPeriod) client.levelLockedPeriod = card.levelLockedPeriod
+  if (card.vipUntil) client.vipUntil = card.vipUntil
   if (card.bonusEligibleFrom) client.bonusEligibleFrom = card.bonusEligibleFrom
   client.debtEnabled = !!(card.debtEnabled || debtFromNote(card.note))
 }
@@ -1641,6 +1660,13 @@ app.patch('/cards/:num', (req, res) => {
     if (body.vip !== undefined || body.level != null) {
       body.loyaltyPeriod = currentLoyaltyPeriod()
       body.bonusEligibleFrom = new Date().toISOString()
+      if (body.level != null && body.level !== card.level) {
+        body.levelLockedPeriod = currentLoyaltyPeriod()
+      }
+      if (body.vip === true && !body.vipUntil) {
+        body.vipUntil = endOfLoyaltyPeriodIsoServer()
+      }
+      if (body.vip === false) body.vipUntil = undefined
     }
     Object.assign(card, normalizeCardRow({ ...card, ...body, num }))
     syncClientFromCardRow(card)

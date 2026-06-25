@@ -303,7 +303,9 @@ function findClientForOrder(db, order, hooks) {
 }
 
 function applyLevelUpgrade(client, card, effectiveLevel, period) {
-  if (client.vip) return
+  const lock = client.levelLockedPeriod || card?.levelLockedPeriod
+  if (lock && lock === period) return
+  if (client.vip && isForcedVipActive(client)) return
   if (effectiveLevel === client.level && client.loyaltyPeriod === period) return
   client.level = effectiveLevel
   client.loyaltyPeriod = period
@@ -313,20 +315,33 @@ function applyLevelUpgrade(client, card, effectiveLevel, period) {
   }
 }
 
+function isForcedVipActive(client) {
+  if (!client?.vip) return false
+  if (!client.vipUntil) return true
+  const until = new Date(client.vipUntil).getTime()
+  if (Number.isNaN(until)) return true
+  return Date.now() <= until
+}
+
 /** Сброс уровня в начале нового месяца (VIP не трогаем). */
 function ensureClientPeriodForOrder(client, card, orderPeriod) {
-  if (client.vip) {
+  if (client.vip && isForcedVipActive(client)) {
     if (!client.loyaltyPeriod) client.loyaltyPeriod = orderPeriod
     if (card && !card.loyaltyPeriod) card.loyaltyPeriod = orderPeriod
     return
   }
   const stored = client.loyaltyPeriod || card?.loyaltyPeriod
   if (stored && stored !== orderPeriod) {
-    client.level = 'basic'
+    const hadLock = client.levelLockedPeriod === stored || card?.levelLockedPeriod === stored
+    if (!hadLock) {
+      client.level = 'basic'
+      if (card) card.level = 'basic'
+    }
     client.loyaltyPeriod = orderPeriod
+    client.levelLockedPeriod = undefined
     if (card) {
-      card.level = 'basic'
       card.loyaltyPeriod = orderPeriod
+      card.levelLockedPeriod = undefined
     }
     return
   }
