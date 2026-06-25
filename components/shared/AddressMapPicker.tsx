@@ -81,13 +81,15 @@ function pinIconHtml(gradient: string) {
   return `<div style="width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${gradient};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.3)"><span style="transform:rotate(45deg);font-size:16px">📍</span></div>`;
 }
 
-/** Метка в стиле такси: пузырь с адресом + круглая метка, остриё в центре карты */
+/** Метка в стиле такси: при движении поднимается, после остановки опускается → адрес */
 function CenterPinOverlay({
   fill,
   fillDark,
   address,
   loading,
   moving,
+  addressVisible,
+  dropKey,
   addressLabel = 'Адрес',
 }: {
   fill: string;
@@ -95,107 +97,134 @@ function CenterPinOverlay({
   address: string;
   loading: boolean;
   moving: boolean;
+  addressVisible: boolean;
+  dropKey: number;
   addressLabel?: string;
 }) {
-  const pinSize = 44;
-  const stemH = 10;
-  const displayText = loading
-    ? 'Определяем адрес…'
-    : (address || 'Двигайте карту');
+  const pinSize = 46;
+  const lift = moving ? 28 : 0;
+  const stemH = moving ? 22 : 8;
+  const showBubble = !moving && (loading || addressVisible);
 
   return (
-    <div
-      aria-hidden
-      style={{
-        position: 'absolute',
-        left: '50%',
-        top: '50%',
-        transform: `translate(-50%, -100%) translateY(${moving ? -14 : 0}px)`,
-        transition: 'transform 0.22s cubic-bezier(.16,1,.3,1)',
-        pointerEvents: 'none',
-        zIndex: 500,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        maxWidth: '88%',
-        width: 'max-content',
-      }}
-    >
+    <>
+      <style>{`
+        @keyframes kakapoPinDrop {
+          0% { transform: translateY(-28px); }
+          55% { transform: translateY(4px); }
+          75% { transform: translateY(-2px); }
+          100% { transform: translateY(0); }
+        }
+        @keyframes kakapoBubbleIn {
+          from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.96); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        }
+      `}</style>
       <div
+        aria-hidden
         style={{
-          marginBottom: 10,
-          padding: '10px 14px',
-          borderRadius: 14,
-          background: '#fff',
-          boxShadow: '0 4px 20px rgba(0,0,0,.18), 0 1px 4px rgba(0,0,0,.08)',
-          minWidth: 160,
-          maxWidth: 280,
-          opacity: moving ? 0.88 : 1,
-          transition: 'opacity 0.2s',
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'none',
+          zIndex: 500,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
         }}
       >
-        <div style={{ fontSize: 10, color: '#8A8A8A', fontWeight: 600, marginBottom: 3, fontFamily: 'Nunito' }}>
-          {addressLabel}
-        </div>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 700,
-            color: '#1A1A1A',
-            lineHeight: 1.35,
-            fontFamily: 'Nunito',
-            wordBreak: 'break-word',
-          }}
-        >
-          {displayText}
-        </div>
-      </div>
+        {showBubble && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: pinSize + stemH + lift + 18,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              padding: '10px 14px',
+              borderRadius: 14,
+              background: '#fff',
+              boxShadow: '0 4px 20px rgba(0,0,0,.18), 0 1px 4px rgba(0,0,0,.08)',
+              minWidth: 160,
+              maxWidth: 280,
+              animation: addressVisible && !loading ? 'kakapoBubbleIn 0.35s cubic-bezier(.16,1,.3,1) both' : undefined,
+            }}
+          >
+            <div style={{ fontSize: 10, color: '#8A8A8A', fontWeight: 600, marginBottom: 3, fontFamily: 'Nunito' }}>
+              {addressLabel}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', lineHeight: 1.35, fontFamily: 'Nunito', wordBreak: 'break-word' }}>
+              {loading ? 'Определяем адрес…' : address}
+            </div>
+          </div>
+        )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', filter: 'drop-shadow(0 6px 14px rgba(0,0,0,.35))' }}>
         <div
+          key={`pin-drop-${dropKey}`}
           style={{
-            width: pinSize,
-            height: pinSize,
-            borderRadius: '50%',
-            background: `linear-gradient(145deg, ${fillDark}, ${fill})`,
-            border: '3px solid #fff',
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center',
-            boxSizing: 'border-box',
+            transform: moving ? `translateY(-${lift}px)` : undefined,
+            animation: !moving && dropKey > 0 ? 'kakapoPinDrop 0.45s cubic-bezier(.34,1.2,.64,1) both' : undefined,
+            transition: moving ? 'transform 0.18s ease-out' : undefined,
+            filter: 'drop-shadow(0 6px 14px rgba(0,0,0,.35))',
           }}
         >
           <div
             style={{
-              width: 14,
-              height: 3,
-              borderRadius: 2,
-              background: 'rgba(255,255,255,.85)',
+              width: pinSize,
+              height: pinSize,
+              borderRadius: '50%',
+              background: `linear-gradient(145deg, ${fillDark}, ${fill})`,
+              border: '3.5px solid #fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxSizing: 'border-box',
+            }}
+          >
+            {loading && !moving ? (
+              <div
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: '50%',
+                  border: '2.5px solid rgba(255,255,255,.35)',
+                  borderTopColor: '#fff',
+                  animation: 'spin 0.7s linear infinite',
+                }}
+              />
+            ) : (
+              <div style={{ width: 16, height: 3.5, borderRadius: 2, background: 'rgba(255,255,255,.9)' }} />
+            )}
+          </div>
+          <div
+            style={{
+              width: 5,
+              height: stemH,
+              background: fill,
+              borderRadius: 3,
+              marginTop: -2,
+              transition: 'height 0.18s ease-out',
             }}
           />
         </div>
+
         <div
           style={{
-            width: 4,
-            height: stemH,
-            background: fill,
-            borderRadius: '0 0 2px 2px',
-            marginTop: -1,
-          }}
-        />
-        <div
-          style={{
-            width: 8,
-            height: 8,
+            width: 10,
+            height: 10,
             borderRadius: '50%',
             background: fill,
-            border: '2px solid #fff',
-            marginTop: -2,
-            boxShadow: `0 0 0 2px ${fill}44`,
+            border: '2.5px solid #fff',
+            marginTop: 2,
+            boxShadow: `0 0 0 3px ${fill}33, 0 2px 8px rgba(0,0,0,.25)`,
+            flexShrink: 0,
           }}
         />
       </div>
-    </div>
+    </>
   );
 }
 
@@ -230,7 +259,9 @@ export default function AddressMapPicker({
   const [error, setError] = useState('');
   const [liveAddress, setLiveAddress] = useState('');
   const [addressLoading, setAddressLoading] = useState(false);
+  const [addressVisible, setAddressVisible] = useState(false);
   const [mapMoving, setMapMoving] = useState(false);
+  const [dropKey, setDropKey] = useState(0);
   const geocodeReqRef = useRef(0);
   const geocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -239,18 +270,29 @@ export default function AddressMapPicker({
     geocodeTimerRef.current = setTimeout(async () => {
       const req = ++geocodeReqRef.current;
       setAddressLoading(true);
+      setAddressVisible(false);
       try {
         const address = await reverseGeocode(lat, lng);
         if (req !== geocodeReqRef.current) return;
         setLiveAddress(address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        setAddressVisible(true);
       } catch {
         if (req === geocodeReqRef.current) {
           setLiveAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+          setAddressVisible(true);
         }
       } finally {
         if (req === geocodeReqRef.current) setAddressLoading(false);
       }
     }, delayMs);
+  };
+
+  const onMapMoveStart = () => {
+    geocodeReqRef.current += 1;
+    if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
+    setMapMoving(true);
+    setAddressVisible(false);
+    setAddressLoading(false);
   };
 
   useEffect(() => { pinRef.current = pin; }, [pin]);
@@ -293,10 +335,10 @@ export default function AddressMapPicker({
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-      const syncCenterPin = (geocodeDelay = 350) => {
+      const updateCenterCoords = () => {
         const c = map.getCenter();
         setPin({ lat: c.lat, lng: c.lng });
-        resolveAddress(c.lat, c.lng, geocodeDelay);
+        return c;
       };
 
       const placeMarker = (lat: number, lng: number, gradient = pinGradientRef.current) => {
@@ -317,12 +359,15 @@ export default function AddressMapPicker({
       };
 
       if (pickMode === 'center') {
-        map.on('movestart', () => setMapMoving(true));
+        map.on('movestart', onMapMoveStart);
         map.on('moveend', () => {
           setMapMoving(false);
-          syncCenterPin(300);
+          setDropKey(k => k + 1);
+          const c = updateCenterCoords();
+          resolveAddress(c.lat, c.lng, 380);
         });
-        syncCenterPin(0);
+        const c0 = updateCenterCoords();
+        resolveAddress(c0.lat, c0.lng, 250);
       } else {
         if (pinRef.current) placeMarker(pinRef.current.lat, pinRef.current.lng);
         map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
@@ -368,13 +413,16 @@ export default function AddressMapPicker({
           const gpsZoom = pickMode === 'center' ? CENTER_PICK_GPS_ZOOM : 17;
           mapRef.current.setView([lat, lng], gpsZoom, { animate: false });
           if (pickMode === 'center') {
+            setAddressVisible(false);
             setAddressLoading(true);
             reverseGeocode(lat, lng).then(addr => {
               setLiveAddress(addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
               setAddressLoading(false);
+              setAddressVisible(true);
             }).catch(() => {
               setLiveAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
               setAddressLoading(false);
+              setAddressVisible(true);
             });
           } else {
             import('leaflet').then(L => {
@@ -452,6 +500,8 @@ export default function AddressMapPicker({
             address={liveAddress}
             loading={addressLoading}
             moving={mapMoving}
+            addressVisible={addressVisible}
+            dropKey={dropKey}
             addressLabel={addressLabel}
           />
         )}
