@@ -649,6 +649,8 @@ function OrdersPage() {
   const [busyKey, setBusyKey] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkStatusChanging, setBulkStatusChanging] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [removedDemoIds, setRemovedDemoIds] = useState(new Set());
   const orders = useMemo(
@@ -749,38 +751,72 @@ function OrdersPage() {
   const changeStatus = async (o, newStatus) => {
     if (!newStatus || newStatus === o.status) return;
     if (newStatus === 'cancelled' && !window.confirm(`Отменить заказ ${o.id}?`)) return;
-    const clearsCourier = !COURIER_ASSIGNED_STATUSES.includes(newStatus);
     setBusyKey(`${o.id}:status`);
     try {
-      if (USE_API) {
-        await adminUpdateStatus(o.id, newStatus);
-      } else {
-        const raw = apiOrders.find(x => x.id === o.id)
-        const extra = buildAdminStatusPatch(raw, newStatus)
-        const { adminOverride: _ao, ...fields } = extra
-        setDemoPatch(prev => ({
-          ...prev,
-          [o.id]: {
-            status: newStatus,
-            ...fields,
-            courier: clearsCourier ? '—' : o.courier,
-            courierPhone: clearsCourier ? '' : o.courierPhone,
-          },
-        }));
-      }
-      if (detail?.id === o.id) {
-        setDetail(prev => (prev ? {
-          ...prev,
-          status: newStatus,
-          courier: clearsCourier ? '—' : prev.courier,
-          courierPhone: clearsCourier ? '' : prev.courierPhone,
-        } : null));
-      }
+      await applyStatusChange(o, newStatus);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Не удалось сохранить статус'
       window.alert(msg)
     } finally {
       setBusyKey(null);
+    }
+  };
+  const applyStatusChange = async (o, newStatus) => {
+    if (!newStatus || newStatus === o.status) return;
+    const clearsCourier = !COURIER_ASSIGNED_STATUSES.includes(newStatus);
+    if (USE_API) {
+      await adminUpdateStatus(o.id, newStatus);
+    } else {
+      const raw = apiOrders.find(x => x.id === o.id)
+      const extra = buildAdminStatusPatch(raw, newStatus)
+      const { adminOverride: _ao, ...fields } = extra
+      setDemoPatch(prev => ({
+        ...prev,
+        [o.id]: {
+          status: newStatus,
+          ...fields,
+          courier: clearsCourier ? '—' : o.courier,
+          courierPhone: clearsCourier ? '' : o.courierPhone,
+        },
+      }));
+    }
+    if (detail?.id === o.id) {
+      setDetail(prev => (prev ? {
+        ...prev,
+        status: newStatus,
+        courier: clearsCourier ? '—' : prev.courier,
+        courierPhone: clearsCourier ? '' : prev.courierPhone,
+      } : null));
+    }
+  };
+  const applyBulkStatus = async () => {
+    if (!bulkStatus) return;
+    const items = filtered.filter(o => selectedIds.has(o.id));
+    const needChange = items.filter(o => o.status !== bulkStatus);
+    if (!needChange.length) {
+      window.alert('У всех выбранных заказов уже этот статус');
+      return;
+    }
+    const label = adminStatusLabel(bulkStatus).l;
+    const question = bulkStatus === 'cancelled'
+      ? `Отменить ${needChange.length} заказ(ов)?`
+      : `Изменить статус у ${needChange.length} заказ(ов) на «${label}»?`;
+    if (!window.confirm(question)) return;
+    setBulkStatusChanging(true);
+    let failed = 0;
+    for (const o of needChange) {
+      try {
+        await applyStatusChange(o, bulkStatus);
+      } catch {
+        failed += 1;
+      }
+    }
+    setBulkStatusChanging(false);
+    if (failed > 0) {
+      window.alert(`Не удалось обновить ${failed} заказ(ов)`);
+    } else {
+      setSelectedIds(new Set());
+      setBulkStatus('');
     }
   };
   const applyCourier = async (o, courierId) => {
@@ -851,7 +887,7 @@ function OrdersPage() {
           statusBusy={busyKey === `${detail.id}:status`}
           courierBusy={busyKey === `${detail.id}:courier`}
           assemblerBusy={busyKey === `${detail.id}:assembler`}
-          deleteBusy={deletingId === detail.id || bulkDeleting}
+          deleteBusy={deletingId === detail.id || bulkDeleting || bulkStatusChanging}
         />
       )}
       <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:10,marginBottom:18}}>
@@ -914,26 +950,58 @@ function OrdersPage() {
       {selectedIds.size > 0 && (
         <div style={{
           display:'flex', flexWrap:'wrap', alignItems:'center', gap:10, marginBottom:12,
-          padding:'10px 14px', borderRadius:12, background:'rgba(255,69,69,.08)', border:'1px solid rgba(255,69,69,.25)',
+          padding:'10px 14px', borderRadius:12, background:'rgba(31,215,96,.06)', border:'1px solid rgba(31,215,96,.22)',
         }}>
           <span style={{ fontSize:13, color:'#EBF5ED' }}>
-            Выбрано: <strong style={{ color:'#FF4545' }}>{selectedIds.size}</strong>
+            Выбрано: <strong style={{ color:'#1FD760' }}>{selectedIds.size}</strong>
           </span>
+          <select
+            value={bulkStatus}
+            onChange={e => setBulkStatus(e.target.value)}
+            disabled={bulkDeleting || bulkStatusChanging}
+            style={{
+              padding:'6px 10px',
+              borderRadius:8,
+              fontSize:12,
+              fontWeight:700,
+              background:'#0C1C0F',
+              color: bulkStatus ? adminStatusLabel(bulkStatus).c : '#8FB897',
+              border:`1px solid ${bulkStatus ? `${adminStatusLabel(bulkStatus).c}40` : '#162B1A'}`,
+              cursor: bulkDeleting || bulkStatusChanging ? 'default' : 'pointer',
+              minWidth: 150,
+              opacity: bulkDeleting || bulkStatusChanging ? .6 : 1,
+            }}
+          >
+            <option value="" style={{ background:'#0C1C0F', color:'#8FB897' }}>Новый статус…</option>
+            {ADMIN_STATUS_OPTIONS.map(st => {
+              const lb = adminStatusLabel(st);
+              return <option key={st} value={st} style={{ background:'#0C1C0F', color:'#EBF5ED' }}>{lb.l}</option>;
+            })}
+          </select>
+          <button
+            type="button"
+            onClick={applyBulkStatus}
+            disabled={!bulkStatus || bulkDeleting || bulkStatusChanging}
+            className="ab abp"
+            style={{ padding:'6px 14px', fontSize:12, opacity: !bulkStatus || bulkDeleting || bulkStatusChanging ? .6 : 1 }}
+          >
+            {bulkStatusChanging ? 'Сохранение…' : '✓ Изменить статус'}
+          </button>
           <button
             type="button"
             onClick={() => removeOrders(filtered.filter(o => selectedIds.has(o.id)))}
-            disabled={bulkDeleting}
+            disabled={bulkDeleting || bulkStatusChanging}
             className="ab abd"
-            style={{ padding:'6px 14px', fontSize:12, opacity: bulkDeleting ? .6 : 1 }}
+            style={{ padding:'6px 14px', fontSize:12, opacity: bulkDeleting || bulkStatusChanging ? .6 : 1 }}
           >
             {bulkDeleting ? 'Удаление…' : '🗑 Удалить выбранные'}
           </button>
           <button
             type="button"
-            onClick={() => setSelectedIds(new Set())}
-            disabled={bulkDeleting}
+            onClick={() => { setSelectedIds(new Set()); setBulkStatus(''); }}
+            disabled={bulkDeleting || bulkStatusChanging}
             className="ab"
-            style={{ padding:'6px 14px', fontSize:12, background:'#0C1C0F', border:'1px solid #162B1A', color:'#8FB897' }}
+            style={{ padding:'6px 14px', fontSize:12, background:'#0C1C0F', border:'1px solid #162B1A', color:'#8FB897', marginLeft:'auto' }}
           >
             Снять выбор
           </button>
@@ -948,7 +1016,7 @@ function OrdersPage() {
                 type="checkbox"
                 checked={allFilteredSelected}
                 onChange={toggleSelectAllFiltered}
-                disabled={filtered.length === 0 || bulkDeleting}
+                disabled={filtered.length === 0 || bulkDeleting || bulkStatusChanging}
                 title="Выбрать все в списке"
                 style={{ width:16, height:16, cursor: filtered.length === 0 ? 'default' : 'pointer', accentColor:'#1FD760' }}
               />
@@ -971,7 +1039,7 @@ function OrdersPage() {
                       type="checkbox"
                       checked={selectedIds.has(o.id)}
                       onChange={e => toggleSelectOrder(o.id, e)}
-                      disabled={bulkDeleting}
+                      disabled={bulkDeleting || bulkStatusChanging}
                       style={{ width:16, height:16, accentColor:'#1FD760', cursor:'pointer' }}
                     />
                   </td>
@@ -994,7 +1062,7 @@ function OrdersPage() {
                     <button
                       type="button"
                       title="Удалить заказ"
-                      disabled={bulkDeleting || deletingId === o.id}
+                      disabled={bulkDeleting || bulkStatusChanging || deletingId === o.id}
                       onClick={() => removeOrders([o])}
                       className="btn"
                       style={{ width:30, height:30, borderRadius:8, background:'rgba(255,69,69,.1)', border:'1px solid rgba(255,69,69,.25)', color:'#FF4545', fontSize:13 }}
