@@ -216,9 +216,9 @@ export type ApiLoyaltySettings = {
   basic?: { bonusPercent?: number }
   bronze?: { bonusPercent?: number }
   silver?: { bonusPercent?: number }
-  gold?: { bonusPercent?: number }
-  platinum?: { bonusPercent?: number }
-  vip?: { bonusPercent?: number }
+  gold?: { bonusPercent?: number; defaultDebtLimit?: number }
+  platinum?: { bonusPercent?: number; defaultDebtLimit?: number }
+  vip?: { bonusPercent?: number; defaultDebtLimit?: number }
   vipRules?: { minOrders?: number; minReviews?: number; minSpent?: number }
 }
 
@@ -229,21 +229,36 @@ export function apiLoyaltyToStatusConfig(
 ): LoyaltyStatusConfig {
   const t = api.tierMinSpent || {}
   const bronzeMin = Number(api.bronzeMinSpent) || Number(t.bronze) || base.bronzeMinSpent
-  const tierPatch = (id: LoyaltyTierId, minSpent: number, bonusPercent?: number) => ({
-    minSpent,
-    bonusPercent: bonusPercent != null ? Number(bonusPercent) : undefined,
-  })
+  const tierPatch = (
+    minSpent: number,
+    bonusPercent?: number,
+    defaultDebtLimit?: number,
+  ): Partial<LoyaltyTierConfig> => {
+    const patch: Partial<LoyaltyTierConfig> = { minSpent }
+    if (bonusPercent != null) patch.bonusPercent = Number(bonusPercent)
+    if (defaultDebtLimit != null) patch.defaultDebtLimit = Math.max(0, Number(defaultDebtLimit) || 0)
+    return patch
+  }
   return normalizeConfig({
     welcomeBonus: api.welcomeBonus ?? base.welcomeBonus,
     bronzeMinSpent: bronzeMin,
     vipRules: api.vipRules ? { ...base.vipRules, ...api.vipRules } : base.vipRules,
     basic: { bonusPercent: api.basic?.bonusPercent ?? base.basic.bonusPercent },
-    vip: { bonusPercent: api.vip?.bonusPercent ?? base.vip.bonusPercent },
+    vip: {
+      bonusPercent: api.vip?.bonusPercent ?? base.vip.bonusPercent,
+      ...(api.vip?.defaultDebtLimit != null
+        ? { defaultDebtLimit: Math.max(0, Number(api.vip.defaultDebtLimit) || 0) }
+        : {}),
+    },
     tiers: base.tiers.map(tier => {
-      if (tier.id === 'bronze') return { ...tier, ...tierPatch('bronze', bronzeMin, api.bronze?.bonusPercent) }
-      if (tier.id === 'silver') return { ...tier, ...tierPatch('silver', Number(t.silver) || tier.minSpent, api.silver?.bonusPercent) }
-      if (tier.id === 'gold') return { ...tier, ...tierPatch('gold', Number(t.gold) || tier.minSpent, api.gold?.bonusPercent) }
-      if (tier.id === 'platinum') return { ...tier, ...tierPatch('platinum', Number(t.platinum) || tier.minSpent, api.platinum?.bonusPercent) }
+      if (tier.id === 'bronze') return { ...tier, ...tierPatch(bronzeMin, api.bronze?.bonusPercent) }
+      if (tier.id === 'silver') return { ...tier, ...tierPatch(Number(t.silver) || tier.minSpent, api.silver?.bonusPercent) }
+      if (tier.id === 'gold') {
+        return { ...tier, ...tierPatch(Number(t.gold) || tier.minSpent, api.gold?.bonusPercent, api.gold?.defaultDebtLimit) }
+      }
+      if (tier.id === 'platinum') {
+        return { ...tier, ...tierPatch(Number(t.platinum) || tier.minSpent, api.platinum?.bonusPercent, api.platinum?.defaultDebtLimit) }
+      }
       return tier
     }),
   })
@@ -268,9 +283,9 @@ export function statusConfigToApiPayload(cfg: LoyaltyStatusConfig): ApiLoyaltySe
     basic: { bonusPercent: next.basic.bonusPercent },
     bronze: { bonusPercent: bronze?.bonusPercent ?? 0 },
     silver: { bonusPercent: silver?.bonusPercent ?? 0 },
-    gold: { bonusPercent: gold?.bonusPercent ?? 0 },
-    platinum: { bonusPercent: platinum?.bonusPercent ?? 0 },
-    vip: { bonusPercent: next.vip.bonusPercent },
+    gold: { bonusPercent: gold?.bonusPercent ?? 0, defaultDebtLimit: gold?.defaultDebtLimit ?? 0 },
+    platinum: { bonusPercent: platinum?.bonusPercent ?? 0, defaultDebtLimit: platinum?.defaultDebtLimit ?? 0 },
+    vip: { bonusPercent: next.vip.bonusPercent, defaultDebtLimit: next.vip.defaultDebtLimit ?? 0 },
     vipRules: { ...next.vipRules },
   }
 }

@@ -7,9 +7,9 @@ export const DEFAULT_LOYALTY = {
   basic: { bonusPercent: 0 },
   bronze: { bonusPercent: 1 },
   silver: { bonusPercent: 2 },
-  gold: { bonusPercent: 3 },
-  platinum: { bonusPercent: 5 },
-  vip: { bonusPercent: 5 },
+  gold: { bonusPercent: 3, defaultDebtLimit: 2000 },
+  platinum: { bonusPercent: 5, defaultDebtLimit: 2000 },
+  vip: { bonusPercent: 5, defaultDebtLimit: 5000 },
   vipRules: { minOrders: 30, minReviews: 5, minSpent: 3000 },
 }
 
@@ -23,7 +23,16 @@ export function ensureLoyaltySettings(db) {
     l.tierMinSpent = { ...DEFAULT_LOYALTY.tierMinSpent }
   }
   if (!l.vipRules) {
-    l.vipRules = { minOrders: 30, minReviews: 5, minSpent: 3000 }
+    l.vipRules = { ...DEFAULT_LOYALTY.vipRules }
+  }
+  if (l.gold && l.gold.defaultDebtLimit == null) {
+    l.gold.defaultDebtLimit = DEFAULT_LOYALTY.gold.defaultDebtLimit
+  }
+  if (l.platinum && l.platinum.defaultDebtLimit == null) {
+    l.platinum.defaultDebtLimit = DEFAULT_LOYALTY.platinum.defaultDebtLimit
+  }
+  if (l.vip && l.vip.defaultDebtLimit == null) {
+    l.vip.defaultDebtLimit = DEFAULT_LOYALTY.vip.defaultDebtLimit
   }
   return l
 }

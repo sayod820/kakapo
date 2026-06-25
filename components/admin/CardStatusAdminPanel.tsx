@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   loadLoyaltyStatusConfig,
   saveLoyaltyStatusConfig,
@@ -95,7 +95,7 @@ function TierEditor({
         <NI
           lbl="Лимит VIP-долга, ЅМ"
           val={String(tier.defaultDebtLimit ?? 0)}
-          set={v => onChange({ defaultDebtLimit: Math.max(0, parseFloat(v) || 0) })}
+          set={v => onChange({ defaultDebtLimit: v === '' ? 0 : Math.max(0, Number(v) || 0) })}
           ph="0 — без долга"
           type="number"
         />
@@ -136,14 +136,18 @@ export default function CardStatusAdminPanel() {
     vip?: boolean
     debtEnabled?: boolean
   }>>({})
+  const draftDirtyRef = useRef(false)
 
-  useEffect(() => subscribeLoyaltyStatusConfig(cfg => setDraft(cfg)), [])
+  useEffect(() => subscribeLoyaltyStatusConfig(cfg => {
+    if (draftDirtyRef.current) return
+    setDraft(cfg)
+  }), [])
 
   useEffect(() => {
     if (!USE_API) return
     void syncLoyaltyStatusConfigFromApi().then(cfg => {
       refreshLoyaltyTiersFromConfig()
-      setDraft(cfg)
+      if (!draftDirtyRef.current) setDraft(cfg)
     })
   }, [])
 
@@ -161,6 +165,7 @@ export default function CardStatusAdminPanel() {
   const editingTier = allTiers.find(t => t.id === selectedTier) || draft.basic
 
   const patchTier = (id: LoyaltyTierId, patch: Partial<LoyaltyTierConfig>) => {
+    draftDirtyRef.current = true
     setDraft(prev => {
       let next: LoyaltyStatusConfig
       if (id === 'basic') next = { ...prev, basic: { ...prev.basic, ...patch, id: 'basic' } }
@@ -183,6 +188,7 @@ export default function CardStatusAdminPanel() {
     try {
       saveLoyaltyStatusConfig(draft)
       refreshLoyaltyTiersFromConfig()
+      draftDirtyRef.current = false
       setSaved(true)
       setConfigErr('')
       setTimeout(() => setSaved(false), 2500)
@@ -194,6 +200,7 @@ export default function CardStatusAdminPanel() {
   const resetConfig = () => {
     if (!confirm('Сбросить все настройки статусов к значениям по умолчанию?')) return
     const d = resetLoyaltyStatusConfig()
+    draftDirtyRef.current = false
     setDraft(d)
     refreshLoyaltyTiersFromConfig()
     setSaved(true)
@@ -298,11 +305,11 @@ export default function CardStatusAdminPanel() {
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
-              <NI lbl="Бонус при регистрации ⭐" val={String(draft.welcomeBonus)} set={v => { setDraft(p => ({ ...p, welcomeBonus: Math.max(0, parseInt(v, 10) || 0) })); setSaved(false) }} type="number" />
-              <NI lbl="Порог Бронзы, ЅМ" val={String(draft.bronzeMinSpent)} set={v => { setDraft(p => ({ ...p, bronzeMinSpent: Math.max(0, parseFloat(v) || 0) })); setSaved(false) }} type="number" />
-              <NI lbl="VIP: мин. заказов" val={String(draft.vipRules.minOrders)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minOrders: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
-              <NI lbl="VIP: мин. отзывов" val={String(draft.vipRules.minReviews)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minReviews: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
-              <NI lbl="VIP: мин. траты, ЅМ" val={String(draft.vipRules.minSpent)} set={v => { setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minSpent: Math.max(0, parseFloat(v) || 0) } })); setSaved(false) }} type="number" />
+              <NI lbl="Бонус при регистрации ⭐" val={String(draft.welcomeBonus)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, welcomeBonus: Math.max(0, parseInt(v, 10) || 0) })); setSaved(false) }} type="number" />
+              <NI lbl="Порог Бронзы, ЅМ" val={String(draft.bronzeMinSpent)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, bronzeMinSpent: Math.max(0, parseFloat(v) || 0) })); setSaved(false) }} type="number" />
+              <NI lbl="VIP: мин. заказов" val={String(draft.vipRules.minOrders)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minOrders: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
+              <NI lbl="VIP: мин. отзывов" val={String(draft.vipRules.minReviews)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minReviews: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
+              <NI lbl="VIP: мин. траты, ЅМ" val={String(draft.vipRules.minSpent)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minSpent: Math.max(0, parseFloat(v) || 0) } })); setSaved(false) }} type="number" />
             </div>
 
             <div style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>Уровни</div>

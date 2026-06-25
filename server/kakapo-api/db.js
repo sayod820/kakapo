@@ -23,9 +23,9 @@ const DEFAULT = {
       basic: { bonusPercent: 0 },
       bronze: { bonusPercent: 1 },
       silver: { bonusPercent: 2 },
-      gold: { bonusPercent: 3 },
-      platinum: { bonusPercent: 5 },
-      vip: { bonusPercent: 5 },
+      gold: { bonusPercent: 3, defaultDebtLimit: 2000 },
+      platinum: { bonusPercent: 5, defaultDebtLimit: 2000 },
+      vip: { bonusPercent: 5, defaultDebtLimit: 5000 },
       vipRules: { minOrders: 30, minReviews: 5, minSpent: 3000 },
     },
     admin: {
