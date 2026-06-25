@@ -8,6 +8,7 @@ export const ACCOUNT_NS = {
   reviewRepliesSeen: 'review_replies_seen',
   cart: 'cart',
   cartMeta: 'cart_meta',
+  cartUpdatedAt: 'cart_updated_at',
   wished: 'wished',
   reviewsLocal: 'reviews_local',
   debtHistory: 'debt_history',

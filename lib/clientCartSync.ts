@@ -6,6 +6,12 @@ import { normalizeClient, phonesMatch, type AdminClient } from './clientCrm'
 
 export type ClientCartMeta = Record<string, { emoji?: string; name?: string; price?: number; restId?: string }>
 
+export type CartBundle = {
+  cart: Record<string, number>
+  cartMeta: ClientCartMeta
+  cartUpdatedAt?: string
+}
+
 function sanitizeCart(raw: unknown): Record<string, number> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
   const out: Record<string, number> = {}
@@ -22,37 +28,66 @@ function sanitizeCartMeta(raw: unknown): ClientCartMeta {
   return raw as ClientCartMeta
 }
 
-function clientCartPayload(client?: AdminClient | null) {
+export function cartSyncTimestamp(ts?: string): number {
+  if (!ts) return 0
+  const n = Date.parse(ts)
+  return Number.isFinite(n) ? n : 0
+}
+
+function clientCartPayload(client?: AdminClient | null): CartBundle {
   return {
     cart: sanitizeCart(client?.cart),
     cartMeta: sanitizeCartMeta(client?.cartMeta),
+    cartUpdatedAt: client?.cartUpdatedAt,
   }
 }
 
-export function mergeCartData(
-  local: { cart: Record<string, number>; cartMeta: ClientCartMeta },
-  remote: { cart: Record<string, number>; cartMeta: ClientCartMeta },
-): { cart: Record<string, number>; cartMeta: ClientCartMeta } {
-  const hasRemote = Object.keys(remote.cart).length > 0
-  const hasLocal = Object.keys(local.cart).length > 0
-  if (hasRemote && !hasLocal) return remote
-  if (hasLocal && !hasRemote) return local
-  if (!hasRemote && !hasLocal) return { cart: {}, cartMeta: {} }
+/** Последняя запись побеждает; пустая корзина после заказа не затирается старой локальной копией. */
+export function mergeCartData(local: CartBundle, remote: CartBundle): CartBundle {
+  const localTs = cartSyncTimestamp(local.cartUpdatedAt)
+  const remoteTs = cartSyncTimestamp(remote.cartUpdatedAt)
 
-  const cart = { ...remote.cart }
-  const cartMeta = { ...remote.cartMeta, ...local.cartMeta }
-  for (const [id, qty] of Object.entries(local.cart)) {
-    const n = Number(qty) || 0
-    if (n <= 0) continue
-    cart[id] = Math.max(cart[id] || 0, n)
+  if (remoteTs > localTs) {
+    return {
+      cart: { ...sanitizeCart(remote.cart) },
+      cartMeta: { ...sanitizeCartMeta(remote.cartMeta) },
+      cartUpdatedAt: remote.cartUpdatedAt,
+    }
   }
-  return { cart, cartMeta }
+  if (localTs > remoteTs) {
+    return {
+      cart: { ...sanitizeCart(local.cart) },
+      cartMeta: { ...sanitizeCartMeta(local.cartMeta) },
+      cartUpdatedAt: local.cartUpdatedAt,
+    }
+  }
+
+  const localCart = sanitizeCart(local.cart)
+  const remoteCart = sanitizeCart(remote.cart)
+  const localEmpty = !Object.keys(localCart).length
+  const remoteEmpty = !Object.keys(remoteCart).length
+
+  if (localEmpty && remoteEmpty) {
+    return { cart: {}, cartMeta: {}, cartUpdatedAt: remote.cartUpdatedAt || local.cartUpdatedAt }
+  }
+  if (remoteEmpty && !localEmpty) {
+    return { cart: localCart, cartMeta: sanitizeCartMeta(local.cartMeta), cartUpdatedAt: local.cartUpdatedAt }
+  }
+  if (localEmpty && !remoteEmpty) {
+    return { cart: remoteCart, cartMeta: sanitizeCartMeta(remote.cartMeta), cartUpdatedAt: remote.cartUpdatedAt }
+  }
+
+  return {
+    cart: remoteCart,
+    cartMeta: sanitizeCartMeta(remote.cartMeta),
+    cartUpdatedAt: remote.cartUpdatedAt || local.cartUpdatedAt,
+  }
 }
 
 export async function fetchRemoteCart(
   phone: string,
   clientId?: string,
-): Promise<{ cart: Record<string, number>; cartMeta: ClientCartMeta }> {
+): Promise<CartBundle> {
   if (!USE_API) return { cart: {}, cartMeta: {} }
   const clients = (await api.getClients()).map(c => normalizeClient(c))
   const client = clientId
@@ -65,11 +100,14 @@ export async function saveRemoteCart(
   clientId: string,
   cart: Record<string, number>,
   cartMeta: ClientCartMeta,
-): Promise<void> {
-  if (!USE_API || !clientId) return
+  cartUpdatedAt?: string,
+): Promise<string> {
+  const ts = cartUpdatedAt || new Date().toISOString()
+  if (!USE_API || !clientId) return ts
   await api.updateClient(clientId, {
     cart: sanitizeCart(cart),
     cartMeta: sanitizeCartMeta(cartMeta),
-    cartUpdatedAt: new Date().toISOString(),
+    cartUpdatedAt: ts,
   })
+  return ts
 }

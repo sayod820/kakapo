@@ -37,7 +37,7 @@ import {
 import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
 import { loadClientAddresses, saveClientAddresses, formatClientAddressLine, ensureClientDefaultAddress } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
-import { fetchRemoteCart, mergeCartData, saveRemoteCart } from "@/lib/clientCartSync";
+import { fetchRemoteCart, mergeCartData, saveRemoteCart, cartSyncTimestamp } from "@/lib/clientCartSync";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
@@ -8309,20 +8309,22 @@ function hydrateStoreSessionFromStorage(): {
   user: StoreUser | null
   cart: Record<string, number>
   cartMeta: Record<string, unknown>
+  cartUpdatedAt: string
   wished: Record<string, boolean>
 } {
   if (typeof window === 'undefined') {
-    return { user: null, cart: {}, cartMeta: {}, wished: {} };
+    return { user: null, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {} };
   }
   const user = loadStoreUser();
   if (!user?.phone) {
-    return { user, cart: {}, cartMeta: {}, wished: {} };
+    return { user, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {} };
   }
   migrateLegacyClientData(user.phone);
   return {
     user,
     cart: loadAccountJson(ACCOUNT_NS.cart, {}, user.phone),
     cartMeta: loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone),
+    cartUpdatedAt: loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', user.phone),
     wished: loadAccountJson(ACCOUNT_NS.wished, {}, user.phone),
   };
 }
@@ -8334,10 +8336,15 @@ function KakapoAppInner() {
   const [sessionBoot] = useState(hydrateStoreSessionFromStorage);
   const [cart,   setCart]   = useState(sessionBoot.cart);
   const [cartMeta, setCartMeta] = useState(sessionBoot.cartMeta);
+  const [cartUpdatedAt, setCartUpdatedAt] = useState(sessionBoot.cartUpdatedAt);
   const [wished, setWished] = useState(sessionBoot.wished);
   const [user,   setUser]   = useState<StoreUser | null>(sessionBoot.user);
   const [sessionReady, setSessionReady] = useState(false);
   const userPersistReadyRef = useRef(false);
+  const cartUpdatedAtRef = useRef(sessionBoot.cartUpdatedAt);
+  const cartMutatedByUserRef = useRef(false);
+  const cartRef = useRef(sessionBoot.cart);
+  const cartMetaRef = useRef(sessionBoot.cartMeta);
   const [cartSyncReady, setCartSyncReady] = useState(() => {
     if (!USE_API) return true;
     const boot = sessionBoot;
@@ -8365,9 +8372,11 @@ function KakapoAppInner() {
   useEffect(() => {
     if (!user?.phone) {
       setCartSyncReady(false);
+      cartUpdatedAtRef.current = '';
       if (!user) {
         setCart({});
         setCartMeta({});
+        setCartUpdatedAt('');
         setWished({});
       }
       return;
@@ -8377,8 +8386,12 @@ function KakapoAppInner() {
     migrateLegacyClientData(user.phone);
     const localCart = loadAccountJson(ACCOUNT_NS.cart, {}, user.phone);
     const localMeta = loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone);
+    const localUpdatedAt = loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', user.phone);
+    const localBundle = { cart: localCart, cartMeta: localMeta, cartUpdatedAt: localUpdatedAt };
+    cartUpdatedAtRef.current = localUpdatedAt;
     setCart(localCart);
     setCartMeta(localMeta);
+    setCartUpdatedAt(localUpdatedAt);
     setWished(loadAccountJson(ACCOUNT_NS.wished, {}, user.phone));
 
     let cancelled = false;
@@ -8389,17 +8402,20 @@ function KakapoAppInner() {
       }
       try {
         const remote = await fetchRemoteCart(user.phone, user.clientId);
-        const merged = mergeCartData(
-          { cart: localCart, cartMeta: localMeta },
-          remote,
-        );
+        const merged = mergeCartData(localBundle, remote);
         if (cancelled) return;
+        cartMutatedByUserRef.current = false;
+        cartUpdatedAtRef.current = merged.cartUpdatedAt || '';
         setCart(merged.cart);
         setCartMeta(merged.cartMeta);
-        const remoteEmpty = !Object.keys(remote.cart).length;
-        const localHasItems = Object.keys(localCart).length > 0;
-        if (remoteEmpty && localHasItems) {
-          void saveRemoteCart(user.clientId, merged.cart, merged.cartMeta);
+        setCartUpdatedAt(merged.cartUpdatedAt || '');
+        saveAccountJson(ACCOUNT_NS.cart, merged.cart, user.phone);
+        saveAccountJson(ACCOUNT_NS.cartMeta, merged.cartMeta, user.phone);
+        saveAccountJson(ACCOUNT_NS.cartUpdatedAt, merged.cartUpdatedAt || '', user.phone);
+        const localTs = cartSyncTimestamp(localUpdatedAt);
+        const remoteTs = cartSyncTimestamp(remote.cartUpdatedAt);
+        if (localTs > remoteTs || (localTs === remoteTs && Object.keys(localCart).length > 0 && !Object.keys(remote.cart).length)) {
+          void saveRemoteCart(user.clientId, merged.cart, merged.cartMeta, merged.cartUpdatedAt);
         }
       } catch { /* оставляем локальную корзину */ }
       finally {
@@ -8411,19 +8427,76 @@ function KakapoAppInner() {
   }, [user?.phone, user?.clientId]);
 
   useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  useEffect(() => {
+    cartMetaRef.current = cartMeta;
+  }, [cartMeta]);
+
+  useEffect(() => {
     if (!user?.phone) return;
+    let ts = cartUpdatedAtRef.current;
+    if (cartMutatedByUserRef.current) {
+      ts = new Date().toISOString();
+      cartUpdatedAtRef.current = ts;
+      setCartUpdatedAt(ts);
+      cartMutatedByUserRef.current = false;
+    }
     saveAccountJson(ACCOUNT_NS.cart, cart, user.phone);
     saveAccountJson(ACCOUNT_NS.cartMeta, cartMeta, user.phone);
+    saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, user.phone);
   }, [cart, cartMeta, user?.phone]);
 
   useEffect(() => {
     if (!user?.phone || !cartSyncReady) return;
     if (!USE_API || !user.clientId) return;
+    const ts = cartUpdatedAtRef.current || cartUpdatedAt || new Date().toISOString();
     const t = setTimeout(() => {
-      void saveRemoteCart(user.clientId!, cart, cartMeta);
+      void saveRemoteCart(user.clientId!, cart, cartMeta, ts);
     }, 400);
     return () => clearTimeout(t);
-  }, [cart, cartMeta, user?.phone, user?.clientId, cartSyncReady]);
+  }, [cart, cartMeta, cartUpdatedAt, user?.phone, user?.clientId, cartSyncReady]);
+
+  useEffect(() => {
+    if (!USE_API || !user?.clientId || !user?.phone || !cartSyncReady) return;
+
+    const pullRemoteCart = async () => {
+      try {
+        const remote = await fetchRemoteCart(user.phone, user.clientId);
+        const localBundle = {
+          cart: cartRef.current,
+          cartMeta: cartMetaRef.current,
+          cartUpdatedAt: cartUpdatedAtRef.current,
+        };
+        const merged = mergeCartData(localBundle, remote);
+        const changed =
+          cartSyncTimestamp(merged.cartUpdatedAt) !== cartSyncTimestamp(cartUpdatedAtRef.current)
+          || JSON.stringify(merged.cart) !== JSON.stringify(cartRef.current);
+        if (!changed) return;
+        cartMutatedByUserRef.current = false;
+        cartUpdatedAtRef.current = merged.cartUpdatedAt || '';
+        setCart(merged.cart);
+        setCartMeta(merged.cartMeta);
+        setCartUpdatedAt(merged.cartUpdatedAt || '');
+        saveAccountJson(ACCOUNT_NS.cart, merged.cart, user.phone);
+        saveAccountJson(ACCOUNT_NS.cartMeta, merged.cartMeta, user.phone);
+        saveAccountJson(ACCOUNT_NS.cartUpdatedAt, merged.cartUpdatedAt || '', user.phone);
+      } catch { /* ignore */ }
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void pullRemoteCart();
+    };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = setInterval(() => { void pullRemoteCart(); }, 25000);
+    return () => {
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(timer);
+    };
+  }, [user?.clientId, user?.phone, cartSyncReady]);
 
   useEffect(() => {
     if (!user?.phone) return;
@@ -8437,6 +8510,8 @@ function KakapoAppInner() {
     setUser(null);
     setCart({});
     setCartMeta({});
+    setCartUpdatedAt('');
+    cartUpdatedAtRef.current = '';
     setWished({});
     go('profile');
   }, [go]);
@@ -8458,7 +8533,12 @@ function KakapoAppInner() {
 
   const apiPromos = usePromos(s => s.promos);
 
+  const markCartTouched = useCallback(() => {
+    cartMutatedByUserRef.current = true;
+  }, []);
+
   const addItem = useCallback((id, price, name, emoji, restId, silent) => {
+    markCartTouched();
     const p = prods.find(x => x.id == id);
     if (p && !restId) {
       const promo = activeProductPromos(apiPromos).find(pr => Number(pr.productId) === Number(p.id));
@@ -8487,9 +8567,10 @@ function KakapoAppInner() {
       setCartMeta(m => ({ ...m, [id]: { price, name, emoji: emoji || '🍽', restId } }));
       if (!silent) showToast(`${emoji || '🍽'} ${name} в корзине`);
     }
-  }, [showToast, prods, apiPromos]);
+  }, [showToast, prods, apiPromos, markCartTouched]);
 
   const rmItem = useCallback((id) => {
+    markCartTouched();
     const p = prods.find(x => x.id == id);
     setCart(c => {
       const cur = c[id] || 0;
@@ -8502,12 +8583,13 @@ function KakapoAppInner() {
       else delete n[id];
       return n;
     });
-  }, [prods]);
+  }, [prods, markCartTouched]);
 
   const delItem = useCallback((id) => {
+    markCartTouched();
     setCart(c => { const n = {...c}; delete n[id]; return n; });
     setCartMeta(m => { const n = {...m}; delete n[id]; return n; });
-  }, []);
+  }, [markCartTouched]);
 
   const toggleWish = useCallback((id) => {
     setWished(w => { const n = {...w, [id]: !w[id]}; return n; });
@@ -8516,9 +8598,21 @@ function KakapoAppInner() {
   }, [wished, showToast, prods]);
 
   const clearCart = useCallback(() => {
+    const ts = new Date().toISOString();
+    cartMutatedByUserRef.current = false;
+    cartUpdatedAtRef.current = ts;
     setCart({});
     setCartMeta({});
-  }, []);
+    setCartUpdatedAt(ts);
+    if (user?.phone) {
+      saveAccountJson(ACCOUNT_NS.cart, {}, user.phone);
+      saveAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone);
+      saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, user.phone);
+    }
+    if (USE_API && user?.clientId) {
+      void saveRemoteCart(user.clientId, {}, {}, ts);
+    }
+  }, [user?.clientId, user?.phone]);
 
   const storeLoyalty = useMemo(() => {
     if (!user?.phone) {
