@@ -402,6 +402,12 @@ export function tierTopGlowMap(cfg = loadLoyaltyStatusConfig()) {
   return map
 }
 
+/** В API-режиме конфиг с сервера уже загружен (не подставлять DEFAULT 5000 до sync). */
+export function isLoyaltyConfigReady(): boolean {
+  if (!USE_API) return true
+  return memoryLoyaltyConfig != null
+}
+
 /** Лимит долга по умолчанию для уровня из программы лояльности. */
 export function getTierDefaultDebtLimit(
   level: ClientLevel | 'new' | undefined,
@@ -417,7 +423,7 @@ export function getTierDefaultDebtLimit(
   return 0
 }
 
-/** Эффективный лимит карты: из программы лояльности + сохранённый на карте. */
+/** Эффективный лимит: сначала сохранённый на карте, иначе из программы (после загрузки с API). */
 export function resolveEffectiveDebtLimit(
   user: {
     level?: ClientLevel | 'new'
@@ -428,8 +434,8 @@ export function resolveEffectiveDebtLimit(
   cfg = loadLoyaltyStatusConfig(),
 ): number {
   const stored = Math.max(0, Number(user.debtLimit) || 0)
-  const tierDefault = getTierDefaultDebtLimit(user.level, !!user.vip, cfg)
   if (!user.debtEnabled && !user.vip) return stored
-  if (tierDefault > 0) return Math.max(stored, tierDefault)
-  return stored
+  if (stored > 0) return stored
+  if (USE_API && !isLoyaltyConfigReady()) return 0
+  return getTierDefaultDebtLimit(user.level, !!user.vip, cfg)
 }

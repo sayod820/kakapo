@@ -27,6 +27,13 @@ export function useStoreProfileSync(
     const epoch = getSessionEpoch()
     const card = userRef.current?.card
 
+    if (USE_API) {
+      const { syncLoyaltyStatusConfigFromApi, isLoyaltyConfigReady } = await import('./loyaltyStatusConfig')
+      if (!isLoyaltyConfigReady()) {
+        await syncLoyaltyStatusConfigFromApi()
+      }
+    }
+
     if (USE_API && !loyaltySyncedRef.current) {
       loyaltySyncedRef.current = true
       const { syncLoyaltyBonuses } = await import('./loyaltyBonus')

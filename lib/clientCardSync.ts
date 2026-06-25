@@ -336,9 +336,10 @@ export async function saveCardLoyalty(
   const statusChanged = !!form.vip !== prevVip || form.level !== prevLevel
   const tierLimit = getTierDefaultDebtLimit(form.level, !!form.vip)
   const debtEligible = !!form.vip || !!form.debtEnabled || form.level === 'gold' || form.level === 'platinum'
-  const resolvedDebtLimit = debtEligible && tierLimit > 0
-    ? Math.max(Math.max(0, Number(form.debtLimit) || 0), tierLimit)
-    : Math.max(0, Number(form.debtLimit) || 0)
+  const formLimit = Math.max(0, Number(form.debtLimit) || 0)
+  const resolvedDebtLimit = formLimit > 0
+    ? formLimit
+    : (debtEligible && tierLimit > 0 ? tierLimit : 0)
 
   const loyalty = {
     level: form.level,
