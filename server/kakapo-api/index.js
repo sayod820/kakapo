@@ -533,6 +533,7 @@ app.post('/orders', (req, res) => {
     createdAt: nowTime(),
     createdAtIso: new Date().toISOString(),
     total: body.total || 0,
+    goodsTotal: body.goodsTotal != null ? Number(body.goodsTotal) : undefined,
     deliveryFee: body.deliveryFee || 0,
     deliveryFeeLocked: body.deliveryFeeLocked === true || Number(body.deliveryFee) > 0,
     comment: body.comment || '',

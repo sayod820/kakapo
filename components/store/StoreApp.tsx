@@ -2090,6 +2090,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         })),
       ],
       total: Number(payable.toFixed(2)),
+      goodsTotal: Number(sub.toFixed(2)),
       deliveryFee: effectiveDelivery,
       pickupIds,
       distanceKm: deliveryKm > 0 ? Number(deliveryKm.toFixed(2)) : undefined,

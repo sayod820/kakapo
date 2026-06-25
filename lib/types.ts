@@ -32,6 +32,8 @@ export interface Order {
   assemblerTeam?: { name: string; id?: string }[]
   items: OrderItem[]
   total: number
+  /** Сумма товаров без доставки (если задана явно при оформлении) */
+  goodsTotal?: number
   /** cash | card | credit (VIP-кредит: товары в долг, доставка наличными) */
   payment_method?: string
   pay?: string

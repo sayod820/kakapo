@@ -129,7 +129,6 @@ import {
 } from '@/lib/courierTeam'
 import { restIdToPickupId } from '@/lib/pickups'
 import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
-import { orderGoodsTotal } from '@/lib/orderLoyaltyAmount'
 import { useProductPhotos } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
@@ -493,6 +492,12 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
   const st = adminStatusLabel(order.status)
   const showAssembler = order.type === 'market' || order.type === 'mixed'
   const PART_LABELS = { new: 'Новый', assembling: 'Собирается', done: 'Готово', cooking: 'Готовится' }
+  const goodsTotal = order.itemsDetailed?.length
+    ? Math.round(order.itemsDetailed.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0) * 100) / 100
+    : Number(order.goodsTotal ?? order.total) || 0
+  const deliveryFee = Number(order.deliveryFee) || 0
+  const bonusSpent = Number(order.bonusSpent) || 0
+  const payableTotal = Math.max(0, Math.round((goodsTotal + deliveryFee - bonusSpent) * 100) / 100)
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.72)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e=>e.stopPropagation()} className="ac" style={{ width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', padding:22 }}>
@@ -587,15 +592,33 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
           </div>
         )}
 
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingTop:12, borderTop:'1px solid #162B1A' }}>
-          <div>
-            <div style={{ fontSize:10, color:'#3D6645' }}>Создан: {order.time || '—'}{order.deliveredAt ? ` · Доставлен: ${order.deliveredAt}` : ''}</div>
-            {order.comment && <div style={{ fontSize:11, color:'#8FB897', marginTop:4 }}>💬 {order.comment}</div>}
+        <div style={{ marginTop: 14, padding: '12px 14px', background: '#0C1C0F', borderRadius: 12, border: '1px solid #162B1A' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: deliveryFee > 0 || bonusSpent > 0 ? 8 : 0 }}>
+            <span style={{ color: '#8FB897' }}>Товары</span>
+            <span className="ub" style={{ fontWeight: 800, color: '#1FD760' }}>{goodsTotal.toFixed(2)} ЅМ</span>
           </div>
-          <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{orderGoodsTotal(order)} ЅМ</div>
-          {(order.deliveryFee || 0) > 0 && (
-            <div style={{ fontSize:10, color:'#3B8EF0', marginTop:4, textAlign:'right' }}>+ доставка {order.deliveryFee} ЅМ · курьер</div>
+          {deliveryFee > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: bonusSpent > 0 ? 8 : 0 }}>
+              <span style={{ color: '#3B8EF0' }}>Доставка · курьер</span>
+              <span className="ub" style={{ fontWeight: 800, color: '#3B8EF0' }}>{deliveryFee.toFixed(2)} ЅМ</span>
+            </div>
           )}
+          {bonusSpent > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: 8 }}>
+              <span style={{ color: '#FFB800' }}>Бонусы</span>
+              <span className="ub" style={{ fontWeight: 800, color: '#FFB800' }}>−{bonusSpent.toFixed(2)} ЅМ</span>
+            </div>
+          )}
+          {(deliveryFee > 0 || bonusSpent > 0) && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 14, paddingTop: 8, borderTop: '1px solid #162B1A' }}>
+              <span style={{ color: '#EBF5ED', fontWeight: 700 }}>К оплате</span>
+              <span className="ub" style={{ fontWeight: 900, color: '#1FD760' }}>{payableTotal.toFixed(2)} ЅМ</span>
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 10 }}>
+            Создан: {order.time || '—'}{order.deliveredAt ? ` · Доставлен: ${order.deliveredAt}` : ''}
+          </div>
+          {order.comment && <div style={{ fontSize: 11, color: '#8FB897', marginTop: 4 }}>💬 {order.comment}</div>}
         </div>
 
         {onStatusChange && (
@@ -1021,7 +1044,7 @@ function OrdersPage() {
                 style={{ width:16, height:16, cursor: filtered.length === 0 ? 'default' : 'pointer', accentColor:'#1FD760' }}
               />
             </th>
-            <th>ID</th><th>Тип</th><th>Клиент</th><th>Адрес</th><th>Состав</th><th>Сумма</th><th>Курьер</th><th>Сборщик</th><th>Статус</th><th>Время</th><th></th>
+            <th>ID</th><th>Тип</th><th>Клиент</th><th>Адрес</th><th>Состав</th><th>Товары</th><th>Курьер</th><th>Сборщик</th><th>Статус</th><th>Время</th><th></th>
           </tr></thead>
           <tbody>
             {filtered.length === 0 ? (
@@ -7087,7 +7110,7 @@ function CourierOrdersPage() {
 
       <div className="ac">
         <table className="at">
-          <thead><tr><th>Заказ</th><th>Курьер</th><th>Маршрут</th><th>Клиент</th><th>Км · доставка</th><th>Сумма</th><th>Прогресс</th><th>Статус</th></tr></thead>
+          <thead><tr><th>Заказ</th><th>Курьер</th><th>Маршрут</th><th>Клиент</th><th>Км</th><th>Доставка</th><th>Прогресс</th><th>Статус</th></tr></thead>
           <tbody>
             {orders.map(o=>{
               const ss = SS[o.step] || SS.new;
@@ -7118,9 +7141,11 @@ function CourierOrdersPage() {
                   <td><div style={{fontSize:12,fontWeight:700}}>{o.client}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.addr}</div></td>
                   <td>
                     <div style={{fontSize:11,fontWeight:700,color:'#3B8EF0'}}>{kmLoading ? '…' : km != null ? formatKm(km) : '…'}</div>
-                    <div style={{fontSize:10,color:'#1FD760'}}>{`${dlv} ЅМ доставка${o.step === 'done' ? ' 🔒' : ''}`}</div>
                   </td>
-                  <td><span style={{fontFamily:'Unbounded',fontSize:12,fontWeight:800,color:'#FFB800'}}>{o.sum.toFixed(2)} ЅМ</span></td>
+                  <td>
+                    <span style={{fontFamily:'Unbounded',fontSize:12,fontWeight:800,color:'#1FD760'}}>{dlv} ЅМ</span>
+                    {o.step === 'done' && <span style={{ fontSize: 10, color: '#3D6645' }}> 🔒</span>}
+                  </td>
                   <td>
                     <div style={{display:'flex',gap:3}}>
                       {o.pickupIds.map((_,i)=>(
