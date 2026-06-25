@@ -81,7 +81,7 @@ function pinIconHtml(gradient: string) {
   return `<div style="width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${gradient};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.3)"><span style="transform:rotate(45deg);font-size:16px">📍</span></div>`;
 }
 
-/** Цельная метка (как в такси): круг + короткий ножок, без разрыва; при движении вся метка поднимается */
+/** Цельная метка: остриё совпадает с фиксированной точкой в центре карты */
 function CenterPinOverlay({
   fill,
   fillDark,
@@ -101,7 +101,7 @@ function CenterPinOverlay({
   dropKey: number;
   addressLabel?: string;
 }) {
-  const lift = moving ? 22 : 0;
+  const lift = moving ? 20 : 0;
   const pinH = 54;
   const pinW = 48;
   const showBubble = !moving && (loading || addressVisible);
@@ -111,9 +111,9 @@ function CenterPinOverlay({
     <>
       <style>{`
         @keyframes kakapoPinDrop {
-          0% { transform: translate(-50%, calc(-100% - 22px)); }
-          55% { transform: translate(-50%, calc(-100% + 4px)); }
-          75% { transform: translate(-50%, calc(-100% - 2px)); }
+          0% { transform: translate(-50%, calc(-100% - 20px)); }
+          65% { transform: translate(-50%, calc(-100% + 2px)); }
+          85% { transform: translate(-50%, calc(-100% - 1px)); }
           100% { transform: translate(-50%, -100%); }
         }
         @keyframes kakapoBubbleIn {
@@ -121,6 +121,29 @@ function CenterPinOverlay({
           to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
         }
       `}</style>
+
+      {/* Гео-точка — всегда в центре, по ней ориентируемся при прокрутке */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          width: 12,
+          height: 12,
+          marginLeft: -6,
+          marginTop: -6,
+          borderRadius: '50%',
+          background: fill,
+          border: '2.5px solid #fff',
+          boxShadow: `0 0 0 3px ${fill}44`,
+          pointerEvents: 'none',
+          zIndex: 502,
+          opacity: moving ? 1 : 0,
+          transition: 'opacity 0.15s',
+        }}
+      />
+
       <div
         aria-hidden
         style={{
@@ -133,8 +156,8 @@ function CenterPinOverlay({
             : dropKey > 0
               ? undefined
               : 'translate(-50%, -100%)',
-          animation: !moving && dropKey > 0 ? 'kakapoPinDrop 0.45s cubic-bezier(.34,1.2,.64,1) both' : undefined,
-          transition: moving ? 'transform 0.18s ease-out' : undefined,
+          animation: !moving && dropKey > 0 ? 'kakapoPinDrop 0.4s cubic-bezier(.34,1.15,.64,1) both' : undefined,
+          transition: moving ? 'transform 0.16s ease-out' : undefined,
           pointerEvents: 'none',
           zIndex: 500,
         }}
@@ -172,7 +195,7 @@ function CenterPinOverlay({
           xmlns="http://www.w3.org/2000/svg"
           style={{ display: 'block', filter: 'drop-shadow(0 5px 12px rgba(0,0,0,.32))' }}
         >
-          <ellipse cx="24" cy="51.5" rx={moving ? 4 : 8} ry={moving ? 1.2 : 2.2} fill="rgba(0,0,0,.18)" style={{ transition: 'all 0.18s ease-out' }} />
+          <ellipse cx="24" cy="51.5" rx={moving ? 3 : 7} ry={moving ? 1 : 1.8} fill="rgba(0,0,0,.16)" style={{ transition: 'all 0.16s ease-out' }} />
           <path
             d="M24 52.5 C24 52.5 8.5 34 8.5 21.5 C8.5 12.4 15.4 5 24 5 C32.6 5 39.5 12.4 39.5 21.5 C39.5 34 24 52.5 24 52.5 Z"
             fill={`url(#${gradId})`}
@@ -307,8 +330,14 @@ export default function AddressMapPicker({
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
+      const getPickerCenter = () => {
+        const el = containerRef.current!;
+        const pt = L.point(el.clientWidth / 2, el.clientHeight / 2);
+        return map.containerPointToLatLng(pt);
+      };
+
       const updateCenterCoords = () => {
-        const c = map.getCenter();
+        const c = getPickerCenter();
         setPin({ lat: c.lat, lng: c.lng });
         return c;
       };
@@ -331,12 +360,27 @@ export default function AddressMapPicker({
       };
 
       if (pickMode === 'center') {
-        map.on('movestart', onMapMoveStart);
+        let wasDragging = false;
+        map.on('movestart', () => {
+          wasDragging = true;
+          onMapMoveStart();
+        });
         map.on('moveend', () => {
-          setMapMoving(false);
-          setDropKey(k => k + 1);
-          const c = updateCenterCoords();
-          resolveAddress(c.lat, c.lng, 380);
+          requestAnimationFrame(() => {
+            const c = updateCenterCoords();
+            if (wasDragging) {
+              setMapMoving(false);
+              setDropKey(k => k + 1);
+            }
+            wasDragging = false;
+            resolveAddress(c.lat, c.lng, 300);
+          });
+        });
+        map.on('zoomend', () => {
+          requestAnimationFrame(() => {
+            const c = updateCenterCoords();
+            resolveAddress(c.lat, c.lng, 300);
+          });
         });
         const c0 = updateCenterCoords();
         resolveAddress(c0.lat, c0.lng, 250);
@@ -353,7 +397,15 @@ export default function AddressMapPicker({
       map.whenReady(() => {
         if (!cancelled && gen === genRef.current) {
           setReady(true);
-          setTimeout(() => { try { map.invalidateSize(); } catch {} }, 80);
+          setTimeout(() => {
+            try {
+              map.invalidateSize();
+              if (pickMode === 'center') {
+                const c = updateCenterCoords();
+                resolveAddress(c.lat, c.lng, 200);
+              }
+            } catch {}
+          }, 100);
         }
       });
     });
@@ -423,13 +475,18 @@ export default function AddressMapPicker({
     );
   };
 
+  const getActiveCenter = (): { lat: number; lng: number } | null => {
+    if (!mapRef.current || !containerRef.current) return pin;
+    const el = containerRef.current;
+    const c = mapRef.current.containerPointToLatLng({
+      x: el.clientWidth / 2,
+      y: el.clientHeight / 2,
+    });
+    return { lat: c.lat, lng: c.lng };
+  };
+
   const confirm = async () => {
-    const activePin = pickMode === 'center' && mapRef.current
-      ? (() => {
-          const c = mapRef.current.getCenter();
-          return { lat: c.lat, lng: c.lng };
-        })()
-      : pin;
+    const activePin = pickMode === 'center' ? getActiveCenter() : pin;
     if (!activePin) {
       setError(pickMode === 'center' ? 'Подождите загрузки карты' : 'Сначала нажмите на карту или используйте GPS');
       return;
