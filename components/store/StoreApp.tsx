@@ -2563,22 +2563,30 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               </span>
         </div>
       </div>
-          <div style={{ display:"flex", gap:8 }}>
-            <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:`${profileTheme.accent}14`, border:`1px solid ${profileTheme.border}`, textAlign:"center" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:8 }}>
+            <div style={{ padding:"10px 8px", borderRadius:12, background:`${profileTheme.accent}14`, border:`1px solid ${profileTheme.border}`, textAlign:"center", minWidth:0 }}>
               <div className="ub" style={{ fontSize:18, fontWeight:900, color:profileTheme.accent, lineHeight:1.1 }}>{(user.bonus || 0).toLocaleString()}</div>
-              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>бонусов</div>
-      </div>
-            <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center" }}>
+              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>бонусов</div>
+            </div>
+            <div style={{ padding:"10px 8px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center", minWidth:0 }}>
               <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--gr)", lineHeight:1.1 }}>{orderCount}</div>
-              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>{orderCount === 1 ? "заказ" : orderCount >= 2 && orderCount <= 4 ? "заказа" : "заказов"}</div>
-    </div>
-            {wishCount > 0 && (
-              <div style={{ flex:1, padding:"10px 12px", borderRadius:12, background:"rgba(255,69,69,.08)", border:"1px solid rgba(255,69,69,.2)", textAlign:"center" }}>
-                <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--red)", lineHeight:1.1 }}>{wishCount}</div>
-                <div style={{ fontSize:10, color:"var(--t3)", marginTop:3 }}>в избранном</div>
-    </div>
-            )}
-        </div>
+              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>{orderCount === 1 ? "заказ" : orderCount >= 2 && orderCount <= 4 ? "заказа" : "заказов"}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => go("wishlist")}
+              className="btn"
+              style={{
+                padding:"10px 8px", borderRadius:12, minWidth:0,
+                background: wishCount > 0 ? "rgba(255,69,69,.08)" : "var(--l3)",
+                border: `1px solid ${wishCount > 0 ? "rgba(255,69,69,.25)" : "var(--b1)"}`,
+                textAlign:"center", cursor:"pointer",
+              }}
+            >
+              <div className="ub" style={{ fontSize:18, fontWeight:900, color: wishCount > 0 ? "var(--red)" : "var(--t2)", lineHeight:1.1 }}>{wishCount}</div>
+              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>избранное</div>
+            </button>
+          </div>
           </div>
 
         <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
@@ -3432,6 +3440,63 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
       </div>
       {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />}
       <Nav page="promos" go={go} user={user}/>
+    </div>
+  );
+};
+
+const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
+  const { prods } = useLiveCatalog();
+  const { isVip } = resolveUserVip(user);
+  const items = useMemo(
+    () => prods.filter(p => wished[p.id]),
+    [prods, wished],
+  );
+  const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
+  const totalQtyNum = sumCartUnits(cart, prods);
+
+  return (
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)" }}>
+        <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <Ic n="arrL" s={17} c="var(--t2)"/>
+          </button>
+          <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,69,69,.12)", border:"1px solid rgba(255,69,69,.25)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <Ic n="heart" s={18} c="#FF4545" fill="#FF4545"/>
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div className="ub" style={{ fontSize:15, fontWeight:800 }}>Избранное</div>
+            <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>
+              {items.length ? formatProductCount(items.length) : "Пока пусто"}
+            </div>
+          </div>
+          <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
+        </div>
+      </header>
+      <div style={{ padding:"14px 18px 110px" }}>
+        {items.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"52px 22px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20 }}>
+            <div style={{ fontSize:52, marginBottom:14 }}>❤️</div>
+            <div className="ub" style={{ fontSize:18, fontWeight:800, marginBottom:8 }}>Избранное пусто</div>
+            <div style={{ fontSize:13, color:"var(--t2)", marginBottom:22, lineHeight:1.55 }}>
+              Нажмите ❤️ на товаре в каталоге —<br/>он появится здесь
+            </div>
+            <button onClick={() => go("catalog")} className="btn" style={{ padding:"12px 26px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"#fff", fontSize:13, fontWeight:700 }}>
+              Перейти в каталог
+            </button>
+          </div>
+        ) : (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            {items.map((p, i) => (
+              <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i * .04}s both` }}>
+                <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />}
+      <Nav page="profile" go={go} user={user}/>
     </div>
   );
 };
@@ -8761,6 +8826,7 @@ function KakapoAppInner() {
       case "reviews":          return <ClientReviewsPage   go={go} user={user} sessionReady={sessionReady} params={params}/>;
       case "promos":           return <PromosPage        {...shared}/>;
       case "search":           return <SearchPage        {...shared}/>;
+      case "wishlist":         return <WishlistPage      {...shared}/>;
       case "faq":              return <FAQPage           {...shared}/>;
       case "vip":              return <VIPPage           {...shared} setUser={setUser}/>;
       case "about":            return <AboutPage         {...shared}/>;
