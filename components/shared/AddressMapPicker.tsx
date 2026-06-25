@@ -394,20 +394,18 @@ export default function AddressMapPicker({
       }
 
       mapRef.current = map;
-      map.whenReady(() => {
-        if (!cancelled && gen === genRef.current) {
-          setReady(true);
-          setTimeout(() => {
-            try {
-              map.invalidateSize();
-              if (pickMode === 'center') {
-                const c = updateCenterCoords();
-                resolveAddress(c.lat, c.lng, 200);
-              }
-            } catch {}
-          }, 100);
-        }
-      });
+      if (!cancelled && gen === genRef.current) {
+        setReady(true);
+        setTimeout(() => {
+          try {
+            map.invalidateSize();
+            if (pickMode === 'center') {
+              const c = updateCenterCoords();
+              resolveAddress(c.lat, c.lng, 200);
+            }
+          } catch {}
+        }, 100);
+      }
     });
 
     return () => {
