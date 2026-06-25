@@ -957,6 +957,8 @@ function normalizeClientRow(raw) {
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod,
     levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    levelAssignMode: raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined),
+    levelValidUntil: raw.levelValidUntil || undefined,
     vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
     debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
@@ -1049,7 +1051,10 @@ app.patch('/clients/:id', (req, res) => {
   if (vipChanged || levelChanged) {
     patch.loyaltyPeriod = currentLoyaltyPeriod()
     patch.bonusEligibleFrom = new Date().toISOString()
-    if (levelChanged) patch.levelLockedPeriod = patch.level === 'basic' ? undefined : currentLoyaltyPeriod()
+    if (levelChanged && !('levelAssignMode' in (req.body || {}))) {
+      patch.levelLockedPeriod = patch.level === 'basic' ? undefined : currentLoyaltyPeriod()
+      patch.levelAssignMode = patch.level === 'basic' ? undefined : 'manual'
+    }
     if (vipChanged && patch.vip) {
       patch.vipUntil = patch.vipUntil || endOfLoyaltyPeriodIsoServer()
     }
@@ -1062,6 +1067,8 @@ app.patch('/clients/:id', (req, res) => {
         if (patch.level != null) linked.level = patch.level
         if (patch.vip !== undefined) linked.vip = !!patch.vip
         if (patch.levelLockedPeriod !== undefined) linked.levelLockedPeriod = patch.levelLockedPeriod
+        if (patch.levelAssignMode !== undefined) linked.levelAssignMode = patch.levelAssignMode
+        if (patch.levelValidUntil !== undefined) linked.levelValidUntil = patch.levelValidUntil
         if (patch.vipUntil !== undefined) linked.vipUntil = patch.vipUntil
       }
     }
@@ -1365,6 +1372,8 @@ function normalizeCardRow(raw) {
     debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    levelAssignMode: raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined),
+    levelValidUntil: raw.levelValidUntil || undefined,
     vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
   }
@@ -1487,6 +1496,8 @@ function syncClientFromCardRow(card) {
   client.blocked = card.status === 'blocked'
   if (card.loyaltyPeriod) client.loyaltyPeriod = card.loyaltyPeriod
   if (card.levelLockedPeriod) client.levelLockedPeriod = card.levelLockedPeriod
+  if (card.levelAssignMode) client.levelAssignMode = card.levelAssignMode
+  if (card.levelValidUntil) client.levelValidUntil = card.levelValidUntil
   if (card.vipUntil) client.vipUntil = card.vipUntil
   if (card.bonusEligibleFrom) client.bonusEligibleFrom = card.bonusEligibleFrom
   client.debtEnabled = !!(card.debtEnabled || debtFromNote(card.note))
@@ -1660,8 +1671,9 @@ app.patch('/cards/:num', (req, res) => {
     if (body.vip !== undefined || body.level != null) {
       body.loyaltyPeriod = currentLoyaltyPeriod()
       body.bonusEligibleFrom = new Date().toISOString()
-      if (body.level != null && body.level !== card.level) {
+      if (body.level != null && body.level !== card.level && !('levelAssignMode' in (req.body || {}))) {
         body.levelLockedPeriod = body.level === 'basic' ? undefined : currentLoyaltyPeriod()
+        body.levelAssignMode = body.level === 'basic' ? undefined : 'manual'
       }
       if (body.vip === true && body.vipUntil === undefined && !('vipUntil' in req.body)) {
         body.vipUntil = endOfLoyaltyPeriodIsoServer()

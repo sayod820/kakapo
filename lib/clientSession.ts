@@ -19,6 +19,8 @@ export type StoreUser = {
   debtEnabled?: boolean
   loyaltyPeriod?: string
   levelLockedPeriod?: string
+  levelAssignMode?: 'auto' | 'manual'
+  levelValidUntil?: string
   vipUntil?: string
   bonusEligibleFrom?: string
   accountGeneration?: number

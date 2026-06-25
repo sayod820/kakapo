@@ -5,7 +5,11 @@ import { hasEarnedBronze, suggestLevel } from './clientCrm'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { getVipRules } from './clientLoyalty'
 
+export type LevelAssignMode = 'auto' | 'manual'
+
 export type LoyaltyLockFields = {
+  levelAssignMode?: LevelAssignMode
+  levelValidUntil?: string | null
   levelLockedPeriod?: string
   vipUntil?: string
   vip?: boolean
@@ -26,11 +30,27 @@ export function vipUntilAfterDays(days: number, from = new Date()): string {
   return d.toISOString()
 }
 
-export function isLevelLocked(record?: LoyaltyLockFields | null): boolean {
-  if (!record?.levelLockedPeriod) return false
-  const lvl = record.level
+export function isLevelLocked(record?: LoyaltyLockFields | null, now = Date.now()): boolean {
+  if (record?.levelAssignMode === 'auto') return false
+  const lvl = record?.level
   if (!lvl || lvl === 'basic') return false
-  return isLoyaltyPeriodCurrent(record.levelLockedPeriod)
+  if (record?.levelValidUntil) {
+    const until = new Date(record.levelValidUntil).getTime()
+    if (!Number.isNaN(until)) return now <= until
+  }
+  if (record?.levelLockedPeriod && isLoyaltyPeriodCurrent(record.levelLockedPeriod)) return true
+  if (record?.levelAssignMode === 'manual' && !record?.levelValidUntil && !record?.levelLockedPeriod) {
+    return true
+  }
+  return false
+}
+
+export function isAutoLevelActive(record?: LoyaltyLockFields | null, now = Date.now()): boolean {
+  if (record?.levelAssignMode !== 'auto') return false
+  if (!record.levelValidUntil) return true
+  const until = new Date(record.levelValidUntil).getTime()
+  if (Number.isNaN(until)) return true
+  return now <= until
 }
 
 export function isForcedVipActive(record?: LoyaltyLockFields | null, now = Date.now()): boolean {
@@ -86,14 +106,93 @@ export function inferVipTermDays(vip?: boolean, vipUntil?: string): number {
   return 0
 }
 
+export function termDaysToUntil(days: number): string | null | undefined {
+  return vipUntilForTermDays(days)
+}
+
+export function inferLevelAssignMode(
+  card?: { levelAssignMode?: LevelAssignMode; levelLockedPeriod?: string },
+  client?: { levelAssignMode?: LevelAssignMode; levelLockedPeriod?: string },
+): LevelAssignMode {
+  const mode = card?.levelAssignMode || client?.levelAssignMode
+  if (mode === 'auto' || mode === 'manual') return mode
+  const lock = card?.levelLockedPeriod || client?.levelLockedPeriod
+  if (lock && isLoyaltyPeriodCurrent(lock)) return 'manual'
+  return 'auto'
+}
+
+export function inferLevelTermDays(
+  mode: LevelAssignMode,
+  level?: ClientLevel | '',
+  levelValidUntil?: string | null,
+  levelLockedPeriod?: string,
+): number {
+  if (!level || level === 'basic') return VIP_PERMANENT_DAYS
+  if (!levelValidUntil && !levelLockedPeriod) {
+    return mode === 'manual' ? VIP_PERMANENT_DAYS : 0
+  }
+  if (!levelValidUntil && levelLockedPeriod && isLoyaltyPeriodCurrent(levelLockedPeriod)) return 0
+  if (!levelValidUntil) return VIP_PERMANENT_DAYS
+  const untilMs = new Date(levelValidUntil).getTime()
+  if (Number.isNaN(untilMs)) return 0
+  const endMonthMs = new Date(endOfLoyaltyPeriodIso()).getTime()
+  if (Math.abs(untilMs - endMonthMs) < 3 * 86400000) return 0
+  const days = Math.round((untilMs - Date.now()) / 86400000)
+  if (days <= 8) return 7
+  if (days <= 35) return 30
+  if (days <= 95) return 90
+  return VIP_PERMANENT_DAYS
+}
+
+export function resolveLevelLockFromTerm(
+  mode: LevelAssignMode,
+  level: ClientLevel,
+  termDays: number,
+): { levelAssignMode: LevelAssignMode; levelValidUntil?: string; levelLockedPeriod?: string } {
+  if (mode === 'auto') {
+    const until = termDaysToUntil(termDays)
+    return {
+      levelAssignMode: 'auto',
+      levelValidUntil: until === null ? undefined : until,
+      levelLockedPeriod: undefined,
+    }
+  }
+  if (level === 'basic') {
+    return { levelAssignMode: 'manual', levelValidUntil: undefined, levelLockedPeriod: undefined }
+  }
+  const until = termDaysToUntil(termDays)
+  if (until === null) {
+    return { levelAssignMode: 'manual', levelValidUntil: undefined, levelLockedPeriod: undefined }
+  }
+  if (termDays <= 0) {
+    return {
+      levelAssignMode: 'manual',
+      levelValidUntil: until,
+      levelLockedPeriod: currentLoyaltyPeriod(),
+    }
+  }
+  return {
+    levelAssignMode: 'manual',
+    levelValidUntil: until,
+    levelLockedPeriod: undefined,
+  }
+}
+
 export function formatAdminLevelExpiry(record: LoyaltyLockFields): string {
   const lvl = record.level
   if (!lvl || lvl === 'basic') return 'Постоянно'
-  if (isLevelLocked(record)) {
-    const label = formatLevelLockLabel(record.levelLockedPeriod)
-    return label ? label : 'до конца месяца'
+  if (record.levelAssignMode === 'auto') {
+    if (!isAutoLevelActive(record)) return 'авто истекло'
+    if (!record.levelValidUntil) return 'авто · постоянно'
+    return `авто · до ${formatVipUntilLabel(record.levelValidUntil)}`
   }
-  return 'По заказам'
+  if (isLevelLocked(record)) {
+    if (!record.levelValidUntil && !record.levelLockedPeriod) return 'ручной · постоянно'
+    if (record.levelValidUntil) return `ручной · до ${formatVipUntilLabel(record.levelValidUntil)}`
+    const label = formatLevelLockLabel(record.levelLockedPeriod)
+    return label ? `ручной · ${label}` : 'ручной · до конца месяца'
+  }
+  return 'ручной · без срока'
 }
 
 export function formatAdminVipExpiry(record: LoyaltyLockFields): string {

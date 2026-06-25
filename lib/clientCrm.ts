@@ -5,7 +5,7 @@ import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
-import { isLevelLocked } from './loyaltyAdminLock'
+import { isLevelLocked, type LoyaltyLockFields } from './loyaltyAdminLock'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { bonusEligibleTotal } from './orderLoyaltyAmount'
 
@@ -36,6 +36,10 @@ export interface AdminClient {
   loyaltyPeriod?: string
   /** Месяц (YYYY-MM), в котором уровень закреплён админом */
   levelLockedPeriod?: string
+  /** auto — по заказам, manual — назначение админом */
+  levelAssignMode?: 'auto' | 'manual'
+  /** До какой даты (ISO) действует уровень */
+  levelValidUntil?: string | null
   /** До какой даты (ISO) действует принудительный VIP */
   vipUntil?: string
   /** С какого момента (ISO) начислять кэшбэк после ручной смены статуса */
@@ -229,6 +233,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     lastOrderAt: raw.lastOrderAt,
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    levelAssignMode: raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined),
+    levelValidUntil: raw.levelValidUntil || undefined,
     vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
     accountGeneration: Number(raw.accountGeneration) > 0 ? Number(raw.accountGeneration) : 1,
@@ -299,7 +305,7 @@ export function resolveEffectiveClientLevel(
   orderCount: number,
   storedLevel?: ClientLevel | 'new',
   storedPeriod?: string,
-  lock?: { levelLockedPeriod?: string },
+  lock?: LoyaltyLockFields,
 ): ClientLevel {
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
 
@@ -333,7 +339,7 @@ export function shouldAutoUpgradeLevel(
   stored: ClientLevel | undefined,
   effective: ClientLevel,
   storedPeriod?: string,
-  lock?: { levelLockedPeriod?: string },
+  lock?: LoyaltyLockFields,
 ): boolean {
   if (isLevelLocked(lock)) return false
   if (!storedPeriod) {

@@ -37,6 +37,8 @@ export type CrmStoreUser = {
   debtEnabled?: boolean
   loyaltyPeriod?: string
   levelLockedPeriod?: string
+  levelAssignMode?: 'auto' | 'manual'
+  levelValidUntil?: string
   vipUntil?: string
   bonusEligibleFrom?: string
   accountGeneration?: number
@@ -125,6 +127,8 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     blocked: card.status === 'blocked' || base.blocked,
     loyaltyPeriod: card.loyaltyPeriod || base.loyaltyPeriod,
     levelLockedPeriod: card.levelLockedPeriod || base.levelLockedPeriod,
+    levelAssignMode: card.levelAssignMode || base.levelAssignMode,
+    levelValidUntil: card.levelValidUntil || base.levelValidUntil,
     vipUntil: card.vipUntil || base.vipUntil,
     bonusEligibleFrom: card.bonusEligibleFrom || base.bonusEligibleFrom,
     accountGeneration: card.accountGeneration || base.accountGeneration,
@@ -149,6 +153,8 @@ export function crmToStoreUser(c: AdminClient, card?: AdminCard | null): CrmStor
     blocked: !!c.blocked,
     loyaltyPeriod: c.loyaltyPeriod,
     levelLockedPeriod: c.levelLockedPeriod,
+    levelAssignMode: c.levelAssignMode,
+    levelValidUntil: c.levelValidUntil,
     vipUntil: c.vipUntil,
     bonusEligibleFrom: c.bonusEligibleFrom,
     accountGeneration: c.accountGeneration,
@@ -261,7 +267,7 @@ export async function isStoreAccountActiveOnServer(phone: string): Promise<boole
 }
 
 const SYNC_KEYS: (keyof CrmStoreUser)[] = [
-  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'levelLockedPeriod', 'vipUntil', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
+  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'levelLockedPeriod', 'levelAssignMode', 'levelValidUntil', 'vipUntil', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
 ]
 
 export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmStoreUser | null | undefined): boolean {

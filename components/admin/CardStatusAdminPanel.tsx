@@ -17,7 +17,7 @@ import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
 import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/cardCrm'
 import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig } from '@/lib/clientCardSync'
-import { endOfLoyaltyPeriodIso, vipUntilAfterDays, formatLevelLockLabel, formatAdminLevelExpiry, formatAdminVipExpiry, isLevelLocked, inferVipTermDays, VIP_PERMANENT_DAYS, vipUntilForTermDays } from '@/lib/loyaltyAdminLock'
+import { formatAdminLevelExpiry, formatAdminVipExpiry, isLevelLocked, inferVipTermDays, VIP_PERMANENT_DAYS, vipUntilForTermDays, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
 import { useCards } from '@/lib/cardStore'
 import { useClients } from '@/lib/clientStore'
 
@@ -111,6 +111,8 @@ function TierEditor({
 type AssignRow = {
   card: AdminCard
   level: ClientLevel
+  levelAssignMode: LevelAssignMode
+  levelTermDays: number
   vip: boolean
   debtEnabled: boolean
   vipDays: number
@@ -119,13 +121,15 @@ type AssignRow = {
   err: string
 }
 
-const VIP_TERM_OPTIONS = [
+const LEVEL_TERM_OPTIONS = [
   { days: VIP_PERMANENT_DAYS, label: 'Постоянно' },
   { days: 0, label: 'До конца месяца' },
   { days: 7, label: '7 дней' },
   { days: 30, label: '30 дней' },
   { days: 90, label: '90 дней' },
 ]
+
+const VIP_TERM_OPTIONS = LEVEL_TERM_OPTIONS
 
 export default function CardStatusAdminPanel() {
   const stored = useCards()
@@ -143,6 +147,8 @@ export default function CardStatusAdminPanel() {
     saved?: boolean
     err?: string
     level?: ClientLevel
+    levelAssignMode?: LevelAssignMode
+    levelTermDays?: number
     vip?: boolean
     debtEnabled?: boolean
     vipDays?: number
@@ -226,6 +232,8 @@ export default function CardStatusAdminPanel() {
     return {
       card,
       level: meta?.level ?? form.level,
+      levelAssignMode: meta?.levelAssignMode ?? form.levelAssignMode ?? 'auto',
+      levelTermDays: meta?.levelTermDays ?? form.levelTermDays ?? 0,
       vip: meta?.vip ?? form.vip,
       debtEnabled: meta?.debtEnabled ?? form.debtEnabled,
       vipDays: meta?.vipDays ?? inferVipTermDays(form.vip, card.vipUntil || client?.vipUntil),
@@ -237,7 +245,7 @@ export default function CardStatusAdminPanel() {
 
   const applyStatus = async (
     num: string,
-    patch: Partial<Pick<AssignRow, 'level' | 'vip' | 'debtEnabled' | 'vipDays'>>,
+    patch: Partial<Pick<AssignRow, 'level' | 'levelAssignMode' | 'levelTermDays' | 'vip' | 'debtEnabled' | 'vipDays'>>,
   ) => {
     const card = activeCards.find(c => cardNumsMatch(c.num, num))
     if (!card) return
@@ -250,6 +258,8 @@ export default function CardStatusAdminPanel() {
       await saveCardLoyalty(card, {
         ...base,
         level: next.level,
+        levelAssignMode: next.levelAssignMode,
+        levelTermDays: next.levelTermDays,
         vip: next.vip,
         debtEnabled: next.debtEnabled,
         vipUntil: next.vip ? vipUntilForTermDays(next.vipDays) : undefined,
@@ -367,8 +377,15 @@ export default function CardStatusAdminPanel() {
       <div className="ac">
         <div style={{ padding: '14px 16px', borderBottom: '1px solid #162B1A' }}>
           <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 4 }}>👥 Статусы клиентов</div>
-          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 10 }}>
-            Уровень закрепляется до конца месяца. VIP можно выдать на срок — после него останется, если клиент выполнит условия VIP за месяц.
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 10 }}>
+            <div style={{ padding: '10px 12px', borderRadius: 12, background: 'rgba(31,215,96,.06)', border: '1px solid rgba(31,215,96,.2)' }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#1FD760', marginBottom: 4 }}>🔄 Автоматически</div>
+              <div style={{ fontSize: 10, color: '#8FB897', lineHeight: 1.45 }}>Уровень растёт по заказам за месяц. Выберите срок — после него уровень пересчитается по тратам.</div>
+            </div>
+            <div style={{ padding: '10px 12px', borderRadius: 12, background: 'rgba(255,184,0,.06)', border: '1px solid rgba(255,184,0,.2)' }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#FFB800', marginBottom: 4 }}>✋ Ручной</div>
+              <div style={{ fontSize: 10, color: '#8FB897', lineHeight: 1.45 }}>Назначаете уровень сами. Закрепляется на выбранный срок, затем — по заработанному уровню.</div>
+            </div>
           </div>
           <div style={{ position: 'relative', maxWidth: 360 }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: .5 }}>🔍</span>
@@ -387,9 +404,10 @@ export default function CardStatusAdminPanel() {
             <thead>
               <tr>
                 <th>Клиент / карта</th>
+                <th>Режим</th>
                 <th>Уровень</th>
+                <th>Срок уровня</th>
                 <th>VIP</th>
-                <th>Срок</th>
                 <th>Раздел долга</th>
                 <th></th>
               </tr>
@@ -397,14 +415,21 @@ export default function CardStatusAdminPanel() {
             <tbody>
               {filteredCards.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: 28, color: '#3D6645' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 28, color: '#3D6645' }}>
                     Нет активных карт с клиентами
                   </td>
                 </tr>
               ) : filteredCards.map(card => {
                 const st = getRow(card)
-                const levelExpiry = formatAdminLevelExpiry({ ...card, level: st.level })
+                const lockRecord = {
+                  levelAssignMode: st.levelAssignMode,
+                  levelValidUntil: card.levelValidUntil,
+                  levelLockedPeriod: card.levelLockedPeriod,
+                  level: st.level,
+                }
+                const levelExpiry = formatAdminLevelExpiry(lockRecord)
                 const vipExpiry = formatAdminVipExpiry({ ...card, vip: st.vip })
+                const isAuto = st.levelAssignMode === 'auto'
                 return (
                   <tr key={card.num}>
                     <td>
@@ -415,44 +440,79 @@ export default function CardStatusAdminPanel() {
                     <td>
                       <select
                         className="ai"
-                        value={st.level}
-                        onChange={e => applyStatus(card.num, { level: e.target.value as ClientLevel })}
+                        value={st.levelAssignMode}
+                        onChange={e => {
+                          const mode = e.target.value as LevelAssignMode
+                          applyStatus(card.num, {
+                            levelAssignMode: mode,
+                            levelTermDays: st.levelTermDays,
+                          })
+                        }}
                         disabled={st.saving}
                         style={{ fontSize: 12, padding: '6px 8px', minWidth: 130 }}
                       >
-                        {levelOptions.map(o => (
-                          <option key={o.id} value={o.id}>{o.emoji} {o.label}</option>
+                        <option value="auto">🔄 Автоматически</option>
+                        <option value="manual">✋ Ручной</option>
+                      </select>
+                      <div style={{ fontSize: 9, color: '#8FB897', marginTop: 4 }}>{levelExpiry}</div>
+                    </td>
+                    <td>
+                      {isAuto ? (
+                        <div style={{ fontSize: 12, color: '#8FB897', padding: '6px 0' }}>
+                          <span style={{ color: '#1FD760' }}>{st.level !== 'basic' ? `📈 ${st.level}` : '— по заказам'}</span>
+                        </div>
+                      ) : (
+                        <select
+                          className="ai"
+                          value={st.level}
+                          onChange={e => applyStatus(card.num, { level: e.target.value as ClientLevel, levelAssignMode: 'manual' })}
+                          disabled={st.saving}
+                          style={{ fontSize: 12, padding: '6px 8px', minWidth: 130 }}
+                        >
+                          {levelOptions.map(o => (
+                            <option key={o.id} value={o.id}>{o.emoji} {o.label}</option>
+                          ))}
+                        </select>
+                      )}
+                      {st.level === 'basic' && !isAuto ? (
+                        <div style={{ fontSize: 9, color: '#8FB897', marginTop: 4 }}>♾ Постоянно</div>
+                      ) : !isAuto && isLevelLocked(lockRecord) ? (
+                        <div style={{ fontSize: 9, color: '#FFB800', marginTop: 4 }}>🔒 закреплён</div>
+                      ) : null}
+                    </td>
+                    <td>
+                      <select
+                        className="ai"
+                        value={String(st.levelTermDays)}
+                        onChange={e => applyStatus(card.num, { levelTermDays: Number(e.target.value) })}
+                        disabled={st.saving || (!isAuto && st.level === 'basic')}
+                        style={{ fontSize: 11, padding: '5px 6px', minWidth: 120 }}
+                      >
+                        {LEVEL_TERM_OPTIONS.map(o => (
+                          <option key={o.days} value={o.days}>{o.label}</option>
                         ))}
                       </select>
-                      {st.level === 'basic' ? (
-                        <div style={{ fontSize: 9, color: '#8FB897', marginTop: 4 }}>♾ Постоянно</div>
-                      ) : isLevelLocked({ ...card, level: st.level }) ? (
-                        <div style={{ fontSize: 9, color: '#FFB800', marginTop: 4 }}>
-                          🔒 {formatLevelLockLabel(card.levelLockedPeriod)}
-                        </div>
-                      ) : null}
                     </td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
                         <Tog on={st.vip} set={() => !st.saving && applyStatus(card.num, { vip: !st.vip, vipDays: st.vip ? st.vipDays : VIP_PERMANENT_DAYS })} />
                         {st.vip && (
-                          <select
-                            className="ai"
-                            value={String(st.vipDays)}
-                            onChange={e => applyStatus(card.num, { vip: true, vipDays: Number(e.target.value) })}
-                            disabled={st.saving}
-                            style={{ fontSize: 10, padding: '4px 6px', minWidth: 120 }}
-                          >
-                            {VIP_TERM_OPTIONS.map(o => (
-                              <option key={o.days} value={o.days}>{o.label}</option>
-                            ))}
-                          </select>
+                          <>
+                            <select
+                              className="ai"
+                              value={String(st.vipDays)}
+                              onChange={e => applyStatus(card.num, { vip: true, vipDays: Number(e.target.value) })}
+                              disabled={st.saving}
+                              style={{ fontSize: 10, padding: '4px 6px', minWidth: 120 }}
+                            >
+                              {VIP_TERM_OPTIONS.map(o => (
+                                <option key={o.days} value={o.days}>{o.label}</option>
+                              ))}
+                            </select>
+                            <div style={{ fontSize: 9, color: '#8FB897' }}>{vipExpiry}</div>
+                          </>
                         )}
                       </div>
-                    </td>
-                    <td style={{ fontSize: 10, color: '#8FB897', lineHeight: 1.5, minWidth: 100 }}>
-                      <div><span style={{ color: '#3D6645' }}>Уровень:</span> {levelExpiry}</div>
-                      {st.vip && <div style={{ marginTop: 4 }}><span style={{ color: '#3D6645' }}>VIP:</span> {vipExpiry}</div>}
                     </td>
                     <td>
                       <Tog on={st.debtEnabled} set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled })} />

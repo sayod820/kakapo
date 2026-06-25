@@ -24,7 +24,7 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
@@ -337,13 +337,16 @@ export async function saveCardLoyalty(
   const prevLevel = (card.level || client?.level || 'basic') as ClientLevel
   const prevVip = !!(card.vip ?? client?.vip)
   const statusChanged = !!form.vip !== prevVip || form.level !== prevLevel
-  const levelChanged = form.level !== prevLevel
   const tierLimit = getTierDefaultDebtLimit(form.level, !!form.vip)
   const debtEligible = !!form.vip || !!form.debtEnabled || form.level === 'gold' || form.level === 'platinum'
   const formLimit = Math.max(0, Number(form.debtLimit) || 0)
   const resolvedDebtLimit = formLimit > 0
     ? formLimit
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
+
+  const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
+  const termDays = form.levelTermDays ?? 0
+  const lockFields = resolveLevelLockFromTerm(assignMode, form.level, termDays)
 
   const loyalty = {
     level: form.level,
@@ -353,9 +356,9 @@ export async function saveCardLoyalty(
     vip: !!form.vip,
     debtEnabled: !!form.debtEnabled,
     loyaltyPeriod: currentLoyaltyPeriod(),
-    levelLockedPeriod: levelChanged
-      ? (form.level === 'basic' ? undefined : currentLoyaltyPeriod())
-      : (form.level === 'basic' ? undefined : (card.levelLockedPeriod || client?.levelLockedPeriod)),
+    levelAssignMode: lockFields.levelAssignMode,
+    levelValidUntil: lockFields.levelValidUntil,
+    levelLockedPeriod: lockFields.levelLockedPeriod,
     vipUntil: !form.vip
       ? undefined
       : form.vipUntil === null
@@ -455,14 +458,29 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
 
   const oldPeriod = storedPeriod
   const period = currentLoyaltyPeriod()
-  const hadLevelLock = !!(card?.levelLockedPeriod === oldPeriod || client?.levelLockedPeriod === oldPeriod)
+  const assignMode = inferLevelAssignMode(card || {}, client)
+  const levelValidUntil = card?.levelValidUntil || client?.levelValidUntil
+  const untilExpired = !!(levelValidUntil && Date.now() > new Date(levelValidUntil).getTime())
+  const manualLockMonth = !!(card?.levelLockedPeriod === oldPeriod || client?.levelLockedPeriod === oldPeriod)
   const account = client || undefined
   const { spent, orderCount } = orders?.length
     ? loyaltyStatsFromOrders(orders, phone, oldPeriod, account)
     : { spent: client?.spent || 0, orderCount: client?.orders || 0 }
 
+  const curLevel = (card?.level || client?.level || 'basic') as ClientLevel
+  const stillManualLocked = assignMode === 'manual'
+    && !untilExpired
+    && !manualLockMonth
+    && (levelValidUntil || card?.levelLockedPeriod || client?.levelLockedPeriod)
+
   let nextLevel: ClientLevel = 'basic'
-  if (hadLevelLock) {
+  if (assignMode === 'manual' && stillManualLocked) {
+    nextLevel = curLevel
+  } else if (assignMode === 'manual' && (manualLockMonth || untilExpired)) {
+    nextLevel = earnedLevelForPeriod(spent, orderCount)
+  } else if (assignMode === 'auto') {
+    nextLevel = 'basic'
+  } else if (manualLockMonth) {
     nextLevel = earnedLevelForPeriod(spent, orderCount)
   }
 
@@ -472,10 +490,13 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
     nextVip = qualifiesAutoVip(spent, orderCount, 0)
   }
 
+  const clearManualLock = manualLockMonth || untilExpired
   const patch = {
     level: nextLevel,
     loyaltyPeriod: period,
-    levelLockedPeriod: undefined as string | undefined,
+    levelLockedPeriod: clearManualLock ? undefined : (card?.levelLockedPeriod || client?.levelLockedPeriod),
+    levelValidUntil: untilExpired ? undefined : levelValidUntil,
+    levelAssignMode: (clearManualLock && assignMode === 'manual') ? 'auto' as const : assignMode,
     vip: nextVip,
     vipUntil: nextVip && vipUntil && Date.now() <= new Date(vipUntil).getTime() ? vipUntil : undefined,
   }

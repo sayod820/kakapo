@@ -4291,7 +4291,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                             {c.vip && <Badge v="VIP" c="#FFB800" />}
                           </div>
                           <div style={{ fontSize: 10, color: '#8FB897', marginTop: 4, lineHeight: 1.4 }}>
-                            {formatAdminLevelExpiry({ level: c.level as ClientLevel, levelLockedPeriod: c.levelLockedPeriod })}
+                            {formatAdminLevelExpiry({ level: c.level as ClientLevel, levelAssignMode: c.levelAssignMode, levelLockedPeriod: c.levelLockedPeriod, levelValidUntil: c.levelValidUntil })}
                             {c.vip && (
                               <span style={{ display: 'block', marginTop: 2 }}>
                                 VIP: {formatAdminVipExpiry({ vip: c.vip, vipUntil: c.vipUntil })}
@@ -4355,7 +4355,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                 { l: 'Лимит долга', v: detail.debtLimit > 0 ? `${detail.debtLimit} ЅМ` : 'Нет', c: '#1FD760' },
                 { l: 'Долг', v: detail.debt > 0 ? `${detail.debt} ЅМ` : '—', c: detail.debt > 0 ? '#FF4545' : '#3D6645' },
                 { l: 'VIP', v: detail.vip ? '👑 Включён' : 'Выключен', c: detail.vip ? '#FFB800' : '#3D6645' },
-                { l: 'Срок уровня', v: formatAdminLevelExpiry({ level: detail.level as ClientLevel, levelLockedPeriod: detail.levelLockedPeriod }), c: '#8FB897' },
+                { l: 'Срок уровня', v: formatAdminLevelExpiry({ level: detail.level as ClientLevel, levelAssignMode: detail.levelAssignMode, levelLockedPeriod: detail.levelLockedPeriod, levelValidUntil: detail.levelValidUntil }), c: '#8FB897' },
                 { l: 'Срок VIP', v: detail.vip ? formatAdminVipExpiry({ vip: detail.vip, vipUntil: detail.vipUntil }) : '—', c: '#8FB897' },
                 { l: 'Выдана', v: detail.issued || '—', c: '#8FB897' },
               ].map(row => (

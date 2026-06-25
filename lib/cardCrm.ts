@@ -1,5 +1,6 @@
 import type { AdminClient, ClientLevel } from './clientCrm'
 import { normalizePhone, phonesMatch, vipFromNote, debtFromNote } from './clientCrm'
+import { inferLevelAssignMode, inferLevelTermDays } from './loyaltyAdminLock'
 
 export type CardStatus = 'active' | 'unlinked' | 'blocked'
 
@@ -22,6 +23,10 @@ export interface AdminCard {
   loyaltyPeriod?: string
   /** Месяц (YYYY-MM), в котором уровень закреплён админом */
   levelLockedPeriod?: string
+  /** auto — по заказам, manual — назначение админом */
+  levelAssignMode?: 'auto' | 'manual'
+  /** До какой даты (ISO) действует уровень */
+  levelValidUntil?: string | null
   /** До какой даты (ISO) действует принудительный VIP */
   vipUntil?: string
   /** С какого момента (ISO) начислять кэшбэк после ручной смены статуса */
@@ -110,6 +115,8 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
       || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    levelAssignMode: raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined),
+    levelValidUntil: raw.levelValidUntil || undefined,
     vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
   }
@@ -141,6 +148,8 @@ export type CardLoyaltyForm = {
   vip: boolean
   debtEnabled: boolean
   vipUntil?: string | null
+  levelAssignMode?: 'auto' | 'manual'
+  levelTermDays?: number
 }
 
 export function emptyCardLoyaltyForm(): CardLoyaltyForm {
@@ -148,16 +157,22 @@ export function emptyCardLoyaltyForm(): CardLoyaltyForm {
 }
 
 export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): CardLoyaltyForm {
+  const level = (card.level || client?.level || 'basic') as ClientLevel
+  const mode = inferLevelAssignMode(card, client)
+  const levelValidUntil = card.levelValidUntil || client?.levelValidUntil
+  const levelLockedPeriod = card.levelLockedPeriod || client?.levelLockedPeriod
   return {
     clientId: client?.id || card.clientId || '',
     phone: card.phone || client?.phone || '',
-    level: (card.level || client?.level || 'basic') as ClientLevel,
+    level,
     debtLimit: card.debtLimit ?? client?.debtLimit ?? 0,
     bonus: card.bonus ?? client?.bonus ?? 0,
     debt: card.debt ?? client?.debt ?? 0,
     vip: !!(card.vip ?? client?.vip),
     debtEnabled: resolveDebtEnabled(card, client),
     vipUntil: card.vipUntil || client?.vipUntil,
+    levelAssignMode: mode,
+    levelTermDays: inferLevelTermDays(mode, level, levelValidUntil, levelLockedPeriod),
   }
 }
 
