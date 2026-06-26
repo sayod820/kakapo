@@ -62,6 +62,20 @@ export function normalizeLoyaltyLevel(raw?: ClientLevel | 'new' | '' | null): Cl
   return raw
 }
 
+/** Уровень при слиянии карты и клиента (карта — источник правды, basic на сервере часто ''). */
+export function resolveMergedLoyaltyLevel(
+  card?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
+  client?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
+): ClientLevel {
+  if (card?.levelAssignMode === 'manual') {
+    return normalizeLoyaltyLevel(card.level || 'basic')
+  }
+  if (client?.levelAssignMode === 'manual') {
+    return normalizeLoyaltyLevel(client.level || card?.level || 'basic')
+  }
+  return normalizeLoyaltyLevel(card?.level || client?.level)
+}
+
 /** Ручной статус активен (закреплён админом, авторасчёт не применяется). */
 export function isManualLoyaltyActive(
   record?: LoyaltyLockSource | null,

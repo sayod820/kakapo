@@ -25,7 +25,7 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
@@ -286,7 +286,7 @@ export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[])
   const card = client.card ? cards.find(c => cardNumsMatch(c.num, client.card)) : undefined
   return {
     card: client.card || '',
-    level: card?.level || client.level,
+    level: resolveMergedLoyaltyLevel(card, client),
     bonus: card?.bonus ?? client.bonus,
     debt: card?.debt ?? client.debt,
     debtLimit: card?.debtLimit ?? client.debtLimit,
@@ -370,7 +370,7 @@ export async function saveCardLoyalty(
   const phone = (form.phone || client?.phone || '').trim()
   if (!phone) throw new Error('Выберите клиента или укажите телефон')
 
-  const prevLevel = (card.level || client?.level || 'basic') as ClientLevel
+  const prevLevel = resolveMergedLoyaltyLevel(card, client)
   const prevVip = !!(card.vip ?? client?.vip)
 
   const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
@@ -552,7 +552,7 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
     ? loyaltyStatsFromOrders(orders, phone, oldPeriod, account)
     : { spent: client?.spent || 0, orderCount: client?.orders || 0 }
 
-  const curLevel = (card?.level || client?.level || 'basic') as ClientLevel
+  const curLevel = resolveMergedLoyaltyLevel(card || undefined, client || undefined)
   const stillManualLocked = assignMode === 'manual'
     && !untilExpired
     && !manualLockMonth

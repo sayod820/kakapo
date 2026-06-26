@@ -14,7 +14,7 @@ import {
 import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, type AdminCard } from './cardCrm'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
-import { isLevelLocked, loyaltyLockFromRecord, normalizeLoyaltyLevel } from './loyaltyAdminLock'
+import { normalizeLoyaltyLevel, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const CARDS_KEY = 'kakapo-cards'
@@ -111,7 +111,7 @@ function findBestCard(phone: string, cardNum: string | undefined, client: AdminC
 export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null): AdminClient {
   const base = normalizeClient(client)
   if (!card || card.status === 'unlinked') return base
-  const level = (card.level || base.level) as ClientLevel
+  const level = resolveMergedLoyaltyLevel(card, base)
   const vip = !!(card.vip || base.vip)
   const debtEnabled = resolveDebtEnabled(card, base)
   return normalizeClient({

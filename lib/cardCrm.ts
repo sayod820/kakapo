@@ -1,6 +1,6 @@
 import type { AdminClient, ClientLevel } from './clientCrm'
 import { normalizePhone, phonesMatch, vipFromNote, debtFromNote } from './clientCrm'
-import { inferLevelAssignMode, inferLevelTermDays } from './loyaltyAdminLock'
+import { inferLevelAssignMode, inferLevelTermDays, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
 
 export type CardStatus = 'active' | 'unlinked' | 'blocked'
 
@@ -157,7 +157,7 @@ export function emptyCardLoyaltyForm(): CardLoyaltyForm {
 }
 
 export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): CardLoyaltyForm {
-  const level = (card.level || client?.level || 'basic') as ClientLevel
+  const level = resolveMergedLoyaltyLevel(card, client)
   const mode = inferLevelAssignMode(card, client)
   const levelValidUntil = card.levelValidUntil || client?.levelValidUntil
   const levelLockedPeriod = card.levelLockedPeriod || client?.levelLockedPeriod
@@ -204,7 +204,7 @@ export function enrichCardWithClient(card: AdminCard, clients: AdminClient[]): A
     client: client.name || card.client,
     phone: client.phone || card.phone,
     clientId: client.id,
-    level: card.level || client.level,
+    level: resolveMergedLoyaltyLevel(card, client),
     bonus: Math.max(card.bonus, client.bonus),
     debtLimit: card.debtLimit ?? client.debtLimit,
     debt: Math.max(card.debt, client.debt),
