@@ -427,22 +427,6 @@ export async function saveCardLoyalty(
     ...loyalty,
   }
 
-  if (USE_API) {
-    try {
-      const result = await persistLoyaltyToApi(cardNum.trim(), cardPatch, client.id, {
-        card: canonicalCardNum(cardNum),
-        name: clientName,
-        phone,
-        note: loyaltyNote,
-        ...loyalty,
-      })
-      if (result.cardNum) cardNum = result.cardNum
-    } catch (e) {
-      console.error('saveCardLoyalty API failed', e)
-      throw e instanceof Error ? e : new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
-    }
-  }
-
   const cardKey = canonicalCardNum(cardNum)
   const clientPatch = {
     card: cardKey,
@@ -470,9 +454,32 @@ export async function saveCardLoyalty(
     }
   }
 
-  emitCrmSync()
   markCardLoyaltySaved(cardKey)
   markClientLoyaltySaved(client.id)
+  emitCrmSync()
+
+  if (USE_API) {
+    try {
+      const result = await persistLoyaltyToApi(cardNum.trim(), cardPatch, client.id, {
+        card: cardKey,
+        name: clientName,
+        phone,
+        note: loyaltyNote,
+        ...loyalty,
+      })
+      if (result.cardNum) {
+        const nextKey = canonicalCardNum(result.cardNum)
+        if (nextKey !== cardKey) {
+          markCardLoyaltySaved(nextKey)
+        }
+        cardNum = result.cardNum
+      }
+    } catch (e) {
+      console.error('saveCardLoyalty API failed', e)
+      throw e instanceof Error ? e : new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
+    }
+  }
+
   void syncActiveStoreSessionFromPhone(phone)
 }
 

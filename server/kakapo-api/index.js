@@ -1501,19 +1501,22 @@ function syncClientFromCardRow(card) {
   const clientName = String(client.name || '').trim()
   if (cardName && cardName !== 'Клиент') client.name = cardName
   else if (!clientName || clientName === 'Клиент') client.name = cardName || clientName || 'Клиент'
-  if (card.level) client.level = card.level
+  client.level = card.level || 'basic'
   client.bonus = Number(card.bonus) || 0
   client.debt = Number(card.debt) || 0
   client.debtLimit = Number(card.debtLimit) || 0
   client.vip = !!card.vip
   client.blocked = card.status === 'blocked'
+  client.debtEnabled = !!(card.debtEnabled || debtFromNote(card.note))
   if (card.loyaltyPeriod) client.loyaltyPeriod = card.loyaltyPeriod
   if (card.levelLockedPeriod) client.levelLockedPeriod = card.levelLockedPeriod
+  else if (card.levelLockedPeriod === null || card.levelLockedPeriod === '') client.levelLockedPeriod = undefined
   if (card.levelAssignMode) client.levelAssignMode = card.levelAssignMode
   if (card.levelValidUntil) client.levelValidUntil = card.levelValidUntil
+  else if (card.levelValidUntil === null || card.levelValidUntil === '') client.levelValidUntil = undefined
   if (card.vipUntil) client.vipUntil = card.vipUntil
+  else if (card.vipUntil === null || card.vipUntil === '') client.vipUntil = undefined
   if (card.bonusEligibleFrom) client.bonusEligibleFrom = card.bonusEligibleFrom
-  client.debtEnabled = !!(card.debtEnabled || debtFromNote(card.note))
 }
 
 app.post('/cards/generate', (req, res) => {

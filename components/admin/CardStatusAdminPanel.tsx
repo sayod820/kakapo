@@ -439,9 +439,12 @@ export default function CardStatusAdminPanel() {
                         value={st.levelAssignMode}
                         onChange={e => {
                           const mode = e.target.value as LevelAssignMode
+                          const phone = card.phone || client?.phone || ''
+                          const earned = earnedAutoLevelForClient(phone, client, orders)
                           applyStatus(card.num, {
                             levelAssignMode: mode,
                             levelTermDays: st.levelTermDays,
+                            ...(mode === 'manual' && isAuto && earned !== 'basic' ? { level: earned } : {}),
                           })
                         }}
                         disabled={st.saving}

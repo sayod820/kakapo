@@ -1,6 +1,5 @@
 'use client'
 
-import { USE_API } from './config'
 import { cardNumsMatch, canonicalCardNum, type AdminCard } from './cardCrm'
 import type { AdminClient } from './clientCrm'
 
@@ -32,17 +31,17 @@ function isRecent(map: Map<string, number>, key: string) {
 }
 
 export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCard): AdminCard {
-  if (USE_API || !localCard || !isRecent(cardSavedAt, cardKey(apiCard.num))) return apiCard
+  if (!localCard || !isRecent(cardSavedAt, cardKey(apiCard.num))) return apiCard
   return {
     ...apiCard,
-    level: localCard.level || apiCard.level,
+    level: localCard.level !== undefined ? localCard.level : apiCard.level,
     vip: localCard.vip,
     debtEnabled: localCard.debtEnabled,
-    loyaltyPeriod: localCard.loyaltyPeriod || apiCard.loyaltyPeriod,
-    levelLockedPeriod: localCard.levelLockedPeriod || apiCard.levelLockedPeriod,
-    levelAssignMode: localCard.levelAssignMode || apiCard.levelAssignMode,
-    levelValidUntil: localCard.levelValidUntil || apiCard.levelValidUntil,
-    vipUntil: localCard.vipUntil || apiCard.vipUntil,
+    loyaltyPeriod: localCard.loyaltyPeriod ?? apiCard.loyaltyPeriod,
+    levelLockedPeriod: localCard.levelLockedPeriod ?? apiCard.levelLockedPeriod,
+    levelAssignMode: localCard.levelAssignMode ?? apiCard.levelAssignMode,
+    levelValidUntil: localCard.levelValidUntil ?? apiCard.levelValidUntil,
+    vipUntil: localCard.vipUntil ?? apiCard.vipUntil,
     bonus: localCard.bonus ?? apiCard.bonus,
     debt: localCard.debt ?? apiCard.debt,
     debtLimit: localCard.debtLimit ?? apiCard.debtLimit,
@@ -50,17 +49,17 @@ export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCa
 }
 
 export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?: AdminClient): AdminClient {
-  if (USE_API || !localClient || !isRecent(clientSavedAt, localClient.id)) return apiClient
+  if (!localClient || !isRecent(clientSavedAt, localClient.id)) return apiClient
   return {
     ...apiClient,
-    level: localClient.level || apiClient.level,
+    level: localClient.level ?? apiClient.level,
     vip: localClient.vip,
     debtEnabled: localClient.debtEnabled,
-    loyaltyPeriod: localClient.loyaltyPeriod || apiClient.loyaltyPeriod,
-    levelLockedPeriod: localClient.levelLockedPeriod || apiClient.levelLockedPeriod,
-    levelAssignMode: localClient.levelAssignMode || apiClient.levelAssignMode,
-    levelValidUntil: localClient.levelValidUntil || apiClient.levelValidUntil,
-    vipUntil: localClient.vipUntil || apiClient.vipUntil,
+    loyaltyPeriod: localClient.loyaltyPeriod ?? apiClient.loyaltyPeriod,
+    levelLockedPeriod: localClient.levelLockedPeriod ?? apiClient.levelLockedPeriod,
+    levelAssignMode: localClient.levelAssignMode ?? apiClient.levelAssignMode,
+    levelValidUntil: localClient.levelValidUntil ?? apiClient.levelValidUntil,
+    vipUntil: localClient.vipUntil ?? apiClient.vipUntil,
     bonus: localClient.bonus ?? apiClient.bonus,
     debt: localClient.debt ?? apiClient.debt,
     debtLimit: localClient.debtLimit ?? apiClient.debtLimit,
