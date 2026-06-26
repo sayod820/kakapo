@@ -1049,9 +1049,15 @@ app.patch('/clients/:id', (req, res) => {
   }
   const vipChanged = patch.vip !== undefined && !!patch.vip !== !!c.vip
   const levelChanged = patch.level != null && patch.level !== c.level
-  if (vipChanged || levelChanged) {
-    patch.loyaltyPeriod = currentLoyaltyPeriod()
-    patch.bonusEligibleFrom = new Date().toISOString()
+  const loyaltyTouched = vipChanged || levelChanged
+    || patch.levelAssignMode != null
+    || patch.levelValidUntil !== undefined
+    || patch.levelLockedPeriod !== undefined
+  if (loyaltyTouched) {
+    if (vipChanged || levelChanged) {
+      patch.loyaltyPeriod = currentLoyaltyPeriod()
+      patch.bonusEligibleFrom = new Date().toISOString()
+    }
     if (levelChanged && !('levelAssignMode' in (req.body || {}))) {
       patch.levelLockedPeriod = patch.level === 'basic' ? undefined : currentLoyaltyPeriod()
       patch.levelAssignMode = patch.level === 'basic' ? undefined : 'manual'
@@ -1063,8 +1069,8 @@ app.patch('/clients/:id', (req, res) => {
     if (c.card) {
       const linked = findCardByNum(c.card)
       if (linked) {
-        linked.loyaltyPeriod = patch.loyaltyPeriod
-        linked.bonusEligibleFrom = patch.bonusEligibleFrom
+        if (patch.loyaltyPeriod) linked.loyaltyPeriod = patch.loyaltyPeriod
+        if (patch.bonusEligibleFrom) linked.bonusEligibleFrom = patch.bonusEligibleFrom
         if (patch.level != null) linked.level = patch.level
         if (patch.vip !== undefined) linked.vip = !!patch.vip
         if (patch.levelLockedPeriod !== undefined) linked.levelLockedPeriod = patch.levelLockedPeriod
@@ -1686,9 +1692,11 @@ app.patch('/cards/:num', (req, res) => {
       const prev = Number(card.bonus) || 0
       if (next < prev) delete body.bonus
     }
-    if (body.vip !== undefined || body.level != null) {
-      body.loyaltyPeriod = currentLoyaltyPeriod()
-      body.bonusEligibleFrom = new Date().toISOString()
+    if (body.vip !== undefined || body.level != null || body.levelAssignMode != null) {
+      if (body.vip !== undefined || body.level != null) {
+        body.loyaltyPeriod = currentLoyaltyPeriod()
+        body.bonusEligibleFrom = new Date().toISOString()
+      }
       if (body.level != null && body.level !== card.level && !('levelAssignMode' in (req.body || {}))) {
         body.levelLockedPeriod = body.level === 'basic' ? undefined : currentLoyaltyPeriod()
         body.levelAssignMode = body.level === 'basic' ? undefined : 'manual'

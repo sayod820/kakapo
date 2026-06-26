@@ -390,6 +390,12 @@ function ensureClientPeriodForOrder(db, phone, client, card, orderPeriod, loyalt
     return
   }
 
+  if (inferLevelAssignMode(client, card) === 'manual') {
+    if (!client.loyaltyPeriod) client.loyaltyPeriod = orderPeriod
+    if (card && !card.loyaltyPeriod) card.loyaltyPeriod = orderPeriod
+    return
+  }
+
   const stored = client.loyaltyPeriod || card?.loyaltyPeriod
   if (!stored || stored === orderPeriod) {
     if (!client.loyaltyPeriod) client.loyaltyPeriod = orderPeriod

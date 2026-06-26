@@ -20,6 +20,7 @@ import { emitCrmSync, findMergedClientByPhone, fetchCrmStoreUser, crmStoreUsersE
 import { resetClientNotificationsForAccount } from './clientNotifications'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
+import type { ManualLoyaltySnapshot } from './loyaltySaveGuard'
 import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
@@ -455,7 +456,19 @@ export async function saveCardLoyalty(
     }
   }
 
-  markCardLoyaltySaved(cardKey)
+  markCardLoyaltySaved(cardKey, {
+    cardNum: cardKey,
+    clientId: client.id,
+    level: resolvedLevel,
+    levelAssignMode: lockFields.levelAssignMode,
+    levelValidUntil: lockFields.levelValidUntil ?? null,
+    levelLockedPeriod: lockFields.levelLockedPeriod ?? null,
+    vip: !!form.vip,
+    debtEnabled: !!form.debtEnabled,
+    debtLimit: resolvedDebtLimit,
+    bonus: loyalty.bonus,
+    debt: loyalty.debt,
+  })
   markClientLoyaltySaved(client.id)
 
   if (USE_API) {
@@ -470,7 +483,19 @@ export async function saveCardLoyalty(
       if (result.cardNum) {
         const nextKey = canonicalCardNum(result.cardNum)
         if (nextKey !== cardKey) {
-          markCardLoyaltySaved(nextKey)
+          markCardLoyaltySaved(nextKey, {
+            cardNum: nextKey,
+            clientId: client.id,
+            level: resolvedLevel,
+            levelAssignMode: lockFields.levelAssignMode,
+            levelValidUntil: lockFields.levelValidUntil ?? null,
+            levelLockedPeriod: lockFields.levelLockedPeriod ?? null,
+            vip: !!form.vip,
+            debtEnabled: !!form.debtEnabled,
+            debtLimit: resolvedDebtLimit,
+            bonus: loyalty.bonus,
+            debt: loyalty.debt,
+          })
         }
         cardNum = result.cardNum
       }

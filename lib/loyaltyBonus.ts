@@ -18,6 +18,7 @@ import {
 } from './loyaltyStatusConfig'
 import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
+import { inferLevelAssignMode } from './loyaltyAdminLock'
 import { onBonusCredited } from './pushService'
 import { currentLoyaltyPeriod, loyaltyPeriodForOrder } from './loyaltyPeriod'
 import { findMergedClientByPhone } from './clientProfileSync'
@@ -381,6 +382,8 @@ export function creditBonusOnDeliveryLocal(order: Order, allOrders: Order[] = []
     orderPeriod,
   )
   const vip = !!(client?.vip || card?.vip)
+  const assignMode = inferLevelAssignMode(card || {}, client || {})
+  const keepManualLevel = assignMode === 'manual'
   const merged = {
     vip,
     loyaltyPeriod: client?.loyaltyPeriod || card?.loyaltyPeriod,
@@ -393,14 +396,14 @@ export function creditBonusOnDeliveryLocal(order: Order, allOrders: Order[] = []
     clientStore.updateClient(client.id, {
       orders: Math.max(client.orders || 0, orderCount),
       spent: Math.max(client.spent || 0, monthlySpent),
-      level: vip ? client.level : statusLevel,
+      ...(keepManualLevel ? {} : { level: vip ? client.level : statusLevel }),
       loyaltyPeriod: orderPeriod,
-    })
+    }, { skipApi: true })
   }
 
   const loyaltyPatch = {
     bonus: (card?.bonus || client?.bonus || 0) + earned,
-    level: vip ? (card?.level || statusLevel) : statusLevel,
+    ...(keepManualLevel ? {} : { level: vip ? (card?.level || statusLevel) : statusLevel }),
     loyaltyPeriod: orderPeriod,
   }
 
