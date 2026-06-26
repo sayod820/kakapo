@@ -416,11 +416,15 @@ export function enrichClientWithOrders(client: AdminClient, orders: Order[]): Ad
   const hasLive = orders.some(o => orderBelongsToClientAccount(o, client))
   const spent = hasLive ? live.spent : 0
   const ordersCount = hasLive ? live.orders : 0
-  const storedLevel = client.vip ? (client.level || 'basic') : 'basic'
+  const storedLevel = (client.level || 'basic') as ClientLevel
+  const lock = {
+    levelAssignMode: client.levelAssignMode,
+    levelValidUntil: client.levelValidUntil,
+    levelLockedPeriod: client.levelLockedPeriod,
+    level: storedLevel,
+  }
   const level = hasLive
-    ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, client.loyaltyPeriod, {
-      levelLockedPeriod: client.levelLockedPeriod,
-    })
+    ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, client.loyaltyPeriod, lock)
     : storedLevel
   const lastLabel = formatLastActivity(hasLive ? (live.lastOrderAt || client.lastOrderAt) : undefined)
   return {

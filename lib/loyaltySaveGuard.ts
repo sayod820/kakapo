@@ -30,39 +30,34 @@ function isRecent(map: Map<string, number>, key: string) {
   return true
 }
 
+function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T): T {
+  const manual = local.levelAssignMode === 'manual'
+  const localLevel = local.level !== undefined && local.level !== '' ? local.level : undefined
+  return {
+    ...api,
+    level: manual && localLevel ? localLevel : (localLevel ?? api.level),
+    vip: local.vip,
+    debtEnabled: local.debtEnabled,
+    loyaltyPeriod: local.loyaltyPeriod ?? api.loyaltyPeriod,
+    levelLockedPeriod: 'levelLockedPeriod' in local ? (local.levelLockedPeriod ?? undefined) : api.levelLockedPeriod,
+    levelAssignMode: local.levelAssignMode ?? api.levelAssignMode,
+    levelValidUntil: 'levelValidUntil' in local ? (local.levelValidUntil ?? undefined) : api.levelValidUntil,
+    vipUntil: 'vipUntil' in local ? (local.vipUntil ?? undefined) : api.vipUntil,
+    bonus: local.bonus ?? api.bonus,
+    debt: local.debt ?? api.debt,
+    debtLimit: local.debtLimit ?? api.debtLimit,
+  } as T
+}
+
 export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCard): AdminCard {
   if (!localCard || !isRecent(cardSavedAt, cardKey(apiCard.num))) return apiCard
-  return {
-    ...apiCard,
-    level: localCard.level !== undefined ? localCard.level : apiCard.level,
-    vip: localCard.vip,
-    debtEnabled: localCard.debtEnabled,
-    loyaltyPeriod: localCard.loyaltyPeriod ?? apiCard.loyaltyPeriod,
-    levelLockedPeriod: localCard.levelLockedPeriod ?? apiCard.levelLockedPeriod,
-    levelAssignMode: localCard.levelAssignMode ?? apiCard.levelAssignMode,
-    levelValidUntil: localCard.levelValidUntil ?? apiCard.levelValidUntil,
-    vipUntil: localCard.vipUntil ?? apiCard.vipUntil,
-    bonus: localCard.bonus ?? apiCard.bonus,
-    debt: localCard.debt ?? apiCard.debt,
-    debtLimit: localCard.debtLimit ?? apiCard.debtLimit,
-  }
+  return mergeLoyaltyFields(apiCard, localCard)
 }
 
 export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?: AdminClient): AdminClient {
   if (!localClient || !isRecent(clientSavedAt, localClient.id)) return apiClient
   return {
-    ...apiClient,
-    level: localClient.level ?? apiClient.level,
-    vip: localClient.vip,
-    debtEnabled: localClient.debtEnabled,
-    loyaltyPeriod: localClient.loyaltyPeriod ?? apiClient.loyaltyPeriod,
-    levelLockedPeriod: localClient.levelLockedPeriod ?? apiClient.levelLockedPeriod,
-    levelAssignMode: localClient.levelAssignMode ?? apiClient.levelAssignMode,
-    levelValidUntil: localClient.levelValidUntil ?? apiClient.levelValidUntil,
-    vipUntil: localClient.vipUntil ?? apiClient.vipUntil,
-    bonus: localClient.bonus ?? apiClient.bonus,
-    debt: localClient.debt ?? apiClient.debt,
-    debtLimit: localClient.debtLimit ?? apiClient.debtLimit,
+    ...mergeLoyaltyFields(apiClient, localClient),
     card: localClient.card || apiClient.card,
   }
 }

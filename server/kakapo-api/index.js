@@ -1511,7 +1511,9 @@ function syncClientFromCardRow(card) {
   if (card.loyaltyPeriod) client.loyaltyPeriod = card.loyaltyPeriod
   if (card.levelLockedPeriod) client.levelLockedPeriod = card.levelLockedPeriod
   else if (card.levelLockedPeriod === null || card.levelLockedPeriod === '') client.levelLockedPeriod = undefined
-  if (card.levelAssignMode) client.levelAssignMode = card.levelAssignMode
+  if (card.levelAssignMode === 'manual' || card.levelAssignMode === 'auto') {
+    client.levelAssignMode = card.levelAssignMode
+  }
   if (card.levelValidUntil) client.levelValidUntil = card.levelValidUntil
   else if (card.levelValidUntil === null || card.levelValidUntil === '') client.levelValidUntil = undefined
   if (card.vipUntil) client.vipUntil = card.vipUntil

@@ -13,7 +13,7 @@ import {
 } from './clientCrm'
 import { syncAutoLevelToCrm, syncMonthlyLoyaltyReset } from './clientCardSync'
 import { currentLoyaltyPeriod } from './loyaltyPeriod'
-import { isForcedVipActive, isLevelLocked, isAutoLevelActive, inferLevelAssignMode, earnedLevelForPeriod } from './loyaltyAdminLock'
+import { isForcedVipActive, isAutoLevelActive, inferLevelAssignMode, earnedLevelForPeriod } from './loyaltyAdminLock'
 import { USE_API } from './config'
 import { useClientStore } from './clientStore'
 import { filterOrdersForStoreUser } from './clientAccountLifecycle'
@@ -51,23 +51,11 @@ export function useAutoLoyaltySync(
       vipUntil: base.vipUntil,
     }
 
-    if (assignMode === 'manual' && isLevelLocked(lockRecord) && !reset) return
+    if (!reset && assignMode === 'manual') return
     if (isForcedVipActive({ vip: base.vip, vipUntil: base.vipUntil }) && !reset) return
 
     const scoped = filterOrdersForStoreUser(orders, base)
     const { orderCount, spent } = loyaltyStatsFromOrders(scoped, base.phone)
-
-    if (!reset && assignMode === 'manual' && !isLevelLocked(lockRecord) && base.level !== 'basic') {
-      const earned = earnedLevelForPeriod(spent, orderCount)
-      if (earned !== base.level) {
-        if (!USE_API) syncAutoLevelToCrm(base.phone, earned, base.card)
-        const next: StoreUser = { ...base, level: earned, loyaltyPeriod: currentLoyaltyPeriod(), levelAssignMode: 'auto' }
-        if (getSessionEpoch() !== epoch || !isClientSessionActive() || userRef.current?.phone !== base.phone) return
-        saveStoreUser(next)
-        setUser(next)
-        return
-      }
-    }
 
     if (!reset && assignMode === 'auto' && !isAutoLevelActive(lockRecord)) {
       const earned = earnedLevelForPeriod(spent, orderCount)

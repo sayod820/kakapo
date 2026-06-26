@@ -542,7 +542,9 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   const orderPeriod = loyaltyPeriodForOrder(order)
   ensureClientPeriodForOrder(db, phone, client, card, orderPeriod, loyalty)
 
-  applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty)
+  if (inferLevelAssignMode(client, card) === 'auto') {
+    applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty)
+  }
 
   const earned = earnBonusForOrder(db, phone, order, client, card, loyalty)
 
@@ -618,7 +620,9 @@ export function reconcileClientBonuses(db, phone, hooks) {
 
   const period = currentLoyaltyPeriod()
   syncClientMonthlyStats(db, client, phone, period)
-  applyLevelUpgrade(db, phone, client, card, period, loyalty)
+  if (inferLevelAssignMode(client, card) === 'auto') {
+    applyLevelUpgrade(db, phone, client, card, period, loyalty)
+  }
   hooks.syncClientFromCardRow(card)
 
   return { credited: delta, bonus: finalBonus, orders: delivered.length }
