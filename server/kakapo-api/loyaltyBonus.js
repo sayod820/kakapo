@@ -363,8 +363,7 @@ function applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty) {
   } else if (mode === 'auto' && !isAutoLevelActive(lock)) {
     nextLevel = earned
   } else if (mode === 'auto' && isAutoLevelActive(lock)) {
-    if (!shouldAutoUpgradeLevel(client.level, effective, client.loyaltyPeriod, lock)) return
-    nextLevel = effective
+    nextLevel = earned
   } else {
     return
   }

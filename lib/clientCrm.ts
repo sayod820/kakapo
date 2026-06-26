@@ -5,7 +5,7 @@ import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
-import { isLevelLocked, type LoyaltyLockFields } from './loyaltyAdminLock'
+import { isLevelLocked, type LoyaltyLockFields, isAutoLevelActive } from './loyaltyAdminLock'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { bonusEligibleTotal } from './orderLoyaltyAmount'
 
@@ -313,6 +313,13 @@ export function resolveEffectiveClientLevel(
     return normalizedStored
   }
 
+  const earned = suggestLevel(spent)
+  const earnedBronze = hasEarnedBronze(spent, orderCount)
+
+  if (lock?.levelAssignMode === 'auto' && isAutoLevelActive(lock)) {
+    return earnedBronze ? earned : 'basic'
+  }
+
   const storedActive = isLoyaltyPeriodCurrent(storedPeriod)
   const adminAssignedLegacy = !!normalizedStored && normalizedStored !== 'basic' && !storedPeriod
   const storedForMonth = storedActive && normalizedStored && normalizedStored !== 'basic'
@@ -320,9 +327,6 @@ export function resolveEffectiveClientLevel(
     : adminAssignedLegacy
       ? normalizedStored!
       : 'basic'
-
-  const earned = suggestLevel(spent)
-  const earnedBronze = hasEarnedBronze(spent, orderCount)
 
   if (storedForMonth !== 'basic') {
     if (!earnedBronze && !storedActive && !adminAssignedLegacy) return 'basic'

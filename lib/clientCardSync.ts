@@ -24,11 +24,22 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
+
+/** Уровень по доставленным заказам текущего месяца (для авто-режима). */
+export function earnedAutoLevelForClient(
+  phone: string,
+  client?: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration'> | null,
+  orders?: Order[],
+): ClientLevel {
+  const list = orders ?? []
+  const { spent, orderCount } = loyaltyStatsFromOrders(list, phone, currentLoyaltyPeriod(), client)
+  return earnedLevelForPeriod(spent, orderCount)
+}
 
 export async function syncCardDebtLimitsFromLoyaltyConfig(cfg?: LoyaltyStatusConfig) {
   const { loadLoyaltyStatusConfig } = await import('./loyaltyStatusConfig')
@@ -352,19 +363,26 @@ export async function saveCardLoyalty(
 
   const prevLevel = (card.level || client?.level || 'basic') as ClientLevel
   const prevVip = !!(card.vip ?? client?.vip)
-  const statusChanged = !!form.vip !== prevVip || form.level !== prevLevel
-  const tierLimit = getTierDefaultDebtLimit(form.level, !!form.vip)
-  const debtEligible = !!form.vip || !!form.debtEnabled || form.level === 'gold' || form.level === 'platinum'
+
+  const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
+  let resolvedLevel = form.level
+  if (assignMode === 'auto') {
+    const { useOrders } = await import('./store')
+    resolvedLevel = earnedAutoLevelForClient(phone, client, useOrders.getState().orders)
+  }
+
+  const statusChanged = !!form.vip !== prevVip || resolvedLevel !== prevLevel
+  const tierLimit = getTierDefaultDebtLimit(resolvedLevel, !!form.vip)
+  const debtEligible = !!form.vip || !!form.debtEnabled || resolvedLevel === 'gold' || resolvedLevel === 'platinum'
   const formLimit = Math.max(0, Number(form.debtLimit) || 0)
   const resolvedDebtLimit = formLimit > 0
     ? formLimit
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
 
-  const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
-  const lockFields = resolveLevelLockFromTerm(assignMode, form.level, form.levelTermDays ?? 0)
+  const lockFields = resolveLevelLockFromTerm(assignMode, resolvedLevel, form.levelTermDays ?? 0)
 
   const loyalty = {
-    level: form.level,
+    level: resolvedLevel,
     debtLimit: resolvedDebtLimit,
     bonus: Math.max(0, Number(form.bonus) || 0),
     debt: Math.max(0, Number(form.debt) || 0),

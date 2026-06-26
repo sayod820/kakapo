@@ -16,7 +16,8 @@ import { refreshLoyaltyTiersFromConfig } from '@/lib/clientLoyalty'
 import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
 import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/cardCrm'
-import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig } from '@/lib/clientCardSync'
+import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig, earnedAutoLevelForClient } from '@/lib/clientCardSync'
+import { useOrders } from '@/lib/store'
 import { formatAdminLevelExpiry, formatAdminVipExpiry, formatLevelLockLabel, isLevelLocked, inferVipTermDays, VIP_PERMANENT_DAYS, vipUntilForTermDays, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
 import { useCards } from '@/lib/cardStore'
 import { useClients } from '@/lib/clientStore'
@@ -134,6 +135,7 @@ const VIP_TERM_OPTIONS = LEVEL_TERM_OPTIONS
 export default function CardStatusAdminPanel() {
   const stored = useCards()
   const clients = useClients()
+  const orders = useOrders(s => s.orders)
   const cards = useMemo(() => mergeCardsWithClients(stored, clients), [stored, clients])
 
   const [draft, setDraft] = useState<LoyaltyStatusConfig>(() => loadLoyaltyStatusConfig())
@@ -411,15 +413,19 @@ export default function CardStatusAdminPanel() {
                 </tr>
               ) : filteredCards.map(card => {
                 const st = getRow(card)
+                const client = card.clientId ? clients.find(c => c.id === card.clientId) : undefined
+                const isAuto = st.levelAssignMode === 'auto'
+                const autoLevel = isAuto
+                  ? earnedAutoLevelForClient(card.phone || client?.phone || '', client, orders)
+                  : st.level
                 const lockRecord = {
                   levelAssignMode: st.levelAssignMode,
                   levelValidUntil: card.levelValidUntil,
                   levelLockedPeriod: card.levelLockedPeriod,
-                  level: st.level,
+                  level: autoLevel,
                 }
                 const levelExpiry = formatAdminLevelExpiry(lockRecord)
                 const vipExpiry = formatAdminVipExpiry({ ...card, vip: st.vip })
-                const isAuto = st.levelAssignMode === 'auto'
                 return (
                   <tr key={card.num}>
                     <td>
@@ -449,7 +455,9 @@ export default function CardStatusAdminPanel() {
                     <td>
                       {isAuto ? (
                         <div style={{ fontSize: 12, color: '#8FB897', padding: '6px 0' }}>
-                          <span style={{ color: '#1FD760' }}>{st.level !== 'basic' ? `📈 ${st.level}` : '— по заказам'}</span>
+                          <span style={{ color: '#1FD760' }}>
+                            {autoLevel !== 'basic' ? `📈 ${autoLevel}` : '— по заказам'}
+                          </span>
                         </div>
                       ) : (
                         <select
