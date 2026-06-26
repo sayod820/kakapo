@@ -58,6 +58,15 @@ export function vipUntilAfterDays(days: number, from = new Date()): string {
   return d.toISOString()
 }
 
+/** Ручной статус активен (закреплён админом, авторасчёт не применяется). */
+export function isManualLoyaltyActive(
+  record?: LoyaltyLockSource | null,
+  fallbackLevel?: ClientLevel | 'new' | '',
+): boolean {
+  const lock = loyaltyLockFromRecord(record, fallbackLevel)
+  return lock.levelAssignMode === 'manual' && isLevelLocked(lock)
+}
+
 export function isLevelLocked(record?: LoyaltyLockFields | null, now = Date.now()): boolean {
   if (record?.levelAssignMode === 'auto') return false
   const lvl = record?.level

@@ -5,6 +5,7 @@ import { USE_API } from './config'
 import type { StoreUser } from './clientSession'
 import { saveStoreUser, loadStoreUser, isClientSessionActive, phoneDigits, getSessionEpoch } from './clientSession'
 import { CRM_SYNC_BC, CRM_SYNC_EVENT, crmStoreUsersEqual, fetchCrmStoreUser, isStoreAccountActiveOnServer, mergeCrmIntoStoreUser } from './clientProfileSync'
+import { isManualLoyaltyActive } from './loyaltyAdminLock'
 import { ensureClientDefaultAddress } from './clientAddresses'
 import { isClientNamePlaceholder } from './clientCrm'
 import { useClientStore } from './clientStore'
@@ -36,9 +37,13 @@ export function useStoreProfileSync(
 
     if (USE_API && !loyaltySyncedRef.current) {
       loyaltySyncedRef.current = true
-      const { syncLoyaltyBonuses } = await import('./loyaltyBonus')
-      const { useOrders } = await import('./store')
-      void syncLoyaltyBonuses(phone, useOrders.getState().orders)
+      const stored = loadStoreUser()
+      const skipLoyaltyRecalc = stored && isManualLoyaltyActive(stored, stored.level)
+      if (!skipLoyaltyRecalc) {
+        const { syncLoyaltyBonuses } = await import('./loyaltyBonus')
+        const { useOrders } = await import('./store')
+        void syncLoyaltyBonuses(phone, useOrders.getState().orders)
+      }
     }
 
     const active = await isStoreAccountActiveOnServer(phone)

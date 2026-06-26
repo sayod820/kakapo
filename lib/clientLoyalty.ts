@@ -1,7 +1,7 @@
 import { suggestLevel, resolveEffectiveClientLevel, loyaltyStatsFromOrders, type ClientLevel } from './clientCrm'
 import { filterOrdersForStoreUser } from './clientAccountLifecycle'
 import { isLoyaltyPeriodCurrent, loyaltyPeriodEndsLabel, loyaltyPeriodLabel, currentLoyaltyPeriod } from './loyaltyPeriod'
-import { isForcedVipActive, isLevelLocked, loyaltyLockFromRecord } from './loyaltyAdminLock'
+import { isForcedVipActive, isLevelLocked, isManualLoyaltyActive, loyaltyLockFromRecord, type LoyaltyLockFields } from './loyaltyAdminLock'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 import type { StoreUser } from './clientSession'
 import type { Order } from './types'
@@ -93,19 +93,28 @@ export function getLoyaltyProgress(
   storedLevel?: ClientLevel | 'new',
   adminVip?: boolean,
   storedPeriod?: string,
-  lock?: { levelLockedPeriod?: string; vipUntil?: string },
+  lock?: LoyaltyLockFields,
 ): LoyaltyProgress {
   refreshLoyaltyTiersFromConfig()
   const cfg = loadLoyaltyStatusConfig()
   const vipRules = cfg.vipRules
   const period = currentLoyaltyPeriod()
-  const effectiveLevel = resolveEffectiveClientLevel(
+  const lockRecord = loyaltyLockFromRecord(lock, storedLevel)
+  let effectiveLevel = resolveEffectiveClientLevel(
     spent,
     orderCount,
     storedLevel,
     storedPeriod,
-    lock,
+    lockRecord,
   )
+  const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+  if (
+    isManualLoyaltyActive(lockRecord, normalizedStored)
+    && normalizedStored
+    && normalizedStored !== 'basic'
+  ) {
+    effectiveLevel = normalizedStored
+  }
   const adminVipActive = resolveAdminVipActive(adminVip, storedPeriod, lock?.vipUntil)
 
   const isBasicClient = effectiveLevel === 'basic' && !adminVipActive
@@ -187,6 +196,22 @@ export function mergeStoreUserWithCrmLoyalty(
   const scoped = filterOrdersForStoreUser(orders, user)
   const { spent, orderCount } = loyaltyStatsFromOrders(scoped, user.phone)
   const lock = loyaltyLockFromRecord(user, user.level)
+  if (isManualLoyaltyActive(user, user.level) && user.level && user.level !== 'basic') {
+    const loyalty = getLoyaltyProgress(
+      spent,
+      orderCount,
+      reviewCount,
+      user.level,
+      user.vip,
+      user.loyaltyPeriod,
+      lock,
+    )
+    return {
+      ...user,
+      vip: !!user.vip || loyalty.isVip,
+      level: user.level,
+    }
+  }
   const loyalty = getLoyaltyProgress(
     spent,
     orderCount,

@@ -43,7 +43,7 @@ import { formatMemberSinceLabel } from "@/lib/cardCrm";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
-import { loyaltyLockFromRecord } from "@/lib/loyaltyAdminLock";
+import { loyaltyLockFromRecord, isManualLoyaltyActive } from "@/lib/loyaltyAdminLock";
 import { syncLoyaltyBonuses, deliveredOrdersNeedingBonusSync } from "@/lib/loyaltyBonus";
 import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
 import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig, getRegistrationWelcomeBonus, resolveEffectiveDebtLimit } from "@/lib/loyaltyStatusConfig";
@@ -2419,7 +2419,10 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     void (async () => {
       if (USE_API) await fetchOrders().catch(() => {})
       const freshOrders = USE_API ? useOrders.getState().orders : orders
-      await syncLoyaltyBonuses(phone, freshOrders)
+      const skipLoyaltyRecalc = isManualLoyaltyActive(user, user?.level)
+      if (!skipLoyaltyRecalc) {
+        await syncLoyaltyBonuses(phone, freshOrders)
+      }
       if (cancelled) return
       await refreshProfile()
     })()
@@ -2467,8 +2470,22 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     </div>
   );
 
-  const profileTheme = (() => { const th = getTierThemes(); return loyalty.isVip ? th.vip : loyalty.isBasicClient ? th.basic : (th[loyalty.tier.id] || th.bronze); })();
-  const profileTierId = loyalty.isVip ? 'vip' : loyalty.isBasicClient ? 'basic' : loyalty.tier.id;
+  const profileLevel = isManualLoyaltyActive(user, user?.level) && user?.level && user.level !== 'basic'
+    ? user.level
+    : loyalty.level
+  const profileLoyalty = profileLevel !== loyalty.level
+    ? {
+      ...loyalty,
+      level: profileLevel,
+      tier: LOYALTY_TIERS.find(t => t.id === profileLevel) || loyalty.tier,
+      isBasicClient: profileLevel === 'basic' && !loyalty.isVip,
+    }
+    : loyalty
+  const profileTheme = (() => {
+    const th = getTierThemes()
+    return profileLoyalty.isVip ? th.vip : profileLoyalty.isBasicClient ? th.basic : (th[profileLoyalty.tier.id] || th.bronze)
+  })()
+  const profileTierId = profileLoyalty.isVip ? 'vip' : profileLoyalty.isBasicClient ? 'basic' : profileLoyalty.tier.id
   const cardAccent = profileCardAccent(profileTheme);
 
   const menuItems = [
@@ -2562,7 +2579,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               <span style={{
                 fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20, display:'inline-flex', alignItems:'center', gap:4,
               }}>
-                <UserStatusBadge user={{ ...user, vip: loyalty.isVip, level: loyalty.level }} size="md" />
+                <UserStatusBadge user={{ ...user, vip: profileLoyalty.isVip, level: profileLoyalty.level }} size="md" />
               </span>
         </div>
       </div>
@@ -2592,7 +2609,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
           </div>
           </div>
 
-        <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
+        <LoyaltyStatusCard loyalty={profileLoyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
 
         <div className="card" style={{ marginBottom:12, ...cardAccent }}>
           {menuItems.map((item, i) => (
