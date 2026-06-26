@@ -18,7 +18,7 @@ import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
 import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
 import { loadStoreUser, saveStoreUser, clearClientSession, getActiveClientPhone, formatTjPhone, isClientSessionActive, phoneDigits, getSessionEpoch, type StoreUser } from "@/lib/clientSession";
 import { filterOrdersForStoreUser } from "@/lib/clientAccountLifecycle";
-import { fetchCrmStoreUser, crmStoreUsersEqual } from "@/lib/clientProfileSync";
+import { fetchCrmStoreUser, crmStoreUsersEqual, mergeCrmIntoStoreUser } from "@/lib/clientProfileSync";
 import { deleteClientAccount } from "@/lib/clientAccountDelete";
 import {
   getVipCreditState,
@@ -2407,7 +2407,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
       const stored = loadStoreUser()
       if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
       if (!next) return
-      const merged = { ...stored, ...next, vip: !!next.vip }
+      const merged = mergeCrmIntoStoreUser(stored, next)
       if (!crmStoreUsersEqual(stored, merged)) {
         saveStoreUser(merged)
         setUser(merged)

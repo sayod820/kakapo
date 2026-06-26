@@ -16,7 +16,7 @@ import {
 } from './clientCrm'
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardNumsMatch, canonicalCardNum, resolveDebtEnabled } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
-import { emitCrmSync, findMergedClientByPhone, fetchCrmStoreUser, crmStoreUsersEqual } from './clientProfileSync'
+import { emitCrmSync, findMergedClientByPhone, fetchCrmStoreUser, crmStoreUsersEqual, mergeCrmIntoStoreUser } from './clientProfileSync'
 import { resetClientNotificationsForAccount } from './clientNotifications'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
@@ -91,7 +91,7 @@ async function syncActiveStoreSessionFromPhone(phone: string) {
   if (!stored || !phonesMatch(stored.phone, phone)) return
   const next = await fetchCrmStoreUser(phone, stored.card)
   if (!next) return
-  const merged = { ...stored, ...next, vip: !!next.vip }
+  const merged = mergeCrmIntoStoreUser(stored, next)
   if (!crmStoreUsersEqual(stored, merged)) {
     saveStoreUser(merged)
     emitCrmSync()

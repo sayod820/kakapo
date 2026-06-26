@@ -351,7 +351,7 @@ function applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty) {
     loyalty,
   )
 
-  if (mode === 'manual') return
+  if (mode === 'manual' || isLevelLocked(lock)) return
 
   let nextLevel = client.level || 'basic'
 
@@ -548,7 +548,7 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   const orderPeriod = loyaltyPeriodForOrder(order)
   ensureClientPeriodForOrder(db, phone, client, card, orderPeriod, loyalty)
 
-  if (inferLevelAssignMode(client, card) === 'auto') {
+  if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
     applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty)
   }
 
@@ -626,7 +626,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
 
   const period = currentLoyaltyPeriod()
   syncClientMonthlyStats(db, client, phone, period)
-  if (inferLevelAssignMode(client, card) === 'auto') {
+  if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
     applyLevelUpgrade(db, phone, client, card, period, loyalty)
   }
   hooks.syncClientFromCardRow(card)

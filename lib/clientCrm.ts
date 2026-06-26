@@ -330,6 +330,9 @@ export function resolveEffectiveClientLevel(
       : 'basic'
 
   if (storedForMonth !== 'basic') {
+    if (effectiveLock.levelAssignMode === 'manual' && isLevelLocked(effectiveLock)) {
+      return storedForMonth
+    }
     if (!earnedBronze && !storedActive && !adminAssignedLegacy) return 'basic'
     if (!earnedBronze) return storedForMonth
     const earnedIdx = loyaltyTierIndex(earned)
@@ -418,12 +421,7 @@ export function enrichClientWithOrders(client: AdminClient, orders: Order[]): Ad
   const spent = hasLive ? live.spent : 0
   const ordersCount = hasLive ? live.orders : 0
   const storedLevel = (client.level || 'basic') as ClientLevel
-  const lock = {
-    levelAssignMode: client.levelAssignMode,
-    levelValidUntil: client.levelValidUntil,
-    levelLockedPeriod: client.levelLockedPeriod,
-    level: storedLevel,
-  }
+  const lock = loyaltyLockFromRecord(client, storedLevel)
   const level = hasLive
     ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, client.loyaltyPeriod, lock)
     : storedLevel

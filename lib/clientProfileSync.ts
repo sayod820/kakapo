@@ -14,6 +14,7 @@ import {
 import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, type AdminCard } from './cardCrm'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
+import { isLevelLocked, loyaltyLockFromRecord } from './loyaltyAdminLock'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const CARDS_KEY = 'kakapo-cards'
@@ -181,6 +182,10 @@ function buildClientFromCard(card: AdminCard): AdminClient {
     vip: !!card.vip,
     debtEnabled: !!card.debtEnabled,
     loyaltyPeriod: card.loyaltyPeriod,
+    levelLockedPeriod: card.levelLockedPeriod,
+    levelAssignMode: card.levelAssignMode,
+    levelValidUntil: card.levelValidUntil,
+    vipUntil: card.vipUntil,
     bonusEligibleFrom: card.bonusEligibleFrom,
   })
 }
@@ -189,9 +194,23 @@ async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard
   if (USE_API) {
     try {
       const [clients, cards] = await Promise.all([api.getClients(), api.getCards()])
+      const [{ useClientStore }, { useCardStore }, { mergeClientLoyaltyIfRecent, mergeCardLoyaltyIfRecent, findLocalCard }] = await Promise.all([
+        import('./clientStore'),
+        import('./cardStore'),
+        import('./loyaltySaveGuard'),
+      ])
+      const localClients = useClientStore.getState().clients
+      const localCards = useCardStore.getState().cards
       return {
-        clients: clients.map(c => normalizeClient(c)).filter(c => !isClientPurged(c)),
-        cards: cards.map(c => normalizeCard(c)),
+        clients: clients
+          .map(c => {
+            const normalized = normalizeClient(c)
+            const lc = localClients.find(x => x.id === normalized.id)
+              || localClients.find(x => phonesMatch(x.phone, normalized.phone))
+            return mergeClientLoyaltyIfRecent(normalized, lc)
+          })
+          .filter(c => !isClientPurged(c)),
+        cards: cards.map(c => mergeCardLoyaltyIfRecent(normalizeCard(c), findLocalCard(localCards, c.num))),
       }
     } catch {
       return { clients: [], cards: [] }
@@ -273,6 +292,30 @@ const SYNC_KEYS: (keyof CrmStoreUser)[] = [
 export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmStoreUser | null | undefined): boolean {
   if (!a || !b) return a === b
   return SYNC_KEYS.every(k => a[k] === b[k])
+}
+
+/** Слияние CRM-профиля с сессией: ручной закреплённый уровень не затирается авторасчётом. */
+export function mergeCrmIntoStoreUser(cur: CrmStoreUser, next: CrmStoreUser): CrmStoreUser {
+  const curLock = loyaltyLockFromRecord(cur, cur.level)
+  const nextLock = loyaltyLockFromRecord(next, next.level)
+  const manualLocked = isLevelLocked(nextLock) || isLevelLocked(curLock)
+  const manualLevel = isLevelLocked(nextLock) && next.level && next.level !== 'basic'
+    ? next.level
+    : isLevelLocked(curLock) && cur.level && cur.level !== 'basic'
+      ? cur.level
+      : undefined
+  if (manualLocked && manualLevel) {
+    return {
+      ...cur,
+      ...next,
+      level: manualLevel,
+      levelAssignMode: next.levelAssignMode ?? cur.levelAssignMode ?? 'manual',
+      levelLockedPeriod: next.levelLockedPeriod ?? cur.levelLockedPeriod,
+      levelValidUntil: next.levelValidUntil ?? cur.levelValidUntil,
+      vip: !!next.vip,
+    }
+  }
+  return { ...cur, ...next, vip: !!next.vip }
 }
 
 export function emitCrmSync() {

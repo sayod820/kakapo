@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { USE_API } from './config'
 import type { StoreUser } from './clientSession'
 import { saveStoreUser, loadStoreUser, isClientSessionActive, phoneDigits, getSessionEpoch } from './clientSession'
-import { CRM_SYNC_BC, CRM_SYNC_EVENT, crmStoreUsersEqual, fetchCrmStoreUser, isStoreAccountActiveOnServer } from './clientProfileSync'
+import { CRM_SYNC_BC, CRM_SYNC_EVENT, crmStoreUsersEqual, fetchCrmStoreUser, isStoreAccountActiveOnServer, mergeCrmIntoStoreUser } from './clientProfileSync'
 import { ensureClientDefaultAddress } from './clientAddresses'
 import { isClientNamePlaceholder } from './clientCrm'
 import { useClientStore } from './clientStore'
@@ -63,7 +63,7 @@ export function useStoreProfileSync(
       useClientStore.getState().updateClient(cur.clientId, { name: next.name })
     }
     if (!cur || !crmStoreUsersEqual(cur, next) || !!cur.vip !== !!next.vip) {
-      const merged: StoreUser = { ...cur, ...next, vip: !!next.vip }
+      const merged = mergeCrmIntoStoreUser(cur || next, next)
       saveStoreUser(merged)
       setUser(merged)
       if (next.addr?.trim()) {
