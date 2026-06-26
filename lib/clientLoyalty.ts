@@ -1,7 +1,7 @@
 import { suggestLevel, resolveEffectiveClientLevel, loyaltyStatsFromOrders, type ClientLevel } from './clientCrm'
 import { filterOrdersForStoreUser } from './clientAccountLifecycle'
 import { isLoyaltyPeriodCurrent, loyaltyPeriodEndsLabel, loyaltyPeriodLabel, currentLoyaltyPeriod } from './loyaltyPeriod'
-import { isForcedVipActive, isLevelLocked } from './loyaltyAdminLock'
+import { isForcedVipActive, isLevelLocked, loyaltyLockFromRecord } from './loyaltyAdminLock'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 import type { StoreUser } from './clientSession'
 import type { Order } from './types'
@@ -186,7 +186,7 @@ export function mergeStoreUserWithCrmLoyalty(
 ): StoreUser {
   const scoped = filterOrdersForStoreUser(orders, user)
   const { spent, orderCount } = loyaltyStatsFromOrders(scoped, user.phone)
-  const lock = { levelLockedPeriod: user.levelLockedPeriod, vipUntil: user.vipUntil }
+  const lock = loyaltyLockFromRecord(user, user.level)
   const loyalty = getLoyaltyProgress(
     spent,
     orderCount,

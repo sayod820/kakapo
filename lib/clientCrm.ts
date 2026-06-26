@@ -5,7 +5,7 @@ import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
-import { isLevelLocked, type LoyaltyLockFields, isAutoLevelActive } from './loyaltyAdminLock'
+import { isLevelLocked, loyaltyLockFromRecord, type LoyaltyLockFields, isAutoLevelActive } from './loyaltyAdminLock'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { bonusEligibleTotal } from './orderLoyaltyAmount'
 
@@ -308,15 +308,16 @@ export function resolveEffectiveClientLevel(
   lock?: LoyaltyLockFields,
 ): ClientLevel {
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+  const effectiveLock = loyaltyLockFromRecord(lock, normalizedStored)
 
-  if (isLevelLocked(lock) && normalizedStored && normalizedStored !== 'basic') {
+  if (isLevelLocked(effectiveLock) && normalizedStored && normalizedStored !== 'basic') {
     return normalizedStored
   }
 
   const earned = suggestLevel(spent)
   const earnedBronze = hasEarnedBronze(spent, orderCount)
 
-  if (lock?.levelAssignMode === 'auto' && isAutoLevelActive(lock)) {
+  if (effectiveLock.levelAssignMode === 'auto' && isAutoLevelActive(effectiveLock)) {
     return earnedBronze ? earned : 'basic'
   }
 

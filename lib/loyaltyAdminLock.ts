@@ -16,6 +16,34 @@ export type LoyaltyLockFields = {
   level?: ClientLevel | 'new' | ''
 }
 
+export type LoyaltyLockSource = {
+  level?: ClientLevel | 'new' | ''
+  levelAssignMode?: LevelAssignMode
+  levelValidUntil?: string | null
+  levelLockedPeriod?: string
+  vip?: boolean
+  vipUntil?: string
+}
+
+/** Полный lock для resolveEffectiveClientLevel / getLoyaltyProgress (из CRM или сессии клиента). */
+export function loyaltyLockFromRecord(
+  record?: LoyaltyLockSource | null,
+  fallbackLevel?: ClientLevel | 'new' | '',
+): LoyaltyLockFields {
+  if (!record && !fallbackLevel) return {}
+  const rawLevel = record?.level ?? fallbackLevel
+  const level = rawLevel === 'new' || rawLevel === '' || !rawLevel ? undefined : rawLevel
+  const src = record ?? {}
+  return {
+    levelAssignMode: inferLevelAssignMode(src, src),
+    levelValidUntil: src.levelValidUntil ?? undefined,
+    levelLockedPeriod: src.levelLockedPeriod,
+    level,
+    vip: src.vip,
+    vipUntil: src.vipUntil,
+  }
+}
+
 /** Конец месяца лояльности (23:59:59.999 локально). */
 export function endOfLoyaltyPeriodIso(period = currentLoyaltyPeriod()): string {
   const [y, m] = period.split('-').map(Number)
