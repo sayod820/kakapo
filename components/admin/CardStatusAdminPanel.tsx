@@ -18,7 +18,7 @@ import type { AdminCard } from '@/lib/cardCrm'
 import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/cardCrm'
 import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig, earnedAutoLevelForClient } from '@/lib/clientCardSync'
 import { useOrders } from '@/lib/store'
-import { formatAdminLevelExpiry, formatAdminVipExpiry, formatLevelLockLabel, isLevelLocked, inferVipTermDays, VIP_PERMANENT_DAYS, vipUntilForTermDays, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
+import { formatAdminLevelExpiry, formatAdminVipExpiry, formatLevelLockLabel, isLevelLocked, inferVipTermDays, inferLevelAssignMode, VIP_PERMANENT_DAYS, vipUntilForTermDays, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
 import { useCards } from '@/lib/cardStore'
 import { useClients } from '@/lib/clientStore'
 
@@ -234,7 +234,7 @@ export default function CardStatusAdminPanel() {
     return {
       card,
       level: meta?.level ?? form.level,
-      levelAssignMode: meta?.levelAssignMode ?? form.levelAssignMode ?? 'auto',
+      levelAssignMode: meta?.levelAssignMode ?? form.levelAssignMode ?? inferLevelAssignMode(card, client),
       levelTermDays: meta?.levelTermDays ?? form.levelTermDays ?? 0,
       vip: meta?.vip ?? form.vip,
       debtEnabled: meta?.debtEnabled ?? form.debtEnabled,
@@ -266,7 +266,7 @@ export default function CardStatusAdminPanel() {
         debtEnabled: next.debtEnabled,
         vipUntil: next.vip ? vipUntilForTermDays(next.vipDays) : undefined,
       }, 'edit')
-      setAssignRows(p => ({ ...p, [num]: { saving: false, saved: true, err: '' } }))
+      setAssignRows(p => ({ ...p, [num]: { ...next, saving: false, saved: true, err: '' } }))
       window.setTimeout(() => {
         setAssignRows(p => {
           const row = p[num]
@@ -279,6 +279,7 @@ export default function CardStatusAdminPanel() {
       setAssignRows(p => ({
         ...p,
         [num]: {
+          ...next,
           saving: false,
           saved: false,
           err: e instanceof Error ? e.message : 'Ошибка сохранения',

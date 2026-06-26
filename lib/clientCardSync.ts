@@ -127,14 +127,22 @@ async function persistLoyaltyToApi(
     const saved = await trySaveCard(cardNum)
     cardSaved = true
     cardNum = String(saved?.num || cardNum)
+    if (saved?.num) {
+      useCardStore.getState().updateCardLoyalty(saved.num, saved, { skipApi: true })
+      markCardLoyaltySaved(saved.num)
+    }
   } catch (e) {
     if (!isMissingApiRoute(e)) throw e
   }
 
   let clientSaved = false
   try {
-    await api.updateClient(clientId, clientPatch)
+    const savedClient = await api.updateClient(clientId, clientPatch)
     clientSaved = true
+    if (savedClient?.id) {
+      useClientStore.getState().updateClient(savedClient.id, savedClient, { skipApi: true })
+      markClientLoyaltySaved(savedClient.id)
+    }
   } catch (e) {
     throw e
   }
@@ -390,8 +398,9 @@ export async function saveCardLoyalty(
     debtEnabled: !!form.debtEnabled,
     loyaltyPeriod: currentLoyaltyPeriod(),
     levelAssignMode: lockFields.levelAssignMode,
-    levelValidUntil: lockFields.levelValidUntil,
-    levelLockedPeriod: lockFields.levelLockedPeriod,
+    // null — явно сбросить на сервере устаревшие сроки (иначе ручной уровень «отваливается»)
+    levelValidUntil: lockFields.levelValidUntil ?? null,
+    levelLockedPeriod: lockFields.levelLockedPeriod ?? null,
     vipUntil: !form.vip
       ? undefined
       : form.vipUntil === null

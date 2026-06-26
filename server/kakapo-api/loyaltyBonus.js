@@ -351,16 +351,11 @@ function applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty) {
     loyalty,
   )
 
-  if (mode === 'manual' && isLevelLocked(lock)) return
+  if (mode === 'manual') return
 
   let nextLevel = client.level || 'basic'
 
-  if (mode === 'manual' && !isLevelLocked(lock) && nextLevel !== 'basic') {
-    nextLevel = earned
-    clearLevelLock(client, card)
-    client.levelAssignMode = 'auto'
-    if (card) card.levelAssignMode = 'auto'
-  } else if (mode === 'auto' && !isAutoLevelActive(lock)) {
+  if (mode === 'auto' && !isAutoLevelActive(lock)) {
     nextLevel = earned
   } else if (mode === 'auto' && isAutoLevelActive(lock)) {
     nextLevel = earned

@@ -114,9 +114,9 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
       || debtFromNote(raw.note)
       || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
-    levelLockedPeriod: raw.levelLockedPeriod || undefined,
+    levelLockedPeriod: raw.levelLockedPeriod === null ? undefined : (raw.levelLockedPeriod || undefined),
     levelAssignMode: raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined),
-    levelValidUntil: raw.levelValidUntil || undefined,
+    levelValidUntil: raw.levelValidUntil === null ? undefined : (raw.levelValidUntil || undefined),
     vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
   }

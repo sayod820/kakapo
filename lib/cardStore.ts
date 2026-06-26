@@ -106,7 +106,7 @@ function mergeCardLists(primary: AdminCard[], secondary: AdminCard[]): AdminCard
   return Array.from(byNum.values())
 }
 
-function pushLoyaltyToClient(card: AdminCard) {
+function pushLoyaltyToClient(card: AdminCard, skipApi?: boolean) {
   const clients = useClientStore.getState().clients
   const client = card.clientId
     ? clients.find(c => c.id === card.clientId)
@@ -123,7 +123,11 @@ function pushLoyaltyToClient(card: AdminCard) {
     debtEnabled: !!card.debtEnabled,
     blocked: card.status === 'blocked',
     loyaltyPeriod: card.loyaltyPeriod,
-  })
+    levelAssignMode: card.levelAssignMode,
+    levelValidUntil: card.levelValidUntil ?? null,
+    levelLockedPeriod: card.levelLockedPeriod ?? null,
+    vipUntil: card.vipUntil ?? null,
+  }, { skipApi })
   if (card.bonus > prevBonus) {
     onBonusCredited(client.phone, card.bonus - prevBonus, card.num)
   }
@@ -194,7 +198,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
     const cards = s.cards.map(c => (cardNumsMatch(c.num, key) ? normalizeCard({ ...c, ...patch, num: c.num }) : c))
     saveCards(cards)
     const updated = cards.find(c => cardNumsMatch(c.num, key))
-    if (updated) pushLoyaltyToClient(updated)
+    if (updated) pushLoyaltyToClient(updated, opts?.skipApi)
     if (USE_API && !opts?.skipApi && updated) api.updateCard(updated.num, patch).catch(console.error)
     return { cards }
   }),
