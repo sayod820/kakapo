@@ -310,8 +310,8 @@ export function resolveEffectiveClientLevel(
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
   const effectiveLock = loyaltyLockFromRecord(lock, normalizedStored)
 
-  if (isLevelLocked(effectiveLock) && normalizedStored && normalizedStored !== 'basic') {
-    return normalizedStored
+  if (isLevelLocked(effectiveLock)) {
+    return normalizedStored || 'basic'
   }
 
   const earned = suggestLevel(spent)

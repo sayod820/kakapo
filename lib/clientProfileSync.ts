@@ -14,7 +14,7 @@ import {
 import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, type AdminCard } from './cardCrm'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
-import { isLevelLocked, loyaltyLockFromRecord } from './loyaltyAdminLock'
+import { isLevelLocked, loyaltyLockFromRecord, normalizeLoyaltyLevel } from './loyaltyAdminLock'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const CARDS_KEY = 'kakapo-cards'
@@ -299,10 +299,10 @@ export function mergeCrmIntoStoreUser(cur: CrmStoreUser, next: CrmStoreUser): Cr
   const curLock = loyaltyLockFromRecord(cur, cur.level)
   const nextLock = loyaltyLockFromRecord(next, next.level)
   const manualLocked = isLevelLocked(nextLock) || isLevelLocked(curLock)
-  const manualLevel = isLevelLocked(nextLock) && next.level && next.level !== 'basic'
-    ? next.level
-    : isLevelLocked(curLock) && cur.level && cur.level !== 'basic'
-      ? cur.level
+  const manualLevel = isLevelLocked(nextLock)
+    ? normalizeLoyaltyLevel(next.level)
+    : isLevelLocked(curLock)
+      ? normalizeLoyaltyLevel(cur.level)
       : undefined
   if (manualLocked && manualLevel) {
     return {

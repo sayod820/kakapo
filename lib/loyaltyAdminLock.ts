@@ -31,8 +31,7 @@ export function loyaltyLockFromRecord(
   fallbackLevel?: ClientLevel | 'new' | '',
 ): LoyaltyLockFields {
   if (!record && !fallbackLevel) return {}
-  const rawLevel = record?.level ?? fallbackLevel
-  const level = rawLevel === 'new' || rawLevel === '' || !rawLevel ? undefined : rawLevel
+  const level = normalizeLoyaltyLevel(record?.level ?? fallbackLevel)
   const src = record ?? {}
   return {
     levelAssignMode: inferLevelAssignMode(src, src),
@@ -58,6 +57,11 @@ export function vipUntilAfterDays(days: number, from = new Date()): string {
   return d.toISOString()
 }
 
+export function normalizeLoyaltyLevel(raw?: ClientLevel | 'new' | '' | null): ClientLevel {
+  if (!raw || raw === 'new' || raw === '') return 'basic'
+  return raw
+}
+
 /** Ручной статус активен (закреплён админом, авторасчёт не применяется). */
 export function isManualLoyaltyActive(
   record?: LoyaltyLockSource | null,
@@ -70,7 +74,10 @@ export function isManualLoyaltyActive(
 export function isLevelLocked(record?: LoyaltyLockFields | null, now = Date.now()): boolean {
   if (record?.levelAssignMode === 'auto') return false
   const lvl = record?.level
-  if (!lvl || lvl === 'basic') return false
+  const isBasicLvl = !lvl || lvl === 'basic' || lvl === ''
+  // Ручное понижение до «Обычный» — не поднимать по тратам
+  if (record?.levelAssignMode === 'manual' && isBasicLvl) return true
+  if (isBasicLvl) return false
   if (record?.levelValidUntil) {
     const until = new Date(record.levelValidUntil).getTime()
     if (!Number.isNaN(until)) return now <= until

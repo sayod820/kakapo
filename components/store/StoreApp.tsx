@@ -2470,8 +2470,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     </div>
   );
 
-  const profileLevel = isManualLoyaltyActive(user, user?.level) && user?.level && user.level !== 'basic'
-    ? user.level
+  const profileLevel = isManualLoyaltyActive(user, user?.level ?? 'basic')
+    ? (user?.level ?? 'basic')
     : loyalty.level
   const profileLoyalty = profileLevel !== loyalty.level
     ? {
