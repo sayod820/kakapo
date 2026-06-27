@@ -15,6 +15,7 @@ import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, 
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 import { normalizeLoyaltyLevel, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
+import { getManualLoyaltyForCard } from './loyaltySaveGuard'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const CARDS_KEY = 'kakapo-cards'
@@ -111,7 +112,10 @@ function findBestCard(phone: string, cardNum: string | undefined, client: AdminC
 export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null): AdminClient {
   const base = normalizeClient(client)
   if (!card || card.status === 'unlinked') return base
-  const level = resolveMergedLoyaltyLevel(card, base)
+  const manual = getManualLoyaltyForCard(card.num)
+  const level = manual?.levelAssignMode === 'manual'
+    ? manual.level
+    : resolveMergedLoyaltyLevel(card, base)
   const vip = !!(card.vip || base.vip)
   const debtEnabled = resolveDebtEnabled(card, base)
   return normalizeClient({
@@ -127,9 +131,13 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     debtEnabled,
     blocked: card.status === 'blocked' || base.blocked,
     loyaltyPeriod: card.loyaltyPeriod ?? base.loyaltyPeriod,
-    levelLockedPeriod: card.levelLockedPeriod ?? base.levelLockedPeriod,
-    levelAssignMode: card.levelAssignMode ?? base.levelAssignMode,
-    levelValidUntil: card.levelValidUntil ?? base.levelValidUntil,
+    levelLockedPeriod: manual
+      ? (manual.levelLockedPeriod ?? undefined)
+      : (card.levelLockedPeriod ?? base.levelLockedPeriod),
+    levelAssignMode: manual?.levelAssignMode ?? card.levelAssignMode ?? base.levelAssignMode,
+    levelValidUntil: manual
+      ? (manual.levelValidUntil ?? undefined)
+      : (card.levelValidUntil ?? base.levelValidUntil),
     vipUntil: card.vipUntil ?? base.vipUntil,
     bonusEligibleFrom: card.bonusEligibleFrom || base.bonusEligibleFrom,
     accountGeneration: card.accountGeneration || base.accountGeneration,
@@ -298,11 +306,9 @@ export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmSto
 export function mergeCrmIntoStoreUser(cur: CrmStoreUser, next: CrmStoreUser): CrmStoreUser {
   const nextNorm = normalizeLoyaltyLevel(next.level)
   const curNorm = normalizeLoyaltyLevel(cur.level)
-  const nextLock = loyaltyLockFromRecord(next, nextNorm)
-  const nextManual = next.levelAssignMode === 'manual' && isLevelLocked(nextLock)
 
-  // CRM назначил ручной уровень (в т.ч. понижение до «Базовый») — всегда применяем
-  if (nextManual) {
+  // CRM назначил ручной уровень — всегда применяем (смена silver → gold / basic и т.д.)
+  if (next.levelAssignMode === 'manual') {
     return {
       ...cur,
       ...next,

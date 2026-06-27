@@ -69,13 +69,18 @@ export function resolveMergedLoyaltyLevel(
 ): ClientLevel {
   const cardManual = card?.levelAssignMode === 'manual'
   const clientManual = client?.levelAssignMode === 'manual'
+  const cardEmpty = !card?.level || card.level === ''
   const cardLvl = normalizeLoyaltyLevel(card?.level)
   const clientLvl = normalizeLoyaltyLevel(client?.level)
 
   if (cardManual && clientManual) {
-    // Понижение до «Базовый»: клиент часто обновляется раньше карты (card.level = '' на сервере)
-    if (clientLvl === 'basic' || cardLvl === 'basic') return 'basic'
-    return cardLvl
+    if (cardLvl === clientLvl) return cardLvl
+    // Понижение до «Базовый»: пустая карта + basic у клиента
+    if (clientLvl === 'basic' && cardEmpty) return 'basic'
+    if (cardLvl === 'basic' && client?.level === 'basic') return 'basic'
+    // Карта с явным уровнем — приоритет (PATCH карты идёт первым)
+    if (!cardEmpty) return cardLvl
+    return clientLvl
   }
   if (cardManual) return cardLvl
   if (clientManual) return clientLvl
