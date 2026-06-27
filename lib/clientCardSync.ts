@@ -21,6 +21,7 @@ import { resetClientNotificationsForAccount } from './clientNotifications'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
 import type { ManualLoyaltySnapshot } from './loyaltySaveGuard'
+import { clearManualLoyaltyOverride } from './loyaltySaveGuard'
 import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
@@ -374,6 +375,9 @@ export async function saveCardLoyalty(
   const prevVip = !!(card.vip ?? client?.vip)
 
   const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
+  if (assignMode === 'auto') {
+    clearManualLoyaltyOverride(card.num)
+  }
   let resolvedLevel = form.level
   if (assignMode === 'auto') {
     const { useOrders } = await import('./store')

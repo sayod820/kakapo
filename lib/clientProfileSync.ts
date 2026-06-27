@@ -112,9 +112,11 @@ function findBestCard(phone: string, cardNum: string | undefined, client: AdminC
 export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null): AdminClient {
   const base = normalizeClient(client)
   if (!card || card.status === 'unlinked') return base
-  const manual = getManualLoyaltyForCard(card.num)
-  const level = manual?.levelAssignMode === 'manual'
-    ? manual.level
+  const mergedMode = card.levelAssignMode ?? base.levelAssignMode
+  const manual = mergedMode !== 'auto' ? getManualLoyaltyForCard(card.num) : undefined
+  const useManualOverride = manual?.levelAssignMode === 'manual' && mergedMode !== 'auto'
+  const level = useManualOverride
+    ? manual!.level
     : resolveMergedLoyaltyLevel(card, base)
   const vip = !!(card.vip || base.vip)
   const debtEnabled = resolveDebtEnabled(card, base)
@@ -131,12 +133,14 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     debtEnabled,
     blocked: card.status === 'blocked' || base.blocked,
     loyaltyPeriod: card.loyaltyPeriod ?? base.loyaltyPeriod,
-    levelLockedPeriod: manual
-      ? (manual.levelLockedPeriod ?? undefined)
+    levelLockedPeriod: useManualOverride
+      ? (manual!.levelLockedPeriod ?? undefined)
       : (card.levelLockedPeriod ?? base.levelLockedPeriod),
-    levelAssignMode: manual?.levelAssignMode ?? card.levelAssignMode ?? base.levelAssignMode,
-    levelValidUntil: manual
-      ? (manual.levelValidUntil ?? undefined)
+    levelAssignMode: useManualOverride
+      ? 'manual'
+      : (card.levelAssignMode ?? base.levelAssignMode),
+    levelValidUntil: useManualOverride
+      ? (manual!.levelValidUntil ?? undefined)
       : (card.levelValidUntil ?? base.levelValidUntil),
     vipUntil: card.vipUntil ?? base.vipUntil,
     bonusEligibleFrom: card.bonusEligibleFrom || base.bonusEligibleFrom,
@@ -306,6 +310,19 @@ export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmSto
 export function mergeCrmIntoStoreUser(cur: CrmStoreUser, next: CrmStoreUser): CrmStoreUser {
   const nextNorm = normalizeLoyaltyLevel(next.level)
   const curNorm = normalizeLoyaltyLevel(cur.level)
+
+  // Переключение на авто — всегда применяем уровень из CRM / пересчёта
+  if (next.levelAssignMode === 'auto') {
+    return {
+      ...cur,
+      ...next,
+      level: nextNorm,
+      levelAssignMode: 'auto',
+      levelLockedPeriod: next.levelLockedPeriod ?? undefined,
+      levelValidUntil: next.levelValidUntil ?? undefined,
+      vip: !!next.vip,
+    }
+  }
 
   // CRM назначил ручной уровень — всегда применяем (смена silver → gold / basic и т.д.)
   if (next.levelAssignMode === 'manual') {

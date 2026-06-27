@@ -157,7 +157,11 @@ function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T)
 
 export function applyManualLoyaltyToCard(apiCard: AdminCard): AdminCard {
   const manual = getManualLoyaltyForCard(apiCard.num)
-  if (!manual) return apiCard
+  if (!manual || manual.levelAssignMode !== 'manual') return apiCard
+  if (apiCard.levelAssignMode === 'auto') {
+    clearManualLoyaltyOverride(apiCard.num)
+    return apiCard
+  }
   if (serverMatchesManual(apiCard, manual)) {
     clearManualLoyaltyOverride(apiCard.num)
     return apiCard
@@ -178,7 +182,11 @@ export function applyManualLoyaltyToCard(apiCard: AdminCard): AdminCard {
 
 export function applyManualLoyaltyToClient(apiClient: AdminClient): AdminClient {
   const manual = manualOverrideForClient(apiClient)
-  if (!manual) return apiClient
+  if (!manual || manual.levelAssignMode !== 'manual') return apiClient
+  if (apiClient.levelAssignMode === 'auto') {
+    clearManualLoyaltyOverride(manual.cardNum)
+    return apiClient
+  }
   if (serverMatchesManual(apiClient, manual)) {
     clearManualLoyaltyOverride(manual.cardNum)
     return apiClient

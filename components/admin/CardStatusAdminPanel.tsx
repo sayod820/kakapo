@@ -233,13 +233,14 @@ export default function CardStatusAdminPanel() {
 
   const getRow = (card: AdminCard): AssignRow => {
     const client = card.clientId ? clients.find(c => c.id === card.clientId) : undefined
-    const manual = getManualLoyaltyForCard(card.num)
     const form = cardLoyaltyFromCard(card, client)
     const meta = assignRows[card.num]
+    const modeFromStore = meta?.levelAssignMode ?? card.levelAssignMode ?? client?.levelAssignMode ?? form.levelAssignMode ?? inferLevelAssignMode(card, client)
+    const manual = modeFromStore !== 'auto' ? getManualLoyaltyForCard(card.num) : undefined
     return {
       card,
       level: meta?.level ?? manual?.level ?? form.level,
-      levelAssignMode: meta?.levelAssignMode ?? manual?.levelAssignMode ?? form.levelAssignMode ?? inferLevelAssignMode(card, client),
+      levelAssignMode: meta?.levelAssignMode ?? modeFromStore,
       levelTermDays: meta?.levelTermDays ?? form.levelTermDays ?? 0,
       vip: meta?.vip ?? form.vip,
       debtEnabled: meta?.debtEnabled ?? form.debtEnabled,
@@ -450,6 +451,7 @@ export default function CardStatusAdminPanel() {
                           applyStatus(card.num, {
                             levelAssignMode: mode,
                             levelTermDays: st.levelTermDays,
+                            ...(mode === 'auto' ? { level: earned } : {}),
                             ...(mode === 'manual' && isAuto && earned !== 'basic' ? { level: earned } : {}),
                           })
                         }}
