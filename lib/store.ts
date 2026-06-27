@@ -18,9 +18,31 @@ import {
 import { ASSEMBLER_NAME } from './courierStats'
 import { ensureArray } from './apiGuards'
 import { onOrderStatusChange, onRestPartAccepted } from './pushService'
-import { creditBonusOnDeliveryLocal } from './loyaltyBonus'
+import { creditBonusOnDeliveryLocal, reverseBonusOnOrderCancelLocal } from './loyaltyBonus'
 import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
+
+function applyCancelLoyalty(
+  set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
+  get: () => OrdersStore,
+  id: string,
+  prev?: Order,
+) {
+  const order = get().orders.find(o => o.id === id)
+  if (!order || order.status !== 'cancelled') return
+  const phone = order.client?.phone || prev?.client?.phone || ''
+  if (!phone) return
+
+  if (USE_API) {
+    void import('./loyaltyBonus').then(m => m.syncLoyaltyBonuses(phone, get().orders)).catch(() => {})
+    return
+  }
+
+  const patch = prev ? reverseBonusOnOrderCancelLocal(prev, get().orders) : null
+  if (patch) {
+    patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...patch } : o)))
+  }
+}
 
 function applyDeliveryLoyalty(
   set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
@@ -367,6 +389,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     const nextAfter = get().orders.find(o => o.id === id)
     if (prev && nextAfter) onOrderStatusChange(normalizeOrder(prev), normalizeOrder(nextAfter))
     if (nextAfter?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
+    if (nextAfter?.status === 'cancelled' && !USE_API) applyCancelLoyalty(set, get, id, prev)
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(id, status, patch)
@@ -378,6 +401,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         const synced = get().orders.find(o => o.id === id)
         if (prev && synced) onOrderStatusChange(normalizeOrder(prev), normalizeOrder(synced))
         if (synced?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
+        if (synced?.status === 'cancelled') applyCancelLoyalty(set, get, id, prev)
       } catch (e) {
         console.error(e)
         if (prev) patchOrders(set, get, s => s.map(o => o.id === id ? prev : o))
@@ -398,6 +422,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     const nextAfter = get().orders.find(o => o.id === id)
     if (prev && nextAfter) onOrderStatusChange(prev, normalizeOrder(nextAfter))
     if (nextAfter?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
+    if (nextAfter?.status === 'cancelled' && !USE_API) applyCancelLoyalty(set, get, id, prev)
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(id, status, patch)
@@ -414,6 +439,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         const synced = get().orders.find(o => o.id === id)
         if (prev && synced) onOrderStatusChange(prev, normalizeOrder(synced))
         if (synced?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
+        if (synced?.status === 'cancelled') applyCancelLoyalty(set, get, id, prev)
       } catch (e) {
         console.error(e)
         if (!(e instanceof Error && e.message.includes('Сервер не сохранил'))) {
@@ -429,6 +455,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       delete nextPins[id]
       set({ orderAdminPins: nextPins })
       if (status === 'delivered') applyDeliveryLoyalty(set, get, id)
+      if (status === 'cancelled') applyCancelLoyalty(set, get, id, prev)
     }
   },
 

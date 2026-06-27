@@ -24,6 +24,7 @@ import {
   backfillClientBonuses,
   reconcileClientBonuses,
   reconcileAllClientBonuses,
+  reverseClientBonusOnOrderCancel,
   findClientByPhone,
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
@@ -594,6 +595,24 @@ app.patch('/orders/:id/status', (req, res) => {
         bonus: client?.bonus,
         card: client?.card || '',
       })
+    }
+  }
+  if (updated.status === 'cancelled' && prev.status !== 'cancelled') {
+    const phone = updated.client?.phone || prev.client?.phone || ''
+    const hadLoyalty = prev.status === 'delivered'
+      || prev.bonusCredited
+      || (Number(prev.bonusEarned) || 0) > 0
+      || (Number(prev.bonusSpent) || 0) > 0
+    if (phone && hadLoyalty) {
+      reverseClientBonusOnOrderCancel(db, prev, updated, loyaltyHooks())
+      const client = findClientByPhone(db, phone)
+      if (client) {
+        broadcastLoyalty({
+          phone: client.phone,
+          bonus: client.bonus,
+          card: client.card || '',
+        })
+      }
     }
   }
   db.orders[idx] = updated

@@ -578,7 +578,33 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
 }
 
 /**
- * Пересчёт бонусов — только повышение, никогда не сбрасываем до welcome.
+ * Отмена заказа: вернуть списанные бонусы и пересчитать кэшбэк без этого заказа.
+ */
+export function reverseClientBonusOnOrderCancel(db, prev, updated, hooks) {
+  const phone = prev.client?.phone || updated.client?.phone || ''
+  if (!phone) return { credited: 0, bonus: 0, orders: 0 }
+
+  updated.bonusCredited = false
+  updated.bonusEarned = 0
+
+  const spent = Number(prev.bonusSpent) || 0
+  if (spent > 0) {
+    const client = findClientByPhone(db, phone)
+    let card = client?.card ? hooks.findCardByNum(client.card) : null
+    if (!card && client) card = hooks.ensureCardRowForClient(client)
+    if (client && card) {
+      card.bonus = (Number(card.bonus) || 0) + spent
+      client.bonus = card.bonus
+      updated.bonusSpent = 0
+      hooks.syncClientFromCardRow(card)
+    }
+  }
+
+  return reconcileClientBonuses(db, phone, hooks)
+}
+
+/**
+ * Пересчёт бонусов по доставленным заказам (допускает уменьшение при отмене).
  */
 export function reconcileClientBonuses(db, phone, hooks) {
   const key = normalizePhoneDigits(phone)
@@ -598,7 +624,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
   const delivered = deliveredOrdersForClient(db, phone, client)
     .sort((a, b) => orderSortKey(a) - orderSortKey(b))
 
-  // Нет заказов этого поколения аккаунта — обнуляем месячную статистику и уровень
+  // Нет доставленных заказов — welcome-бонус, статистика и уровень сбрасываются
   if (!delivered.length) {
     const period = currentLoyaltyPeriod()
     client.orders = 0
@@ -611,9 +637,18 @@ export function reconcileClientBonuses(db, phone, hooks) {
       }
       client.loyaltyPeriod = period
     }
+    const expectedBonus = Math.max(0, welcome)
+    const delta = expectedBonus - prevBonus
+    if (expectedBonus !== prevBonus) {
+      card.bonus = expectedBonus
+      client.bonus = expectedBonus
+    }
     syncClientMonthlyStats(db, client, phone, period)
+    if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
+      applyLevelUpgrade(db, phone, client, card, period, loyalty)
+    }
     hooks.syncClientFromCardRow(card)
-    return { credited: 0, bonus: prevBonus, orders: 0, skipped: true }
+    return { credited: delta, bonus: expectedBonus, orders: 0, skipped: false }
   }
 
   let earned = 0
@@ -626,7 +661,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
 
   const bonusSpent = delivered.reduce((s, o) => s + (Number(o.bonusSpent) || 0), 0)
   const expectedBonus = Math.max(0, welcome + earned - bonusSpent)
-  const finalBonus = Math.max(prevBonus, expectedBonus)
+  const finalBonus = expectedBonus
   const delta = finalBonus - prevBonus
 
   if (finalBonus !== prevBonus) {

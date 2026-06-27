@@ -240,6 +240,84 @@ export function computeExpectedClientBonus(
   return Math.max(0, getRegistrationWelcomeBonus() + earned - bonusSpent)
 }
 
+/** Локальный пересчёт баланса и уровня (в т.ч. после отмены заказа). */
+export function reconcileClientBonusesLocal(phone: string, orders: Order[], refundBonusSpent = 0): number {
+  if (USE_API || !phone.trim()) return 0
+
+  const clientStore = useClientStore.getState()
+  const cardStore = useCardStore.getState()
+  if (!clientStore.hydrated) clientStore.hydrate()
+  if (!cardStore.hydrated) cardStore.hydrate()
+
+  const client = clientStore.clients.find(c => phonesMatch(c.phone, phone))
+  const card = client?.card
+    ? cardStore.cards.find(c => c.num === client.card && c.status !== 'unlinked')
+    : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
+
+  if (!client && !card) return 0
+
+  const merged = {
+    vip: !!(client?.vip || card?.vip),
+    loyaltyPeriod: client?.loyaltyPeriod || card?.loyaltyPeriod,
+    bonusEligibleFrom: client?.bonusEligibleFrom || card?.bonusEligibleFrom,
+  }
+
+  let expectedBonus = computeExpectedClientBonus(phone, orders, merged, card)
+  if (refundBonusSpent > 0) expectedBonus += refundBonusSpent
+
+  const prevBonus = card?.bonus ?? client?.bonus ?? 0
+  const delta = expectedBonus - prevBonus
+
+  const delivered = orders.filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
+  const { spent, orderCount } = loyaltyStatsFromOrders(orders, phone)
+  const period = currentLoyaltyPeriod()
+  const assignMode = inferLevelAssignMode(card || {}, client || {})
+  const keepManual = assignMode === 'manual'
+  const vip = merged.vip
+
+  const nextLevel: ClientLevel = delivered.length
+    ? (vip
+      ? ((client?.level || card?.level || 'basic') as ClientLevel)
+      : resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel)
+    : 'basic'
+
+  if (client) {
+    clientStore.updateClient(client.id, {
+      bonus: expectedBonus,
+      orders: orderCount,
+      spent,
+      ...(keepManual ? {} : { level: nextLevel }),
+      loyaltyPeriod: period,
+    }, { skipApi: true })
+  }
+
+  if (card) {
+    cardStore.updateCardLoyalty(card.num, {
+      bonus: expectedBonus,
+      ...(keepManual ? {} : { level: vip ? card.level : (nextLevel === 'basic' ? '' : nextLevel) }),
+      loyaltyPeriod: period,
+    }, { skipApi: true })
+  }
+
+  void import('./clientProfileSync').then(m => m.emitCrmSync()).catch(() => {})
+  return delta
+}
+
+/** Снять кэшбэк за отменённый заказ (локальный режим без API). */
+export function reverseBonusOnOrderCancelLocal(prev: Order, orders: Order[]): OrderLoyaltyPatch | null {
+  if (USE_API) return null
+  const phone = prev.client?.phone || ''
+  if (!phone) return null
+  const hadLoyalty = prev.status === 'delivered'
+    || prev.bonusCredited
+    || (Number(prev.bonusEarned) || 0) > 0
+    || (Number(prev.bonusSpent) || 0) > 0
+  if (!hadLoyalty) return null
+  const refund = Number(prev.bonusSpent) || 0
+  reconcileClientBonusesLocal(phone, orders, refund)
+  return { bonusCredited: false, bonusEarned: 0, bonusSpent: 0 }
+}
+
 export function deliveredOrdersNeedingBonusSync(phone: string, orders: Order[]): Order[] {
   return orders.filter(o => orderNeedsBonusSync(phone, o))
 }
