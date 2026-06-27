@@ -67,12 +67,18 @@ export function resolveMergedLoyaltyLevel(
   card?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
   client?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
 ): ClientLevel {
-  if (card?.levelAssignMode === 'manual') {
-    return normalizeLoyaltyLevel(card.level)
+  const cardManual = card?.levelAssignMode === 'manual'
+  const clientManual = client?.levelAssignMode === 'manual'
+  const cardLvl = normalizeLoyaltyLevel(card?.level)
+  const clientLvl = normalizeLoyaltyLevel(client?.level)
+
+  if (cardManual && clientManual) {
+    // Понижение до «Базовый»: клиент часто обновляется раньше карты (card.level = '' на сервере)
+    if (clientLvl === 'basic' || cardLvl === 'basic') return 'basic'
+    return cardLvl
   }
-  if (client?.levelAssignMode === 'manual') {
-    return normalizeLoyaltyLevel(client.level ?? card?.level)
-  }
+  if (cardManual) return cardLvl
+  if (clientManual) return clientLvl
   const fromCard = card?.level !== undefined && card.level !== ''
     ? normalizeLoyaltyLevel(card.level)
     : undefined

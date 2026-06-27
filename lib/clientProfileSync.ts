@@ -296,22 +296,34 @@ export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmSto
 
 /** Слияние CRM-профиля с сессией: ручной закреплённый уровень не затирается авторасчётом. */
 export function mergeCrmIntoStoreUser(cur: CrmStoreUser, next: CrmStoreUser): CrmStoreUser {
-  const curLock = loyaltyLockFromRecord(cur, cur.level)
-  const nextLock = loyaltyLockFromRecord(next, next.level)
-  const manualLocked = isLevelLocked(nextLock) || isLevelLocked(curLock)
-  const manualLevel = isLevelLocked(nextLock)
-    ? normalizeLoyaltyLevel(next.level)
-    : isLevelLocked(curLock)
-      ? normalizeLoyaltyLevel(cur.level)
-      : undefined
-  if (manualLocked && manualLevel) {
+  const nextNorm = normalizeLoyaltyLevel(next.level)
+  const curNorm = normalizeLoyaltyLevel(cur.level)
+  const nextLock = loyaltyLockFromRecord(next, nextNorm)
+  const nextManual = next.levelAssignMode === 'manual' && isLevelLocked(nextLock)
+
+  // CRM назначил ручной уровень (в т.ч. понижение до «Базовый») — всегда применяем
+  if (nextManual) {
     return {
       ...cur,
       ...next,
-      level: manualLevel,
-      levelAssignMode: next.levelAssignMode ?? cur.levelAssignMode ?? 'manual',
-      levelLockedPeriod: next.levelLockedPeriod ?? cur.levelLockedPeriod,
-      levelValidUntil: next.levelValidUntil ?? cur.levelValidUntil,
+      level: nextNorm,
+      levelAssignMode: 'manual',
+      levelLockedPeriod: next.levelLockedPeriod ?? undefined,
+      levelValidUntil: next.levelValidUntil ?? undefined,
+      vip: !!next.vip,
+    }
+  }
+
+  const curLock = loyaltyLockFromRecord(cur, curNorm)
+  const curManual = cur.levelAssignMode === 'manual' && isLevelLocked(curLock)
+  if (curManual) {
+    return {
+      ...cur,
+      ...next,
+      level: curNorm,
+      levelAssignMode: cur.levelAssignMode ?? 'manual',
+      levelLockedPeriod: cur.levelLockedPeriod ?? next.levelLockedPeriod,
+      levelValidUntil: cur.levelValidUntil ?? next.levelValidUntil,
       vip: !!next.vip,
     }
   }

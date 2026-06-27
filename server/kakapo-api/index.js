@@ -1071,7 +1071,7 @@ app.patch('/clients/:id', (req, res) => {
       if (linked) {
         if (patch.loyaltyPeriod) linked.loyaltyPeriod = patch.loyaltyPeriod
         if (patch.bonusEligibleFrom) linked.bonusEligibleFrom = patch.bonusEligibleFrom
-        if (patch.level != null) linked.level = patch.level
+        if (patch.level != null) linked.level = patch.level === 'basic' ? '' : patch.level
         if (patch.vip !== undefined) linked.vip = !!patch.vip
         if (patch.levelLockedPeriod !== undefined) linked.levelLockedPeriod = patch.levelLockedPeriod
         if (patch.levelAssignMode !== undefined) linked.levelAssignMode = patch.levelAssignMode
@@ -1374,7 +1374,8 @@ function currentLoyaltyPeriod(date = new Date()) {
 
 function normalizeCardRow(raw) {
   const status = ['active', 'unlinked', 'blocked'].includes(raw.status) ? raw.status : 'unlinked'
-  const level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : (raw.level || '')
+  let level = ['basic', 'bronze', 'silver', 'gold', 'platinum'].includes(raw.level) ? raw.level : (raw.level || '')
+  if (level === 'basic') level = ''
   return {
     num: String(raw.num || '').toUpperCase(),
     client: raw.client || '',
@@ -1471,6 +1472,10 @@ function endOfLoyaltyPeriodIsoServer(period = currentLoyaltyPeriod()) {
   return new Date(y, m, 0, 23, 59, 59, 999).toISOString()
 }
 
+function cardLevelToBasic(raw) {
+  return raw === '' || raw == null || raw === 'basic' ? 'basic' : raw
+}
+
 function syncClientFromCardRow(card) {
   if (!Array.isArray(db.clients)) db.clients = []
   if (card.status === 'unlinked') {
@@ -1507,7 +1512,7 @@ function syncClientFromCardRow(card) {
   const clientName = String(client.name || '').trim()
   if (cardName && cardName !== 'Клиент') client.name = cardName
   else if (!clientName || clientName === 'Клиент') client.name = cardName || clientName || 'Клиент'
-  client.level = card.level === '' || card.level == null ? 'basic' : card.level
+  client.level = cardLevelToBasic(card.level)
   client.bonus = Number(card.bonus) || 0
   client.debt = Number(card.debt) || 0
   client.debtLimit = Number(card.debtLimit) || 0

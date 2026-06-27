@@ -25,7 +25,7 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive, resolveMergedLoyaltyLevel, normalizeLoyaltyLevel } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
@@ -151,7 +151,7 @@ async function persistLoyaltyToApi(
 }
 
 function apiLevelMatches(expected: ClientLevel, raw?: string | ''): boolean {
-  const lvl = !raw || raw === '' ? 'basic' : raw
+  const lvl = !raw || raw === '' || raw === 'basic' ? 'basic' : raw
   return lvl === expected
 }
 
@@ -390,6 +390,7 @@ export async function saveCardLoyalty(
 
   const lockFields = resolveLevelLockFromTerm(assignMode, resolvedLevel, form.levelTermDays ?? 0)
   const cardLevelStored = resolvedLevel === 'basic' ? '' : resolvedLevel
+  const cardLevelForApi = resolvedLevel === 'basic' ? 'basic' : resolvedLevel
 
   const loyalty = {
     level: resolvedLevel,
@@ -438,6 +439,7 @@ export async function saveCardLoyalty(
     ...loyalty,
     level: cardLevelStored,
   }
+  const cardPatchForApi = { ...cardPatch, level: cardLevelForApi }
 
   const cardKey = canonicalCardNum(cardNum)
   const clientPatch = {
@@ -483,7 +485,7 @@ export async function saveCardLoyalty(
 
   if (USE_API) {
     try {
-      const result = await persistLoyaltyToApi(cardNum.trim(), cardPatch, client.id, {
+      const result = await persistLoyaltyToApi(cardNum.trim(), cardPatchForApi, client.id, {
         card: cardKey,
         name: clientName,
         phone,
@@ -491,12 +493,22 @@ export async function saveCardLoyalty(
         ...loyalty,
       })
       const saved = result.savedCard
+      const savedClient = result.savedClient
       if (lockFields.levelAssignMode === 'manual' && saved) {
         const apiMode = saved.levelAssignMode
         const apiLevel = (saved.level || 'basic') as ClientLevel
         if (apiMode !== 'manual' || !apiLevelMatches(resolvedLevel, saved.level)) {
           throw new Error(
-            `Сервер не сохранил ручной уровень «${resolvedLevel}» (на сервере: ${apiLevel || 'basic'}, режим: ${apiMode || 'авто'}). Задеплойте обновление: git pull && bash deploy/hetzner/deploy.sh`,
+            `Сервер не сохранил ручной уровень «${resolvedLevel}» на карте (на сервере: ${apiLevel || 'basic'}, режим: ${apiMode || 'авто'}). Задеплойте обновление: git pull && bash deploy/hetzner/deploy.sh`,
+          )
+        }
+      }
+      if (lockFields.levelAssignMode === 'manual' && savedClient) {
+        const clientMode = savedClient.levelAssignMode
+        const clientLevel = normalizeLoyaltyLevel(savedClient.level)
+        if (clientMode !== 'manual' || clientLevel !== resolvedLevel) {
+          throw new Error(
+            `Сервер не сохранил ручной уровень «${resolvedLevel}» у клиента (на сервере: ${clientLevel}, режим: ${clientMode || 'авто'}). Задеплойте обновление: git pull && bash deploy/hetzner/deploy.sh`,
           )
         }
       }

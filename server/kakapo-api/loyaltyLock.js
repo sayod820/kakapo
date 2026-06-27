@@ -19,15 +19,19 @@ export function inferLevelAssignMode(client, card) {
   return 'auto'
 }
 
+function cardLevelToBasic(raw) {
+  return raw === '' || raw == null || raw === 'basic' ? 'basic' : raw
+}
+
 export function loyaltyLockRecord(client, card) {
   const mode = inferLevelAssignMode(client, card)
   let level = 'basic'
   if (card?.levelAssignMode === 'manual') {
-    level = card.level === '' || card.level == null ? 'basic' : card.level
+    level = cardLevelToBasic(card.level)
   } else if (client?.levelAssignMode === 'manual') {
-    level = client.level || (card?.level === '' ? 'basic' : card?.level) || 'basic'
+    level = cardLevelToBasic(client.level ?? card?.level)
   } else {
-    level = client?.level || card?.level || 'basic'
+    level = cardLevelToBasic(client?.level ?? card?.level)
   }
   return {
     levelAssignMode: mode,
