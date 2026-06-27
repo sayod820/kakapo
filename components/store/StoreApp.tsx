@@ -419,7 +419,16 @@ const CATS = [
   {id:"sweet_h", e:"🥜",label:"Орехи и сухофрукты",    count:18, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"sweet"},
 ];
 
+const HOT_HITS_CAT = {
+  id: "hot",
+  e: "🔥",
+  label: "Хиты продаж",
+  bg: "linear-gradient(145deg,#2A1000,#4A2000)",
+  color: "var(--org)",
+};
+
 function productsInCategory(prods, catId, subCatId = null) {
+  if (catId === "hot") return prods.filter(p => p.hot);
   return prods.filter(p => {
     const slug = productCatSlug(p);
     if (subCatId) return slug === subCatId;
@@ -1307,7 +1316,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
         </div>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🔥 Хиты продаж</div>
-          <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
+          <button onClick={() => go("hot")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20, alignItems:"stretch" }}>
           {prods.filter(p => p.hot).slice(0,4).map((p,i) => (
@@ -1336,7 +1345,7 @@ const CatalogPage = ({ go, cart, user }) => {
     <Header title="Каталог" go={go} cart={cart} user={user}/>
     <div style={{ padding:"16px 18px 100px" }}>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
-        {[{e:"💸",t:"Акции",s:"До 40%",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Топ продаж",c:"var(--org)",to:"promos"},{e:"✨",t:"Новинки",s:"Только что",c:"var(--blue)",to:"promos"},{e:"🌿",t:"Органик",s:"Без ГМО",c:"#34D399",to:"promos"}].map((p,i) => (
+        {[{e:"💸",t:"Акции",s:"До 40%",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Топ продаж",c:"var(--org)",to:"hot"},{e:"✨",t:"Новинки",s:"Только что",c:"var(--blue)",to:"promos"},{e:"🌿",t:"Органик",s:"Без ГМО",c:"#34D399",to:"promos"}].map((p,i) => (
           <button key={i} type="button" onClick={() => go(p.to)} className="btn" style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.05}s both`, textAlign:"left" }}>
             <div style={{ fontSize:28, marginBottom:8 }}>{p.e}</div>
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:p.c, marginBottom:2 }}>{p.t}</div>
@@ -1391,31 +1400,33 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   const [view,    setView]    = useState("grid");
   const [search,  setSearch]  = useState("");
   const [subCat,  setSubCat]  = useState(null);
-  const cat = CATS.find(c => c.id === params?.cat) || CATS[0];
-  const subCats = CATS.filter(c => c.parentId === cat.id);
+  const isHotHits = params?.cat === "hot" || params?.hot === "1";
+  const cat = isHotHits ? HOT_HITS_CAT : (CATS.find(c => c.id === params?.cat) || CATS[0]);
+  const subCats = isHotHits ? [] : CATS.filter(c => c.parentId === cat.id);
   const hasSubCats = subCats.length > 0;
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
-  let items = productsInCategory(prods, params?.cat, subCat);
+  let items = isHotHits ? prods.filter(p => p.hot) : productsInCategory(prods, params?.cat, subCat);
   if (search) items = items.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
   if (sort === "cheap") items = [...items].sort((a,b) => a.price - b.price);
   else if (sort === "exp") items = [...items].sort((a,b) => b.price - a.price);
   else if (sort === "sale") items = items.filter(p => p.old).sort((a,b) => (1-b.price/b.old) - (1-a.price/a.old));
+  else if (isHotHits) items = [...items].sort((a,b) => (b.r || 0) - (a.r || 0));
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
         <div style={{ padding:"13px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("catalog")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => go(isHotHits ? "home" : "catalog")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ width:36, height:36, borderRadius:10, background:cat.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cat.e}</div>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:15, fontWeight:800 }}>{cat.label}</div>
-            <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{formatProductCount(items.length)}</div>
+            <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{isHotHits ? "Только хиты · " : ""}{formatProductCount(items.length)}</div>
           </div>
           <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
         </div>
         <div style={{ padding:"0 18px 10px", position:"relative" }}>
           <div style={{ position:"absolute", left:30, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}><Ic n="search" s={15} c="var(--t3)"/></div>
-          <input className="inp" value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск в категории..." style={{ paddingLeft:38, width:"100%", fontSize:13 }}/>
+          <input className="inp" value={search} onChange={e => setSearch(e.target.value)} placeholder={isHotHits ? "Поиск среди хитов..." : "Поиск в категории..."} style={{ paddingLeft:38, width:"100%", fontSize:13 }}/>
         </div>
         {hasSubCats && (
           <div className="hscroll" style={{ padding:"0 18px 8px", gap:8 }}>
@@ -1449,9 +1460,10 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
       <div style={{ padding:"14px 18px 110px" }}>
         {items.length === 0 ? (
           <div style={{ textAlign:"center", paddingTop:60 }}>
-            <div style={{ fontSize:56, marginBottom:14 }}>🔍</div>
-            <div className="ub" style={{ fontSize:17, fontWeight:800, marginBottom:8 }}>Ничего не найдено</div>
-            <button className="btn" onClick={() => setSearch("")} style={{ padding:"12px 24px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>Сбросить</button>
+            <div style={{ fontSize:56, marginBottom:14 }}>{isHotHits ? "🔥" : "🔍"}</div>
+            <div className="ub" style={{ fontSize:17, fontWeight:800, marginBottom:8 }}>{isHotHits ? "Хитов пока нет" : "Ничего не найдено"}</div>
+            {isHotHits && <div style={{ fontSize:13, color:"var(--t2)", marginBottom:16 }}>Отметьте товары как «Хит» в админке</div>}
+            <button className="btn" onClick={() => isHotHits ? go("home") : setSearch("")} style={{ padding:"12px 24px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>{isHotHits ? "На главную" : "Сбросить"}</button>
           </div>
         ) : view === "grid" ? (
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"stretch" }}>
@@ -1497,7 +1509,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
       {totalQtyNum > 0 && (
         <FloatingCartBtn count={totalQty} onClick={() => go("cart")} label="Корзина" isVip={isVip} />
       )}
-      <Nav page="catalog" go={go} user={user}/>
+      <Nav page={isHotHits ? "home" : "catalog"} go={go} user={user}/>
     </div>
   );
 };
@@ -9039,6 +9051,7 @@ function KakapoAppInner() {
     switch (page) {
       case "home":             return <HomePage          {...shared}/>;
       case "catalog":          return <CatalogPage       {...shared}/>;
+      case "hot":              return <PListPage         {...shared} params={{ cat: "hot" }}/>;
       case "plist":            return <PListPage         {...shared}/>;
       case "product":          return <ProductPage       {...shared}/>;
       case "cart":             return <CartPage          {...shared} onDel={delItem}/>;
