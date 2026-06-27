@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { preloadLeaflet } from '@/lib/leafletLoader'
 import {
@@ -17,6 +17,7 @@ type Props = {
   onSaved: (entry: ClientSavedAddress) => void
   clientPhone: string
   editEntry?: ClientSavedAddress | null
+  sessionKey?: number
   title?: string
   confirmLabel?: string
 }
@@ -28,12 +29,41 @@ function splitStreetParts(street: string) {
   return { mapStreet: parts[0] || street || '', house: parts[1] || '' }
 }
 
+function formFromEntry(editEntry: ClientSavedAddress | null | undefined) {
+  if (!editEntry) {
+    return {
+      label: LABELS[0],
+      mapStreet: '',
+      house: '',
+      apt: '',
+      floor: '',
+      ent: '',
+      comment: '',
+      coords: null as { lat: number; lng: number } | null,
+    }
+  }
+  const { mapStreet, house } = splitStreetParts(editEntry.street)
+  return {
+    label: editEntry.label || LABELS[0],
+    mapStreet,
+    house,
+    apt: editEntry.apt || '',
+    floor: editEntry.floor || '',
+    ent: editEntry.ent || '',
+    comment: editEntry.comment || '',
+    coords: editEntry.lat != null && editEntry.lng != null
+      ? { lat: editEntry.lat, lng: editEntry.lng }
+      : null,
+  }
+}
+
 export default function ClientAddressEditorSheet({
   open,
   onClose,
   onSaved,
   clientPhone,
   editEntry = null,
+  sessionKey = 0,
   title,
   confirmLabel = '✓ Подтвердить и вернуться к заказу',
 }: Props) {
@@ -45,6 +75,7 @@ export default function ClientAddressEditorSheet({
   const [comment, setComment] = useState('')
   const [label, setLabel] = useState<string>(LABELS[0])
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [mapReady, setMapReady] = useState(false)
 
   const mapPickerHeight = typeof window !== 'undefined'
     ? Math.min(460, Math.max(320, Math.round(window.innerHeight * 0.56)))
@@ -57,28 +88,21 @@ export default function ClientAddressEditorSheet({
   }, [open])
 
   useEffect(() => {
-    if (!open) return
-    if (editEntry) {
-      const { mapStreet: ms, house: h } = splitStreetParts(editEntry.street)
-      setLabel(editEntry.label || LABELS[0])
-      setMapStreet(ms)
-      setHouse(h)
-      setApt(editEntry.apt || '')
-      setFloor(editEntry.floor || '')
-      setEnt(editEntry.ent || '')
-      setComment(editEntry.comment || '')
-      setCoords(editEntry.lat != null && editEntry.lng != null ? { lat: editEntry.lat, lng: editEntry.lng } : null)
-    } else {
-      setLabel(LABELS[0])
-      setMapStreet('')
-      setHouse('')
-      setApt('')
-      setFloor('')
-      setEnt('')
-      setComment('')
-      setCoords(null)
+    if (!open) {
+      setMapReady(false)
+      return
     }
-  }, [open, editEntry])
+    const next = formFromEntry(editEntry)
+    setLabel(next.label)
+    setMapStreet(next.mapStreet)
+    setHouse(next.house)
+    setApt(next.apt)
+    setFloor(next.floor)
+    setEnt(next.ent)
+    setComment(next.comment)
+    setCoords(next.coords)
+    setMapReady(true)
+  }, [open, sessionKey, editEntry?.id, editEntry?.lat, editEntry?.lng])
 
   useEffect(() => {
     if (!open) return
@@ -86,6 +110,15 @@ export default function ClientAddressEditorSheet({
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = prev }
   }, [open])
+
+  const pickerInitial = useMemo(() => {
+    if (editEntry?.lat != null && editEntry?.lng != null) {
+      return { lat: editEntry.lat, lng: editEntry.lng }
+    }
+    return coords
+  }, [editEntry?.id, editEntry?.lat, editEntry?.lng, coords?.lat, coords?.lng, sessionKey])
+
+  const mapInstanceKey = `${sessionKey}-${editEntry?.id ?? 'new'}-${pickerInitial?.lat?.toFixed(5) ?? 'x'}-${pickerInitial?.lng?.toFixed(5) ?? 'y'}`
 
   if (!open) return null
 
@@ -169,19 +202,21 @@ export default function ClientAddressEditorSheet({
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
         <div style={{ flexShrink: 0 }}>
-          <AddressMapPicker
-            key={editEntry ? `edit-${editEntry.id}` : 'new-checkout-addr'}
-            pickMode="center"
-            mapHeight={mapPickerHeight}
-            initial={coords}
-            hideConfirm
-            addressLabel="Куда"
-            addressHelper="Улица подставится с карты, дом введите ниже"
-            onCenterChange={({ lat, lng, address }) => {
-              setCoords({ lat, lng })
-              if (address) setMapStreet(address)
-            }}
-          />
+          {mapReady && (
+            <AddressMapPicker
+              key={mapInstanceKey}
+              pickMode="center"
+              mapHeight={mapPickerHeight}
+              initial={pickerInitial}
+              hideConfirm
+              addressLabel="Куда"
+              addressHelper="Улица подставится с карты, дом введите ниже"
+              onCenterChange={({ lat, lng, address }) => {
+                setCoords({ lat, lng })
+                if (address) setMapStreet(address)
+              }}
+            />
+          )}
         </div>
 
         <div style={{

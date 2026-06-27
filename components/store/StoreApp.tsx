@@ -1939,6 +1939,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const [savedAddrs, setSavedAddrs] = useState([]);
   const [addrEditorOpen, setAddrEditorOpen] = useState(false);
   const [addrEditorEdit, setAddrEditorEdit] = useState(null);
+  const [addrEditorSession, setAddrEditorSession] = useState(0);
 
   const clientPhone = user?.phone || getActiveClientPhone(user);
 
@@ -2005,6 +2006,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 
   const openCheckoutAddrEditor = (editEntry = null) => {
     setAddrEditorEdit(editEntry);
+    setAddrEditorSession(s => s + 1);
     setAddrEditorOpen(true);
   };
 
@@ -2233,13 +2235,28 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
                   const line = formatClientAddressLine(a);
                   const active = selectedSavedId === a.id;
                   return (
-                    <button key={a.id} onClick={() => pickSavedAddr(a)} className="btn"
-                      style={{ flexShrink:0, padding:"10px 14px", borderRadius:12, textAlign:"left",
-                        border:`1.5px solid ${active ? "var(--gr)" : "var(--b1)"}`,
-                        background: active ? "rgba(31,215,96,.1)" : "var(--l2)", minWidth:140 }}>
-                      <div style={{ fontSize:12, fontWeight:800, color: active ? "var(--gr)" : "var(--t1)", marginBottom:2 }}>{a.label}</div>
-                      <div style={{ fontSize:11, color:"var(--t2)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:160 }}>{line}</div>
-                    </button>
+                    <div key={a.id} style={{ flexShrink: 0, position: 'relative' }}>
+                      <button onClick={() => pickSavedAddr(a)} className="btn"
+                        style={{ padding:"10px 14px", paddingRight: 36, borderRadius:12, textAlign:"left",
+                          border:`1.5px solid ${active ? "var(--gr)" : "var(--b1)"}`,
+                          background: active ? "rgba(31,215,96,.1)" : "var(--l2)", minWidth:140 }}>
+                        <div style={{ fontSize:12, fontWeight:800, color: active ? "var(--gr)" : "var(--t1)", marginBottom:2 }}>{a.label}</div>
+                        <div style={{ fontSize:11, color:"var(--t2)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:160 }}>{line}</div>
+                      </button>
+                      <button
+                        type="button"
+                        title="Изменить адрес"
+                        onClick={(e) => { e.stopPropagation(); pickSavedAddr(a); openCheckoutAddrEditor(a); }}
+                        className="btn"
+                        style={{
+                          position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 8,
+                          background: 'var(--l3)', border: '1px solid var(--b1)', fontSize: 11, lineHeight: 1,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--t2)',
+                        }}
+                      >
+                        ✏️
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -2399,6 +2416,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         onSaved={handleCheckoutAddrSaved}
         clientPhone={clientPhone || ''}
         editEntry={addrEditorEdit}
+        sessionKey={addrEditorSession}
       />
     </div>
   );
