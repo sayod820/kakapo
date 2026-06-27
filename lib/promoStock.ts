@@ -35,11 +35,25 @@ export function isWeightedPromoProduct(product?: Partial<Product> | null): boole
   return product?.sellType === 'weight'
 }
 
+/** Лимит сохранён как кг×1000 (20 → 20000), а не как штуки */
+export function promoLimitLooksLikeGrams(promo?: Promo | null): boolean {
+  const limit = promoStockLimit(promo)
+  if (limit < 1000 || limit % 1000 !== 0) return false
+  const kg = limit / 1000
+  if (kg < 1 || kg > 500) return false
+  // 20 кг → 20000; 2000 шт обычно записывают как 2000 без ×1000
+  if (limit >= 10000) return true
+  if (limit >= 3000) return true
+  return false
+}
+
 /** Граммы или штуки — приоритет у stockLimitUnit на акции (чтобы витрина совпадала с админкой) */
 export function promoLimitUsesGrams(promo?: Promo | null, product?: Partial<Product> | null): boolean {
   if (promo?.stockLimitUnit === 'grams') return true
+  if (isWeightedPromoProduct(product)) return true
+  if (promoLimitLooksLikeGrams(promo)) return true
   if (promo?.stockLimitUnit === 'pieces') return false
-  return isWeightedPromoProduct(product)
+  return false
 }
 
 /** Единица лимита в админке: кг для весовых, шт для остальных */

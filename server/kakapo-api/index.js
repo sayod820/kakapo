@@ -440,12 +440,15 @@ app.get('/promos', (_req, res) => {
 })
 
 function resolvePromoStockLimitUnit(promo) {
-  if (!promo || promo.stockLimitUnit) return false
+  if (!promo) return false
   const limit = Number(promo.stockLimit)
   if (!Number.isFinite(limit) || limit <= 0) return false
   const pid = Number(promo.productId)
   const product = pid ? db.products.find(p => Number(p.id) === pid) : null
-  promo.stockLimitUnit = product?.sellType === 'weight' ? 'grams' : 'pieces'
+  const looksGrams = limit >= 1000 && limit % 1000 === 0 && limit / 1000 >= 1 && limit / 1000 <= 500 && (limit >= 10000 || limit >= 3000)
+  const next = (product?.sellType === 'weight' || looksGrams) ? 'grams' : (promo.stockLimitUnit || 'pieces')
+  if (promo.stockLimitUnit === next) return false
+  promo.stockLimitUnit = next
   return true
 }
 
