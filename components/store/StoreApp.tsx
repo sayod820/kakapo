@@ -41,6 +41,7 @@ import { mergeCartData, saveRemoteCart, cartSyncTimestamp, findSyncClient, clien
 import { mergeWishData, saveRemoteWish, wishBundleFromClient } from "@/lib/clientWishSync";
 import { formatMemberSinceLabel } from "@/lib/cardCrm";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
+import ClientAddressEditorSheet from "@/components/store/ClientAddressEditorSheet";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
 import { loyaltyLockFromRecord, isManualLoyaltyActive } from "@/lib/loyaltyAdminLock";
@@ -1936,6 +1937,8 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const [clientLat, setClientLat] = useState(0);
   const [clientLng, setClientLng] = useState(0);
   const [savedAddrs, setSavedAddrs] = useState([]);
+  const [addrEditorOpen, setAddrEditorOpen] = useState(false);
+  const [addrEditorEdit, setAddrEditorEdit] = useState(null);
 
   const clientPhone = user?.phone || getActiveClientPhone(user);
 
@@ -1998,6 +2001,18 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       setClientLat(a.lat);
       setClientLng(a.lng);
     }
+  };
+
+  const openCheckoutAddrEditor = (editEntry = null) => {
+    setAddrEditorEdit(editEntry);
+    setAddrEditorOpen(true);
+  };
+
+  const handleCheckoutAddrSaved = (entry) => {
+    if (!clientPhone) return;
+    const list = loadClientAddresses(clientPhone);
+    setSavedAddrs(list);
+    pickSavedAddr(entry);
   };
 
   const items = buildCartLineItems(cart, cartMeta, prods);
@@ -2210,7 +2225,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="map" color="var(--sky)" title="Адрес доставки"/>
-          {savedAddrs.length > 0 && (
+          {savedAddrs.length > 0 ? (
             <div style={{ marginBottom:12 }}>
               <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>Сохранённые адреса</div>
               <div className="hscroll" style={{ gap:8 }}>
@@ -2228,11 +2243,24 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
                   );
                 })}
               </div>
-              <button type="button" onClick={() => go("addresses")} className="btn"
-                style={{ marginTop: 8, fontSize: 11, color: "var(--sky)", fontWeight: 700, background: "transparent", border: "none", padding: 0 }}>
-                ✏️ Изменить адреса в профиле
-              </button>
+              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <button type="button" onClick={() => openCheckoutAddrEditor(null)} className="btn"
+                  style={{ flex: 1, minWidth: 120, padding: "8px 12px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "rgba(31,215,96,.1)", border: "1px solid rgba(31,215,96,.3)", color: "var(--gr)" }}>
+                  + Добавить адрес
+                </button>
+                {selectedSavedAddr && (
+                  <button type="button" onClick={() => openCheckoutAddrEditor(selectedSavedAddr)} className="btn"
+                    style={{ flex: 1, minWidth: 120, padding: "8px 12px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "var(--l3)", border: "1px solid var(--b1)", color: "var(--t2)" }}>
+                    ✏️ Изменить выбранный
+                  </button>
+                )}
+              </div>
             </div>
+          ) : (
+            <button type="button" onClick={() => openCheckoutAddrEditor(null)} className="btn"
+              style={{ width: "100%", marginBottom: 12, padding: "12px 14px", borderRadius: 12, fontSize: 13, fontWeight: 700, background: "rgba(31,215,96,.1)", border: "1.5px solid rgba(31,215,96,.3)", color: "var(--gr)" }}>
+              + Добавить адрес на карте
+            </button>
           )}
           <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>
             {selectedSavedAddr ? "Точка доставки" : "Улица, дом *"}
@@ -2365,6 +2393,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>{addrReady ? `Подтвердить · ${payable.toFixed(2)} ЅМ` : "Подтвердить заказ"}</>}
         </button>
       </div>
+      <ClientAddressEditorSheet
+        open={addrEditorOpen}
+        onClose={() => { setAddrEditorOpen(false); setAddrEditorEdit(null); }}
+        onSaved={handleCheckoutAddrSaved}
+        clientPhone={clientPhone || ''}
+        editEntry={addrEditorEdit}
+      />
     </div>
   );
 };
