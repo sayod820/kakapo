@@ -156,22 +156,13 @@ export function emptyCardLoyaltyForm(): CardLoyaltyForm {
   return { clientId: '', phone: '', level: 'basic', debtLimit: 0, bonus: 0, debt: 0, vip: false, debtEnabled: false }
 }
 
+/** @deprecated alias — используйте resolveMergedLoyaltyLevel */
 export function resolveLinkedCardLevel(card: AdminCard, client?: AdminClient): ClientLevel {
-  const mode = card.levelAssignMode ?? client?.levelAssignMode
-  if (mode === 'manual') {
-    if (card.level && card.level !== 'basic') return card.level as ClientLevel
-    return 'basic'
-  }
-  if (card.level && card.level !== '') return card.level as ClientLevel
-  return (client?.level || 'basic') as ClientLevel
+  return resolveMergedLoyaltyLevel(card, client)
 }
 
 export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): CardLoyaltyForm {
-<<<<<<< HEAD
-  const level = resolveLinkedCardLevel(card, client)
-=======
   const level = resolveMergedLoyaltyLevel(card, client)
->>>>>>> 5ab9e9056ecf68c1b690a495ba0c1bdec4625443
   const mode = inferLevelAssignMode(card, client)
   const levelValidUntil = card.levelValidUntil || client?.levelValidUntil
   const levelLockedPeriod = card.levelLockedPeriod || client?.levelLockedPeriod
@@ -213,16 +204,13 @@ export function enrichCardWithClient(card: AdminCard, clients: AdminClient[]): A
     : card.status === 'unlinked' && client.card === card.num
       ? 'active'
       : card.status
+  const mergedLevel = resolveMergedLoyaltyLevel(card, client)
   return normalizeCard({
     ...card,
     client: client.name || card.client,
     phone: client.phone || card.phone,
     clientId: client.id,
-<<<<<<< HEAD
-    level: resolveLinkedCardLevel(card, client) as AdminCard['level'],
-=======
-    level: resolveMergedLoyaltyLevel(card, client),
->>>>>>> 5ab9e9056ecf68c1b690a495ba0c1bdec4625443
+    level: (mergedLevel === 'basic' ? '' : mergedLevel) as AdminCard['level'],
     bonus: Math.max(card.bonus, client.bonus),
     debtLimit: card.debtLimit ?? client.debtLimit,
     debt: Math.max(card.debt, client.debt),

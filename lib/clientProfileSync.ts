@@ -11,7 +11,7 @@ import {
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
-import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, resolveLinkedCardLevel, type AdminCard } from './cardCrm'
+import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, type AdminCard } from './cardCrm'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 import { normalizeLoyaltyLevel, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
@@ -111,11 +111,7 @@ function findBestCard(phone: string, cardNum: string | undefined, client: AdminC
 export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null): AdminClient {
   const base = normalizeClient(client)
   if (!card || card.status === 'unlinked') return base
-<<<<<<< HEAD
-  const level = resolveLinkedCardLevel(card, base) as ClientLevel
-=======
   const level = resolveMergedLoyaltyLevel(card, base)
->>>>>>> 5ab9e9056ecf68c1b690a495ba0c1bdec4625443
   const vip = !!(card.vip || base.vip)
   const debtEnabled = resolveDebtEnabled(card, base)
   return normalizeClient({
@@ -176,7 +172,7 @@ function buildClientFromCard(card: AdminCard): AdminClient {
     email: '',
     addr: '',
     card: card.num,
-    level: (card.level || 'basic') as ClientLevel,
+    level: resolveMergedLoyaltyLevel(card),
     orders: 0,
     spent: 0,
     debt: card.debt,

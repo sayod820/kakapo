@@ -138,14 +138,7 @@ function isRecent(map: Map<string, number>, key: string) {
 
 function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T): T {
   const manual = local.levelAssignMode === 'manual'
-<<<<<<< HEAD
-  const rawLevel = local.level
-  const localLevel: ClientLevel | undefined = manual
-    ? (rawLevel === '' || rawLevel === undefined ? 'basic' : (rawLevel as ClientLevel))
-    : (rawLevel !== undefined && rawLevel !== '' ? (rawLevel as ClientLevel) : undefined)
-=======
   const localLevel = resolvedLocalLoyaltyLevel(local)
->>>>>>> 5ab9e9056ecf68c1b690a495ba0c1bdec4625443
   return {
     ...api,
     level: manual ? (localLevel ?? 'basic') : (localLevel ?? api.level),
@@ -165,18 +158,18 @@ function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T)
 export function applyManualLoyaltyToCard(apiCard: AdminCard): AdminCard {
   const manual = getManualLoyaltyForCard(apiCard.num)
   if (!manual) return apiCard
+  const apiNorm = normalizeLoyaltyLevel(apiCard.level)
   if (manual.level !== 'basic' && serverMatchesManual(apiCard, manual)) {
     clearManualLoyaltyOverride(apiCard.num)
     return apiCard
   }
-  const apiNorm = normalizeLoyaltyLevel(apiCard.level)
   if (apiCard.levelAssignMode === 'manual' && apiNorm === manual.level) {
     clearManualLoyaltyOverride(apiCard.num)
     return apiCard
   }
   return mergeLoyaltyFields(apiCard, {
     ...apiCard,
-    level: manual.level,
+    level: manual.level === 'basic' ? '' : manual.level,
     levelAssignMode: 'manual',
     levelValidUntil: manual.levelValidUntil ?? undefined,
     levelLockedPeriod: manual.levelLockedPeriod ?? undefined,

@@ -389,6 +389,7 @@ export async function saveCardLoyalty(
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
 
   const lockFields = resolveLevelLockFromTerm(assignMode, resolvedLevel, form.levelTermDays ?? 0)
+  const cardLevelStored = resolvedLevel === 'basic' ? '' : resolvedLevel
 
   const loyalty = {
     level: resolvedLevel,
@@ -435,6 +436,7 @@ export async function saveCardLoyalty(
     note: loyaltyNote,
     allowBonusDecrease: true,
     ...loyalty,
+    level: cardLevelStored,
   }
 
   const cardKey = canonicalCardNum(cardNum)

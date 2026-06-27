@@ -1060,7 +1060,7 @@ app.patch('/clients/:id', (req, res) => {
     }
     if (levelChanged && !('levelAssignMode' in (req.body || {}))) {
       patch.levelLockedPeriod = patch.level === 'basic' ? undefined : currentLoyaltyPeriod()
-      patch.levelAssignMode = patch.level === 'basic' ? undefined : 'manual'
+      patch.levelAssignMode = 'manual'
     }
     if (vipChanged && patch.vip) {
       patch.vipUntil = patch.vipUntil || endOfLoyaltyPeriodIsoServer()
@@ -1507,7 +1507,7 @@ function syncClientFromCardRow(card) {
   const clientName = String(client.name || '').trim()
   if (cardName && cardName !== 'Клиент') client.name = cardName
   else if (!clientName || clientName === 'Клиент') client.name = cardName || clientName || 'Клиент'
-  client.level = card.level || 'basic'
+  client.level = card.level === '' || card.level == null ? 'basic' : card.level
   client.bonus = Number(card.bonus) || 0
   client.debt = Number(card.debt) || 0
   client.debtLimit = Number(card.debtLimit) || 0
@@ -1519,6 +1519,8 @@ function syncClientFromCardRow(card) {
   else if (card.levelLockedPeriod === null || card.levelLockedPeriod === '') client.levelLockedPeriod = undefined
   if (card.levelAssignMode === 'manual' || card.levelAssignMode === 'auto') {
     client.levelAssignMode = card.levelAssignMode
+  } else if (card.levelAssignMode === null) {
+    client.levelAssignMode = undefined
   }
   if (card.levelValidUntil) client.levelValidUntil = card.levelValidUntil
   else if (card.levelValidUntil === null || card.levelValidUntil === '') client.levelValidUntil = undefined
@@ -1699,7 +1701,7 @@ app.patch('/cards/:num', (req, res) => {
       }
       if (body.level != null && body.level !== card.level && !('levelAssignMode' in (req.body || {}))) {
         body.levelLockedPeriod = body.level === 'basic' ? undefined : currentLoyaltyPeriod()
-        body.levelAssignMode = body.level === 'basic' ? undefined : 'manual'
+        body.levelAssignMode = 'manual'
       }
       if (body.vip === true && body.vipUntil === undefined && !('vipUntil' in req.body)) {
         body.vipUntil = endOfLoyaltyPeriodIsoServer()

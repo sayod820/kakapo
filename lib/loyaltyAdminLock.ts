@@ -68,12 +68,16 @@ export function resolveMergedLoyaltyLevel(
   client?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
 ): ClientLevel {
   if (card?.levelAssignMode === 'manual') {
-    return normalizeLoyaltyLevel(card.level || 'basic')
+    return normalizeLoyaltyLevel(card.level)
   }
   if (client?.levelAssignMode === 'manual') {
-    return normalizeLoyaltyLevel(client.level || card?.level || 'basic')
+    return normalizeLoyaltyLevel(client.level ?? card?.level)
   }
-  return normalizeLoyaltyLevel(card?.level || client?.level)
+  const fromCard = card?.level !== undefined && card.level !== ''
+    ? normalizeLoyaltyLevel(card.level)
+    : undefined
+  const fromClient = client?.level ? normalizeLoyaltyLevel(client.level) : undefined
+  return fromCard ?? fromClient ?? 'basic'
 }
 
 /** Ручной статус активен (закреплён админом, авторасчёт не применяется). */
@@ -88,17 +92,10 @@ export function isManualLoyaltyActive(
 export function isLevelLocked(record?: LoyaltyLockFields | null, now = Date.now()): boolean {
   if (record?.levelAssignMode === 'auto') return false
   const lvl = record?.level
-<<<<<<< HEAD
-  if (record?.levelAssignMode === 'manual' && (!lvl || lvl === 'basic') && !record?.levelValidUntil && !record?.levelLockedPeriod) {
-    return true
-  }
-  if (!lvl || lvl === 'basic') return false
-=======
   const isBasicLvl = !lvl || lvl === 'basic' || lvl === ''
-  // Ручное понижение до «Обычный» — не поднимать по тратам
+  // Ручное понижение до «Базовый» — не поднимать по тратам
   if (record?.levelAssignMode === 'manual' && isBasicLvl) return true
   if (isBasicLvl) return false
->>>>>>> 5ab9e9056ecf68c1b690a495ba0c1bdec4625443
   if (record?.levelValidUntil) {
     const until = new Date(record.levelValidUntil).getTime()
     if (!Number.isNaN(until)) return now <= until
