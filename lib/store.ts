@@ -51,14 +51,11 @@ function applyDeliveryLoyalty(
 ) {
   const order = get().orders.find(o => o.id === id)
   if (!order || order.status !== 'delivered') return
+  const phone = order.client?.phone || ''
+  if (!phone) return
+
   if (USE_API) {
-    const phone = order.client?.phone || ''
-    if (phone) {
-      void import('./loyaltyBonus').then(m => m.syncLoyaltyBonuses(phone, get().orders)).catch(() => {})
-    } else {
-      void useClientStore.getState().fetchFromApi()
-      void useCardStore.getState().fetchFromApi()
-    }
+    void import('./loyaltyBonus').then(m => m.syncLoyaltyBonuses(phone, get().orders, { force: true })).catch(() => {})
     return
   }
   if (order.bonusCredited) return
@@ -388,7 +385,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, status, ...patch } : o))
     const nextAfter = get().orders.find(o => o.id === id)
     if (prev && nextAfter) onOrderStatusChange(normalizeOrder(prev), normalizeOrder(nextAfter))
-    if (nextAfter?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
+    if (nextAfter?.status === 'delivered' && !USE_API) applyDeliveryLoyalty(set, get, id)
     if (nextAfter?.status === 'cancelled' && !USE_API) applyCancelLoyalty(set, get, id, prev)
     if (USE_API) {
       try {
@@ -421,7 +418,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, ...optimistic } : o)))
     const nextAfter = get().orders.find(o => o.id === id)
     if (prev && nextAfter) onOrderStatusChange(prev, normalizeOrder(nextAfter))
-    if (nextAfter?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
+    if (nextAfter?.status === 'delivered' && !USE_API) applyDeliveryLoyalty(set, get, id)
     if (nextAfter?.status === 'cancelled' && !USE_API) applyCancelLoyalty(set, get, id, prev)
     if (USE_API) {
       try {

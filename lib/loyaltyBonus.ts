@@ -448,53 +448,19 @@ export function creditBonusOnDeliveryLocal(order: Order, allOrders: Order[] = []
 
   if (!client && !card) return null
 
-  const orderPeriod = loyaltyPeriodForOrder(order)
-  const delivered = allOrders.filter(o =>
+  const ordersWithCurrent = allOrders.map(o => (o.id === order.id ? order : o))
+  reconcileClientBonusesLocal(phone, ordersWithCurrent)
+
+  const delivered = ordersWithCurrent.filter(o =>
     o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone),
   )
-  const statusLevel = resolveOrderStatusLevel(
-    phone,
-    delivered,
-    order,
-    (client?.level || card?.level || 'basic') as ClientLevel,
-    orderPeriod,
-  )
-  const vip = !!(client?.vip || card?.vip)
-  const assignMode = inferLevelAssignMode(card || {}, client || {})
-  const keepManualLevel = assignMode === 'manual'
   const merged = {
-    vip,
+    vip: !!(client?.vip || card?.vip),
     loyaltyPeriod: client?.loyaltyPeriod || card?.loyaltyPeriod,
     bonusEligibleFrom: client?.bonusEligibleFrom || card?.bonusEligibleFrom,
   }
-  const earned = calcOrderMarginalBonusEarned(phone, delivered, order, vip, undefined, merged, card)
-  const { spent: monthlySpent, orderCount } = loyaltyStatsFromOrders(allOrders, phone)
-
-  if (client) {
-    clientStore.updateClient(client.id, {
-      orders: Math.max(client.orders || 0, orderCount),
-      spent: Math.max(client.spent || 0, monthlySpent),
-      ...(keepManualLevel ? {} : { level: vip ? client.level : statusLevel }),
-      loyaltyPeriod: orderPeriod,
-    }, { skipApi: true })
-  }
-
-  const loyaltyPatch = {
-    bonus: (card?.bonus || client?.bonus || 0) + earned,
-    ...(keepManualLevel ? {} : { level: vip ? (card?.level || statusLevel) : statusLevel }),
-    loyaltyPeriod: orderPeriod,
-  }
-
-  if (card) {
-    const prevBonus = card.bonus || 0
-    cardStore.updateCardLoyalty(card.num, {
-      ...loyaltyPatch,
-      bonus: prevBonus + earned,
-    }, { skipApi: true })
-    if (earned > 0) onBonusCredited(phone, earned, card.num)
-  } else if (earned > 0 && client) {
-    onBonusCredited(phone, earned, client.card)
-  }
+  const earned = calcOrderMarginalBonusEarned(phone, delivered, order, merged.vip, undefined, merged, card)
+  if (earned > 0) onBonusCredited(phone, earned, card?.num || client?.card)
 
   return { bonusCredited: true, bonusEarned: earned }
 }
@@ -505,7 +471,7 @@ export function onOrderDeliveredLoyalty(order: Order, allOrders: Order[] = []) {
 
 async function refreshAfterApiLoyaltySync(phone: string) {
   const { useOrders } = await import('./store')
-  const { emitCrmSync } = await import('./clientProfileSync')
+  const { emitCrmSync, fetchCrmStoreUser, mergeCrmIntoStoreUser, crmStoreUsersEqual } = await import('./clientProfileSync')
   await Promise.all([
     useOrders.getState().fetchOrders().catch(() => {}),
     useClientStore.getState().fetchFromApi(),
@@ -515,6 +481,20 @@ async function refreshAfterApiLoyaltySync(phone: string) {
     .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
   markOrdersBonusSynced(phone, delivered.map(o => o.id))
   emitCrmSync()
+
+  if (typeof window !== 'undefined') {
+    const { loadStoreUser, saveStoreUser, isClientSessionActive } = await import('./clientSession')
+    if (isClientSessionActive()) {
+      const stored = loadStoreUser()
+      if (stored && phonesMatch(stored.phone, phone)) {
+        const next = await fetchCrmStoreUser(phone, stored.card)
+        if (next) {
+          const merged = mergeCrmIntoStoreUser(stored, next)
+          if (!crmStoreUsersEqual(stored, merged)) saveStoreUser(merged)
+        }
+      }
+    }
+  }
 }
 
 /** Сервер — единый источник правды: полный пересчёт по всем заказам в базе. */
@@ -525,10 +505,15 @@ async function syncLoyaltyBonusesFromApi(phone: string): Promise<number> {
 }
 
 /** Пересчитать пропущенные бонусы за доставленные заказы (локально или через API). */
-export async function syncLoyaltyBonuses(phone: string, orders: Order[]): Promise<number> {
+export async function syncLoyaltyBonuses(
+  phone: string,
+  orders: Order[],
+  opts?: { force?: boolean },
+): Promise<number> {
   if (!phone.trim()) return 0
 
   const key = phoneDigits(phone)
+  if (opts?.force) syncInFlight.delete(key)
   const inflight = syncInFlight.get(key)
   if (inflight) return inflight
 

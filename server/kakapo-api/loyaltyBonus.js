@@ -578,6 +578,20 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
 }
 
 /**
+ * Доставка (в т.ч. из админки): начислить кэшбэк, пересчитать уровень и баланс.
+ */
+export function applyClientLoyaltyAfterDelivery(db, order, hooks) {
+  if (order.status !== 'delivered') return { earned: 0, credited: 0, bonus: 0, orders: 0 }
+
+  const phone = order.client?.phone || ''
+  const earned = creditClientBonusOnDelivery(db, order, hooks)
+  if (!phone) return { earned, credited: 0, bonus: 0, orders: 0 }
+
+  const result = reconcileClientBonuses(db, phone, hooks)
+  return { earned, ...result }
+}
+
+/**
  * Отмена заказа: вернуть списанные бонусы и пересчитать кэшбэк без этого заказа.
  */
 export function reverseClientBonusOnOrderCancel(db, prev, updated, hooks) {

@@ -18,6 +18,7 @@ import { lockOrderDeliveryFee } from './deliveryFee.js'
 import {
   applyBonusSpendOnOrder,
   creditClientBonusOnDelivery,
+  applyClientLoyaltyAfterDelivery,
   ensureLoyaltySettings,
   syncCardDebtLimitsFromLoyalty,
   backfillAllMissedBonuses,
@@ -587,14 +588,17 @@ app.patch('/orders/:id/status', (req, res) => {
     }
     lockOrderDeliveryFee(updated, db.settings.pricing)
     creditDeliveredOrder(db, updated)
-    const bonusEarned = creditClientBonusOnDelivery(db, updated, loyaltyHooks())
-    if (bonusEarned > 0) {
-      const client = findClientByPhone(db, updated.client?.phone || '')
-      broadcastLoyalty({
-        phone: updated.client?.phone || '',
-        bonus: client?.bonus,
-        card: client?.card || '',
-      })
+    const phone = updated.client?.phone || ''
+    applyClientLoyaltyAfterDelivery(db, updated, loyaltyHooks())
+    if (phone) {
+      const client = findClientByPhone(db, phone)
+      if (client) {
+        broadcastLoyalty({
+          phone: client.phone,
+          bonus: client.bonus,
+          card: client.card || '',
+        })
+      }
     }
   }
   if (updated.status === 'cancelled' && prev.status !== 'cancelled') {
