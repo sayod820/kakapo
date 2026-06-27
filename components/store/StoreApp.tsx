@@ -2341,10 +2341,22 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           )}
         </div>
         {(user?.bonus || 0) > 0 && (
-        <div className="card" style={{ padding:"16px", marginBottom:13, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div className="card" style={{
+          padding:"16px", marginBottom:13, display:"flex", alignItems:"center", justifyContent:"space-between",
+          background: useBonus ? 'rgba(255,184,0,.12)' : 'rgba(255,184,0,.06)',
+          border: `1px solid ${useBonus ? 'rgba(255,184,0,.35)' : 'rgba(255,184,0,.2)'}`,
+        }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:20 }}>⭐</span>
-            <div><div style={{ fontSize:13, fontWeight:700 }}>Списать бонусы</div><div style={{ fontSize:11, color:"var(--t3)" }}>Баланс: {(user.bonus || 0).toLocaleString()} · до −{getBonusUsable(user, sub)} ЅМ</div></div>
+            <span style={{ fontSize:22 }}>⭐</span>
+            <div>
+              <div style={{ fontSize:14, fontWeight:800, color:'var(--t1)' }}>Списать бонусы</div>
+              <div style={{ fontSize:12, marginTop:4, color:'var(--t2)', lineHeight:1.45 }}>
+                Баланс:{' '}
+                <span style={{ color:'var(--gd)', fontWeight:800 }}>{(user.bonus || 0).toLocaleString()}</span>
+                {' · '}можно списать до{' '}
+                <span style={{ color:'var(--gr)', fontWeight:800 }}>−{getBonusUsable(user, sub)} ЅМ</span>
+              </div>
+            </div>
           </div>
           <div className={`toggle ${useBonus?"on":""}`} onClick={() => setUseBonus(v => !v)}><div className="toggle-dot"/></div>
         </div>
@@ -2385,9 +2397,9 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               </div>
             )}
             {bonusUsable > 0 && (
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6, color: 'var(--gd)' }}>
-                <span>Бонусы</span>
-                <span>−{bonusUsable} ЅМ</span>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom: 6, fontWeight:700 }}>
+                <span style={{ color: 'var(--gd)' }}>⭐ Бонусы</span>
+                <span style={{ color: 'var(--gr)' }}>−{bonusUsable} ЅМ</span>
               </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, paddingTop: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0, borderTop: bonusUsable > 0 || effectiveDelivery > 0 ? '1px solid var(--b1)' : 'none' }}>
