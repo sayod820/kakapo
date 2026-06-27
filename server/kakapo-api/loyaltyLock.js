@@ -34,10 +34,16 @@ export function loyaltyLockRecord(client, card) {
 export function isLevelLocked(record, now = Date.now()) {
   if (record?.levelAssignMode === 'auto') return false
   const lvl = record?.level
+<<<<<<< HEAD
   if (record?.levelAssignMode === 'manual' && (!lvl || lvl === 'basic') && !record?.levelValidUntil && !record?.levelLockedPeriod) {
     return true
   }
   if (!lvl || lvl === 'basic') return false
+=======
+  const isBasicLvl = !lvl || lvl === 'basic' || lvl === ''
+  if (record?.levelAssignMode === 'manual' && isBasicLvl) return true
+  if (isBasicLvl) return false
+>>>>>>> 5ab9e9056ecf68c1b690a495ba0c1bdec4625443
   if (record?.levelValidUntil) {
     const until = new Date(record.levelValidUntil).getTime()
     if (!Number.isNaN(until)) return now <= until

@@ -5,7 +5,7 @@ import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
-import { isLevelLocked, type LoyaltyLockFields, isAutoLevelActive } from './loyaltyAdminLock'
+import { isLevelLocked, loyaltyLockFromRecord, type LoyaltyLockFields, isAutoLevelActive } from './loyaltyAdminLock'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { bonusEligibleTotal } from './orderLoyaltyAmount'
 
@@ -308,15 +308,16 @@ export function resolveEffectiveClientLevel(
   lock?: LoyaltyLockFields,
 ): ClientLevel {
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+  const effectiveLock = loyaltyLockFromRecord(lock, normalizedStored)
 
-  if (isLevelLocked(lock) && normalizedStored && normalizedStored !== 'basic') {
-    return normalizedStored
+  if (isLevelLocked(effectiveLock)) {
+    return normalizedStored || 'basic'
   }
 
   const earned = suggestLevel(spent)
   const earnedBronze = hasEarnedBronze(spent, orderCount)
 
-  if (lock?.levelAssignMode === 'auto' && isAutoLevelActive(lock)) {
+  if (effectiveLock.levelAssignMode === 'auto' && isAutoLevelActive(effectiveLock)) {
     return earnedBronze ? earned : 'basic'
   }
 
@@ -329,6 +330,9 @@ export function resolveEffectiveClientLevel(
       : 'basic'
 
   if (storedForMonth !== 'basic') {
+    if (effectiveLock.levelAssignMode === 'manual' && isLevelLocked(effectiveLock)) {
+      return storedForMonth
+    }
     if (!earnedBronze && !storedActive && !adminAssignedLegacy) return 'basic'
     if (!earnedBronze) return storedForMonth
     const earnedIdx = loyaltyTierIndex(earned)
@@ -417,12 +421,7 @@ export function enrichClientWithOrders(client: AdminClient, orders: Order[]): Ad
   const spent = hasLive ? live.spent : 0
   const ordersCount = hasLive ? live.orders : 0
   const storedLevel = (client.level || 'basic') as ClientLevel
-  const lock = {
-    levelAssignMode: client.levelAssignMode,
-    levelValidUntil: client.levelValidUntil,
-    levelLockedPeriod: client.levelLockedPeriod,
-    level: storedLevel,
-  }
+  const lock = loyaltyLockFromRecord(client, storedLevel)
   const level = hasLive
     ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, client.loyaltyPeriod, lock)
     : storedLevel

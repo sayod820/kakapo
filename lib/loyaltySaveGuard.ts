@@ -2,6 +2,7 @@
 
 import { cardDigits, cardNumsMatch, canonicalCardNum, type AdminCard } from './cardCrm'
 import type { AdminClient, ClientLevel } from './clientCrm'
+import { normalizeLoyaltyLevel } from './loyaltyAdminLock'
 
 const TTL_MS = 180_000
 const MANUAL_STORE_KEY = 'kakapo-manual-loyalty-v1'
@@ -101,8 +102,18 @@ function manualOverrideForClient(client: AdminClient): ManualLoyaltySnapshot | u
 }
 
 function serverMatchesManual(row: { level?: ClientLevel | ''; levelAssignMode?: 'auto' | 'manual' }, manual: ManualLoyaltySnapshot): boolean {
-  const lvl = row.level === '' ? 'basic' : (row.level || 'basic')
+  const lvl = normalizeLoyaltyLevel(row.level)
   return row.levelAssignMode === 'manual' && lvl === manual.level
+}
+
+function resolvedLocalLoyaltyLevel(local: AdminCard | AdminClient): ClientLevel | undefined {
+  if (local.level === undefined) {
+    return local.levelAssignMode === 'manual' ? 'basic' : undefined
+  }
+  if (local.level === '') {
+    return local.levelAssignMode === 'manual' ? 'basic' : undefined
+  }
+  return local.level as ClientLevel
 }
 
 export function markCardLoyaltySaved(num: string, snapshot?: ManualLoyaltySnapshot) {
@@ -127,13 +138,17 @@ function isRecent(map: Map<string, number>, key: string) {
 
 function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T): T {
   const manual = local.levelAssignMode === 'manual'
+<<<<<<< HEAD
   const rawLevel = local.level
   const localLevel: ClientLevel | undefined = manual
     ? (rawLevel === '' || rawLevel === undefined ? 'basic' : (rawLevel as ClientLevel))
     : (rawLevel !== undefined && rawLevel !== '' ? (rawLevel as ClientLevel) : undefined)
+=======
+  const localLevel = resolvedLocalLoyaltyLevel(local)
+>>>>>>> 5ab9e9056ecf68c1b690a495ba0c1bdec4625443
   return {
     ...api,
-    level: manual && localLevel ? localLevel : (localLevel ?? api.level),
+    level: manual ? (localLevel ?? 'basic') : (localLevel ?? api.level),
     vip: local.vip,
     debtEnabled: local.debtEnabled,
     loyaltyPeriod: local.loyaltyPeriod ?? api.loyaltyPeriod,
@@ -151,6 +166,11 @@ export function applyManualLoyaltyToCard(apiCard: AdminCard): AdminCard {
   const manual = getManualLoyaltyForCard(apiCard.num)
   if (!manual) return apiCard
   if (manual.level !== 'basic' && serverMatchesManual(apiCard, manual)) {
+    clearManualLoyaltyOverride(apiCard.num)
+    return apiCard
+  }
+  const apiNorm = normalizeLoyaltyLevel(apiCard.level)
+  if (apiCard.levelAssignMode === 'manual' && apiNorm === manual.level) {
     clearManualLoyaltyOverride(apiCard.num)
     return apiCard
   }
@@ -172,6 +192,11 @@ export function applyManualLoyaltyToClient(apiClient: AdminClient): AdminClient 
   const manual = manualOverrideForClient(apiClient)
   if (!manual) return apiClient
   if (manual.level !== 'basic' && serverMatchesManual(apiClient, manual)) {
+    clearManualLoyaltyOverride(manual.cardNum)
+    return apiClient
+  }
+  const apiNorm = normalizeLoyaltyLevel(apiClient.level)
+  if (apiClient.levelAssignMode === 'manual' && apiNorm === manual.level) {
     clearManualLoyaltyOverride(manual.cardNum)
     return apiClient
   }

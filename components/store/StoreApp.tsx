@@ -18,7 +18,7 @@ import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
 import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
 import { loadStoreUser, saveStoreUser, clearClientSession, getActiveClientPhone, formatTjPhone, isClientSessionActive, phoneDigits, getSessionEpoch, type StoreUser } from "@/lib/clientSession";
 import { filterOrdersForStoreUser } from "@/lib/clientAccountLifecycle";
-import { fetchCrmStoreUser, crmStoreUsersEqual } from "@/lib/clientProfileSync";
+import { fetchCrmStoreUser, crmStoreUsersEqual, mergeCrmIntoStoreUser } from "@/lib/clientProfileSync";
 import { deleteClientAccount } from "@/lib/clientAccountDelete";
 import {
   getVipCreditState,
@@ -43,6 +43,7 @@ import { formatMemberSinceLabel } from "@/lib/cardCrm";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
+import { loyaltyLockFromRecord, isManualLoyaltyActive } from "@/lib/loyaltyAdminLock";
 import { syncLoyaltyBonuses, deliveredOrdersNeedingBonusSync } from "@/lib/loyaltyBonus";
 import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
 import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig, getRegistrationWelcomeBonus, resolveEffectiveDebtLimit } from "@/lib/loyaltyStatusConfig";
@@ -1228,11 +1229,8 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, {
-      levelLockedPeriod: user?.levelLockedPeriod,
-      vipUntil: user?.vipUntil,
-    }),
-    [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, loyaltyLockFromRecord(user, user?.level)),
+    [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const [bi, setBi] = useState(0);
@@ -2393,11 +2391,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     [wished],
   );
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod, {
-      levelLockedPeriod: user?.levelLockedPeriod,
-      vipUntil: user?.vipUntil,
-    }),
-    [spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod],
+    () => getLoyaltyProgress(spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod, loyaltyLockFromRecord(user, user?.level)),
+    [spentTotal, orderCount, reviewStats.count, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil],
   );
 
   useEffect(() => {
@@ -2412,7 +2407,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
       const stored = loadStoreUser()
       if (!stored || phoneDigits(stored.phone) !== phoneDigits(phone)) return
       if (!next) return
-      const merged = { ...stored, ...next, vip: !!next.vip }
+      const merged = mergeCrmIntoStoreUser(stored, next)
       if (!crmStoreUsersEqual(stored, merged)) {
         saveStoreUser(merged)
         setUser(merged)
@@ -2424,7 +2419,10 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     void (async () => {
       if (USE_API) await fetchOrders().catch(() => {})
       const freshOrders = USE_API ? useOrders.getState().orders : orders
-      await syncLoyaltyBonuses(phone, freshOrders)
+      const skipLoyaltyRecalc = isManualLoyaltyActive(user, user?.level)
+      if (!skipLoyaltyRecalc) {
+        await syncLoyaltyBonuses(phone, freshOrders)
+      }
       if (cancelled) return
       await refreshProfile()
     })()
@@ -2472,8 +2470,22 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     </div>
   );
 
-  const profileTheme = (() => { const th = getTierThemes(); return loyalty.isVip ? th.vip : loyalty.isBasicClient ? th.basic : (th[loyalty.tier.id] || th.bronze); })();
-  const profileTierId = loyalty.isVip ? 'vip' : loyalty.isBasicClient ? 'basic' : loyalty.tier.id;
+  const profileLevel = isManualLoyaltyActive(user, user?.level ?? 'basic')
+    ? (user?.level ?? 'basic')
+    : loyalty.level
+  const profileLoyalty = profileLevel !== loyalty.level
+    ? {
+      ...loyalty,
+      level: profileLevel,
+      tier: LOYALTY_TIERS.find(t => t.id === profileLevel) || loyalty.tier,
+      isBasicClient: profileLevel === 'basic' && !loyalty.isVip,
+    }
+    : loyalty
+  const profileTheme = (() => {
+    const th = getTierThemes()
+    return profileLoyalty.isVip ? th.vip : profileLoyalty.isBasicClient ? th.basic : (th[profileLoyalty.tier.id] || th.bronze)
+  })()
+  const profileTierId = profileLoyalty.isVip ? 'vip' : profileLoyalty.isBasicClient ? 'basic' : profileLoyalty.tier.id
   const cardAccent = profileCardAccent(profileTheme);
 
   const menuItems = [
@@ -2567,7 +2579,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               <span style={{
                 fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20, display:'inline-flex', alignItems:'center', gap:4,
               }}>
-                <UserStatusBadge user={{ ...user, vip: loyalty.isVip, level: loyalty.level }} size="md" />
+                <UserStatusBadge user={{ ...user, vip: profileLoyalty.isVip, level: profileLoyalty.level }} size="md" />
               </span>
         </div>
       </div>
@@ -2597,7 +2609,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
           </div>
           </div>
 
-        <LoyaltyStatusCard loyalty={loyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
+        <LoyaltyStatusCard loyalty={profileLoyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
 
         <div className="card" style={{ marginBottom:12, ...cardAccent }}>
           {menuItems.map((item, i) => (
@@ -4206,11 +4218,8 @@ const VIPPage = ({ go, user, setUser }) => {
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
   const loyalty = useMemo(
-    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, {
-      levelLockedPeriod: user?.levelLockedPeriod,
-      vipUntil: user?.vipUntil,
-    }),
-    [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod],
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, loyaltyLockFromRecord(user, user?.level)),
+    [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const { isVip, theme, tier } = resolveUserVip(vipUser)
@@ -8902,17 +8911,11 @@ function KakapoAppInner() {
 
   const storeLoyalty = useMemo(() => {
     if (!user?.phone) {
-      return getLoyaltyProgress(0, 0, 0, user?.level, user?.vip, user?.loyaltyPeriod, {
-        levelLockedPeriod: user?.levelLockedPeriod,
-        vipUntil: user?.vipUntil,
-      })
+      return getLoyaltyProgress(0, 0, 0, user?.level, user?.vip, user?.loyaltyPeriod, loyaltyLockFromRecord(user, user?.level))
     }
     const { spent, orderCount } = clientLoyaltyTotals(apiOrders, user)
-    return getLoyaltyProgress(spent, orderCount, 0, user.level, user.vip, user.loyaltyPeriod, {
-      levelLockedPeriod: user.levelLockedPeriod,
-      vipUntil: user.vipUntil,
-    })
-  }, [apiOrders, user?.phone, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelLockedPeriod, user?.vipUntil])
+    return getLoyaltyProgress(spent, orderCount, 0, user.level, user.vip, user.loyaltyPeriod, loyaltyLockFromRecord(user, user.level))
+  }, [apiOrders, user?.phone, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil])
 
   const displayUser = useMemo(
     () => (user ? mergeStoreUserWithCrmLoyalty(user, apiOrders) : null),

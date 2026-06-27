@@ -16,7 +16,7 @@ import {
 } from './clientCrm'
 import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardNumsMatch, canonicalCardNum, resolveDebtEnabled } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
-import { emitCrmSync, findMergedClientByPhone, fetchCrmStoreUser, crmStoreUsersEqual } from './clientProfileSync'
+import { emitCrmSync, findMergedClientByPhone, fetchCrmStoreUser, crmStoreUsersEqual, mergeCrmIntoStoreUser } from './clientProfileSync'
 import { resetClientNotificationsForAccount } from './clientNotifications'
 import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
 import { hydrateCardStore, markCardLoyaltySaved } from './cardStore'
@@ -25,7 +25,7 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
@@ -91,7 +91,7 @@ async function syncActiveStoreSessionFromPhone(phone: string) {
   if (!stored || !phonesMatch(stored.phone, phone)) return
   const next = await fetchCrmStoreUser(phone, stored.card)
   if (!next) return
-  const merged = { ...stored, ...next, vip: !!next.vip }
+  const merged = mergeCrmIntoStoreUser(stored, next)
   if (!crmStoreUsersEqual(stored, merged)) {
     saveStoreUser(merged)
     emitCrmSync()
@@ -109,9 +109,11 @@ async function persistLoyaltyToApi(
   cardPatch: Record<string, unknown>,
   clientId: string,
   clientPatch: Record<string, unknown>,
-): Promise<{ cardSaved: boolean; clientSaved: boolean; cardNum: string }> {
+): Promise<{ cardSaved: boolean; clientSaved: boolean; cardNum: string; savedCard?: AdminCard; savedClient?: AdminClient }> {
   let cardSaved = false
   let cardNum = apiCardNum.trim()
+  let savedCard: AdminCard | undefined
+  let savedClient: AdminClient | undefined
 
   const trySaveCard = async (num: string) => {
     try {
@@ -127,6 +129,7 @@ async function persistLoyaltyToApi(
   try {
     const saved = await trySaveCard(cardNum)
     cardSaved = true
+    savedCard = saved
     cardNum = String(saved?.num || cardNum)
   } catch (e) {
     if (!isMissingApiRoute(e)) throw e
@@ -134,7 +137,7 @@ async function persistLoyaltyToApi(
 
   let clientSaved = false
   try {
-    await api.updateClient(clientId, clientPatch)
+    savedClient = await api.updateClient(clientId, clientPatch)
     clientSaved = true
   } catch (e) {
     throw e
@@ -144,7 +147,12 @@ async function persistLoyaltyToApi(
     throw new Error('Не удалось сохранить карту на сервере. Обновите страницу и повторите.')
   }
 
-  return { cardSaved, clientSaved, cardNum }
+  return { cardSaved, clientSaved, cardNum, savedCard, savedClient }
+}
+
+function apiLevelMatches(expected: ClientLevel, raw?: string | ''): boolean {
+  const lvl = !raw || raw === '' ? 'basic' : raw
+  return lvl === expected
 }
 
 export function lookupClientByPhone(phone: string, clients?: AdminClient[]): AdminClient | undefined {
@@ -278,7 +286,7 @@ export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[])
   const card = client.card ? cards.find(c => cardNumsMatch(c.num, client.card)) : undefined
   return {
     card: client.card || '',
-    level: card?.level || client.level,
+    level: resolveMergedLoyaltyLevel(card, client),
     bonus: card?.bonus ?? client.bonus,
     debt: card?.debt ?? client.debt,
     debtLimit: card?.debtLimit ?? client.debtLimit,
@@ -362,7 +370,7 @@ export async function saveCardLoyalty(
   const phone = (form.phone || client?.phone || '').trim()
   if (!phone) throw new Error('Выберите клиента или укажите телефон')
 
-  const prevLevel = (card.level || client?.level || 'basic') as ClientLevel
+  const prevLevel = resolveMergedLoyaltyLevel(card, client)
   const prevVip = !!(card.vip ?? client?.vip)
 
   const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
@@ -480,6 +488,16 @@ export async function saveCardLoyalty(
         note: loyaltyNote,
         ...loyalty,
       })
+      const saved = result.savedCard
+      if (lockFields.levelAssignMode === 'manual' && saved) {
+        const apiMode = saved.levelAssignMode
+        const apiLevel = (saved.level || 'basic') as ClientLevel
+        if (apiMode !== 'manual' || !apiLevelMatches(resolvedLevel, saved.level)) {
+          throw new Error(
+            `Сервер не сохранил ручной уровень «${resolvedLevel}» (на сервере: ${apiLevel || 'basic'}, режим: ${apiMode || 'авто'}). Задеплойте обновление: git pull && bash deploy/hetzner/deploy.sh`,
+          )
+        }
+      }
       if (result.cardNum) {
         const nextKey = canonicalCardNum(result.cardNum)
         if (nextKey !== cardKey) {
@@ -534,7 +552,7 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
     ? loyaltyStatsFromOrders(orders, phone, oldPeriod, account)
     : { spent: client?.spent || 0, orderCount: client?.orders || 0 }
 
-  const curLevel = (card?.level || client?.level || 'basic') as ClientLevel
+  const curLevel = resolveMergedLoyaltyLevel(card || undefined, client || undefined)
   const stillManualLocked = assignMode === 'manual'
     && !untilExpired
     && !manualLockMonth

@@ -16,6 +16,33 @@ export type LoyaltyLockFields = {
   level?: ClientLevel | 'new' | ''
 }
 
+export type LoyaltyLockSource = {
+  level?: ClientLevel | 'new' | ''
+  levelAssignMode?: LevelAssignMode
+  levelValidUntil?: string | null
+  levelLockedPeriod?: string
+  vip?: boolean
+  vipUntil?: string
+}
+
+/** Полный lock для resolveEffectiveClientLevel / getLoyaltyProgress (из CRM или сессии клиента). */
+export function loyaltyLockFromRecord(
+  record?: LoyaltyLockSource | null,
+  fallbackLevel?: ClientLevel | 'new' | '',
+): LoyaltyLockFields {
+  if (!record && !fallbackLevel) return {}
+  const level = normalizeLoyaltyLevel(record?.level ?? fallbackLevel)
+  const src = record ?? {}
+  return {
+    levelAssignMode: inferLevelAssignMode(src, src),
+    levelValidUntil: src.levelValidUntil ?? undefined,
+    levelLockedPeriod: src.levelLockedPeriod,
+    level,
+    vip: src.vip,
+    vipUntil: src.vipUntil,
+  }
+}
+
 /** Конец месяца лояльности (23:59:59.999 локально). */
 export function endOfLoyaltyPeriodIso(period = currentLoyaltyPeriod()): string {
   const [y, m] = period.split('-').map(Number)
@@ -30,13 +57,48 @@ export function vipUntilAfterDays(days: number, from = new Date()): string {
   return d.toISOString()
 }
 
+export function normalizeLoyaltyLevel(raw?: ClientLevel | 'new' | '' | null): ClientLevel {
+  if (!raw || raw === 'new' || raw === '') return 'basic'
+  return raw
+}
+
+/** Уровень при слиянии карты и клиента (карта — источник правды, basic на сервере часто ''). */
+export function resolveMergedLoyaltyLevel(
+  card?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
+  client?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
+): ClientLevel {
+  if (card?.levelAssignMode === 'manual') {
+    return normalizeLoyaltyLevel(card.level || 'basic')
+  }
+  if (client?.levelAssignMode === 'manual') {
+    return normalizeLoyaltyLevel(client.level || card?.level || 'basic')
+  }
+  return normalizeLoyaltyLevel(card?.level || client?.level)
+}
+
+/** Ручной статус активен (закреплён админом, авторасчёт не применяется). */
+export function isManualLoyaltyActive(
+  record?: LoyaltyLockSource | null,
+  fallbackLevel?: ClientLevel | 'new' | '',
+): boolean {
+  const lock = loyaltyLockFromRecord(record, fallbackLevel)
+  return lock.levelAssignMode === 'manual' && isLevelLocked(lock)
+}
+
 export function isLevelLocked(record?: LoyaltyLockFields | null, now = Date.now()): boolean {
   if (record?.levelAssignMode === 'auto') return false
   const lvl = record?.level
+<<<<<<< HEAD
   if (record?.levelAssignMode === 'manual' && (!lvl || lvl === 'basic') && !record?.levelValidUntil && !record?.levelLockedPeriod) {
     return true
   }
   if (!lvl || lvl === 'basic') return false
+=======
+  const isBasicLvl = !lvl || lvl === 'basic' || lvl === ''
+  // Ручное понижение до «Обычный» — не поднимать по тратам
+  if (record?.levelAssignMode === 'manual' && isBasicLvl) return true
+  if (isBasicLvl) return false
+>>>>>>> 5ab9e9056ecf68c1b690a495ba0c1bdec4625443
   if (record?.levelValidUntil) {
     const until = new Date(record.levelValidUntil).getTime()
     if (!Number.isNaN(until)) return now <= until
