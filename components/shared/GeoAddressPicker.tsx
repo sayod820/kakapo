@@ -46,6 +46,8 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
   const [showPinMap, setShowPinMap] = useState(false);
   const [draftPin, setDraftPin] = useState<{ lat: number; lng: number } | null>(null);
   const seededCoordsRef = useRef<string>('');
+  const onPriceChangeRef = useRef(onPriceChange);
+  onPriceChangeRef.current = onPriceChange;
 
   const resetCalculation = useCallback(() => {
     setResolved(null);
@@ -68,7 +70,7 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
       setResolved(result);
       setShowPinMap(false);
       const price = calcDeliveryPrice({ orderAmount, distanceKm: route.distanceKm, weightKg, pricing });
-      onPriceChange?.(price, route.distanceKm, {
+      onPriceChangeRef.current?.(price, route.distanceKm, {
         lat,
         lng,
         durationMin: route.durationMin,
@@ -83,11 +85,24 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
   useEffect(() => {
     if (!initialCoords?.lat || !initialCoords?.lng || !value?.trim()) return
     const key = `${initialCoords.lat.toFixed(5)}:${initialCoords.lng.toFixed(5)}:${value.trim()}`
-    if (seededCoordsRef.current === key || resolved) return
+    if (seededCoordsRef.current === key) return
     seededCoordsRef.current = key
+    setResolved(null)
     setDraftPin({ lat: initialCoords.lat, lng: initialCoords.lng })
     void resolveCoords(initialCoords.lat, initialCoords.lng, value)
-  }, [initialCoords?.lat, initialCoords?.lng, value, resolveCoords, resolved])
+  }, [initialCoords?.lat, initialCoords?.lng, value, resolveCoords])
+
+  useEffect(() => {
+    if (!resolved) return
+    const price = calcDeliveryPrice({ orderAmount, distanceKm: resolved.distanceKm, weightKg, pricing })
+    onPriceChangeRef.current?.(price, resolved.distanceKm, {
+      lat: resolved.lat,
+      lng: resolved.lng,
+      durationMin: resolved.durationMin,
+      geometry: resolved.geometry,
+      pickupIds,
+    })
+  }, [resolved, orderAmount, weightKg, pricing, pickupIds])
 
   const openMap = (initial?: { lat: number; lng: number } | null) => {
     setDraftPin(initial ?? draftPin ?? { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng });

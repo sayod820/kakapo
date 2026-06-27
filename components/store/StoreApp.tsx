@@ -1918,9 +1918,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const [name,  setName]  = useState("");
   const [phone, setPhone] = useState("");
   const [addr,  setAddr]  = useState("");
-  const [apt, setApt] = useState("");
-  const [floor, setFloor] = useState("");
-  const [ent, setEnt] = useState("");
+  const [selectedSavedId, setSelectedSavedId] = useState(null);
   const [pay,   setPay]   = useState("cash");
   const [time,  setTime]  = useState("asap");
   const [useBonus, setUseBonus] = useState(false);
@@ -1941,9 +1939,16 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 
   const clientPhone = user?.phone || getActiveClientPhone(user);
 
+  const selectedSavedAddr = useMemo(
+    () => (selectedSavedId != null ? savedAddrs.find(a => a.id === selectedSavedId) : null),
+    [savedAddrs, selectedSavedId],
+  );
+
   const fullAddrLine = useMemo(
-    () => formatClientAddressLine({ street: addr, apt, floor, ent }),
-    [addr, apt, floor, ent],
+    () => selectedSavedAddr
+      ? formatClientAddressLine(selectedSavedAddr)
+      : addr.trim(),
+    [selectedSavedAddr, addr],
   );
 
   // Загрузить сохранённые адреса + автозаполнить адрес по умолчанию (только для текущего аккаунта)
@@ -1965,14 +1970,11 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         if (list.length) setSavedAddrs(list);
         const def = list.find(a => a.def) || list[0];
         if (def) {
-          setAddr(def.street || formatClientAddressLine(def));
-          setApt(def.apt || "");
-          setFloor(def.floor || "");
-          setEnt(def.ent || "");
+          setSelectedSavedId(def.id);
+          setAddr(def.street || "");
           if (def.lat != null && def.lng != null) {
             setClientLat(def.lat);
             setClientLng(def.lng);
-            setAddrReady(true);
           }
         }
       } catch { /* ignore */ }
@@ -1988,17 +1990,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   }, [user, name, phone])
 
   const pickSavedAddr = (a) => {
-    setAddr(a.street || formatClientAddressLine(a));
-    setApt(a.apt || "");
-    setFloor(a.floor || "");
-    setEnt(a.ent || "");
+    setSelectedSavedId(a.id);
+    setAddr(a.street || "");
     setErrs(prev => ({ ...prev, addr: undefined }));
+    resetDelivery();
     if (a.lat != null && a.lng != null) {
-      setClientLat(a.lat)
-      setClientLng(a.lng)
-      setAddrReady(true)
-    } else {
-      resetDelivery()
+      setClientLat(a.lat);
+      setClientLng(a.lng);
     }
   };
 
@@ -2103,7 +2101,10 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       restIds,
       restId: restIds[0],
       restName: restIds[0] ? restaurants.find(r => r.id === restIds[0])?.name : undefined,
-      comment: pay === 'credit' ? 'VIP-кредит: товары в долг, доставка наличными' : bonusUsable > 0 ? `Списано бонусов: ${bonusUsable}` : '',
+      comment: [
+        pay === 'credit' ? 'VIP-кредит: товары в долг, доставка наличными' : bonusUsable > 0 ? `Списано бонусов: ${bonusUsable}` : '',
+        selectedSavedAddr?.comment?.trim(),
+      ].filter(Boolean).join(' · '),
       payment_method: pay,
       pay,
       creditAmount: useCreditPay ? creditGoods : undefined,
@@ -2215,7 +2216,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               <div className="hscroll" style={{ gap:8 }}>
                 {savedAddrs.map(a => {
                   const line = formatClientAddressLine(a);
-                  const active = addr === (a.street || line) && apt === (a.apt || "") && floor === (a.floor || "") && ent === (a.ent || "");
+                  const active = selectedSavedId === a.id;
                   return (
                     <button key={a.id} onClick={() => pickSavedAddr(a)} className="btn"
                       style={{ flexShrink:0, padding:"10px 14px", borderRadius:12, textAlign:"left",
@@ -2227,13 +2228,25 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
                   );
                 })}
               </div>
+              <button type="button" onClick={() => go("addresses")} className="btn"
+                style={{ marginTop: 8, fontSize: 11, color: "var(--sky)", fontWeight: 700, background: "transparent", border: "none", padding: 0 }}>
+                ✏️ Изменить адреса в профиле
+              </button>
             </div>
           )}
-          <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>Улица, дом *</div>
+          <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8, fontWeight:700 }}>
+            {selectedSavedAddr ? "Точка доставки" : "Улица, дом *"}
+          </div>
           <GeoAddressPicker
+            key={selectedSavedId != null ? `saved-${selectedSavedId}` : "manual-addr"}
             value={addr}
             initialCoords={clientLat && clientLng ? { lat: clientLat, lng: clientLng } : null}
-            onChange={v => { setAddr(v); resetDelivery(); setErrs(prev => ({ ...prev, addr: undefined })); }}
+            onChange={v => {
+              setSelectedSavedId(null);
+              setAddr(v);
+              resetDelivery();
+              setErrs(prev => ({ ...prev, addr: undefined }));
+            }}
             onClear={resetDelivery}
             weightKg={weightKg}
             orderAmount={sub}
@@ -2247,17 +2260,27 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               setAddrReady(true);
             }}
           />
+          {selectedSavedAddr && (selectedSavedAddr.apt || selectedSavedAddr.floor || selectedSavedAddr.ent) && (
+            <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 10, background: "var(--l2)", border: "1px solid var(--b1)", fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+              {[
+                selectedSavedAddr.apt?.trim() && `кв. ${selectedSavedAddr.apt.trim()}`,
+                selectedSavedAddr.floor?.trim() && `этаж ${selectedSavedAddr.floor.trim()}`,
+                selectedSavedAddr.ent?.trim() && `подъезд ${selectedSavedAddr.ent.trim()}`,
+              ].filter(Boolean).join(" · ")}
+              <span style={{ color: "var(--t3)" }}> · из профиля</span>
+            </div>
+          )}
+          {selectedSavedAddr?.comment?.trim() && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>
+              💬 {selectedSavedAddr.comment.trim()}
+            </div>
+          )}
           {vipFreeDelivery && addrReady && (
             <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', fontWeight: 700 }}>
               👑 VIP — доставка бесплатно
             </div>
           )}
           {errs.addr && <div style={{ fontSize:11, color:"var(--red)", marginTop:6 }}>{errs.addr}</div>}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-            <input className="inp" placeholder="Квартира" value={apt} onChange={e => setApt(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
-            <input className="inp" placeholder="Этаж" value={floor} onChange={e => setFloor(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
-            <input className="inp" placeholder="Подъезд" value={ent} onChange={e => setEnt(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '11px 12px', gridColumn: '1 / -1' }} />
-          </div>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="clock" color="var(--gd)" title="Время доставки"/>
