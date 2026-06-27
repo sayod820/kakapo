@@ -32,9 +32,11 @@ interface Props {
   onClear?: () => void;
   /** Уже сохранённые координаты — подтвердить на карте автоматически */
   initialCoords?: { lat: number; lng: number } | null;
+  /** Не показывать карту маршрута и блок стоимости (расчёт всё равно идёт в onPriceChange) */
+  hideDeliverySummary?: boolean;
 }
 
-export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderAmount = 0, pickupIds = ['store'], onPriceChange, onClear, initialCoords = null }: Props) {
+export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderAmount = 0, pickupIds = ['store'], onPriceChange, onClear, initialCoords = null, hideDeliverySummary = false }: Props) {
   const { pricing } = usePricing();
   const locations = usePickupLocations();
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -270,14 +272,14 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
         </div>
       )}
 
-      {routeLoading && (
+      {routeLoading && !hideDeliverySummary && (
         <div style={{ marginTop: 10, height: 80, borderRadius: 14, background: '#050F08', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, border: '1px solid rgba(31,215,96,.25)' }}>
           <div style={{ width: 24, height: 24, borderRadius: '50%', border: '3px solid rgba(31,215,96,.2)', borderTopColor: 'var(--gr)', animation: 'spin 1s linear infinite' }} />
           <span style={{ fontSize: 12, color: 'var(--t2)' }}>Считаем маршрут и доставку…</span>
         </div>
       )}
 
-      {resolved && price && !routeLoading && (
+      {resolved && price && !routeLoading && !hideDeliverySummary && (
         <div style={{ marginTop: 10, borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(31,215,96,.25)' }}>
           <div style={{ position: 'relative' }}>
             <RouteMiniMap geometry={resolved.geometry} height={140} />
