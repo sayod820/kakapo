@@ -35,9 +35,16 @@ export function isWeightedPromoProduct(product?: Partial<Product> | null): boole
   return product?.sellType === 'weight'
 }
 
+/** Граммы или штуки — приоритет у stockLimitUnit на акции (чтобы витрина совпадала с админкой) */
+export function promoLimitUsesGrams(promo?: Promo | null, product?: Partial<Product> | null): boolean {
+  if (promo?.stockLimitUnit === 'grams') return true
+  if (promo?.stockLimitUnit === 'pieces') return false
+  return isWeightedPromoProduct(product)
+}
+
 /** Единица лимита в админке: кг для весовых, шт для остальных */
-export function promoLimitUnit(product?: Partial<Product> | null): 'кг' | 'шт' {
-  return isWeightedPromoProduct(product) ? 'кг' : 'шт'
+export function promoLimitUnit(product?: Partial<Product> | null, promo?: Promo | null): 'кг' | 'шт' {
+  return promoLimitUsesGrams(promo, product) ? 'кг' : 'шт'
 }
 
 /** Ввод в админке → внутренние единицы (шт или граммы) */
@@ -49,10 +56,10 @@ export function stockLimitFromAdminInput(raw: string, product?: Partial<Product>
 }
 
 /** Внутренние единицы → строка для поля в админке */
-export function stockLimitToAdminInput(limit?: number, product?: Partial<Product> | null): string {
+export function stockLimitToAdminInput(limit?: number, product?: Partial<Product> | null, promo?: Promo | null): string {
   const n = Number(limit)
   if (!Number.isFinite(n) || n <= 0) return ''
-  if (isWeightedPromoProduct(product)) {
+  if (promoLimitUsesGrams(promo, product)) {
     const kg = n / 1000
     return Number.isInteger(kg) ? String(kg) : kg.toFixed(1).replace(/\.0$/, '')
   }
@@ -63,8 +70,8 @@ export function formatPromoStockLeft(promo?: Promo | null, product?: Partial<Pro
   if (!promo) return null
   const left = promoStockRemaining(promo)
   if (left == null) return null
-  if (isWeightedPromoProduct(product)) {
-    if (left >= 1000) return `осталось ${(left / 1000).toFixed(1)} кг`
+  if (promoLimitUsesGrams(promo, product)) {
+    if (left >= 1000) return `осталось ${(left / 1000).toFixed(1).replace(/\.0$/, '')} кг`
     return `осталось ${left} г`
   }
   return `осталось ${left} шт`
@@ -74,8 +81,8 @@ export function formatPromoStockAdmin(promo: Promo, product?: Partial<Product> |
   const limit = promoStockLimit(promo)
   if (!limit) return null
   const sold = promoStockSold(promo)
-  if (isWeightedPromoProduct(product)) {
-    const fmt = (g: number) => (g >= 1000 ? `${(g / 1000).toFixed(1)} кг` : `${g} г`)
+  if (promoLimitUsesGrams(promo, product)) {
+    const fmt = (g: number) => (g >= 1000 ? `${(g / 1000).toFixed(1).replace(/\.0$/, '')} кг` : `${g} г`)
     return `${fmt(sold)} / ${fmt(limit)}`
   }
   return `${sold} / ${limit} шт`

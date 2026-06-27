@@ -138,7 +138,7 @@ import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWei
 import { formatBulkPricingHint, hasBulkPricing, normalizeBulkPricing } from '@/lib/productBulkPricing'
 import { isProductPromo, productPromoLabel, stripProductSaleFields } from '@/lib/productPromos'
 import { formatPromoScheduleLabel, hasFlashEnd, inferScheduleMode, isPromoScheduleActive } from '@/lib/promoSchedule'
-import { formatPromoStockAdmin, isPromoStockAvailable, isPromoStockExhausted, promoLimitUnit, stockLimitFromAdminInput, stockLimitToAdminInput } from '@/lib/promoStock'
+import { formatPromoStockAdmin, isPromoStockAvailable, isPromoStockExhausted, isWeightedPromoProduct, promoLimitUnit, stockLimitFromAdminInput, stockLimitToAdminInput } from '@/lib/promoStock'
 import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
 import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
 import { api } from '@/lib/api'
@@ -5153,7 +5153,7 @@ function PromosPage() {
       oldPrice: p.oldPrice != null ? String(p.oldPrice) : '',
       markHot: !!p.markHot,
       on: p.on,
-      stockLimit: stockLimitToAdminInput(p.stockLimit, prod),
+      stockLimit: stockLimitToAdminInput(p.stockLimit, prod, p),
       resetStockSold: false,
       schedule: scheduleFromPromo(p),
     })
@@ -5203,6 +5203,7 @@ function PromosPage() {
       oldPrice: old > sale ? old : undefined,
       markHot: productForm.markHot,
       stockLimit,
+      stockLimitUnit: isWeightedPromoProduct(product) ? 'grams' : 'pieces',
       ...(productForm.resetStockSold ? { stockSold: 0 } : {}),
       ...schedule,
     }
@@ -5360,7 +5361,7 @@ function PromosPage() {
           )}
           <div>
             <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>
-              Лимит по акции ({selectedProduct ? promoLimitUnit(selectedProduct) : 'шт'})
+              Лимит по акции ({selectedProduct ? promoLimitUnit(selectedProduct, editingProductPromo) : 'шт'})
             </div>
             <input
               className="ai"

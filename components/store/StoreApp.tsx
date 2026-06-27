@@ -1180,7 +1180,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const photo = useProductPhotos(s => s.photos[p.id]);
   const add = e => { e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 300); onAdd(p.id); };
   return (
-    <div className="card" style={{ display:"flex", flexDirection:"column", cursor:"default", position:"relative" }} onClick={() => go("product", { id:p.id })}>
+    <div className="card" style={{ display:"flex", flexDirection:"column", height:"100%", cursor:"default", position:"relative" }} onClick={() => go("product", { id:p.id })}>
       <button onClick={e => { e.stopPropagation(); onWish(p.id); }} className="btn" style={{ position:"absolute", top:8, right:8, zIndex:3, width:28, height:28, borderRadius:"50%", background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center" }}>
         <Ic n="heart" s={13} c={wished ? "#FF4545" : "rgba(255,255,255,.5)"} fill={wished ? "#FF4545" : "none"} w={2}/>
       </button>
@@ -1190,24 +1190,33 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
         {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.12)", color:"#34D399", border:"1px solid rgba(52,211,153,.28)" }}>🌿</span>}
         {hasBulkPricing(p) && <span className="bdg" style={{ background:"rgba(255,140,0,.12)", color:"#FF8C00", border:"1px solid rgba(255,140,0,.28)", fontSize:8 }}>ОПТ</span>}
       </div>
-      <div style={{ height:110, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
+      <div style={{ height:110, flexShrink:0, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
         {photo
           ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/>
           : p.e
         }
       </div>
-      <div style={{ padding:"10px 10px 8px", flex:1, display:"flex", flexDirection:"column", gap:3 }}>
-        <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:30 }}>{p.name}</div>
-        <div style={{ fontSize:10, color:"var(--t3)" }}>{p.unit}</div>
-        <div style={{ display:"flex", alignItems:"center", gap:3 }}><Stars r={p.r} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{p.r}({p.rv})</span></div>
-        <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:2 }}>
+      <div style={{ padding:"10px 10px 10px", flex:1, display:"flex", flexDirection:"column", gap:3, minHeight:0 }}>
+        <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:32, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{p.name}</div>
+        <div style={{ fontSize:10, color:"var(--t3)", minHeight:14 }}>{p.unit}</div>
+        <div style={{ display:"flex", alignItems:"center", gap:3, minHeight:14 }}><Stars r={p.r} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{p.r}({p.rv})</span></div>
+        <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:2, minHeight:18 }}>
           <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
           {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
         </div>
-        <div style={{ fontSize:9, color:"var(--gd)", fontWeight:700 }}>⭐+{Math.ceil(p.price * .03)}</div>
-        {bulkHint && <div style={{ fontSize:9, color:"#FF8C00", fontWeight:700, lineHeight:1.3 }}>{bulkHint}</div>}
-      </div>
-      <div style={{ padding:"0 10px 10px" }}>
+        <div style={{ fontSize:9, color:"var(--gd)", fontWeight:700, minHeight:12 }}>⭐+{Math.ceil(p.price * .03)}</div>
+        <div style={{
+          fontSize:9,
+          color: bulkHint ? "#FF8C00" : "transparent",
+          fontWeight:700,
+          lineHeight:1.35,
+          minHeight:34,
+          display:"-webkit-box",
+          WebkitLineClamp:2,
+          WebkitBoxOrient:"vertical",
+          overflow:"hidden",
+        }}>{bulkHint || "\u00A0"}</div>
+        <div style={{ marginTop:"auto", paddingTop:4 }}>
         {qty === 0 ? (
           <button className="btn" onClick={add} style={{ width:"100%", padding:"9px", fontSize:12, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:4, animation:pop ? "cartPop .3s ease" : "none" }}>
             <Ic n="plus" s={12} c="white" w={2.5}/>В корзину
@@ -1219,6 +1228,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
             <button onClick={add} className="btn" style={{ width:28, height:28, borderRadius:8, background:"rgba(31,215,96,.15)", color:"var(--gr)", fontSize:17 }}>+</button>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
@@ -1299,9 +1309,9 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🔥 Хиты продаж</div>
           <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20, alignItems:"stretch" }}>
           {prods.filter(p => p.hot).slice(0,4).map((p,i) => (
-            <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both` }}>
+            <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both`, height:"100%" }}>
               <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
             </div>
           ))}
@@ -1444,8 +1454,8 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
             <button className="btn" onClick={() => setSearch("")} style={{ padding:"12px 24px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>Сбросить</button>
           </div>
         ) : view === "grid" ? (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-            {items.map((p,i) => <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}><PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/></div>)}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"stretch" }}>
+            {items.map((p,i) => <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both`, height:"100%" }}><PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/></div>)}
           </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -3461,9 +3471,9 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
               <button onClick={() => setSelectedCat(null)} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "var(--l2)", border: "1px solid var(--b1)", color: "var(--t2)", fontSize: 13 }}>← Назад к акциям</button>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "stretch" }}>
               {items.map((p, i) => (
-                <div key={p.id} style={{ animation: `fadeUp .4s cubic-bezier(.16,1,.3,1) ${Math.min(i, 8) * .04}s both` }}>
+                <div key={p.id} style={{ animation: `fadeUp .4s cubic-bezier(.16,1,.3,1) ${Math.min(i, 8) * .04}s both`, height: "100%" }}>
                   <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
                 </div>
               ))}
@@ -3606,9 +3616,9 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             </button>
           </div>
         ) : (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"stretch" }}>
             {items.map((p, i) => (
-              <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i * .04}s both` }}>
+              <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i * .04}s both`, height:"100%" }}>
                 <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
               </div>
             ))}

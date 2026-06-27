@@ -260,6 +260,8 @@ export interface Promo {
   endsAt?: string
   /** Лимит по акции: штуки или граммы (0/пусто = без лимита) */
   stockLimit?: number
+  /** Единица лимита при сохранении: grams = кг в админке ×1000, pieces = шт */
+  stockLimitUnit?: 'grams' | 'pieces'
   /** Продано по акции — обновляется при заказах */
   stockSold?: number
   markHot?: boolean

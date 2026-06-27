@@ -431,8 +431,23 @@ app.delete('/categories/:id', (req, res) => {
 
 app.get('/promos', (_req, res) => {
   if (syncAllPromosLifecycle()) persist()
+  let changed = false
+  for (const promo of db.promos) {
+    if (resolvePromoStockLimitUnit(promo)) changed = true
+  }
+  if (changed) persist()
   res.json(db.promos)
 })
+
+function resolvePromoStockLimitUnit(promo) {
+  if (!promo || promo.stockLimitUnit) return false
+  const limit = Number(promo.stockLimit)
+  if (!Number.isFinite(limit) || limit <= 0) return false
+  const pid = Number(promo.productId)
+  const product = pid ? db.products.find(p => Number(p.id) === pid) : null
+  promo.stockLimitUnit = product?.sellType === 'weight' ? 'grams' : 'pieces'
+  return true
+}
 
 function syncPromoLifecycle(promo) {
   if (!promo || !promo.on) return false
@@ -496,6 +511,7 @@ app.post('/promos', (req, res) => {
     till: 'Всегда',
     ...req.body,
   }
+  resolvePromoStockLimitUnit(p)
   db.promos.push(p)
   persist()
   res.json(p)
@@ -504,6 +520,7 @@ app.patch('/promos/:id', (req, res) => {
   const p = db.promos.find(x => x.id === Number(req.params.id))
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
   Object.assign(p, req.body)
+  resolvePromoStockLimitUnit(p)
   persist()
   res.json(p)
 })
