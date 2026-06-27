@@ -1936,6 +1936,18 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const [addrEditorOpen, setAddrEditorOpen] = useState(false);
   const [addrEditorEdit, setAddrEditorEdit] = useState(null);
   const [addrEditorSession, setAddrEditorSession] = useState(0);
+  const checkoutFooterRef = useRef(null);
+  const [checkoutFooterPad, setCheckoutFooterPad] = useState(160);
+
+  useLayoutEffect(() => {
+    const el = checkoutFooterRef.current;
+    if (!el) return;
+    const sync = () => setCheckoutFooterPad(el.offsetHeight + 24);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [step]);
 
   const clientPhone = user?.phone || getActiveClientPhone(user);
 
@@ -2204,7 +2216,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900 }}>Оформление заказа</div>
         </div>
       </header>
-      <div style={{ padding:"14px 18px 160px" }}>
+      <div style={{ padding:`14px 18px ${checkoutFooterPad}px` }}>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="user" color="var(--gr)" title="Получатель"/>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -2362,7 +2374,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         </div>
         )}
       </div>
-      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px 28px" }}>
+      <div ref={checkoutFooterRef} style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px calc(28px + env(safe-area-inset-bottom, 0px))" }}>
         {addrReady && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0 }}>
