@@ -43,6 +43,15 @@ export function loyaltyLockRecord(client, card) {
   }
 }
 
+export function vipUntilAfterDays(days, from = new Date()) {
+  const d = new Date(from)
+  d.setDate(d.getDate() + Math.max(1, days))
+  d.setHours(23, 59, 59, 999)
+  return d.toISOString()
+}
+
+export const AUTO_LEVEL_DEFAULT_TERM_DAYS = 30
+
 export function isLevelLocked(record, now = Date.now()) {
   if (record?.levelAssignMode === 'auto') return false
   const lvl = record?.level

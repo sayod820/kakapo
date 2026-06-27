@@ -100,16 +100,21 @@ export function getLoyaltyProgress(
   const vipRules = cfg.vipRules
   const period = currentLoyaltyPeriod()
   const lockRecord = loyaltyLockFromRecord(lock, storedLevel)
-  let effectiveLevel = resolveEffectiveClientLevel(
-    spent,
-    orderCount,
-    storedLevel,
-    storedPeriod,
-    lockRecord,
-  )
-  const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
+  const normalizedStored = storedLevel === 'new' ? 'basic' : normalizeLoyaltyLevel(storedLevel)
+  let effectiveLevel: ClientLevel
   if (isManualLoyaltyActive(lockRecord, normalizedStored)) {
-    effectiveLevel = normalizeLoyaltyLevel(normalizedStored)
+    effectiveLevel = normalizedStored
+  } else if (normalizedStored !== 'basic' && spent === 0 && orderCount === 0) {
+    // Заказы ещё не подгрузились — не мигать «Базовый» при обновлении страницы
+    effectiveLevel = normalizedStored
+  } else {
+    effectiveLevel = resolveEffectiveClientLevel(
+      spent,
+      orderCount,
+      storedLevel,
+      storedPeriod,
+      lockRecord,
+    )
   }
   const adminVipActive = resolveAdminVipActive(adminVip, storedPeriod, lock?.vipUntil)
 

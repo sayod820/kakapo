@@ -164,8 +164,11 @@ export function formatLevelLockLabel(period?: string): string {
   return `до ${last.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`
 }
 
-/** -1 = постоянный VIP */
+/** -1 = постоянный VIP / ручной basic */
 export const VIP_PERMANENT_DAYS = -1
+
+/** Срок авто-статуса по умолчанию с момента получения уровня */
+export const AUTO_LEVEL_DEFAULT_TERM_DAYS = 30
 
 export function vipUntilForTermDays(days: number): string | null | undefined {
   if (days === VIP_PERMANENT_DAYS) return null
@@ -202,7 +205,7 @@ export function inferLevelTermDays(
 ): number {
   if (!level || level === 'basic') return VIP_PERMANENT_DAYS
   if (!levelValidUntil && !levelLockedPeriod) {
-    return mode === 'manual' ? VIP_PERMANENT_DAYS : 0
+    return mode === 'manual' ? VIP_PERMANENT_DAYS : AUTO_LEVEL_DEFAULT_TERM_DAYS
   }
   if (!levelValidUntil && levelLockedPeriod && isLoyaltyPeriodCurrent(levelLockedPeriod)) return 0
   if (!levelValidUntil) return VIP_PERMANENT_DAYS
@@ -223,7 +226,8 @@ export function resolveLevelLockFromTerm(
   termDays: number,
 ): { levelAssignMode: LevelAssignMode; levelValidUntil?: string; levelLockedPeriod?: string } {
   if (mode === 'auto') {
-    const until = termDaysToUntil(termDays)
+    const days = termDays <= 0 && termDays !== VIP_PERMANENT_DAYS ? AUTO_LEVEL_DEFAULT_TERM_DAYS : termDays
+    const until = termDaysToUntil(days === VIP_PERMANENT_DAYS ? VIP_PERMANENT_DAYS : days)
     return {
       levelAssignMode: 'auto',
       levelValidUntil: until === null ? undefined : until,

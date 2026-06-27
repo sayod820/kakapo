@@ -19,9 +19,9 @@ import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/c
 import { getManualLoyaltyForCard, applyManualLoyaltyToCard } from '@/lib/loyaltySaveGuard'
 import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig, earnedAutoLevelForClient } from '@/lib/clientCardSync'
 import { useOrders } from '@/lib/store'
-import { formatAdminLevelExpiry, formatAdminVipExpiry, formatLevelLockLabel, isLevelLocked, inferVipTermDays, inferLevelAssignMode, VIP_PERMANENT_DAYS, vipUntilForTermDays, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
-import { useCards } from '@/lib/cardStore'
-import { useClients } from '@/lib/clientStore'
+import { formatAdminLevelExpiry, formatAdminVipExpiry, formatLevelLockLabel, isLevelLocked, inferVipTermDays, inferLevelAssignMode, VIP_PERMANENT_DAYS, AUTO_LEVEL_DEFAULT_TERM_DAYS, vipUntilForTermDays, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
+import { useCards, useCardStore } from '@/lib/cardStore'
+import { useClients, useClientStore } from '@/lib/clientStore'
 
 const Tog = ({ on, set }: { on: boolean; set: () => void }) => (
   <div onClick={set} style={{ width: 44, height: 24, borderRadius: 12, background: on ? '#1FD760' : '#1D3822', position: 'relative', cursor: 'pointer', transition: 'background .2s', flexShrink: 0 }}>
@@ -136,6 +136,9 @@ const VIP_TERM_OPTIONS = LEVEL_TERM_OPTIONS
 export default function CardStatusAdminPanel() {
   const stored = useCards()
   const clients = useClients()
+  const cardsApiReady = useCardStore(s => s.apiReady)
+  const clientsApiReady = useClientStore(s => s.apiReady)
+  const crmReady = !USE_API || (cardsApiReady && clientsApiReady)
   const orders = useOrders(s => s.orders)
   const cards = useMemo(
     () => mergeCardsWithClients(stored, clients).map(c => applyManualLoyaltyToCard(c)),
@@ -237,11 +240,12 @@ export default function CardStatusAdminPanel() {
     const meta = assignRows[card.num]
     const modeFromStore = meta?.levelAssignMode ?? card.levelAssignMode ?? client?.levelAssignMode ?? form.levelAssignMode ?? inferLevelAssignMode(card, client)
     const manual = modeFromStore !== 'auto' ? getManualLoyaltyForCard(card.num) : undefined
+    const defaultTerm = modeFromStore === 'auto' ? AUTO_LEVEL_DEFAULT_TERM_DAYS : VIP_PERMANENT_DAYS
     return {
       card,
       level: meta?.level ?? manual?.level ?? form.level,
       levelAssignMode: meta?.levelAssignMode ?? modeFromStore,
-      levelTermDays: meta?.levelTermDays ?? form.levelTermDays ?? 0,
+      levelTermDays: meta?.levelTermDays ?? form.levelTermDays ?? defaultTerm,
       vip: meta?.vip ?? form.vip,
       debtEnabled: meta?.debtEnabled ?? form.debtEnabled,
       vipDays: meta?.vipDays ?? inferVipTermDays(form.vip, card.vipUntil || client?.vipUntil),
@@ -412,7 +416,13 @@ export default function CardStatusAdminPanel() {
               </tr>
             </thead>
             <tbody>
-              {filteredCards.length === 0 ? (
+              {!crmReady ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 28, color: '#8FB897' }}>
+                    Загрузка статусов…
+                  </td>
+                </tr>
+              ) : filteredCards.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: 28, color: '#3D6645' }}>
                     Нет активных карт с клиентами
@@ -450,7 +460,7 @@ export default function CardStatusAdminPanel() {
                           const earned = earnedAutoLevelForClient(phone, client, orders)
                           applyStatus(card.num, {
                             levelAssignMode: mode,
-                            levelTermDays: st.levelTermDays,
+                            levelTermDays: mode === 'auto' ? AUTO_LEVEL_DEFAULT_TERM_DAYS : st.levelTermDays,
                             ...(mode === 'auto' ? { level: earned } : {}),
                             ...(mode === 'manual' && isAuto && earned !== 'basic' ? { level: earned } : {}),
                           })

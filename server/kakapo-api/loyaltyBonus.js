@@ -6,6 +6,8 @@ import {
   isLoyaltyPeriodCurrent,
   clearLevelLock,
   inferLevelAssignMode,
+  vipUntilAfterDays,
+  AUTO_LEVEL_DEFAULT_TERM_DAYS,
 } from './loyaltyLock.js'
 
 export const DEFAULT_LOYALTY = {
@@ -365,12 +367,20 @@ function applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty) {
 
   if (nextLevel === (client.level || 'basic') && client.loyaltyPeriod === orderPeriod) return
 
+  const levelChanged = nextLevel !== (client.level || 'basic')
   client.level = nextLevel
   client.loyaltyPeriod = orderPeriod
+  if (mode === 'auto' && levelChanged && nextLevel !== 'basic') {
+    const until = vipUntilAfterDays(AUTO_LEVEL_DEFAULT_TERM_DAYS)
+    client.levelValidUntil = until
+  }
   if (card) {
     card.level = nextLevel === 'basic' ? '' : nextLevel
     card.loyaltyPeriod = orderPeriod
     if (client.levelAssignMode) card.levelAssignMode = client.levelAssignMode
+    if (mode === 'auto' && levelChanged && nextLevel !== 'basic') {
+      card.levelValidUntil = client.levelValidUntil
+    }
   }
 }
 

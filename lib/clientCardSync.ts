@@ -26,7 +26,7 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive, resolveMergedLoyaltyLevel, normalizeLoyaltyLevel } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive, resolveMergedLoyaltyLevel, normalizeLoyaltyLevel, AUTO_LEVEL_DEFAULT_TERM_DAYS, vipUntilAfterDays } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
@@ -392,7 +392,11 @@ export async function saveCardLoyalty(
     ? formLimit
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
 
-  const lockFields = resolveLevelLockFromTerm(assignMode, resolvedLevel, form.levelTermDays ?? 0)
+  const lockFields = resolveLevelLockFromTerm(
+    assignMode,
+    resolvedLevel,
+    form.levelTermDays ?? (assignMode === 'auto' ? AUTO_LEVEL_DEFAULT_TERM_DAYS : 0),
+  )
   const cardLevelStored = resolvedLevel === 'basic' ? '' : resolvedLevel
   const cardLevelForApi = resolvedLevel === 'basic' ? 'basic' : resolvedLevel
 
@@ -621,15 +625,25 @@ export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: 
     : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
 
   const period = currentLoyaltyPeriod()
+  const autoUntil = vipUntilAfterDays(AUTO_LEVEL_DEFAULT_TERM_DAYS)
   if (card) {
-    const keepLevel = maxClientLevel(level, (card.level || 'basic') as ClientLevel)
-    cardStore.updateCardLoyalty(card.num, { level: keepLevel, loyaltyPeriod: period })
+    const prev = (card.level || 'basic') as ClientLevel
+    const keepLevel = maxClientLevel(level, prev)
+    const levelChanged = keepLevel !== prev
+    cardStore.updateCardLoyalty(card.num, {
+      level: keepLevel,
+      loyaltyPeriod: period,
+      ...(levelChanged ? { levelValidUntil: autoUntil, levelAssignMode: 'auto' as const } : {}),
+    })
   }
   if (client) {
-    const keepLevel = maxClientLevel(level, (client.level || 'basic') as ClientLevel)
+    const prev = (client.level || 'basic') as ClientLevel
+    const keepLevel = maxClientLevel(level, prev)
+    const levelChanged = keepLevel !== prev
     clientStore.updateClient(client.id, {
       level: keepLevel,
       loyaltyPeriod: period,
+      ...(levelChanged ? { levelValidUntil: autoUntil, levelAssignMode: 'auto' as const } : {}),
       ...(card ? { card: card.num } : {}),
     })
   }
