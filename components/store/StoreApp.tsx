@@ -1213,7 +1213,6 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
           <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
           {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
         </div>
-        <div style={{ fontSize:9, color:"var(--gd)", fontWeight:700, minHeight:12 }}>⭐+{Math.ceil(p.price * .03)}</div>
         <div style={{
           fontSize:9,
           color: bulkHint ? "#FF8C00" : "transparent",
@@ -1632,10 +1631,6 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
               {bulkPricingHintForQty(p, qty)}
             </div>
           )}
-          <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 13px", borderRadius:12, background:"rgba(255,184,0,.07)", border:"1px solid rgba(255,184,0,.22)", marginBottom:14 }}>
-            <span style={{ fontSize:18 }}>⭐</span>
-            <div><div style={{ fontSize:12, fontWeight:800, color:"var(--gd)" }}>+{Math.ceil(p.price*.03)} бонуса за покупку</div><div style={{ fontSize:10, color:"var(--t2)" }}>1 бонус = 1 ЅМ</div></div>
-          </div>
           <div style={{ display:"flex", gap:10, alignItems:"center" }}>
             <QtyStepper qty={qty} label={qtyLabel} onAdd={add} onRm={rm}/>
             <button onClick={add} className="btn" style={{ flex:1, padding:"14px", fontSize:14, borderRadius:14, background:qty>0?"rgba(31,215,96,.14)":"linear-gradient(135deg,var(--gr2),var(--gr))", border:qty>0?"1.5px solid rgba(31,215,96,.35)":"none", color:qty>0?"var(--gr)":"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:qty>0?"none":"0 6px 20px rgba(31,215,96,.28)" }}>

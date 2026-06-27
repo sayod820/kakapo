@@ -119,7 +119,6 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
           <span style={{ fontFamily:'Unbounded, sans-serif', fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:'var(--gd)', marginLeft:2 }}>ЅМ</span></span>
           {p.oldPrice && <span style={{ fontSize:10, color:'var(--t3)', textDecoration:'line-through' }}>{p.oldPrice.toFixed(2)}</span>}
         </div>
-        <div style={{ fontSize:9, color:'var(--gd)', fontWeight:700 }}>⭐+{p.bonus}</div>
       </div>
       {/* CTA */}
       <div style={{ padding:'0 10px 10px' }}>
