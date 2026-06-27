@@ -2283,7 +2283,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             key={selectedSavedId != null ? `saved-${selectedSavedId}` : "manual-addr"}
             value={addr}
             initialCoords={clientLat && clientLng ? { lat: clientLat, lng: clientLng } : null}
-            hideDeliverySummary={!!selectedSavedAddr}
+            hideChangeAddress={!!selectedSavedAddr}
             onChange={v => {
               setSelectedSavedId(null);
               setAddr(v);
