@@ -14,7 +14,13 @@ import {
 import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, type AdminCard } from './cardCrm'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
-import { normalizeLoyaltyLevel, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
+import {
+  normalizeLoyaltyLevel,
+  resolveCardAuthoritativeLevel,
+  loyaltyClientPatchFromCard,
+  loyaltyLockFromRecord,
+  isLevelLocked,
+} from './loyaltyAdminLock'
 import { getManualLoyaltyForCard } from './loyaltySaveGuard'
 
 const CLIENTS_KEY = 'kakapo-clients'
@@ -112,37 +118,46 @@ function findBestCard(phone: string, cardNum: string | undefined, client: AdminC
 export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null): AdminClient {
   const base = normalizeClient(client)
   if (!card || card.status === 'unlinked') return base
-  const mergedMode = card.levelAssignMode ?? base.levelAssignMode
-  const manual = mergedMode !== 'auto' ? getManualLoyaltyForCard(card.num) : undefined
-  const useManualOverride = manual?.levelAssignMode === 'manual' && mergedMode !== 'auto'
-  const level = useManualOverride
-    ? manual!.level
-    : resolveMergedLoyaltyLevel(card, base)
-  const vip = !!(card.vip || base.vip)
-  const debtEnabled = resolveDebtEnabled(card, base)
+
+  const cardHasExplicitMode = card.levelAssignMode === 'manual' || card.levelAssignMode === 'auto'
+  const pendingManual = !cardHasExplicitMode ? getManualLoyaltyForCard(card.num) : undefined
+  if (pendingManual?.levelAssignMode === 'manual' && card.levelAssignMode !== 'auto') {
+    return normalizeClient({
+      ...base,
+      card: card.num,
+      name: pickClientDisplayName(base.name, card.client),
+      phone: base.phone || card.phone,
+      level: pendingManual.level,
+      bonus: card.bonus ?? base.bonus,
+      debt: card.debt ?? base.debt,
+      debtLimit: Math.max(0, Number(card.debtLimit ?? base.debtLimit) || 0),
+      vip: !!(card.vip ?? pendingManual.vip ?? base.vip),
+      debtEnabled: resolveDebtEnabled(card, base),
+      blocked: card.status === 'blocked' || base.blocked,
+      loyaltyPeriod: card.loyaltyPeriod ?? base.loyaltyPeriod,
+      levelAssignMode: 'manual',
+      levelValidUntil: pendingManual.levelValidUntil ?? undefined,
+      levelLockedPeriod: pendingManual.levelLockedPeriod ?? undefined,
+      vipUntil: card.vipUntil ?? base.vipUntil,
+      bonusEligibleFrom: card.bonusEligibleFrom || base.bonusEligibleFrom,
+      accountGeneration: card.accountGeneration || base.accountGeneration,
+      recoveryExpiresAt: card.recoveryExpiresAt || base.recoveryExpiresAt,
+    })
+  }
+
+  const loyalty = loyaltyClientPatchFromCard(card, base)
   return normalizeClient({
     ...base,
     card: card.num,
     name: pickClientDisplayName(base.name, card.client),
     phone: base.phone || card.phone,
-    level,
+    ...loyalty,
     bonus: card.bonus ?? base.bonus,
     debt: card.debt ?? base.debt,
     debtLimit: Math.max(0, Number(card.debtLimit ?? base.debtLimit) || 0),
-    vip,
-    debtEnabled,
+    vip: !!(card.vip ?? base.vip),
+    debtEnabled: resolveDebtEnabled(card, base),
     blocked: card.status === 'blocked' || base.blocked,
-    loyaltyPeriod: card.loyaltyPeriod ?? base.loyaltyPeriod,
-    levelLockedPeriod: useManualOverride
-      ? (manual!.levelLockedPeriod ?? undefined)
-      : (card.levelLockedPeriod ?? base.levelLockedPeriod),
-    levelAssignMode: useManualOverride
-      ? 'manual'
-      : (card.levelAssignMode ?? base.levelAssignMode),
-    levelValidUntil: useManualOverride
-      ? (manual!.levelValidUntil ?? undefined)
-      : (card.levelValidUntil ?? base.levelValidUntil),
-    vipUntil: card.vipUntil ?? base.vipUntil,
     bonusEligibleFrom: card.bonusEligibleFrom || base.bonusEligibleFrom,
     accountGeneration: card.accountGeneration || base.accountGeneration,
     recoveryExpiresAt: card.recoveryExpiresAt || base.recoveryExpiresAt,
@@ -184,7 +199,7 @@ function buildClientFromCard(card: AdminCard): AdminClient {
     email: '',
     addr: '',
     card: card.num,
-    level: resolveMergedLoyaltyLevel(card),
+    level: resolveCardAuthoritativeLevel(card),
     orders: 0,
     spent: 0,
     debt: card.debt,

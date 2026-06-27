@@ -1,6 +1,6 @@
 import type { AdminClient, ClientLevel } from './clientCrm'
 import { normalizePhone, phonesMatch, vipFromNote, debtFromNote } from './clientCrm'
-import { inferLevelAssignMode, inferLevelTermDays, resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
+import { inferLevelAssignMode, inferLevelTermDays, resolveCardAuthoritativeLevel, loyaltyLockFromCard } from './loyaltyAdminLock'
 
 export type CardStatus = 'active' | 'unlinked' | 'blocked'
 
@@ -156,16 +156,15 @@ export function emptyCardLoyaltyForm(): CardLoyaltyForm {
   return { clientId: '', phone: '', level: 'basic', debtLimit: 0, bonus: 0, debt: 0, vip: false, debtEnabled: false }
 }
 
-/** @deprecated alias — используйте resolveMergedLoyaltyLevel */
+/** @deprecated alias — используйте resolveCardAuthoritativeLevel */
 export function resolveLinkedCardLevel(card: AdminCard, client?: AdminClient): ClientLevel {
-  return resolveMergedLoyaltyLevel(card, client)
+  return resolveCardAuthoritativeLevel(card, client)
 }
 
 export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): CardLoyaltyForm {
-  const level = resolveMergedLoyaltyLevel(card, client)
-  const mode = inferLevelAssignMode(card, client)
-  const levelValidUntil = card.levelValidUntil || client?.levelValidUntil
-  const levelLockedPeriod = card.levelLockedPeriod || client?.levelLockedPeriod
+  const level = resolveCardAuthoritativeLevel(card, client)
+  const lock = loyaltyLockFromCard(card, client)
+  const mode = lock.levelAssignMode ?? inferLevelAssignMode(card, client)
   return {
     clientId: client?.id || card.clientId || '',
     phone: card.phone || client?.phone || '',
@@ -177,7 +176,7 @@ export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): Card
     debtEnabled: resolveDebtEnabled(card, client),
     vipUntil: card.vipUntil || client?.vipUntil,
     levelAssignMode: mode,
-    levelTermDays: inferLevelTermDays(mode, level, levelValidUntil, levelLockedPeriod),
+    levelTermDays: inferLevelTermDays(mode, level, lock.levelValidUntil, lock.levelLockedPeriod),
   }
 }
 
@@ -204,7 +203,8 @@ export function enrichCardWithClient(card: AdminCard, clients: AdminClient[]): A
     : card.status === 'unlinked' && client.card === card.num
       ? 'active'
       : card.status
-  const mergedLevel = resolveMergedLoyaltyLevel(card, client)
+  const mergedLevel = resolveCardAuthoritativeLevel(card, client)
+  const lock = loyaltyLockFromCard(card, client)
   return normalizeCard({
     ...card,
     client: client.name || card.client,
@@ -216,9 +216,9 @@ export function enrichCardWithClient(card: AdminCard, clients: AdminClient[]): A
     debt: Math.max(card.debt, client.debt),
     vip: !!(card.vip || client.vip),
     debtEnabled: resolveDebtEnabled(card, client),
-    levelAssignMode: card.levelAssignMode ?? client.levelAssignMode,
-    levelValidUntil: card.levelValidUntil ?? client.levelValidUntil,
-    levelLockedPeriod: card.levelLockedPeriod ?? client.levelLockedPeriod,
+    levelAssignMode: lock.levelAssignMode,
+    levelValidUntil: lock.levelValidUntil,
+    levelLockedPeriod: lock.levelLockedPeriod,
     loyaltyPeriod: card.loyaltyPeriod ?? client.loyaltyPeriod,
     vipUntil: card.vipUntil ?? client.vipUntil,
     status,

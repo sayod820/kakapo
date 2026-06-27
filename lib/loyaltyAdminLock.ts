@@ -2,7 +2,7 @@
 
 import type { ClientLevel } from './clientCrm'
 import { hasEarnedBronze, suggestLevel } from './clientCrm'
-import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
+import { currentLoyaltyPeriod, isLoyaltyPeriodCurrent, loyaltyPeriodLabel, loyaltyPeriodEndsLabel } from './loyaltyPeriod'
 import { getVipRules } from './clientLoyalty'
 
 export type LevelAssignMode = 'auto' | 'manual'
@@ -89,6 +89,114 @@ export function resolveMergedLoyaltyLevel(
     : undefined
   const fromClient = client?.level ? normalizeLoyaltyLevel(client.level) : undefined
   return fromCard ?? fromClient ?? 'basic'
+}
+
+/** Карта с явным режимом — источник правды для уровня (клиент синхронизируется с картой). */
+export function resolveCardAuthoritativeLevel(
+  card?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
+  client?: { level?: ClientLevel | ''; levelAssignMode?: LevelAssignMode } | null,
+): ClientLevel {
+  const cardMode = card?.levelAssignMode
+  if (cardMode === 'manual' || cardMode === 'auto') {
+    const cardEmpty = !card?.level || card.level === ''
+    const cardLvl = normalizeLoyaltyLevel(card?.level)
+    if (cardEmpty && client?.levelAssignMode === cardMode) {
+      return normalizeLoyaltyLevel(client.level)
+    }
+    return cardLvl
+  }
+  return resolveMergedLoyaltyLevel(card, client)
+}
+
+/** Поля lock/sроков: карта первична, если на ней задан режим. */
+export function loyaltyLockFromCard(
+  card?: LoyaltyLockSource | null,
+  client?: LoyaltyLockSource | null,
+): LoyaltyLockFields {
+  const cardHasMode = card?.levelAssignMode === 'manual' || card?.levelAssignMode === 'auto'
+  const level = resolveCardAuthoritativeLevel(card, client)
+  const mode = cardHasMode
+    ? card!.levelAssignMode
+    : (card?.levelAssignMode ?? client?.levelAssignMode ?? inferLevelAssignMode(card ?? {}, client ?? {}))
+  return {
+    levelAssignMode: mode,
+    levelValidUntil: cardHasMode ? (card?.levelValidUntil ?? undefined) : (card?.levelValidUntil ?? client?.levelValidUntil ?? undefined),
+    levelLockedPeriod: cardHasMode ? card?.levelLockedPeriod : (card?.levelLockedPeriod ?? client?.levelLockedPeriod),
+    level,
+    vip: card?.vip ?? client?.vip,
+    vipUntil: card?.vipUntil ?? client?.vipUntil,
+  }
+}
+
+/** Патч клиента из карты — единая синхронизация card → client. */
+export function loyaltyClientPatchFromCard(
+  card: {
+    level?: ClientLevel | ''
+    levelAssignMode?: LevelAssignMode
+    levelValidUntil?: string | null
+    levelLockedPeriod?: string | null
+    loyaltyPeriod?: string
+    vip?: boolean
+    vipUntil?: string | null
+    debtEnabled?: boolean
+  },
+  client?: (LoyaltyLockSource & { debtEnabled?: boolean; loyaltyPeriod?: string }) | null,
+) {
+  const level = resolveCardAuthoritativeLevel(card, client)
+  const cardHasMode = card.levelAssignMode === 'manual' || card.levelAssignMode === 'auto'
+  const mode = cardHasMode
+    ? card.levelAssignMode
+    : (card.levelAssignMode ?? client?.levelAssignMode)
+  return {
+    level,
+    levelAssignMode: mode,
+    levelValidUntil: cardHasMode
+      ? (card.levelValidUntil ?? null)
+      : (card.levelValidUntil ?? client?.levelValidUntil ?? null),
+    levelLockedPeriod: cardHasMode
+      ? (card.levelLockedPeriod ?? null)
+      : (card.levelLockedPeriod ?? client?.levelLockedPeriod ?? null),
+    loyaltyPeriod: card.loyaltyPeriod ?? client?.loyaltyPeriod,
+    vip: !!(card.vip ?? client?.vip),
+    vipUntil: card.vipUntil ?? client?.vipUntil ?? null,
+    debtEnabled: card.debtEnabled ?? client?.debtEnabled,
+  }
+}
+
+/** Подпись срока статуса для профиля клиента. */
+export function formatClientLevelPeriod(
+  lock?: LoyaltyLockFields | null,
+  storedPeriod?: string,
+): { periodLabel: string; periodEnds: string; periodSubtitle: string } {
+  const period = storedPeriod && isLoyaltyPeriodCurrent(storedPeriod) ? storedPeriod : currentLoyaltyPeriod()
+  const periodLabel = loyaltyPeriodLabel(period)
+
+  if (lock?.levelValidUntil) {
+    const untilMs = new Date(lock.levelValidUntil).getTime()
+    if (!Number.isNaN(untilMs)) {
+      const ends = formatVipUntilLabel(lock.levelValidUntil)
+      if (Date.now() > untilMs) {
+        return { periodLabel, periodEnds: ends, periodSubtitle: 'Срок статуса истёк' }
+      }
+      return { periodLabel, periodEnds: ends, periodSubtitle: `${periodLabel} · действует до ${ends}` }
+    }
+  }
+
+  const lvl = lock?.level
+  const isBasicLvl = !lvl || lvl === 'basic'
+
+  if (lock?.levelAssignMode === 'manual' && isLevelLocked(lock)) {
+    if (isBasicLvl && !lock.levelValidUntil && !lock.levelLockedPeriod) {
+      return { periodLabel, periodEnds: 'постоянно', periodSubtitle: 'Постоянный статус' }
+    }
+    if (lock.levelLockedPeriod && isLoyaltyPeriodCurrent(lock.levelLockedPeriod)) {
+      const ends = loyaltyPeriodEndsLabel(lock.levelLockedPeriod)
+      return { periodLabel: loyaltyPeriodLabel(lock.levelLockedPeriod), periodEnds: ends, periodSubtitle: `${loyaltyPeriodLabel(lock.levelLockedPeriod)} · действует до ${ends}` }
+    }
+  }
+
+  const monthEnds = loyaltyPeriodEndsLabel(period)
+  return { periodLabel, periodEnds: monthEnds, periodSubtitle: `${periodLabel} · действует до ${monthEnds}` }
 }
 
 /** Ручной статус активен (закреплён админом, авторасчёт не применяется). */
@@ -195,6 +303,11 @@ export function inferLevelAssignMode(
   const lock = card?.levelLockedPeriod || client?.levelLockedPeriod
   if (lock && isLoyaltyPeriodCurrent(lock)) return 'manual'
   return 'auto'
+}
+
+export function isLegacyMonthEndLoyaltyTerm(levelValidUntil?: string | null): boolean {
+  if (!levelValidUntil) return false
+  return inferLevelTermDays('auto', 'gold', levelValidUntil) === 0
 }
 
 export function inferLevelTermDays(

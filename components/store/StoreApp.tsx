@@ -767,7 +767,7 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
 }
 
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
-  const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount, periodLabel, periodEnds } = loyalty
+  const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount, periodSubtitle } = loyalty
   const themes = getTierThemes()
   const theme = isVip ? themes.vip : isBasicClient ? themes.basic : (themes[tier.id] || themes.bronze)
   const prevTierRef = useRef(tier.id)
@@ -851,7 +851,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                 Кешбэк {tier.cashback} · {isVip ? 'Все привилегии' : tier.perk}
               </div>
               <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 4 }}>
-                📅 {periodLabel} · действует до {periodEnds}
+                📅 {periodSubtitle}
               </div>
             </div>
           </div>

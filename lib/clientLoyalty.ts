@@ -1,7 +1,7 @@
 import { suggestLevel, resolveEffectiveClientLevel, loyaltyStatsFromOrders, type ClientLevel } from './clientCrm'
 import { filterOrdersForStoreUser } from './clientAccountLifecycle'
-import { isLoyaltyPeriodCurrent, loyaltyPeriodEndsLabel, loyaltyPeriodLabel, currentLoyaltyPeriod } from './loyaltyPeriod'
-import { isForcedVipActive, isLevelLocked, isManualLoyaltyActive, loyaltyLockFromRecord, normalizeLoyaltyLevel, type LoyaltyLockFields } from './loyaltyAdminLock'
+import { isLoyaltyPeriodCurrent, currentLoyaltyPeriod } from './loyaltyPeriod'
+import { isForcedVipActive, isLevelLocked, isManualLoyaltyActive, loyaltyLockFromRecord, normalizeLoyaltyLevel, formatClientLevelPeriod, type LoyaltyLockFields } from './loyaltyAdminLock'
 import { loadLoyaltyStatusConfig } from './loyaltyStatusConfig'
 import type { StoreUser } from './clientSession'
 import type { Order } from './types'
@@ -70,6 +70,7 @@ export type LoyaltyProgress = {
   period: string
   periodLabel: string
   periodEnds: string
+  periodSubtitle: string
 }
 
 function tierIndex(level: ClientLevel): number {
@@ -167,6 +168,7 @@ export function getLoyaltyProgress(
   ]
 
   const autoVip = platinumOk && ordersOk && reviewsOk
+  const periodInfo = formatClientLevelPeriod(lockRecord, storedPeriod)
 
   return {
     spent,
@@ -180,8 +182,9 @@ export function getLoyaltyProgress(
     vipSteps,
     vipDoneCount: adminVipActive ? vipSteps.length : vipSteps.filter(s => s.done).length,
     period,
-    periodLabel: loyaltyPeriodLabel(period),
-    periodEnds: loyaltyPeriodEndsLabel(period),
+    periodLabel: periodInfo.periodLabel,
+    periodEnds: periodInfo.periodEnds,
+    periodSubtitle: periodInfo.periodSubtitle,
   }
 }
 

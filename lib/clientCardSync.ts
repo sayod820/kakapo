@@ -26,7 +26,7 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, isAutoLevelActive, resolveMergedLoyaltyLevel, normalizeLoyaltyLevel, AUTO_LEVEL_DEFAULT_TERM_DAYS, vipUntilAfterDays } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, inferLevelTermDays, isAutoLevelActive, resolveCardAuthoritativeLevel, normalizeLoyaltyLevel, AUTO_LEVEL_DEFAULT_TERM_DAYS, VIP_PERMANENT_DAYS, vipUntilAfterDays, isLegacyMonthEndLoyaltyTerm } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
@@ -287,7 +287,7 @@ export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[])
   const card = client.card ? cards.find(c => cardNumsMatch(c.num, client.card)) : undefined
   return {
     card: client.card || '',
-    level: resolveMergedLoyaltyLevel(card, client),
+    level: resolveCardAuthoritativeLevel(card, client),
     bonus: card?.bonus ?? client.bonus,
     debt: card?.debt ?? client.debt,
     debtLimit: card?.debtLimit ?? client.debtLimit,
@@ -371,10 +371,11 @@ export async function saveCardLoyalty(
   const phone = (form.phone || client?.phone || '').trim()
   if (!phone) throw new Error('Выберите клиента или укажите телефон')
 
-  const prevLevel = resolveMergedLoyaltyLevel(card, client)
+  const prevLevel = resolveCardAuthoritativeLevel(card, client)
   const prevVip = !!(card.vip ?? client?.vip)
 
   const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
+  const prevMode = card.levelAssignMode ?? client?.levelAssignMode ?? inferLevelAssignMode(card, client)
   if (assignMode === 'auto') {
     clearManualLoyaltyOverride(card.num)
   }
@@ -385,6 +386,8 @@ export async function saveCardLoyalty(
   }
 
   const statusChanged = !!form.vip !== prevVip || resolvedLevel !== prevLevel
+  const modeChanged = assignMode !== prevMode
+  const levelChanged = resolvedLevel !== prevLevel
   const tierLimit = getTierDefaultDebtLimit(resolvedLevel, !!form.vip)
   const debtEligible = !!form.vip || !!form.debtEnabled || resolvedLevel === 'gold' || resolvedLevel === 'platinum'
   const formLimit = Math.max(0, Number(form.debtLimit) || 0)
@@ -392,10 +395,29 @@ export async function saveCardLoyalty(
     ? formLimit
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
 
+  let termDays = form.levelTermDays
+  if (assignMode === 'auto') {
+    const existingUntil = card.levelValidUntil ?? client?.levelValidUntil
+    const isLegacyMonthEnd = isLegacyMonthEndLoyaltyTerm(existingUntil)
+    if (levelChanged || modeChanged || isLegacyMonthEnd || !existingUntil) {
+      termDays = AUTO_LEVEL_DEFAULT_TERM_DAYS
+    } else {
+      termDays = termDays ?? inferLevelTermDays(
+        'auto',
+        resolvedLevel,
+        existingUntil,
+        card.levelLockedPeriod ?? client?.levelLockedPeriod,
+      )
+      if (termDays <= 0) termDays = AUTO_LEVEL_DEFAULT_TERM_DAYS
+    }
+  } else {
+    termDays = termDays ?? (resolvedLevel === 'basic' ? VIP_PERMANENT_DAYS : 0)
+  }
+
   const lockFields = resolveLevelLockFromTerm(
     assignMode,
     resolvedLevel,
-    form.levelTermDays ?? (assignMode === 'auto' ? AUTO_LEVEL_DEFAULT_TERM_DAYS : 0),
+    termDays,
   )
   const cardLevelStored = resolvedLevel === 'basic' ? '' : resolvedLevel
   const cardLevelForApi = resolvedLevel === 'basic' ? 'basic' : resolvedLevel
@@ -445,7 +467,7 @@ export async function saveCardLoyalty(
     note: loyaltyNote,
     allowBonusDecrease: true,
     ...loyalty,
-    level: cardLevelStored,
+    level: cardLevelStored as AdminCard['level'],
   }
   const cardPatchForApi = { ...cardPatch, level: cardLevelForApi }
 
@@ -574,7 +596,7 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
     ? loyaltyStatsFromOrders(orders, phone, oldPeriod, account)
     : { spent: client?.spent || 0, orderCount: client?.orders || 0 }
 
-  const curLevel = resolveMergedLoyaltyLevel(card || undefined, client || undefined)
+  const curLevel = resolveCardAuthoritativeLevel(card || undefined, client || undefined)
   const stillManualLocked = assignMode === 'manual'
     && !untilExpired
     && !manualLockMonth
@@ -630,20 +652,26 @@ export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: 
     const prev = (card.level || 'basic') as ClientLevel
     const keepLevel = maxClientLevel(level, prev)
     const levelChanged = keepLevel !== prev
+    const refreshUntil = levelChanged
+      || !card.levelValidUntil
+      || isLegacyMonthEndLoyaltyTerm(card.levelValidUntil)
     cardStore.updateCardLoyalty(card.num, {
       level: keepLevel,
       loyaltyPeriod: period,
-      ...(levelChanged ? { levelValidUntil: autoUntil, levelAssignMode: 'auto' as const } : {}),
+      ...(refreshUntil ? { levelValidUntil: autoUntil, levelAssignMode: 'auto' as const } : {}),
     })
   }
   if (client) {
     const prev = (client.level || 'basic') as ClientLevel
     const keepLevel = maxClientLevel(level, prev)
     const levelChanged = keepLevel !== prev
+    const refreshUntil = levelChanged
+      || !client.levelValidUntil
+      || isLegacyMonthEndLoyaltyTerm(client.levelValidUntil)
     clientStore.updateClient(client.id, {
       level: keepLevel,
       loyaltyPeriod: period,
-      ...(levelChanged ? { levelValidUntil: autoUntil, levelAssignMode: 'auto' as const } : {}),
+      ...(refreshUntil ? { levelValidUntil: autoUntil, levelAssignMode: 'auto' as const } : {}),
       ...(card ? { card: card.num } : {}),
     })
   }

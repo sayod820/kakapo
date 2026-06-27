@@ -19,7 +19,7 @@ import {
 import { isPhoneDeleted } from './clientTombstones'
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 import { findLocalCard, markCardLoyaltySaved, mergeCardLoyaltyIfRecent } from './loyaltySaveGuard'
-import { resolveMergedLoyaltyLevel } from './loyaltyAdminLock'
+import { loyaltyClientPatchFromCard } from './loyaltyAdminLock'
 
 const CARDS_KEY = 'kakapo-cards'
 const PENDING_CARD_MS = 120_000
@@ -114,20 +114,14 @@ function pushLoyaltyToClient(card: AdminCard, skipApi?: boolean) {
     : clients.find(c => cardNumsMatch(c.card, card.num) || (card.phone && phonesMatch(c.phone, card.phone)))
   if (!client) return
   const prevBonus = client.bonus || 0
+  const loyalty = loyaltyClientPatchFromCard(card, client)
   useClientStore.getState().updateClient(client.id, {
     card: card.status === 'unlinked' ? '' : card.num,
-    level: resolveMergedLoyaltyLevel(card, client),
+    ...loyalty,
     bonus: card.bonus,
     debt: card.debt,
     debtLimit: card.debtLimit,
-    vip: !!card.vip,
-    debtEnabled: !!card.debtEnabled,
     blocked: card.status === 'blocked',
-    loyaltyPeriod: card.loyaltyPeriod,
-    levelAssignMode: card.levelAssignMode,
-    levelValidUntil: card.levelValidUntil ?? null,
-    levelLockedPeriod: card.levelLockedPeriod ?? null,
-    vipUntil: card.vipUntil ?? null,
   }, { skipApi })
   if (card.bonus > prevBonus) {
     onBonusCredited(client.phone, card.bonus - prevBonus, card.num)
