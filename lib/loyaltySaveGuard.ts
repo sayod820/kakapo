@@ -1,6 +1,6 @@
 'use client'
 
-import { cardNumsMatch, canonicalCardNum, type AdminCard } from './cardCrm'
+import { cardDigits, cardNumsMatch, canonicalCardNum, type AdminCard } from './cardCrm'
 import type { AdminClient, ClientLevel } from './clientCrm'
 
 const TTL_MS = 180_000
@@ -25,8 +25,10 @@ export type ManualLoyaltySnapshot = {
 
 type ManualStore = Record<string, ManualLoyaltySnapshot>
 
+/** Стабильный ключ по цифрам карты — КАКАПО-0007 и KAKAPO-0007 совпадают */
 function cardKey(num: string) {
-  return canonicalCardNum(num)
+  const d = cardDigits(num)
+  return d ? `d:${d}` : canonicalCardNum(num)
 }
 
 function readManualStore(): ManualStore {
@@ -55,29 +57,46 @@ function writeManualStore(store: ManualStore) {
 export function persistManualLoyaltySnapshot(snapshot: ManualLoyaltySnapshot) {
   const key = cardKey(snapshot.cardNum)
   const store = readManualStore()
+  // убрать устаревшие ключи с другим написанием префикса
+  for (const k of Object.keys(store)) {
+    if (k !== key && cardNumsMatch(k.replace(/^d:/, ''), snapshot.cardNum)) {
+      delete store[k]
+    }
+  }
   if (snapshot.levelAssignMode !== 'manual') {
     delete store[key]
     writeManualStore(store)
     return
   }
-  store[key] = { ...snapshot, cardNum: key }
+  store[key] = { ...snapshot, cardNum: canonicalCardNum(snapshot.cardNum) }
   writeManualStore(store)
 }
 
 export function clearManualLoyaltyOverride(num: string) {
   const key = cardKey(num)
   const store = readManualStore()
-  if (!store[key]) return
-  delete store[key]
-  writeManualStore(store)
+  let changed = false
+  for (const k of Object.keys(store)) {
+    if (k === key || cardNumsMatch(k.replace(/^d:/, ''), num)) {
+      delete store[k]
+      changed = true
+    }
+  }
+  if (changed) writeManualStore(store)
 }
 
-function getManualOverride(num: string): ManualLoyaltySnapshot | undefined {
-  return readManualStore()[cardKey(num)]
+export function getManualLoyaltyForCard(num: string): ManualLoyaltySnapshot | undefined {
+  const store = readManualStore()
+  const key = cardKey(num)
+  if (store[key]) return store[key]
+  for (const [k, v] of Object.entries(store)) {
+    if (cardNumsMatch(k.replace(/^d:/, ''), num)) return v
+  }
+  return undefined
 }
 
 function manualOverrideForClient(client: AdminClient): ManualLoyaltySnapshot | undefined {
-  if (client.card) return getManualOverride(client.card)
+  if (client.card) return getManualLoyaltyForCard(client.card)
   return undefined
 }
 
@@ -108,7 +127,10 @@ function isRecent(map: Map<string, number>, key: string) {
 
 function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T): T {
   const manual = local.levelAssignMode === 'manual'
-  const localLevel = local.level !== undefined && local.level !== '' ? local.level : undefined
+  const rawLevel = local.level
+  const localLevel: ClientLevel | undefined = manual
+    ? (rawLevel === '' || rawLevel === undefined ? 'basic' : (rawLevel as ClientLevel))
+    : (rawLevel !== undefined && rawLevel !== '' ? (rawLevel as ClientLevel) : undefined)
   return {
     ...api,
     level: manual && localLevel ? localLevel : (localLevel ?? api.level),
@@ -125,10 +147,10 @@ function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T)
   } as T
 }
 
-function applyManualOverrideToCard(apiCard: AdminCard): AdminCard {
-  const manual = getManualOverride(apiCard.num)
+export function applyManualLoyaltyToCard(apiCard: AdminCard): AdminCard {
+  const manual = getManualLoyaltyForCard(apiCard.num)
   if (!manual) return apiCard
-  if (serverMatchesManual(apiCard, manual)) {
+  if (manual.level !== 'basic' && serverMatchesManual(apiCard, manual)) {
     clearManualLoyaltyOverride(apiCard.num)
     return apiCard
   }
@@ -146,10 +168,10 @@ function applyManualOverrideToCard(apiCard: AdminCard): AdminCard {
   })
 }
 
-function applyManualOverrideToClient(apiClient: AdminClient): AdminClient {
+export function applyManualLoyaltyToClient(apiClient: AdminClient): AdminClient {
   const manual = manualOverrideForClient(apiClient)
   if (!manual) return apiClient
-  if (serverMatchesManual(apiClient, manual)) {
+  if (manual.level !== 'basic' && serverMatchesManual(apiClient, manual)) {
     clearManualLoyaltyOverride(manual.cardNum)
     return apiClient
   }
@@ -172,7 +194,7 @@ export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCa
   if (localCard && isRecent(cardSavedAt, cardKey(apiCard.num))) {
     merged = mergeLoyaltyFields(apiCard, localCard)
   }
-  return applyManualOverrideToCard(merged)
+  return applyManualLoyaltyToCard(merged)
 }
 
 export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?: AdminClient): AdminClient {
@@ -180,7 +202,7 @@ export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?:
   if (localClient && isRecent(clientSavedAt, localClient.id)) {
     merged = mergeLoyaltyFields(apiClient, localClient)
   }
-  merged = applyManualOverrideToClient(merged)
+  merged = applyManualLoyaltyToClient(merged)
   if (localClient && isRecent(clientSavedAt, localClient.id)) {
     return { ...merged, card: localClient.card || merged.card }
   }

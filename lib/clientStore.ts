@@ -65,10 +65,10 @@ function loadClients(): AdminClient[] {
   return cached.length ? cached : DEFAULT_ADMIN_CLIENTS
 }
 
-function saveClients(list: AdminClient[]) {
+function saveClients(list: AdminClient[], opts?: { skipEmit?: boolean }) {
   if (typeof window === 'undefined') return
   if (!persistAppDataLocally()) {
-    emitCrmSync()
+    if (!opts?.skipEmit) emitCrmSync()
     return
   }
   try {
@@ -158,7 +158,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
   },
   updateClient: (id, patch, opts) => set(s => {
     const clients = s.clients.map(c => (c.id === id ? normalizeClient({ ...c, ...patch, id }) : c))
-    saveClients(clients)
+    saveClients(clients, { skipEmit: opts?.skipApi })
     if (USE_API && !opts?.skipApi) api.updateClient(id, patch).catch(console.error)
     return { clients }
   }),

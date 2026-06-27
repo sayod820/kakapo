@@ -13,6 +13,7 @@ import {
   cardNumsMatch,
   canonicalCardNum,
   memberSinceDate,
+  resolveLinkedCardLevel,
   type AdminCard,
   type CardStatus,
 } from './cardCrm'
@@ -66,10 +67,10 @@ function loadCards(): AdminCard[] {
   return cached.length ? cached : DEFAULT_ADMIN_CARDS
 }
 
-function saveCards(list: AdminCard[]) {
+function saveCards(list: AdminCard[], opts?: { skipEmit?: boolean }) {
   if (typeof window === 'undefined') return
   if (!persistAppDataLocally()) {
-    emitCrmSync()
+    if (!opts?.skipEmit) emitCrmSync()
     return
   }
   try {
@@ -115,7 +116,7 @@ function pushLoyaltyToClient(card: AdminCard, skipApi?: boolean) {
   const prevBonus = client.bonus || 0
   useClientStore.getState().updateClient(client.id, {
     card: card.status === 'unlinked' ? '' : card.num,
-    level: (card.level || client.level) as ClientLevel,
+    level: resolveLinkedCardLevel(card, client) as ClientLevel,
     bonus: card.bonus,
     debt: card.debt,
     debtLimit: card.debtLimit,
@@ -196,7 +197,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
   updateCardLoyalty: (num, patch, opts) => set(s => {
     const key = canonicalCardNum(num)
     const cards = s.cards.map(c => (cardNumsMatch(c.num, key) ? normalizeCard({ ...c, ...patch, num: c.num }) : c))
-    saveCards(cards)
+    saveCards(cards, { skipEmit: opts?.skipApi })
     const updated = cards.find(c => cardNumsMatch(c.num, key))
     if (updated) pushLoyaltyToClient(updated, opts?.skipApi)
     if (USE_API && !opts?.skipApi && updated) api.updateCard(updated.num, patch).catch(console.error)

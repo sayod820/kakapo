@@ -16,6 +16,7 @@ import { refreshLoyaltyTiersFromConfig } from '@/lib/clientLoyalty'
 import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
 import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/cardCrm'
+import { getManualLoyaltyForCard, applyManualLoyaltyToCard } from '@/lib/loyaltySaveGuard'
 import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig, earnedAutoLevelForClient } from '@/lib/clientCardSync'
 import { useOrders } from '@/lib/store'
 import { formatAdminLevelExpiry, formatAdminVipExpiry, formatLevelLockLabel, isLevelLocked, inferVipTermDays, inferLevelAssignMode, VIP_PERMANENT_DAYS, vipUntilForTermDays, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
@@ -136,7 +137,10 @@ export default function CardStatusAdminPanel() {
   const stored = useCards()
   const clients = useClients()
   const orders = useOrders(s => s.orders)
-  const cards = useMemo(() => mergeCardsWithClients(stored, clients), [stored, clients])
+  const cards = useMemo(
+    () => mergeCardsWithClients(stored, clients).map(c => applyManualLoyaltyToCard(c)),
+    [stored, clients],
+  )
 
   const [draft, setDraft] = useState<LoyaltyStatusConfig>(() => loadLoyaltyStatusConfig())
   const [selectedTier, setSelectedTier] = useState<LoyaltyTierId>('basic')
@@ -229,12 +233,13 @@ export default function CardStatusAdminPanel() {
 
   const getRow = (card: AdminCard): AssignRow => {
     const client = card.clientId ? clients.find(c => c.id === card.clientId) : undefined
+    const manual = getManualLoyaltyForCard(card.num)
     const form = cardLoyaltyFromCard(card, client)
     const meta = assignRows[card.num]
     return {
       card,
-      level: meta?.level ?? form.level,
-      levelAssignMode: meta?.levelAssignMode ?? form.levelAssignMode ?? inferLevelAssignMode(card, client),
+      level: meta?.level ?? manual?.level ?? form.level,
+      levelAssignMode: meta?.levelAssignMode ?? manual?.levelAssignMode ?? form.levelAssignMode ?? inferLevelAssignMode(card, client),
       levelTermDays: meta?.levelTermDays ?? form.levelTermDays ?? 0,
       vip: meta?.vip ?? form.vip,
       debtEnabled: meta?.debtEnabled ?? form.debtEnabled,
@@ -421,9 +426,9 @@ export default function CardStatusAdminPanel() {
                   : st.level
                 const lockRecord = {
                   levelAssignMode: st.levelAssignMode,
-                  levelValidUntil: card.levelValidUntil,
-                  levelLockedPeriod: card.levelLockedPeriod,
-                  level: autoLevel,
+                  levelValidUntil: card.levelValidUntil ?? client?.levelValidUntil,
+                  levelLockedPeriod: card.levelLockedPeriod ?? client?.levelLockedPeriod,
+                  level: st.level,
                 }
                 const levelExpiry = formatAdminLevelExpiry(lockRecord)
                 const vipExpiry = formatAdminVipExpiry({ ...card, vip: st.vip })
