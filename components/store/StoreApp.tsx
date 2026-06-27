@@ -1841,13 +1841,9 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
 
 const CHECKOUT_PAYS_BASE = [
   { id: 'cash', icon: '💵', label: 'Наличными', sub: 'Курьеру при получении' },
-  { id: 'card', icon: '💳', label: 'Картой онлайн', sub: 'Visa / Mastercard' },
 ];
 const CHECKOUT_TIMES = [
   { id: 'asap', l: 'Как можно скорее', s: '~45 мин' },
-  { id: 't1', l: '12:00–14:00', s: 'Сегодня' },
-  { id: 't2', l: '14:00–16:00', s: 'Сегодня' },
-  { id: 't3', l: '18:00–20:00', s: 'Сегодня' },
 ];
 
 function CheckoutField({ label, value, onChange, err }) {
@@ -2054,6 +2050,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 
   useEffect(() => {
     if (pay === 'credit' && !payOptions.some(p => p.id === 'credit')) setPay('cash');
+    if (pay === 'card') setPay('cash');
   }, [pay, payOptions]);
 
   const resetDelivery = () => {
@@ -2327,10 +2324,12 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           )}
           {errs.addr && <div style={{ fontSize:11, color:"var(--red)", marginTop:6 }}>{errs.addr}</div>}
         </div>
+        {CHECKOUT_TIMES.length > 1 && (
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="clock" color="var(--gd)" title="Время доставки"/>
           <CheckoutRadio items={CHECKOUT_TIMES} val={time} set={setTime}/>
         </div>
+        )}
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="card" color="var(--blue)" title="Оплата"/>
           <CheckoutRadio items={payOptions} val={pay} set={setPay}/>
