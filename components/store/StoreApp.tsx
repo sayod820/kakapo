@@ -4377,6 +4377,13 @@ const VIPPage = ({ go, user, setUser }) => {
     { e:"⭐", title:"5% кешбэк бонусами",       desc:"Максимальный уровень Platinum — 5% с каждой покупки.", color:"var(--gd)" },
     { e:"🔔", title:"Уведомления первым",        desc:"Узнаёте о новых акциях и поступлениях раньше всех.", color:"var(--org)" },
   ];
+  const promoPerks = [
+    { e:"🚀", title:"Приоритетная доставка", desc:"VIP-заказы собираются первыми и приезжают быстрее обычных." },
+    { e:"💳", title:"Покупки в долг", desc:"Для постоянных клиентов открывается лимит на покупки с оплатой позже." },
+    { e:"📞", title:"Линия поддержки", desc:"Отдельный номер и Telegram для вопросов по заказам, бонусам и долгу." },
+    { e:"⭐", title:"Максимальный кешбэк", desc:"Больше бонусов с каждого заказа и больше выгоды от покупок." },
+  ];
+  const vipRules = getVipRules();
 
   return (
     <div data-store-page style={{
@@ -4404,57 +4411,103 @@ const VIPPage = ({ go, user, setUser }) => {
       </header>
 
       <div style={{ padding:"16px 18px 100px" }}>
-        <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,#1A1000,#2E1E00,#1A1000)", border:"1.5px solid rgba(255,184,0,.4)", boxShadow:"0 8px 40px rgba(255,184,0,.2)" }}>
-          <div style={{ position:"absolute", inset:0, opacity:.04, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
-          <div style={{ position:"absolute", right:-30, top:-30, width:160, height:160, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(20px)" }}/>
-          <div style={{ position:"relative", zIndex:2, padding:"22px 22px 20px" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
-              <div>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                  <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,var(--gd2),var(--gd))", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                    <Ic n="crown" s={18} c="var(--bg)" w={2}/>
-                  </div>
+        {isVip ? (
+          <>
+            <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,#1A1000,#2E1E00,#1A1000)", border:"1.5px solid rgba(255,184,0,.4)", boxShadow:"0 8px 40px rgba(255,184,0,.2)" }}>
+              <div style={{ position:"absolute", inset:0, opacity:.04, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
+              <div style={{ position:"absolute", right:-30, top:-30, width:160, height:160, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(20px)" }}/>
+              <div style={{ position:"relative", zIndex:2, padding:"22px 22px 20px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
                   <div>
-                    <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>КАКАПО VIP</div>
-                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)" }}>{tier.label.toUpperCase()} MEMBER</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                      <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,var(--gd2),var(--gd))", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        <Ic n="crown" s={18} c="var(--bg)" w={2}/>
+                      </div>
+                      <div>
+                        <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>КАКАПО VIP</div>
+                        <div style={{ fontSize:9, color:"rgba(255,184,0,.6)" }}>{tier.label.toUpperCase()} MEMBER</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Клиент с</div>
+                    <div style={{ fontSize:11, fontWeight:700, color:"var(--gd)" }}>{memberSinceLabel}</div>
+                  </div>
+                </div>
+                <div className="ub" style={{ fontSize:20, letterSpacing:3, color:"var(--gd)", marginBottom:16, textShadow:"0 2px 12px rgba(255,184,0,.5)" }}>
+                  {cardLabel}
+                </div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
+                  <div>
+                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Имя</div>
+                    <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)" }}>{user?.name?.toUpperCase() || "ДИЛОВАР Р."}</div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Лимит</div>
+                    <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>{creditLimit.toLocaleString()} ЅМ</div>
                   </div>
                 </div>
               </div>
-              <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Клиент с</div>
-                <div style={{ fontSize:11, fontWeight:700, color:"var(--gd)" }}>{memberSinceLabel}</div>
-              </div>
             </div>
-            <div className="ub" style={{ fontSize:20, letterSpacing:3, color:"var(--gd)", marginBottom:16, textShadow:"0 2px 12px rgba(255,184,0,.5)" }}>
-              {cardLabel}
-            </div>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
-              <div>
-                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Имя</div>
-                <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)" }}>{user?.name?.toUpperCase() || "ДИЛОВАР Р."}</div>
-              </div>
-              <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Лимит</div>
-                <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>{creditLimit.toLocaleString()} ЅМ</div>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <div style={{ display:"grid", gridTemplateColumns: debtSectionOn ? "1fr 1fr 1fr" : "1fr", gap:10, marginBottom:16 }}>
-          {[
-            { l:"Бонусов",   v:(user?.bonus ?? 0).toLocaleString(), c:"var(--gd)" },
-            ...(debtSectionOn ? [
-              { l:"Долг",      v:`${creditUsed.toLocaleString()} ЅМ`, c: creditUsed > 0 ? "var(--red)" : "var(--gr)" },
-              { l:"Лимит",     v:`${creditLimit.toLocaleString()} ЅМ`, c:"var(--blue)" },
-            ] : []),
-          ].map((s,i) => (
-            <div key={i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 10px", textAlign:"center" }}>
-              <div className="ub" style={{ fontSize:15, fontWeight:900, color:s.c, marginBottom:3 }}>{s.v}</div>
-              <div style={{ fontSize:10, color:"var(--t3)" }}>{s.l}</div>
+            <div style={{ display:"grid", gridTemplateColumns: debtSectionOn ? "1fr 1fr 1fr" : "1fr", gap:10, marginBottom:16 }}>
+              {[
+                { l:"Бонусов",   v:(user?.bonus ?? 0).toLocaleString(), c:"var(--gd)" },
+                ...(debtSectionOn ? [
+                  { l:"Долг",      v:`${creditUsed.toLocaleString()} ЅМ`, c: creditUsed > 0 ? "var(--red)" : "var(--gr)" },
+                  { l:"Лимит",     v:`${creditLimit.toLocaleString()} ЅМ`, c:"var(--blue)" },
+                ] : []),
+              ].map((s,i) => (
+                <div key={i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 10px", textAlign:"center" }}>
+                  <div className="ub" style={{ fontSize:15, fontWeight:900, color:s.c, marginBottom:3 }}>{s.v}</div>
+                  <div style={{ fontSize:10, color:"var(--t3)" }}>{s.l}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        ) : (
+          <>
+            <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,rgba(38,24,0,.96),rgba(86,56,0,.92),rgba(30,18,0,.96))", border:"1.5px solid rgba(255,184,0,.34)", boxShadow:"0 10px 44px rgba(255,184,0,.14)" }}>
+              <div style={{ position:"absolute", inset:0, opacity:.06, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
+              <div style={{ position:"absolute", right:-40, top:-40, width:180, height:180, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(22px)" }}/>
+              <div style={{ position:"relative", zIndex:2, padding:"22px 20px 20px" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+                  <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,var(--gd2),var(--gd))", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 4px 14px rgba(255,184,0,.28)" }}>
+                    <Ic n="crown" s={20} c="var(--bg)" w={2}/>
+                  </div>
+                  <div>
+                    <div className="ub" style={{ fontSize:16, fontWeight:900, color:"var(--gd)" }}>Откройте VIP в КАКАПО</div>
+                    <div style={{ fontSize:10, color:"rgba(255,220,100,.8)", marginTop:2 }}>Больше выгоды, приоритет и отдельная поддержка</div>
+                  </div>
+                </div>
+                <div style={{ fontSize:13, color:"#FFF1C2", lineHeight:1.6, marginBottom:14 }}>
+                  VIP даёт доступ к лучшим привилегиям для постоянных клиентов: быстрые заказы, увеличенный кешбэк, покупки в долг и личную линию поддержки.
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+                  <div style={{ background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,184,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--gd)" }}>{vipRules.minSpent.toLocaleString()}+</div>
+                    <div style={{ fontSize:10, color:"rgba(255,220,100,.78)" }}>траты</div>
+                  </div>
+                  <div style={{ background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,184,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--gd)" }}>{vipRules.minOrders}+</div>
+                    <div style={{ fontSize:10, color:"rgba(255,220,100,.78)" }}>заказов</div>
+                  </div>
+                  <div style={{ background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,184,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--gd)" }}>{vipRules.minReviews}+</div>
+                    <div style={{ fontSize:10, color:"rgba(255,220,100,.78)" }}>отзывов</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
+              <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:8 }}>Почему стоит получить VIP</div>
+              <div style={{ fontSize:11, color:"var(--t2)", lineHeight:1.65 }}>
+                Чем чаще клиент заказывает, тем больше становится разница: VIP ускоряет обслуживание, даёт больше бонусов и открывает особые возможности внутри приложения.
+              </div>
+            </div>
+          </>
+        )}
 
         {debtSectionOn && (
         <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
@@ -4491,21 +4544,41 @@ const VIPPage = ({ go, user, setUser }) => {
           />
         )}
 
-        {isVip && (
-        <>
-        {showVipSupport && <VipSupportBlock />}
+        {isVip ? (
+          <>
+            {showVipSupport && <VipSupportBlock />}
 
-        <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-          {(showVipSupport ? PERKS : PERKS.filter(p => p.title !== 'Линия поддержки VIP')).map((perk,i) => (
-            <div key={i} style={{ background:"var(--l2)", border:`1px solid ${perk.color}22`, borderRadius:16, padding:"14px 12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
-              <div style={{ fontSize:26, marginBottom:8 }}>{perk.e}</div>
-              <div style={{ fontSize:12, fontWeight:800, color:perk.color, marginBottom:4, lineHeight:1.3 }}>{perk.title}</div>
-              <div style={{ fontSize:10, color:"var(--t3)", lineHeight:1.55 }}>{perk.desc}</div>
+            <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              {(showVipSupport ? PERKS : PERKS.filter(p => p.title !== 'Линия поддержки VIP')).map((perk,i) => (
+                <div key={i} style={{ background:"var(--l2)", border:`1px solid ${perk.color}22`, borderRadius:16, padding:"14px 12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
+                  <div style={{ fontSize:26, marginBottom:8 }}>{perk.e}</div>
+                  <div style={{ fontSize:12, fontWeight:800, color:perk.color, marginBottom:4, lineHeight:1.3 }}>{perk.title}</div>
+                  <div style={{ fontSize:10, color:"var(--t3)", lineHeight:1.55 }}>{perk.desc}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        </>
+          </>
+        ) : (
+          <>
+            <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Что входит в VIP</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+              {promoPerks.map((perk, i) => (
+                <div key={i} style={{ background:"var(--l2)", border:"1px solid rgba(255,184,0,.18)", borderRadius:16, padding:"14px 12px" }}>
+                  <div style={{ fontSize:26, marginBottom:8 }}>{perk.e}</div>
+                  <div style={{ fontSize:12, fontWeight:800, color:"var(--gd)", marginBottom:4, lineHeight:1.3 }}>{perk.title}</div>
+                  <div style={{ fontSize:10, color:"var(--t3)", lineHeight:1.55 }}>{perk.desc}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.16)", borderRadius:18, padding:"18px" }}>
+              <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:8, color:"var(--gd)" }}>Как получить VIP</div>
+              <div style={{ fontSize:11, color:"var(--t2)", lineHeight:1.65 }}>
+                Выполняйте условия программы: оформляйте заказы, накапливайте сумму покупок и оставляйте отзывы. Как только все условия будут выполнены, VIP станет доступен автоматически.
+              </div>
+            </div>
+          </>
         )}
       </div>
 
