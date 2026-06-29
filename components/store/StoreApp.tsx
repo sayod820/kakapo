@@ -43,7 +43,7 @@ import { formatMemberSinceLabel, qualifiesForDebtSection } from "@/lib/cardCrm";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import ClientAddressEditorSheet from "@/components/store/ClientAddressEditorSheet";
 import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
-import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty } from "@/lib/clientLoyalty";
+import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty, resolveAdminVipActive } from "@/lib/clientLoyalty";
 import { loyaltyLockFromRecord, isManualLoyaltyActive } from "@/lib/loyaltyAdminLock";
 import { syncLoyaltyBonuses, deliveredOrdersNeedingBonusSync } from "@/lib/loyaltyBonus";
 import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
@@ -3830,11 +3830,11 @@ function DebtSupportBlock({ debt, cardNum }: { debt: number; cardNum?: string })
   )
 }
 
-function VipSupportBlock({ isVip = true }: { isVip?: boolean }) {
+function VipSupportBlock() {
   const s = KAKAPO_SUPPORT
   return (
     <div style={{ background: 'var(--l2)', border: '1px solid var(--b1)', borderRadius: 18, padding: '18px', marginBottom: 16 }}>
-      <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>📞 {isVip ? 'Поддержка VIP' : 'Поддержка'}</div>
+      <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>📞 Поддержка VIP</div>
       <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginBottom: 12 }}>
         Помощь по заказам, бонусам и долгу — без очереди, по телефону или в Telegram.
       </div>
@@ -4351,6 +4351,9 @@ const VIPPage = ({ go, user, setUser }) => {
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const { isVip, theme, tier } = resolveUserVip(vipUser)
+  const showVipSupport =
+    resolveAdminVipActive(user?.vip, user?.loyaltyPeriod, user?.vipUntil) ||
+    (loyalty.isVip && user?.levelAssignMode !== 'manual')
   const creditUsed = user?.debt ?? 0;
   const creditLimit = useMemo(() => resolveEffectiveDebtLimit({
     level: user?.level,
@@ -4370,6 +4373,7 @@ const VIPPage = ({ go, user, setUser }) => {
   const PERKS = [
     { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
     { e:"💳", title:"Покупки в долг",          desc:creditLimit > 0 ? `Кредитный лимит ${creditLimit.toLocaleString()} ЅМ. Платите потом.` : "Кредитный лимит назначается на уровне Platinum.", color:"var(--gd)" },
+    { e:"📞", title:"Линия поддержки VIP",      desc:"Помощь по заказам, бонусам и долгу — звонок или Telegram.", color:"var(--sky)" },
     { e:"⭐", title:"5% кешбэк бонусами",       desc:"Максимальный уровень Platinum — 5% с каждой покупки.", color:"var(--gd)" },
     { e:"🔔", title:"Уведомления первым",        desc:"Узнаёте о новых акциях и поступлениях раньше всех.", color:"var(--org)" },
   ];
@@ -4487,14 +4491,13 @@ const VIPPage = ({ go, user, setUser }) => {
           />
         )}
 
-        {/* Поддержка — всегда на экране, даже если VIP отключён в админке */}
-        <VipSupportBlock isVip={isVip} />
-
         {isVip && (
         <>
+        {showVipSupport && <VipSupportBlock />}
+
         <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-          {PERKS.map((perk,i) => (
+          {(showVipSupport ? PERKS : PERKS.filter(p => p.title !== 'Линия поддержки VIP')).map((perk,i) => (
             <div key={i} style={{ background:"var(--l2)", border:`1px solid ${perk.color}22`, borderRadius:16, padding:"14px 12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
               <div style={{ fontSize:26, marginBottom:8 }}>{perk.e}</div>
               <div style={{ fontSize:12, fontWeight:800, color:perk.color, marginBottom:4, lineHeight:1.3 }}>{perk.title}</div>
