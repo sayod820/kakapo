@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useOrders, useRestaurants, USE_API } from '@/lib/store'
-import { mapOrdersForRestaurant } from '@/lib/orderUiMap'
+import { mapOrdersForRestaurant, hasOrderCourierAssigned } from '@/lib/orderUiMap'
 import { hasRestPart, isMixedOrder, normalizeOrder, getAllPickupIds, getPendingPartsForCourier, isPickupPointReady } from '@/lib/orderParts'
 import { restIdToPickupId } from '@/lib/pickups'
 import { useApiSync } from '@/lib/useApiSync'
@@ -595,7 +595,7 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
 
   const SC = {
     new:      {l:'Новый',     c:'#FF4545',  next:'cooking',  nextL:'✓ Принять и начать готовить'},
-    cooking:  {l:'Готовится', c:'#FFB800',  next:'ready',    nextL:'✓ Готово — передать курьеру'},
+    cooking:  {l:'Готовится', c:'#FFB800',  next:'ready',    nextL:'✅ Заказ готов'},
     ready:    {l:'Готово!',   c:'#1FD760',  next:null,      nextL:'⏳ Ожидает курьера', waitCourier:true},
     courier_picked: {l:'У курьера', c:'#3B8EF0', next:null, nextL:'🛵 Курьер забрал заказ', waitCourier:true},
     delivering: {l:'Доставляется', c:'#3B8EF0', next:null, nextL:'🛵 Курьер везёт клиенту', waitCourier:true},
@@ -622,11 +622,30 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
           const s = SC[o.status]||SC.delivered;
           const raw = apiOrders.find(x => x.id === o.id)
           const pickupId = rest ? restIdToPickupId(rest.id) : ''
-          const hasCourier = !!(raw?.courier?.name && raw?.courier?.phone)
+          const hasCourier = hasOrderCourierAssigned(raw?.courier)
           const handedOff = pickupId ? (raw?.pickedUpIds || []).includes(pickupId) : false
-          const showHandoff = s.waitCourier && hasCourier && !handedOff && o.status === 'ready'
+          const isReadyWaiting = o.status === 'ready' && !hasCourier
+          const isCourierAssigned = o.status === 'ready' && hasCourier && !handedOff
+          const showHandoff = isCourierAssigned
+          const cardBorder = o.status === 'new'
+            ? 'rgba(255,69,69,.4)'
+            : isCourierAssigned
+              ? 'rgba(59,142,240,.45)'
+              : isReadyWaiting
+                ? 'rgba(31,215,96,.4)'
+                : '#162B1A'
           return (
-            <div key={o.id} style={{background:'#091508',border:`1.5px solid ${o.status==='new'?'rgba(255,69,69,.4)':o.status==='ready'?'rgba(31,215,96,.4)':'#162B1A'}`,borderRadius:18,overflow:'hidden',animation:`fadeUp .4s ease ${i*.06}s both`}}>
+            <div key={o.id} style={{background:'#091508',border:`1.5px solid ${cardBorder}`,borderRadius:18,overflow:'hidden',animation:`fadeUp .4s ease ${i*.06}s both`}}>
+              {isReadyWaiting && (
+                <div style={{padding:'7px 16px',background:'rgba(31,215,96,.08)',borderBottom:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',gap:7}}>
+                  <span style={{fontSize:11,fontWeight:800,color:'#1FD760'}}>✅ Заказ готов · ждёт курьера</span>
+                </div>
+              )}
+              {isCourierAssigned && (
+                <div style={{padding:'7px 16px',background:'rgba(59,142,240,.08)',borderBottom:'1px solid rgba(59,142,240,.2)',display:'flex',alignItems:'center',gap:7}}>
+                  <span style={{fontSize:11,fontWeight:800,color:'#3B8EF0'}}>🛵 Курьер принял · передайте заказ</span>
+                </div>
+              )}
               {/* Status header */}
               <div style={{padding:'10px 16px',background:o.status==='new'?'rgba(255,69,69,.08)':o.status==='ready'?'rgba(31,215,96,.08)':'rgba(255,184,0,.06)',borderBottom:'1px solid #162B1A',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <div style={{display:'flex',alignItems:'center',gap:7}}>
@@ -671,6 +690,25 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
                   </div>
                 )}
 
+                {(isReadyWaiting || isCourierAssigned) && (
+                  <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:11,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)',marginBottom:12}}>
+                    <span style={{fontSize:16}}>🛵</span>
+                    <div style={{flex:1}}>
+                      {isCourierAssigned ? (
+                        <>
+                          <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>{raw?.courier?.name}</div>
+                          <div style={{fontSize:10,color:'#3D6645'}}>{raw?.courier?.phone || 'Курьер ждёт передачи заказа'}</div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>Ожидаем курьера</div>
+                          <div style={{fontSize:10,color:'#3D6645'}}>Курьер примет заказ в приложении</div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Action buttons */}
                 {s.next&&(
                   <div style={{display:'flex',gap:8}}>
@@ -689,9 +727,9 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
                     🛵 Забрал курьер
                   </button>
                 )}
-                {s.waitCourier && !showHandoff && (
-                  <div style={{padding:'12px',borderRadius:13,background:'rgba(59,142,240,.08)',border:'1px solid rgba(59,142,240,.25)',fontSize:13,fontWeight:700,color:'#3B8EF0',textAlign:'center',fontFamily:'Nunito'}}>
-                    {hasCourier ? (handedOff ? '✓ Курьер забрал заказ' : s.nextL) : '⏳ Ожидает курьера'}
+                {isReadyWaiting && (
+                  <div style={{padding:'12px',borderRadius:13,background:'rgba(31,215,96,.08)',border:'1px solid rgba(31,215,96,.25)',fontSize:12,fontWeight:700,color:'#1FD760',textAlign:'center',fontFamily:'Nunito'}}>
+                    ⏳ Ожидаем, пока курьер примет заказ в приложении
                   </div>
                 )}
               </div>

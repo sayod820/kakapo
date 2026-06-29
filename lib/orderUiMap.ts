@@ -28,6 +28,7 @@ import {
   normalizeOrder,
   restPartToUiStatus,
 } from './orderParts'
+import { restIdToPickupId } from './pickups'
 
 /** Заказы API → формат «Мои заказы» в StoreApp */
 export function mapOrdersForClient(
@@ -554,6 +555,16 @@ export function mapOrdersForCourier(orders: Order[]): import('./demoOrders').Dem
     .map(o => mapSingleOrderForCourier(o))
 }
 
+/** Ресторан ещё ждёт передачи собранного заказа курьеру */
+export function isRestaurantHandoffPending(order: Order, restId: string): boolean {
+  const o = normalizeOrder(order)
+  const rid = String(restId)
+  if (!hasRestPart(o, rid)) return false
+  if (['delivered', 'cancelled'].includes(o.status)) return false
+  if (getRestPartStatus(o, rid) !== 'done') return false
+  return !(o.pickedUpIds || []).includes(restIdToPickupId(rid))
+}
+
 /** Ресторан — только блюда своего ресторана из заказа (включая доставленные) */
 export function mapOrdersForRestaurant(orders: Order[], restId: string) {
   const rid = String(restId)
@@ -562,13 +573,9 @@ export function mapOrdersForRestaurant(orders: Order[], restId: string) {
       const order = normalizeOrder(o)
       if (order.status === 'cancelled') return false
       if (!hasRestPart(order, rid)) return false
-      if (isMixedOrder(order)) {
-        if (order.status === 'delivered') return true
-        const part = getRestPartStatus(order, rid)
-        if (part === 'done') return true
-        return isRestPartActive(order, rid)
-      }
-      return true
+      if (order.status === 'delivered') return true
+      if (isRestPartActive(order, rid)) return true
+      return isRestaurantHandoffPending(order, rid)
     })
     .map(o => {
       const order = normalizeOrder(o)
