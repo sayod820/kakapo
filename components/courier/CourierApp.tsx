@@ -17,12 +17,13 @@ import {
   normalizeOrder,
   buildCourierRoute,
   getAllPickupIds,
-  getReadyUnpickedPickupIds,
   getCourierAcceptPickupIds,
   getPendingPartsForCourier,
   formatCourierWaitingMessage,
   deriveCourierProgress,
+  isPickupPointReady,
 } from '@/lib/orderParts'
+import type { Order } from '@/lib/types'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -50,6 +51,98 @@ const CSS = `
   @keyframes glow{0%,100%{box-shadow:0 0 12px rgba(59,142,240,.4)}50%{box-shadow:0 0 24px rgba(59,142,240,.7)}}
   ::-webkit-scrollbar{width:0;height:0;}
 `;
+
+type PickupMeta = { id: string; name: string; addr: string; phone: string; e: string; color: string }
+
+function CourierPickupPoints({
+  orderRaw,
+  PICKUPS,
+  onFocus,
+}: {
+  orderRaw: Order | null | undefined
+  PICKUPS: Record<string, PickupMeta>
+  onFocus?: (pid: string) => void
+}) {
+  if (!orderRaw) return null
+  const order = normalizeOrder(orderRaw)
+  const picked = new Set(order.pickedUpIds || [])
+  const allIds = getAllPickupIds(order)
+  const route = order.courierRoute?.length
+    ? [...order.courierRoute, ...allIds.filter(id => !order.courierRoute!.includes(id))]
+    : allIds
+  const points = [...new Set(route)]
+  const focusPid = order.courierRoute?.find(pid => !picked.has(pid))
+    || points.find(pid => !picked.has(pid) && isPickupPointReady(order, pid))
+    || null
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: '#8FB897', marginBottom: 10, letterSpacing: 0.4 }}>
+        📍 Точки забора
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {points.map((pid) => {
+          const pk = PICKUPS[pid] || PICKUPS.store
+          const isPicked = picked.has(pid)
+          const ready = isPickupPointReady(order, pid)
+          const isFocus = focusPid === pid && !isPicked
+          const kind = pid === 'store' ? 'Магазин' : 'Ресторан'
+
+          let badge = '⏳ Готовится'
+          let badgeColor = '#FFB800'
+          if (isPicked) {
+            badge = '✓ Забрано'
+            badgeColor = pk.color
+          } else if (ready) {
+            badge = pid === 'store' ? 'Ждёт передачи от сборщика' : 'Ждёт передачи от ресторана'
+            badgeColor = '#3B8EF0'
+          }
+
+          return (
+            <button
+              key={pid}
+              type="button"
+              onClick={() => ready && !isPicked && onFocus?.(pid)}
+              className="btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '14px 14px',
+                borderRadius: 14,
+                textAlign: 'left',
+                width: '100%',
+                background: isPicked ? `${pk.color}12` : isFocus ? `${pk.color}18` : '#091508',
+                border: `1.5px solid ${isPicked ? pk.color + '55' : isFocus ? pk.color : '#162B1A'}`,
+                opacity: !ready && !isPicked ? 0.72 : 1,
+                cursor: ready && !isPicked ? 'pointer' : 'default',
+              }}
+            >
+              <div style={{
+                width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+                background: isPicked ? `${pk.color}33` : `${pk.color}18`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
+              }}>
+                {isPicked ? '✓' : pk.e}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#3D6645', marginBottom: 2 }}>{kind}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: isPicked ? pk.color : '#EBF5ED' }}>{pk.name}</div>
+                <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>{pk.addr}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: badgeColor, marginTop: 6 }}>{badge}</div>
+              </div>
+              {ready && !isPicked && (
+                <span style={{ fontSize: 10, fontWeight: 700, color: isFocus ? pk.color : '#3D6645', flexShrink: 0 }}>
+                  {isFocus ? '→ еду сюда' : 'выбрать'}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 const COURIER = { name: COURIER_NAME, vehicle: '🏍 TJ 1234 AA', rating: 4.9 };
 
@@ -625,7 +718,6 @@ function CourierAppInner() {
   };
   const apiOrders = useOrders(s => s.orders);
   const updateStatus = useOrders(s => s.updateStatus);
-  const markPickupDone = useOrders(s => s.markPickupDone);
   const setCourierRoute = useOrders(s => s.setCourierRoute);
   const ORDERS = useMemo(
     () => {
@@ -650,7 +742,6 @@ function CourierAppInner() {
   const [status,    setStatus]    = useState('available');
   const [selected,  setSelected]  = useState<any>(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
-  const [routePicker, setRoutePicker] = useState<any>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
   const selectedLive = useMemo(() => {
@@ -739,8 +830,7 @@ function CourierAppInner() {
   const confirmAccept = async (o: any, route: string[]) => {
     setStatus('busy');
     setSelected(null);
-    setRoutePicker(null);
-    setDetailOrderId(null);
+    setDetailOrderId(o.id);
     setTab('active');
     const raw = apiOrders.find(x => x.id === o.id);
     const keepStatus = raw && ['assembler_done', 'ready'].includes(normalizeOrder(raw).status)
@@ -776,15 +866,7 @@ function CourierAppInner() {
       return;
     }
     setAcceptErr('');
-    const allStops = order ? getAllPickupIds(order) : ready;
-
-    if (allStops.length > 1 && ready.length > 1) {
-      setRoutePicker({ order: live, ready, allStops });
-      return;
-    }
-    const route = ready.length === 1
-      ? buildCourierRoute(ready[0], order || { items: [], type: 'mixed' } as any)
-      : allStops;
+    const route = order ? getAllPickupIds(order) : ready;
     setAcceptingId(o.id);
     try {
       await confirmAccept(live, route);
@@ -801,23 +883,6 @@ function CourierAppInner() {
     if (!raw) return;
     const route = buildCourierRoute(pid, normalizeOrder(raw));
     void setCourierRoute(detailOrderId, route);
-  };
-
-  const pickRouteAndAccept = async (firstPid: string) => {
-    if (!routePicker || acceptingId) return;
-    const raw = apiOrders.find(o => o.id === routePicker.order.id);
-    const route = raw
-      ? buildCourierRoute(firstPid, normalizeOrder(raw))
-      : [firstPid, ...routePicker.allStops.filter((x: string) => x !== firstPid)];
-    setAcceptingId(routePicker.order.id);
-    try {
-      await confirmAccept(routePicker.order, route);
-      setRoutePicker(null);
-    } catch {
-      setAcceptErr('Не удалось принять заказ — попробуйте ещё раз');
-    } finally {
-      setAcceptingId(null);
-    }
   };
   const finish = async () => {
     if (!detailOrderId) return;
@@ -846,22 +911,10 @@ function CourierAppInner() {
   const nextStop = async () => {
     if (!active || !detailOrderId || !activeRaw) return;
     const order = normalizeOrder(activeRaw);
-    const readyUnpicked = getReadyUnpickedPickupIds(order);
-    const currentPid = readyUnpicked[0];
-    if (!currentPid) return;
-
-    if (currentPid === 'store' && order.status !== 'courier_picked') {
-      setAcceptErr('Ожидайте передачи заказа от сборщика');
-      return;
-    }
-    setAcceptErr('');
-
-    await markPickupDone(active.id, currentPid);
-
-    const updated = normalizeOrder(useOrders.getState().orders.find(o => o.id === active.id) || activeRaw);
-    if (getReadyUnpickedPickupIds(updated).length) return;
-    if (getPendingPartsForCourier(updated).length) return;
-
+    const picked = new Set(order.pickedUpIds || [])
+    const readyPoints = getAllPickupIds(order).filter(pid => isPickupPointReady(order, pid))
+    const readyCollected = readyPoints.length > 0 && readyPoints.every(pid => picked.has(pid))
+    if (!readyCollected || getPendingPartsForCourier(order).length) return;
     await updateStatus(active.id, 'delivering', { courierAtClient: false });
   };
 
@@ -1124,34 +1177,6 @@ function CourierAppInner() {
                     </div>
               )}
 
-                {/* Выбор порядка забора при принятии */}
-                {routePicker && (
-                  <div style={{ position:'fixed', inset:0, zIndex:600, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
-                    <div onClick={()=>setRoutePicker(null)} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)', backdropFilter:'blur(4px)' }}/>
-                    <div style={{ position:'relative', width:'100%', maxWidth:480, background:'#0C1C0F', borderRadius:'22px 22px 0 0', padding:'22px 18px calc(28px + env(safe-area-inset-bottom, 0px))' }}>
-                      <div className="ub" style={{ fontSize:16, fontWeight:900, color:'#3B8EF0', marginBottom:6 }}>Куда ехать первым?</div>
-                      <div style={{ fontSize:12, color:'#8FB897', marginBottom:16 }}>Заказ {routePicker.order.id} · выберите первую точку забора</div>
-                      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                        {routePicker.ready.map((pid: string) => {
-                          const pk = PICKUPS[pid] || PICKUPS.store;
-                          return (
-                            <button key={pid} type="button" onClick={()=>pickRouteAndAccept(pid)} className="btn"
-                              style={{ display:'flex', alignItems:'center', gap:14, padding:'16px', borderRadius:16, background:`${pk.color}14`, border:`2px solid ${pk.color}55`, textAlign:'left' }}>
-                              <span style={{ fontSize:28 }}>{pk.e}</span>
-                              <div style={{ flex:1 }}>
-                                <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>{pid==='store'?'МАГАЗИН':'РЕСТОРАН'}</div>
-                                <div style={{ fontSize:15, fontWeight:800, color:pk.color }}>{pk.name}</div>
-                                <div style={{ fontSize:11, color:'#8FB897', marginTop:2 }}>{pk.addr}</div>
-                  </div>
-                              <span style={{ fontSize:18, color:pk.color }}>→</span>
-                            </button>
-                          );
-                        })}
-                  </div>
-                  </div>
-                </div>
-                )}
-
                 <div style={{ padding:'18px 18px 0' }}>
                   <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
                     Доступные заказы
@@ -1232,124 +1257,40 @@ function CourierAppInner() {
               </div>
                 </div>
 
-                {/* ── ДИНАМИЧЕСКИЕ ШАГИ ── */}
-                <div style={{ display:'flex', marginBottom:18, overflowX:'auto' }}>
-                  {active.pickupIds.map((pid: string, i: number) => {
-                    const pk = PICKUPS[pid] || PICKUPS.store;
-                    const isAct = step === 'toPickup' && pickupIdx === i;
-                    const isDone = step === 'toClient' || step === 'done' || (step === 'toPickup' && i < pickupIdx);
+                {(() => {
+                  const order = activeRaw ? normalizeOrder(activeRaw) : null
+                  const picked = new Set(order?.pickedUpIds || [])
+                  const readyPoints = order ? getAllPickupIds(order).filter(pid => isPickupPointReady(order, pid)) : []
+                  const readyCollected = readyPoints.length > 0 && readyPoints.every(pid => picked.has(pid))
+                  const canGoToClient = readyCollected && !(order && getPendingPartsForCourier(order).length)
                   return (
-                      <div key={i} style={{ flex:1, textAlign:'center', position:'relative', minWidth:60 }}>
-                        <div style={{ position:'absolute', top:18, left:'50%', width:'100%', height:2, background:isDone?pk.color:'#162B1A' }}/>
-                        <div style={{ width:38, height:38, borderRadius:'50%', background:isAct?pk.color:isDone?pk.color+'33':'#0C1C0F', border:`2px solid ${isAct?pk.color:isDone?pk.color:'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1, animation:isAct?'glow 1.8s infinite':'none' }}>
-                          {isDone ? '✓' : pk.e}
-                    </div>
-                        <div style={{ fontSize:9, fontWeight:isAct?700:400, color:isAct?pk.color:isDone?pk.color:'#3D6645', whiteSpace:'nowrap' }}>{pk.name.split(' ')[0]}</div>
-                      </div>
-                    );
-                  })}
-                  {/* шаг «К клиенту» */}
-                  {(() => {
-                    const isAct = step === 'toClient';
-                    const isDone = step === 'done';
-                    return (
-                      <div style={{ flex:1, textAlign:'center', position:'relative', minWidth:60 }}>
-                        <div style={{ position:'absolute', top:18, left:'50%', width:'100%', height:2, background:isDone?'#1FD760':'#162B1A' }}/>
-                        <div style={{ width:38, height:38, borderRadius:'50%', background:isAct?'#3B8EF0':isDone?'#1FD760':'#0C1C0F', border:`2px solid ${isAct?'#3B8EF0':isDone?'#1FD760':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1, animation:isAct?'glow 1.8s infinite':'none' }}>
-                          {isDone ? '✓' : '🛵'}
-              </div>
-                        <div style={{ fontSize:9, fontWeight:isAct?700:400, color:isAct?'#3B8EF0':isDone?'#1FD760':'#3D6645' }}>К клиенту</div>
-                </div>
-                    );
-                  })()}
-                  {/* шаг «Готово» */}
-                  {(() => {
-                    const isDone = step === 'done';
-                    return (
-                      <div style={{ flex:1, textAlign:'center', position:'relative', minWidth:60 }}>
-                        <div style={{ width:38, height:38, borderRadius:'50%', background:isDone?'#1FD760':'#0C1C0F', border:`2px solid ${isDone?'#1FD760':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, margin:'0 auto 6px', position:'relative', zIndex:1 }}>✓</div>
-                        <div style={{ fontSize:9, color:isDone?'#1FD760':'#3D6645' }}>Готово</div>
-                </div>
-                    );
-                  })()}
-              </div>
+                    <>
+                      <CourierPickupPoints orderRaw={activeRaw} PICKUPS={PICKUPS} onFocus={chooseFirstPickup} />
 
-                {/* Выбор следующей точки (если несколько готовы) */}
-                {step === 'toPickup' && !waitingForPickup && active.pickupIds.length > 1 && (
-                  <div style={{ marginBottom:14, padding:'12px 14px', borderRadius:14, background:'#091508', border:'1px solid #162B1A' }}>
-                    <div style={{ fontSize:11, fontWeight:700, color:'#8FB897', marginBottom:10 }}>🗺 Сначала заехать:</div>
-                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                      {active.pickupIds.map((pid: string, i: number) => {
-                        const pk = PICKUPS[pid] || PICKUPS.store;
-                        const isCurrent = pickupIdx === i;
-                        return (
-                          <button key={pid} type="button" onClick={() => chooseFirstPickup(pid)} className="btn"
-                            style={{ padding:'10px 14px', borderRadius:12, fontSize:12, fontWeight:700, border:`2px solid ${isCurrent ? pk.color : pk.color + '44'}`, background: isCurrent ? pk.color + '22' : '#0C1C0F', color: isCurrent ? pk.color : '#8FB897' }}>
-                            {pk.e} {pk.name.split(' ')[0]}
-                          </button>
-                        );
-                      })}
-                </div>
-              </div>
-                )}
-
-                {/* ── КАРТОЧКА МАРШРУТА ── */}
-                <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:16, padding:'14px 16px', marginBottom:14 }}>
-                  {waitingForPickup && (
-                    <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,184,0,.08)', border:'1px solid rgba(255,184,0,.35)', marginBottom:12 }}>
-                      <div style={{ fontSize:13, fontWeight:800, color:'#FFB800', marginBottom:4 }}>⏳ Ожидаем готовность</div>
-                      {active.pendingParts?.map((pp: { label: string; status: string }, i: number) => (
-                        <div key={i} style={{ fontSize:12, color:'#8FB897', marginTop:4 }}>
-                          {pp.label}: <span style={{ color:'#FFB800', fontWeight:700 }}>{pp.status}</span>
+                      {waitingForPickup && (
+                        <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,184,0,.08)', border:'1px solid rgba(255,184,0,.35)', marginBottom:14 }}>
+                          <div style={{ fontSize:13, fontWeight:800, color:'#FFB800', marginBottom:4 }}>⏳ Ожидаем готовность</div>
+                          {active.pendingParts?.map((pp: { label: string; status: string }, i: number) => (
+                            <div key={i} style={{ fontSize:12, color:'#8FB897', marginTop:4 }}>
+                              {pp.label}: <span style={{ color:'#FFB800', fontWeight:700 }}>{pp.status}</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                      <div style={{ fontSize:11, color:'#3D6645', marginTop:8 }}>Точка появится на карте автоматически, когда будет готова</div>
-                    </div>
-                  )}
-                  {step === 'toPickup' && !waitingForPickup && active.pickupIds[pickupIdx] && (() => {
-                    const pk = PICKUPS[active.pickupIds[pickupIdx]] || PICKUPS.store;
-                    return (
-                      <div style={{ display:'flex', gap:10, marginBottom:active.pickupIds.length > 1 ? 12 : 0, paddingBottom:active.pickupIds.length > 1 ? 12 : 0, borderBottom:active.pickupIds.length > 1 ? '1px solid #162B1A' : 'none' }}>
-                        <div style={{ width:10, height:10, borderRadius:'50%', background:pk.color, marginTop:4, flexShrink:0 }}/>
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:10, color:'#3D6645' }}>
-                            ТОЧКА {pickupIdx+1} из {active.pickupIds.length} — {pk.id==='store'?'МАГАЗИН':'РЕСТОРАН'}
+                      )}
+
+                      <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:16, padding:'14px 16px', marginBottom:14 }}>
+                        <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8 }}>🛵 ДОСТАВИТЬ КЛИЕНТУ</div>
+                        <div style={{ display:'flex', gap:10 }}>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:13, fontWeight:700, color: canGoToClient ? '#EBF5ED' : '#8FB897' }}>{active.addr}</div>
+                            <div style={{ fontSize:11, color:'#8FB897', marginTop:2 }}>{active.client}</div>
                           </div>
-                          <div style={{ fontSize:13, fontWeight:700, color:'#EBF5ED' }}>{pk.e} {pk.name}</div>
-                          <div style={{ fontSize:11, color:'#3D6645', marginTop:1 }}>{pk.addr}</div>
+                          <a href={`tel:${active.phone}`} style={{ padding:'7px 11px', borderRadius:9, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.3)', color:'#3B8EF0', fontSize:13, textDecoration:'none', alignSelf:'center' }}>📞</a>
                         </div>
-                        <a href={`tel:${pk.phone}`} style={{ padding:'7px 11px', borderRadius:9, background:`${pk.color}18`, border:`1px solid ${pk.color}44`, color:pk.color, fontSize:13, textDecoration:'none', alignSelf:'center' }}>📞</a>
                       </div>
-                    );
-                  })()}
-                  {step === 'toPickup' && !waitingForPickup && active.pendingParts?.length > 0 && (
-                    <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:8 }}>
-                      {active.pendingParts.map((pp: { label: string; status: string }, i: number) => (
-                        <span key={i} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, background:'rgba(255,184,0,.08)', border:'1px dashed rgba(255,184,0,.35)', color:'#FFB800' }}>
-                          ⏳ {pp.label}: {pp.status}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {step === 'toPickup' && active.pickupIds.length > 1 && pickupIdx < active.pickupIds.length - 1 && (
-                    <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
-                      {active.pickupIds.slice(pickupIdx+1).map((pid:string, i:number) => {
-                        const pk = PICKUPS[pid]||PICKUPS.store;
-                        return <span key={i} style={{ padding:'3px 8px', borderRadius:7, fontSize:10, background:`${pk.color}11`, border:`1px solid ${pk.color}33`, color:pk.color }}>{pk.e} {pk.name.split(' ')[0]}</span>;
-                      })}
-                      <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, color:'#3D6645' }}>→ следующие точки</span>
-                    </div>
-                  )}
-                  <div style={{ display:'flex', gap:10, marginTop: step === 'toPickup' ? 12 : 0 }}>
-                    <div style={{ width:10, height:10, borderRadius:2, background:'#3B8EF0', marginTop:4, flexShrink:0 }}/>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:10, color:'#3D6645', opacity: step === 'toPickup' ? 0.6 : 1 }}>ДОСТАВИТЬ КЛИЕНТУ</div>
-                      <div style={{ fontSize:13, fontWeight:700, color: step === 'toPickup' ? '#3D6645' : '#EBF5ED' }}>{active.addr}</div>
-                      <div style={{ fontSize:11, color:'#8FB897', marginTop:1 }}>{active.client}</div>
-                    </div>
-                    <a href={`tel:${active.phone}`} style={{ padding:'7px 11px', borderRadius:9, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.3)', color:'#3B8EF0', fontSize:13, textDecoration:'none', alignSelf:'center' }}>📞</a>
-                  </div>
-                </div>
+                    </>
+                  )
+                })()}
 
                 <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:16, padding:'12px 16px', marginBottom:14 }}>
                   <div style={{ fontSize:11, color:'#3D6645', marginBottom:8, fontWeight:700 }}>СОСТАВ ЗАКАЗА</div>
@@ -1405,25 +1346,37 @@ function CourierAppInner() {
                   );
                 })()}
 
-                {step==='toPickup' && !waitingForPickup && active.pickupIds[pickupIdx] && (() => {
-                  const pk = PICKUPS[active.pickupIds[pickupIdx]] || PICKUPS.store;
-                  const hasMore = active.pickupIds.length > pickupIdx + 1 || (active.pendingParts?.length ?? 0) > 0;
+                {(() => {
+                  const order = activeRaw ? normalizeOrder(activeRaw) : null
+                  const picked = new Set(order?.pickedUpIds || [])
+                  const readyPoints = order ? getAllPickupIds(order).filter(pid => isPickupPointReady(order, pid)) : []
+                  const readyCollected = readyPoints.length > 0 && readyPoints.every(pid => picked.has(pid))
+                  const canGoToClient = readyCollected && !(order && getPendingPartsForCourier(order).length)
                   return (
-                    <button type="button" onClick={nextStop} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:`linear-gradient(135deg,${pk.color}BB,${pk.color})`, border:'none', color:'#030B05', fontWeight:800, fontSize:14 }}>
-                      📦 Забрал у «{pk.name.split(' ')[0]}» — {hasMore ? `дальше →` : 'еду к клиенту 🛵'}
-                    </button>
-                  );
+                    <>
+                      {step === 'toPickup' && !waitingForPickup && !canGoToClient && (
+                        <div style={{ width:'100%', padding:15, borderRadius:15, background:'rgba(59,142,240,.08)', border:'1px solid rgba(59,142,240,.25)', textAlign:'center', fontSize:12, fontWeight:700, color:'#3B8EF0', marginBottom:10 }}>
+                          Выберите точку и заберите заказ — сборщик или ресторан подтвердят передачу ✓
+                        </div>
+                      )}
+                      {canGoToClient && step === 'toPickup' && (
+                        <button type="button" onClick={nextStop} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15, marginBottom:10 }}>
+                          🛵 Все точки забраны — еду к клиенту
+                        </button>
+                      )}
+                      {step === 'toPickup' && waitingForPickup && (() => {
+                        const wait = formatCourierWaitingMessage(active.pendingParts || []);
+                        return (
+                          <div style={{ width:'100%', padding:15, borderRadius:15, background:'rgba(255,184,0,.1)', border:'1px solid rgba(255,184,0,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#FFB800', marginBottom:10 }}>
+                            {wait.icon} {wait.text}
+                          </div>
+                        );
+                      })()}
+                      {step === 'toClient' && <button onClick={() => detailOrderId && updateStatus(detailOrderId, 'delivering', { courierAtClient: true })} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
+                      {step === 'done' && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {courierCashToCollect(active, orderDelivery(active, roadKm, TARIFF))}</button>}
+                    </>
+                  )
                 })()}
-                {step==='toPickup' && waitingForPickup && (() => {
-                  const wait = formatCourierWaitingMessage(active.pendingParts || []);
-                  return (
-                  <div style={{ width:'100%', padding:15, borderRadius:15, background:'rgba(255,184,0,.1)', border:'1px solid rgba(255,184,0,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#FFB800' }}>
-                    {wait.icon} {wait.text}
-                  </div>
-                  );
-                })()}
-                {step==='toClient' && <button onClick={() => detailOrderId && updateStatus(detailOrderId, 'delivering', { courierAtClient: true })} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
-                {step==='done'     && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {courierCashToCollect(active, orderDelivery(active, roadKm, TARIFF))}</button>}
               </div>
             </div>
           ) : myActiveOrders.length ? (

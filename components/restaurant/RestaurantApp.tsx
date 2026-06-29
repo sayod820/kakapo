@@ -2,7 +2,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useOrders, useRestaurants, USE_API } from '@/lib/store'
 import { mapOrdersForRestaurant } from '@/lib/orderUiMap'
-import { hasRestPart, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
+import { hasRestPart, isMixedOrder, normalizeOrder, getAllPickupIds, getPendingPartsForCourier, isPickupPointReady } from '@/lib/orderParts'
+import { restIdToPickupId } from '@/lib/pickups'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -250,6 +251,20 @@ function RestaurantAppInner() {
     if (!current || current.status !== 'new') setAlertOrder(null);
   }, [orders, alertOrder]);
 
+  const handoffToCourier = async (orderId: string) => {
+    if (!rest) return
+    const raw = apiOrders.find(o => o.id === orderId)
+    if (!raw) return
+    const order = normalizeOrder(raw)
+    const pickupId = restIdToPickupId(rest.id)
+    const pickedUpIds = [...new Set([...(order.pickedUpIds || []), pickupId])]
+    const patched = { ...order, pickedUpIds }
+    const readyPoints = getAllPickupIds(order).filter(pid => isPickupPointReady(patched, pid))
+    const allReadyPicked = readyPoints.length > 0 && readyPoints.every(pid => pickedUpIds.includes(pid))
+    const nextStatus = allReadyPicked && !getPendingPartsForCourier(patched).length ? 'delivering' : 'courier_picked'
+    await updateStatusApi(orderId, nextStatus, { pickedUpIds })
+  };
+
   const updateOrderStatus = async (id, status) => {
     const raw = apiOrders.find(o => o.id === id);
     const normalized = raw ? normalizeOrder(raw) : null;
@@ -389,7 +404,7 @@ function RestaurantAppInner() {
         )}
 
         {page==='dashboard' && <DashboardPage rest={rest} orders={orders} reviews={reviews} unseenReviews={unseenReviews} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout} hasAlert={!!alertOrder}/>}
-        {page==='orders'    && <OrdersPage    rest={rest} orders={orders} reviewBadge={unseenReviews} onUpdate={updateOrderStatus} onPage={setPage}/>}
+        {page==='orders'    && <OrdersPage    rest={rest} orders={orders} apiOrders={apiOrders} reviewBadge={unseenReviews} onUpdate={updateOrderStatus} onHandoff={handoffToCourier} onPage={setPage}/>}
         {page==='menu'      && <MenuPage rest={rest} menu={menu} reviewBadge={unseenReviews} onToggle={toggleDish} onAdd={addDish} onRemove={removeDish} onAddCategory={addCategory} onRenameCategory={renameCategory} onRemoveCategory={removeCategory} onPage={setPage}/>}
         {page==='reviews'   && <ReviewsPage   rest={rest} reviews={reviews} reviewBadge={unseenReviews} onRefresh={loadReviews} onPage={setPage} onMarkSeen={async (id) => { if (USE_API) await api.updateReview(id, { restSeen: true }); setReviews(rs => rs.map(r => r.id === id ? { ...r, restSeen: true } : r)); }}/>}
         {page==='stats'     && <StatsPage     rest={rest} orders={orders} reviewBadge={unseenReviews} onPage={setPage}/>}
@@ -570,7 +585,7 @@ function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOp
 /* ══════════════════════════════════════════════════════
    ЗАКАЗЫ
 ══════════════════════════════════════════════════════ */
-function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
+function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, reviewBadge = 0}) {
   const [filter, setFilter] = useState('active');
   const newOrders = orders.filter(o=>o.status==='new').length;
 
@@ -605,6 +620,11 @@ function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
       <div style={{padding:'0 18px 20px',display:'flex',flexDirection:'column',gap:12}}>
         {filtered.map((o,i)=>{
           const s = SC[o.status]||SC.delivered;
+          const raw = apiOrders.find(x => x.id === o.id)
+          const pickupId = rest ? restIdToPickupId(rest.id) : ''
+          const hasCourier = !!(raw?.courier?.name && raw?.courier?.phone)
+          const handedOff = pickupId ? (raw?.pickedUpIds || []).includes(pickupId) : false
+          const showHandoff = s.waitCourier && hasCourier && !handedOff && o.status === 'ready'
           return (
             <div key={o.id} style={{background:'#091508',border:`1.5px solid ${o.status==='new'?'rgba(255,69,69,.4)':o.status==='ready'?'rgba(31,215,96,.4)':'#162B1A'}`,borderRadius:18,overflow:'hidden',animation:`fadeUp .4s ease ${i*.06}s both`}}>
               {/* Status header */}
@@ -663,9 +683,15 @@ function OrdersPage({rest, orders, onUpdate, onPage, reviewBadge = 0}) {
                     )}
                   </div>
                 )}
-                {s.waitCourier&&(
+                {showHandoff && (
+                  <button type="button" onClick={() => onHandoff(o.id)} className="btn"
+                    style={{ width:'100%', padding:'12px', borderRadius:13, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontFamily:'Nunito', fontWeight:800, fontSize:13 }}>
+                    🛵 Забрал курьер
+                  </button>
+                )}
+                {s.waitCourier && !showHandoff && (
                   <div style={{padding:'12px',borderRadius:13,background:'rgba(59,142,240,.08)',border:'1px solid rgba(59,142,240,.25)',fontSize:13,fontWeight:700,color:'#3B8EF0',textAlign:'center',fontFamily:'Nunito'}}>
-                    {s.nextL}
+                    {hasCourier ? (handedOff ? '✓ Курьер забрал заказ' : s.nextL) : '⏳ Ожидает курьера'}
                   </div>
                 )}
               </div>
