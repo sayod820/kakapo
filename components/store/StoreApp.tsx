@@ -3830,11 +3830,11 @@ function DebtSupportBlock({ debt, cardNum }: { debt: number; cardNum?: string })
   )
 }
 
-function VipSupportBlock() {
+function VipSupportBlock({ isVip = true }: { isVip?: boolean }) {
   const s = KAKAPO_SUPPORT
   return (
     <div style={{ background: 'var(--l2)', border: '1px solid var(--b1)', borderRadius: 18, padding: '18px', marginBottom: 16 }}>
-      <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>📞 Поддержка VIP</div>
+      <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>📞 {isVip ? 'Поддержка VIP' : 'Поддержка'}</div>
       <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginBottom: 12 }}>
         Помощь по заказам, бонусам и долгу — без очереди, по телефону или в Telegram.
       </div>
@@ -4370,7 +4370,6 @@ const VIPPage = ({ go, user, setUser }) => {
   const PERKS = [
     { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
     { e:"💳", title:"Покупки в долг",          desc:creditLimit > 0 ? `Кредитный лимит ${creditLimit.toLocaleString()} ЅМ. Платите потом.` : "Кредитный лимит назначается на уровне Platinum.", color:"var(--gd)" },
-    { e:"📞", title:"Линия поддержки VIP",      desc:"Помощь по заказам, бонусам и долгу — звонок или Telegram.", color:"var(--sky)" },
     { e:"⭐", title:"5% кешбэк бонусами",       desc:"Максимальный уровень Platinum — 5% с каждой покупки.", color:"var(--gd)" },
     { e:"🔔", title:"Уведомления первым",        desc:"Узнаёте о новых акциях и поступлениях раньше всех.", color:"var(--org)" },
   ];
@@ -4488,8 +4487,11 @@ const VIPPage = ({ go, user, setUser }) => {
           />
         )}
 
-        <VipSupportBlock />
+        {/* Поддержка — всегда на экране, даже если VIP отключён в админке */}
+        <VipSupportBlock isVip={isVip} />
 
+        {isVip && (
+        <>
         <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
           {PERKS.map((perk,i) => (
@@ -4500,6 +4502,8 @@ const VIPPage = ({ go, user, setUser }) => {
             </div>
           ))}
         </div>
+        </>
+        )}
       </div>
 
       <Nav page="profile" go={go} user={vipUser}/>

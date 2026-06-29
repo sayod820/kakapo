@@ -1362,8 +1362,8 @@ function ProductsPage() {
                           ? <img src={p.photo || getPhoto(p.id)} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
                           : p.e
                         }
-                      </div>
-                      <div>
+                    </div>
+                    <div>
                         <div style={{fontWeight:700,fontSize:13,lineHeight:1.25}}>{p.name}</div>
                         {p.desc && <div style={{fontSize:10,color:'#3D6645',marginTop:2,maxWidth:220,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.desc}</div>}
                       </div>
@@ -2629,10 +2629,10 @@ function CouriersPage() {
         <StatCard l="Выплаты курьерам" v={`${formatSm(reportSummary.totalEarnings)}`} c="#FFB800" e="💰" />
         <StatCard l="Ср. за доставку" v={`${formatSm(reportSummary.avgPerDelivery)}`} c="#1FD760" e="📊" />
         <StatCard l="Оплата клиентами" v={`${formatSm(clientDeliveryTotal)}`} c="#00D4C8" e="🛵" sub="только доставка" />
-      </div>
+        </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button onClick={openAdd} className="ab abp" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>+ Добавить курьера</button>
-      </div>
+          </div>
       <div className="ac">
         <table className="at">
           <thead>
@@ -2661,8 +2661,8 @@ function CouriersPage() {
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
                         <div style={{ fontSize: 11, color: '#8FB897' }}>{c.phone}</div>
-                      </div>
-                    </div>
+            </div>
+        </div>
                   </td>
                   <td style={{ fontSize: 12, color: '#8FB897' }}>
                     {vehicleIcon(c.vehicle)} {vehicleLabel(c.vehicle)}
@@ -2685,7 +2685,7 @@ function CouriersPage() {
                       <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
                         {c.blocked ? 'Разблок' : 'Блок'}
                       </button>
-                    </div>
+      </div>
                   </td>
               </tr>
               );
@@ -2956,7 +2956,7 @@ function AssemblersPage() {
                       </button>
                     </div>
                   </td>
-                </tr>
+              </tr>
               );
             })}
           </tbody>
@@ -4180,7 +4180,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 11, color: '#8FB897', fontWeight: 600 }}>{s.l}</span>
               <span style={{ fontSize: 18 }}>{s.e}</span>
-            </div>
+      </div>
             <div className="ub" style={{ fontSize: 24, fontWeight: 900, color: s.c }}>{s.v}</div>
           </button>
         ))}
@@ -4345,7 +4345,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>Карточка клиента</div>
               <button type="button" onClick={() => setDetail(null)} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
-            </div>
+          </div>
             <CardVisualMini num={detail.num} level={detail.level} clientName={detail.client || undefined} status={detail.status} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '16px 0' }}>
               {[
@@ -4368,7 +4368,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
             {clientNoteForCard(detail, clients) && (
               <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.2)', fontSize: 12, color: '#8FB897', marginBottom: 14 }}>
                 💬 {clientNoteForCard(detail, clients)}
-              </div>
+        </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button type="button" onClick={() => { setDetail(null); openLink(detail); }} className="ab abg" style={{ flex: 1, padding: 11 }}>⚙️ Настроить</button>
@@ -5547,9 +5547,9 @@ function PromosPage() {
         <div style={{padding:24,textAlign:'center',color:'#8FB897'}}>Загрузка…</div>
       ) : section === 'flash' ? (
         <>
-          <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
+      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}>
             <button onClick={() => openProductCreate({ flash: true })} className="ab" style={{padding:'8px 16px',fontSize:12,fontWeight:700,background:'rgba(255,69,69,.15)',border:'1px solid rgba(255,69,69,.3)',color:'#FF8C8C'}}>+ Флэш-товар</button>
-          </div>
+      </div>
           {flashPromos.length === 0 ? (
             <div style={{padding:'32px 16px',textAlign:'center',color:'#3D6645',fontSize:13,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>
               Нет флэш-акций. Создайте скидку с режимом «⚡ Флэш».
@@ -5570,20 +5570,20 @@ function PromosPage() {
               return (
                 <>
                   <div style={{width:36,height:36,borderRadius:10,background:vis.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>{activeCat.e}</div>
-                  <div style={{flex:1}}>
+              <div style={{flex:1}}>
                     <div className="ub" style={{fontSize:15,fontWeight:800}}>{activeCat.name}</div>
                     <div style={{fontSize:11,color:'#8FB897'}}>{activeCatItems.length} акционных товаров</div>
-                  </div>
+                </div>
                   <button onClick={() => openProductCreate({ catId: activeCat.id === '_other' ? undefined : activeCat.id })} className="ab abp" style={{padding:'8px 16px',fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>+ Скидка на товар</button>
                 </>
               )
             })()}
-          </div>
+              </div>
           {activeCatItems.length === 0 ? (
             <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13}}>
               <div style={{marginBottom:14}}>В этой категории пока нет акций</div>
               <button onClick={() => openProductCreate({ catId: activeCat.id === '_other' ? undefined : activeCat.id })} className="ab abp" style={{padding:'10px 20px',fontSize:13,fontWeight:700}}>+ Скидка на товар</button>
-            </div>
+              </div>
           ) : (
             <>
               {renderPromoSelectionBar(activeCatItems)}
@@ -5596,12 +5596,12 @@ function PromosPage() {
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:14}}>
             <div style={{fontSize:11,color:'#8FB897',flex:1}}>Категории появляются автоматически, когда добавляете скидку на товар</div>
             <button onClick={() => openProductCreate()} className="ab abp" style={{padding:'8px 16px',fontSize:12,fontWeight:700,whiteSpace:'nowrap'}}>+ Скидка на товар</button>
-          </div>
+            </div>
           {promosByCategory.length === 0 ? (
             <div style={{padding:32,textAlign:'center',color:'#3D6645',fontSize:13,background:'#091508',borderRadius:12,border:'1px solid #162B1A'}}>
               <div style={{marginBottom:14}}>Пока нет категорий с акциями. Добавьте скидку на товар — его категория появится здесь.</div>
               <button onClick={() => openProductCreate()} className="ab abp" style={{padding:'10px 20px',fontSize:13,fontWeight:700}}>+ Скидка на товар</button>
-            </div>
+          </div>
           ) : (
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
               {promosByCategory.map(({ cat, items, maxDisc }) => {
@@ -5630,7 +5630,7 @@ function PromosPage() {
                       <div style={{fontSize: 28, marginBottom: 8}}>{cat.e}</div>
                       <div className="ub" style={{fontSize: 14, fontWeight: 800, color: '#fff', marginBottom: 4}}>{shortLabel}</div>
                       <div style={{fontSize: 10, color: 'rgba(255,255,255,.45)'}}>{items.length} товаров</div>
-                    </div>
+      </div>
                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
                       <span style={{padding:'4px 10px',borderRadius:8,background:`${vis.color}22`,border:`1px solid ${vis.color}40`,fontSize:12,fontWeight:800,color:vis.color}}>−{maxDisc}%</span>
                       <span style={{fontSize:15,color:'rgba(255,255,255,.4)'}}>→</span>
@@ -5795,11 +5795,11 @@ function PushPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 11, color: '#8FB897', fontWeight: 600 }}>{s.l}</span>
               <span style={{ fontSize: 18 }}>{s.e}</span>
-            </div>
+                </div>
             <div className="ub" style={{ fontSize: 22, fontWeight: 900, color: s.c }}>{s.v}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 1fr', gap: 18 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -5808,7 +5808,7 @@ function PushPage() {
               <div>
                 <div className="ub" style={{ fontSize: 15, fontWeight: 900 }}>📣 Новая рассылка</div>
                 <div style={{ fontSize: 11, color: '#8FB897', marginTop: 4 }}>Push попадёт в приложение клиента КАКАПО</div>
-              </div>
+          </div>
               <Badge v={`${selectedRecipients.length} чел.`} c="#1FD760" />
             </div>
 
@@ -5836,10 +5836,10 @@ function PushPage() {
                       </div>
                       <div style={{ fontSize: 10, color: '#3D6645', lineHeight: 1.4 }}>{seg.hint}</div>
                       <div style={{ fontSize: 11, color: active ? '#1FD760' : '#8FB897', fontWeight: 800, marginTop: 6 }}>{n.toLocaleString()} чел.</div>
-                    </button>
+          </button>
                   );
                 })}
-              </div>
+        </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
@@ -5855,13 +5855,13 @@ function PushPage() {
                     fontFamily: 'Nunito', fontSize: 13, resize: 'none', height: 88, outline: 'none', padding: '9px 13px', width: '100%',
                   }}
                 />
-              </div>
-            </div>
+        </div>
+      </div>
 
             {(title || body) && (
               <div style={{ marginBottom: 14 }}>
                 <PushPreview title={title} body={body} />
-              </div>
+            </div>
             )}
 
             {sendErr && (
@@ -5910,8 +5910,8 @@ function PushPage() {
                   </div>
                   <span style={{ fontSize: 10, color: '#1FD760', fontWeight: 800, flexShrink: 0 }}>Выбрать</span>
                 </button>
-              ))}
-            </div>
+          ))}
+        </div>
           </div>
         </div>
 
@@ -5935,9 +5935,9 @@ function PushPage() {
                   <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>{row.description}</div>
                 </div>
                 <PushToggle on={row.enabled} onToggle={() => setAutoEnabled(row.id, !row.enabled)} />
-              </div>
-            ))}
-          </div>
+            </div>
+          ))}
+        </div>
 
           <div className="ac" style={{ overflow: 'hidden' }}>
             <div style={{ padding: '13px 16px', borderBottom: '1px solid #162B1A', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -6165,7 +6165,7 @@ function FinancePage() {
       {toast && (
         <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 9999, padding: '12px 18px', borderRadius: 12, background: 'rgba(31,215,96,.15)', border: '1px solid rgba(31,215,96,.35)', color: '#1FD760', fontSize: 13, fontWeight: 700, boxShadow: '0 8px 32px rgba(0,0,0,.4)' }}>
           {toast}
-        </div>
+      </div>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -6174,12 +6174,12 @@ function FinancePage() {
             style={{ padding: '8px 14px', fontSize: 12, background: tab === t.id ? 'rgba(31,215,96,.12)' : '#0C1C0F', border: `1.5px solid ${tab === t.id ? 'rgba(31,215,96,.35)' : '#162B1A'}`, color: tab === t.id ? '#1FD760' : '#8FB897', display: 'flex', alignItems: 'center', gap: 6 }}>
             {t.icon} {t.label}
           </button>
-        ))}
-      </div>
+              ))}
+            </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 22 }}>
         {statCards.map((s, i) => <StatCard key={i} l={s.l} v={s.v} c={s.c} e={s.e} />)}
-      </div>
+          </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 18, marginBottom: 16 }}>
         <div className="ac" style={{ padding: 20 }}>
@@ -6221,13 +6221,13 @@ function FinancePage() {
                     <span className="ub" style={{ fontSize: 11, fontWeight: 700, color: '#FFB800' }}>{formatSm(r.balance.pendingNet)}</span>
                     <button type="button" onClick={() => openPayout(restaurants.find(x => x.id === r.id) || r)} className="ab"
                       style={{ padding: '3px 8px', fontSize: 10, background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)', color: '#FFB800' }}>Выплатить</button>
-                  </div>
                 </div>
-              ))}
+              </div>
+            ))}
               {!summary.restaurants.some(r => r.balance.pendingNet > 0) && (
                 <div style={{ fontSize: 12, color: '#3D6645', padding: '12px 0' }}>Все выплаты закрыты ✓</div>
               )}
-            </div>
+          </div>
           )}
 
           {tab === 'couriers' && (
@@ -6237,10 +6237,10 @@ function FinancePage() {
                 <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #162B1A' }}>
                   <span style={{ fontSize: 12, fontWeight: 600 }}>🛵 {c.name.split(' ')[0]}</span>
                   <span className="ub" style={{ fontSize: 11, color: '#3B8EF0', fontWeight: 700 }}>{formatSm(c.earnings)}</span>
-                </div>
+          </div>
               ))}
               <Link href="/courier" style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#1FD760', fontWeight: 700, textDecoration: 'none' }}>→ Открыть приложение курьера</Link>
-            </div>
+        </div>
           )}
 
           {tab === 'assemblers' && (
@@ -6250,7 +6250,7 @@ function FinancePage() {
                 <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #162B1A' }}>
                   <span style={{ fontSize: 12, fontWeight: 600 }}>📦 {a.name.split(' ')[0]}</span>
                   <span className="ub" style={{ fontSize: 11, color: '#9B6DFF', fontWeight: 700 }}>{formatSm(a.earnings)}</span>
-                </div>
+      </div>
               ))}
               <Link href="/assembler" style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#1FD760', fontWeight: 700, textDecoration: 'none' }}>→ Открыть приложение сборщика</Link>
             </div>
@@ -6284,10 +6284,10 @@ function FinancePage() {
           {tab === 'restaurants' ? 'Детализация комиссий' : tab === 'couriers' ? 'Детализация курьеров' : tab === 'assemblers' ? 'Детализация сборщиков' : 'Доставленные заказы магазина'}
         </div>
         {tab === 'restaurants' && (
-          <table className="at">
+        <table className="at">
             <thead><tr><th>Ресторан</th><th>Выручка</th><th>%</th><th>КАКАПО получает</th><th>К выплате</th><th></th></tr></thead>
             <tbody>{summary.restaurants.map(r => (
-              <tr key={r.id}>
+            <tr key={r.id}>
                 <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 18 }}>{r.emoji}</span><span style={{ fontWeight: 700 }}>{r.name}</span></div></td>
                 <td><span className="ub" style={{ fontSize: 12 }}>{formatSm(r.balance.totalGross)}</span></td>
                 <td><Badge v={`${r.commission}%`} c="#FF4545" /></td>
@@ -6297,9 +6297,9 @@ function FinancePage() {
                   <button type="button" onClick={() => openPayout(restaurants.find(x => x.id === r.id) || r)} className="ab"
                     style={{ padding: '4px 10px', fontSize: 10, background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)', color: '#FFB800' }}>Выплатить</button>
                 )}</td>
-              </tr>
-            ))}</tbody>
-          </table>
+            </tr>
+          ))}</tbody>
+        </table>
         )}
         {tab === 'couriers' && (
           <table className="at">
@@ -6359,7 +6359,7 @@ function FinancePage() {
               </tr>
             ))}</tbody>
           </table>
-        </div>
+    </div>
       )}
 
       {payTarget && (
