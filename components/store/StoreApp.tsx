@@ -1954,6 +1954,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const [addrEditorEdit, setAddrEditorEdit] = useState(null);
   const [addrEditorSession, setAddrEditorSession] = useState(0);
   const checkoutFooterRef = useRef(null);
+  const submitLockRef = useRef(false);
   const [checkoutFooterPad, setCheckoutFooterPad] = useState(160);
 
   useLayoutEffect(() => {
@@ -2103,6 +2104,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     return !Object.keys(e).length;
   };
   const submit = async () => {
+    if (submitLockRef.current || loading) return;
     if (!validate()) return;
     if (pay === 'credit') {
       const check = canPayWithCredit(user, creditGoods);
@@ -2111,6 +2113,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         return;
       }
     }
+    submitLockRef.current = true;
     setLoading(true);
     setSubmitErr("");
 
@@ -2162,37 +2165,45 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     } catch (e) {
       errMsg = e instanceof Error ? e.message : 'Не удалось оформить заказ. Проверьте интернет и попробуйте снова.';
     }
-    setLoading(false);
 
     if (order) {
       setOrderId(order.id);
       setCheckoutMode(orderType);
       setPaidWithCredit(pay === 'credit' ? creditGoods : 0);
       setBonusSpent(bonusUsable);
-      try {
-        const ph = user?.phone || formatTjPhone(phone);
-        if (bonusUsable > 0 && !USE_API) await spendBonus(ph, bonusUsable, order.id);
-        if (pay === 'credit' && creditGoods > 0) {
-          const names = items.slice(0, 2).map(p => p.name || 'Товар')
-          const itemsSummary = names.length
-            ? `${names.join(', ')}${items.length > 2 ? ` + ещё ${items.length - 2}` : ''}`
-            : undefined
-          await chargeCredit(ph, creditGoods, order.id, { itemsSummary })
-        }
-        if (setUser) {
-          const fresh = await refreshStoreUserAfterCredit(ph, user?.card);
-          if (fresh) {
-            saveStoreUser({ ...user, ...fresh });
-            setUser({ ...user, ...fresh });
-          }
-        }
-      } catch (creditErr) {
-        console.error(creditErr);
-      }
       try { localStorage.setItem('kakapo_client_phone', phone); } catch { /* private mode */ }
       setStep('ok');
       onClearCart?.();
+
+      const ph = user?.phone || formatTjPhone(phone);
+      const bonusToSpend = bonusUsable;
+      const creditToCharge = useCreditPay ? creditGoods : 0;
+      const payMode = pay;
+      const orderItems = items;
+      void (async () => {
+        try {
+          if (bonusToSpend > 0 && !USE_API) await spendBonus(ph, bonusToSpend, order.id);
+          if (payMode === 'credit' && creditToCharge > 0) {
+            const names = orderItems.slice(0, 2).map(p => p.name || 'Товар')
+            const itemsSummary = names.length
+              ? `${names.join(', ')}${orderItems.length > 2 ? ` + ещё ${orderItems.length - 2}` : ''}`
+              : undefined
+            await chargeCredit(ph, creditToCharge, order.id, { itemsSummary })
+          }
+          if (setUser) {
+            const fresh = await refreshStoreUserAfterCredit(ph, user?.card);
+            if (fresh) {
+              saveStoreUser({ ...user, ...fresh });
+              setUser({ ...user, ...fresh });
+            }
+          }
+        } catch (creditErr) {
+          console.error(creditErr);
+        }
+      })();
     } else {
+      submitLockRef.current = false;
+      setLoading(false);
       setSubmitErr(errMsg || 'Не удалось оформить заказ. Проверьте интернет и попробуйте снова.');
     }
   };
@@ -2447,7 +2458,19 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             ⚠️ {submitErr}
           </div>
         )}
-        <button onClick={submit} className="btn" style={{ width:"100%", padding:"15px", fontSize:15, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={loading}
+          className="btn"
+          style={{
+            width:"100%", padding:"15px", fontSize:15, borderRadius:17,
+            background: loading ? "var(--l3)" : "linear-gradient(135deg,var(--gr2),var(--gr))",
+            color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10,
+            opacity: loading ? 0.85 : 1, cursor: loading ? "not-allowed" : "pointer",
+            pointerEvents: loading ? "none" : "auto",
+          }}
+        >
           {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>{addrReady ? `Подтвердить · ${payable.toFixed(2)} ЅМ` : "Подтвердить заказ"}</>}
         </button>
       </div>
