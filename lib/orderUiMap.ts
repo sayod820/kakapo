@@ -100,6 +100,7 @@ function clientStatus(o: Order): string {
 export function isCourierMapOrder(o: Order): boolean {
   const order = normalizeOrder(o)
   if (order.status === 'delivered' || order.status === 'cancelled') return false
+  if (hasOrderCourierAssigned(order.courier)) return false
   if (['courier_picked', 'delivering'].includes(order.status)) return false
   return ['new', 'assembling', 'cooking', 'ready', 'assembler_done'].includes(order.status)
 }
@@ -108,6 +109,7 @@ export function isCourierMapOrder(o: Order): boolean {
 export function isCourierFullyReadyOrder(o: Order): boolean {
   const order = normalizeOrder(o)
   if (order.status === 'delivered' || order.status === 'cancelled') return false
+  if (hasOrderCourierAssigned(order.courier)) return false
   if (['courier_picked', 'delivering'].includes(order.status)) return false
   const t = inferOrderType(order)
   if (t === 'restaurant') {
@@ -175,18 +177,30 @@ export function isCourierReadyOrder(o: Order): boolean {
   return false
 }
 
+/** Курьер принял заказ, но ещё не забрал у сборщика */
+function isCourierAssignedAwaitingPickup(order: Order): boolean {
+  return hasOrderCourierAssigned(order.courier)
+    && ['assembler_done', 'ready'].includes(order.status)
+}
+
 /** Заказы курьера для синхронизации (доступные + уже принятые) */
 export function isCourierSyncOrder(o: Order): boolean {
   const order = normalizeOrder(o)
   if (order.status === 'delivered' || order.status === 'cancelled') return false
-  return isCourierReadyOrder(order) || order.status === 'courier_picked' || order.status === 'delivering'
+  return isCourierReadyOrder(order)
+    || isCourierAssignedAwaitingPickup(order)
+    || order.status === 'courier_picked'
+    || order.status === 'delivering'
 }
 
 /** Заказы для карты курьера + активные доставки */
 export function isCourierMapSyncOrder(o: Order): boolean {
   const order = normalizeOrder(o)
   if (order.status === 'delivered' || order.status === 'cancelled') return false
-  return isCourierMapOrder(order) || order.status === 'courier_picked' || order.status === 'delivering'
+  return isCourierMapOrder(order)
+    || isCourierAssignedAwaitingPickup(order)
+    || order.status === 'courier_picked'
+    || order.status === 'delivering'
 }
 
 /** Заказы курьера в сторе: карта + активные + завершённые (для истории и заработка) */
@@ -388,11 +402,37 @@ export const ADMIN_STATUS_OPTIONS: OrderStatus[] = [
   'cancelled',
 ]
 
+export function hasOrderCourierAssigned(courier?: { name?: string; phone?: string } | null): boolean {
+  const name = (courier?.name || '').trim()
+  const phone = (courier?.phone || '').replace(/\D/g, '')
+  return !!name && name !== '—' && phone.length >= 5
+}
+
+/** Сборщик ещё ждёт передачи собранного заказа курьеру */
+export function isAssemblerStoreHandoffPending(o: Order): boolean {
+  const order = normalizeOrder(o)
+  if (['cancelled', 'delivering', 'delivered'].includes(order.status)) return false
+  if ((order.pickedUpIds || []).includes('store')) return false
+  if (isMixedOrder(order)) {
+    if (!hasMarketPart(order)) return false
+    return getMarketStatus(order) === 'done'
+  }
+  if (order.type !== 'market') return false
+  return order.status === 'assembler_done' || order.status === 'courier_picked'
+}
+
 export function isAssemblerOrder(o: Order): boolean {
   const order = normalizeOrder(o)
   if (order.status === 'cancelled') return false
-  if (isMixedOrder(order)) return isMarketPartActive(order)
-  return order.type === 'market' && (order.status === 'new' || order.status === 'assembling')
+  if (isMixedOrder(order)) {
+    if (isMarketPartActive(order)) return true
+    return isAssemblerStoreHandoffPending(order)
+  }
+  if (order.type === 'market') {
+    if (order.status === 'new' || order.status === 'assembling') return true
+    return isAssemblerStoreHandoffPending(order)
+  }
+  return false
 }
 
 /** Отменённый заказ с частью магазина — показываем сборщику до подтверждения */
@@ -410,12 +450,23 @@ function mapAssemblerOrderShape(o: Order) {
   const cancelled = order.status === 'cancelled'
   const claimed = !!(order.assembler?.name || order.assembler?.id)
   const pool = !claimed && !cancelled && ms === 'new'
+  const handoffPending = isAssemblerStoreHandoffPending(order)
+  const courierAssigned = hasOrderCourierAssigned(order.courier)
+  const queue = cancelled
+    ? 'cancelled' as const
+    : pool
+      ? 'pool' as const
+      : handoffPending && courierAssigned
+        ? 'courier_assigned' as const
+        : handoffPending
+          ? 'ready' as const
+          : (ms === 'new' ? 'accepted' as const : 'assembling' as const)
   return {
     id: order.id,
     time: order.createdAt || '',
     priority: order.priority || 'normal',
     mixed: isMixedOrder(order),
-    queue: cancelled ? 'cancelled' as const : pool ? 'pool' as const : (ms === 'new' ? 'accepted' as const : 'assembling' as const),
+    queue,
     claimed,
     claimedBy: order.assembler?.name,
     cancelled,

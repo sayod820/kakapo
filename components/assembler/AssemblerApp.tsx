@@ -2,7 +2,7 @@
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react'
 import { useOrders, useProducts, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler, mapCancelledOrdersForAssembler, mapSingleOrderForAssembler, buildAdminStatusPatch, isAssemblerCancelledVisible } from '@/lib/orderUiMap'
-import { getMarketStatus, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
+import { getMarketStatus, getPendingPartsForCourier, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { ASSEMBLER_NAME } from '@/lib/courierStats'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import { useApiSync } from '@/lib/useApiSync'
@@ -315,6 +315,16 @@ function AssemblerAppInner() {
     navigate('dashboard');
   };
 
+  const handoffToCourier = async (orderId: string) => {
+    const raw = apiOrders.find(o => o.id === orderId);
+    if (!raw) return;
+    const order = normalizeOrder(raw);
+    const pickedUpIds = [...new Set([...(order.pickedUpIds || []), 'store'])];
+    const nextStatus = getPendingPartsForCourier(order).length > 0 ? 'courier_picked' : 'delivering';
+    await updateStatus(orderId, nextStatus, { pickedUpIds });
+    if (page === 'collect') navigate('dashboard');
+  };
+
   const pending = mapped;
 
   const completedCount = useMemo(() => apiOrders.filter(o => {
@@ -371,6 +381,7 @@ function AssemblerAppInner() {
         order={activeOrder}
         onToggle={toggleItem}
         onComplete={completeOrder}
+        onHandoff={handoffToCourier}
         onBack={() => navigate('dashboard')}
         onLogout={logout}
         onCancel={() => cancelOrder(activeOrderId, 'Отменено сборщиком')}
@@ -391,6 +402,7 @@ function AssemblerAppInner() {
             completed={completedCount}
             onStart={openCollect}
             onAccept={acceptOrder}
+            onHandoff={handoffToCourier}
             onPage={setPage}
             assemblerName={assemblerName}
             onLogout={logout}
@@ -475,7 +487,7 @@ function BottomNav({page, onPage, newCount}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, onPage, assemblerName, onLogout, onAcknowledgeCancel}) {
+function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, onHandoff, onPage, assemblerName, onLogout, onAcknowledgeCancel}) {
   const poolQueue = orders.filter(o => o.queue === 'pool' || !o.claimed);
   const myQueue = orders.filter(o => o.claimed && o.queue !== 'pool');
   const urgentPool = poolQueue.filter(o => o.priority === 'urgent');
@@ -487,6 +499,10 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
     const doneCount = order.items.filter(it=>it.done).length;
     const pct = order.items.length ? Math.round(doneCount/order.items.length*100) : 0;
     const isAccepted = order.queue === 'accepted';
+    const isReady = order.queue === 'ready';
+    const isCourierAssigned = order.queue === 'courier_assigned';
+    const isAssembling = !isPool && !isReady && !isCourierAssigned && !isCancelled;
+    const courierName = order.courier?.name && order.courier.name !== '—' ? order.courier.name : null;
     return (
       <div className="card" style={{
         overflow:'hidden',
@@ -513,9 +529,19 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
             <span style={{fontSize:11,fontWeight:800,color:'#FF4545'}}>🆕 Новый заказ · свободен</span>
           </div>
         )}
-        {!isPool && !isCancelled && (
+        {!isPool && !isCancelled && !isReady && !isCourierAssigned && (
           <div style={{padding:'7px 16px',background:'rgba(155,109,255,.08)',borderBottom:'1px solid rgba(155,109,255,.18)',display:'flex',alignItems:'center',gap:7}}>
             <span style={{fontSize:11,fontWeight:800,color:'#9B6DFF'}}>✓ Принят · {order.claimedBy || assemblerName}</span>
+          </div>
+        )}
+        {isReady && (
+          <div style={{padding:'7px 16px',background:'rgba(31,215,96,.08)',borderBottom:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',gap:7}}>
+            <span style={{fontSize:11,fontWeight:800,color:'#1FD760'}}>✅ Заказ готов · ждёт курьера</span>
+          </div>
+        )}
+        {isCourierAssigned && (
+          <div style={{padding:'7px 16px',background:'rgba(59,142,240,.08)',borderBottom:'1px solid rgba(59,142,240,.2)',display:'flex',alignItems:'center',gap:7}}>
+            <span style={{fontSize:11,fontWeight:800,color:'#3B8EF0'}}>🛵 Курьер принял · передайте заказ</span>
           </div>
         )}
         <div style={{padding:'15px 16px'}}>
@@ -536,7 +562,7 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
           </div>
 
           {/* Progress if started */}
-          {!isPool && pct>0&&(
+          {isAssembling && pct>0&&(
             <div style={{marginBottom:12}}>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
                 <span style={{fontSize:11,color:'#8FB897'}}>Прогресс сборки</span>
@@ -575,12 +601,25 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
 
           {!isCancelled && (
           <>
-          {/* Курьер принимает заказ сам после сборки — звонить пока рано */}
           <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:11,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)',marginBottom:12}}>
             <span style={{fontSize:16}}>🛵</span>
             <div style={{flex:1}}>
-              <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>Курьер примет заказ после сборки</div>
-              <div style={{fontSize:10,color:'#3D6645'}}>Сначала соберите товары — затем курьер сам возьмёт заказ в работу</div>
+              {isCourierAssigned && courierName ? (
+                <>
+                  <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>{courierName}</div>
+                  <div style={{fontSize:10,color:'#3D6645'}}>{order.courier.phone || 'Курьер ждёт передачи заказа'}</div>
+                </>
+              ) : isReady ? (
+                <>
+                  <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>Ожидаем курьера</div>
+                  <div style={{fontSize:10,color:'#3D6645'}}>Заказ готов — курьер примет его в приложении</div>
+                </>
+              ) : (
+                <>
+                  <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>Курьер примет заказ после сборки</div>
+                  <div style={{fontSize:10,color:'#3D6645'}}>Сначала соберите товары — затем курьер сам возьмёт заказ в работу</div>
+                </>
+              )}
             </div>
           </div>
 
@@ -589,6 +628,16 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
             <button type="button" onClick={() => onAccept(order.id)} className="btn"
               style={{width:'100%',padding:13,borderRadius:14,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'#030B05',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
               ✓ Принять заказ
+            </button>
+          ) : isCourierAssigned ? (
+            <button type="button" onClick={() => onHandoff(order.id)} className="btn"
+              style={{width:'100%',padding:13,borderRadius:14,background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+              🛵 Забрал курьер
+            </button>
+          ) : isReady ? (
+            <button type="button" onClick={() => onStart(order.id)} className="btn"
+              style={{width:'100%',padding:13,borderRadius:14,background:'rgba(31,215,96,.12)',border:'1.5px solid rgba(31,215,96,.35)',color:'#1FD760',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
+              👁 Открыть готовый заказ
             </button>
           ) : (
             <button onClick={()=>onStart(order.id)} className="btn"
@@ -724,7 +773,7 @@ function productToEditItem(p: Product, qty = 1, id?: number): EditOrderItem {
   };
 }
 
-function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, onAcknowledgeCancel, onUpdateItems}) {
+function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, onCancel, onAcknowledgeCancel, onUpdateItems}) {
   const products = useProducts(s => s.products);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -737,6 +786,10 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
   const allDone   = order.items.length > 0 && doneCount === order.items.length;
   const pct       = order.items.length ? Math.round(doneCount/order.items.length*100) : 0;
   const isCancelled = !!order.cancelled;
+  const isReady = order.queue === 'ready';
+  const isCourierAssigned = order.queue === 'courier_assigned';
+  const isHandoffStage = isReady || isCourierAssigned;
+  const courierName = order.courier?.name && order.courier.name !== '—' ? order.courier.name : null;
   const clientPhone = phoneHref(order.client.phone);
   const itemsTotal = order.items.reduce((s,it)=>s+it.price*it.qty,0);
 
@@ -881,8 +934,22 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
           </div>
           <div style={{padding:'11px 14px',borderRadius:13,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)'}}>
             <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>🛵 Курьер</div>
-            <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>Назначится после сборки</div>
-            <div style={{fontSize:10,color:'#8FB897'}}>Курьер сам примет заказ, когда товары будут готовы</div>
+            {isCourierAssigned && courierName ? (
+              <>
+                <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>{courierName}</div>
+                <div style={{fontSize:10,color:'#8FB897'}}>{order.courier.phone || 'Ожидает передачи заказа'}</div>
+              </>
+            ) : isReady ? (
+              <>
+                <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>Ожидаем курьера</div>
+                <div style={{fontSize:10,color:'#8FB897'}}>Заказ готов — курьер примет его в приложении</div>
+              </>
+            ) : (
+              <>
+                <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>Назначится после сборки</div>
+                <div style={{fontSize:10,color:'#8FB897'}}>Курьер сам примет заказ, когда товары будут готовы</div>
+              </>
+            )}
           </div>
         </div>
         {!isCancelled && (
@@ -924,8 +991,8 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
       {/* Items list */}
       <div style={{padding:'0 18px 180px',display:'flex',flexDirection:'column',gap:10}}>
         {order.items.map((item,i)=>(
-          <div key={item.id} onClick={() => !isCancelled && onToggle(order.id, item.id)}
-            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:isCancelled?'default':'pointer',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
+          <div key={item.id} onClick={() => !isCancelled && !isHandoffStage && onToggle(order.id, item.id)}
+            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:isCancelled || isHandoffStage ?'default':'pointer',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
             <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s'}}>
               {item.e}
               {item.done&&(
@@ -956,6 +1023,20 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
           <div style={{padding:'12px',background:'rgba(255,69,69,.08)',borderRadius:13,border:'1px solid rgba(255,69,69,.25)',textAlign:'center',fontSize:12,color:'#FF6969',fontWeight:700}}>
             Сборка остановлена — заказ отменён
           </div>
+        ) : isCourierAssigned ? (
+        <>
+        <div style={{padding:'12px',background:'rgba(59,142,240,.08)',borderRadius:13,border:'1px solid rgba(59,142,240,.25)',textAlign:'center',fontSize:12,color:'#3B8EF0',fontWeight:700,marginBottom:10}}>
+          Курьер {courierName || ''} принял заказ · передайте товары и подтвердите
+        </div>
+        <button type="button" onClick={() => onHandoff(order.id)} className="btn"
+          style={{width:'100%',padding:14,borderRadius:16,background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:10}}>
+          🛵 Забрал курьер
+        </button>
+        </>
+        ) : isReady ? (
+        <div style={{padding:'12px',background:'rgba(31,215,96,.08)',borderRadius:13,border:'1px solid rgba(31,215,96,.25)',textAlign:'center',fontSize:12,color:'#1FD760',fontWeight:700,marginBottom:10}}>
+          ✅ Заказ готов · ожидаем, пока курьер примет его в приложении
+        </div>
         ) : (
         <>
         {/* Summary */}
@@ -970,7 +1051,7 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
         {allDone ? (
           <button onClick={()=>setShowConfirm(true)} className="btn"
             style={{width:'100%',padding:14,borderRadius:16,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:10,boxShadow:'0 8px 24px rgba(31,215,96,.4)',marginBottom:10}}>
-            ✅ Всё собрано — передать курьеру
+            ✅ Заказ готов
           </button>
         ) : (
           <div style={{padding:'12px',background:'#091508',borderRadius:13,border:'1px solid #162B1A',textAlign:'center',fontSize:12,color:'#8FB897',marginBottom:10}}>
@@ -1007,9 +1088,9 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
                 </div>
               ))}
             </div>
-            <button onClick={()=>onComplete(order.id)} className="btn"
+            <button onClick={()=>{ setShowConfirm(false); void onComplete(order.id); }} className="btn"
               style={{width:'100%',padding:14,borderRadius:15,background:'linear-gradient(135deg,#17B34E,#1FD760)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-              🛵 Передал курьеру — завершить
+              ✅ Заказ готов
             </button>
           </div>
         </div>

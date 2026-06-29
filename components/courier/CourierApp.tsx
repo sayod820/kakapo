@@ -742,7 +742,11 @@ function CourierAppInner() {
     setRoutePicker(null);
     setDetailOrderId(null);
     setTab('active');
-    await updateStatus(o.id, 'courier_picked', {
+    const raw = apiOrders.find(x => x.id === o.id);
+    const keepStatus = raw && ['assembler_done', 'ready'].includes(normalizeOrder(raw).status)
+      ? normalizeOrder(raw).status
+      : 'assembler_done';
+    await updateStatus(o.id, keepStatus, {
       courier: { name: courierDisplayName, phone: activePhone },
       courierRoute: route,
       courierAtClient: false,
@@ -845,6 +849,12 @@ function CourierAppInner() {
     const readyUnpicked = getReadyUnpickedPickupIds(order);
     const currentPid = readyUnpicked[0];
     if (!currentPid) return;
+
+    if (currentPid === 'store' && order.status !== 'courier_picked') {
+      setAcceptErr('Ожидайте передачи заказа от сборщика');
+      return;
+    }
+    setAcceptErr('');
 
     await markPickupDone(active.id, currentPid);
 

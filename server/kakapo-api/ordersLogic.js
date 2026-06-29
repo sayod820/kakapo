@@ -81,12 +81,29 @@ export function anyPartDone(order) {
 
 export function isAssemblerOrder(order) {
   const t = inferType(order)
-  if (t === 'mixed') return ['new', 'assembling'].includes(getMarketStatus(order))
-  return t === 'market' && ['new', 'assembling'].includes(order.status)
+  if (t === 'mixed') {
+    if (['new', 'assembling'].includes(getMarketStatus(order))) return true
+    return isAssemblerStoreHandoffPending(order)
+  }
+  if (t === 'market') {
+    if (['new', 'assembling'].includes(order.status)) return true
+    return isAssemblerStoreHandoffPending(order)
+  }
+  return false
+}
+
+function isAssemblerStoreHandoffPending(order) {
+  if (['cancelled', 'delivering', 'delivered'].includes(order.status)) return false
+  if ((order.pickedUpIds || []).includes('store')) return false
+  const t = inferType(order)
+  if (t === 'mixed') return getMarketStatus(order) === 'done'
+  if (t === 'market') return ['assembler_done', 'courier_picked'].includes(order.status)
+  return false
 }
 
 export function isCourierReady(order) {
   if (['delivered', 'cancelled', 'courier_picked', 'delivering'].includes(order.status)) return false
+  if (order.courier?.name && order.courier?.phone) return false
   const t = inferType(order)
   if (t === 'mixed') return anyPartDone(order) && ['ready', 'assembler_done'].includes(order.status)
   if (t === 'market') return order.status === 'assembler_done'
@@ -96,16 +113,19 @@ export function isCourierReady(order) {
 
 export function isCourierSync(order) {
   if (['delivered', 'cancelled'].includes(order.status)) return false
+  if (order.courier?.name && order.courier?.phone && ['assembler_done', 'ready'].includes(order.status)) return true
   return isCourierReady(order) || ['courier_picked', 'delivering'].includes(order.status)
 }
 
 export function isCourierMapOrder(order) {
   if (['delivered', 'cancelled', 'courier_picked', 'delivering'].includes(order.status)) return false
+  if (order.courier?.name && order.courier?.phone) return false
   return ['new', 'assembling', 'cooking', 'ready', 'assembler_done'].includes(order.status)
 }
 
 export function isCourierMapSync(order) {
   if (['delivered', 'cancelled'].includes(order.status)) return false
+  if (order.courier?.name && order.courier?.phone && ['assembler_done', 'ready'].includes(order.status)) return true
   return isCourierMapOrder(order) || ['courier_picked', 'delivering'].includes(order.status)
 }
 

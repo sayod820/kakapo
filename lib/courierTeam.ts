@@ -90,8 +90,10 @@ export function isMyCourierOrder(
   order: { status: string; courier?: { name?: string; phone?: string } | null },
   profile: Pick<AdminCourier, 'name' | 'phone'>,
 ): boolean {
-  if (!['courier_picked', 'delivering'].includes(order.status)) return false
-  return matchesCourierAssignment(order.courier, profile)
+  if (!matchesCourierAssignment(order.courier, profile)) return false
+  if (['courier_picked', 'delivering'].includes(order.status)) return true
+  if (order.status === 'assembler_done' || order.status === 'ready') return true
+  return false
 }
 
 /** Активные доставки курьера по телефону или имени */

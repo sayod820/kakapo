@@ -1,5 +1,6 @@
 import type { Order } from './types'
 import { getMarketStatus, isMarketPartActive, isMixedOrder, normalizeOrder } from './orderParts'
+import { isAssemblerStoreHandoffPending } from './orderUiMap'
 
 export type AssemblerStatus = 'working' | 'available' | 'offline'
 
@@ -122,8 +123,10 @@ export function canAssemblerSeeOrder(order: Order, profile: Pick<AdminAssembler,
     return orderHasAssemblerAssignment(o, profile)
   }
   if (isMixedOrder(o)) {
-    if (!isMarketPartActive(o)) return false
-  } else if (o.type !== 'market' || !['new', 'assembling'].includes(o.status)) {
+    if (!isMarketPartActive(o) && !isAssemblerStoreHandoffPending(o)) return false
+  } else if (o.type !== 'market') {
+    return false
+  } else if (!['new', 'assembling'].includes(o.status) && !isAssemblerStoreHandoffPending(o)) {
     return false
   }
   if (!isAssemblerOrderClaimed(o)) return true
