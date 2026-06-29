@@ -575,14 +575,13 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
 
           {!isCancelled && (
           <>
-          {/* Courier */}
+          {/* Курьер принимает заказ сам после сборки — звонить пока рано */}
           <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:11,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)',marginBottom:12}}>
             <span style={{fontSize:16}}>🛵</span>
             <div style={{flex:1}}>
-              <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>{order.courier.name}</div>
-              <div style={{fontSize:10,color:'#3D6645'}}>{order.courier.phone}</div>
+              <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>Курьер примет заказ после сборки</div>
+              <div style={{fontSize:10,color:'#3D6645'}}>Сначала соберите товары — затем курьер сам возьмёт заказ в работу</div>
             </div>
-            <a href={`tel:${order.courier.phone}`} style={{padding:'5px 11px',borderRadius:9,background:'rgba(59,142,240,.12)',border:'1px solid rgba(59,142,240,.3)',color:'#3B8EF0',fontSize:11,fontWeight:700,textDecoration:'none'}}>Позвонить</a>
           </div>
 
           {/* Action */}
@@ -882,8 +881,8 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
           </div>
           <div style={{padding:'11px 14px',borderRadius:13,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)'}}>
             <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>🛵 Курьер</div>
-            <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>{order.courier.name}</div>
-            <div style={{fontSize:10,color:'#8FB897'}}>{order.courier.phone}</div>
+            <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>Назначится после сборки</div>
+            <div style={{fontSize:10,color:'#8FB897'}}>Курьер сам примет заказ, когда товары будут готовы</div>
           </div>
         </div>
         {!isCancelled && (
@@ -996,8 +995,8 @@ function CollectPage({order, onToggle, onComplete, onBack, onLogout, onCancel, o
               <div style={{fontSize:48,marginBottom:10}}>📦</div>
               <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Заказ {order.id} собран!</div>
               <div style={{fontSize:12,color:'#8FB897',lineHeight:1.6}}>
-                Передайте заказ курьеру:<br/>
-                <span style={{color:'#3B8EF0',fontWeight:700}}>{order.courier.name}</span>
+                Заказ готов к передаче.<br/>
+                <span style={{color:'#3B8EF0',fontWeight:700}}>Курьер примет его сам в приложении</span>
               </div>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
