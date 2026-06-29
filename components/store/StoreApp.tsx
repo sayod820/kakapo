@@ -2058,8 +2058,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const total = sub;
   const credit = useMemo(() => getVipCreditState(user), [user?.vip, user?.debt, user?.debtLimit, user?.debtEnabled, user?.level, user?.bonus, user?.blocked]);
   const useCreditPay = pay === 'credit';
-  const vipFreeDelivery = !!user?.vip && !useCreditPay;
-  const effectiveDelivery = vipFreeDelivery ? 0 : deliveryFee;
+  const effectiveDelivery = deliveryFee;
   const orderTotal = sub + effectiveDelivery;
   const bonusUsable = useBonus ? getBonusUsable(user, sub) : 0;
   const payable = Math.max(0, Math.round((orderTotal - bonusUsable) * 100) / 100);
@@ -2358,11 +2357,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               💬 {selectedSavedAddr.comment.trim()}
             </div>
           )}
-          {vipFreeDelivery && addrReady && (
-            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', fontWeight: 700 }}>
-              👑 VIP — доставка бесплатно
-            </div>
-          )}
+
           {errs.addr && <div style={{ fontSize:11, color:"var(--red)", marginTop:6 }}>{errs.addr}</div>}
         </div>
         {CHECKOUT_TIMES.length > 1 && (
@@ -2428,12 +2423,6 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6 }}>
                 <span style={{ color: 'var(--t2)' }}>Доставка</span>
                 <span>{effectiveDelivery.toFixed(2)} ЅМ</span>
-              </div>
-            )}
-            {vipFreeDelivery && deliveryFee > 0 && (
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6 }}>
-                <span style={{ color: 'var(--t2)' }}>Доставка</span>
-                <span style={{ color: 'var(--gd)' }}>0 ЅМ · VIP</span>
               </div>
             )}
             {bonusUsable > 0 && (
@@ -4351,7 +4340,6 @@ function VipDebtSection({
 }
 
 const VIPPage = ({ go, user, setUser }) => {
-  const [reserveModal, setReserveModal] = useState(false);
   const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0);
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
@@ -4382,17 +4370,9 @@ const VIPPage = ({ go, user, setUser }) => {
   const PERKS = [
     { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
     { e:"💳", title:"Покупки в долг",          desc:creditLimit > 0 ? `Кредитный лимит ${creditLimit.toLocaleString()} ЅМ. Платите потом.` : "Кредитный лимит назначается на уровне Platinum.", color:"var(--gd)" },
-    { e:"📦", title:"Резерв товаров",           desc:"Зарезервируй нужные товары — они ждут тебя в магазине.", color:"var(--sky)" },
     { e:"📞", title:"Линия поддержки VIP",      desc:"Помощь по заказам, бонусам и долгу — звонок или Telegram.", color:"var(--sky)" },
-    { e:"🎁", title:"Закрытые акции",           desc:"Доступ к эксклюзивным VIP предложениям до публикации.", color:"var(--gr)" },
-    { e:"🌿", title:"Бесплатная доставка",      desc:"Доставка всегда бесплатна, независимо от суммы заказа.", color:"#34D399" },
     { e:"⭐", title:"5% кешбэк бонусами",       desc:"Максимальный уровень Platinum — 5% с каждой покупки.", color:"var(--gd)" },
     { e:"🔔", title:"Уведомления первым",        desc:"Узнаёте о новых акциях и поступлениях раньше всех.", color:"var(--org)" },
-  ];
-
-  const RESERVED = [
-    { e:"🥩", name:"Говядина вырезка", qty:2, unit:"500 гр", price:38.00, till:"Сегодня 20:00" },
-    { e:"🐟", name:"Лосось слабосолёный", qty:1, unit:"200 гр", price:28.00, till:"Завтра 12:00" },
   ];
 
   return (
@@ -4508,31 +4488,6 @@ const VIPPage = ({ go, user, setUser }) => {
           />
         )}
 
-        <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"18px", marginBottom:16 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-            <div className="ub" style={{ fontSize:14, fontWeight:800 }}>📦 Резерв товаров</div>
-            <button onClick={() => setReserveModal(true)} className="btn" style={{ padding:"6px 13px", borderRadius:10, background:"rgba(0,212,200,.1)", border:"1px solid rgba(0,212,200,.28)", color:"var(--sky)", fontSize:12, fontWeight:700 }}>+ Добавить</button>
-          </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {RESERVED.map((r,i) => (
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"var(--l3)", borderRadius:14, border:"1px solid var(--b1)" }}>
-                  <div style={{ width:44, height:44, borderRadius:12, background:"var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, flexShrink:0 }}>{r.e}</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, fontWeight:700 }}>{r.name}</div>
-                    <div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>{r.qty} шт · {r.unit}</div>
-                    <div style={{ fontSize:10, color:"var(--sky)", marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
-                      <Ic n="clock" s={10} c="var(--sky)"/>До {r.till}
-                    </div>
-                  </div>
-                  <div style={{ textAlign:"right" }}>
-                    <div className="ub" style={{ fontSize:13, fontWeight:800 }}>{(r.price*r.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
-                    <button className="btn" style={{ marginTop:6, padding:"4px 10px", borderRadius:8, background:"rgba(31,215,96,.12)", border:"1px solid rgba(31,215,96,.3)", color:"var(--gr)", fontSize:11 }}>Купить</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-        </div>
-
         <VipSupportBlock />
 
         <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
@@ -4546,35 +4501,6 @@ const VIPPage = ({ go, user, setUser }) => {
           ))}
         </div>
       </div>
-
-      {reserveModal && (
-        <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-          <div onClick={() => setReserveModal(false)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
-          <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:480, background:"var(--l1)", borderTop:"1px solid var(--b1)", borderRadius:"24px 24px 0 0", padding:"20px 20px 36px", animation:"slideUp .4s cubic-bezier(.16,1,.3,1)" }}>
-            <div style={{ width:40, height:4, borderRadius:2, background:"var(--b2)", margin:"0 auto 16px" }}/>
-            <div className="ub" style={{ fontSize:16, fontWeight:800, marginBottom:16 }}>Зарезервировать товар</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
-              <div>
-                <div style={{ fontSize:11, color:"var(--t2)", marginBottom:6, fontWeight:700 }}>Название товара</div>
-                <input className="inp" placeholder="Например: Говядина вырезка" style={{ width:"100%" }}/>
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                <div>
-                  <div style={{ fontSize:11, color:"var(--t2)", marginBottom:6, fontWeight:700 }}>Количество</div>
-                  <input className="inp" type="number" defaultValue={1} style={{ width:"100%" }}/>
-                </div>
-                <div>
-                  <div style={{ fontSize:11, color:"var(--t2)", marginBottom:6, fontWeight:700 }}>До (часы)</div>
-                  <input className="inp" type="time" defaultValue="20:00" style={{ width:"100%" }}/>
-                </div>
-              </div>
-            </div>
-            <button onClick={() => setReserveModal(false)} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-              <Ic n="check" s={17} c="white" w={2.5}/>Зарезервировать
-            </button>
-          </div>
-        </div>
-      )}
 
       <Nav page="profile" go={go} user={vipUser}/>
     </div>
