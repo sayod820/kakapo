@@ -503,7 +503,10 @@ export default function CardStatusAdminPanel() {
                       <select
                         className="ai"
                         value={String(st.levelTermDays)}
-                        onChange={e => applyStatus(card.num, { levelTermDays: Number(e.target.value) })}
+                        onChange={e => applyStatus(card.num, {
+                          levelTermDays: Number(e.target.value),
+                          ...(st.levelAssignMode === 'manual' ? { levelAssignMode: 'manual' as const } : {}),
+                        })}
                         disabled={st.saving || (!isAuto && st.level === 'basic')}
                         style={{ fontSize: 11, padding: '5px 6px', minWidth: 120 }}
                       >

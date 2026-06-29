@@ -396,13 +396,17 @@ export async function saveCardLoyalty(
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
 
   let termDays = form.levelTermDays
+  const adminExplicitTerm = typeof form.levelTermDays === 'number' ? form.levelTermDays : undefined
+  const adminTermOnly = adminExplicitTerm != null && !modeChanged
   if (assignMode === 'auto') {
     const existingUntil = card.levelValidUntil ?? client?.levelValidUntil
     const isLegacyMonthEnd = isLegacyMonthEndLoyaltyTerm(existingUntil)
-    if (levelChanged || modeChanged || isLegacyMonthEnd || !existingUntil) {
+    if (adminTermOnly) {
+      termDays = adminExplicitTerm
+    } else if (levelChanged || modeChanged || isLegacyMonthEnd || !existingUntil) {
       termDays = AUTO_LEVEL_DEFAULT_TERM_DAYS
     } else {
-      termDays = termDays ?? inferLevelTermDays(
+      termDays = adminExplicitTerm ?? inferLevelTermDays(
         'auto',
         resolvedLevel,
         existingUntil,
@@ -411,7 +415,7 @@ export async function saveCardLoyalty(
       if (termDays <= 0) termDays = AUTO_LEVEL_DEFAULT_TERM_DAYS
     }
   } else {
-    termDays = termDays ?? (resolvedLevel === 'basic' ? VIP_PERMANENT_DAYS : 0)
+    termDays = adminExplicitTerm ?? (resolvedLevel === 'basic' ? VIP_PERMANENT_DAYS : 0)
   }
 
   const lockFields = resolveLevelLockFromTerm(
