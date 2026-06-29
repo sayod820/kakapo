@@ -4370,7 +4370,9 @@ const VIPPage = ({ go, user, setUser }) => {
     debtLimit: user?.debtLimit,
     debtEnabled: user?.debtEnabled,
   }), [user?.level, user?.vip, user?.debtLimit, user?.debtEnabled, loyalty.isVip, loyaltyCfgTick]);
-  const debtSectionOn = qualifiesForDebtSection(user?.level, user?.vip) || !!user?.debtEnabled;
+  const debtSectionOn = user?.levelAssignMode === 'manual'
+    ? !!user?.debtEnabled
+    : (qualifiesForDebtSection(user?.level, user?.vip) || !!user?.debtEnabled);
   const creditPct = creditLimit > 0 ? Math.min(100, Math.round((creditUsed / creditLimit) * 100)) : 0;
   const cardLabel = user?.card
     ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")

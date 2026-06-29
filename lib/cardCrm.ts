@@ -45,16 +45,22 @@ export function cardHasDebtSection(
 
 /** Явное значение переключателя «Раздел долга» — карта или клиент, плюс маркер в note */
 export function resolveDebtEnabled(
-  card?: Pick<AdminCard, 'debtEnabled' | 'note' | 'level' | 'vip'>,
-  client?: Pick<AdminClient, 'debtEnabled' | 'note' | 'level' | 'vip'>,
+  card?: Pick<AdminCard, 'debtEnabled' | 'note' | 'level' | 'vip' | 'levelAssignMode'>,
+  client?: Pick<AdminClient, 'debtEnabled' | 'note' | 'level' | 'vip' | 'levelAssignMode'>,
 ): boolean {
+  const mode = card?.levelAssignMode ?? client?.levelAssignMode ?? inferLevelAssignMode(card, client)
   const level = (card?.level || client?.level || '') as ClientLevel | ''
   const vip = !!(card?.vip ?? client?.vip) || vipFromNote(card?.note) || vipFromNote(client?.note)
+
+  if (mode === 'manual') {
+    if (card?.debtEnabled === false || client?.debtEnabled === false) return false
+    if (card?.debtEnabled === true || client?.debtEnabled === true) return true
+    return debtFromNote(card?.note) || debtFromNote(client?.note)
+  }
+
   if (qualifiesForDebtSection(level, vip)) return true
   if (card?.debtEnabled === true || client?.debtEnabled === true) return true
   if (debtFromNote(card?.note) || debtFromNote(client?.note)) return true
-  if (card?.debtEnabled === false && client?.debtEnabled !== true && !debtFromNote(client?.note)) return false
-  if (client?.debtEnabled === false && card?.debtEnabled !== true && !debtFromNote(card?.note)) return false
   return false
 }
 
@@ -105,6 +111,8 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
   const level = (['basic', 'bronze', 'silver', 'gold', 'platinum'] as ClientLevel[]).includes(raw.level as ClientLevel)
     ? (raw.level as ClientLevel)
     : ''
+  const levelAssignMode = raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined)
+  const vip = !!raw.vip || vipFromNote(raw.note)
   return {
     num: String(raw.num || '').toUpperCase(),
     client: raw.client || '',
@@ -117,14 +125,16 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     debt: Number(raw.debt) || 0,
     issued: raw.issued,
     note: raw.note || '',
-    vip: !!raw.vip || vipFromNote(raw.note),
-    debtEnabled: qualifiesForDebtSection(level, !!raw.vip || vipFromNote(raw.note))
-      || raw.debtEnabled === true
-      || debtFromNote(raw.note)
-      || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
+    vip,
+    debtEnabled: levelAssignMode === 'manual'
+      ? (raw.debtEnabled === true || debtFromNote(raw.note))
+      : (qualifiesForDebtSection(level, vip)
+        || raw.debtEnabled === true
+        || debtFromNote(raw.note)
+        || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0))),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     levelLockedPeriod: raw.levelLockedPeriod === null ? undefined : (raw.levelLockedPeriod || undefined),
-    levelAssignMode: raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined),
+    levelAssignMode,
     levelValidUntil: raw.levelValidUntil === null ? undefined : (raw.levelValidUntil || undefined),
     vipUntil: raw.vipUntil || undefined,
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,

@@ -60,6 +60,7 @@ function qualifiesForDebtSection(level, isVip) {
 }
 
 function applyAutoDebtSection(client, card, loyalty) {
+  if (inferLevelAssignMode(client, card) === 'manual') return
   const level = client?.level || card?.level || 'basic'
   const isVip = !!(client?.vip || card?.vip)
   if (!qualifiesForDebtSection(level, isVip)) return

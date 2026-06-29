@@ -431,11 +431,14 @@ export function resolveEffectiveDebtLimit(
     vip?: boolean
     debtLimit?: number
     debtEnabled?: boolean
+    levelAssignMode?: 'auto' | 'manual'
   },
   cfg = loadLoyaltyStatusConfig(),
 ): number {
   const stored = Math.max(0, Number(user.debtLimit) || 0)
-  const debtOn = qualifiesForDebtSection(user.level, user.vip) || !!user.debtEnabled
+  const debtOn = user.levelAssignMode === 'manual'
+    ? !!user.debtEnabled
+    : (qualifiesForDebtSection(user.level, user.vip) || !!user.debtEnabled)
   if (!debtOn) return stored
   if (stored > 0) return stored
   if (USE_API && !isLoyaltyConfigReady()) return 0

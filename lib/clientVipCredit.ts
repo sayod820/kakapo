@@ -132,6 +132,7 @@ export function getVipCreditState(user?: Partial<StoreUser> | null): VipCreditSt
     vip: !!user?.vip,
     debtLimit: user?.debtLimit,
     debtEnabled: user?.debtEnabled,
+    levelAssignMode: user?.levelAssignMode,
   })
   const isVip = !!user?.vip
   const blocked = !!user?.blocked

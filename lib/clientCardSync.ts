@@ -55,8 +55,12 @@ export async function syncCardDebtLimitsFromLoyaltyConfig(cfg?: LoyaltyStatusCon
     if (card.status !== 'active') continue
     const client = card.clientId ? clientStore.clients.find(c => c.id === card.clientId) : undefined
     const merged = cardLoyaltyFromCard(card, client)
+    const mode = inferLevelAssignMode(card, client)
+    if (mode === 'manual' && !resolveDebtEnabled(card, client)) continue
     const tierLimit = getTierDefaultDebtLimit(merged.level, merged.vip, config)
-    const eligible = qualifiesForDebtSection(merged.level, merged.vip) || merged.debtEnabled
+    const eligible = mode === 'auto'
+      ? qualifiesForDebtSection(merged.level, merged.vip)
+      : resolveDebtEnabled(card, client)
     if (!eligible || tierLimit <= 0) continue
     if (Number(card.debtLimit) === tierLimit) continue
 
@@ -389,13 +393,14 @@ export async function saveCardLoyalty(
   const modeChanged = assignMode !== prevMode
   const levelChanged = resolvedLevel !== prevLevel
   const tierLimit = getTierDefaultDebtLimit(resolvedLevel, !!form.vip)
-  const debtEligible = qualifiesForDebtSection(resolvedLevel, !!form.vip) || !!form.debtEnabled
+  const resolvedDebtEnabled = assignMode === 'auto'
+    ? qualifiesForDebtSection(resolvedLevel, !!form.vip)
+    : !!form.debtEnabled
+  const debtEligible = resolvedDebtEnabled
   const formLimit = Math.max(0, Number(form.debtLimit) || 0)
   const resolvedDebtLimit = formLimit > 0
     ? formLimit
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
-  const resolvedDebtEnabled = qualifiesForDebtSection(resolvedLevel, !!form.vip)
-    || (assignMode === 'manual' && !!form.debtEnabled)
 
   let termDays = form.levelTermDays
   const adminExplicitTerm = typeof form.levelTermDays === 'number' ? form.levelTermDays : undefined
@@ -626,7 +631,8 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
   }
 
   const clearManualLock = manualLockMonth || untilExpired
-  const debtPatch = qualifiesForDebtSection(nextLevel, nextVip)
+  const nextAssignMode = (clearManualLock && assignMode === 'manual') ? 'auto' as const : assignMode
+  const debtPatch = nextAssignMode === 'auto' && qualifiesForDebtSection(nextLevel, nextVip)
     ? {
         debtEnabled: true as const,
         ...(getTierDefaultDebtLimit(nextLevel, nextVip) > 0
@@ -639,7 +645,7 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
     loyaltyPeriod: period,
     levelLockedPeriod: clearManualLock ? undefined : (card?.levelLockedPeriod || client?.levelLockedPeriod),
     levelValidUntil: untilExpired ? undefined : levelValidUntil,
-    levelAssignMode: (clearManualLock && assignMode === 'manual') ? 'auto' as const : assignMode,
+    levelAssignMode: nextAssignMode,
     vip: nextVip,
     vipUntil: nextVip && vipUntil && Date.now() <= new Date(vipUntil).getTime() ? vipUntil : undefined,
     ...debtPatch,

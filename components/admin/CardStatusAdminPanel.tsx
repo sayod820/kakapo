@@ -566,7 +566,7 @@ export default function CardStatusAdminPanel() {
                           {autoDebtOn ? '✓ авто' : '—'}
                         </div>
                       ) : (
-                        <Tog on={st.debtEnabled} set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled })} />
+                        <Tog on={st.debtEnabled} set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled, levelAssignMode: 'manual' })} />
                       )}
                     </td>
                     <td style={{ fontSize: 11, fontWeight: 700, minWidth: 72 }}>
