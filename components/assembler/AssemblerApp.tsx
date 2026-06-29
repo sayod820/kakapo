@@ -488,12 +488,16 @@ function BottomNav({page, onPage, newCount}) {
    DASHBOARD
 ══════════════════════════════════════════════════════ */
 function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, onHandoff, onPage, assemblerName, onLogout, onAcknowledgeCancel}) {
+  const isReadyHandoff = (o) => o.queue === 'ready' || o.queue === 'courier_assigned'
   const poolQueue = orders.filter(o => o.queue === 'pool' || !o.claimed);
   const myQueue = orders.filter(o => o.claimed && o.queue !== 'pool');
+  const myActiveQueue = myQueue.filter(o => !isReadyHandoff(o));
+  const readyQueue = myQueue.filter(o => isReadyHandoff(o));
+  const workCount = poolQueue.length + myActiveQueue.length;
   const urgentPool = poolQueue.filter(o => o.priority === 'urgent');
   const normalPool = poolQueue.filter(o => o.priority !== 'urgent');
-  const urgentMy = myQueue.filter(o => o.priority === 'urgent');
-  const normalMy = myQueue.filter(o => o.priority !== 'urgent');
+  const urgentMy = myActiveQueue.filter(o => o.priority === 'urgent');
+  const normalMy = myActiveQueue.filter(o => o.priority !== 'urgent');
 
   const PCard = ({order, i, isPool, isCancelled}) => {
     const doneCount = order.items.filter(it=>it.done).length;
@@ -661,7 +665,7 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
 
   return (
     <div style={{minHeight:'100vh',paddingBottom:90}}>
-      <Header title="Сборщик" sub={`${assemblerName} · ${orders.length} заказов`}
+      <Header title="Сборщик" sub={`${assemblerName} · ${workCount} в работе${readyQueue.length ? ` · ${readyQueue.length} готовых` : ''}`}
         right={
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 11px',borderRadius:10,background:'rgba(155,109,255,.1)',border:'1px solid rgba(155,109,255,.25)'}}>
@@ -677,9 +681,9 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
         {/* Stats row */}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:18}}>
           {[
-            {l:'На очереди',  v:orders.length,   c:'#9B6DFF'},
-            {l:'Собрано сегодня',v:completed+HISTORY_DATA.length,c:'#1FD760'},
-            {l:'Ср. время',   v:'7 мин',          c:'#FFB800'},
+            {l:'На очереди',  v:workCount,   c:'#9B6DFF'},
+            {l:'Готовые',     v:readyQueue.length, c:'#1FD760'},
+            {l:'Собрано сегодня',v:completed+HISTORY_DATA.length,c:'#FFB800'},
           ].map((s,i)=>(
             <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'13px 10px',textAlign:'center',animation:`fadeUp .4s ease ${i*.06}s both`}}>
               <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:s.c,marginBottom:3}}>{s.v}</div>
@@ -688,7 +692,7 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
           ))}
         </div>
 
-        {orders.length===0 && cancelledOrders.length===0 ?(
+        {workCount===0 && readyQueue.length===0 && cancelledOrders.length===0 ?(
           <div style={{textAlign:'center',paddingTop:60,animation:'fadeIn .6s ease'}}>
             <div style={{fontSize:64,marginBottom:16,animation:'pulse 2s ease-in-out infinite'}}>🎉</div>
             <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,marginBottom:8,color:'#9B6DFF'}}>Все заказы собраны!</div>
@@ -712,9 +716,9 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
                 </div>
               </div>
             )}
-            {myQueue.length > 0 && (
+            {myActiveQueue.length > 0 && (
               <div>
-                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#9B6DFF', marginTop: poolQueue.length ? 8 : 0 }}>📦 Мои заказы ({myQueue.length})</div>
+                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#9B6DFF', marginTop: poolQueue.length ? 8 : 0 }}>📦 Мои заказы ({myActiveQueue.length})</div>
                 {urgentMy.length > 0 && (
                   <div style={{ marginBottom:12 }}>
                     <div style={{ fontSize:11, fontWeight:800, marginBottom:8, color:'#FF4545' }}>⚡ Срочные</div>
@@ -728,6 +732,14 @@ function DashboardPage({orders, cancelledOrders, completed, onStart, onAccept, o
                     {normalMy.map((o, i) => <PCard key={o.id} order={o} i={i + urgentMy.length} />)}
                   </div>
                 )}
+              </div>
+            )}
+            {readyQueue.length > 0 && (
+              <div style={{ marginTop: myActiveQueue.length || poolQueue.length ? 18 : 0 }}>
+                <div style={{ fontFamily:'Unbounded', fontSize:13, fontWeight:800, marginBottom:10, color:'#1FD760' }}>✅ Готовые заказы ({readyQueue.length})</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {readyQueue.map((o, i) => <PCard key={o.id} order={o} i={i} />)}
+                </div>
               </div>
             )}
           </>

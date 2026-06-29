@@ -483,6 +483,8 @@ function BottomNav({page, onPage, newOrders, reviewBadge}) {
 ══════════════════════════════════════════════════════ */
 function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOpen, onPage, onLogout, hasAlert}) {
   const todayOrders   = orders.filter(o=>o.status!=='delivered' && o.status!=='cancelled');
+  const workOrders    = todayOrders.filter(o=>o.status==='new' || o.status==='cooking');
+  const readyOrders   = todayOrders.filter(o=>o.status==='ready');
   const doneToday     = orders.filter(o=>o.status==='delivered').length;
   const revenue       = orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+o.total,0);
   const newOrders     = orders.filter(o=>o.status==='new').length;
@@ -548,31 +550,58 @@ function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOp
         </div>
 
         {/* Active orders */}
-        {todayOrders.length>0&&(
+        {(workOrders.length>0 || readyOrders.length>0)&&(
           <>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800}}>Активные заказы</div>
-              <button onClick={()=>onPage('orders')} className="btn" style={{fontSize:12,color:'#1FD760',background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',borderRadius:10,padding:'5px 12px',fontFamily:'Nunito',fontWeight:700}}>Все →</button>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              {todayOrders.slice(0,3).map((o,i)=>{
-                const sc = {new:{l:'Новый',c:'#FF4545'},cooking:{l:'Готовится',c:'#FFB800'},ready:{l:'Готово!',c:'#1FD760'}};
-                const s = sc[o.status]||{l:o.status,c:'#8FB897'};
-                return (
-                  <div key={o.id} onClick={()=>onPage('orders')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 14px',background:'#091508',border:`1px solid ${s.c}28`,borderRadius:14,cursor:'pointer',animation:`fadeUp .4s ease ${i*.07}s both`}}>
-                    <div style={{width:8,height:8,borderRadius:'50%',background:s.c,flexShrink:0,animation:o.status==='new'?'pulse 1.5s infinite':'none'}}/>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:700,marginBottom:1}}>{o.id} · {o.client}</div>
-                      <div style={{fontSize:11,color:'#8FB897'}}>{o.items.map(it=>it.name).join(', ')}</div>
+            {workOrders.length>0&&(
+              <>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                  <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800}}>В работе ({workOrders.length})</div>
+                  <button onClick={()=>onPage('orders')} className="btn" style={{fontSize:12,color:'#FFB800',background:'rgba(255,184,0,.1)',border:'1px solid rgba(255,184,0,.25)',borderRadius:10,padding:'5px 12px',fontFamily:'Nunito',fontWeight:700}}>Все →</button>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:readyOrders.length?16:0}}>
+                  {workOrders.slice(0,3).map((o,i)=>{
+                    const sc = {new:{l:'Новый',c:'#FF4545'},cooking:{l:'Готовится',c:'#FFB800'}};
+                    const s = sc[o.status]||{l:o.status,c:'#8FB897'};
+                    return (
+                      <div key={o.id} onClick={()=>onPage('orders')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 14px',background:'#091508',border:`1px solid ${s.c}28`,borderRadius:14,cursor:'pointer',animation:`fadeUp .4s ease ${i*.07}s both`}}>
+                        <div style={{width:8,height:8,borderRadius:'50%',background:s.c,flexShrink:0,animation:o.status==='new'?'pulse 1.5s infinite':'none'}}/>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:700,marginBottom:1}}>{o.id} · {o.client}</div>
+                          <div style={{fontSize:11,color:'#8FB897'}}>{o.items.map(it=>it.name).join(', ')}</div>
+                        </div>
+                        <div style={{textAlign:'right'}}>
+                          <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900}}>{o.total} <span style={{fontSize:10,color:'#FFB800'}}>ЅМ</span></div>
+                          <span style={{fontSize:10,fontWeight:800,color:s.c}}>{s.l}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            {readyOrders.length>0&&(
+              <>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                  <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,color:'#1FD760'}}>Готовые ({readyOrders.length})</div>
+                  <button onClick={()=>onPage('orders')} className="btn" style={{fontSize:12,color:'#1FD760',background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',borderRadius:10,padding:'5px 12px',fontFamily:'Nunito',fontWeight:700}}>Все →</button>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                  {readyOrders.slice(0,3).map((o,i)=>(
+                    <div key={o.id} onClick={()=>onPage('orders')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 14px',background:'#091508',border:'1px solid rgba(31,215,96,.28)',borderRadius:14,cursor:'pointer',animation:`fadeUp .4s ease ${i*.07}s both`}}>
+                      <div style={{width:8,height:8,borderRadius:'50%',background:'#1FD760',flexShrink:0}}/>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:700,marginBottom:1}}>{o.id} · {o.client}</div>
+                        <div style={{fontSize:11,color:'#8FB897'}}>{o.items.map(it=>it.name).join(', ')}</div>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900}}>{o.total} <span style={{fontSize:10,color:'#FFB800'}}>ЅМ</span></div>
+                        <span style={{fontSize:10,fontWeight:800,color:'#1FD760'}}>Готово!</span>
+                      </div>
                     </div>
-                    <div style={{textAlign:'right'}}>
-                      <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900}}>{o.total} <span style={{fontSize:10,color:'#FFB800'}}>ЅМ</span></div>
-                      <span style={{fontSize:10,fontWeight:800,color:s.c}}>{s.l}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -586,12 +615,33 @@ function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOp
    ЗАКАЗЫ
 ══════════════════════════════════════════════════════ */
 function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, reviewBadge = 0}) {
-  const [filter, setFilter] = useState('active');
+  const [filter, setFilter] = useState('work');
   const newOrders = orders.filter(o=>o.status==='new').length;
 
-  const filtered = filter==='active'
-    ? orders.filter(o=>o.status!=='delivered' && o.status!=='cancelled')
-    : orders.filter(o=>o.status==='delivered').sort((a,b)=>String(b.time).localeCompare(String(a.time)));
+  const isOrderReady = (o) => {
+    if (o.status !== 'ready') return false
+    const raw = apiOrders.find(x => x.id === o.id)
+    const pickupId = rest ? restIdToPickupId(rest.id) : ''
+    const handedOff = pickupId ? (raw?.pickedUpIds || []).includes(pickupId) : false
+    return !handedOff
+  }
+  const isOrderInWork = (o) => o.status === 'new' || o.status === 'cooking'
+
+  const workOrders = orders.filter(isOrderInWork)
+  const readyOrders = orders.filter(isOrderReady)
+  const doneOrders = orders.filter(o => o.status === 'delivered')
+
+  const filtered = filter === 'work'
+    ? workOrders
+    : filter === 'ready'
+      ? readyOrders
+      : doneOrders.sort((a,b)=>String(b.time).localeCompare(String(a.time)));
+
+  const emptyMsg = filter === 'work'
+    ? 'Нет заказов в работе'
+    : filter === 'ready'
+      ? 'Нет готовых заказов'
+      : 'Ещё нет доставленных заказов'
 
   const SC = {
     new:      {l:'Новый',     c:'#FF4545',  next:'cooking',  nextL:'✓ Принять и начать готовить'},
@@ -608,9 +658,13 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
 
       <div style={{padding:'14px 18px 0'}}>
         <div style={{display:'flex',gap:8,marginBottom:14}}>
-          {[{id:'active',l:`Активные (${orders.filter(o=>o.status!=='delivered').length})`},{id:'done',l:`Доставлено (${orders.filter(o=>o.status==='delivered').length})`}].map(f=>(
+          {[
+            {id:'work',l:`В работе (${workOrders.length})`,accent:'#FFB800'},
+            {id:'ready',l:`Готовые (${readyOrders.length})`,accent:'#1FD760'},
+            {id:'done',l:`Доставлено (${doneOrders.length})`,accent:'#3B8EF0'},
+          ].map(f=>(
             <button key={f.id} onClick={()=>setFilter(f.id)} className="btn"
-              style={{flex:1,padding:'10px',borderRadius:12,fontSize:12,fontWeight:700,border:`1.5px solid ${filter===f.id?'rgba(31,215,96,.38)':'#162B1A'}`,background:filter===f.id?'rgba(31,215,96,.12)':'#0C1C0F',color:filter===f.id?'#1FD760':'#8FB897',fontFamily:'Nunito'}}>
+              style={{flex:1,padding:'10px 8px',borderRadius:12,fontSize:11,fontWeight:700,border:`1.5px solid ${filter===f.id?`${f.accent}66`:'#162B1A'}`,background:filter===f.id?`${f.accent}1F`:'#0C1C0F',color:filter===f.id?f.accent:'#8FB897',fontFamily:'Nunito'}}>
               {f.l}
             </button>
           ))}
@@ -740,7 +794,7 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
           <div style={{textAlign:'center',paddingTop:40}}>
             <div style={{fontSize:48,marginBottom:12}}>📭</div>
             <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:800,marginBottom:6}}>Заказов нет</div>
-            <div style={{fontSize:12,color:'#8FB897'}}>{filter==='active'?'Все заказы выполнены!':'Ещё нет доставленных заказов'}</div>
+            <div style={{fontSize:12,color:'#8FB897'}}>{emptyMsg}</div>
           </div>
         )}
       </div>
