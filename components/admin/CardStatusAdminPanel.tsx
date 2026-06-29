@@ -15,11 +15,12 @@ import { USE_API } from '@/lib/config'
 import { refreshLoyaltyTiersFromConfig } from '@/lib/clientLoyalty'
 import type { ClientLevel } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
-import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch } from '@/lib/cardCrm'
+import { mergeCardsWithClients, cardMatchesSearch, cardNumsMatch, qualifiesForDebtSection } from '@/lib/cardCrm'
 import { getManualLoyaltyForCard, applyManualLoyaltyToCard } from '@/lib/loyaltySaveGuard'
 import { saveCardLoyalty, cardLoyaltyFromCard, syncCardDebtLimitsFromLoyaltyConfig, earnedAutoLevelForClient } from '@/lib/clientCardSync'
 import { useOrders } from '@/lib/store'
-import { formatAdminLevelExpiry, formatAdminVipExpiry, formatLevelLockLabel, isLevelLocked, inferVipTermDays, inferLevelAssignMode, VIP_PERMANENT_DAYS, AUTO_LEVEL_DEFAULT_TERM_DAYS, vipUntilForTermDays, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
+import { formatAdminLevelExpiry, formatAdminVipExpiry, formatLevelLockLabel, isLevelLocked, inferVipTermDays, inferLevelAssignMode, VIP_PERMANENT_DAYS, AUTO_LEVEL_DEFAULT_TERM_DAYS, vipUntilForTermDays, qualifiesAutoVip, type LevelAssignMode } from '@/lib/loyaltyAdminLock'
+import { loyaltyStatsFromOrders } from '@/lib/clientCrm'
 import { useCards, useCardStore } from '@/lib/cardStore'
 import { useClients, useClientStore } from '@/lib/clientStore'
 
@@ -443,6 +444,14 @@ export default function CardStatusAdminPanel() {
                 }
                 const levelExpiry = formatAdminLevelExpiry(lockRecord)
                 const vipExpiry = formatAdminVipExpiry({ ...card, vip: st.vip })
+                const phone = card.phone || client?.phone || ''
+                const autoStats = isAuto && phone
+                  ? loyaltyStatsFromOrders(orders, phone, undefined, client)
+                  : null
+                const autoVipEligible = autoStats
+                  ? qualifiesAutoVip(autoStats.spent, autoStats.orderCount, client?.reviews ?? 0)
+                  : false
+                const autoDebtOn = isAuto && qualifiesForDebtSection(autoLevel, st.vip || autoVipEligible)
                 return (
                   <tr key={card.num}>
                     <td>
@@ -516,28 +525,49 @@ export default function CardStatusAdminPanel() {
                       </select>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
-                        <Tog on={st.vip} set={() => !st.saving && applyStatus(card.num, { vip: !st.vip, vipDays: st.vip ? st.vipDays : VIP_PERMANENT_DAYS })} />
-                        {st.vip && (
-                          <>
-                            <select
-                              className="ai"
-                              value={String(st.vipDays)}
-                              onChange={e => applyStatus(card.num, { vip: true, vipDays: Number(e.target.value) })}
-                              disabled={st.saving}
-                              style={{ fontSize: 10, padding: '4px 6px', minWidth: 120 }}
-                            >
-                              {VIP_TERM_OPTIONS.map(o => (
-                                <option key={o.days} value={o.days}>{o.label}</option>
-                              ))}
-                            </select>
-                            <div style={{ fontSize: 9, color: '#8FB897' }}>{vipExpiry}</div>
-                          </>
-                        )}
-                      </div>
+                      {isAuto ? (
+                        <div style={{ fontSize: 11, color: '#8FB897', padding: '6px 0' }}>
+                          {st.vip ? (
+                            <>
+                              <span style={{ color: '#FFB800', fontWeight: 700 }}>👑 вкл</span>
+                              <div style={{ fontSize: 9, marginTop: 4 }}>{vipExpiry}</div>
+                            </>
+                          ) : autoVipEligible ? (
+                            <span style={{ color: '#1FD760' }}>по условиям ✓</span>
+                          ) : (
+                            <span style={{ color: '#3D6645' }}>по условиям</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+                          <Tog on={st.vip} set={() => !st.saving && applyStatus(card.num, { vip: !st.vip, vipDays: st.vip ? st.vipDays : VIP_PERMANENT_DAYS })} />
+                          {st.vip && (
+                            <>
+                              <select
+                                className="ai"
+                                value={String(st.vipDays)}
+                                onChange={e => applyStatus(card.num, { vip: true, vipDays: Number(e.target.value) })}
+                                disabled={st.saving}
+                                style={{ fontSize: 10, padding: '4px 6px', minWidth: 120 }}
+                              >
+                                {VIP_TERM_OPTIONS.map(o => (
+                                  <option key={o.days} value={o.days}>{o.label}</option>
+                                ))}
+                              </select>
+                              <div style={{ fontSize: 9, color: '#8FB897' }}>{vipExpiry}</div>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td>
-                      <Tog on={st.debtEnabled} set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled })} />
+                      {isAuto ? (
+                        <div style={{ fontSize: 11, padding: '6px 0', color: autoDebtOn ? '#1FD760' : '#3D6645', fontWeight: autoDebtOn ? 700 : 400 }}>
+                          {autoDebtOn ? '✓ авто' : '—'}
+                        </div>
+                      ) : (
+                        <Tog on={st.debtEnabled} set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled })} />
+                      )}
                     </td>
                     <td style={{ fontSize: 11, fontWeight: 700, minWidth: 72 }}>
                       {st.saving ? <span style={{ color: '#FFB800' }}>Сохраняем…</span>

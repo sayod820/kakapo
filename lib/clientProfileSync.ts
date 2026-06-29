@@ -11,7 +11,7 @@ import {
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
-import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, memberSinceDate, type AdminCard } from './cardCrm'
+import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, qualifiesForDebtSection, memberSinceDate, type AdminCard } from './cardCrm'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 import {
@@ -177,7 +177,7 @@ export function crmToStoreUser(c: AdminClient, card?: AdminCard | null): CrmStor
     card: c.card || '',
     debt: c.debt || 0,
     debtLimit: Math.max(0, Number(c.debtLimit) || 0),
-    debtEnabled: !!c.debtEnabled,
+    debtEnabled: resolveDebtEnabled(card ?? undefined, c),
     blocked: !!c.blocked,
     loyaltyPeriod: c.loyaltyPeriod,
     levelLockedPeriod: c.levelLockedPeriod,
@@ -207,7 +207,7 @@ function buildClientFromCard(card: AdminCard): AdminClient {
     debtLimit: card.debtLimit,
     blocked: card.status === 'blocked',
     vip: !!card.vip,
-    debtEnabled: !!card.debtEnabled,
+    debtEnabled: resolveDebtEnabled(card),
     loyaltyPeriod: card.loyaltyPeriod,
     levelLockedPeriod: card.levelLockedPeriod,
     levelAssignMode: card.levelAssignMode,

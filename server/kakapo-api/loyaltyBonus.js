@@ -55,14 +55,30 @@ export function getTierDefaultDebtLimit(level, isVip, loyalty = DEFAULT_LOYALTY)
   return 0
 }
 
+function qualifiesForDebtSection(level, isVip) {
+  return !!isVip || level === 'gold' || level === 'platinum'
+}
+
+function applyAutoDebtSection(client, card, loyalty) {
+  const level = client?.level || card?.level || 'basic'
+  const isVip = !!(client?.vip || card?.vip)
+  if (!qualifiesForDebtSection(level, isVip)) return
+  client.debtEnabled = true
+  if (card) card.debtEnabled = true
+  const limit = getTierDefaultDebtLimit(level, isVip, loyalty)
+  if (limit > 0) {
+    client.debtLimit = limit
+    if (card) card.debtLimit = limit
+  }
+}
+
 export function syncCardDebtLimitsFromLoyalty(db, syncClientFromCardRow) {
   const loyalty = ensureLoyaltySettings(db)
   for (const card of db.cards || []) {
     if (card.status !== 'active') continue
     const isVip = !!card.vip
-    const debtEnabled = !!card.debtEnabled
     const level = card.level
-    if (!isVip && !debtEnabled && level !== 'gold' && level !== 'platinum') continue
+    if (!qualifiesForDebtSection(level, isVip) && !card.debtEnabled) continue
     const tierLimit = getTierDefaultDebtLimit(level, isVip, loyalty)
     if (tierLimit <= 0) continue
     if (Number(card.debtLimit) === tierLimit) continue
@@ -382,6 +398,7 @@ function applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty) {
       card.levelValidUntil = client.levelValidUntil
     }
   }
+  applyAutoDebtSection(client, card, loyalty)
 }
 
 function isForcedVipActive(client) {
@@ -561,6 +578,8 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
     applyLevelUpgrade(db, phone, client, card, orderPeriod, loyalty)
   }
+
+  applyAutoDebtSection(client, card, loyalty)
 
   const earned = earnBonusForOrder(db, phone, order, client, card, loyalty)
 

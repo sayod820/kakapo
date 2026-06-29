@@ -3,6 +3,7 @@
 import { USE_API } from './config'
 
 import type { ClientLevel } from './clientCrm'
+import { qualifiesForDebtSection } from './clientCrm'
 
 export type LoyaltyTierId = ClientLevel | 'vip'
 
@@ -434,7 +435,8 @@ export function resolveEffectiveDebtLimit(
   cfg = loadLoyaltyStatusConfig(),
 ): number {
   const stored = Math.max(0, Number(user.debtLimit) || 0)
-  if (!user.debtEnabled && !user.vip) return stored
+  const debtOn = qualifiesForDebtSection(user.level, user.vip) || !!user.debtEnabled
+  if (!debtOn) return stored
   if (stored > 0) return stored
   if (USE_API && !isLoyaltyConfigReady()) return 0
   return getTierDefaultDebtLimit(user.level, !!user.vip, cfg)

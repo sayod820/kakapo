@@ -61,6 +61,13 @@ export interface AdminClient {
   wishedUpdatedAt?: string
 }
 
+export function qualifiesForDebtSection(
+  level?: ClientLevel | '' | null,
+  vip?: boolean,
+): boolean {
+  return !!vip || level === 'gold' || level === 'platinum'
+}
+
 /** Маркеры в note для старого backend без accountStatus / delete API */
 export const RECOVERY_NOTE_PREFIX = 'kakapo-recovery'
 export const PURGED_NOTE = 'kakapo-purged'
@@ -225,7 +232,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
     vip: !!raw.vip || vipFromNote(raw.note),
-    debtEnabled: raw.debtEnabled === true
+    debtEnabled: (!!raw.vip || vipFromNote(raw.note) || level === 'gold' || level === 'platinum')
+      || raw.debtEnabled === true
       || debtFromNote(raw.note)
       || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0)),
     note: raw.note || '',
