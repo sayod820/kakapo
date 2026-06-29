@@ -316,6 +316,8 @@ function AssemblerAppInner() {
     setOrdersTab('ready');
     navigate('dashboard');
   };
+
+  const handoffToCourier = async (orderId: string) => {
     const raw = apiOrders.find(o => o.id === orderId);
     if (!raw) return;
     const order = normalizeOrder(raw);
