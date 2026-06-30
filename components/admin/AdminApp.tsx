@@ -2536,6 +2536,27 @@ function CouriersPage() {
   const [depositNote, setDepositNote] = useState('');
   const [depositErr, setDepositErr] = useState('');
   const [depositing, setDepositing] = useState(false);
+  const [section, setSection] = useState<'list' | 'wallet'>('list');
+  const [commissionInput, setCommissionInput] = useState('');
+  const [commissionSaving, setCommissionSaving] = useState(false);
+  const [commissionSaved, setCommissionSaved] = useState(false);
+  const [commissionErr, setCommissionErr] = useState('');
+
+  const walletSummary = useMemo(() => {
+    let totalBalance = 0;
+    let lowCount = 0;
+    for (const c of couriers) {
+      const balance = getCourierBalance(c);
+      const commission = getCourierCommissionPerOrder(tariff, c);
+      totalBalance += balance;
+      if (commission > 0 && balance + 0.001 < commission) lowCount += 1;
+    }
+    return { totalBalance, lowCount };
+  }, [couriers, tariff]);
+
+  useEffect(() => {
+    setCommissionInput(String(tariff.courierCommissionPerOrder ?? DEFAULT_PRICING.courierCommissionPerOrder ?? 5));
+  }, [tariff.courierCommissionPerOrder]);
 
   const SC: Record<CourierStatus, { l: string; c: string }> = {
     available: { l: 'Свободен', c: '#1FD760' },
@@ -2601,17 +2622,38 @@ function CouriersPage() {
     setForm(prev => ({ ...prev, [key]: val }));
 
   const openDeposit = (c: AdminCourier) => {
+    setSection('wallet');
     setDepositId(c.id);
     setDepositAmount('');
     setDepositNote('');
     setDepositErr('');
   };
 
-  const closeDeposit = () => {
-    setDepositId(null);
-    setDepositAmount('');
-    setDepositNote('');
-    setDepositErr('');
+  const saveCommissionTariff = async () => {
+    const val = Math.max(0, parseFloat(commissionInput) || 0);
+    setCommissionSaving(true);
+    setCommissionErr('');
+    setCommissionSaved(false);
+    try {
+      const next = normalizePricing({ ...tariff, courierCommissionPerOrder: val });
+      if (USE_API) {
+        const saved = await api.updatePricing(next);
+        usePricingStore.setState({ pricing: normalizePricing({ ...DEFAULT_PRICING, ...saved }) });
+        try {
+          if (typeof BroadcastChannel !== 'undefined') {
+            new BroadcastChannel('kakapo-pricing').postMessage({ type: 'update', pricing: saved });
+          }
+        } catch { /* ignore */ }
+      } else {
+        usePricingStore.getState().setPricing({ courierCommissionPerOrder: val });
+      }
+      setCommissionSaved(true);
+      setTimeout(() => setCommissionSaved(false), 2500);
+    } catch (e: unknown) {
+      setCommissionErr(e instanceof Error ? e.message : 'Не удалось сохранить тариф');
+    } finally {
+      setCommissionSaving(false);
+    }
   };
 
   const submitDeposit = async () => {
@@ -2625,7 +2667,9 @@ function CouriersPage() {
     setDepositErr('');
     try {
       await depositBalance(depositId, amount, depositNote.trim() || 'Пополнение счёта');
-      closeDeposit();
+      setDepositAmount('');
+      setDepositNote('');
+      setDepositErr('');
     } catch (e: unknown) {
       setDepositErr(e instanceof Error ? e.message : 'Не удалось пополнить счёт');
     } finally {
@@ -2668,15 +2712,197 @@ function CouriersPage() {
         <StatCard l="В заказе" v={couriers.filter(c => c.status === 'busy').length} c="#FFB800" />
         <StatCard l="Офлайн" v={couriers.filter(c => c.status === 'offline' || c.blocked).length} c="#3D6645" />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 14 }}>
         <StatCard l="Доставок" v={reportSummary.deliveries} c="#3B8EF0" e="📦" />
         <StatCard l="Выплаты курьерам" v={`${formatSm(reportSummary.totalEarnings)}`} c="#FFB800" e="💰" />
         <StatCard l="Ср. за доставку" v={`${formatSm(reportSummary.avgPerDelivery)}`} c="#1FD760" e="📊" />
         <StatCard l="Оплата клиентами" v={`${formatSm(clientDeliveryTotal)}`} c="#00D4C8" e="🛵" sub="только доставка" />
-        </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button onClick={openAdd} className="ab abp" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>+ Добавить курьера</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {([
+          ['list', '🛵', 'Список курьеров'],
+          ['wallet', '💳', 'Счёт и комиссия'],
+        ] as const).map(([id, icon, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setSection(id)}
+            className="ab"
+            style={{
+              padding: '9px 16px',
+              fontSize: 12,
+              fontWeight: 700,
+              borderRadius: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              background: section === id ? 'rgba(59,142,240,.14)' : '#0C1C0F',
+              border: `1.5px solid ${section === id ? 'rgba(59,142,240,.45)' : '#162B1A'}`,
+              color: section === id ? '#3B8EF0' : '#8FB897',
+            }}
+          >
+            {icon} {label}
+            {id === 'wallet' && walletSummary.lowCount > 0 && (
+              <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#FF4545', color: 'white', fontSize: 10, fontWeight: 900, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                {walletSummary.lowCount}
+              </span>
+            )}
+          </button>
+        ))}
+        {section === 'list' && (
+          <button onClick={openAdd} className="ab abp" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', fontSize: 12 }}>
+            + Добавить курьера
+          </button>
+        )}
+      </div>
+
+      {section === 'wallet' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, marginBottom: 18 }}>
+          {/* Тариф комиссии */}
+          <div className="ac" style={{ padding: 16 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>⚙️ Тариф комиссии</div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 14, lineHeight: 1.45 }}>
+              Списывается со счёта курьера при принятии заказа. Действует для всех, у кого нет индивидуальной комиссии.
+            </div>
+            <div style={{ background: '#091508', border: '1px solid #162B1A', borderRadius: 14, padding: '14px 16px', marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 8 }}>Комиссия за заказ, ЅМ</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className="ai"
+                  value={commissionInput}
+                  onChange={e => { setCommissionInput(e.target.value); setCommissionErr(''); setCommissionSaved(false); }}
+                  style={{ flex: 1, textAlign: 'center', fontSize: 22, fontWeight: 900, fontFamily: 'Unbounded, sans-serif' }}
+                />
+                <span style={{ fontSize: 12, color: '#3D6645', fontWeight: 700 }}>ЅМ</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              {[3, 5, 7, 10].map(n => (
+                <button key={n} type="button" onClick={() => setCommissionInput(String(n))} className="ab abg" style={{ flex: 1, padding: '7px 0', fontSize: 11 }}>
+                  {n} ЅМ
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={saveCommissionTariff} disabled={commissionSaving} className="ab abp" style={{ width: '100%', padding: 11, opacity: commissionSaving ? .7 : 1 }}>
+              {commissionSaved ? '✓ Сохранено' : commissionSaving ? '⏳ Сохраняем…' : '💾 Сохранить тариф'}
+            </button>
+            {commissionErr && <div style={{ marginTop: 8, fontSize: 11, color: '#FF4545' }}>{commissionErr}</div>}
+            <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.06)', border: '1px solid rgba(59,142,240,.15)', fontSize: 10, color: '#8FB897', lineHeight: 1.5 }}>
+              Сейчас: <b style={{ color: '#3B8EF0' }}>{formatSm(defaultCommission)}</b> за заказ ·
+              на счетах курьеров: <b style={{ color: '#EBF5ED' }}>{formatSm(walletSummary.totalBalance)}</b>
+            </div>
           </div>
+
+          {/* Пополнение */}
+          <div className="ac" style={{ padding: 16 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>💳 Пополнение счёта</div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 14 }}>
+              Выберите курьера и сумму — после пополнения он сможет принимать заказы
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 6 }}>Курьер</div>
+              <select
+                className="ai"
+                value={depositId || ''}
+                onChange={e => { setDepositId(e.target.value || null); setDepositErr(''); }}
+                style={{ width: '100%' }}
+              >
+                <option value="">— выберите курьера —</option>
+                {couriers.map(c => {
+                  const bal = getCourierBalance(c);
+                  const comm = getCourierCommissionPerOrder(tariff, c);
+                  const low = comm > 0 && bal + 0.001 < comm;
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {c.name} · {formatSm(bal)}{low ? ' ⚠ мало' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            {depositId && (
+              <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 10, padding: '8px 10px', borderRadius: 10, background: '#091508', border: '1px solid #162B1A' }}>
+                Баланс: <span className="ub" style={{ color: '#3B8EF0', fontWeight: 800 }}>{formatSm(getCourierBalance(couriers.find(c => c.id === depositId)))}</span>
+                {' · '}нужно мин. <span className="ub" style={{ color: '#FFB800', fontWeight: 800 }}>{formatSm(getCourierCommissionPerOrder(tariff, couriers.find(c => c.id === depositId)))}</span> за заказ
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              {[50, 100, 200, 500].map(n => (
+                <button key={n} type="button" onClick={() => setDepositAmount(String(n))} className="ab abg" style={{ flex: 1, padding: '7px 0', fontSize: 11 }}>
+                  +{n}
+                </button>
+              ))}
+            </div>
+            <NI lbl="Сумма пополнения, ЅМ" val={depositAmount} set={setDepositAmount} ph="100" type="number" />
+            <div style={{ marginTop: 10 }}>
+              <NI lbl="Комментарий" val={depositNote} set={setDepositNote} ph="Пополнение счёта" />
+            </div>
+            {depositErr && <div style={{ marginTop: 8, fontSize: 11, color: '#FF4545', fontWeight: 700 }}>{depositErr}</div>}
+            <button type="button" onClick={submitDeposit} disabled={depositing || !depositId} className="ab abp" style={{ width: '100%', padding: 11, marginTop: 12, opacity: depositing || !depositId ? .65 : 1 }}>
+              {depositing ? '⏳ Пополняем…' : '✓ Пополнить счёт'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {section === 'wallet' && (
+        <div className="ac" style={{ marginBottom: 18 }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="ub" style={{ fontSize: 13, fontWeight: 800 }}>Счета всех курьеров</div>
+            <span style={{ fontSize: 11, color: walletSummary.lowCount ? '#FF4545' : '#8FB897' }}>
+              {walletSummary.lowCount ? `${walletSummary.lowCount} с низким балансом` : 'Все могут принимать заказы'}
+            </span>
+          </div>
+          <table className="at">
+            <thead>
+              <tr>
+                <th>Курьер</th>
+                <th>Счёт</th>
+                <th>Комиссия</th>
+                <th>Статус счёта</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {couriers.map(c => {
+                const balance = getCourierBalance(c);
+                const commission = getCourierCommissionPerOrder(tariff, c);
+                const low = commission > 0 && balance + 0.001 < commission;
+                return (
+                  <tr key={c.id}>
+                    <td>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
+                      <div style={{ fontSize: 10, color: '#8FB897' }}>{c.phone}</div>
+                    </td>
+                    <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: low ? '#FF4545' : '#3B8EF0' }}>{formatSm(balance)}</span></td>
+                    <td style={{ fontSize: 12, color: '#8FB897' }}>
+                      {formatSm(commission)}
+                      {c.commissionPerOrder ? <div style={{ fontSize: 9, color: '#3D6645' }}>индивид.</div> : <div style={{ fontSize: 9, color: '#3D6645' }}>тариф</div>}
+                    </td>
+                    <td>
+                      {low
+                        ? <Badge v="Мало средств" c="#FF4545" />
+                        : <Badge v="OK" c="#1FD760" />}
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => openDeposit(c)} className="ab abp" style={{ padding: '5px 12px', fontSize: 11 }}>
+                        💳 Пополнить
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {section === 'list' && (
+      <>
       <div className="ac">
         <table className="at">
           <thead>
@@ -2832,6 +3058,8 @@ function CouriersPage() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
 
       {showAdd && (
         <div className="amod">
@@ -2871,29 +3099,6 @@ function CouriersPage() {
               {formErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{formErr}</div>}
               <button onClick={saveCourier} className="ab abp" style={{ width: '100%', padding: 11 }}>
                 {editId ? '✓ Сохранить' : '✓ Добавить'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {depositId && (
-        <div className="amod">
-          <div className="amodbg" onClick={closeDeposit} />
-          <div className="amodbox" style={{ maxWidth: 380 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>Пополнить счёт курьера</div>
-              <button onClick={closeDeposit} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
-            </div>
-            <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 12 }}>
-              {couriers.find(c => c.id === depositId)?.name} · сейчас {formatSm(getCourierBalance(couriers.find(c => c.id === depositId)))}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-              <NI lbl="Сумма пополнения, ЅМ" val={depositAmount} set={setDepositAmount} ph="100" type="number" />
-              <NI lbl="Комментарий" val={depositNote} set={setDepositNote} ph="Пополнение счёта" />
-              {depositErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{depositErr}</div>}
-              <button onClick={submitDeposit} disabled={depositing} className="ab abp" style={{ width: '100%', padding: 11, opacity: depositing ? .7 : 1 }}>
-                {depositing ? '⏳ Пополняем…' : '✓ Пополнить счёт'}
               </button>
             </div>
           </div>
