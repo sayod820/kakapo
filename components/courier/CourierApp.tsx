@@ -936,6 +936,7 @@ function CourierAppInner() {
   const [walletTx, setWalletTx] = useState<CourierWalletTx[]>([])
   const [walletTxLoading, setWalletTxLoading] = useState(false)
   const [walletHistoryOpen, setWalletHistoryOpen] = useState(false)
+  const walletHistoryRef = useRef<HTMLDivElement>(null)
 
   const loadWalletTx = useCallback(async () => {
     if (!courierProfile?.id) return
@@ -971,7 +972,12 @@ function CourierAppInner() {
   const toggleWalletHistory = useCallback(() => {
     setWalletHistoryOpen(prev => {
       const next = !prev
-      if (next) void loadWalletTx()
+      if (next) {
+        void loadWalletTx()
+        requestAnimationFrame(() => {
+          walletHistoryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      }
       return next
     })
   }, [loadWalletTx])
@@ -1627,19 +1633,8 @@ function CourierAppInner() {
         {/* ═══ ВКЛАДКА СЧЁТ ═══ */}
       {tab==='earnings' && courierProfile && (
           <div style={{ padding:'12px 14px 76px', animation:'fadeUp .4s ease both' }}>
-            <CourierWalletCard
-              account={formatCourierAccountDisplay(courierProfile.account, courierProfile.id)}
-              name={courierDisplayName}
-              balance={walletBalance}
-              lowBalance={walletBalance < orderCommission}
-              commissionLabel={`комиссия ${formatCourierCommissionPercent(commissionPercent)}${orderCommission > 0 ? ` · ~${formatSm(orderCommission)} за заказ` : ''}`}
-              historyCount={walletTx.length}
-              historyOpen={walletHistoryOpen}
-              onToggleHistory={toggleWalletHistory}
-            />
-
             {walletHistoryOpen && (
-            <div style={{ marginBottom: 10, animation: 'fadeUp .3s ease both' }}>
+            <div ref={walletHistoryRef} style={{ marginBottom: 12, animation: 'fadeUp .25s ease both' }}>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, padding:'0 2px' }}>
                 <div className="ub" style={{ fontSize:12, fontWeight:800, color:'#8FB897' }}>Операции по счёту</div>
                 <span style={{ fontSize:10, color:'#5A7A62', fontWeight:600 }}>
@@ -1696,6 +1691,19 @@ function CourierAppInner() {
             </div>
             )}
 
+            <CourierWalletCard
+              account={formatCourierAccountDisplay(courierProfile.account, courierProfile.id)}
+              name={courierDisplayName}
+              balance={walletBalance}
+              lowBalance={walletBalance < orderCommission}
+              commissionLabel={`комиссия ${formatCourierCommissionPercent(commissionPercent)}${orderCommission > 0 ? ` · ~${formatSm(orderCommission)} за заказ` : ''}`}
+              historyCount={walletTx.length}
+              historyOpen={walletHistoryOpen}
+              onToggleHistory={toggleWalletHistory}
+            />
+
+            {!walletHistoryOpen && (
+            <>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
               <div style={{
                 background:'linear-gradient(160deg,#061A10 0%,#0C2618 100%)',
@@ -1763,6 +1771,8 @@ function CourierAppInner() {
               </div>
             ))}
           </div>
+            </>
+            )}
         </div>
       )}
 
