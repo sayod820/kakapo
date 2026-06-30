@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
 import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, COURIER_MAP_VIEW } from '@/lib/courierData'
 import { resolveOrderDeliveryFee, buildDeliveryFeePatch } from '@/lib/deliveryFee'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
@@ -30,6 +30,9 @@ import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { resolveCourierPayment } from '@/lib/courierPayment'
 import { canCourierAffordOrder, getCourierBalance, getCourierCommissionPerOrder, getCourierCommissionPercent, formatCourierCommissionPercent } from '@/lib/courierWallet'
 import { formatCourierAccountDisplay } from '@/lib/courierAccount'
+import { api } from '@/lib/api'
+import type { CourierWalletTx } from '@/lib/courierWalletTx'
+import { formatWalletTxTime, getLocalCourierWalletTransactions, walletTxLabel } from '@/lib/courierWalletTx'
 
 /* ══════════════════════════════════════════════════════
    КАКАПО КУРЬЕР — карта со всеми заказами + список
@@ -71,14 +74,6 @@ function CourierWalletCard({
   lowBalance: boolean
   commissionLabel: string
 }) {
-  const [copied, setCopied] = useState(false)
-  const copyAccount = async () => {
-    try {
-      await navigator.clipboard.writeText(account)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch { /* ignore */ }
-  }
   return (
     <div style={{
       position: 'relative',
@@ -93,28 +88,16 @@ function CourierWalletCard({
       <div style={{ position: 'absolute', top: -30, right: -20, width: 100, height: 100, borderRadius: '50%', background: 'rgba(59,142,240,.12)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: -40, left: -10, width: 120, height: 120, borderRadius: '50%', background: 'rgba(31,215,96,.08)', pointerEvents: 'none' }} />
       <div style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', fontWeight: 700, letterSpacing: .6, textTransform: 'uppercase' }}>KAKAPO · Счёт курьера</div>
             <div className="ub" style={{ fontSize: 22, fontWeight: 900, letterSpacing: 2, marginTop: 6, color: '#EBF5ED' }}>{account}</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,.55)', marginTop: 8 }}>{name}</div>
           </div>
           <div style={{ fontSize: 26, lineHeight: 1 }}>💳</div>
         </div>
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,.55)', marginBottom: 2 }}>{name}</div>
-        <div className="ub" style={{ fontSize: 30, fontWeight: 900, color: lowBalance ? '#FF6969' : '#5BA3FF', lineHeight: 1.1, marginBottom: 4 }}>{formatSm(balance)}</div>
-        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.38)', marginBottom: 12 }}>{commissionLabel}</div>
-        <button type="button" onClick={() => void copyAccount()} className="btn" style={{
-          width: '100%', padding: 10, borderRadius: 11,
-          background: copied ? 'rgba(31,215,96,.18)' : 'rgba(255,255,255,.08)',
-          border: `1px solid ${copied ? 'rgba(31,215,96,.45)' : 'rgba(255,255,255,.15)'}`,
-          color: copied ? '#1FD760' : '#EBF5ED',
-          fontWeight: 800, fontSize: 12,
-        }}>
-          {copied ? '✓ Номер скопирован' : '📋 Скопировать номер для пополнения'}
-        </button>
-        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.35)', textAlign: 'center', marginTop: 8, lineHeight: 1.45 }}>
-          Укажите номер <b style={{ color: 'rgba(255,255,255,.55)' }}>{account}</b> при пополнении в кассе или админке
-        </div>
+        <div className="ub" style={{ fontSize: 30, fontWeight: 900, color: lowBalance ? '#FF6969' : '#5BA3FF', lineHeight: 1.1, marginTop: 14 }}>{formatSm(balance)}</div>
+        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.38)', marginTop: 6 }}>{commissionLabel}</div>
       </div>
     </div>
   )
@@ -913,6 +896,37 @@ function CourierAppInner() {
     [courierProfile],
   );
 
+  const [walletTx, setWalletTx] = useState<CourierWalletTx[]>([])
+  const [walletTxLoading, setWalletTxLoading] = useState(false)
+
+  const loadWalletTx = useCallback(async () => {
+    if (!courierProfile?.id) return
+    if (USE_API) {
+      setWalletTxLoading(true)
+      try {
+        const snap = await api.getCourierWalletTransactions(courierProfile.id)
+        setWalletTx(snap.transactions || [])
+      } catch {
+        setWalletTx([])
+      } finally {
+        setWalletTxLoading(false)
+      }
+    } else {
+      setWalletTx(getLocalCourierWalletTransactions(courierProfile.id))
+    }
+  }, [courierProfile?.id])
+
+  useEffect(() => {
+    if (tab !== 'earnings' || !courierProfile?.id) return
+    void loadWalletTx()
+    void syncCourierTeamFromApi()
+    const poll = setInterval(() => {
+      void syncCourierTeamFromApi()
+      void loadWalletTx()
+    }, 8000)
+    return () => clearInterval(poll)
+  }, [tab, courierProfile?.id, loadWalletTx])
+
   const confirmAccept = async (o: any, route: string[]) => {
     setStatus('busy');
     setSelected(null);
@@ -1594,9 +1608,42 @@ function CourierAppInner() {
 
             {walletBalance < orderCommission && (
               <div style={{ padding:'10px 12px', borderRadius:11, marginBottom:10, background:'rgba(255,69,69,.06)', border:'1px solid rgba(255,69,69,.22)', fontSize:11, color:'#FF8080', fontWeight:600, textAlign:'center', lineHeight:1.45 }}>
-                Недостаточно средств — пополните счёт по номеру {formatCourierAccountDisplay(courierProfile.account, courierProfile.id)}
+                Недостаточно средств — обратитесь к администратору для пополнения счёта {formatCourierAccountDisplay(courierProfile.account, courierProfile.id)}
               </div>
             )}
+
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <div className="ub" style={{ fontSize:13, fontWeight:900 }}>Операции по счёту</div>
+              <span style={{ fontSize:10, color:'#5A7A62', fontWeight:600 }}>
+                {walletTxLoading ? 'синхронизация…' : `${walletTx.length} записей`}
+              </span>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:14 }}>
+              {walletTx.length === 0 && !walletTxLoading ? (
+                <div className="ccard" style={{ padding:'20px 14px', textAlign:'center', color:'#5A7A62', fontSize:11, lineHeight:1.45 }}>
+                  Пополнения и списания появятся здесь после действий администратора
+                </div>
+              ) : walletTx.map((tx) => {
+                const positive = tx.amount >= 0
+                const color = positive ? '#1FD760' : '#FF8080'
+                const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : '📉'
+                return (
+                  <div key={tx.id} className="ccard" style={{ padding:'10px 12px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, borderColor: positive ? 'rgba(31,215,96,.12)' : 'rgba(255,69,69,.12)' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
+                      <div style={{ width:32, height:32, borderRadius:'50%', background:`${color}18`, border:`1px solid ${color}33`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, flexShrink:0 }}>{icon}</div>
+                      <div style={{ minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:800 }}>{walletTxLabel(tx.type)}</div>
+                        <div style={{ fontSize:10, color:'#5A7A62', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>{tx.note || '—'}</div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign:'right', flexShrink:0 }}>
+                      <div className="ub" style={{ fontSize:13, fontWeight:900, color }}>{positive ? '+' : ''}{formatSm(tx.amount)}</div>
+                      <div style={{ fontSize:9, color:'#5A7A62', marginTop:3 }}>{formatWalletTxTime(tx.at)}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
 
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
               {([

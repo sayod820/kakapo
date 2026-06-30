@@ -47,6 +47,7 @@ import {
   depositCourierBalance,
   depositCourierBalanceByAccount,
   normalizeCourierAccount,
+  getCourierWalletTransactions,
 } from './courierWallet.js'
 
 const loyaltyHooks = () => ({
@@ -172,6 +173,21 @@ function broadcastNotification(notification) {
       continue
     }
     if (target && ws.clientPhone === target) ws.send(msg)
+  }
+}
+
+function broadcastCourierWallet(payload = {}) {
+  const msg = JSON.stringify({
+    event: 'courier_wallet_update',
+    wallet: {
+      courierId: payload.courierId || '',
+      account: payload.account || '',
+      balance: payload.balance,
+    },
+  })
+  for (const ws of clients) {
+    if (ws.readyState !== 1) continue
+    if (ws.wsRole === 'admin' || ws.wsRole === 'courier') ws.send(msg)
   }
 }
 
@@ -667,6 +683,22 @@ app.patch('/orders/:id/status', (req, res) => {
   }
   db.orders[idx] = updated
   persist()
+  if (commissionResult.courierId && Number(commissionResult.commission) > 0) {
+    broadcastCourierWallet(commissionResult)
+  }
+  if (updated.status === 'cancelled' && prev.status !== 'cancelled') {
+    const refundedId = updated.courierCommissionCourierId
+    if (refundedId && updated.courierCommissionRefunded) {
+      const c = (db.couriers || []).find(x => x.id === refundedId)
+      if (c) {
+        broadcastCourierWallet({
+          courierId: c.id,
+          account: normalizeCourierAccount(c.account, c.id),
+          balance: Math.max(0, Math.round((Number(c.balance) || 0) * 100) / 100),
+        })
+      }
+    }
+  }
   onOrderStatusChangeServer(prev, db.orders[idx])
   broadcast('order_update', db.orders[idx])
   res.json(db.orders[idx])
@@ -859,13 +891,26 @@ app.post('/couriers/:id/deposit', (req, res) => {
   const result = depositCourierBalance(db, req.params.id, req.body?.amount, req.body?.note)
   if (!result.ok) return res.status(400).json({ detail: result.error })
   persist()
+  broadcastCourierWallet(result)
   res.json(result)
 })
 app.post('/couriers/deposit-by-account', (req, res) => {
   const result = depositCourierBalanceByAccount(db, req.body?.account, req.body?.amount, req.body?.note)
   if (!result.ok) return res.status(400).json({ detail: result.error })
   persist()
+  broadcastCourierWallet(result)
   res.json(result)
+})
+app.get('/couriers/:id/wallet/transactions', (req, res) => {
+  const c = (db.couriers || []).find(x => x.id === req.params.id)
+  if (!c) return res.status(404).json({ detail: 'Курьер не найден' })
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30))
+  res.json({
+    courierId: c.id,
+    account: normalizeCourierAccount(c.account, c.id),
+    balance: Math.max(0, Math.round((Number(c.balance) || 0) * 100) / 100),
+    transactions: getCourierWalletTransactions(db, c.id, limit),
+  })
 })
 
 function normalizeAssemblerRow(raw) {

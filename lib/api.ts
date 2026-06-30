@@ -5,6 +5,7 @@ import type { Order, Product, Restaurant, Category, Promo, RestaurantPayout, Rev
 import type { PickupPoint } from './pickups'
 import type { PricingConfig } from './courierData'
 import type { AdminCourier } from './courierTeam'
+import type { CourierWalletSnapshot } from './courierWalletTx'
 import type { AdminAssembler } from './assemblerTeam'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
@@ -268,10 +269,12 @@ export const api = {
   updateCourier: (id: string, data: Partial<AdminCourier>) =>
     request<AdminCourier>(`/couriers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   depositCourierBalance: (id: string, amount: number, note?: string) =>
-    request<{ ok: boolean; balance: number; added: number }>(`/couriers/${id}/deposit`, {
+    request<{ ok: boolean; balance: number; added: number; courierId?: string; account?: string }>(`/couriers/${id}/deposit`, {
       method: 'POST',
       body: JSON.stringify({ amount, note }),
     }),
+  getCourierWalletTransactions: (id: string, limit = 30) =>
+    request<CourierWalletSnapshot>(`/couriers/${id}/wallet/transactions?limit=${limit}`),
 
   getAssemblers: () => request<AdminAssembler[]>('/assemblers'),
   createAssembler: (data: Partial<AdminAssembler>) =>

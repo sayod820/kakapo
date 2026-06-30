@@ -73,6 +73,20 @@ function isNewCourierAssignment(prev, body) {
   return prevKey !== nextKey
 }
 
+function pushCourierWalletTx(db, row) {
+  if (!db.courierWalletTx) db.courierWalletTx = []
+  db.courierWalletTx.unshift(row)
+  db.courierWalletTx = db.courierWalletTx.slice(0, 500)
+}
+
+export function getCourierWalletTransactions(db, courierId, limit = 30) {
+  const id = String(courierId || '')
+  if (!id) return []
+  return (db.courierWalletTx || [])
+    .filter(t => t.courierId === id)
+    .slice(0, Math.max(1, Math.min(100, limit)))
+}
+
 /** Проверка и списание комиссии при принятии заказа курьером */
 export function applyCourierCommissionOnAccept(db, prev, body) {
   if (!isNewCourierAssignment(prev, body)) return { ok: true }
@@ -87,6 +101,16 @@ export function applyCourierCommissionOnAccept(db, prev, body) {
 
   if (gate.commission > 0) {
     courier.balance = Math.round((gate.balance - gate.commission) * 100) / 100
+    pushCourierWalletTx(db, {
+      id: `CW-${Date.now()}-c`,
+      courierId: courier.id,
+      type: 'commission',
+      amount: -gate.commission,
+      balanceAfter: courier.balance,
+      orderId: prev.id,
+      note: `Комиссия ${gate.percent}% · заказ ${prev.id}`,
+      at: new Date().toISOString(),
+    })
   }
 
   return {
@@ -94,6 +118,7 @@ export function applyCourierCommissionOnAccept(db, prev, body) {
     commission: gate.commission,
     courierId: courier.id,
     balance: courier.balance,
+    account: normalizeCourierAccount(courier.account, courier.id),
   }
 }
 
@@ -113,6 +138,16 @@ export function refundCourierCommission(db, order) {
   if (!courier && order.courier) courier = findCourierByAssignment(db, order.courier)
   if (!courier) return false
   courier.balance = Math.round((getCourierBalance(courier) + paid) * 100) / 100
+  pushCourierWalletTx(db, {
+    id: `CW-${Date.now()}-r`,
+    courierId: courier.id,
+    type: 'refund',
+    amount: paid,
+    balanceAfter: courier.balance,
+    orderId: order.id,
+    note: `Возврат комиссии · ${order.id}`,
+    at: new Date().toISOString(),
+  })
   order.courierCommissionRefunded = true
   return true
 }
@@ -124,8 +159,7 @@ export function depositCourierBalance(db, courierId, amount, note = '') {
   if (add <= 0) return { ok: false, error: 'Укажите сумму пополнения' }
   const prev = getCourierBalance(courier)
   courier.balance = Math.round((prev + add) * 100) / 100
-  if (!db.courierWalletTx) db.courierWalletTx = []
-  db.courierWalletTx.unshift({
+  pushCourierWalletTx(db, {
     id: `CW-${Date.now()}`,
     courierId,
     type: 'deposit',
@@ -134,7 +168,6 @@ export function depositCourierBalance(db, courierId, amount, note = '') {
     note: String(note || '').trim() || 'Пополнение счёта',
     at: new Date().toISOString(),
   })
-  db.courierWalletTx = db.courierWalletTx.slice(0, 500)
   return { ok: true, balance: courier.balance, added: add, courierId: courier.id, account: normalizeCourierAccount(courier.account, courier.id) }
 }
 

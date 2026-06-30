@@ -31,6 +31,10 @@ export function useApiSync(mode: SyncMode = 'all') {
       void syncCardsFromApi()
       return
     }
+    if (msg.event === 'courier_wallet_update') {
+      void syncCourierStoresFromApi()
+      return
+    }
     if (msg.order) {
       const pins = useOrders.getState().orderAdminPins
       const pin = pins[msg.order.id]

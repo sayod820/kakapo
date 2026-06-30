@@ -7,7 +7,8 @@ import {
   normalizeCourier,
   type AdminCourier,
 } from './courierTeam'
-import { nextCourierAccountNumber } from './courierAccount'
+import { nextCourierAccountNumber, formatCourierAccountDisplay } from './courierAccount'
+import { appendLocalCourierWalletTx } from './courierWalletTx'
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const COURIERS_KEY = 'kakapo-couriers'
@@ -110,6 +111,15 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
     if (!c) throw new Error('Курьер не найден')
     const balance = Math.round(((Number(c.balance) || 0) + add) * 100) / 100
     get().updateCourier(id, { balance })
+    appendLocalCourierWalletTx({
+      id: `CW-${Date.now()}`,
+      courierId: id,
+      type: 'deposit',
+      amount: add,
+      balanceAfter: balance,
+      note: note?.trim() || `Пополнение ${formatCourierAccountDisplay(c.account, c.id)}`,
+      at: new Date().toISOString(),
+    })
     return { balance, added: add }
   },
   fetchFromApi: async () => {
