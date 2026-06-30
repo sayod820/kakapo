@@ -2541,12 +2541,10 @@ function CouriersPage() {
   const [depositNote, setDepositNote] = useState('');
   const [depositErr, setDepositErr] = useState('');
   const [depositing, setDepositing] = useState(false);
-  const [depositHistoryOpen, setDepositHistoryOpen] = useState(false);
   const [depositWalletTx, setDepositWalletTx] = useState<(CourierWalletTx & { courierName?: string; account?: string })[]>([]);
   const [depositWalletLoading, setDepositWalletLoading] = useState(false);
-  const [allWalletTx, setAllWalletTx] = useState<(CourierWalletTx & { courierName?: string; account?: string })[]>([]);
-  const [allWalletLoading, setAllWalletLoading] = useState(false);
   const [walletTxFilter, setWalletTxFilter] = useState<'all' | 'deposit' | 'commission' | 'refund'>('all');
+  const [walletSearchQuery, setWalletSearchQuery] = useState('');
   const [section, setSection] = useState<'list' | 'wallet'>('list');
   const [commissionInput, setCommissionInput] = useState('');
   const [commissionSaving, setCommissionSaving] = useState(false);
@@ -2598,36 +2596,22 @@ function CouriersPage() {
     }
   }, [couriers]);
 
-  const loadAllWalletTx = useCallback(async (courierId?: string) => {
-    setAllWalletLoading(true);
-    try {
-      if (USE_API) {
-        const res = await api.listCourierWalletTransactions({ courierId, limit: 50 });
-        setAllWalletTx(res.transactions || []);
-      } else {
-        const list = courierId
-          ? getLocalCourierWalletTransactions(courierId, 50)
-          : couriers.flatMap(c => getLocalCourierWalletTransactions(c.id, 20));
-        setAllWalletTx(list.map(t => {
-          const c = couriers.find(x => x.id === t.courierId);
-          return {
-            ...t,
-            account: formatCourierAccountDisplay(c?.account, t.courierId),
-            courierName: c?.name || '—',
-          };
-        }).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 50));
-      }
-    } catch {
-      setAllWalletTx([]);
-    } finally {
-      setAllWalletLoading(false);
-    }
-  }, [couriers]);
+  const filteredWalletCouriers = useMemo(() => {
+    const q = walletSearchQuery.trim().toLowerCase();
+    if (!q) return couriers;
+    const qDigits = q.replace(/\D/g, '');
+    return couriers.filter(c => {
+      const name = c.name.toLowerCase();
+      const account = formatCourierAccountDisplay(c.account, c.id).toLowerCase();
+      const phone = c.phone.replace(/\D/g, '');
+      return name.includes(q) || account.includes(q) || (qDigits.length > 0 && phone.includes(qDigits));
+    });
+  }, [couriers, walletSearchQuery]);
 
-  useEffect(() => {
-    if (section !== 'wallet') return;
-    void loadAllWalletTx(depositId || undefined);
-  }, [section, depositId, loadAllWalletTx]);
+  const selectedWalletCourier = useMemo(
+    () => (depositId ? couriers.find(c => c.id === depositId) ?? null : null),
+    [couriers, depositId],
+  );
 
   useEffect(() => {
     if (!depositId) {
@@ -2707,7 +2691,26 @@ function CouriersPage() {
     setDepositAmount('');
     setDepositNote('');
     setDepositErr('');
-    setDepositHistoryOpen(true);
+    setWalletTxFilter('all');
+  };
+
+  const selectWalletCourier = (c: AdminCourier) => {
+    setDepositId(c.id);
+    setDepositAccountQuery(formatCourierAccountDisplay(c.account, c.id));
+    setDepositAmount('');
+    setDepositNote('');
+    setDepositErr('');
+    setWalletTxFilter('all');
+    void loadDepositWalletTx(c.id);
+  };
+
+  const closeWalletDetail = () => {
+    setDepositId(null);
+    setDepositAccountQuery('');
+    setDepositAmount('');
+    setDepositNote('');
+    setDepositErr('');
+    setDepositWalletTx([]);
   };
 
   const saveCommissionTariff = async () => {
@@ -2760,9 +2763,7 @@ function CouriersPage() {
       setDepositAmount('');
       setDepositNote('');
       setDepositErr('');
-      setDepositHistoryOpen(true);
       await loadDepositWalletTx(id);
-      void loadAllWalletTx(id);
     } catch (e: unknown) {
       setDepositErr(e instanceof Error ? e.message : 'Не удалось пополнить счёт');
     } finally {
@@ -2820,7 +2821,13 @@ function CouriersPage() {
           <button
             key={id}
             type="button"
-            onClick={() => setSection(id)}
+            onClick={() => {
+              if (id === 'wallet') {
+                closeWalletDetail();
+                setWalletSearchQuery('');
+              }
+              setSection(id);
+            }}
             className="ab"
             style={{
               padding: '9px 16px',
@@ -2851,16 +2858,16 @@ function CouriersPage() {
       </div>
 
       {section === 'wallet' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 14, marginBottom: 18 }}>
-          {/* Тариф комиссии */}
-          <div className="ac" style={{ padding: 16 }}>
-            <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>⚙️ Тариф комиссии</div>
-            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 14, lineHeight: 1.45 }}>
-              Процент от стоимости доставки списывается со счёта при принятии заказа. Для всех курьеров без индивидуального %.
-            </div>
-            <div style={{ background: '#091508', border: '1px solid #162B1A', borderRadius: 14, padding: '14px 16px', marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 8 }}>Комиссия, % от доставки</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <>
+          <div className="ac" style={{ padding: '14px 16px', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div className="ub" style={{ fontSize: 13, fontWeight: 800 }}>⚙️ Тариф комиссии</div>
+                <div style={{ fontSize: 10, color: '#8FB897', marginTop: 3 }}>
+                  % от доставки списывается при принятии заказа · на счетах: <b style={{ color: '#EBF5ED' }}>{formatSm(walletSummary.totalBalance)}</b>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <input
                   type="number"
                   min={0}
@@ -2869,323 +2876,209 @@ function CouriersPage() {
                   className="ai"
                   value={commissionInput}
                   onChange={e => { setCommissionInput(e.target.value); setCommissionErr(''); setCommissionSaved(false); }}
-                  style={{ flex: 1, textAlign: 'center', fontSize: 22, fontWeight: 900, fontFamily: 'Unbounded, sans-serif' }}
+                  style={{ width: 72, textAlign: 'center', fontSize: 18, fontWeight: 900, fontFamily: 'Unbounded, sans-serif' }}
                 />
                 <span style={{ fontSize: 12, color: '#3D6645', fontWeight: 700 }}>%</span>
+                {[5, 10, 15, 20].map(n => (
+                  <button key={n} type="button" onClick={() => setCommissionInput(String(n))} className="ab abg" style={{ padding: '6px 10px', fontSize: 11 }}>
+                    {n}%
+                  </button>
+                ))}
+                <button type="button" onClick={saveCommissionTariff} disabled={commissionSaving} className="ab abp" style={{ padding: '7px 14px', fontSize: 11, opacity: commissionSaving ? .7 : 1 }}>
+                  {commissionSaved ? '✓' : commissionSaving ? '…' : '💾 Сохранить'}
+                </button>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              {[5, 10, 15, 20].map(n => (
-                <button key={n} type="button" onClick={() => setCommissionInput(String(n))} className="ab abg" style={{ flex: 1, padding: '7px 0', fontSize: 11 }}>
-                  {n}%
-                </button>
-              ))}
-            </div>
-            <button type="button" onClick={saveCommissionTariff} disabled={commissionSaving} className="ab abp" style={{ width: '100%', padding: 11, opacity: commissionSaving ? .7 : 1 }}>
-              {commissionSaved ? '✓ Сохранено' : commissionSaving ? '⏳ Сохраняем…' : '💾 Сохранить тариф'}
-            </button>
             {commissionErr && <div style={{ marginTop: 8, fontSize: 11, color: '#FF4545' }}>{commissionErr}</div>}
-            <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.06)', border: '1px solid rgba(59,142,240,.15)', fontSize: 10, color: '#8FB897', lineHeight: 1.5 }}>
-              Сейчас: <b style={{ color: '#3B8EF0' }}>{formatCourierCommissionPercent(defaultCommissionPercent)}</b> от доставки
-              (мин. ~{formatSm(defaultMinCommission)} при базе {tariff.base} ЅМ) ·
-              на счетах: <b style={{ color: '#EBF5ED' }}>{formatSm(walletSummary.totalBalance)}</b>
+            <div style={{ marginTop: 10, fontSize: 10, color: '#8FB897' }}>
+              Сейчас: <b style={{ color: '#3B8EF0' }}>{formatCourierCommissionPercent(defaultCommissionPercent)}</b>
+              {' · '}мин. ~{formatSm(defaultMinCommission)} при базе {tariff.base} ЅМ
+              {walletSummary.lowCount > 0 && (
+                <span style={{ color: '#FF4545', fontWeight: 700 }}> · {walletSummary.lowCount} с низким балансом</span>
+              )}
             </div>
           </div>
 
-          {/* Пополнение */}
-          <div className="ac" style={{ padding: 16, display: 'flex', flexDirection: 'column' }}>
-            <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>💳 Пополнение счёта</div>
-            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 12, lineHeight: 1.45 }}>
-              Номер <b style={{ color: '#3B8EF0' }}>KUR-XXXX</b> · пополнение синхронизируется с приложением курьера
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: 10, color: '#8FB897', fontWeight: 700, marginBottom: 5 }}>Номер счёта</div>
+          {!depositId ? (
+            <div className="ac" style={{ marginBottom: 18 }}>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A' }}>
+                <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>🛵 Счета курьеров</div>
                 <input
                   className="ai"
-                  value={depositAccountQuery}
-                  onChange={e => {
-                    const v = e.target.value
-                    setDepositAccountQuery(v)
-                    setDepositErr('')
-                    const found = findCourierByAccount(couriers, v)
-                    if (found) setDepositId(found.id)
-                    else if (!v.trim()) setDepositId(null)
-                  }}
-                  placeholder="KUR-0001"
-                  style={{ width: '100%', fontFamily: 'Unbounded, sans-serif', fontWeight: 800, letterSpacing: 1, fontSize: 13 }}
+                  value={walletSearchQuery}
+                  onChange={e => setWalletSearchQuery(e.target.value)}
+                  placeholder="Поиск по имени или номеру KUR-XXXX"
+                  style={{ width: '100%' }}
                 />
               </div>
-              <div>
-                <div style={{ fontSize: 10, color: '#8FB897', fontWeight: 700, marginBottom: 5 }}>Курьер</div>
-                <select
-                  className="ai"
-                  value={depositId || ''}
-                  onChange={e => {
-                    const id = e.target.value || null
-                    setDepositId(id)
-                    setDepositErr('')
-                    const c = couriers.find(x => x.id === id)
-                    if (c) setDepositAccountQuery(formatCourierAccountDisplay(c.account, c.id))
-                    else setDepositAccountQuery('')
-                  }}
-                  style={{ width: '100%' }}
-                >
-                  <option value="">— выберите —</option>
-                  {couriers.map(c => {
-                    const bal = getCourierBalance(c);
-                    const comm = getMinCourierCommissionEstimate(tariff, c);
-                    const low = comm > 0 && bal + 0.001 < comm;
-                    return (
-                      <option key={c.id} value={c.id}>
-                        {c.name} · {formatSm(bal)}{low ? ' ⚠' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-            {depositId && (
-              <div style={{ fontSize: 10, color: '#8FB897', marginBottom: 10, padding: '8px 10px', borderRadius: 10, background: '#091508', border: '1px solid #162B1A', lineHeight: 1.5 }}>
-                <span className="ub" style={{ color: '#3B8EF0', fontWeight: 800 }}>{formatCourierAccountDisplay(couriers.find(c => c.id === depositId)?.account, depositId)}</span>
-                {' · '}баланс <span className="ub" style={{ color: '#EBF5ED', fontWeight: 800 }}>{formatSm(getCourierBalance(couriers.find(c => c.id === depositId)))}</span>
-                {' · '}комиссия ~<span style={{ color: '#FFB800', fontWeight: 800 }}>{formatSm(getMinCourierCommissionEstimate(tariff, couriers.find(c => c.id === depositId)))}</span>
-                {' · '}{formatCourierCommissionPercent(getCourierCommissionPercent(tariff, couriers.find(c => c.id === depositId)))}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              {[50, 100, 200, 500].map(n => (
-                <button key={n} type="button" onClick={() => setDepositAmount(String(n))} className="ab abg" style={{ flex: 1, padding: '7px 0', fontSize: 11 }}>
-                  +{n}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <NI lbl="Сумма, ЅМ" val={depositAmount} set={setDepositAmount} ph="100" type="number" />
-              <NI lbl="Комментарий" val={depositNote} set={setDepositNote} ph="Пополнение" />
-            </div>
-            {depositErr && <div style={{ marginTop: 8, fontSize: 11, color: '#FF4545', fontWeight: 700 }}>{depositErr}</div>}
-            <button type="button" onClick={submitDeposit} disabled={depositing || (!depositId && !depositAccountQuery.trim())} className="ab abp" style={{ width: '100%', padding: 11, marginTop: 10, opacity: depositing || (!depositId && !depositAccountQuery.trim()) ? .65 : 1 }}>
-              {depositing ? '⏳ Пополняем…' : '✓ Пополнить счёт'}
-            </button>
-
-            {depositId && (
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #162B1A' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !depositHistoryOpen
-                    setDepositHistoryOpen(next)
-                    if (next) void loadDepositWalletTx(depositId)
-                  }}
-                  className="ab abg"
-                  style={{ width: '100%', padding: '9px 12px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                >
-                  <span>{depositHistoryOpen ? '▲' : '▼'}</span>
-                  История операций
-                  <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: 'rgba(31,215,96,.2)', color: '#1FD760', fontSize: 10, fontWeight: 900, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {depositWalletTx.length}
-                  </span>
-                </button>
-                {depositHistoryOpen && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ display: 'flex', gap: 5, marginBottom: 8, flexWrap: 'wrap' }}>
-                      {([
-                        ['all', 'Все'],
-                        ['deposit', 'Пополнения'],
-                        ['commission', 'Комиссии'],
-                        ['refund', 'Возвраты'],
-                      ] as const).map(([id, label]) => (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => setWalletTxFilter(id)}
-                          className="ab"
-                          style={{
-                            padding: '4px 9px', fontSize: 10, fontWeight: 700, borderRadius: 8,
-                            background: walletTxFilter === id ? 'rgba(31,215,96,.12)' : '#0C1C0F',
-                            border: `1px solid ${walletTxFilter === id ? 'rgba(31,215,96,.35)' : '#162B1A'}`,
-                            color: walletTxFilter === id ? '#1FD760' : '#8FB897',
-                          }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                      <button type="button" onClick={() => void loadDepositWalletTx(depositId)} className="ab abg" style={{ marginLeft: 'auto', padding: '4px 9px', fontSize: 10 }}>
-                        ↻
-                      </button>
-                    </div>
-                    <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {depositWalletLoading ? (
-                        <div style={{ padding: 16, textAlign: 'center', color: '#8FB897', fontSize: 11 }}>Загрузка…</div>
-                      ) : depositWalletTx.filter(t => walletTxFilter === 'all' || t.type === walletTxFilter).length === 0 ? (
-                        <div style={{ padding: 16, textAlign: 'center', color: '#3D6645', fontSize: 11, background: '#091508', borderRadius: 10, border: '1px solid #162B1A' }}>
-                          Операций пока нет
-                        </div>
-                      ) : depositWalletTx
-                        .filter(t => walletTxFilter === 'all' || t.type === walletTxFilter)
-                        .map(tx => {
-                          const positive = tx.amount >= 0
-                          const color = positive ? '#1FD760' : '#FF6969'
-                          const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : '📉'
-                          return (
-                            <div key={tx.id} style={{ padding: '9px 10px', borderRadius: 10, background: '#091508', border: `1px solid ${positive ? 'rgba(31,215,96,.15)' : 'rgba(255,69,69,.15)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                <span style={{ fontSize: 14 }}>{icon}</span>
-                                <div style={{ minWidth: 0 }}>
-                                  <div style={{ fontSize: 11, fontWeight: 800 }}>{walletTxLabel(tx.type)}</div>
-                                  <div style={{ fontSize: 9, color: '#8FB897', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.note || '—'}</div>
-                                </div>
-                              </div>
-                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                <div className="ub" style={{ fontSize: 12, fontWeight: 800, color }}>{positive ? '+' : ''}{formatSm(tx.amount)}</div>
-                                <div style={{ fontSize: 9, color: '#3D6645' }}>{formatWalletTxTime(tx.at)}</div>
-                              </div>
-                            </div>
-                          )
-                        })}
-                    </div>
-                  </div>
+              <div style={{ maxHeight: 520, overflowY: 'auto' }}>
+                {filteredWalletCouriers.length === 0 ? (
+                  <div style={{ padding: 32, textAlign: 'center', color: '#3D6645', fontSize: 12 }}>Курьеры не найдены</div>
+                ) : (
+                  <table className="at">
+                    <thead>
+                      <tr>
+                        <th>Курьер</th>
+                        <th>Счёт KUR</th>
+                        <th>Баланс</th>
+                        <th>Комиссия</th>
+                        <th>Статус</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredWalletCouriers.map(c => {
+                        const balance = getCourierBalance(c);
+                        const commission = getMinCourierCommissionEstimate(tariff, c);
+                        const low = commission > 0 && balance + 0.001 < commission;
+                        return (
+                          <tr
+                            key={c.id}
+                            onClick={() => selectWalletCourier(c)}
+                            style={{ cursor: 'pointer' }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(31,215,96,.04)'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = ''; }}
+                          >
+                            <td>
+                              <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
+                              <div style={{ fontSize: 10, color: '#8FB897' }}>{c.phone}</div>
+                            </td>
+                            <td>
+                              <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#3B8EF0', letterSpacing: .5 }}>
+                                {formatCourierAccountDisplay(c.account, c.id)}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: low ? '#FF4545' : '#EBF5ED' }}>{formatSm(balance)}</span>
+                            </td>
+                            <td style={{ fontSize: 11, color: '#8FB897' }}>
+                              {formatCourierCommissionPercent(getCourierCommissionPercent(tariff, c))}
+                              <div style={{ fontSize: 9, color: '#3D6645' }}>~{formatSm(commission)}</div>
+                            </td>
+                            <td>{low ? <Badge v="Мало" c="#FF4545" /> : <Badge v="OK" c="#1FD760" />}</td>
+                            <td style={{ color: '#3D6645', fontSize: 14 }}>→</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-      )}
+            </div>
+          ) : selectedWalletCourier && (
+            <div style={{ marginBottom: 18 }}>
+              <div className="ac" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button type="button" onClick={closeWalletDetail} className="ab abg" style={{ padding: '7px 12px', fontSize: 12, flexShrink: 0 }}>← Назад</button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{selectedWalletCourier.name}</div>
+                  <div style={{ fontSize: 11, color: '#8FB897', marginTop: 2 }}>
+                    <span className="ub" style={{ color: '#3B8EF0', fontWeight: 800 }}>{formatCourierAccountDisplay(selectedWalletCourier.account, selectedWalletCourier.id)}</span>
+                    {' · '}{selectedWalletCourier.phone}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: 9, color: '#8FB897' }}>Баланс</div>
+                  <div className="ub" style={{ fontSize: 20, fontWeight: 900, color: getCourierBalance(selectedWalletCourier) < getMinCourierCommissionEstimate(tariff, selectedWalletCourier) ? '#FF4545' : '#1FD760' }}>
+                    {formatSm(getCourierBalance(selectedWalletCourier))}
+                  </div>
+                </div>
+              </div>
 
-      {section === 'wallet' && (
-        <div className="ac" style={{ marginBottom: 18 }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <div>
-              <div className="ub" style={{ fontSize: 13, fontWeight: 800 }}>📋 Журнал операций по счетам</div>
-              <div style={{ fontSize: 10, color: '#8FB897', marginTop: 3 }}>
-                {depositId ? `Курьер: ${couriers.find(c => c.id === depositId)?.name || '—'}` : 'Все курьеры · последние 50'}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: 14 }}>
+                <div className="ac" style={{ padding: 16 }}>
+                  <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>💳 Пополнение</div>
+                  <div style={{ fontSize: 10, color: '#8FB897', marginBottom: 12, lineHeight: 1.45 }}>
+                    Комиссия {formatCourierCommissionPercent(getCourierCommissionPercent(tariff, selectedWalletCourier))}
+                    {' · '}~{formatSm(getMinCourierCommissionEstimate(tariff, selectedWalletCourier))} за заказ
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                    {[50, 100, 200, 500].map(n => (
+                      <button key={n} type="button" onClick={() => setDepositAmount(String(n))} className="ab abg" style={{ flex: 1, padding: '7px 0', fontSize: 11 }}>
+                        +{n}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <NI lbl="Сумма, ЅМ" val={depositAmount} set={setDepositAmount} ph="100" type="number" />
+                    <NI lbl="Комментарий" val={depositNote} set={setDepositNote} ph="Пополнение счёта" />
+                  </div>
+                  {depositErr && <div style={{ marginTop: 8, fontSize: 11, color: '#FF4545', fontWeight: 700 }}>{depositErr}</div>}
+                  <button type="button" onClick={submitDeposit} disabled={depositing} className="ab abp" style={{ width: '100%', padding: 11, marginTop: 10, opacity: depositing ? .65 : 1 }}>
+                    {depositing ? '⏳ Пополняем…' : '✓ Пополнить счёт'}
+                  </button>
+                </div>
+
+                <div className="ac" style={{ padding: 16, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+                    <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>📋 История операций</div>
+                    <button type="button" onClick={() => void loadDepositWalletTx(depositId)} className="ab abg" style={{ padding: '4px 10px', fontSize: 10 }}>
+                      ↻
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 5, marginBottom: 10, flexWrap: 'wrap' }}>
+                    {([
+                      ['all', 'Все'],
+                      ['deposit', 'Пополнения'],
+                      ['commission', 'Комиссии'],
+                      ['refund', 'Возвраты'],
+                    ] as const).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setWalletTxFilter(id)}
+                        className="ab"
+                        style={{
+                          padding: '4px 9px', fontSize: 10, fontWeight: 700, borderRadius: 8,
+                          background: walletTxFilter === id ? 'rgba(31,215,96,.12)' : '#0C1C0F',
+                          border: `1px solid ${walletTxFilter === id ? 'rgba(31,215,96,.35)' : '#162B1A'}`,
+                          color: walletTxFilter === id ? '#1FD760' : '#8FB897',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: '#8FB897', alignSelf: 'center' }}>
+                      {depositWalletLoading ? 'загрузка…' : `${depositWalletTx.length} записей`}
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {depositWalletLoading ? (
+                      <div style={{ padding: 24, textAlign: 'center', color: '#8FB897', fontSize: 12 }}>Загрузка…</div>
+                    ) : depositWalletTx.filter(t => walletTxFilter === 'all' || t.type === walletTxFilter).length === 0 ? (
+                      <div style={{ padding: 24, textAlign: 'center', color: '#3D6645', fontSize: 12, background: '#091508', borderRadius: 10, border: '1px solid #162B1A' }}>
+                        Операций пока нет
+                      </div>
+                    ) : depositWalletTx
+                      .filter(t => walletTxFilter === 'all' || t.type === walletTxFilter)
+                      .map(tx => {
+                        const positive = tx.amount >= 0;
+                        const color = positive ? '#1FD760' : '#FF6969';
+                        const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : '📉';
+                        return (
+                          <div key={tx.id} style={{ padding: '9px 10px', borderRadius: 10, background: '#091508', border: `1px solid ${positive ? 'rgba(31,215,96,.15)' : 'rgba(255,69,69,.15)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                              <span style={{ fontSize: 14 }}>{icon}</span>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 11, fontWeight: 800 }}>{walletTxLabel(tx.type)}</div>
+                                <div style={{ fontSize: 9, color: '#8FB897', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.note || '—'}</div>
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <div className="ub" style={{ fontSize: 12, fontWeight: 800, color }}>{positive ? '+' : ''}{formatSm(tx.amount)}</div>
+                              <div style={{ fontSize: 9, color: '#3D6645' }}>{formatWalletTxTime(tx.at)}</div>
+                              {tx.balanceAfter != null && (
+                                <div style={{ fontSize: 8, color: '#3D6645', marginTop: 2 }}>баланс {formatSm(tx.balanceAfter)}</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
               </div>
             </div>
-            <button type="button" onClick={() => void loadAllWalletTx(depositId || undefined)} className="ab abg" style={{ padding: '6px 12px', fontSize: 11 }}>
-              ↻ Обновить
-            </button>
-          </div>
-          <div style={{ padding: '10px 16px', display: 'flex', gap: 5, flexWrap: 'wrap', borderBottom: '1px solid #162B1A' }}>
-            {([
-              ['all', 'Все'],
-              ['deposit', 'Пополнения'],
-              ['commission', 'Комиссии'],
-              ['refund', 'Возвраты'],
-            ] as const).map(([id, label]) => (
-              <button
-                key={`all-${id}`}
-                type="button"
-                onClick={() => setWalletTxFilter(id)}
-                className="ab"
-                style={{
-                  padding: '4px 10px', fontSize: 10, fontWeight: 700, borderRadius: 8,
-                  background: walletTxFilter === id ? 'rgba(59,142,240,.12)' : '#0C1C0F',
-                  border: `1px solid ${walletTxFilter === id ? 'rgba(59,142,240,.35)' : '#162B1A'}`,
-                  color: walletTxFilter === id ? '#3B8EF0' : '#8FB897',
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-            {allWalletLoading ? (
-              <div style={{ padding: 24, textAlign: 'center', color: '#8FB897', fontSize: 12 }}>Загрузка журнала…</div>
-            ) : allWalletTx.filter(t => walletTxFilter === 'all' || t.type === walletTxFilter).length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: '#3D6645', fontSize: 12 }}>Операций пока нет</div>
-            ) : (
-              <table className="at">
-                <thead>
-                  <tr>
-                    <th>Время</th>
-                    <th>Курьер</th>
-                    <th>Счёт</th>
-                    <th>Операция</th>
-                    <th>Сумма</th>
-                    <th>Баланс после</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allWalletTx
-                    .filter(t => walletTxFilter === 'all' || t.type === walletTxFilter)
-                    .map(tx => {
-                      const positive = tx.amount >= 0
-                      return (
-                        <tr key={tx.id}>
-                          <td style={{ fontSize: 10, color: '#8FB897', whiteSpace: 'nowrap' }}>{formatWalletTxTime(tx.at)}</td>
-                          <td style={{ fontWeight: 700, fontSize: 12 }}>{tx.courierName || '—'}</td>
-                          <td><span className="ub" style={{ fontSize: 10, color: '#3B8EF0' }}>{tx.account || '—'}</span></td>
-                          <td style={{ fontSize: 11 }}>{walletTxLabel(tx.type)}</td>
-                          <td><span className="ub" style={{ fontWeight: 800, color: positive ? '#1FD760' : '#FF6969' }}>{positive ? '+' : ''}{formatSm(tx.amount)}</span></td>
-                          <td style={{ fontSize: 11, color: '#8FB897' }}>{formatSm(tx.balanceAfter)}</td>
-                        </tr>
-                      )
-                    })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
-
-      {section === 'wallet' && (
-        <div className="ac" style={{ marginBottom: 18 }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #162B1A', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="ub" style={{ fontSize: 13, fontWeight: 800 }}>Счета всех курьеров</div>
-            <span style={{ fontSize: 11, color: walletSummary.lowCount ? '#FF4545' : '#8FB897' }}>
-              {walletSummary.lowCount ? `${walletSummary.lowCount} с низким балансом` : 'Все могут принимать заказы'}
-            </span>
-          </div>
-          <table className="at">
-            <thead>
-              <tr>
-                <th>Курьер</th>
-                <th>Номер KUR</th>
-                <th>Баланс</th>
-                <th>Комиссия</th>
-                <th>Статус счёта</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {couriers.map(c => {
-                const balance = getCourierBalance(c);
-                const commission = getMinCourierCommissionEstimate(tariff, c);
-                const low = commission > 0 && balance + 0.001 < commission;
-                return (
-                  <tr key={c.id}>
-                    <td>
-                      <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
-                      <div style={{ fontSize: 10, color: '#8FB897' }}>{c.phone}</div>
-                    </td>
-                    <td>
-                      <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#3B8EF0', letterSpacing: .5 }}>
-                        {formatCourierAccountDisplay(c.account, c.id)}
-                      </span>
-                    </td>
-                    <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: low ? '#FF4545' : '#EBF5ED' }}>{formatSm(balance)}</span></td>
-                    <td style={{ fontSize: 12, color: '#8FB897' }}>
-                      {formatCourierCommissionPercent(getCourierCommissionPercent(tariff, c))}
-                      <div style={{ fontSize: 9, color: '#3D6645' }}>~{formatSm(commission)} мин.</div>
-                      {c.commissionPercent ? <div style={{ fontSize: 9, color: '#3D6645' }}>индивид.</div> : null}
-                    </td>
-                    <td>
-                      {low
-                        ? <Badge v="Мало средств" c="#FF4545" />
-                        : <Badge v="OK" c="#1FD760" />}
-                    </td>
-                    <td>
-                      <button type="button" onClick={() => openDeposit(c)} className="ab abp" style={{ padding: '5px 12px', fontSize: 11 }}>
-                        💳 Пополнить
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+          )}
+        </>
       )}
 
       {section === 'list' && (
