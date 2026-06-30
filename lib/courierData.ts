@@ -95,8 +95,8 @@ export interface PricingConfig {
   heavyKg: number;
   heavyExtra: number;
   freeFrom?: number;
-  /** Комиссия платформы с курьера за принятый заказ, ЅМ */
-  courierCommissionPerOrder?: number;
+  /** Комиссия платформы с курьера, % от стоимости доставки */
+  courierCommissionPercent?: number;
 }
 
 export const DEFAULT_PRICING: PricingConfig = {
@@ -106,7 +106,7 @@ export const DEFAULT_PRICING: PricingConfig = {
   heavyKg: 50,
   heavyExtra: 10,
   freeFrom: 0,
-  courierCommissionPerOrder: 5,
+  courierCommissionPercent: 15,
 };
 
 export interface RouteResult {

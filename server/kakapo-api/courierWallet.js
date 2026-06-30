@@ -1,15 +1,35 @@
 import { normalizePhoneDigits } from './accountLifecycle.js'
+import { calcDeliveryTotal, orderWeightKg } from './deliveryFee.js'
 
-export function getCourierCommissionPerOrder(pricing, courier) {
-  const custom = Number(courier?.commissionPerOrder)
-  if (Number.isFinite(custom) && custom > 0) return Math.round(custom * 100) / 100
-  const fromTariff = Number(pricing?.courierCommissionPerOrder)
-  const fallback = Number.isFinite(fromTariff) && fromTariff >= 0 ? fromTariff : 5
-  return Math.max(0, Math.round(fallback * 100) / 100)
+export function getCourierCommissionPercent(pricing, courier) {
+  const custom = Number(courier?.commissionPercent ?? courier?.commissionPerOrder)
+  if (Number.isFinite(custom) && custom > 0) return Math.min(100, Math.round(custom * 100) / 100)
+  const fromTariff = Number(pricing?.courierCommissionPercent ?? pricing?.courierCommissionPerOrder)
+  const fallback = Number.isFinite(fromTariff) && fromTariff >= 0 ? fromTariff : 15
+  return Math.max(0, Math.min(100, Math.round(fallback * 100) / 100))
 }
 
 export function getCourierBalance(courier) {
   return Math.max(0, Math.round((Number(courier?.balance) || 0) * 100) / 100)
+}
+
+function roundSm(n) {
+  return Math.max(0, Math.round(n * 100) / 100)
+}
+
+export function resolveDeliveryFeeForCommission(order, pricing) {
+  const saved = Math.max(0, Number(order?.deliveryFee) || 0)
+  if (saved > 0) return saved
+  const km = Number(order?.distanceKm) || 2.5
+  const weight = orderWeightKg(order || {})
+  return Math.max(0, calcDeliveryTotal(order?.total, km, weight, pricing || {}))
+}
+
+export function getCourierCommissionForOrder(pricing, courier, order) {
+  const percent = getCourierCommissionPercent(pricing, courier)
+  const deliveryFee = order ? resolveDeliveryFeeForCommission(order, pricing) : Math.max(0, Number(pricing?.base) || 0)
+  const commission = percent > 0 && deliveryFee > 0 ? roundSm((deliveryFee * percent) / 100) : 0
+  return { commission, percent, deliveryFee }
 }
 
 export function findCourierByAssignment(db, courierRef) {
@@ -25,21 +45,23 @@ export function findCourierByAssignment(db, courierRef) {
   return list.find(c => String(c.name || '').trim().toLowerCase() === name) || null
 }
 
-export function canCourierAffordOrder(db, courier, pricing) {
+export function canCourierAffordOrder(db, courier, pricing, order) {
   if (!courier) return { ok: false, commission: 0, balance: 0, error: 'Курьер не найден в системе' }
   if (courier.blocked) return { ok: false, commission: 0, balance: 0, error: 'Аккаунт курьера заблокирован' }
-  const commission = getCourierCommissionPerOrder(pricing, courier)
+  const { commission, percent, deliveryFee } = getCourierCommissionForOrder(pricing, courier, order)
   const balance = getCourierBalance(courier)
-  if (commission <= 0) return { ok: true, commission: 0, balance }
+  if (commission <= 0) return { ok: true, commission: 0, balance, percent, deliveryFee }
   if (balance + 0.001 < commission) {
     return {
       ok: false,
       commission,
       balance,
-      error: `Недостаточно средств на счёте. Нужно ${commission} ЅМ, на счёте ${balance} ЅМ. Пополните счёт у администратора.`,
+      percent,
+      deliveryFee,
+      error: `Недостаточно средств на счёте. Нужно ${commission} ЅМ (${percent}% от ${deliveryFee} ЅМ доставки), на счёте ${balance} ЅМ.`,
     }
   }
-  return { ok: true, commission, balance }
+  return { ok: true, commission, balance, percent, deliveryFee }
 }
 
 function isNewCourierAssignment(prev, body) {
@@ -60,7 +82,7 @@ export function applyCourierCommissionOnAccept(db, prev, body) {
   if (!courier) return { ok: false, error: 'Курьер не найден в системе' }
 
   const pricing = db.settings?.pricing || {}
-  const gate = canCourierAffordOrder(db, courier, pricing)
+  const gate = canCourierAffordOrder(db, courier, pricing, prev)
   if (!gate.ok) return { ok: false, error: gate.error }
 
   if (gate.commission > 0) {

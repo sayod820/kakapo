@@ -800,14 +800,14 @@ app.patch('/pickups/:id', (req, res) => {
 
 function normalizeCourierRow(raw) {
   const vehicle = ['moto', 'bike', 'car'].includes(raw.vehicle) ? raw.vehicle : 'moto'
-  const commission = Number(raw.commissionPerOrder)
+  const commission = Number(raw.commissionPercent ?? raw.commissionPerOrder)
   return {
     ...raw,
     vehicle,
     maxActiveOrders: Math.max(1, Math.min(5, Number(raw.maxActiveOrders) || 1)),
     blocked: !!raw.blocked,
     balance: Math.max(0, Math.round((Number(raw.balance) || 0) * 100) / 100),
-    commissionPerOrder: Number.isFinite(commission) && commission > 0 ? Math.round(commission * 100) / 100 : undefined,
+    commissionPercent: Number.isFinite(commission) && commission > 0 ? Math.min(100, Math.round(commission * 100) / 100) : undefined,
     rating: Number(raw.rating) || 5,
     orders: Number(raw.orders) || 0,
     today: Number(raw.today) || 0,

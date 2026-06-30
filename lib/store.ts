@@ -394,7 +394,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         const phone = (patch.courier as { phone?: string } | undefined)?.phone
         const courier = findCourierByPhone(couriers, phone || '')
         const pricing = { ...DEFAULT_PRICING, ...usePricingStore.getState().pricing }
-        const gate = canCourierAffordOrder(courier, pricing)
+        const gate = canCourierAffordOrder(courier, pricing, { order: prev ? normalizeOrder(prev) : undefined })
         if (!gate.ok) throw new Error(gate.msg || 'Недостаточно средств на счёте')
         if (gate.commission > 0 && courier) {
           useCourierTeamStore.getState().updateCourier(courier.id, {

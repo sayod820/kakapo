@@ -17,8 +17,8 @@ export interface AdminCourier {
   blocked: boolean
   /** Предоплаченный счёт для комиссии за заказы, ЅМ */
   balance: number
-  /** Индивидуальная комиссия за заказ (0 — из тарифа) */
-  commissionPerOrder?: number
+  /** Индивидуальный % комиссии (0 — из тарифа) */
+  commissionPercent?: number
   otp?: string
 }
 
@@ -53,7 +53,7 @@ export function emptyCourierForm(): Omit<AdminCourier, 'id' | 'orders' | 'today'
     maxActiveOrders: 1,
     blocked: false,
     balance: 0,
-    commissionPerOrder: 0,
+    commissionPercent: 0,
     otp: '1234',
   }
 }
@@ -76,7 +76,7 @@ export function normalizeCourier(raw: Partial<AdminCourier> & { id: string }): A
     maxActiveOrders: Math.max(1, Math.min(5, Number(raw.maxActiveOrders) || 1)),
     blocked: !!raw.blocked,
     balance: Math.max(0, Math.round((Number(raw.balance) || 0) * 100) / 100),
-    commissionPerOrder: Math.max(0, Number(raw.commissionPerOrder) || 0) || undefined,
+    commissionPercent: Math.max(0, Number(raw.commissionPercent ?? raw.commissionPerOrder) || 0) || undefined,
     otp: raw.otp || '1234',
   }
 }

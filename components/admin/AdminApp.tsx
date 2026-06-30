@@ -130,7 +130,7 @@ import {
   type AdminCourier,
   type CourierStatus,
 } from '@/lib/courierTeam'
-import { getCourierCommissionPerOrder, getCourierBalance } from '@/lib/courierWallet'
+import { getCourierCommissionPercent, getCourierBalance, getMinCourierCommissionEstimate, formatCourierCommissionPercent } from '@/lib/courierWallet'
 import { restIdToPickupId } from '@/lib/pickups'
 import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
 import { useProductPhotos } from '@/lib/productPhotos'
@@ -2503,7 +2503,8 @@ function CouriersPage() {
   const apiOrders = useOrders(s => s.orders);
   const pricing = usePricingStore(s => s.pricing);
   const tariff = useMemo(() => normalizePricing({ ...DEFAULT_PRICING, ...pricing }), [pricing]);
-  const defaultCommission = useMemo(() => getCourierCommissionPerOrder(tariff), [tariff]);
+  const defaultCommissionPercent = useMemo(() => getCourierCommissionPercent(tariff), [tariff]);
+  const defaultMinCommission = useMemo(() => getMinCourierCommissionEstimate(tariff), [tariff]);
   const { roadKm } = useOrderRoadKm(apiOrders);
   const financeRows = useMemo(
     () => buildCourierFinance(apiOrders, couriers, roadKm, tariff),
@@ -2547,7 +2548,7 @@ function CouriersPage() {
     let lowCount = 0;
     for (const c of couriers) {
       const balance = getCourierBalance(c);
-      const commission = getCourierCommissionPerOrder(tariff, c);
+      const commission = getMinCourierCommissionEstimate(tariff, c);
       totalBalance += balance;
       if (commission > 0 && balance + 0.001 < commission) lowCount += 1;
     }
@@ -2555,8 +2556,8 @@ function CouriersPage() {
   }, [couriers, tariff]);
 
   useEffect(() => {
-    setCommissionInput(String(tariff.courierCommissionPerOrder ?? DEFAULT_PRICING.courierCommissionPerOrder ?? 5));
-  }, [tariff.courierCommissionPerOrder]);
+    setCommissionInput(String(tariff.courierCommissionPercent ?? DEFAULT_PRICING.courierCommissionPercent ?? 15));
+  }, [tariff.courierCommissionPercent]);
 
   const SC: Record<CourierStatus, { l: string; c: string }> = {
     available: { l: 'Свободен', c: '#1FD760' },
@@ -2581,7 +2582,7 @@ function CouriersPage() {
       maxActiveOrders: c.maxActiveOrders,
       blocked: c.blocked,
       balance: c.balance,
-      commissionPerOrder: c.commissionPerOrder ?? 0,
+      commissionPercent: c.commissionPercent ?? 0,
       otp: c.otp || '1234',
     });
     setFormErr('');
@@ -2603,14 +2604,14 @@ function CouriersPage() {
       return;
     }
     const maxActiveOrders = Math.max(1, Math.min(5, Number(form.maxActiveOrders) || 1));
-    const customCommission = Math.max(0, Number(form.commissionPerOrder) || 0);
+    const customCommission = Math.max(0, Math.min(100, Number(form.commissionPercent) || 0));
     const payload = {
       ...form,
       name,
       phone,
       num: form.num.trim() || '—',
       maxActiveOrders,
-      commissionPerOrder: customCommission > 0 ? customCommission : undefined,
+      commissionPercent: customCommission > 0 ? customCommission : undefined,
       otp: (form.otp || '1234').trim(),
     };
     if (editId) updateCourier(editId, payload);
@@ -2630,12 +2631,12 @@ function CouriersPage() {
   };
 
   const saveCommissionTariff = async () => {
-    const val = Math.max(0, parseFloat(commissionInput) || 0);
+    const val = Math.max(0, Math.min(100, parseFloat(commissionInput) || 0));
     setCommissionSaving(true);
     setCommissionErr('');
     setCommissionSaved(false);
     try {
-      const next = normalizePricing({ ...tariff, courierCommissionPerOrder: val });
+      const next = normalizePricing({ ...tariff, courierCommissionPercent: val });
       if (USE_API) {
         const saved = await api.updatePricing(next);
         usePricingStore.setState({ pricing: normalizePricing({ ...DEFAULT_PRICING, ...saved }) });
@@ -2645,7 +2646,7 @@ function CouriersPage() {
           }
         } catch { /* ignore */ }
       } else {
-        usePricingStore.getState().setPricing({ courierCommissionPerOrder: val });
+        usePricingStore.getState().setPricing({ courierCommissionPercent: val });
       }
       setCommissionSaved(true);
       setTimeout(() => setCommissionSaved(false), 2500);
@@ -2737,9 +2738,9 @@ function CouriersPage() {
               display: 'flex',
               alignItems: 'center',
               gap: 7,
-              background: section === id ? 'rgba(59,142,240,.14)' : '#0C1C0F',
-              border: `1.5px solid ${section === id ? 'rgba(59,142,240,.45)' : '#162B1A'}`,
-              color: section === id ? '#3B8EF0' : '#8FB897',
+              background: section === id ? 'rgba(31,215,96,.12)' : '#0C1C0F',
+              border: `1.5px solid ${section === id ? 'rgba(31,215,96,.4)' : '#162B1A'}`,
+              color: section === id ? '#1FD760' : '#8FB897',
             }}
           >
             {icon} {label}
@@ -2763,27 +2764,28 @@ function CouriersPage() {
           <div className="ac" style={{ padding: 16 }}>
             <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>⚙️ Тариф комиссии</div>
             <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 14, lineHeight: 1.45 }}>
-              Списывается со счёта курьера при принятии заказа. Действует для всех, у кого нет индивидуальной комиссии.
+              Процент от стоимости доставки списывается со счёта при принятии заказа. Для всех курьеров без индивидуального %.
             </div>
             <div style={{ background: '#091508', border: '1px solid #162B1A', borderRadius: 14, padding: '14px 16px', marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 8 }}>Комиссия за заказ, ЅМ</div>
+              <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 8 }}>Комиссия, % от доставки</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <input
                   type="number"
                   min={0}
+                  max={100}
                   step={1}
                   className="ai"
                   value={commissionInput}
                   onChange={e => { setCommissionInput(e.target.value); setCommissionErr(''); setCommissionSaved(false); }}
                   style={{ flex: 1, textAlign: 'center', fontSize: 22, fontWeight: 900, fontFamily: 'Unbounded, sans-serif' }}
                 />
-                <span style={{ fontSize: 12, color: '#3D6645', fontWeight: 700 }}>ЅМ</span>
+                <span style={{ fontSize: 12, color: '#3D6645', fontWeight: 700 }}>%</span>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              {[3, 5, 7, 10].map(n => (
+              {[5, 10, 15, 20].map(n => (
                 <button key={n} type="button" onClick={() => setCommissionInput(String(n))} className="ab abg" style={{ flex: 1, padding: '7px 0', fontSize: 11 }}>
-                  {n} ЅМ
+                  {n}%
                 </button>
               ))}
             </div>
@@ -2792,8 +2794,9 @@ function CouriersPage() {
             </button>
             {commissionErr && <div style={{ marginTop: 8, fontSize: 11, color: '#FF4545' }}>{commissionErr}</div>}
             <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.06)', border: '1px solid rgba(59,142,240,.15)', fontSize: 10, color: '#8FB897', lineHeight: 1.5 }}>
-              Сейчас: <b style={{ color: '#3B8EF0' }}>{formatSm(defaultCommission)}</b> за заказ ·
-              на счетах курьеров: <b style={{ color: '#EBF5ED' }}>{formatSm(walletSummary.totalBalance)}</b>
+              Сейчас: <b style={{ color: '#3B8EF0' }}>{formatCourierCommissionPercent(defaultCommissionPercent)}</b> от доставки
+              (мин. ~{formatSm(defaultMinCommission)} при базе {tariff.base} ЅМ) ·
+              на счетах: <b style={{ color: '#EBF5ED' }}>{formatSm(walletSummary.totalBalance)}</b>
             </div>
           </div>
 
@@ -2814,7 +2817,7 @@ function CouriersPage() {
                 <option value="">— выберите курьера —</option>
                 {couriers.map(c => {
                   const bal = getCourierBalance(c);
-                  const comm = getCourierCommissionPerOrder(tariff, c);
+                  const comm = getMinCourierCommissionEstimate(tariff, c);
                   const low = comm > 0 && bal + 0.001 < comm;
                   return (
                     <option key={c.id} value={c.id}>
@@ -2827,7 +2830,8 @@ function CouriersPage() {
             {depositId && (
               <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 10, padding: '8px 10px', borderRadius: 10, background: '#091508', border: '1px solid #162B1A' }}>
                 Баланс: <span className="ub" style={{ color: '#3B8EF0', fontWeight: 800 }}>{formatSm(getCourierBalance(couriers.find(c => c.id === depositId)))}</span>
-                {' · '}нужно мин. <span className="ub" style={{ color: '#FFB800', fontWeight: 800 }}>{formatSm(getCourierCommissionPerOrder(tariff, couriers.find(c => c.id === depositId)))}</span> за заказ
+                {' · '}мин. комиссия ~<span className="ub" style={{ color: '#FFB800', fontWeight: 800 }}>{formatSm(getMinCourierCommissionEstimate(tariff, couriers.find(c => c.id === depositId)))}</span>
+                {' · '}{formatCourierCommissionPercent(getCourierCommissionPercent(tariff, couriers.find(c => c.id === depositId)))} от доставки
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -2870,7 +2874,7 @@ function CouriersPage() {
             <tbody>
               {couriers.map(c => {
                 const balance = getCourierBalance(c);
-                const commission = getCourierCommissionPerOrder(tariff, c);
+                const commission = getMinCourierCommissionEstimate(tariff, c);
                 const low = commission > 0 && balance + 0.001 < commission;
                 return (
                   <tr key={c.id}>
@@ -2880,8 +2884,9 @@ function CouriersPage() {
                     </td>
                     <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: low ? '#FF4545' : '#3B8EF0' }}>{formatSm(balance)}</span></td>
                     <td style={{ fontSize: 12, color: '#8FB897' }}>
-                      {formatSm(commission)}
-                      {c.commissionPerOrder ? <div style={{ fontSize: 9, color: '#3D6645' }}>индивид.</div> : <div style={{ fontSize: 9, color: '#3D6645' }}>тариф</div>}
+                      {formatCourierCommissionPercent(getCourierCommissionPercent(tariff, c))}
+                      <div style={{ fontSize: 9, color: '#3D6645' }}>~{formatSm(commission)} мин.</div>
+                      {c.commissionPercent ? <div style={{ fontSize: 9, color: '#3D6645' }}>индивид.</div> : null}
                     </td>
                     <td>
                       {low
@@ -2926,7 +2931,7 @@ function CouriersPage() {
               const active = countCourierActiveOrders(apiOrders, c);
               const fin = financeById[c.id];
               const balance = getCourierBalance(c);
-              const commission = getCourierCommissionPerOrder(tariff, c);
+              const commission = getMinCourierCommissionEstimate(tariff, c);
               const lowBalance = commission > 0 && balance + 0.001 < commission;
               return (
                 <tr key={c.id} style={c.blocked ? { opacity: .65 } : undefined}>
@@ -2955,9 +2960,11 @@ function CouriersPage() {
                     </span>
                     {lowBalance && <div style={{ fontSize: 10, color: '#FF4545' }}>мало для заказа</div>}
                   </td>
-                  <td style={{ fontSize: 12, color: '#8FB897' }}>
-                    {formatSm(commission)}
-                    {c.commissionPerOrder ? <div style={{ fontSize: 10, color: '#3D6645' }}>индивид.</div> : null}
+                  <td style={{ fontSize: 12 }}>
+                    <span className="ub" style={{ fontWeight: 800, color: '#FFB800' }}>
+                      {formatCourierCommissionPercent(getCourierCommissionPercent(tariff, c))}
+                    </span>
+                    {c.commissionPercent ? <div style={{ fontSize: 10, color: '#3D6645' }}>индивид.</div> : null}
                   </td>
                   <td style={{ color: '#FFB800', fontWeight: 700 }}>★ {c.rating}</td>
                   <td style={{ color: '#8FB897' }}>{fin?.deliveries ?? 0}</td>
@@ -3095,7 +3102,7 @@ function CouriersPage() {
                 <NI lbl="Макс. заказов одновременно" val={String(form.maxActiveOrders)} set={v => setF('maxActiveOrders', Math.max(1, Math.min(5, parseInt(v, 10) || 1)))} ph="1–5" type="number" />
               </div>
               <NI lbl="Код входа (OTP)" val={form.otp || ''} set={v => setF('otp', v)} ph="1234" />
-              <NI lbl={`Комиссия за заказ (0 = из тарифа ${defaultCommission} ЅМ)`} val={String(form.commissionPerOrder ?? 0)} set={v => setF('commissionPerOrder', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
+              <NI lbl={`Комиссия, % (0 = из тарифа ${defaultCommissionPercent}%)`} val={String(form.commissionPercent ?? 0)} set={v => setF('commissionPercent', Math.max(0, Math.min(100, parseFloat(v) || 0)))} ph="0" type="number" />
               {formErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{formErr}</div>}
               <button onClick={saveCourier} className="ab abp" style={{ width: '100%', padding: 11 }}>
                 {editId ? '✓ Сохранить' : '✓ Добавить'}
@@ -7116,7 +7123,7 @@ function TariffPage() {
         Доставка = <b style={{ color: '#EBF5ED' }}>База ({t.base} ЅМ)</b> + (км − {t.baseDist}) × <b style={{ color: '#EBF5ED' }}>{t.perKm} ЅМ</b>
         {t.heavyExtra > 0 && <> + надбавка <b style={{ color: '#FFB800' }}>{t.heavyExtra} ЅМ</b> за груз &gt; {t.heavyKg} кг</>}
         {t.freeFrom ? <> · <b style={{ color: '#1FD760' }}>0 ЅМ</b> при заказе от {t.freeFrom} ЅМ</> : null}
-        {t.courierCommissionPerOrder ? <> · <b style={{ color: '#3B8EF0' }}>комиссия курьера {t.courierCommissionPerOrder} ЅМ</b> за принятый заказ</> : null}
+        {t.courierCommissionPercent ? <> · <b style={{ color: '#3B8EF0' }}>комиссия курьера {t.courierCommissionPercent}%</b> от доставки</> : null}
         <div style={{ marginTop: 10, fontSize: 11, color: '#3D6645' }}>
           🔒 Доставленные заказы сохраняют стоимость навсегда. Новый тариф действует только на заказы после сохранения.
         </div>
