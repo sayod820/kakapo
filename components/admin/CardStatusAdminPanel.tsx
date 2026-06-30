@@ -54,7 +54,7 @@ function TierPreviewCard({ tier }: { tier: LoyaltyTierConfig }) {
         </div>
         <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4 }}>
           Кэшбэк: <span style={{ color: tier.color, fontWeight: 700 }}>{tier.bonusPercent > 0 ? `${tier.bonusPercent}%` : '—'}</span>
-          {tier.defaultDebtLimit > 0 && (
+          {tier.id === 'vip' && tier.defaultDebtLimit > 0 && (
             <span style={{ marginLeft: 8, color: '#3B8EF0' }}>· долг до {tier.defaultDebtLimit.toLocaleString()} ЅМ</span>
           )}
         </div>
@@ -76,7 +76,7 @@ function TierEditor({
   onChange: (patch: Partial<LoyaltyTierConfig>) => void
 }) {
   const showMinSpent = tier.id !== 'basic' && tier.id !== 'vip'
-  const showDebtLimit = tier.id === 'gold' || tier.id === 'platinum' || tier.id === 'vip'
+  const showDebtLimit = tier.id === 'vip'
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
       <NI lbl="Название уровня" val={tier.label} set={v => onChange({ label: v })} />

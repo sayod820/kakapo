@@ -65,7 +65,7 @@ export function qualifiesForDebtSection(
   level?: ClientLevel | '' | null,
   vip?: boolean,
 ): boolean {
-  return !!vip || level === 'gold' || level === 'platinum'
+  return !!vip
 }
 
 /** Маркеры в note для старого backend без accountStatus / delete API */

@@ -108,7 +108,7 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       emoji: '🥇',
       minSpent: 2000,
       bonusPercent: 3,
-      defaultDebtLimit: 2000,
+      defaultDebtLimit: 0,
       color: '#FFB800',
       cashback: '3%',
       perk: 'Приоритет сборки',
@@ -125,10 +125,10 @@ export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
       emoji: '💎',
       minSpent: 3000,
       bonusPercent: 5,
-      defaultDebtLimit: 2000,
+      defaultDebtLimit: 0,
       color: '#3B8EF0',
       cashback: '5%',
-      perk: 'Кредитный лимит',
+      perk: 'Максимальный кэшбэк',
       border: 'rgba(59,142,240,.48)',
       glow: 'rgba(59,142,240,.38)',
       accent: '#3B8EF0',
@@ -180,7 +180,9 @@ function mergeTier(base: LoyaltyTierConfig, patch?: Partial<LoyaltyTierConfig>):
   merged.cashback = patch.cashback != null && patch.bonusPercent == null
     ? merged.cashback
     : cashbackLabel(bonusPercent)
-  merged.defaultDebtLimit = Math.max(0, Number(merged.defaultDebtLimit) || 0)
+  merged.defaultDebtLimit = merged.id === 'gold' || merged.id === 'platinum'
+    ? 0
+    : Math.max(0, Number(merged.defaultDebtLimit) || 0)
   return merged
 }
 
@@ -255,10 +257,10 @@ export function apiLoyaltyToStatusConfig(
       if (tier.id === 'bronze') return { ...tier, ...tierPatch(bronzeMin, api.bronze?.bonusPercent) }
       if (tier.id === 'silver') return { ...tier, ...tierPatch(Number(t.silver) || tier.minSpent, api.silver?.bonusPercent) }
       if (tier.id === 'gold') {
-        return { ...tier, ...tierPatch(Number(t.gold) || tier.minSpent, api.gold?.bonusPercent, api.gold?.defaultDebtLimit) }
+        return { ...tier, ...tierPatch(Number(t.gold) || tier.minSpent, api.gold?.bonusPercent), defaultDebtLimit: 0 }
       }
       if (tier.id === 'platinum') {
-        return { ...tier, ...tierPatch(Number(t.platinum) || tier.minSpent, api.platinum?.bonusPercent, api.platinum?.defaultDebtLimit) }
+        return { ...tier, ...tierPatch(Number(t.platinum) || tier.minSpent, api.platinum?.bonusPercent), defaultDebtLimit: 0 }
       }
       return tier
     }),
@@ -284,8 +286,8 @@ export function statusConfigToApiPayload(cfg: LoyaltyStatusConfig): ApiLoyaltySe
     basic: { bonusPercent: next.basic.bonusPercent },
     bronze: { bonusPercent: bronze?.bonusPercent ?? 0 },
     silver: { bonusPercent: silver?.bonusPercent ?? 0 },
-    gold: { bonusPercent: gold?.bonusPercent ?? 0, defaultDebtLimit: gold?.defaultDebtLimit ?? 0 },
-    platinum: { bonusPercent: platinum?.bonusPercent ?? 0, defaultDebtLimit: platinum?.defaultDebtLimit ?? 0 },
+    gold: { bonusPercent: gold?.bonusPercent ?? 0 },
+    platinum: { bonusPercent: platinum?.bonusPercent ?? 0 },
     vip: { bonusPercent: next.vip.bonusPercent, defaultDebtLimit: next.vip.defaultDebtLimit ?? 0 },
     vipRules: { ...next.vipRules },
   }
@@ -416,11 +418,6 @@ export function getTierDefaultDebtLimit(
   cfg = loadLoyaltyStatusConfig(),
 ): number {
   if (isVip) return Math.max(0, Number(cfg.vip.defaultDebtLimit) || 0)
-  if (!level || level === 'basic' || level === 'new') return 0
-  const tier = cfg.tiers.find(t => t.id === level)
-  if (tier && (tier.id === 'gold' || tier.id === 'platinum')) {
-    return Math.max(0, Number(tier.defaultDebtLimit) || 0)
-  }
   return 0
 }
 

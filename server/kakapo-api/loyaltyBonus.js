@@ -17,8 +17,8 @@ export const DEFAULT_LOYALTY = {
   basic: { bonusPercent: 0 },
   bronze: { bonusPercent: 1 },
   silver: { bonusPercent: 2 },
-  gold: { bonusPercent: 3, defaultDebtLimit: 2000 },
-  platinum: { bonusPercent: 5, defaultDebtLimit: 2000 },
+  gold: { bonusPercent: 3 },
+  platinum: { bonusPercent: 5 },
   vip: { bonusPercent: 5, defaultDebtLimit: 5000 },
   vipRules: { minOrders: 30, minReviews: 5, minSpent: 3000 },
 }
@@ -35,12 +35,6 @@ export function ensureLoyaltySettings(db) {
   if (!l.vipRules) {
     l.vipRules = { ...DEFAULT_LOYALTY.vipRules }
   }
-  if (l.gold && l.gold.defaultDebtLimit == null) {
-    l.gold.defaultDebtLimit = DEFAULT_LOYALTY.gold.defaultDebtLimit
-  }
-  if (l.platinum && l.platinum.defaultDebtLimit == null) {
-    l.platinum.defaultDebtLimit = DEFAULT_LOYALTY.platinum.defaultDebtLimit
-  }
   if (l.vip && l.vip.defaultDebtLimit == null) {
     l.vip.defaultDebtLimit = DEFAULT_LOYALTY.vip.defaultDebtLimit
   }
@@ -49,14 +43,11 @@ export function ensureLoyaltySettings(db) {
 
 export function getTierDefaultDebtLimit(level, isVip, loyalty = DEFAULT_LOYALTY) {
   if (isVip) return Math.max(0, Number(loyalty.vip?.defaultDebtLimit) || 0)
-  if (!level || level === 'basic' || level === 'new') return 0
-  if (level === 'gold') return Math.max(0, Number(loyalty.gold?.defaultDebtLimit) || 0)
-  if (level === 'platinum') return Math.max(0, Number(loyalty.platinum?.defaultDebtLimit) || 0)
   return 0
 }
 
 function qualifiesForDebtSection(level, isVip) {
-  return !!isVip || level === 'gold' || level === 'platinum'
+  return !!isVip
 }
 
 function applyAutoDebtSection(client, card, loyalty) {
