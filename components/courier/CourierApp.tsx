@@ -68,8 +68,7 @@ function CourierWalletCard({
   lowBalance,
   commissionLabel,
   historyCount,
-  historyOpen,
-  onToggleHistory,
+  onOpenHistory,
 }: {
   account: string
   name: string
@@ -77,8 +76,7 @@ function CourierWalletCard({
   lowBalance: boolean
   commissionLabel: string
   historyCount: number
-  historyOpen: boolean
-  onToggleHistory: () => void
+  onOpenHistory: () => void
 }) {
   return (
     <div style={{
@@ -106,15 +104,15 @@ function CourierWalletCard({
         <div style={{ fontSize: 9, color: 'rgba(255,255,255,.38)', marginTop: 6, marginBottom: 12 }}>{commissionLabel}</div>
         <button
           type="button"
-          onClick={onToggleHistory}
+          onClick={onOpenHistory}
           className="btn"
           style={{
             width: '100%',
             padding: '10px 12px',
             borderRadius: 11,
-            background: historyOpen ? 'rgba(59,142,240,.2)' : 'rgba(255,255,255,.08)',
-            border: `1px solid ${historyOpen ? 'rgba(59,142,240,.45)' : 'rgba(255,255,255,.15)'}`,
-            color: historyOpen ? '#5BA3FF' : '#EBF5ED',
+            background: 'rgba(255,255,255,.08)',
+            border: '1px solid rgba(255,255,255,.15)',
+            color: '#EBF5ED',
             fontWeight: 800,
             fontSize: 12,
             display: 'flex',
@@ -123,18 +121,115 @@ function CourierWalletCard({
             gap: 8,
           }}
         >
-          <span>{historyOpen ? '▲' : '▼'}</span>
+          <span>▼</span>
           <span>История пополнений</span>
           {historyCount > 0 && (
             <span style={{
               minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999,
-              background: historyOpen ? 'rgba(59,142,240,.35)' : 'rgba(255,255,255,.12)',
+              background: 'rgba(255,255,255,.12)',
               fontSize: 10, fontWeight: 900, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             }}>
               {historyCount}
             </span>
           )}
         </button>
+      </div>
+    </div>
+  )
+}
+
+function CourierWalletHistoryScreen({
+  account,
+  name,
+  balance,
+  transactions,
+  loading,
+  onBack,
+}: {
+  account: string
+  name: string
+  balance: number
+  transactions: CourierWalletTx[]
+  loading: boolean
+  onBack: () => void
+}) {
+  return (
+    <div style={{ padding: '0 0 76px', animation: 'fadeUp .3s ease both', minHeight: 'calc(100vh - 120px)' }}>
+      <div style={{
+        position: 'sticky', top: 57, zIndex: 50,
+        background: 'rgba(3,11,5,.97)', backdropFilter: 'blur(16px)',
+        borderBottom: '1px solid #162B1A', padding: '10px 14px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button type="button" onClick={onBack} className="btn" style={{
+            width: 34, height: 34, borderRadius: 11, background: '#0C1C0F', border: '1px solid #162B1A',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8FB897', fontSize: 15, flexShrink: 0,
+          }}>←</button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 900 }}>Операции по счёту</div>
+            <div style={{ fontSize: 10, color: '#5A7A62', marginTop: 2 }}>
+              {loading ? 'загрузка…' : `${transactions.length} записей`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '12px 14px 0' }}>
+        <div style={{
+          padding: '12px 14px', borderRadius: 14, marginBottom: 12,
+          background: 'linear-gradient(135deg,#0E2848 0%,#1A3D6B 45%,#0A2040 100%)',
+          border: '1px solid rgba(59,142,240,.35)',
+        }}>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', fontWeight: 700 }}>{account} · {name}</div>
+          <div className="ub" style={{ fontSize: 22, fontWeight: 900, color: '#5BA3FF', marginTop: 6 }}>{formatSm(balance)}</div>
+        </div>
+
+        <div style={{ position: 'relative' }}>
+          {transactions.length > 7 && (
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 28, background: 'linear-gradient(transparent, rgba(6,14,10,.92))', pointerEvents: 'none', borderRadius: '0 0 12px 12px', zIndex: 1 }} />
+          )}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              maxHeight: 7 * 54 + 6 * 8,
+              overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              overscrollBehavior: 'contain',
+            }}
+          >
+            {transactions.length === 0 && !loading ? (
+              <div className="ccard" style={{ padding: '28px 16px', textAlign: 'center', color: '#5A7A62', fontSize: 12, lineHeight: 1.45 }}>
+                Пополнения и списания появятся после действий администратора
+              </div>
+            ) : transactions.map((tx) => {
+              const positive = tx.amount >= 0
+              const color = positive ? '#1FD760' : '#FF8080'
+              const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : '📉'
+              return (
+                <div key={tx.id} className="ccard" style={{ padding: '10px 12px', minHeight: 54, boxSizing: 'border-box', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, borderColor: positive ? 'rgba(31,215,96,.12)' : 'rgba(255,69,69,.12)', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${color}18`, border: `1px solid ${color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>{icon}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800 }}>{walletTxLabel(tx.type)}</div>
+                      <div style={{ fontSize: 10, color: '#5A7A62', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{tx.note || '—'}</div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div className="ub" style={{ fontSize: 13, fontWeight: 900, color }}>{positive ? '+' : ''}{formatSm(tx.amount)}</div>
+                    <div style={{ fontSize: 9, color: '#5A7A62', marginTop: 3 }}>{formatWalletTxTime(tx.at)}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {transactions.length > 7 && !loading && (
+            <div style={{ textAlign: 'center', fontSize: 9, color: '#5A7A62', marginTop: 8, fontWeight: 600 }}>
+              ↕ листайте для просмотра всех {transactions.length} записей
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -936,7 +1031,6 @@ function CourierAppInner() {
   const [walletTx, setWalletTx] = useState<CourierWalletTx[]>([])
   const [walletTxLoading, setWalletTxLoading] = useState(false)
   const [walletHistoryOpen, setWalletHistoryOpen] = useState(false)
-  const walletHistoryRef = useRef<HTMLDivElement>(null)
 
   const loadWalletTx = useCallback(async () => {
     if (!courierProfile?.id) return
@@ -969,18 +1063,14 @@ function CourierAppInner() {
     return () => clearInterval(poll)
   }, [tab, courierProfile?.id, loadWalletTx, walletHistoryOpen])
 
-  const toggleWalletHistory = useCallback(() => {
-    setWalletHistoryOpen(prev => {
-      const next = !prev
-      if (next) {
-        void loadWalletTx()
-        requestAnimationFrame(() => {
-          walletHistoryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        })
-      }
-      return next
-    })
+  const openWalletHistory = useCallback(() => {
+    void loadWalletTx()
+    setWalletHistoryOpen(true)
   }, [loadWalletTx])
+
+  const closeWalletHistory = useCallback(() => {
+    setWalletHistoryOpen(false)
+  }, [])
 
   const confirmAccept = async (o: any, route: string[]) => {
     setStatus('busy');
@@ -1631,66 +1721,19 @@ function CourierAppInner() {
       )}
 
         {/* ═══ ВКЛАДКА СЧЁТ ═══ */}
-      {tab==='earnings' && courierProfile && (
-          <div style={{ padding:'12px 14px 76px', animation:'fadeUp .4s ease both' }}>
-            {walletHistoryOpen && (
-            <div ref={walletHistoryRef} style={{ marginBottom: 12, animation: 'fadeUp .25s ease both' }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, padding:'0 2px' }}>
-                <div className="ub" style={{ fontSize:12, fontWeight:800, color:'#8FB897' }}>Операции по счёту</div>
-                <span style={{ fontSize:10, color:'#5A7A62', fontWeight:600 }}>
-                  {walletTxLoading ? 'загрузка…' : `${walletTx.length} записей`}
-                </span>
-              </div>
-              <div style={{ position:'relative' }}>
-                {walletTx.length > 7 && (
-                  <div style={{ position:'absolute', left:0, right:0, bottom:0, height:28, background:'linear-gradient(transparent, rgba(6,14,10,.92))', pointerEvents:'none', borderRadius:'0 0 12px 12px', zIndex:1 }} />
-                )}
-                <div
-                  style={{
-                    display:'flex',
-                    flexDirection:'column',
-                    gap:8,
-                    maxHeight: 7 * 54 + 6 * 8,
-                    overflowY:'auto',
-                    WebkitOverflowScrolling:'touch',
-                    overscrollBehavior:'contain',
-                    paddingRight: walletTx.length > 7 ? 2 : 0,
-                  }}
-                >
-                  {walletTx.length === 0 && !walletTxLoading ? (
-                    <div className="ccard" style={{ padding:'20px 14px', textAlign:'center', color:'#5A7A62', fontSize:11, lineHeight:1.45 }}>
-                      Пополнения и списания появятся после действий администратора
-                    </div>
-                  ) : walletTx.map((tx) => {
-                    const positive = tx.amount >= 0
-                    const color = positive ? '#1FD760' : '#FF8080'
-                    const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : '📉'
-                    return (
-                      <div key={tx.id} className="ccard" style={{ padding:'10px 12px', minHeight:54, boxSizing:'border-box', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, borderColor: positive ? 'rgba(31,215,96,.12)' : 'rgba(255,69,69,.12)', flexShrink:0 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
-                          <div style={{ width:32, height:32, borderRadius:'50%', background:`${color}18`, border:`1px solid ${color}33`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, flexShrink:0 }}>{icon}</div>
-                          <div style={{ minWidth:0 }}>
-                            <div style={{ fontSize:12, fontWeight:800 }}>{walletTxLabel(tx.type)}</div>
-                            <div style={{ fontSize:10, color:'#5A7A62', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>{tx.note || '—'}</div>
-                          </div>
-                        </div>
-                        <div style={{ textAlign:'right', flexShrink:0 }}>
-                          <div className="ub" style={{ fontSize:13, fontWeight:900, color }}>{positive ? '+' : ''}{formatSm(tx.amount)}</div>
-                          <div style={{ fontSize:9, color:'#5A7A62', marginTop:3 }}>{formatWalletTxTime(tx.at)}</div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-                {walletTx.length > 7 && !walletTxLoading && (
-                  <div style={{ textAlign:'center', fontSize:9, color:'#5A7A62', marginTop:6, fontWeight:600 }}>
-                    ↕ листайте для просмотра всех {walletTx.length} записей
-                  </div>
-                )}
-              </div>
-            </div>
-            )}
+      {tab==='earnings' && courierProfile && walletHistoryOpen && (
+          <CourierWalletHistoryScreen
+            account={formatCourierAccountDisplay(courierProfile.account, courierProfile.id)}
+            name={courierDisplayName}
+            balance={walletBalance}
+            transactions={walletTx}
+            loading={walletTxLoading}
+            onBack={closeWalletHistory}
+          />
+      )}
 
+      {tab==='earnings' && courierProfile && !walletHistoryOpen && (
+          <div style={{ padding:'12px 14px 76px', animation:'fadeUp .4s ease both' }}>
             <CourierWalletCard
               account={formatCourierAccountDisplay(courierProfile.account, courierProfile.id)}
               name={courierDisplayName}
@@ -1698,12 +1741,9 @@ function CourierAppInner() {
               lowBalance={walletBalance < orderCommission}
               commissionLabel={`комиссия ${formatCourierCommissionPercent(commissionPercent)}${orderCommission > 0 ? ` · ~${formatSm(orderCommission)} за заказ` : ''}`}
               historyCount={walletTx.length}
-              historyOpen={walletHistoryOpen}
-              onToggleHistory={toggleWalletHistory}
+              onOpenHistory={openWalletHistory}
             />
 
-            {!walletHistoryOpen && (
-            <>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
               <div style={{
                 background:'linear-gradient(160deg,#061A10 0%,#0C2618 100%)',
@@ -1771,15 +1811,13 @@ function CourierAppInner() {
               </div>
             ))}
           </div>
-            </>
-            )}
         </div>
       )}
 
         {/* NAV */}
         <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'rgba(3,11,5,.97)', backdropFilter:'blur(16px)', borderTop:'1px solid #162B1A', padding:'8px 12px calc(10px + env(safe-area-inset-bottom, 0px))', display:'flex', justifyContent:'space-around', gap:6, zIndex:90 }}>
         {([['orders','📋','Заказы'],['active','🛵','Доставка'],['earnings','💰','Счёт']] as const).map(([id,icon,label])=>(
-            <button key={id} onClick={() => { if (id === 'active') setDetailOrderId(null); setTab(id); }} className="btn" style={{
+            <button key={id} onClick={() => { if (id === 'active') setDetailOrderId(null); if (id !== 'earnings') setWalletHistoryOpen(false); setTab(id); }} className="btn" style={{
               flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, padding:'7px 4px', borderRadius:12,
               background: tab===id ? 'rgba(59,142,240,.1)' : 'transparent',
               border: `1px solid ${tab===id ? 'rgba(59,142,240,.25)' : 'transparent'}`,
