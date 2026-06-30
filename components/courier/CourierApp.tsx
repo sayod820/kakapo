@@ -29,6 +29,7 @@ import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { resolveCourierPayment } from '@/lib/courierPayment'
 import { canCourierAffordOrder, getCourierBalance, getCourierCommissionPerOrder, getCourierCommissionPercent, formatCourierCommissionPercent } from '@/lib/courierWallet'
+import { formatCourierAccountDisplay } from '@/lib/courierAccount'
 
 /* ══════════════════════════════════════════════════════
    КАКАПО КУРЬЕР — карта со всеми заказами + список
@@ -56,6 +57,68 @@ const CSS = `
 `;
 
 type PickupMeta = { id: string; name: string; addr: string; phone: string; e: string; color: string }
+
+function CourierWalletCard({
+  account,
+  name,
+  balance,
+  lowBalance,
+  commissionLabel,
+}: {
+  account: string
+  name: string
+  balance: number
+  lowBalance: boolean
+  commissionLabel: string
+}) {
+  const [copied, setCopied] = useState(false)
+  const copyAccount = async () => {
+    try {
+      await navigator.clipboard.writeText(account)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* ignore */ }
+  }
+  return (
+    <div style={{
+      position: 'relative',
+      borderRadius: 16,
+      padding: '16px 18px',
+      marginBottom: 10,
+      overflow: 'hidden',
+      background: 'linear-gradient(135deg,#0E2848 0%,#1A3D6B 45%,#0A2040 100%)',
+      border: `1px solid ${lowBalance ? 'rgba(255,69,69,.4)' : 'rgba(59,142,240,.35)'}`,
+      boxShadow: '0 8px 32px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06)',
+    }}>
+      <div style={{ position: 'absolute', top: -30, right: -20, width: 100, height: 100, borderRadius: '50%', background: 'rgba(59,142,240,.12)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: -40, left: -10, width: 120, height: 120, borderRadius: '50%', background: 'rgba(31,215,96,.08)', pointerEvents: 'none' }} />
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', fontWeight: 700, letterSpacing: .6, textTransform: 'uppercase' }}>KAKAPO · Счёт курьера</div>
+            <div className="ub" style={{ fontSize: 22, fontWeight: 900, letterSpacing: 2, marginTop: 6, color: '#EBF5ED' }}>{account}</div>
+          </div>
+          <div style={{ fontSize: 26, lineHeight: 1 }}>💳</div>
+        </div>
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,.55)', marginBottom: 2 }}>{name}</div>
+        <div className="ub" style={{ fontSize: 30, fontWeight: 900, color: lowBalance ? '#FF6969' : '#5BA3FF', lineHeight: 1.1, marginBottom: 4 }}>{formatSm(balance)}</div>
+        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.38)', marginBottom: 12 }}>{commissionLabel}</div>
+        <button type="button" onClick={() => void copyAccount()} className="btn" style={{
+          width: '100%', padding: 10, borderRadius: 11,
+          background: copied ? 'rgba(31,215,96,.18)' : 'rgba(255,255,255,.08)',
+          border: `1px solid ${copied ? 'rgba(31,215,96,.45)' : 'rgba(255,255,255,.15)'}`,
+          color: copied ? '#1FD760' : '#EBF5ED',
+          fontWeight: 800, fontSize: 12,
+        }}>
+          {copied ? '✓ Номер скопирован' : '📋 Скопировать номер для пополнения'}
+        </button>
+        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.35)', textAlign: 'center', marginTop: 8, lineHeight: 1.45 }}>
+          Укажите номер <b style={{ color: 'rgba(255,255,255,.55)' }}>{account}</b> при пополнении в кассе или админке
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function CourierPickupPoints({
   orderRaw,
@@ -1499,42 +1562,44 @@ function CourierAppInner() {
       )}
 
         {/* ═══ ВКЛАДКА СЧЁТ ═══ */}
-      {tab==='earnings' && (
+      {tab==='earnings' && courierProfile && (
           <div style={{ padding:'12px 14px 76px', animation:'fadeUp .4s ease both' }}>
+            <CourierWalletCard
+              account={formatCourierAccountDisplay(courierProfile.account, courierProfile.id)}
+              name={courierDisplayName}
+              balance={walletBalance}
+              lowBalance={walletBalance < orderCommission}
+              commissionLabel={`комиссия ${formatCourierCommissionPercent(commissionPercent)}${orderCommission > 0 ? ` · ~${formatSm(orderCommission)} за заказ` : ''}`}
+            />
+
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-              <div style={{
-                background:'linear-gradient(160deg,#0A1A2E 0%,#0F2540 100%)',
-                border:`1px solid ${walletBalance < orderCommission ? 'rgba(255,69,69,.35)' : 'rgba(59,142,240,.28)'}`,
-                borderRadius:14, padding:'14px 15px',
-                boxShadow: walletBalance < orderCommission ? 'none' : '0 4px 20px rgba(59,142,240,.08)',
-              }}>
-                <div style={{ fontSize:9, color:'#7A9BB8', fontWeight:700, marginBottom:6, letterSpacing:.5, textTransform:'uppercase' }}>Счёт</div>
-                <div className="ub" style={{ fontSize:26, fontWeight:900, color: walletBalance < orderCommission ? '#FF4545' : '#3B8EF0', lineHeight:1, letterSpacing:'-.02em' }}>{formatSm(walletBalance)}</div>
-                <div style={{ fontSize:9, color:'#4A6A85', marginTop:6, lineHeight:1.4 }}>
-                  комиссия {formatCourierCommissionPercent(commissionPercent)}
-                  {orderCommission > 0 && <span> · ~{formatSm(orderCommission)}</span>}
-                </div>
-              </div>
               <div style={{
                 background:'linear-gradient(160deg,#061A10 0%,#0C2618 100%)',
                 border:'1px solid rgba(31,215,96,.28)', borderRadius:14, padding:'14px 15px',
                 boxShadow:'0 4px 20px rgba(31,215,96,.06)',
               }}>
                 <div style={{ fontSize:9, color:'#6BA88A', fontWeight:700, marginBottom:6, letterSpacing:.5, textTransform:'uppercase' }}>Сегодня</div>
-                <div className="ub" style={{ fontSize:26, fontWeight:900, color:'#1FD760', lineHeight:1, letterSpacing:'-.02em' }}>{formatSm(courierStats.todayEarnings)}</div>
+                <div className="ub" style={{ fontSize:24, fontWeight:900, color:'#1FD760', lineHeight:1 }}>{formatSm(courierStats.todayEarnings)}</div>
                 <div style={{ fontSize:9, color:'#4A6A55', marginTop:6 }}>{courierStats.todayCount} доставок · {courierStats.rating} ★</div>
+              </div>
+              <div style={{
+                background:'linear-gradient(160deg,#0A1A2E 0%,#0F2540 100%)',
+                border:'1px solid rgba(59,142,240,.22)', borderRadius:14, padding:'14px 15px',
+              }}>
+                <div style={{ fontSize:9, color:'#7A9BB8', fontWeight:700, marginBottom:6, letterSpacing:.5, textTransform:'uppercase' }}>Неделя</div>
+                <div className="ub" style={{ fontSize:24, fontWeight:900, color:'#3B8EF0', lineHeight:1 }}>{formatSm(courierStats.weekEarnings)}</div>
+                <div style={{ fontSize:9, color:'#4A6A85', marginTop:6 }}>ср. {formatSm(courierStats.avgPerDay)} / день</div>
               </div>
             </div>
 
             {walletBalance < orderCommission && (
               <div style={{ padding:'10px 12px', borderRadius:11, marginBottom:10, background:'rgba(255,69,69,.06)', border:'1px solid rgba(255,69,69,.22)', fontSize:11, color:'#FF8080', fontWeight:600, textAlign:'center', lineHeight:1.45 }}>
-                Недостаточно средств — попросите администратора пополнить счёт
+                Недостаточно средств — пополните счёт по номеру {formatCourierAccountDisplay(courierProfile.account, courierProfile.id)}
               </div>
             )}
 
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:14 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
               {([
-                ['Неделя', formatSm(courierStats.weekEarnings), '#1FD760'],
                 ['Всего', String(courierStats.totalDeliveries), '#3B8EF0'],
                 ['Ср/день', formatSm(courierStats.avgPerDay), '#FFB800'],
                 ['Рейтинг', `${courierStats.rating}★`, '#FFB800'],

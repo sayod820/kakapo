@@ -45,6 +45,8 @@ import {
   stampCourierCommissionOnOrder,
   refundCourierCommission,
   depositCourierBalance,
+  depositCourierBalanceByAccount,
+  normalizeCourierAccount,
 } from './courierWallet.js'
 
 const loyaltyHooks = () => ({
@@ -80,6 +82,15 @@ function ensureCouriers() {
     db.couriers = COURIERS.map(c => ({ ...c }))
     persist()
   }
+  let changed = false
+  for (const c of db.couriers) {
+    const acc = normalizeCourierAccount(c.account, c.id)
+    if (c.account !== acc) {
+      c.account = acc
+      changed = true
+    }
+  }
+  if (changed) persist()
 }
 ensureCouriers()
 
@@ -807,6 +818,7 @@ function normalizeCourierRow(raw) {
     maxActiveOrders: Math.max(1, Math.min(5, Number(raw.maxActiveOrders) || 1)),
     blocked: !!raw.blocked,
     balance: Math.max(0, Math.round((Number(raw.balance) || 0) * 100) / 100),
+    account: normalizeCourierAccount(raw.account, raw.id),
     commissionPercent: Number.isFinite(commission) && commission > 0 ? Math.min(100, Math.round(commission * 100) / 100) : undefined,
     rating: Number(raw.rating) || 5,
     orders: Number(raw.orders) || 0,
@@ -845,6 +857,12 @@ app.patch('/couriers/:id', (req, res) => {
 })
 app.post('/couriers/:id/deposit', (req, res) => {
   const result = depositCourierBalance(db, req.params.id, req.body?.amount, req.body?.note)
+  if (!result.ok) return res.status(400).json({ detail: result.error })
+  persist()
+  res.json(result)
+})
+app.post('/couriers/deposit-by-account', (req, res) => {
+  const result = depositCourierBalanceByAccount(db, req.body?.account, req.body?.amount, req.body?.note)
   if (!result.ok) return res.status(400).json({ detail: result.error })
   persist()
   res.json(result)

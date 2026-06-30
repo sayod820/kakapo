@@ -7,6 +7,7 @@ import {
   normalizeCourier,
   type AdminCourier,
 } from './courierTeam'
+import { nextCourierAccountNumber } from './courierAccount'
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const COURIERS_KEY = 'kakapo-couriers'
@@ -74,6 +75,7 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
     const row = normalizeCourier({
       ...data,
       id: nextCourierId(couriers),
+      account: nextCourierAccountNumber(couriers),
       rating: 5,
       orders: 0,
       today: 0,

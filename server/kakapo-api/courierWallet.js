@@ -135,5 +135,28 @@ export function depositCourierBalance(db, courierId, amount, note = '') {
     at: new Date().toISOString(),
   })
   db.courierWalletTx = db.courierWalletTx.slice(0, 500)
-  return { ok: true, balance: courier.balance, added: add }
+  return { ok: true, balance: courier.balance, added: add, courierId: courier.id, account: normalizeCourierAccount(courier.account, courier.id) }
+}
+
+export function normalizeCourierAccount(raw, courierId) {
+  const s = String(raw || '').trim().toUpperCase().replace(/\s/g, '')
+  if (s) {
+    const m = s.match(/^KUR-?(\d{1,4})$/)
+    if (m) return `KUR-${String(Math.max(1, parseInt(m[1], 10) || 1)).padStart(4, '0')}`
+    const d = s.replace(/\D/g, '')
+    if (d.length >= 1 && d.length <= 4) return `KUR-${String(Math.max(1, parseInt(d, 10) || 1)).padStart(4, '0')}`
+  }
+  const n = parseInt(String(courierId || '').replace(/\D/g, ''), 10) || 1
+  return `KUR-${String(n).padStart(4, '0')}`
+}
+
+export function findCourierByAccount(db, accountQuery) {
+  const q = normalizeCourierAccount(accountQuery)
+  return (db.couriers || []).find(c => normalizeCourierAccount(c.account, c.id) === q) || null
+}
+
+export function depositCourierBalanceByAccount(db, account, amount, note = '') {
+  const courier = findCourierByAccount(db, account)
+  if (!courier) return { ok: false, error: 'Счёт не найден · проверьте номер KUR-XXXX' }
+  return depositCourierBalance(db, courier.id, amount, note)
 }

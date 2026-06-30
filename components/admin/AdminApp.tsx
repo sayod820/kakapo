@@ -131,6 +131,7 @@ import {
   type CourierStatus,
 } from '@/lib/courierTeam'
 import { getCourierCommissionPercent, getCourierBalance, getMinCourierCommissionEstimate, formatCourierCommissionPercent } from '@/lib/courierWallet'
+import { formatCourierAccountDisplay, findCourierByAccount } from '@/lib/courierAccount'
 import { restIdToPickupId } from '@/lib/pickups'
 import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
 import { useProductPhotos } from '@/lib/productPhotos'
@@ -2533,6 +2534,7 @@ function CouriersPage() {
   const [form, setForm] = useState(emptyCourierForm());
   const [formErr, setFormErr] = useState('');
   const [depositId, setDepositId] = useState<string | null>(null);
+  const [depositAccountQuery, setDepositAccountQuery] = useState('');
   const [depositAmount, setDepositAmount] = useState('');
   const [depositNote, setDepositNote] = useState('');
   const [depositErr, setDepositErr] = useState('');
@@ -2625,6 +2627,7 @@ function CouriersPage() {
   const openDeposit = (c: AdminCourier) => {
     setSection('wallet');
     setDepositId(c.id);
+    setDepositAccountQuery(formatCourierAccountDisplay(c.account, c.id));
     setDepositAmount('');
     setDepositNote('');
     setDepositErr('');
@@ -2658,7 +2661,15 @@ function CouriersPage() {
   };
 
   const submitDeposit = async () => {
-    if (!depositId) return;
+    let id = depositId
+    if (!id && depositAccountQuery.trim()) {
+      const found = findCourierByAccount(couriers, depositAccountQuery)
+      if (found) id = found.id
+    }
+    if (!id) {
+      setDepositErr('Укажите номер счёта KUR-XXXX или выберите курьера');
+      return;
+    }
     const amount = parseFloat(depositAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setDepositErr('Укажите сумму пополнения');
@@ -2667,7 +2678,7 @@ function CouriersPage() {
     setDepositing(true);
     setDepositErr('');
     try {
-      await depositBalance(depositId, amount, depositNote.trim() || 'Пополнение счёта');
+      await depositBalance(id, amount, depositNote.trim() || `Пополнение ${formatCourierAccountDisplay(couriers.find(c => c.id === id)?.account, id)}`);
       setDepositAmount('');
       setDepositNote('');
       setDepositErr('');
@@ -2804,14 +2815,38 @@ function CouriersPage() {
           <div className="ac" style={{ padding: 16 }}>
             <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>💳 Пополнение счёта</div>
             <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 14 }}>
-              Выберите курьера и сумму — после пополнения он сможет принимать заказы
+              Введите номер счёта <b style={{ color: '#3B8EF0' }}>KUR-XXXX</b> или выберите курьера из списка
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 6 }}>Номер счёта</div>
+              <input
+                className="ai"
+                value={depositAccountQuery}
+                onChange={e => {
+                  const v = e.target.value
+                  setDepositAccountQuery(v)
+                  setDepositErr('')
+                  const found = findCourierByAccount(couriers, v)
+                  if (found) setDepositId(found.id)
+                  else if (!v.trim()) setDepositId(null)
+                }}
+                placeholder="KUR-0001"
+                style={{ width: '100%', fontFamily: 'Unbounded, sans-serif', fontWeight: 800, letterSpacing: 1 }}
+              />
             </div>
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 6 }}>Курьер</div>
               <select
                 className="ai"
                 value={depositId || ''}
-                onChange={e => { setDepositId(e.target.value || null); setDepositErr(''); }}
+                onChange={e => {
+                  const id = e.target.value || null
+                  setDepositId(id)
+                  setDepositErr('')
+                  const c = couriers.find(x => x.id === id)
+                  if (c) setDepositAccountQuery(formatCourierAccountDisplay(c.account, c.id))
+                  else setDepositAccountQuery('')
+                }}
                 style={{ width: '100%' }}
               >
                 <option value="">— выберите курьера —</option>
@@ -2821,7 +2856,7 @@ function CouriersPage() {
                   const low = comm > 0 && bal + 0.001 < comm;
                   return (
                     <option key={c.id} value={c.id}>
-                      {c.name} · {formatSm(bal)}{low ? ' ⚠ мало' : ''}
+                      {c.name} · {formatCourierAccountDisplay(c.account, c.id)} · {formatSm(bal)}{low ? ' ⚠ мало' : ''}
                     </option>
                   );
                 })}
@@ -2829,7 +2864,8 @@ function CouriersPage() {
             </div>
             {depositId && (
               <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 10, padding: '8px 10px', borderRadius: 10, background: '#091508', border: '1px solid #162B1A' }}>
-                Баланс: <span className="ub" style={{ color: '#3B8EF0', fontWeight: 800 }}>{formatSm(getCourierBalance(couriers.find(c => c.id === depositId)))}</span>
+                Счёт: <span className="ub" style={{ color: '#EBF5ED', fontWeight: 800 }}>{formatCourierAccountDisplay(couriers.find(c => c.id === depositId)?.account, depositId)}</span>
+                {' · '}Баланс: <span className="ub" style={{ color: '#3B8EF0', fontWeight: 800 }}>{formatSm(getCourierBalance(couriers.find(c => c.id === depositId)))}</span>
                 {' · '}мин. комиссия ~<span className="ub" style={{ color: '#FFB800', fontWeight: 800 }}>{formatSm(getMinCourierCommissionEstimate(tariff, couriers.find(c => c.id === depositId)))}</span>
                 {' · '}{formatCourierCommissionPercent(getCourierCommissionPercent(tariff, couriers.find(c => c.id === depositId)))} от доставки
               </div>
@@ -2846,7 +2882,7 @@ function CouriersPage() {
               <NI lbl="Комментарий" val={depositNote} set={setDepositNote} ph="Пополнение счёта" />
             </div>
             {depositErr && <div style={{ marginTop: 8, fontSize: 11, color: '#FF4545', fontWeight: 700 }}>{depositErr}</div>}
-            <button type="button" onClick={submitDeposit} disabled={depositing || !depositId} className="ab abp" style={{ width: '100%', padding: 11, marginTop: 12, opacity: depositing || !depositId ? .65 : 1 }}>
+            <button type="button" onClick={submitDeposit} disabled={depositing || (!depositId && !depositAccountQuery.trim())} className="ab abp" style={{ width: '100%', padding: 11, marginTop: 12, opacity: depositing || (!depositId && !depositAccountQuery.trim()) ? .65 : 1 }}>
               {depositing ? '⏳ Пополняем…' : '✓ Пополнить счёт'}
             </button>
           </div>
@@ -2865,7 +2901,8 @@ function CouriersPage() {
             <thead>
               <tr>
                 <th>Курьер</th>
-                <th>Счёт</th>
+                <th>Номер KUR</th>
+                <th>Баланс</th>
                 <th>Комиссия</th>
                 <th>Статус счёта</th>
                 <th></th>
@@ -2882,7 +2919,12 @@ function CouriersPage() {
                       <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
                       <div style={{ fontSize: 10, color: '#8FB897' }}>{c.phone}</div>
                     </td>
-                    <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: low ? '#FF4545' : '#3B8EF0' }}>{formatSm(balance)}</span></td>
+                    <td>
+                      <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#3B8EF0', letterSpacing: .5 }}>
+                        {formatCourierAccountDisplay(c.account, c.id)}
+                      </span>
+                    </td>
+                    <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: low ? '#FF4545' : '#EBF5ED' }}>{formatSm(balance)}</span></td>
                     <td style={{ fontSize: 12, color: '#8FB897' }}>
                       {formatCourierCommissionPercent(getCourierCommissionPercent(tariff, c))}
                       <div style={{ fontSize: 9, color: '#3D6645' }}>~{formatSm(commission)} мин.</div>
@@ -2916,7 +2958,8 @@ function CouriersPage() {
               <th>Транспорт</th>
               <th>Статус</th>
               <th>Макс. заказов</th>
-              <th>Счёт</th>
+              <th>Номер KUR</th>
+              <th>Баланс</th>
               <th>Комиссия</th>
               <th>Рейтинг</th>
               <th>Доставок</th>
@@ -2955,7 +2998,12 @@ function CouriersPage() {
                     </span>
                   </td>
                   <td>
-                    <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: lowBalance ? '#FF4545' : '#3B8EF0' }}>
+                    <span className="ub" style={{ fontSize: 11, fontWeight: 800, color: '#3B8EF0', letterSpacing: .4 }}>
+                      {formatCourierAccountDisplay(c.account, c.id)}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: lowBalance ? '#FF4545' : '#EBF5ED' }}>
                       {formatSm(balance)}
                     </span>
                     {lowBalance && <div style={{ fontSize: 10, color: '#FF4545' }}>мало для заказа</div>}
