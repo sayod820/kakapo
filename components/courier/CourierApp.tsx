@@ -636,8 +636,9 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       const mkIcon = (html: string, w: number, h: number, ax: number, ay: number) =>
         L.divIcon({ html, className:'', iconSize:[w,h], iconAnchor:[ax,ay], popupAnchor:[0,-ay] });
 
-      if (selected && (selected.mapPickupIds ?? selected.pickupIds) && step) {
-        const displayPickups = selected.mapPickupIds ?? selected.pickupIds
+      if (selected && step) {
+        const readySet = new Set<string>(selected.pickupIds || []);
+        const displayPickups = selected.mapPickupIds ?? selected.pickupIds ?? [];
         displayPickups.forEach((pid: string, i: number) => {
           const pk = PICKUPS[pid] || PICKUPS.store;
           const isCurrent = step === 'toPickup' && i === pickupIdx;
@@ -651,37 +652,18 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
           m.bindTooltip(`${i+1}. ${pk.name}`, { direction:'top', offset:[0,-sz/2] });
           markersRef.current.push(m);
         });
-      }
-
-      /* точки забора на обзорной карте — ресторан/магазин как у магазина: жёлтый=готовится, цвет=можно забирать */
-      if (!myDeliveryList && !selected) {
-        orders.forEach((o) => {
-          (o.pendingParts || []).forEach((pp: { pickupId: string; label: string; status: string }) => {
-            const pk = PICKUPS[pp.pickupId] || PICKUPS.store;
-            if (!pk) return;
-            const sz = 28;
-            const icon = mkIcon(
-              `<div style="width:${sz}px;height:${sz}px;border-radius:8px;background:rgba(255,184,0,.12);border:2px dashed rgba(255,184,0,.55);display:flex;align-items:center;justify-content:center;font-size:14px">${pk.e}</div>`,
-              sz, sz, sz/2, sz/2
-            );
-            const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: 80 }).addTo(map);
-            m.bindTooltip(`${o.id} · ${pp.label} — ${pp.status}`, { direction: 'top', offset: [0, -sz/2] });
-            m.on('click', () => onSelect(o));
-            markersRef.current.push(m);
-          });
-          (o.pickupIds || []).forEach((pid: string) => {
-            const pk = PICKUPS[pid] || PICKUPS.store;
-            if (!pk) return;
-            const sz = 34;
-            const icon = mkIcon(
-              `<div style="width:${sz}px;height:${sz}px;border-radius:10px;background:${pk.color}33;border:2.5px solid ${pk.color};display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 0 14px ${pk.color}99">${pk.e}</div>`,
-              sz, sz, sz/2, sz/2
-            );
-            const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: 180 }).addTo(map);
-            m.bindTooltip(`${o.id} · ✓ ${pk.name} — можно забирать`, { direction: 'top', offset: [0, -sz/2] });
-            m.on('click', () => onSelect(o));
-            markersRef.current.push(m);
-          });
+        (selected.pendingParts || []).forEach((pp: { pickupId: string; label: string; status: string }) => {
+          if (readySet.has(pp.pickupId)) return;
+          const pk = PICKUPS[pp.pickupId] || PICKUPS.store;
+          if (!pk) return;
+          const sz = 30;
+          const icon = mkIcon(
+            `<div style="width:${sz}px;height:${sz}px;border-radius:8px;background:rgba(255,184,0,.12);border:2px dashed rgba(255,184,0,.55);display:flex;align-items:center;justify-content:center;font-size:14px">${pk.e}</div>`,
+            sz, sz, sz/2, sz/2
+          );
+          const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: 120 }).addTo(map);
+          m.bindTooltip(`${pp.label} — ${pp.status}`, { direction: 'top', offset: [0, -sz/2] });
+          markersRef.current.push(m);
         });
       }
 
@@ -1341,7 +1323,7 @@ function CourierAppInner() {
                             <div style={{ width:32, height:32, borderRadius:9, background:'rgba(255,184,0,.12)', border:'1.5px dashed rgba(255,184,0,.45)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{pk?.e || '⏳'}</div>
                             <div style={{ flex:1 }}>
                               <div style={{ fontSize:10, color:'#FFB800', fontWeight:700 }}>{pp.pickupId === 'store' ? 'Магазин' : 'Ресторан'} — {pp.status}</div>
-                              <div style={{ fontSize:11, color:'#3D6645' }}>{pk?.name || pp.label} · на карте пунктиром</div>
+                              <div style={{ fontSize:11, color:'#3D6645' }}>{pk?.name || pp.label} · после принятия — на карте доставки</div>
                             </div>
               </div>
                           );
