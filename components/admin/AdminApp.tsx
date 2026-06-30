@@ -187,8 +187,12 @@ function AdminLocationMap({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       onChangeRef.current(r);
-    }, 400);
+    }, 600);
   }, []);
+
+  const initialRef = useRef(
+    lat != null && lng != null ? { lat, lng } : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng },
+  );
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -207,7 +211,7 @@ function AdminLocationMap({
           hideGps
           addressLabel={addressLabel}
           addressHelper="Двигайте карту — остриё метки показывает точку"
-          initial={lat != null && lng != null ? { lat, lng } : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }}
+          initial={initialRef.current}
           onCenterChange={handleCenterChange}
         />
       )}
@@ -2067,27 +2071,6 @@ function PartnersPage() {
     resetAddForm();
   };
 
-  const MapBlock = ({
-    mapKey,
-    lat,
-    lng,
-    onCenterChange,
-    addressLabel = 'Адрес',
-  }: {
-    mapKey: string;
-    lat: number | null;
-    lng: number | null;
-    onCenterChange: (r: { lat: number; lng: number; address: string }) => void;
-    addressLabel?: string;
-  }) => (
-    <AdminLocationMap
-      mapKey={mapKey}
-      lat={lat}
-      lng={lng}
-      onCenterChange={onCenterChange}
-      addressLabel={addressLabel}
-    />
-  );
   return (
     <div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
@@ -2173,9 +2156,10 @@ function PartnersPage() {
                     </div>
                   ))}
                 </div>
-                <MapBlock
+                <AdminLocationMap
                   mapKey={`rest-edit-${sel.id}`}
-                  lat={editForm.lat} lng={editForm.lng}
+                  lat={editForm.lat}
+                  lng={editForm.lng}
                   addressLabel="Адрес ресторана"
                   onCenterChange={r => {
                     setEditForm((x: any) => ({
@@ -2420,9 +2404,10 @@ function PartnersPage() {
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Телефон</div><input className="ai" value={addForm.phone} onChange={e=>setAddForm(f=>({...f,phone:e.target.value}))} placeholder="+992 __ ___"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Комиссия %</div><input className="ai" type="number" value={addForm.commission} onChange={e=>setAddForm(f=>({...f,commission:e.target.value}))} placeholder="15"/></div>
               </div>
-              <MapBlock
+              <AdminLocationMap
                 mapKey="rest-add"
-                lat={addForm.lat} lng={addForm.lng}
+                lat={addForm.lat}
+                lng={addForm.lng}
                 addressLabel="Адрес ресторана"
                 onCenterChange={r => setAddForm(f => ({ ...f, lat: r.lat, lng: r.lng, address: r.address?.trim() ? r.address : f.address }))}
               />

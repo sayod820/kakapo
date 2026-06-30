@@ -401,24 +401,28 @@ export default function AddressMapPicker({
         map.on('moveend', () => {
           requestAnimationFrame(() => {
             const c = updateCenterCoords();
-            onCenterChangeRef.current?.({ lat: c.lat, lng: c.lng, address: '' });
+            if (variant !== 'admin') {
+              onCenterChangeRef.current?.({ lat: c.lat, lng: c.lng, address: '' });
+            }
             if (userDragging) {
               setMapMoving(false);
               setDropKey(k => k + 1);
             }
             userDragging = false;
-            resolveAddress(c.lat, c.lng, 200);
+            resolveAddress(c.lat, c.lng, variant === 'admin' ? 450 : 200);
           });
         });
         map.on('zoomend', () => {
           requestAnimationFrame(() => {
             const c = updateCenterCoords();
-            resolveAddress(c.lat, c.lng, 200);
+            resolveAddress(c.lat, c.lng, variant === 'admin' ? 450 : 200);
           });
         });
         const c0 = updateCenterCoords();
-        onCenterChangeRef.current?.({ lat: c0.lat, lng: c0.lng, address: '' });
-        resolveAddress(c0.lat, c0.lng, variant === 'admin' ? 350 : 80);
+        if (variant !== 'admin') {
+          onCenterChangeRef.current?.({ lat: c0.lat, lng: c0.lng, address: '' });
+        }
+        resolveAddress(c0.lat, c0.lng, variant === 'admin' ? 450 : 80);
       } else {
         if (pinRef.current) placeMarker(pinRef.current.lat, pinRef.current.lng);
         map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
@@ -437,7 +441,7 @@ export default function AddressMapPicker({
             map.dragging.enable();
             if (pickMode === 'center') {
               const c = updateCenterCoords();
-              resolveAddress(c.lat, c.lng, variant === 'admin' ? 350 : 80);
+              resolveAddress(c.lat, c.lng, variant === 'admin' ? 450 : 80);
             }
           } catch {}
         }, 50);
