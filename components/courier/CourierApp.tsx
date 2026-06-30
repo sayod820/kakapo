@@ -1646,31 +1646,52 @@ function CourierAppInner() {
                   {walletTxLoading ? 'загрузка…' : `${walletTx.length} записей`}
                 </span>
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                {walletTx.length === 0 && !walletTxLoading ? (
-                  <div className="ccard" style={{ padding:'20px 14px', textAlign:'center', color:'#5A7A62', fontSize:11, lineHeight:1.45 }}>
-                    Пополнения и списания появятся после действий администратора
-                  </div>
-                ) : walletTx.map((tx) => {
-                  const positive = tx.amount >= 0
-                  const color = positive ? '#1FD760' : '#FF8080'
-                  const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : '📉'
-                  return (
-                    <div key={tx.id} className="ccard" style={{ padding:'10px 12px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, borderColor: positive ? 'rgba(31,215,96,.12)' : 'rgba(255,69,69,.12)' }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
-                        <div style={{ width:32, height:32, borderRadius:'50%', background:`${color}18`, border:`1px solid ${color}33`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, flexShrink:0 }}>{icon}</div>
-                        <div style={{ minWidth:0 }}>
-                          <div style={{ fontSize:12, fontWeight:800 }}>{walletTxLabel(tx.type)}</div>
-                          <div style={{ fontSize:10, color:'#5A7A62', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>{tx.note || '—'}</div>
+              <div style={{ position:'relative' }}>
+                {walletTx.length > 7 && (
+                  <div style={{ position:'absolute', left:0, right:0, bottom:0, height:28, background:'linear-gradient(transparent, rgba(6,14,10,.92))', pointerEvents:'none', borderRadius:'0 0 12px 12px', zIndex:1 }} />
+                )}
+                <div
+                  style={{
+                    display:'flex',
+                    flexDirection:'column',
+                    gap:8,
+                    maxHeight: 7 * 54 + 6 * 8,
+                    overflowY:'auto',
+                    WebkitOverflowScrolling:'touch',
+                    overscrollBehavior:'contain',
+                    paddingRight: walletTx.length > 7 ? 2 : 0,
+                  }}
+                >
+                  {walletTx.length === 0 && !walletTxLoading ? (
+                    <div className="ccard" style={{ padding:'20px 14px', textAlign:'center', color:'#5A7A62', fontSize:11, lineHeight:1.45 }}>
+                      Пополнения и списания появятся после действий администратора
+                    </div>
+                  ) : walletTx.map((tx) => {
+                    const positive = tx.amount >= 0
+                    const color = positive ? '#1FD760' : '#FF8080'
+                    const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : '📉'
+                    return (
+                      <div key={tx.id} className="ccard" style={{ padding:'10px 12px', minHeight:54, boxSizing:'border-box', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, borderColor: positive ? 'rgba(31,215,96,.12)' : 'rgba(255,69,69,.12)', flexShrink:0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
+                          <div style={{ width:32, height:32, borderRadius:'50%', background:`${color}18`, border:`1px solid ${color}33`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, flexShrink:0 }}>{icon}</div>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontSize:12, fontWeight:800 }}>{walletTxLabel(tx.type)}</div>
+                            <div style={{ fontSize:10, color:'#5A7A62', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>{tx.note || '—'}</div>
+                          </div>
+                        </div>
+                        <div style={{ textAlign:'right', flexShrink:0 }}>
+                          <div className="ub" style={{ fontSize:13, fontWeight:900, color }}>{positive ? '+' : ''}{formatSm(tx.amount)}</div>
+                          <div style={{ fontSize:9, color:'#5A7A62', marginTop:3 }}>{formatWalletTxTime(tx.at)}</div>
                         </div>
                       </div>
-                      <div style={{ textAlign:'right', flexShrink:0 }}>
-                        <div className="ub" style={{ fontSize:13, fontWeight:900, color }}>{positive ? '+' : ''}{formatSm(tx.amount)}</div>
-                        <div style={{ fontSize:9, color:'#5A7A62', marginTop:3 }}>{formatWalletTxTime(tx.at)}</div>
-                      </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
+                {walletTx.length > 7 && !walletTxLoading && (
+                  <div style={{ textAlign:'center', fontSize:9, color:'#5A7A62', marginTop:6, fontWeight:600 }}>
+                    ↕ листайте для просмотра всех {walletTx.length} записей
+                  </div>
+                )}
               </div>
             </div>
             )}

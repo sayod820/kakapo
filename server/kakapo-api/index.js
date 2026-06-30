@@ -912,6 +912,20 @@ app.get('/couriers/:id/wallet/transactions', (req, res) => {
     transactions: getCourierWalletTransactions(db, c.id, limit),
   })
 })
+app.get('/couriers/wallet/transactions', (req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 40))
+  const courierId = String(req.query.courierId || '').trim()
+  const couriersById = Object.fromEntries((db.couriers || []).map(c => [c.id, c]))
+  let txs = [...(db.courierWalletTx || [])]
+  if (courierId) txs = txs.filter(t => t.courierId === courierId)
+  res.json({
+    transactions: txs.slice(0, limit).map(t => ({
+      ...t,
+      account: normalizeCourierAccount(couriersById[t.courierId]?.account, t.courierId),
+      courierName: couriersById[t.courierId]?.name || '—',
+    })),
+  })
+})
 
 function normalizeAssemblerRow(raw) {
   const status = raw.status === 'working' || raw.status === 'available' ? raw.status : 'offline'

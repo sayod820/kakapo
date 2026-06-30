@@ -275,6 +275,15 @@ export const api = {
     }),
   getCourierWalletTransactions: (id: string, limit = 30) =>
     request<CourierWalletSnapshot>(`/couriers/${id}/wallet/transactions?limit=${limit}`),
+  listCourierWalletTransactions: (params?: { courierId?: string; limit?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.courierId) q.set('courierId', params.courierId)
+    if (params?.limit) q.set('limit', String(params.limit))
+    const qs = q.toString()
+    return request<{ transactions: (CourierWalletTx & { courierName?: string; account?: string })[] }>(
+      `/couriers/wallet/transactions${qs ? `?${qs}` : ''}`,
+    )
+  },
 
   getAssemblers: () => request<AdminAssembler[]>('/assemblers'),
   createAssembler: (data: Partial<AdminAssembler>) =>
