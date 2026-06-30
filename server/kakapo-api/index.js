@@ -40,6 +40,12 @@ import {
   stampOrderForClient,
   hardDeleteClientProfile,
 } from './accountLifecycle.js'
+import {
+  applyCourierCommissionOnAccept,
+  stampCourierCommissionOnOrder,
+  refundCourierCommission,
+  depositCourierBalance,
+} from './courierWallet.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
@@ -600,7 +606,15 @@ app.patch('/orders/:id/status', (req, res) => {
   const idx = db.orders.findIndex(o => o.id === req.params.id)
   if (idx < 0) return res.status(404).json({ detail: 'Заказ не найден' })
   const prev = db.orders[idx]
+
+  const commissionResult = applyCourierCommissionOnAccept(db, prev, req.body)
+  if (!commissionResult.ok) {
+    return res.status(400).json({ detail: commissionResult.error })
+  }
+
   const updated = applyStatusPatch({ ...prev }, req.body)
+  stampCourierCommissionOnOrder(updated, commissionResult)
+
   if (updated.status === 'delivered' && prev.status !== 'delivered') {
     updated.deliveredAtIso = new Date().toISOString()
     if (!updated.deliveredAt) {
@@ -622,6 +636,7 @@ app.patch('/orders/:id/status', (req, res) => {
     }
   }
   if (updated.status === 'cancelled' && prev.status !== 'cancelled') {
+    refundCourierCommission(db, updated)
     const phone = updated.client?.phone || prev.client?.phone || ''
     const hadLoyalty = prev.status === 'delivered'
       || prev.bonusCredited
@@ -785,11 +800,14 @@ app.patch('/pickups/:id', (req, res) => {
 
 function normalizeCourierRow(raw) {
   const vehicle = ['moto', 'bike', 'car'].includes(raw.vehicle) ? raw.vehicle : 'moto'
+  const commission = Number(raw.commissionPerOrder)
   return {
     ...raw,
     vehicle,
     maxActiveOrders: Math.max(1, Math.min(5, Number(raw.maxActiveOrders) || 1)),
     blocked: !!raw.blocked,
+    balance: Math.max(0, Math.round((Number(raw.balance) || 0) * 100) / 100),
+    commissionPerOrder: Number.isFinite(commission) && commission > 0 ? Math.round(commission * 100) / 100 : undefined,
     rating: Number(raw.rating) || 5,
     orders: Number(raw.orders) || 0,
     today: Number(raw.today) || 0,
@@ -811,6 +829,7 @@ app.post('/couriers', (req, res) => {
     today: 0,
     week: 0,
     status: 'offline',
+    balance: 0,
     ...req.body,
   })
   db.couriers.push(row)
@@ -823,6 +842,12 @@ app.patch('/couriers/:id', (req, res) => {
   Object.assign(c, normalizeCourierRow({ ...c, ...req.body, id: c.id }))
   persist()
   res.json(c)
+})
+app.post('/couriers/:id/deposit', (req, res) => {
+  const result = depositCourierBalance(db, req.params.id, req.body?.amount, req.body?.note)
+  if (!result.ok) return res.status(400).json({ detail: result.error })
+  persist()
+  res.json(result)
 })
 
 function normalizeAssemblerRow(raw) {

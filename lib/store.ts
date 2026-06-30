@@ -21,6 +21,11 @@ import { onOrderStatusChange, onRestPartAccepted } from './pushService'
 import { creditBonusOnDeliveryLocal, reverseBonusOnOrderCancelLocal } from './loyaltyBonus'
 import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
+import { useCourierTeamStore } from './courierTeamStore'
+import { usePricingStore } from './courierStore'
+import { findCourierByPhone } from './courierTeam'
+import { canCourierAffordOrder, getCourierBalance, isNewCourierAssignment } from './courierWallet'
+import { DEFAULT_PRICING } from './courierData'
 
 function applyCancelLoyalty(
   set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
@@ -381,7 +386,43 @@ export const useOrders = create<OrdersStore>((set, get) => ({
 
   updateStatus: async (id, status, extra) => {
     const prev = get().orders.find(o => o.id === id)
-    const patch = extra || {}
+    const patch: Record<string, unknown> = { ...(extra || {}) }
+
+    if (!USE_API) {
+      if (isNewCourierAssignment(prev, patch)) {
+        const couriers = useCourierTeamStore.getState().couriers
+        const phone = (patch.courier as { phone?: string } | undefined)?.phone
+        const courier = findCourierByPhone(couriers, phone || '')
+        const pricing = { ...DEFAULT_PRICING, ...usePricingStore.getState().pricing }
+        const gate = canCourierAffordOrder(courier, pricing)
+        if (!gate.ok) throw new Error(gate.msg || 'Недостаточно средств на счёте')
+        if (gate.commission > 0 && courier) {
+          useCourierTeamStore.getState().updateCourier(courier.id, {
+            balance: Math.round((gate.balance - gate.commission) * 100) / 100,
+          })
+          patch.courierCommissionPaid = gate.commission
+          patch.courierCommissionCourierId = courier.id
+          patch.courierCommissionRefunded = false
+        }
+      }
+      if (status === 'cancelled' && prev && prev.status !== 'cancelled') {
+        const paid = Number((prev as Order & { courierCommissionPaid?: number }).courierCommissionPaid) || 0
+        const refunded = !!(prev as Order & { courierCommissionRefunded?: boolean }).courierCommissionRefunded
+        if (paid > 0 && !refunded) {
+          const courierId = (prev as Order & { courierCommissionCourierId?: string }).courierCommissionCourierId
+          const courier = courierId
+            ? useCourierTeamStore.getState().couriers.find(c => c.id === courierId)
+            : null
+          if (courier) {
+            useCourierTeamStore.getState().updateCourier(courier.id, {
+              balance: Math.round((getCourierBalance(courier) + paid) * 100) / 100,
+            })
+            patch.courierCommissionRefunded = true
+          }
+        }
+      }
+    }
+
     patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, status, ...patch } : o))
     const nextAfter = get().orders.find(o => o.id === id)
     if (prev && nextAfter) onOrderStatusChange(normalizeOrder(prev), normalizeOrder(nextAfter))
@@ -399,9 +440,13 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         if (prev && synced) onOrderStatusChange(normalizeOrder(prev), normalizeOrder(synced))
         if (synced?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
         if (synced?.status === 'cancelled') applyCancelLoyalty(set, get, id, prev)
+        if (isNewCourierAssignment(prev, patch)) {
+          void useCourierTeamStore.getState().fetchFromApi()
+        }
       } catch (e) {
         console.error(e)
         if (prev) patchOrders(set, get, s => s.map(o => o.id === id ? prev : o))
+        throw e
       }
     }
   },

@@ -41,10 +41,10 @@ const PICKUPS = [
 ]
 
 export const COURIERS = [
-  { id: 'C-01', name: 'Фирдавс Назаров', phone: '+992 93 111 22 33', vehicle: 'moto', num: 'TJ 1234 AA', status: 'busy', rating: 4.9, orders: 342, today: 42, week: 310, maxActiveOrders: 1, blocked: false, otp: '1234' },
-  { id: 'C-02', name: 'Баходур Кодиров', phone: '+992 90 222 33 44', vehicle: 'bike', num: '—', status: 'available', rating: 4.7, orders: 187, today: 28, week: 195, maxActiveOrders: 1, blocked: false, otp: '1234' },
-  { id: 'C-03', name: 'Рустам Холов', phone: '+992 91 333 44 55', vehicle: 'car', num: 'TJ 5678 BB', status: 'available', rating: 4.8, orders: 521, today: 56, week: 420, maxActiveOrders: 2, blocked: false, otp: '1234' },
-  { id: 'C-04', name: 'Зубайр Рахимов', phone: '+992 88 444 55 66', vehicle: 'moto', num: 'TJ 9012 CC', status: 'offline', rating: 4.6, orders: 98, today: 0, week: 145, maxActiveOrders: 1, blocked: false, otp: '1234' },
+  { id: 'C-01', name: 'Фирдавс Назаров', phone: '+992 93 111 22 33', vehicle: 'moto', num: 'TJ 1234 AA', status: 'busy', rating: 4.9, orders: 342, today: 42, week: 310, maxActiveOrders: 1, blocked: false, balance: 120, otp: '1234' },
+  { id: 'C-02', name: 'Баходур Кодиров', phone: '+992 90 222 33 44', vehicle: 'bike', num: '—', status: 'available', rating: 4.7, orders: 187, today: 28, week: 195, maxActiveOrders: 1, blocked: false, balance: 45, otp: '1234' },
+  { id: 'C-03', name: 'Рустам Холов', phone: '+992 91 333 44 55', vehicle: 'car', num: 'TJ 5678 BB', status: 'available', rating: 4.8, orders: 521, today: 56, week: 420, maxActiveOrders: 2, blocked: false, balance: 200, otp: '1234' },
+  { id: 'C-04', name: 'Зубайр Рахимов', phone: '+992 88 444 55 66', vehicle: 'moto', num: 'TJ 9012 CC', status: 'offline', rating: 4.6, orders: 98, today: 0, week: 145, maxActiveOrders: 1, blocked: false, balance: 0, otp: '1234' },
 ]
 
 export const ASSEMBLERS = [

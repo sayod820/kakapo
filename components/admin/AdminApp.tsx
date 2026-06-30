@@ -130,6 +130,7 @@ import {
   type AdminCourier,
   type CourierStatus,
 } from '@/lib/courierTeam'
+import { getCourierCommissionPerOrder, getCourierBalance } from '@/lib/courierWallet'
 import { restIdToPickupId } from '@/lib/pickups'
 import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
 import { useProductPhotos } from '@/lib/productPhotos'
@@ -2498,10 +2499,11 @@ function ReviewsPage() {
 /* ── КУРЬЕРЫ ─────────────────────────────────────── */
 function CouriersPage() {
   const couriers = useCourierTeam();
-  const { addCourier, updateCourier, toggleBlock } = useCourierTeamStore();
+  const { addCourier, updateCourier, toggleBlock, depositBalance } = useCourierTeamStore();
   const apiOrders = useOrders(s => s.orders);
   const pricing = usePricingStore(s => s.pricing);
   const tariff = useMemo(() => normalizePricing({ ...DEFAULT_PRICING, ...pricing }), [pricing]);
+  const defaultCommission = useMemo(() => getCourierCommissionPerOrder(tariff), [tariff]);
   const { roadKm } = useOrderRoadKm(apiOrders);
   const financeRows = useMemo(
     () => buildCourierFinance(apiOrders, couriers, roadKm, tariff),
@@ -2529,6 +2531,11 @@ function CouriersPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(emptyCourierForm());
   const [formErr, setFormErr] = useState('');
+  const [depositId, setDepositId] = useState<string | null>(null);
+  const [depositAmount, setDepositAmount] = useState('');
+  const [depositNote, setDepositNote] = useState('');
+  const [depositErr, setDepositErr] = useState('');
+  const [depositing, setDepositing] = useState(false);
 
   const SC: Record<CourierStatus, { l: string; c: string }> = {
     available: { l: 'Свободен', c: '#1FD760' },
@@ -2552,6 +2559,8 @@ function CouriersPage() {
       status: c.status,
       maxActiveOrders: c.maxActiveOrders,
       blocked: c.blocked,
+      balance: c.balance,
+      commissionPerOrder: c.commissionPerOrder ?? 0,
       otp: c.otp || '1234',
     });
     setFormErr('');
@@ -2573,12 +2582,14 @@ function CouriersPage() {
       return;
     }
     const maxActiveOrders = Math.max(1, Math.min(5, Number(form.maxActiveOrders) || 1));
+    const customCommission = Math.max(0, Number(form.commissionPerOrder) || 0);
     const payload = {
       ...form,
       name,
       phone,
       num: form.num.trim() || '—',
       maxActiveOrders,
+      commissionPerOrder: customCommission > 0 ? customCommission : undefined,
       otp: (form.otp || '1234').trim(),
     };
     if (editId) updateCourier(editId, payload);
@@ -2588,6 +2599,39 @@ function CouriersPage() {
 
   const setF = <K extends keyof typeof form>(key: K, val: (typeof form)[K]) =>
     setForm(prev => ({ ...prev, [key]: val }));
+
+  const openDeposit = (c: AdminCourier) => {
+    setDepositId(c.id);
+    setDepositAmount('');
+    setDepositNote('');
+    setDepositErr('');
+  };
+
+  const closeDeposit = () => {
+    setDepositId(null);
+    setDepositAmount('');
+    setDepositNote('');
+    setDepositErr('');
+  };
+
+  const submitDeposit = async () => {
+    if (!depositId) return;
+    const amount = parseFloat(depositAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setDepositErr('Укажите сумму пополнения');
+      return;
+    }
+    setDepositing(true);
+    setDepositErr('');
+    try {
+      await depositBalance(depositId, amount, depositNote.trim() || 'Пополнение счёта');
+      closeDeposit();
+    } catch (e: unknown) {
+      setDepositErr(e instanceof Error ? e.message : 'Не удалось пополнить счёт');
+    } finally {
+      setDepositing(false);
+    }
+  };
 
   const exportCourierReport = () => {
     downloadCsv(
@@ -2641,6 +2685,8 @@ function CouriersPage() {
               <th>Транспорт</th>
               <th>Статус</th>
               <th>Макс. заказов</th>
+              <th>Счёт</th>
+              <th>Комиссия</th>
               <th>Рейтинг</th>
               <th>Доставок</th>
               <th>За доставку</th>
@@ -2653,6 +2699,9 @@ function CouriersPage() {
               const s = c.blocked ? { l: 'Заблокирован', c: '#FF4545' } : SC[c.status];
               const active = countCourierActiveOrders(apiOrders, c);
               const fin = financeById[c.id];
+              const balance = getCourierBalance(c);
+              const commission = getCourierCommissionPerOrder(tariff, c);
+              const lowBalance = commission > 0 && balance + 0.001 < commission;
               return (
                 <tr key={c.id} style={c.blocked ? { opacity: .65 } : undefined}>
                   <td>
@@ -2674,12 +2723,23 @@ function CouriersPage() {
                       {active}/{c.maxActiveOrders}
                     </span>
                   </td>
+                  <td>
+                    <span className="ub" style={{ fontSize: 12, fontWeight: 800, color: lowBalance ? '#FF4545' : '#3B8EF0' }}>
+                      {formatSm(balance)}
+                    </span>
+                    {lowBalance && <div style={{ fontSize: 10, color: '#FF4545' }}>мало для заказа</div>}
+                  </td>
+                  <td style={{ fontSize: 12, color: '#8FB897' }}>
+                    {formatSm(commission)}
+                    {c.commissionPerOrder ? <div style={{ fontSize: 10, color: '#3D6645' }}>индивид.</div> : null}
+                  </td>
                   <td style={{ color: '#FFB800', fontWeight: 700 }}>★ {c.rating}</td>
                   <td style={{ color: '#8FB897' }}>{fin?.deliveries ?? 0}</td>
                   <td><span className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#3B8EF0' }}>{formatSm(fin?.earnings ?? 0)}</span></td>
                   <td style={{ color: '#8FB897' }}>{c.orders}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 5 }}>
+                      <button onClick={() => openDeposit(c)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }} title="Пополнить счёт">💳</button>
                       <a href={`tel:${c.phone.replace(/\s/g, '')}`} className="ab abg" style={{ padding: '4px 9px', fontSize: 11, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>📱</a>
                       <button onClick={() => openEdit(c)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>✏️</button>
                       <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
@@ -2807,9 +2867,33 @@ function CouriersPage() {
                 <NI lbl="Макс. заказов одновременно" val={String(form.maxActiveOrders)} set={v => setF('maxActiveOrders', Math.max(1, Math.min(5, parseInt(v, 10) || 1)))} ph="1–5" type="number" />
               </div>
               <NI lbl="Код входа (OTP)" val={form.otp || ''} set={v => setF('otp', v)} ph="1234" />
+              <NI lbl={`Комиссия за заказ (0 = из тарифа ${defaultCommission} ЅМ)`} val={String(form.commissionPerOrder ?? 0)} set={v => setF('commissionPerOrder', Math.max(0, parseFloat(v) || 0))} ph="0" type="number" />
               {formErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{formErr}</div>}
               <button onClick={saveCourier} className="ab abp" style={{ width: '100%', padding: 11 }}>
                 {editId ? '✓ Сохранить' : '✓ Добавить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {depositId && (
+        <div className="amod">
+          <div className="amodbg" onClick={closeDeposit} />
+          <div className="amodbox" style={{ maxWidth: 380 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>Пополнить счёт курьера</div>
+              <button onClick={closeDeposit} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 12 }}>
+              {couriers.find(c => c.id === depositId)?.name} · сейчас {formatSm(getCourierBalance(couriers.find(c => c.id === depositId)))}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <NI lbl="Сумма пополнения, ЅМ" val={depositAmount} set={setDepositAmount} ph="100" type="number" />
+              <NI lbl="Комментарий" val={depositNote} set={setDepositNote} ph="Пополнение счёта" />
+              {depositErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{depositErr}</div>}
+              <button onClick={submitDeposit} disabled={depositing} className="ab abp" style={{ width: '100%', padding: 11, opacity: depositing ? .7 : 1 }}>
+                {depositing ? '⏳ Пополняем…' : '✓ Пополнить счёт'}
               </button>
             </div>
           </div>
@@ -6827,6 +6911,7 @@ function TariffPage() {
         Доставка = <b style={{ color: '#EBF5ED' }}>База ({t.base} ЅМ)</b> + (км − {t.baseDist}) × <b style={{ color: '#EBF5ED' }}>{t.perKm} ЅМ</b>
         {t.heavyExtra > 0 && <> + надбавка <b style={{ color: '#FFB800' }}>{t.heavyExtra} ЅМ</b> за груз &gt; {t.heavyKg} кг</>}
         {t.freeFrom ? <> · <b style={{ color: '#1FD760' }}>0 ЅМ</b> при заказе от {t.freeFrom} ЅМ</> : null}
+        {t.courierCommissionPerOrder ? <> · <b style={{ color: '#3B8EF0' }}>комиссия курьера {t.courierCommissionPerOrder} ЅМ</b> за принятый заказ</> : null}
         <div style={{ marginTop: 10, fontSize: 11, color: '#3D6645' }}>
           🔒 Доставленные заказы сохраняют стоимость навсегда. Новый тариф действует только на заказы после сохранения.
         </div>

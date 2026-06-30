@@ -267,6 +267,11 @@ export const api = {
     request<AdminCourier>('/couriers', { method: 'POST', body: JSON.stringify(data) }),
   updateCourier: (id: string, data: Partial<AdminCourier>) =>
     request<AdminCourier>(`/couriers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  depositCourierBalance: (id: string, amount: number, note?: string) =>
+    request<{ ok: boolean; balance: number; added: number }>(`/couriers/${id}/deposit`, {
+      method: 'POST',
+      body: JSON.stringify({ amount, note }),
+    }),
 
   getAssemblers: () => request<AdminAssembler[]>('/assemblers'),
   createAssembler: (data: Partial<AdminAssembler>) =>

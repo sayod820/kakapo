@@ -48,6 +48,7 @@ interface CourierTeamStore {
   addCourier: (data: Omit<AdminCourier, 'id' | 'orders' | 'today' | 'week' | 'rating'>) => AdminCourier
   updateCourier: (id: string, patch: Partial<AdminCourier>) => void
   toggleBlock: (id: string) => void
+  depositBalance: (id: string, amount: number, note?: string) => Promise<{ balance: number; added: number }>
   fetchFromApi: () => Promise<void>
 }
 
@@ -94,6 +95,20 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
     const c = get().couriers.find(x => x.id === id)
     if (!c) return
     get().updateCourier(id, { blocked: !c.blocked, status: !c.blocked ? 'offline' : c.status })
+  },
+  depositBalance: async (id, amount, note) => {
+    const add = Math.max(0, Number(amount) || 0)
+    if (add <= 0) throw new Error('Укажите сумму пополнения')
+    if (USE_API) {
+      const res = await api.depositCourierBalance(id, add, note)
+      get().updateCourier(id, { balance: res.balance })
+      return { balance: res.balance, added: res.added }
+    }
+    const c = get().couriers.find(x => x.id === id)
+    if (!c) throw new Error('Курьер не найден')
+    const balance = Math.round(((Number(c.balance) || 0) + add) * 100) / 100
+    get().updateCourier(id, { balance })
+    return { balance, added: add }
   },
   fetchFromApi: async () => {
     if (!USE_API) {

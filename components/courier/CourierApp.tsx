@@ -28,6 +28,7 @@ import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { resolveCourierPayment } from '@/lib/courierPayment'
+import { canCourierAffordOrder, getCourierBalance, getCourierCommissionPerOrder } from '@/lib/courierWallet'
 
 /* ══════════════════════════════════════════════════════
    КАКАПО КУРЬЕР — карта со всеми заказами + список
@@ -818,14 +819,26 @@ function CourierAppInner() {
   }, [myActiveOrders.length, detailOrderId]);
 
   const canAcceptMore = () => {
+    if (!courierProfile) return { ok: false, msg: 'Профиль курьера не найден' };
     if (courierProfile.blocked) return { ok: false, msg: 'Аккаунт заблокирован администратором' };
     const max = courierProfile.maxActiveOrders;
     const active = countCourierActiveOrders(apiOrders, { name: courierProfile.name, phone: activePhone });
     if (active >= max) {
       return { ok: false, msg: `Лимит: ${active}/${max} заказ(ов) одновременно` };
     }
-    return { ok: true, max, active };
+    const wallet = canCourierAffordOrder(courierProfile, TARIFF);
+    if (!wallet.ok) return { ok: false, msg: wallet.msg || 'Недостаточно средств на счёте' };
+    return { ok: true, max, active, commission: wallet.commission, balance: wallet.balance };
   };
+
+  const orderCommission = useMemo(
+    () => getCourierCommissionPerOrder(TARIFF, courierProfile ?? undefined),
+    [TARIFF, courierProfile],
+  );
+  const walletBalance = useMemo(
+    () => getCourierBalance(courierProfile ?? undefined),
+    [courierProfile],
+  );
 
   const confirmAccept = async (o: any, route: string[]) => {
     setStatus('busy');
@@ -870,8 +883,10 @@ function CourierAppInner() {
     setAcceptingId(o.id);
     try {
       await confirmAccept(live, route);
-    } catch {
-      setAcceptErr('Не удалось принять заказ — попробуйте ещё раз');
+      void syncCourierTeamFromApi();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Не удалось принять заказ — попробуйте ещё раз';
+      setAcceptErr(msg);
     } finally {
       setAcceptingId(null);
     }
@@ -964,6 +979,10 @@ function CourierAppInner() {
               </span>
           </div>
         </div>
+          <div style={{ textAlign:'right' }}>
+            <div style={{ fontSize:9, color:'#3D6645' }}>Счёт</div>
+            <div className="ub" style={{ fontSize:15, fontWeight:900, color: walletBalance < orderCommission ? '#FF4545' : '#3B8EF0' }}>{formatSm(walletBalance)}</div>
+          </div>
           <div style={{ textAlign:'right' }}>
             <div style={{ fontSize:9, color:'#3D6645' }}>Сегодня</div>
             <div className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>
@@ -1460,6 +1479,14 @@ function CourierAppInner() {
         {/* ═══ ВКЛАДКА ЗАРАБОТОК ═══ */}
       {tab==='earnings' && (
           <div style={{ padding:'14px 18px' }}>
+            <div style={{ background:'linear-gradient(135deg,#0A1828,#163050)', border:'1px solid rgba(59,142,240,.3)', borderRadius:20, padding:'22px', marginBottom:12, textAlign:'center' }}>
+              <div style={{ fontSize:11, color:'#8FB897', marginBottom:6 }}>Счёт для комиссии</div>
+              <div className="ub" style={{ fontSize:40, fontWeight:900, color: walletBalance < orderCommission ? '#FF4545' : '#3B8EF0', marginBottom:4 }}>{formatSm(walletBalance)}</div>
+              <div style={{ fontSize:12, color:'#8FB897' }}>
+                Комиссия за заказ: {formatSm(orderCommission)}
+                {walletBalance < orderCommission && ' · пополните у администратора'}
+              </div>
+            </div>
             <div style={{ background:'linear-gradient(135deg,#0A1828,#163050)', border:'1px solid rgba(59,142,240,.3)', borderRadius:20, padding:'22px', marginBottom:16, textAlign:'center' }}>
               <div style={{ fontSize:11, color:'#8FB897', marginBottom:6 }}>Доставки сегодня</div>
               <div className="ub" style={{ fontSize:40, fontWeight:900, color:'#1FD760', marginBottom:4 }}>{formatSm(courierStats.todayEarnings)} ЅМ</div>

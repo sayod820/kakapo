@@ -57,6 +57,7 @@ export const TARIFF_FIELD_META: {
   { key: 'heavyKg', label: 'Порог тяжёлого груза', unit: 'кг', hint: 'Если вес заказа превышает — надбавка', step: 1 },
   { key: 'heavyExtra', label: 'Надбавка за тяжёлый груз', unit: 'ЅМ', hint: 'Добавляется если вес > порога', step: 1 },
   { key: 'freeFrom', label: 'Бесплатная доставка от', unit: 'ЅМ', hint: '0 = отключено · сумма заказа для бесплатной доставки', step: 10 },
+  { key: 'courierCommissionPerOrder', label: 'Комиссия с курьера', unit: 'ЅМ/заказ', hint: 'Списывается со счёта курьера при принятии заказа', step: 1 },
 ]
 
 export function validatePricing(p: PricingConfig): string | null {
@@ -66,6 +67,7 @@ export function validatePricing(p: PricingConfig): string | null {
   if (p.heavyKg <= 0) return 'Порог веса должен быть больше 0'
   if (p.heavyExtra < 0) return 'Надбавка не может быть отрицательной'
   if (p.freeFrom != null && p.freeFrom < 0) return 'Порог бесплатной доставки не может быть отрицательным'
+  if ((p.courierCommissionPerOrder ?? 0) < 0) return 'Комиссия курьера не может быть отрицательной'
   return null
 }
 
@@ -77,6 +79,7 @@ export function normalizePricing(raw: Partial<PricingConfig>): PricingConfig {
     heavyKg: Number(raw.heavyKg) ?? DEFAULT_PRICING.heavyKg,
     heavyExtra: Number(raw.heavyExtra) ?? DEFAULT_PRICING.heavyExtra,
     freeFrom: Number(raw.freeFrom) ?? 0,
+    courierCommissionPerOrder: Math.max(0, Number(raw.courierCommissionPerOrder ?? DEFAULT_PRICING.courierCommissionPerOrder) || 0),
   }
 }
 
