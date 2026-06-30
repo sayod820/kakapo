@@ -46,6 +46,7 @@ import {
   refundCourierCommission,
   depositCourierBalance,
   depositCourierBalanceByAccount,
+  withdrawCourierBalance,
   normalizeCourierAccount,
   getCourierWalletTransactions,
 } from './courierWallet.js'
@@ -889,6 +890,13 @@ app.patch('/couriers/:id', (req, res) => {
 })
 app.post('/couriers/:id/deposit', (req, res) => {
   const result = depositCourierBalance(db, req.params.id, req.body?.amount, req.body?.note)
+  if (!result.ok) return res.status(400).json({ detail: result.error })
+  persist()
+  broadcastCourierWallet(result)
+  res.json(result)
+})
+app.post('/couriers/:id/withdraw', (req, res) => {
+  const result = withdrawCourierBalance(db, req.params.id, req.body?.amount, req.body?.note)
   if (!result.ok) return res.status(400).json({ detail: result.error })
   persist()
   broadcastCourierWallet(result)

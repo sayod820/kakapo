@@ -51,6 +51,7 @@ interface CourierTeamStore {
   updateCourier: (id: string, patch: Partial<AdminCourier>) => void
   toggleBlock: (id: string) => void
   depositBalance: (id: string, amount: number, note?: string) => Promise<{ balance: number; added: number }>
+  withdrawBalance: (id: string, amount: number, note?: string) => Promise<{ balance: number; withdrawn: number }>
   fetchFromApi: () => Promise<void>
 }
 
@@ -121,6 +122,31 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
       at: new Date().toISOString(),
     })
     return { balance, added: add }
+  },
+  withdrawBalance: async (id, amount, note) => {
+    const deduct = Math.max(0, Number(amount) || 0)
+    if (deduct <= 0) throw new Error('Укажите сумму списания')
+    if (USE_API) {
+      const res = await api.withdrawCourierBalance(id, deduct, note)
+      get().updateCourier(id, { balance: res.balance })
+      return { balance: res.balance, withdrawn: res.withdrawn }
+    }
+    const c = get().couriers.find(x => x.id === id)
+    if (!c) throw new Error('Курьер не найден')
+    const prev = Math.max(0, Number(c.balance) || 0)
+    if (prev + 0.001 < deduct) throw new Error(`Недостаточно средств на счёте. Доступно ${prev} ЅМ`)
+    const balance = Math.round((prev - deduct) * 100) / 100
+    get().updateCourier(id, { balance })
+    appendLocalCourierWalletTx({
+      id: `CW-${Date.now()}-w`,
+      courierId: id,
+      type: 'withdrawal',
+      amount: -deduct,
+      balanceAfter: balance,
+      note: note?.trim() || 'Списание со счёта',
+      at: new Date().toISOString(),
+    })
+    return { balance, withdrawn: deduct }
   },
   fetchFromApi: async () => {
     if (!USE_API) {

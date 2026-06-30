@@ -273,6 +273,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ amount, note }),
     }),
+  withdrawCourierBalance: (id: string, amount: number, note?: string) =>
+    request<{ ok: boolean; balance: number; withdrawn: number; courierId?: string; account?: string }>(`/couriers/${id}/withdraw`, {
+      method: 'POST',
+      body: JSON.stringify({ amount, note }),
+    }),
   getCourierWalletTransactions: (id: string, limit = 30) =>
     request<CourierWalletSnapshot>(`/couriers/${id}/wallet/transactions?limit=${limit}`),
   listCourierWalletTransactions: (params?: { courierId?: string; limit?: number }) => {

@@ -171,6 +171,28 @@ export function depositCourierBalance(db, courierId, amount, note = '') {
   return { ok: true, balance: courier.balance, added: add, courierId: courier.id, account: normalizeCourierAccount(courier.account, courier.id) }
 }
 
+export function withdrawCourierBalance(db, courierId, amount, note = '') {
+  const courier = (db.couriers || []).find(c => c.id === courierId)
+  if (!courier) return { ok: false, error: 'Курьер не найден' }
+  const deduct = Math.max(0, Number(amount) || 0)
+  if (deduct <= 0) return { ok: false, error: 'Укажите сумму списания' }
+  const prev = getCourierBalance(courier)
+  if (prev + 0.001 < deduct) {
+    return { ok: false, error: `Недостаточно средств на счёте. Доступно ${prev} ЅМ` }
+  }
+  courier.balance = Math.round((prev - deduct) * 100) / 100
+  pushCourierWalletTx(db, {
+    id: `CW-${Date.now()}-w`,
+    courierId,
+    type: 'withdrawal',
+    amount: -deduct,
+    balanceAfter: courier.balance,
+    note: String(note || '').trim() || 'Списание со счёта',
+    at: new Date().toISOString(),
+  })
+  return { ok: true, balance: courier.balance, withdrawn: deduct, courierId: courier.id, account: normalizeCourierAccount(courier.account, courier.id) }
+}
+
 export function normalizeCourierAccount(raw, courierId) {
   const s = String(raw || '').trim().toUpperCase().replace(/\s/g, '')
   if (s) {

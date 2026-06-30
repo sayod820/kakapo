@@ -206,7 +206,7 @@ function CourierWalletHistoryScreen({
             ) : transactions.map((tx) => {
               const positive = tx.amount >= 0
               const color = positive ? '#1FD760' : '#FF8080'
-              const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : '📉'
+              const icon = tx.type === 'deposit' ? '💳' : tx.type === 'refund' ? '↩' : tx.type === 'withdrawal' ? '📉' : '📊'
               return (
                 <div key={tx.id} className="ccard" style={{ padding: '10px 12px', minHeight: 54, boxSizing: 'border-box', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, borderColor: positive ? 'rgba(31,215,96,.12)' : 'rgba(255,69,69,.12)', flexShrink: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>

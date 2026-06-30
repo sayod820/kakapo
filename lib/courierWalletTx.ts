@@ -1,4 +1,4 @@
-export type CourierWalletTxType = 'deposit' | 'commission' | 'refund'
+export type CourierWalletTxType = 'deposit' | 'commission' | 'refund' | 'withdrawal'
 
 export type CourierWalletTx = {
   id: string
@@ -60,5 +60,6 @@ export function formatWalletTxTime(iso: string): string {
 export function walletTxLabel(type: CourierWalletTxType): string {
   if (type === 'deposit') return 'Пополнение'
   if (type === 'commission') return 'Комиссия'
+  if (type === 'withdrawal') return 'Списание'
   return 'Возврат'
 }
