@@ -5,9 +5,9 @@ import { verifyCourierOtp, findCourierByPhone, vehicleIcon, type AdminCourier } 
 import { saveCourierSession, type CourierSession } from '@/lib/courierSession'
 
 const LOGIN_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800;900&family=Nunito:wght@400;600;700;800&display=swap');
-  .cl-root{font-family:'Nunito',sans-serif;}
-  .cl-ub{font-family:'Unbounded',sans-serif;}
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap');
+  .cl-root{font-family:'Nunito',system-ui,sans-serif;}
+  .cl-ub{font-family:'Nunito',system-ui,sans-serif;font-weight:800;}
   .cl-btn{cursor:pointer;border:none;transition:all .22s cubic-bezier(.16,1,.3,1);}
   .cl-btn:active:not(:disabled){transform:scale(.97);}
   .cl-btn:disabled{cursor:not-allowed;}

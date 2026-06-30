@@ -36,20 +36,22 @@ import { canCourierAffordOrder, getCourierBalance, getCourierCommissionPerOrder,
 ══════════════════════════════════════════════════════ */
 
 const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-  html,body{background:#030B05;color:#EBF5ED;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
-  .ub{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;}
-  .btn{cursor:pointer;border:none;transition:all .18s cubic-bezier(.16,1,.3,1);}
+  html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  .ub{font-family:'Nunito',system-ui,sans-serif;font-weight:800;}
+  .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}
   .btn:active{transform:scale(.97);}
+  .ccard{background:#091508;border:1px solid #162B1A;border-radius:14px;}
   @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
   @keyframes ping{0%{transform:scale(1);opacity:.7}100%{transform:scale(2.6);opacity:0}}
   @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
   @keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
   @keyframes dashmove{to{stroke-dashoffset:-24}}
-  @keyframes glow{0%,100%{box-shadow:0 0 10px rgba(59,142,240,.35)}50%{box-shadow:0 0 18px rgba(59,142,240,.55)}}
+  @keyframes glow{0%,100%{box-shadow:0 0 10px rgba(59,142,240,.3)}50%{box-shadow:0 0 20px rgba(59,142,240,.5)}}
   ::-webkit-scrollbar{width:0;height:0;}
 `;
 
@@ -674,9 +676,10 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 ───────────────────────────────────────────────────── */
 function CourierSessionBoot() {
   return (
-    <div style={{ minHeight: '100vh', background: '#030B05', maxWidth: 480, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-      <div style={{ width: 44, height: 44, borderRadius: 14, background: 'linear-gradient(135deg,#1E5BB5,#3B8EF0)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, animation: 'pulse 1.6s ease-in-out infinite' }}>🛵</div>
-      <div style={{ fontSize: 12, color: '#5a7a62', fontWeight: 700 }}>Загрузка кабинета…</div>
+    <div style={{ minHeight: '100vh', background: '#030B05', maxWidth: 480, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
+      <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg,#1E5BB5,#3B8EF0)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, boxShadow: '0 8px 28px rgba(59,142,240,.35)', animation: 'glow 2s ease-in-out infinite' }}>🛵</div>
+      <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2.5px solid rgba(59,142,240,.2)', borderTopColor: '#3B8EF0', animation: 'spin .75s linear infinite' }} />
+      <div style={{ fontSize: 12, color: '#8FB897', fontWeight: 600 }}>Загрузка кабинета…</div>
     </div>
   );
 }
@@ -970,47 +973,47 @@ function CourierAppInner() {
       <style>{CSS}</style>
       <div style={{ minHeight:'100vh', background:'#030B05', maxWidth:480, margin:'0 auto', paddingBottom:64 }}>
 
-        {/* HEADER — компактный */}
-        <header style={{ position:'sticky', top:0, zIndex:100, background:'rgba(3,11,5,.98)', backdropFilter:'blur(20px)', borderBottom:'1px solid #162B1A', padding: tab === 'earnings' ? '6px 10px' : '7px 12px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap: tab === 'earnings' ? 7 : 8 }}>
-            <a href="/" style={{ width:30, height:30, borderRadius:9, background:'#0C1C0F', border:'1px solid #162B1A', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', color:'#8FB897', fontSize:13, flexShrink:0 }}>←</a>
-            <div style={{ width:30, height:30, borderRadius:9, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, flexShrink:0 }}>🛵</div>
+        {/* HEADER */}
+        <header style={{ position:'sticky', top:0, zIndex:100, background:'rgba(3,11,5,.97)', backdropFilter:'blur(16px)', borderBottom:'1px solid #162B1A', padding:'10px 14px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <a href="/" className="btn" style={{ width:34, height:34, borderRadius:11, background:'#0C1C0F', border:'1px solid #162B1A', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', color:'#8FB897', fontSize:15, flexShrink:0 }}>←</a>
+            <div style={{ width:38, height:38, borderRadius:12, background:'linear-gradient(145deg,#1E5BB5,#3B8EF0)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0, boxShadow:'0 4px 14px rgba(59,142,240,.25)' }}>🛵</div>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:5, minWidth:0 }}>
-                <div className="ub" style={{ fontSize:12, fontWeight:900, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{courierDisplayName}</div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, minWidth:0 }}>
+                <div className="ub" style={{ fontSize:13, fontWeight:900, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', letterSpacing:'-.01em' }}>{courierDisplayName}</div>
                 <span style={{
-                  flexShrink:0, padding:'1px 5px', borderRadius:5, fontSize:8, fontWeight:800,
-                  background: status==='available' ? 'rgba(31,215,96,.14)' : status==='busy' ? 'rgba(255,184,0,.14)' : 'rgba(61,102,69,.2)',
-                  color: status==='available' ? '#1FD760' : status==='busy' ? '#FFB800' : '#5a7a62',
-                  border: `1px solid ${status==='available' ? 'rgba(31,215,96,.35)' : status==='busy' ? 'rgba(255,184,0,.35)' : '#162B1A'}`,
+                  flexShrink:0, padding:'2px 7px', borderRadius:20, fontSize:9, fontWeight:800,
+                  background: status==='available' ? 'rgba(31,215,96,.12)' : status==='busy' ? 'rgba(255,184,0,.12)' : 'rgba(61,102,69,.15)',
+                  color: status==='available' ? '#1FD760' : status==='busy' ? '#FFB800' : '#6B8F75',
+                  border: `1px solid ${status==='available' ? 'rgba(31,215,96,.4)' : status==='busy' ? 'rgba(255,184,0,.4)' : '#1E3024'}`,
                 }}>
                   {status==='available'?'Свободен':status==='busy'?'В заказе':'Офлайн'}
                 </span>
               </div>
-              <div style={{ fontSize:8, color:'#5a7a62', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              <div style={{ fontSize:10, color:'#6B8F75', marginTop:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                 {courierProfile ? `${vehicleIcon(courierProfile.vehicle)} ${courierProfile.num} · до ${courierProfile.maxActiveOrders} зак.` : COURIER.vehicle}
               </div>
             </div>
             {tab !== 'earnings' && (
-            <div style={{ display:'flex', alignItems:'center', gap:3, flexShrink:0 }}>
-              <div style={{ padding:'2px 6px', borderRadius:7, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.22)', textAlign:'center', minWidth:40 }}>
-                <div style={{ fontSize:7, color:'#5a7a62', lineHeight:1 }}>Счёт</div>
-                <div className="ub" style={{ fontSize:10, fontWeight:900, color: walletBalance < orderCommission ? '#FF4545' : '#3B8EF0', lineHeight:1.2 }}>{formatSm(walletBalance)}</div>
+            <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
+              <div style={{ padding:'4px 8px', borderRadius:10, background:'rgba(59,142,240,.08)', border:'1px solid rgba(59,142,240,.2)', textAlign:'center', minWidth:46 }}>
+                <div style={{ fontSize:8, color:'#6B8F75', lineHeight:1, fontWeight:600 }}>Счёт</div>
+                <div className="ub" style={{ fontSize:11, fontWeight:900, color: walletBalance < orderCommission ? '#FF4545' : '#3B8EF0', lineHeight:1.3, marginTop:2 }}>{formatSm(walletBalance)}</div>
               </div>
-              <div style={{ padding:'2px 6px', borderRadius:7, background:'rgba(31,215,96,.08)', border:'1px solid rgba(31,215,96,.22)', textAlign:'center', minWidth:40 }}>
-                <div style={{ fontSize:7, color:'#5a7a62', lineHeight:1 }}>Сегодня</div>
-                <div className="ub" style={{ fontSize:10, fontWeight:900, color:'#1FD760', lineHeight:1.2 }}>{formatSm(courierStats.todayEarnings)}</div>
+              <div style={{ padding:'4px 8px', borderRadius:10, background:'rgba(31,215,96,.06)', border:'1px solid rgba(31,215,96,.2)', textAlign:'center', minWidth:46 }}>
+                <div style={{ fontSize:8, color:'#6B8F75', lineHeight:1, fontWeight:600 }}>Сегодня</div>
+                <div className="ub" style={{ fontSize:11, fontWeight:900, color:'#1FD760', lineHeight:1.3, marginTop:2 }}>{formatSm(courierStats.todayEarnings)}</div>
               </div>
             </div>
             )}
-            <div style={{ display:'flex', alignItems:'center', gap:3, flexShrink:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
               <button
                 type="button"
                 onClick={locationEnabled ? disableLocation : enableLocation}
                 disabled={locationLoading}
                 className="btn"
                 title={locationEnabled ? 'GPS включён' : 'Включить GPS'}
-                style={{ width:28, height:28, borderRadius:7, border:`1px solid ${locationEnabled?'rgba(31,215,96,.45)':'#162B1A'}`, background:locationEnabled?'rgba(31,215,96,.12)':'#0C1C0F', color:locationEnabled?'#1FD760':'#5a7a62', fontSize:12, display:'flex', alignItems:'center', justifyContent:'center', opacity:locationLoading?0.6:1 }}
+                style={{ width:34, height:34, borderRadius:11, border:`1px solid ${locationEnabled?'rgba(31,215,96,.4)':'#162B1A'}`, background:locationEnabled?'rgba(31,215,96,.1)':'#0C1C0F', color:locationEnabled?'#1FD760':'#6B8F75', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', opacity:locationLoading?0.6:1 }}
               >
                 {locationLoading ? '…' : '📍'}
               </button>
@@ -1019,7 +1022,7 @@ function CourierAppInner() {
                 onClick={logout}
                 title="Выйти"
                 className="btn"
-                style={{ width:28, height:28, borderRadius:7, border:'1px solid rgba(255,69,69,.3)', background:'rgba(255,69,69,.08)', color:'#FF6969', fontSize:12, display:'flex', alignItems:'center', justifyContent:'center' }}
+                style={{ width:34, height:34, borderRadius:11, border:'1px solid rgba(255,69,69,.28)', background:'rgba(255,69,69,.07)', color:'#FF6969', fontSize:13, display:'flex', alignItems:'center', justifyContent:'center' }}
               >
                 ⎋
               </button>
@@ -1486,85 +1489,87 @@ function CourierAppInner() {
             </div>
           </div>
         ) : (
-            <div style={{ textAlign:'center', padding:'48px 20px 80px', color:'#8FB897' }}>
-              <div style={{ width:56, height:56, borderRadius:16, margin:'0 auto 12px', background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>🛵</div>
-              <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:4 }}>Нет активной доставки</div>
-              <div style={{ fontSize:11, color:'#5a7a62', marginBottom:14 }}>Примите заказ во вкладке «Заказы»</div>
-              <button onClick={()=>setTab('orders')} className="btn" style={{ padding:'9px 18px', borderRadius:10, background:'rgba(59,142,240,.12)', border:'1px solid rgba(59,142,240,.28)', color:'#3B8EF0', fontWeight:700, fontSize:12 }}>← К заказам</button>
+            <div style={{ textAlign:'center', padding:'56px 24px 84px', color:'#8FB897' }}>
+              <div style={{ width:64, height:64, borderRadius:18, margin:'0 auto 16px', background:'linear-gradient(145deg,rgba(59,142,240,.12),rgba(59,142,240,.04))', border:'1px solid rgba(59,142,240,.22)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, boxShadow:'0 8px 24px rgba(0,0,0,.25)' }}>🛵</div>
+              <div className="ub" style={{ fontSize:15, fontWeight:900, marginBottom:6 }}>Нет активной доставки</div>
+              <div style={{ fontSize:12, color:'#5A7A62', marginBottom:18, lineHeight:1.45 }}>Примите заказ во вкладке «Заказы»</div>
+              <button onClick={()=>setTab('orders')} className="btn" style={{ padding:'11px 22px', borderRadius:12, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:12, boxShadow:'0 4px 16px rgba(59,142,240,.3)' }}>← К заказам</button>
           </div>
         )
       )}
 
         {/* ═══ ВКЛАДКА СЧЁТ ═══ */}
       {tab==='earnings' && (
-          <div style={{ padding:'8px 10px 68px', animation:'fadeUp .35s ease both' }}>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:7, marginBottom:8 }}>
+          <div style={{ padding:'12px 14px 76px', animation:'fadeUp .4s ease both' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
               <div style={{
-                background:'linear-gradient(155deg,#0A1828 0%,#0E2038 100%)',
-                border:`1px solid ${walletBalance < orderCommission ? 'rgba(255,69,69,.32)' : 'rgba(59,142,240,.22)'}`,
-                borderRadius:12, padding:'10px 11px', minHeight:72,
+                background:'linear-gradient(160deg,#0A1A2E 0%,#0F2540 100%)',
+                border:`1px solid ${walletBalance < orderCommission ? 'rgba(255,69,69,.35)' : 'rgba(59,142,240,.28)'}`,
+                borderRadius:14, padding:'14px 15px',
+                boxShadow: walletBalance < orderCommission ? 'none' : '0 4px 20px rgba(59,142,240,.08)',
               }}>
-                <div style={{ fontSize:8, color:'#6B8FA8', fontWeight:700, marginBottom:3, letterSpacing:.4, textTransform:'uppercase' }}>Счёт</div>
-                <div className="ub" style={{ fontSize:19, fontWeight:900, color: walletBalance < orderCommission ? '#FF4545' : '#3B8EF0', lineHeight:1 }}>{formatSm(walletBalance)}</div>
-                <div style={{ fontSize:8, color:'#3D5A6E', marginTop:4, lineHeight:1.35 }}>
+                <div style={{ fontSize:9, color:'#7A9BB8', fontWeight:700, marginBottom:6, letterSpacing:.5, textTransform:'uppercase' }}>Счёт</div>
+                <div className="ub" style={{ fontSize:26, fontWeight:900, color: walletBalance < orderCommission ? '#FF4545' : '#3B8EF0', lineHeight:1, letterSpacing:'-.02em' }}>{formatSm(walletBalance)}</div>
+                <div style={{ fontSize:9, color:'#4A6A85', marginTop:6, lineHeight:1.4 }}>
                   комиссия {formatCourierCommissionPercent(commissionPercent)}
                   {orderCommission > 0 && <span> · ~{formatSm(orderCommission)}</span>}
                 </div>
               </div>
               <div style={{
-                background:'linear-gradient(155deg,#061810 0%,#0B2216 100%)',
-                border:'1px solid rgba(31,215,96,.22)', borderRadius:12, padding:'10px 11px', minHeight:72,
+                background:'linear-gradient(160deg,#061A10 0%,#0C2618 100%)',
+                border:'1px solid rgba(31,215,96,.28)', borderRadius:14, padding:'14px 15px',
+                boxShadow:'0 4px 20px rgba(31,215,96,.06)',
               }}>
-                <div style={{ fontSize:8, color:'#6BA88A', fontWeight:700, marginBottom:3, letterSpacing:.4, textTransform:'uppercase' }}>Сегодня</div>
-                <div className="ub" style={{ fontSize:19, fontWeight:900, color:'#1FD760', lineHeight:1 }}>{formatSm(courierStats.todayEarnings)}</div>
-                <div style={{ fontSize:8, color:'#3D6645', marginTop:4 }}>{courierStats.todayCount} доставок · {courierStats.rating} ★</div>
+                <div style={{ fontSize:9, color:'#6BA88A', fontWeight:700, marginBottom:6, letterSpacing:.5, textTransform:'uppercase' }}>Сегодня</div>
+                <div className="ub" style={{ fontSize:26, fontWeight:900, color:'#1FD760', lineHeight:1, letterSpacing:'-.02em' }}>{formatSm(courierStats.todayEarnings)}</div>
+                <div style={{ fontSize:9, color:'#4A6A55', marginTop:6 }}>{courierStats.todayCount} доставок · {courierStats.rating} ★</div>
               </div>
             </div>
 
             {walletBalance < orderCommission && (
-              <div style={{ padding:'7px 10px', borderRadius:9, marginBottom:8, background:'rgba(255,69,69,.07)', border:'1px solid rgba(255,69,69,.22)', fontSize:10, color:'#FF6969', fontWeight:600, textAlign:'center', lineHeight:1.4 }}>
-                ⚠️ Мало средств — попросите администратора пополнить счёт
+              <div style={{ padding:'10px 12px', borderRadius:11, marginBottom:10, background:'rgba(255,69,69,.06)', border:'1px solid rgba(255,69,69,.22)', fontSize:11, color:'#FF8080', fontWeight:600, textAlign:'center', lineHeight:1.45 }}>
+                Недостаточно средств — попросите администратора пополнить счёт
               </div>
             )}
 
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5, marginBottom:10 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:14 }}>
               {([
                 ['Неделя', formatSm(courierStats.weekEarnings), '#1FD760'],
                 ['Всего', String(courierStats.totalDeliveries), '#3B8EF0'],
                 ['Ср/день', formatSm(courierStats.avgPerDay), '#FFB800'],
                 ['Рейтинг', `${courierStats.rating}★`, '#FFB800'],
               ] as const).map(([l,v,c])=>(
-                <div key={l} style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:9, padding:'7px 4px', textAlign:'center' }}>
-                  <div className="ub" style={{ fontSize:10, fontWeight:900, color:c, lineHeight:1.15 }}>{v}</div>
-                  <div style={{ fontSize:7, color:'#3D6645', marginTop:2, fontWeight:600 }}>{l}</div>
+                <div key={l} className="ccard" style={{ padding:'10px 6px', textAlign:'center' }}>
+                  <div className="ub" style={{ fontSize:12, fontWeight:900, color:c, lineHeight:1.2 }}>{v}</div>
+                  <div style={{ fontSize:8, color:'#5A7A62', marginTop:4, fontWeight:600 }}>{l}</div>
                 </div>
               ))}
             </div>
 
-            <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', marginBottom:6, padding:'0 1px' }}>
-              <div className="ub" style={{ fontSize:11, fontWeight:800 }}>История</div>
-              <span style={{ fontSize:8, color:'#3D6645', fontWeight:600 }}>{courierStats.history.length} записей</span>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <div className="ub" style={{ fontSize:13, fontWeight:900 }}>История</div>
+              <span style={{ fontSize:10, color:'#5A7A62', fontWeight:600 }}>{courierStats.history.length} записей</span>
             </div>
-            <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:11, overflow:'hidden' }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               {courierStats.history.length === 0 ? (
-                <div style={{ padding:'18px 12px', textAlign:'center', color:'#3D6645', fontSize:11 }}>
+                <div className="ccard" style={{ padding:'28px 16px', textAlign:'center', color:'#5A7A62', fontSize:12 }}>
                   Доставок пока нет
                 </div>
-              ) : courierStats.history.map((h, i)=>(
-                <div key={h.id} style={{
-                  padding:'8px 10px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:7,
-                  borderBottom: i < courierStats.history.length - 1 ? '1px solid rgba(22,43,26,.55)' : 'none',
+              ) : courierStats.history.map((h)=>(
+                <div key={h.id} className="ccard" style={{
+                  padding:'11px 12px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10,
+                  borderColor:'rgba(31,215,96,.12)',
                 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:7, minWidth:0, flex:1 }}>
-                    <div style={{ width:24, height:24, borderRadius:7, background:'rgba(31,215,96,.1)', border:'1px solid rgba(31,215,96,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, flexShrink:0, color:'#1FD760', fontWeight:800 }}>✓</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
+                    <div style={{ width:32, height:32, borderRadius:'50%', background:'rgba(31,215,96,.12)', border:'1px solid rgba(31,215,96,.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, flexShrink:0, color:'#1FD760', fontWeight:800 }}>✓</div>
                     <div style={{ minWidth:0 }}>
-                      <div style={{ fontSize:11, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.25 }}>{h.id} · {h.client}</div>
-                      <div style={{ fontSize:8, color:'#3D6645', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 }}>{h.addr}</div>
+                      <div style={{ fontSize:12, fontWeight:800, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.3 }}>{h.id} · {h.client}</div>
+                      <div style={{ fontSize:10, color:'#5A7A62', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2, lineHeight:1.35 }}>{h.addr}</div>
                     </div>
                   </div>
                   <div style={{ textAlign:'right', flexShrink:0 }}>
-                    <div className="ub" style={{ fontSize:10, fontWeight:800, color:'#1FD760', lineHeight:1.2 }}>+{formatSm(h.earning)}</div>
-                    <div style={{ fontSize:7, color:'#3D6645', marginTop:1 }}>{h.time}</div>
+                    <div className="ub" style={{ fontSize:13, fontWeight:900, color:'#1FD760', lineHeight:1.2 }}>+{formatSm(h.earning)}</div>
+                    <div style={{ fontSize:9, color:'#5A7A62', marginTop:3, fontWeight:600 }}>{h.time}</div>
                   </div>
               </div>
             ))}
@@ -1573,11 +1578,17 @@ function CourierAppInner() {
       )}
 
         {/* NAV */}
-        <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'rgba(3,11,5,.98)', backdropFilter:'blur(20px)', borderTop:'1px solid #162B1A', padding:'5px 8px calc(8px + env(safe-area-inset-bottom, 0px))', display:'flex', justifyContent:'space-around', gap:3, zIndex:90 }}>
+        <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'rgba(3,11,5,.97)', backdropFilter:'blur(16px)', borderTop:'1px solid #162B1A', padding:'8px 12px calc(10px + env(safe-area-inset-bottom, 0px))', display:'flex', justifyContent:'space-around', gap:6, zIndex:90 }}>
         {([['orders','📋','Заказы'],['active','🛵','Доставка'],['earnings','💰','Счёт']] as const).map(([id,icon,label])=>(
-            <button key={id} onClick={() => { if (id === 'active') setDetailOrderId(null); setTab(id); }} className="btn" style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:1, padding:'5px 3px', borderRadius:9, background:tab===id?'rgba(59,142,240,.1)':'transparent', border:`1px solid ${tab===id?'rgba(59,142,240,.22)':'transparent'}`, position:'relative', maxWidth:110 }}>
-              <span style={{ fontSize:16, lineHeight:1 }}>{icon}</span>
-              <span style={{ fontSize:8, fontWeight:tab===id?800:600, color:tab===id?'#3B8EF0':'#3D6645' }}>{label}</span>
+            <button key={id} onClick={() => { if (id === 'active') setDetailOrderId(null); setTab(id); }} className="btn" style={{
+              flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, padding:'7px 4px', borderRadius:12,
+              background: tab===id ? 'rgba(59,142,240,.1)' : 'transparent',
+              border: `1px solid ${tab===id ? 'rgba(59,142,240,.25)' : 'transparent'}`,
+              boxShadow: tab===id ? '0 0 16px rgba(59,142,240,.12)' : 'none',
+              position:'relative', maxWidth:120,
+            }}>
+              <span style={{ fontSize:18, lineHeight:1 }}>{icon}</span>
+              <span style={{ fontSize:10, fontWeight:tab===id?800:600, color:tab===id?'#3B8EF0':'#5A7A62', letterSpacing:tab===id?0:'-.01em' }}>{label}</span>
               {id==='active' && myActiveOrders.length > 0 && (
                 <div style={{ position:'absolute', top:3, right:'22%', minWidth:14, height:14, padding:'0 3px', borderRadius:999, background:'#FFB800', display:'flex', alignItems:'center', justifyContent:'center', fontSize:8, fontWeight:900, color:'#030B05' }}>
                   {myActiveOrders.length}
