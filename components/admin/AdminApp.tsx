@@ -149,10 +149,71 @@ import { api } from '@/lib/api'
 import type { Promo } from '@/lib/types'
 import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
-import { formatKm, DEFAULT_PRICING } from '@/lib/courierData'
+import { formatKm, DEFAULT_PRICING, STORE_LOCATION } from '@/lib/courierData'
+import { preloadLeaflet } from '@/lib/leafletLoader'
 import Link from 'next/link'
 
 const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
+
+function AdminLocationMap({
+  mapKey,
+  lat,
+  lng,
+  onCenterChange,
+  addressLabel = 'Адрес',
+}: {
+  mapKey: string;
+  lat: number | null;
+  lng: number | null;
+  onCenterChange: (r: { lat: number; lng: number; address: string }) => void;
+  addressLabel?: string;
+}) {
+  const [mounted, setMounted] = useState(false);
+  const onChangeRef = useRef(onCenterChange);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  onChangeRef.current = onCenterChange;
+
+  useEffect(() => {
+    preloadLeaflet();
+    const t = window.setTimeout(() => setMounted(true), 120);
+    return () => {
+      window.clearTimeout(t);
+      setMounted(false);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [mapKey]);
+
+  const handleCenterChange = useCallback((r: { lat: number; lng: number; address: string }) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onChangeRef.current(r);
+    }, 400);
+  }, []);
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>📍 Точка на карте *</div>
+      {!mounted ? (
+        <div style={{ height: 280, borderRadius: 14, background: '#050F08', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #162B1A' }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid rgba(31,215,96,.2)', borderTopColor: '#1FD760', animation: 'spin 1s linear infinite' }} />
+        </div>
+      ) : (
+        <AddressMapPicker
+          key={mapKey}
+          variant="admin"
+          mapHeight={280}
+          pickMode="center"
+          hideConfirm
+          hideGps
+          addressLabel={addressLabel}
+          addressHelper="Двигайте карту — остриё метки показывает точку"
+          initial={lat != null && lng != null ? { lat, lng } : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }}
+          onCenterChange={handleCenterChange}
+        />
+      )}
+    </div>
+  );
+}
 // ─── КАКАПО Admin App ────────────────────────────
 /* ══════════════════════════════════════════════════════
    КАКАПО ADMIN — Единая панель управления
@@ -1846,6 +1907,7 @@ function PartnersPage() {
   );
 
   const openManage = (r: typeof RESTAURANTS[0]) => {
+    preloadLeaflet();
     const p = pickups.find(x => x.id === restIdToPickupId(r.id));
     setEditForm({
       name: r.name, cuisine: r.cuisine, address: r.address, phone: r.phone,
@@ -2006,30 +2068,25 @@ function PartnersPage() {
   };
 
   const MapBlock = ({
+    mapKey,
     lat,
     lng,
     onCenterChange,
     addressLabel = 'Адрес',
   }: {
+    mapKey: string;
     lat: number | null;
     lng: number | null;
     onCenterChange: (r: { lat: number; lng: number; address: string }) => void;
     addressLabel?: string;
   }) => (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>📍 Точка на карте *</div>
-      <AddressMapPicker
-        variant="admin"
-        mapHeight={280}
-        pickMode="center"
-        hideConfirm
-        hideGps
-        addressLabel={addressLabel}
-        addressHelper="Двигайте карту — остриё метки показывает точку"
-        initial={lat != null && lng != null ? { lat, lng } : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }}
-        onCenterChange={onCenterChange}
-      />
-    </div>
+    <AdminLocationMap
+      mapKey={mapKey}
+      lat={lat}
+      lng={lng}
+      onCenterChange={onCenterChange}
+      addressLabel={addressLabel}
+    />
   );
   return (
     <div>
@@ -2040,7 +2097,7 @@ function PartnersPage() {
         <StatCard l="Комиссия/мес" v={`${totalComm.toLocaleString()} ЅМ`} c="#FFB800"/>
       </div>
       <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
-        <button onClick={()=>setShowAdd(true)} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>+ Добавить ресторан</button>
+        <button onClick={() => { preloadLeaflet(); setShowAdd(true); }} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>+ Добавить ресторан</button>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:20}}>
         {rests.map((r,i)=>(
@@ -2117,21 +2174,16 @@ function PartnersPage() {
                   ))}
                 </div>
                 <MapBlock
+                  mapKey={`rest-edit-${sel.id}`}
                   lat={editForm.lat} lng={editForm.lng}
                   addressLabel="Адрес ресторана"
                   onCenterChange={r => {
-                    const addr = r.address || editForm.address;
-                    setEditForm((x: any) => ({ ...x, lat: r.lat, lng: r.lng, address: addr }));
-                    if (sel) {
-                      void persistPickupCoords(
-                        { ...sel, name: editForm.name, address: addr },
-                        r.lat,
-                        r.lng,
-                        addr,
-                        editForm.phone,
-                        !editForm.blocked,
-                      ).catch(() => setLocError('Точка выбрана, но не сохранилась на сервере. Нажмите «Сохранить».'));
-                    }
+                    setEditForm((x: any) => ({
+                      ...x,
+                      lat: r.lat,
+                      lng: r.lng,
+                      address: r.address?.trim() ? r.address : x.address,
+                    }));
                   }}
                 />
                 {locError&&<div style={{marginBottom:10,fontSize:11,color:'#FF4545'}}>⚠️ {locError}</div>}
@@ -2369,9 +2421,10 @@ function PartnersPage() {
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>Комиссия %</div><input className="ai" type="number" value={addForm.commission} onChange={e=>setAddForm(f=>({...f,commission:e.target.value}))} placeholder="15"/></div>
               </div>
               <MapBlock
+                mapKey="rest-add"
                 lat={addForm.lat} lng={addForm.lng}
                 addressLabel="Адрес ресторана"
-                onCenterChange={r => setAddForm(f => ({ ...f, lat: r.lat, lng: r.lng, address: r.address || f.address }))}
+                onCenterChange={r => setAddForm(f => ({ ...f, lat: r.lat, lng: r.lng, address: r.address?.trim() ? r.address : f.address }))}
               />
               {locError&&<div style={{fontSize:11,color:'#FF4545'}}>⚠️ {locError}</div>}
               <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.18)',fontSize:11,color:'#8FB897'}}>
@@ -7594,6 +7647,7 @@ function PickupsPage() {
   const restList  = list.filter(p => p.type === 'rest');
 
   const openAdd = () => {
+    preloadLeaflet();
     setForm({ e:'🏪', color:'#1FD760', type:'store', active:true, lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng });
     setSaveErr('');
     setModal('add');
@@ -7730,25 +7784,13 @@ function PickupsPage() {
               <button onClick={closeModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <div>
-                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>📍 Точка на карте *</div>
-                <AddressMapPicker
-                  key={`pickup-map-${modal}-${form.id || 'new'}`}
-                  variant="admin"
-                  mapHeight={280}
-                  pickMode="center"
-                  hideConfirm
-                  hideGps
-                  addressLabel="Адрес точки"
-                  addressHelper="Двигайте карту — остриё метки показывает место забора"
-                  initial={
-                    form.lat != null && form.lng != null && Number(form.lat) && Number(form.lng)
-                      ? { lat: Number(form.lat), lng: Number(form.lng) }
-                      : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }
-                  }
-                  onCenterChange={pickOnMap}
-                />
-              </div>
+              <AdminLocationMap
+                mapKey={`pickup-${modal}-${form.id || 'new'}`}
+                lat={form.lat != null ? Number(form.lat) : null}
+                lng={form.lng != null ? Number(form.lng) : null}
+                addressLabel="Адрес точки"
+                onCenterChange={pickOnMap}
+              />
               <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:10}}>
                 <FI lbl="Эмодзи" fld="e" ph="🏪"/>
                 <FI lbl="Название *" fld="name" ph="КАКАПО Магазин"/>

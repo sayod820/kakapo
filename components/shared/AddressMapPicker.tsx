@@ -418,7 +418,7 @@ export default function AddressMapPicker({
         });
         const c0 = updateCenterCoords();
         onCenterChangeRef.current?.({ lat: c0.lat, lng: c0.lng, address: '' });
-        resolveAddress(c0.lat, c0.lng, 80);
+        resolveAddress(c0.lat, c0.lng, variant === 'admin' ? 350 : 80);
       } else {
         if (pinRef.current) placeMarker(pinRef.current.lat, pinRef.current.lng);
         map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
@@ -437,7 +437,7 @@ export default function AddressMapPicker({
             map.dragging.enable();
             if (pickMode === 'center') {
               const c = updateCenterCoords();
-              resolveAddress(c.lat, c.lng, 80);
+              resolveAddress(c.lat, c.lng, variant === 'admin' ? 350 : 80);
             }
           } catch {}
         }, 50);
