@@ -2005,22 +2005,30 @@ function PartnersPage() {
     resetAddForm();
   };
 
-  const MapBlock = ({ lat, lng, onPick }: { lat: number | null; lng: number | null; onPick: (r: { lat: number; lng: number; address: string }) => void }) => (
+  const MapBlock = ({
+    lat,
+    lng,
+    onCenterChange,
+    addressLabel = 'Адрес',
+  }: {
+    lat: number | null;
+    lng: number | null;
+    onCenterChange: (r: { lat: number; lng: number; address: string }) => void;
+    addressLabel?: string;
+  }) => (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>📍 Место на карте *</div>
-      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #162B1A' }}>
-        <AddressMapPicker
-          variant="admin"
-          mapHeight={240}
-          initial={lat != null && lng != null ? { lat, lng } : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }}
-          onSelect={onPick}
-        />
-      </div>
-      {lat != null && lng != null && (
-        <div style={{ marginTop: 6, fontSize: 10, color: '#3D6645', fontFamily: 'monospace' }}>
-          {lat.toFixed(5)}, {lng.toFixed(5)}
-        </div>
-      )}
+      <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>📍 Точка на карте *</div>
+      <AddressMapPicker
+        variant="admin"
+        mapHeight={280}
+        pickMode="center"
+        hideConfirm
+        hideGps
+        addressLabel={addressLabel}
+        addressHelper="Двигайте карту — остриё метки показывает точку"
+        initial={lat != null && lng != null ? { lat, lng } : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }}
+        onCenterChange={onCenterChange}
+      />
     </div>
   );
   return (
@@ -2110,7 +2118,8 @@ function PartnersPage() {
                 </div>
                 <MapBlock
                   lat={editForm.lat} lng={editForm.lng}
-                  onPick={r => {
+                  addressLabel="Адрес ресторана"
+                  onCenterChange={r => {
                     const addr = r.address || editForm.address;
                     setEditForm((x: any) => ({ ...x, lat: r.lat, lng: r.lng, address: addr }));
                     if (sel) {
@@ -2361,7 +2370,8 @@ function PartnersPage() {
               </div>
               <MapBlock
                 lat={addForm.lat} lng={addForm.lng}
-                onPick={r=>setAddForm(f=>({...f,lat:r.lat,lng:r.lng,address:r.address||f.address}))}
+                addressLabel="Адрес ресторана"
+                onCenterChange={r => setAddForm(f => ({ ...f, lat: r.lat, lng: r.lng, address: r.address || f.address }))}
               />
               {locError&&<div style={{fontSize:11,color:'#FF4545'}}>⚠️ {locError}</div>}
               <div style={{padding:'9px 12px',borderRadius:9,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.18)',fontSize:11,color:'#8FB897'}}>
@@ -7578,9 +7588,7 @@ function PickupsPage() {
   const updatePickup = usePickupStore(s => s.updatePickup);
   const [modal,  setModal]  = useState<any>(null);
   const [form,   setForm]   = useState<any>({});
-  const [showMap, setShowMap] = useState(true);
   const [saveErr, setSaveErr] = useState('');
-  const [mapConfirmed, setMapConfirmed] = useState(false);
 
   const storeList = list.filter(p => p.type === 'store');
   const restList  = list.filter(p => p.type === 'rest');
@@ -7588,28 +7596,23 @@ function PickupsPage() {
   const openAdd = () => {
     setForm({ e:'🏪', color:'#1FD760', type:'store', active:true, lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng });
     setSaveErr('');
-    setShowMap(true);
-    setMapConfirmed(false);
     setModal('add');
   };
   const openEdit = (p:any) => {
     if (p.type !== 'store') return;
     setForm({ ...p, lat: p.lat, lng: p.lng });
     setSaveErr('');
-    setShowMap(true);
-    setMapConfirmed(true);
     setModal('edit');
   };
-  const closeModal = () => { setModal(null); setSaveErr(''); setShowMap(false); };
+  const closeModal = () => { setModal(null); setSaveErr(''); };
 
   const pickOnMap = (r: { lat: number; lng: number; address: string }) => {
     setForm((f: any) => ({
       ...f,
       lat: r.lat,
       lng: r.lng,
-      addr: f.addr?.trim() ? f.addr : r.address,
+      addr: r.address?.trim() ? r.address : f.addr,
     }));
-    setMapConfirmed(true);
     setSaveErr('');
   };
 
@@ -7617,11 +7620,7 @@ function PickupsPage() {
     const lat = parseFloat(String(form.lat).replace(',', '.'));
     const lng = parseFloat(String(form.lng).replace(',', '.'));
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setSaveErr('Выберите точку на карте и нажмите «Подтвердить точку»');
-      return;
-    }
-    if (!mapConfirmed) {
-      setSaveErr('Нажмите «Подтвердить точку» на карте перед сохранением');
+      setSaveErr('Укажите точку на карте');
       return;
     }
     const patch = {
@@ -7731,6 +7730,25 @@ function PickupsPage() {
               <button onClick={closeModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <div>
+                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6, fontWeight: 700 }}>📍 Точка на карте *</div>
+                <AddressMapPicker
+                  key={`pickup-map-${modal}-${form.id || 'new'}`}
+                  variant="admin"
+                  mapHeight={280}
+                  pickMode="center"
+                  hideConfirm
+                  hideGps
+                  addressLabel="Адрес точки"
+                  addressHelper="Двигайте карту — остриё метки показывает место забора"
+                  initial={
+                    form.lat != null && form.lng != null && Number(form.lat) && Number(form.lng)
+                      ? { lat: Number(form.lat), lng: Number(form.lng) }
+                      : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }
+                  }
+                  onCenterChange={pickOnMap}
+                />
+              </div>
               <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:10}}>
                 <FI lbl="Эмодзи" fld="e" ph="🏪"/>
                 <FI lbl="Название *" fld="name" ph="КАКАПО Магазин"/>
@@ -7738,43 +7756,6 @@ function PickupsPage() {
               <FI lbl="Цвет (hex)" fld="color" ph="#1FD760"/>
               <FI lbl="Адрес" fld="addr" ph="ул. Ленина, 42"/>
               <FI lbl="Телефон" fld="phone" ph="+992 __ ___ __ __"/>
-              <div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                  <div style={{ fontSize:11, color:'#8FB897', fontWeight:700 }}>📍 Точка на карте *</div>
-                  <button type="button" onClick={() => setShowMap(v => !v)} className="ab" style={{ padding:'4px 10px', fontSize:11, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.3)', color:'#3B8EF0' }}>
-                    {showMap ? 'Скрыть карту' : 'Показать карту'}
-                  </button>
-                </div>
-                {showMap && (
-                  <div style={{ borderRadius:12, overflow:'hidden', border:'1px solid #162B1A', marginBottom:8 }}>
-                    <AddressMapPicker
-                      key={`pickup-map-${modal}-${form.id || 'new'}`}
-                      variant="admin"
-                      mapHeight={260}
-                      initial={
-                        form.lat != null && form.lng != null && Number(form.lat) && Number(form.lng)
-                          ? { lat: Number(form.lat), lng: Number(form.lng) }
-                          : { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng }
-                      }
-                      onSelect={pickOnMap}
-                    />
-                  </div>
-                )}
-                {mapConfirmed && (
-                  <div style={{ marginBottom:8, padding:'8px 12px', borderRadius:10, background:'rgba(31,215,96,.1)', border:'1px solid rgba(31,215,96,.3)', fontSize:11, color:'#1FD760', fontWeight:700 }}>
-                    ✓ Точка подтверждена · {Number(form.lat).toFixed(5)}, {Number(form.lng).toFixed(5)}
-                  </div>
-                )}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                  <FI lbl="Широта (lat)" fld="lat" ph="38.3250" type="number"/>
-                  <FI lbl="Долгота (lng)" fld="lng" ph="69.0250" type="number"/>
-                </div>
-                {form.lat != null && form.lng != null && Number(form.lat) && Number(form.lng) && (
-                  <div style={{ marginTop:6, fontSize:10, color:'#1FD760', fontFamily:'monospace' }}>
-                    ✓ {Number(form.lat).toFixed(5)}, {Number(form.lng).toFixed(5)}
-                  </div>
-                )}
-              </div>
               {saveErr && (
                 <div style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.08)', border:'1px solid rgba(255,69,69,.25)', fontSize:12, color:'#FF4545' }}>
                   {saveErr}

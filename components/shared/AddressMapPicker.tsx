@@ -25,6 +25,8 @@ interface Props {
   onCenterChange?: (result: MapPinResult) => void;
   /** Скрыть кнопку «Подтвердить точку» — детали вводятся ниже */
   hideConfirm?: boolean;
+  /** Скрыть кнопку GPS (только карта) */
+  hideGps?: boolean;
 }
 
 const THEMES = {
@@ -250,6 +252,7 @@ export default function AddressMapPicker({
   addressHelper = 'Номер дома лучше вписать вручную ниже',
   onCenterChange,
   hideConfirm = false,
+  hideGps = false,
 }: Props) {
   const theme = THEMES[variant];
   const hintText = hint ?? (pickMode === 'center' ? theme.centerHint : theme.hint);
@@ -606,7 +609,9 @@ export default function AddressMapPicker({
         )}
       </div>
 
+      {(!hideGps || !hideConfirm) && (
       <div style={{ display: 'flex', gap: 8, marginBottom: hideConfirm ? 0 : 10, padding: pickMode === 'center' ? '0 16px' : 0 }}>
+        {!hideGps && (
         <button
           type="button"
           onClick={useGPS}
@@ -616,6 +621,7 @@ export default function AddressMapPicker({
         >
           {gpsLoading ? '…' : '📡'} GPS
         </button>
+        )}
         {!hideConfirm && (
           <button
             type="button"
@@ -639,6 +645,7 @@ export default function AddressMapPicker({
           </button>
         )}
       </div>
+      )}
 
       {pin && pickMode !== 'center' && (
         <div style={{ padding: '8px 12px', borderRadius: 10, background: theme.coordsBg, border: `1px solid ${theme.coordsBorder}`, fontSize: 11, color: theme.coordsText, marginBottom: 8 }}>
