@@ -144,24 +144,62 @@ export function calcMarginalBonusEarned(
   return earned
 }
 
-export function getBonusEligibleFromMs(
-  merged: { bonusEligibleFrom?: string; vip?: boolean; loyaltyPeriod?: string },
-  card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
+/** Явная отсечка после ручной смены VIP/уровня в админке */
+export function getExplicitBonusEligibleFromMs(
+  merged: { bonusEligibleFrom?: string },
+  card?: { bonusEligibleFrom?: string } | null,
 ): number | null {
   const raw = merged.bonusEligibleFrom || card?.bonusEligibleFrom
   if (raw) {
     const d = new Date(raw)
     if (!Number.isNaN(d.getTime())) return d.getTime()
   }
-  if (merged.vip) {
-    const period = merged.loyaltyPeriod || card?.loyaltyPeriod
-    if (period) {
-      const [y, m] = period.split('-').map(Number)
-      return new Date(y, m - 1, 1).getTime()
-    }
-    return Date.now()
+  return null
+}
+
+/** С какого момента применять VIP-% (явная отсечка или начало месяца VIP). */
+export function getVipBonusEligibleFromMs(
+  merged: { bonusEligibleFrom?: string; vip?: boolean; loyaltyPeriod?: string },
+  card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
+): number | null {
+  const explicit = getExplicitBonusEligibleFromMs(merged, card)
+  if (explicit != null) return explicit
+  if (!merged.vip) return null
+  const period = merged.loyaltyPeriod || card?.loyaltyPeriod
+  if (period) {
+    const [y, m] = period.split('-').map(Number)
+    return new Date(y, m - 1, 1).getTime()
   }
   return null
+}
+
+/** @deprecated используйте getExplicitBonusEligibleFromMs */
+export function getBonusEligibleFromMs(
+  merged: { bonusEligibleFrom?: string; vip?: boolean; loyaltyPeriod?: string },
+  card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
+): number | null {
+  return getExplicitBonusEligibleFromMs(merged, card)
+}
+
+export function isOrderMarginalBonusEligible(
+  order: Order,
+  merged: { bonusEligibleFrom?: string },
+  card?: { bonusEligibleFrom?: string } | null,
+): boolean {
+  const fromMs = getExplicitBonusEligibleFromMs(merged, card)
+  if (fromMs == null) return true
+  return orderSortKey(order) >= fromMs
+}
+
+export function isOrderVipBonusEligible(
+  order: Order,
+  merged: { bonusEligibleFrom?: string; vip?: boolean; loyaltyPeriod?: string },
+  card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
+): boolean {
+  if (!merged.vip) return false
+  const fromMs = getVipBonusEligibleFromMs(merged, card)
+  if (fromMs == null) return true
+  return orderSortKey(order) >= fromMs
 }
 
 export function isOrderBonusEligible(
@@ -169,9 +207,7 @@ export function isOrderBonusEligible(
   merged: { bonusEligibleFrom?: string; vip?: boolean; loyaltyPeriod?: string },
   card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
 ): boolean {
-  const fromMs = getBonusEligibleFromMs(merged, card)
-  if (fromMs == null) return true
-  return orderSortKey(order) >= fromMs
+  return isOrderMarginalBonusEligible(order, merged, card)
 }
 
 export function priorBonusEligibleSpent(
@@ -182,7 +218,7 @@ export function priorBonusEligibleSpent(
   card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
 ): number {
   return priorDeliveredOrders(phone, allDelivered, order)
-    .filter(o => !merged || isOrderBonusEligible(o, merged, card))
+    .filter(o => !merged || isOrderMarginalBonusEligible(o, merged, card))
     .reduce((sum, o) => sum + bonusEligibleTotal(o), 0)
 }
 
@@ -195,9 +231,9 @@ export function calcOrderMarginalBonusEarned(
   merged?: { bonusEligibleFrom?: string; vip?: boolean; loyaltyPeriod?: string },
   card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
 ): number {
-  if (merged && !isOrderBonusEligible(order, merged, card)) return 0
+  if (merged && !isOrderMarginalBonusEligible(order, merged, card)) return 0
   const prior = priorBonusEligibleSpent(phone, allDelivered, order, merged, card)
-  const useVip = !!(vip && (!merged || isOrderBonusEligible(order, merged, card)))
+  const useVip = !!(vip && isOrderVipBonusEligible(order, merged, card))
   return calcMarginalBonusEarned(prior, bonusEligibleTotal(order), useVip, cfg)
 }
 
@@ -403,13 +439,13 @@ export function expectedOrderBonus(
     const period = currentLoyaltyPeriod()
     const priorEligible = delivered
       .filter(o => loyaltyPeriodForOrder(o) === period)
-      .filter(o => isOrderBonusEligible(o, merged))
+      .filter(o => isOrderMarginalBonusEligible(o, merged))
       .reduce((sum, o) => sum + bonusEligibleTotal(o), 0)
-    const useVip = !!(vip && isOrderBonusEligible(order, merged))
+    const useVip = !!(vip && isOrderVipBonusEligible(order, merged))
     return calcMarginalBonusEarned(priorEligible, eligible, useVip, cfg)
   }
 
-  const useVip = !!(vip && (!bonusMeta?.bonusEligibleFrom || isOrderBonusEligible(order, merged)))
+  const useVip = !!(vip && isOrderVipBonusEligible(order, { vip, ...bonusMeta }))
   return calcMarginalBonusEarned(0, eligible, useVip, cfg)
 }
 

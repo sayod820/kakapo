@@ -1680,7 +1680,9 @@ app.post('/cards/ensure', (req, res) => {
   if (card) {
     const patch = { ...body, num: card.num }
     delete patch.unlink
-    if (patch.vip !== undefined || patch.level != null) {
+    const vipChanged = patch.vip !== undefined && !!patch.vip !== !!card.vip
+    const levelChanged = patch.level != null && patch.level !== card.level
+    if (vipChanged || levelChanged) {
       patch.loyaltyPeriod = currentLoyaltyPeriod()
       patch.bonusEligibleFrom = new Date().toISOString()
     }
@@ -1742,8 +1744,10 @@ app.patch('/cards/:num', (req, res) => {
       const prev = Number(card.bonus) || 0
       if (next < prev) delete body.bonus
     }
+    const vipChanged = body.vip !== undefined && !!body.vip !== !!card.vip
+    const levelChanged = body.level != null && body.level !== card.level
     if (body.vip !== undefined || body.level != null || body.levelAssignMode != null) {
-      if (body.vip !== undefined || body.level != null) {
+      if (vipChanged || levelChanged) {
         body.loyaltyPeriod = currentLoyaltyPeriod()
         body.bonusEligibleFrom = new Date().toISOString()
       }
