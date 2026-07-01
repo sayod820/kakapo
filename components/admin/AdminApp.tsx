@@ -147,7 +147,7 @@ import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
 import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
 import { api } from '@/lib/api'
 import { avgReviewRating, resolveReviewPlaceName, sortReviewsNewestFirst } from '@/lib/clientReviews'
-import type { Promo } from '@/lib/types'
+import type { Promo, Review } from '@/lib/types'
 import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { formatKm, DEFAULT_PRICING, STORE_LOCATION } from '@/lib/courierData'
@@ -339,12 +339,7 @@ const PRODS = [
   {id:24,art:'KAK-0024',e:'🧹',name:'Порошок Tide',       price:24.0, old:29.0, cat:'Химия',   catId:'house', unit:'1 кг',  stock:4, hot:false,organic:false,discount:17},
 ];
 
-const REVIEWS = [
-  {id:1,restId:'R-01',client:'Зафар М.',rating:2,text:'Долго ждали, еда была холодная',date:'16 мая',status:'new'},
-  {id:2,restId:'R-02',client:'Лола К.',rating:5,text:'Отличная пицца! Быстро доставили',date:'15 мая',status:'read'},
-  {id:3,restId:'R-01',client:'Нилуфар С.',rating:1,text:'Неправильный заказ привезли',date:'14 мая',status:'new'},
-  {id:4,restId:'R-03',client:'Бахром Т.',rating:4,text:'Вкусные роллы, но немного дорого',date:'13 мая',status:'read'},
-];
+const REVIEWS: Review[] = [];
 
 /* ── HELPERS ─────────────────────────────────────── */
 const SC_STATUS = {new:{l:'Новый',c:'#FF4545'},assembling:{l:'Собирается',c:'#9B6DFF'},cooking:{l:'Готовится',c:'#FF8C00'},delivering:{l:'В пути',c:'#3B8EF0'},delivered:{l:'Доставлен',c:'#1FD760'},cancelled:{l:'Отменён',c:'#3D6645'}};
@@ -2435,7 +2430,7 @@ function ReviewsPage() {
   const [replyText, setReplyText] = useState('');
 
   const loadReviews = async () => {
-    if (!USE_API) { setReviews(REVIEWS); return; }
+    if (!USE_API) { setReviews([]); return; }
     setLoading(true);
     try {
       const list = await api.getReviews();

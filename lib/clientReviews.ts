@@ -36,11 +36,9 @@ export function loadLocalReviews(phone?: string): Record<string, Review> {
       map[key] = rev
       continue
     }
-    if (rev.productKey && rev.orderId) {
-      map[clientReviewKey(String(rev.orderId), rev.productKey)] = rev
-      continue
+    if (rev.orderId && rev.restId) {
+      map[clientReviewKey(String(rev.orderId), String(rev.restId))] = rev
     }
-    // legacy: один отзыв на заказ — пропускаем (старая схема ресторанов)
   }
   return map
 }
@@ -49,15 +47,10 @@ export function saveLocalReview(
   orderId: string,
   review: Review,
   phone?: string,
-  productKey?: string,
+  restId?: string,
 ) {
   const map = loadLocalReviews(phone)
-  const key = productKey
-    ? clientReviewKey(orderId, productKey)
-    : review.productKey
-      ? clientReviewKey(orderId, review.productKey)
-      : ''
-  if (!key) return
+  const key = clientReviewKey(orderId, restId || review.restId || STORE_REVIEW_REST_ID)
   map[key] = review
   saveAccountJson(ACCOUNT_NS.reviewsLocal, map, phone)
 }
@@ -81,12 +74,11 @@ export function resolveReviewPlaceName(
   review?: Pick<Review, 'restName' | 'productName'>,
   restaurants: { id: string; name?: string; emoji?: string }[] = [],
 ): string {
-  if (review?.productName) return `📦 ${review.productName}`
   if (restId === STORE_REVIEW_REST_ID) return '🏪 КАКАПО Магазин'
   const r = restaurants.find(x => x.id === restId)
   if (r) return `${r.emoji || '🍽'} ${r.name}`
   if (review?.restName) return review.restName
-  return 'Товар'
+  return 'Ресторан'
 }
 
 export async function loadClientReviewMap(
@@ -99,7 +91,6 @@ export async function loadClientReviewMap(
   const name = (user?.name || '').trim().toLowerCase()
   const map: Record<string, Review> = {}
   list.forEach(r => {
-    if (!r.productKey) return
     const oid = r.orderId ? String(r.orderId) : ''
     const byOrder = oid && orderIds.has(oid)
     const byName = name && (r.client || '').trim().toLowerCase() === name

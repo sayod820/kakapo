@@ -73,12 +73,7 @@ export const DEFAULT_CARDS = [
   { num: 'KAKAPO-0236', client: 'Сайёд Гафуров', phone: '+992 50 190 31 41', status: 'active', level: 'silver', bonus: 100, debtLimit: 0, debt: 0, clientId: 'U-07' },
 ]
 
-export const DEFAULT_REVIEWS = [
-  { id: 1, restId: 'R-01', restName: 'Чайхона Оромгох', client: 'Зафар М.', rating: 2, text: 'Долго ждали, еда была холодная', date: '16 мая', status: 'new', restSeen: false, restNotified: true, urgent: true, orderId: '' },
-  { id: 2, restId: 'R-02', restName: 'Пицца Яван', client: 'Лола К.', rating: 5, text: 'Отличная пицца! Быстро доставили', date: '15 мая', status: 'read', restSeen: true, restNotified: true, urgent: false, orderId: '' },
-  { id: 3, restId: 'R-01', restName: 'Чайхона Оромгох', client: 'Нилуфар С.', rating: 1, text: 'Неправильный заказ привезли', date: '14 мая', status: 'new', restSeen: false, restNotified: true, urgent: true, orderId: '' },
-  { id: 4, restId: 'R-03', restName: 'Суши Яван', client: 'Бахром Т.', rating: 4, text: 'Вкусные роллы, но немного дорого', date: '13 мая', status: 'read', restSeen: true, restNotified: true, urgent: false, orderId: '' },
-]
+export const DEFAULT_REVIEWS = []
 
 export const DEFAULT_PROMOS = [
   { id: 1, e: '🥛', title: 'Молочная среда', sub: 'Скидка 30% на молочное', disc: 30, on: true, cat: 'Магазин', type: 'pct', from: '08:00', to: '22:00', till: 'Среда' },
@@ -114,8 +109,8 @@ export function seedIfEmpty() {
     { id: 2, name: 'Мясо', slug: 'meat', parent_id: null },
   ]
   db.promos = DEFAULT_PROMOS.map(p => ({ ...p }))
-  db.reviews = DEFAULT_REVIEWS.map(r => ({ ...r }))
-  db._seq.review = DEFAULT_REVIEWS.length
+  db.reviews = []
+  db._seq.review = 0
   db.orders = [{
     id: 'K-4832', type: 'market', status: 'assembling', createdAt: '14:23', total: 64.3, deliveryFee: 0, comment: '',
     client: { name: 'Диловар', phone: '+992 93 456 78 90', addr: 'ул. Ленина, 42' },

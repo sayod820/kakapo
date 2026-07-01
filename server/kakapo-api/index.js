@@ -29,7 +29,7 @@ import {
   findClientByPhone,
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
-import { createReviewRecord } from './reviewLogic.js'
+import { createReviewRecord, updateRestaurantRating, updateStoreRating } from './reviewLogic.js'
 import { normalizeLevelAssignMode } from './loyaltyLock.js'
 import {
   RECOVERY_RETENTION_DAYS,
@@ -132,11 +132,15 @@ ensurePayouts()
 function ensureReviews() {
   if (!Array.isArray(db.reviews)) db.reviews = []
   if (!db._seq.review) db._seq.review = db.reviews.length
-  if (!db.reviews.length) {
-    db.reviews = DEFAULT_REVIEWS.map(r => ({ ...r }))
-    db._seq.review = DEFAULT_REVIEWS.length
+  // убрать старые демо-отзывы без привязки к заказу
+  const before = db.reviews.length
+  db.reviews = db.reviews.filter(r => r.orderId && String(r.orderId).trim())
+  if (db.reviews.length !== before) {
+    db._seq.review = db.reviews.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0)
     persist()
   }
+  for (const r of (db.restaurants || [])) updateRestaurantRating(db, r.id)
+  updateStoreRating(db)
 }
 ensureReviews()
 
@@ -1899,14 +1903,13 @@ app.get('/reviews', (req, res) => {
 app.post('/reviews', (req, res) => {
   ensureReviews()
   if (!Array.isArray(db.restaurants)) db.reaurants = []
-  const productKey = String(req.body.productKey || '').trim()
+  const restId = String(req.body.restId || 'STORE')
   const orderId = req.body.orderId ? String(req.body.orderId) : ''
-  if (!productKey) return res.status(400).json({ detail: 'Укажите товар для отзыва' })
   if (!orderId) return res.status(400).json({ detail: 'Укажите номер заказа' })
   const dup = (db.reviews || []).find(
-    r => r.orderId === orderId && String(r.productKey || '') === productKey,
+    r => r.orderId === orderId && String(r.restId || '') === restId,
   )
-  if (dup) return res.status(400).json({ detail: 'Отзыв по этому товару уже оставлен' })
+  if (dup) return res.status(400).json({ detail: 'Отзыв по этому заказу уже оставлен' })
   try {
     const review = createReviewRecord(db, req.body)
     persist()

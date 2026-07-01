@@ -37,16 +37,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const productKey = String(body.productKey || '').trim()
-    const productName = String(body.productName || '').trim()
+    const restId = String(body.restId || 'STORE').trim()
     const orderId = String(body.orderId || '').trim()
     const rating = Math.min(5, Math.max(1, Math.round(Number(body.rating) || 0)))
     const text = String(body.text || '').trim()
     const client = String(body.client || 'Клиент').trim()
 
-    if (!productKey) {
-      return NextResponse.json({ detail: 'Укажите товар для отзыва' }, { status: 400 })
-    }
     if (!orderId) {
       return NextResponse.json({ detail: 'Укажите номер заказа' }, { status: 400 })
     }
@@ -55,14 +51,12 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = {
-      productKey,
-      productName: productName || undefined,
-      productId: body.productId != null ? body.productId : undefined,
+      restId,
       orderId,
       rating,
       text: text || '★'.repeat(rating),
       client,
-      restId: 'STORE',
+      restName: body.restName ? String(body.restName) : undefined,
     }
 
     const res = await backendFetch('/reviews', {
