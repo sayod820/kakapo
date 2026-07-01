@@ -73,7 +73,93 @@ function dedupeRoutePoints(points: { lat: number; lng: number }[]): { lat: numbe
   return out.length >= 2 ? out : points;
 }
 
-/** Точки маршрута ДОСТАВКИ: магазин → ресторан(ы) → клиент по дорогам (OSRM). Без курьера. */
+function pickupCoord(id: string, locations: PickupLocationMap): { lat: number; lng: number } {
+  const fallback = locations.store ?? { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng, name: STORE_LOCATION.name };
+  const p = locations[id] ?? fallback;
+  return { lat: p.lat, lng: p.lng };
+}
+
+/** Км между двумя точками: по дорогам (OSRM), если нет — прямая линия */
+async function legDistanceKm(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): Promise<number> {
+  const coordStr = `${a.lng},${a.lat};${b.lng},${b.lat}`;
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false&steps=false`,
+      { signal: ctrl.signal },
+    );
+    clearTimeout(tid);
+    const data = await res.json();
+    if (data.code !== 'Ok' || !data.routes?.[0]) throw new Error('no route');
+    return data.routes[0].distance / 1000;
+  } catch {
+    return calcDistanceKm(a.lat, a.lng, b.lat, b.lng);
+  }
+}
+
+/** Один участок: геометрия по дорогам или прямая */
+async function fetchLegRoute(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): Promise<RouteResult> {
+  try {
+    return await fetchOsrmRoute([a, b]);
+  } catch {
+    const km = calcDistanceKm(a.lat, a.lng, b.lat, b.lng);
+    return {
+      distanceKm: km,
+      durationMin: Math.max(1, Math.round(km * 3)),
+      geometry: [[a.lat, a.lng], [b.lat, b.lng]],
+    };
+  }
+}
+
+/** Порядок точек забора: каждый раз — ближайшая следующая по дорогам */
+async function orderPickupsByNearestRoad(
+  pickupIds: string[],
+  locations: PickupLocationMap,
+): Promise<{ lat: number; lng: number }[]> {
+  if (!pickupIds.length) return [];
+  if (pickupIds.length === 1) return [pickupCoord(pickupIds[0], locations)];
+
+  const remaining = new Set(pickupIds);
+  const startId = pickupIds.includes('store') ? 'store' : pickupIds[0];
+  const ordered: { lat: number; lng: number }[] = [pickupCoord(startId, locations)];
+  remaining.delete(startId);
+
+  while (remaining.size) {
+    const cur = ordered[ordered.length - 1];
+    let bestId = '';
+    let bestKm = Infinity;
+    for (const id of remaining) {
+      const km = await legDistanceKm(cur, pickupCoord(id, locations));
+      if (km < bestKm) {
+        bestKm = km;
+        bestId = id;
+      }
+    }
+    ordered.push(pickupCoord(bestId, locations));
+    remaining.delete(bestId);
+  }
+  return ordered;
+}
+
+/** Точки маршрута: ближайшие точки забора по дорогам → клиент */
+export async function buildOrderRoutePointsAsync(
+  order: RoadKmOrderInput,
+  locations: PickupLocationMap = PICKUP_LOCATIONS,
+): Promise<{ lat: number; lng: number }[]> {
+  const pickupIds = resolveRoutePickupIds(order);
+  const client = normalizeClientCoords(order.lat, order.lng);
+  const pickups = await orderPickupsByNearestRoad(pickupIds, locations);
+  return dedupeRoutePoints([...pickups, client]);
+}
+
+/** Синхронный список точек (без оптимизации порядка) — запасной вариант */
 export function buildOrderRoutePoints(
   order: RoadKmOrderInput,
   locations: PickupLocationMap = PICKUP_LOCATIONS
@@ -89,20 +175,75 @@ export function buildOrderRoutePoints(
   return dedupeRoutePoints(points);
 }
 
-/** Полный маршрут доставки по дорогам (для карты и км) */
+/** Маршрут участок за участком: дорога или прямая на каждом отрезке */
+async function fetchRouteByLegs(points: { lat: number; lng: number }[]): Promise<RouteResult> {
+  if (points.length < 2) {
+    return { distanceKm: 0, durationMin: 0, geometry: points.map(p => [p.lat, p.lng] as [number, number]) };
+  }
+
+  try {
+    return await fetchOsrmRoute(points);
+  } catch {
+    /* по участкам: дорога, иначе прямая */
+  }
+
+  let totalKm = 0;
+  let totalMin = 0;
+  const geometry: [number, number][] = [];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const leg = await fetchLegRoute(points[i], points[i + 1]);
+    totalKm += leg.distanceKm;
+    totalMin += leg.durationMin;
+    if (!geometry.length) geometry.push(...leg.geometry);
+    else geometry.push(...leg.geometry.slice(1));
+  }
+
+  return {
+    distanceKm: totalKm,
+    durationMin: totalMin,
+    geometry: geometry.length ? geometry : points.map(p => [p.lat, p.lng] as [number, number]),
+  };
+}
+
+async function fetchOsrmRoute(points: { lat: number; lng: number }[]): Promise<RouteResult> {
+  if (points.length < 2) {
+    return { distanceKm: 0, durationMin: 0, geometry: points.map(p => [p.lat, p.lng] as [number, number]) };
+  }
+  const coordStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 12000);
+  const res = await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&steps=false`,
+    { signal: ctrl.signal },
+  );
+  clearTimeout(tid);
+  const data = await res.json();
+  if (data.code !== 'Ok' || !data.routes?.[0]) throw new Error('no route');
+  const route = data.routes[0];
+  return {
+    distanceKm: route.distance / 1000,
+    durationMin: Math.round(route.duration / 60),
+    geometry: route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]] as [number, number]),
+  };
+}
+
+/** Полный маршрут доставки (для карты и км) */
 export async function fetchOrderDeliveryRoute(
   order: RoadKmOrderInput,
   locations?: PickupLocationMap
 ): Promise<RouteResult> {
-  return fetchRoute(buildOrderRoutePoints(order, locations));
+  const locs = locations ?? PICKUP_LOCATIONS;
+  const points = await buildOrderRoutePointsAsync(order, locs);
+  return fetchRouteByLegs(points);
 }
 
-/** Точное расстояние заказа по дорогам (OSRM) */
+/** Точное расстояние заказа по дорогам */
 export async function fetchOrderRoadKm(
   order: RoadKmOrderInput,
   locations?: PickupLocationMap
 ): Promise<number> {
-  const route = await fetchRoute(buildOrderRoutePoints(order, locations));
+  const route = await fetchOrderDeliveryRoute(order, locations);
   return roundRouteKm(route.distanceKm);
 }
 
@@ -117,13 +258,12 @@ export async function fetchOrdersRoadKm<T extends { id: string } & RoadKmOrderIn
         const km = await fetchOrderRoadKm(o, locations);
         return [o.id, km] as const;
       } catch {
-        const pids = resolveRoutePickupIds(o);
-        const points = buildOrderRoutePoints({ ...o, routePickupIds: pids }, locations);
+        const points = buildOrderRoutePoints(o, locations);
         let totalKm = 0;
         for (let i = 1; i < points.length; i++) {
           totalKm += calcDistanceKm(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng);
         }
-        return [o.id, roundRouteKm(totalKm * 1.25)] as const;
+        return [o.id, roundRouteKm(totalKm)] as const;
       }
     })
   );
@@ -176,49 +316,11 @@ export function calcDistanceKm(lat1: number, lng1: number, lat2: number, lng2: n
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Маршрут по дорогам через OSRM (OpenStreetMap, бесплатно) */
+/** Маршрут по дорогам через OSRM; при ошибке — участки по прямой */
 export async function fetchRoute(
   points: { lat: number; lng: number }[]
 ): Promise<RouteResult> {
-  if (points.length < 2) {
-    return { distanceKm: 0, durationMin: 0, geometry: points.map(p => [p.lat, p.lng]) };
-  }
-  const coordStr = points.map(p => `${p.lng},${p.lat}`).join(';');
-  try {
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 12000);
-    const res = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson&steps=false`,
-      { signal: ctrl.signal }
-    );
-    clearTimeout(tid);
-    const data = await res.json();
-    if (data.code !== 'Ok' || !data.routes?.[0]) throw new Error('no route');
-    const route = data.routes[0];
-    const geometry: [number, number][] = route.geometry.coordinates.map(
-      (c: [number, number]) => [c[1], c[0]]
-    );
-    return {
-      distanceKm: route.distance / 1000,
-      durationMin: Math.round(route.duration / 60),
-      geometry,
-    };
-  } catch {
-    /* fallback: прямая линия между точками */
-    let totalKm = 0;
-    const geometry: [number, number][] = [];
-    for (let i = 0; i < points.length; i++) {
-      geometry.push([points[i].lat, points[i].lng]);
-      if (i > 0) {
-        totalKm += calcDistanceKm(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng);
-      }
-    }
-    return {
-      distanceKm: totalKm * 1.25,
-      durationMin: Math.round(totalKm * 3),
-      geometry,
-    };
-  }
+  return fetchRouteByLegs(points);
 }
 
 /** Маршрут: точки забора → клиент */
