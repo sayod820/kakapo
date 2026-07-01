@@ -46,7 +46,7 @@ function resolveRoutePickupIds(order: RoadKmOrderInput): string[] {
   return ['store'];
 }
 
-/** Точки маршрута ДОСТАВКИ: магазин/ресторан(ы) → клиент (без курьера) */
+/** Точки маршрута ДОСТАВКИ: магазин → ресторан(ы) → клиент по дорогам (OSRM). Без курьера. */
 export function buildOrderRoutePoints(
   order: RoadKmOrderInput,
   locations: PickupLocationMap = PICKUP_LOCATIONS

@@ -733,7 +733,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 
   /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
   useEffect(() => {
-    const routeIds = selected?.routePickupIds ?? selected?.pickupIds ?? [];
+    const routeIds = selected.routePickupIds ?? selected.pickupIds ?? [];
     if (!ready || !isMapAlive(mapRef.current) || !selected || !step || !routeIds.length) return;
     const gen = mapGenRef.current;
     let cancelled = false;
@@ -742,7 +742,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       routesRef.current.forEach(r => { try { r.remove(); } catch {} });
       routesRef.current = [];
 
-      /* основная линия — все точки забора → клиент */
+      /* основная линия — магазин/ресторан(ы) → клиент (км и тариф; не от курьера) */
       const delivery = await fetchOrderDeliveryRoute(
         { routePickupIds: routeIds, lat: selected.lat, lng: selected.lng },
         pickupLocRef.current,

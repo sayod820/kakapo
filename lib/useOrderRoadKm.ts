@@ -10,12 +10,11 @@ type RoadKmOrder = { id: string; distanceKm?: number } & RoadKmOrderInput;
 function normalizeRoadKmOrder(o: RoadKmOrder | Order): RoadKmOrder {
   if ('lat' in o && typeof o.lat === 'number' && 'lng' in o && typeof o.lng === 'number') {
     const mapped = o as RoadKmOrder;
-    return {
-      ...mapped,
-      routePickupIds: mapped.routePickupIds?.length
-        ? mapped.routePickupIds
-        : (mapped.pickupIds?.length ? mapped.pickupIds : undefined),
-    };
+    if (mapped.routePickupIds?.length) return mapped;
+    if (mapped.pickupIds?.length) {
+      return { ...mapped, routePickupIds: mapped.pickupIds };
+    }
+    return mapped;
   }
   const order = normalizeOrder(o as Order);
   const routePickupIds = resolveOrderRoutePickupIds(order);

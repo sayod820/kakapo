@@ -1,5 +1,5 @@
 import type { Order, OrderItem, OrderStatus, OrderType } from './types'
-import { restIdToPickupId } from './pickups'
+import { resolveCheckoutPickupIds, restIdToPickupId } from './pickups'
 
 export type PartStatus = 'new' | 'assembling' | 'cooking' | 'done'
 
@@ -47,11 +47,15 @@ export function getRestItems(items: OrderItem[] | unknown = [], restId?: string)
 }
 
 export function getRestIdsFromOrder(o: Order): string[] {
-  const ids = new Set<string>()
-  if (o.restId) ids.add(String(o.restId))
-  if (o.restIds) o.restIds.forEach(id => ids.add(String(id)))
-  getRestItems(o.items).forEach(it => { if (it.restId) ids.add(String(it.restId)) })
-  return [...ids]
+  const ids: string[] = []
+  const push = (id: string | undefined) => {
+    const s = id ? String(id) : ''
+    if (s && !ids.includes(s)) ids.push(s)
+  }
+  if (o.restIds?.length) o.restIds.forEach(push)
+  else if (o.restId) push(o.restId)
+  getRestItems(o.items).forEach(it => push(it.restId))
+  return ids
 }
 
 export function inferOrderType(o: Pick<Order, 'type' | 'items'>): OrderType {
@@ -157,14 +161,15 @@ export function getAllPickupIds(o: Order): string[] {
   return ids
 }
 
-/** Точки маршрута для OSRM: сохранённый маршрут курьера → точки из заказа → все точки забора */
+/** Маршрут для расчёта км и доставки: точки заказа → клиент (без позиции курьера) */
 export function resolveOrderRoutePickupIds(o: Order): string[] {
   const order = normalizeOrder(o)
-  if (order.courierRoute?.length) return order.courierRoute
   const saved = (order.pickupIds || []).filter(Boolean)
   if (saved.length) return saved
-  const all = getAllPickupIds(order)
-  return all.length ? all : ['store']
+  return resolveCheckoutPickupIds({
+    hasMarketItems: hasMarketPart(order),
+    restIds: getRestIdsFromOrder(order),
+  })
 }
 
 export function isPickupPointReady(o: Order, pickupId: string): boolean {
