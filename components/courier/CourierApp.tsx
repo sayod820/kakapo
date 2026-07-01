@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
-import { calcDeliveryFee, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, roundRouteKm, COURIER_MAP_VIEW } from '@/lib/courierData'
+import { calcDeliveryFee, calcDeliveryPrice, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, roundRouteKm, COURIER_MAP_VIEW } from '@/lib/courierData'
 import { resolveOrderDeliveryFee, buildDeliveryFeePatch } from '@/lib/deliveryFee'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
 import { useCourierTeam, useCourierTeamStore } from '@/lib/courierTeamStore'
@@ -335,7 +335,7 @@ function calcDelivery(dist: number, weight: number, TARIFF = DEFAULT_PRICING): n
   return calcDeliveryFee(dist, weight, TARIFF);
 }
 
-const MAX_LOCAL_ROUTE_KM = 15;
+const MAX_LOCAL_ROUTE_KM = 50;
 
 function getOrderKm(
   o: { id: string; distanceKm?: number },
@@ -347,6 +347,21 @@ function getOrderKm(
   if (fromRoad != null && fromRoad > 0 && fromRoad <= MAX_LOCAL_ROUTE_KM) return fromRoad;
   if (o.distanceKm != null && o.distanceKm > 0 && o.distanceKm <= MAX_LOCAL_ROUTE_KM) return o.distanceKm;
   return null;
+}
+
+/** Стоимость доставки по тем же км, что показываем курьеру (без «замороженной» суммы до расчёта маршрута) */
+function courierDeliveryFee(
+  o: { weight: number; sum?: number },
+  km: number | null,
+  TARIFF = DEFAULT_PRICING,
+): number | null {
+  if (km == null || km <= 0) return null;
+  return calcDeliveryPrice({
+    orderAmount: o.sum ?? 0,
+    distanceKm: km,
+    weightKg: o.weight,
+    pricing: TARIFF,
+  }).total;
 }
 
 function kmStr(km: number | null): string {
@@ -1047,6 +1062,11 @@ function CourierAppInner() {
     (o: { id: string; distanceKm?: number }) => getOrderKm(o, roadKm, routeKmLive[o.id]),
     [roadKm, routeKmLive],
   );
+  const deliveryFeeForOrder = useCallback(
+    (o: { id: string; weight: number; sum?: number; distanceKm?: number }) =>
+      courierDeliveryFee(o, kmForOrder(o), TARIFF),
+    [kmForOrder, TARIFF],
+  );
 
   useEffect(() => {
     const syncTeam = () => {
@@ -1207,8 +1227,14 @@ function CourierAppInner() {
     const finishedId = detailOrderId;
     const raw = apiOrders.find(o => o.id === finishedId);
     const feePatch = raw
-      ? buildDeliveryFeePatch(normalizeOrder(raw), TARIFF, roadKm)
-      : { deliveryFee: (active ? orderDelivery(active, roadKm, TARIFF) : 0) ?? 0, deliveryFeeLocked: true as const };
+      ? buildDeliveryFeePatch(
+          normalizeOrder(raw),
+          TARIFF,
+          active && kmForOrder(active) != null
+            ? { ...roadKm, [active.id]: kmForOrder(active)! }
+            : roadKm,
+        )
+      : { deliveryFee: (active ? deliveryFeeForOrder(active) : 0) ?? 0, deliveryFeeLocked: true as const };
     await updateStatus(finishedId, 'delivered', {
       courier: { name: courierDisplayName, phone: activePhone },
       deliveredAt,
@@ -1340,7 +1366,10 @@ function CourierAppInner() {
             ) : (
               <>
                 <div style={{ margin:'12px 0 0' }}>
-                  <LeafletMap key="orders-map" orders={mapOrders} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} />
+                  <LeafletMap key="orders-map" orders={mapOrders} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} onRouteKm={(id, km) => setRouteKmLive(prev => {
+                    if (km == null) { const n = { ...prev }; delete n[id]; return n; }
+                    return { ...prev, [id]: km };
+                  })}/>
           </div>
 
                 {/* BOTTOM SHEET — детали заказа, фиксированный оверлей */}
@@ -1370,11 +1399,11 @@ function CourierAppInner() {
           </div>
                         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                           <span style={{ padding:'4px 10px', borderRadius:10, fontSize:10, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>
-                            🛣 {getOrderKm(selected, roadKm) != null ? formatKm(getOrderKm(selected, roadKm)!) : '…'}
+                            🛣 {kmForOrder(selected) != null ? formatKm(kmForOrder(selected)!) : '…'}
                           </span>
                           <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px', borderRadius:10, background:'rgba(31,215,96,.12)', border:'1px solid rgba(31,215,96,.3)' }}>
                             <span style={{ fontSize:10, color:'#1FD760' }}>доставка</span>
-                            <span className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{orderDelivery(selected, roadKm, TARIFF) ?? '…'} ЅМ</span>
+                            <span className="ub" style={{ fontSize:15, fontWeight:900, color:'#1FD760' }}>{deliveryFeeForOrder(selected) ?? '…'} ЅМ</span>
                           </div>
                         </div>
                       </div>
@@ -1429,7 +1458,7 @@ function CourierAppInner() {
                       {/* теги */}
                       <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:12 }}>
                         {selected.mixed && <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(255,140,0,.12)', color:'#FF8C00', border:'1px solid rgba(255,140,0,.3)' }}>🔀 Смешанный заказ</span>}
-                        <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>🛣 {getOrderKm(selected, roadKm) != null ? `${formatKm(getOrderKm(selected, roadKm)!)} · забор → клиент` : '… · забор → клиент'}</span>
+                        <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0', border:'1px solid rgba(59,142,240,.25)' }}>🛣 {kmForOrder(selected) != null ? `${formatKm(kmForOrder(selected)!)} · забор → клиент` : '… · забор → клиент'}</span>
                         <span style={{ padding:'4px 9px', borderRadius:8, fontSize:11, fontWeight:700, background:'rgba(255,184,0,.1)', color:'#FFB800', border:'1px solid rgba(255,184,0,.25)' }}>⚖️ {selected.weight} кг</span>
                       </div>
                       {/* состав */}
@@ -1439,14 +1468,15 @@ function CourierAppInner() {
                       {/* оплата */}
                       <div style={{ background:'rgba(31,215,96,.07)', border:'1.5px solid rgba(31,215,96,.35)', borderRadius:14, padding:'13px 15px', marginBottom:16 }}>
                         {(() => {
-                          const km = getOrderKm(selected, roadKm);
-                          const dlv = orderDelivery(selected, roadKm, TARIFF);
+                          const km = kmForOrder(selected);
+                          const dlv = deliveryFeeForOrder(selected);
                           const isHeavy = selected.weight > TARIFF.heavyKg;
                           const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
+                          const isCredit = selected.paymentMethod === 'credit';
                           return (
                             <>
                               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
-                                <span style={{ fontSize:12, color:'#8FB897' }}>Продукт</span>
+                                <span style={{ fontSize:12, color:'#8FB897' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт'}</span>
                                 <span style={{ fontSize:12, fontWeight:700 }}>{selected.sum.toFixed(2)} ЅМ</span>
                               </div>
                               <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
@@ -1497,7 +1527,7 @@ function CourierAppInner() {
           ) : (
                         <button onClick={()=>void accept(selectedLive)} disabled={!!acceptingId} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:acceptingId ? '#162B1A' : 'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:acceptingId ? '#8FB897' : '#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:acceptingId ? 0.7 : 1 }}>
                           <span>{acceptingId ? '⏳ Принимаем…' : '✓ Принять заказ'}</span>
-                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>{selectedLive?.paymentMethod === 'credit' ? 'наличными за доставку' : 'наличными'} {courierCashToCollect(selectedLive, orderDelivery(selectedLive, roadKm, TARIFF))}</span>
+                          <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>{selectedLive?.paymentMethod === 'credit' ? 'наличными за доставку' : 'наличными'} {courierCashToCollect(selectedLive, deliveryFeeForOrder(selectedLive))}</span>
                         </button>
                         )}
                     </div>
@@ -1526,8 +1556,8 @@ function CourierAppInner() {
               )}
                     {available.map((o,idx)=>{
                       const isSel = selected?.id === o.id;
-                      const km = getOrderKm(o, roadKm);
-                      const dlv = orderDelivery(o, roadKm, TARIFF);
+                      const km = kmForOrder(o);
+                      const dlv = deliveryFeeForOrder(o);
                       return (
                         <div key={o.id} onClick={()=>setSelected(o)} className="btn"
                           style={{ background:isSel?'rgba(59,142,240,.08)':'#091508', border:`1.5px solid ${isSel?'rgba(59,142,240,.4)':'#162B1A'}`, borderRadius:16, padding:'14px 15px', textAlign:'left' }}>
@@ -1588,7 +1618,7 @@ function CourierAppInner() {
                     <div style={{ fontSize:12, color:'#8FB897', marginTop:2 }}>{active.client}</div>
                 </div>
                   <div style={{ textAlign:'right' }}>
-                    <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{orderDelivery(active, roadKm, TARIFF) ?? '…'} ЅМ</div>
+                    <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{deliveryFeeForOrder(active) ?? '…'} ЅМ</div>
                     <div style={{ fontSize:9, color:'#3D6645' }}>доставка · {kmForOrder(active) != null ? `${formatKm(kmForOrder(active)!)} забор→клиент` : '…'}</div>
               </div>
                 </div>
@@ -1642,14 +1672,15 @@ function CourierAppInner() {
 
                 {(() => {
                   const km = kmForOrder(active);
-                  const dlv = orderDelivery(active, roadKm, TARIFF);
+                  const dlv = deliveryFeeForOrder(active);
                   const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
                   const isHeavy = active.weight > TARIFF.heavyKg;
+                  const isCredit = active.paymentMethod === 'credit';
                   return (
                     <div style={{ background:'rgba(31,215,96,.08)', border:'2px solid rgba(31,215,96,.4)', borderRadius:16, padding:'16px', marginBottom:18 }}>
                       <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:10, letterSpacing:1 }}>ИТОГО К ПОЛУЧЕНИЮ</div>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                        <span style={{ fontSize:12, color:'#8FB897' }}>Продукт</span>
+                        <span style={{ fontSize:12, color:'#8FB897' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт'}</span>
                         <span style={{ fontSize:13, fontWeight:700 }}>{active.sum.toFixed(2)} ЅМ</span>
                       </div>
                       <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
@@ -1709,7 +1740,7 @@ function CourierAppInner() {
                         );
                       })()}
                       {step === 'toClient' && <button onClick={() => detailOrderId && updateStatus(detailOrderId, 'delivering', { courierAtClient: true })} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', border:'none', color:'white', fontWeight:800, fontSize:15 }}>🏁 Я на месте у клиента</button>}
-                      {step === 'done' && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {courierCashToCollect(active, orderDelivery(active, roadKm, TARIFF))}</button>}
+                      {step === 'done' && <button onClick={finish} className="btn" style={{ width:'100%', padding:15, borderRadius:15, background:'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:'#030B05', fontWeight:800, fontSize:15, boxShadow:'0 8px 24px rgba(31,215,96,.4)' }}>✓ Доставлено — получить {courierCashToCollect(active, deliveryFeeForOrder(active))}</button>}
                     </>
                   )
                 })()}
@@ -1746,8 +1777,8 @@ function CourierAppInner() {
               <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                 {myActiveOrders.map((o, idx) => {
                   const raw = apiOrders.find(x => x.id === o.id)
-                  const dlv = orderDelivery(o, roadKm, TARIFF)
-                  const km = getOrderKm(o, roadKm)
+                  const dlv = deliveryFeeForOrder(o)
+                  const km = kmForOrder(o)
                   const prog = raw ? deriveCourierProgress(normalizeOrder(raw)) : null
                   const statusLabel = prog?.step === 'done'
                     ? 'На месте'
