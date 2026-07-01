@@ -27,7 +27,7 @@ import type { Order } from '@/lib/types'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
-import { resolveCourierPayment } from '@/lib/courierPayment'
+import { orderItemsSubtotal, resolveCourierPayment } from '@/lib/courierPayment'
 import { canCourierAffordOrder, getCourierBalance, getCourierCommissionPerOrder, getCourierCommissionPercent, formatCourierCommissionPercent } from '@/lib/courierWallet'
 import { formatCourierAccountDisplay } from '@/lib/courierAccount'
 import { api } from '@/lib/api'
@@ -382,7 +382,7 @@ function CourierPaymentFooter({
   dlv,
   size = 'md',
 }: {
-  order: { sum: number; paymentMethod?: string; creditAmount?: number; cashDue?: number; pay?: string }
+  order: { sum: number; items?: { p: number; q: number }[]; paymentMethod?: string; creditAmount?: number; cashDue?: number; pay?: string }
   dlv: number | null
   size?: 'md' | 'lg'
 }) {
@@ -393,6 +393,7 @@ function CourierPaymentFooter({
       creditAmount: order.creditAmount,
       payment_method: order.paymentMethod,
       pay: order.paymentMethod ?? order.pay,
+      items: order.items,
     },
     dlv,
   )
@@ -418,18 +419,38 @@ function CourierPaymentFooter({
   )
   }
   return (
-    <div style={{ borderTop: '1px dashed rgba(31,215,96,.3)', paddingTop: size === 'lg' ? 12 : 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>💵 {pm.payLabel.toUpperCase()}</div>
-        <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>взять с клиента</div>
+    <div style={{ borderTop: '1px dashed rgba(31,215,96,.3)', paddingTop: size === 'lg' ? 12 : 10 }}>
+      {pm.products > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#8FB897' }}>📦 Продукт</div>
+            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>отнести в магазин / ресторан</div>
+          </div>
+          <span className="ub" style={{ fontSize: size === 'lg' ? 16 : 14, fontWeight: 800, color: '#EBF5ED' }}>{pm.products.toFixed(2)} ЅМ</span>
+        </div>
+      )}
+      {dlv != null && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#8FB897' }}>🛵 Доставка</div>
+            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>ваш заработок</div>
+          </div>
+          <span className="ub" style={{ fontSize: size === 'lg' ? 16 : 14, fontWeight: 800, color: '#1FD760' }}>{pm.delivery.toFixed(2)} ЅМ</span>
+        </div>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px dashed rgba(31,215,96,.2)' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>💵 ИТОГО С КЛИЕНТА</div>
+          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>{pm.payLabel} · взять с клиента</div>
+        </div>
+        <span className="ub" style={{ fontSize: amountSize, fontWeight: 900, color: '#1FD760' }}>{dlv != null ? `${pm.cash.toFixed(2)}` : '…'} ЅМ</span>
       </div>
-      <span className="ub" style={{ fontSize: amountSize, fontWeight: 900, color: '#1FD760' }}>{dlv != null ? `${pm.cash.toFixed(2)}` : '…'} ЅМ</span>
     </div>
   )
 }
 
 function courierCashToCollect(
-  order: { sum: number; paymentMethod?: string; creditAmount?: number; cashDue?: number; pay?: string },
+  order: { sum: number; items?: { p: number; q: number }[]; paymentMethod?: string; creditAmount?: number; cashDue?: number; pay?: string },
   dlv: number | null,
 ): string {
   const pm = resolveCourierPayment(
@@ -439,6 +460,7 @@ function courierCashToCollect(
       creditAmount: order.creditAmount,
       payment_method: order.paymentMethod,
       pay: order.paymentMethod ?? order.pay,
+      items: order.items,
     },
     dlv,
   )
@@ -1473,11 +1495,13 @@ function CourierAppInner() {
                           const isHeavy = selected.weight > TARIFF.heavyKg;
                           const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
                           const isCredit = selected.paymentMethod === 'credit';
+                          const itemsTotal = orderItemsSubtotal(selected.items);
+                          const productSum = isCredit ? selected.sum : (itemsTotal || selected.sum);
                           return (
                             <>
                               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
-                                <span style={{ fontSize:12, color:'#8FB897' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт'}</span>
-                                <span style={{ fontSize:12, fontWeight:700 }}>{selected.sum.toFixed(2)} ЅМ</span>
+                                <span style={{ fontSize:12, color:'#8FB897' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт → в магазин'}</span>
+                                <span style={{ fontSize:12, fontWeight:700 }}>{productSum.toFixed(2)} ЅМ</span>
                               </div>
                               <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
                               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
@@ -1676,12 +1700,15 @@ function CourierAppInner() {
                   const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
                   const isHeavy = active.weight > TARIFF.heavyKg;
                   const isCredit = active.paymentMethod === 'credit';
+                  const itemsTotal = orderItemsSubtotal(active.items);
+                  const productSum = isCredit ? active.sum : (itemsTotal || active.sum);
+                  const clientTotal = dlv != null ? (isCredit ? dlv : productSum + dlv) : null;
                   return (
                     <div style={{ background:'rgba(31,215,96,.08)', border:'2px solid rgba(31,215,96,.4)', borderRadius:16, padding:'16px', marginBottom:18 }}>
                       <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:10, letterSpacing:1 }}>ИТОГО К ПОЛУЧЕНИЮ</div>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                        <span style={{ fontSize:12, color:'#8FB897' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт'}</span>
-                        <span style={{ fontSize:13, fontWeight:700 }}>{active.sum.toFixed(2)} ЅМ</span>
+                        <span style={{ fontSize:12, color:'#8FB897' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт → в магазин'}</span>
+                        <span style={{ fontSize:13, fontWeight:700 }}>{productSum.toFixed(2)} ЅМ</span>
                       </div>
                       <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
@@ -1708,6 +1735,12 @@ function CourierAppInner() {
                         <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>Доставка итого</span>
                         <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>{dlv ?? '…'} ЅМ</span>
                       </div>
+                      {!isCredit && clientTotal != null && (
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, padding:'8px 10px', borderRadius:10, background:'rgba(31,215,96,.12)' }}>
+                          <span style={{ fontSize:12, fontWeight:800, color:'#1FD760' }}>Всего с клиента (продукт + доставка)</span>
+                          <span className="ub" style={{ fontSize:16, fontWeight:900, color:'#1FD760' }}>{clientTotal.toFixed(2)} ЅМ</span>
+                        </div>
+                      )}
                       <CourierPaymentFooter order={active} dlv={dlv} size="lg" />
                     </div>
                   );

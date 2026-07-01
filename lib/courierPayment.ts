@@ -19,15 +19,33 @@ export function isVipCreditOrder(order: Pick<Order, 'payment_method' | 'pay'> | 
   return orderPaymentMethod(order) === 'credit'
 }
 
+type OrderItemLike = { price?: number; p?: number; qty?: number; q?: number }
+
+/** Сумма по позициям в заказе */
+export function orderItemsSubtotal(items?: OrderItemLike[] | null): number {
+  if (!items?.length) return 0
+  return Math.round(items.reduce((s, it) => {
+    const p = Number(it.price ?? it.p) || 0
+    const q = Number(it.qty ?? it.q) || 0
+    return s + p * q
+  }, 0) * 100) / 100
+}
+
 /** Сумма товаров в заказе (без доставки) */
-export function orderProductsTotal(order: Pick<Order, 'total' | 'deliveryFee' | 'creditAmount' | 'items'>): number {
-  const credit = Number((order as Order).creditAmount)
-  if (Number.isFinite(credit) && credit >= 0) return credit
+export function orderProductsTotal(
+  order: Pick<Order, 'total' | 'deliveryFee' | 'creditAmount' | 'items' | 'payment_method' | 'pay'>,
+): number {
+  if (isVipCreditOrder(order)) {
+    const credit = Number(order.creditAmount)
+    if (Number.isFinite(credit) && credit >= 0) return credit
+  }
+  const fromItems = orderItemsSubtotal(order.items as OrderItemLike[] | undefined)
+  if (fromItems > 0) return fromItems
   return Math.max(0, Number(order.total) - (Number(order.deliveryFee) || 0))
 }
 
 export function resolveCourierPayment(
-  order: Pick<Order, 'total' | 'deliveryFee' | 'creditAmount' | 'payment_method' | 'pay'>,
+  order: Pick<Order, 'total' | 'deliveryFee' | 'creditAmount' | 'payment_method' | 'pay' | 'items'>,
   deliveryFee: number | null,
 ): CourierPaymentBreakdown {
   const isCredit = isVipCreditOrder(order)
@@ -74,7 +92,7 @@ export function enrichCourierOrderPayment(
     ...mapped,
     pay: breakdown.payLabel,
     paymentMethod: orderPaymentMethod(order),
-    creditAmount: breakdown.isCredit ? breakdown.credit : 0,
+    creditAmount: breakdown.isCredit ? breakdown.credit : undefined,
     cashDue: breakdown.isCredit ? breakdown.cash : breakdown.cash,
     sum: breakdown.products,
   }
