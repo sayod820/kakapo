@@ -239,18 +239,24 @@ function CourierPickupPoints({
   orderRaw,
   PICKUPS,
   onFocus,
+  routeOrder,
 }: {
   orderRaw: Order | null | undefined
   PICKUPS: Record<string, PickupMeta>
   onFocus?: (pid: string) => void
+  /** Оптимальный порядок забора (кратчайший маршрут) */
+  routeOrder?: string[]
 }) {
   if (!orderRaw) return null
   const order = normalizeOrder(orderRaw)
   const picked = new Set(order.pickedUpIds || [])
   const allIds = getAllPickupIds(order)
+  const optimized = routeOrder?.filter(id => allIds.includes(id)) ?? []
   const route = order.courierRoute?.length
     ? [...order.courierRoute, ...allIds.filter(id => !order.courierRoute!.includes(id))]
-    : allIds
+    : optimized.length
+      ? [...optimized, ...allIds.filter(id => !optimized.includes(id))]
+      : allIds
   const points = [...new Set(route)]
   const focusPid = order.courierRoute?.find(pid => !picked.has(pid))
     || points.find(pid => !picked.has(pid) && isPickupPointReady(order, pid))
@@ -259,10 +265,10 @@ function CourierPickupPoints({
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 11, fontWeight: 800, color: '#8FB897', marginBottom: 10, letterSpacing: 0.4 }}>
-        📍 Точки забора
+        📍 Точки забора{optimized.length > 1 ? ' · кратчайший маршрут' : ''}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {points.map((pid) => {
+        {points.map((pid, idx) => {
           const pk = PICKUPS[pid] || PICKUPS.store
           const isPicked = picked.has(pid)
           const ready = isPickupPointReady(order, pid)
@@ -307,7 +313,9 @@ function CourierPickupPoints({
                 {isPicked ? '✓' : pk.e}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#3D6645', marginBottom: 2 }}>{kind}</div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#3D6645', marginBottom: 2 }}>
+                  {optimized.includes(pid) ? `${optimized.indexOf(pid) + 1}. ` : ''}{kind}
+                </div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: isPicked ? pk.color : '#EBF5ED' }}>{pk.name}</div>
                 <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>{pk.addr}</div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: badgeColor, marginTop: 6 }}>{badge}</div>
@@ -585,7 +593,7 @@ function buildPickupsMap(list: PickupPoint[]) {
 /* ─────────────────────────────────────────────────────
     РЕАЛЬНАЯ КАРТА OpenStreetMap + Leaflet
 ───────────────────────────────────────────────────── */
-function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 280, TARIFF = DEFAULT_PRICING, roadKm = {}, sheetOpen = false, courierPos = null, onEnableLocation, locationLoading = false, locationError = '', PICKUPS = {}, pickupLocations = {}, myDeliveryList = false, onRouteKm }: {
+function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 280, TARIFF = DEFAULT_PRICING, roadKm = {}, sheetOpen = false, courierPos = null, onEnableLocation, locationLoading = false, locationError = '', PICKUPS = {}, pickupLocations = {}, myDeliveryList = false, onRouteKm, onRouteOrder }: {
   orders: typeof DEMO_COURIER_ORDERS; selected: any; onSelect: (o: any) => void; height?: number; pickupIdx?: number; step?: string; TARIFF?: typeof DEFAULT_PRICING; roadKm?: Record<string, number>; sheetOpen?: boolean
   courierPos?: { lat: number; lng: number } | null; onEnableLocation?: () => void; locationLoading?: boolean; locationError?: string
   PICKUPS?: Record<string, { id: string; name: string; addr: string; phone: string; e: string; color: string; lat: number; lng: number }>
@@ -593,6 +601,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
   /** Список «Мои доставки» — только маркеры заказов (клиенты), без точек забора */
   myDeliveryList?: boolean
   onRouteKm?: (orderId: string, km: number | null) => void
+  onRouteOrder?: (orderId: string, pickupIds: string[]) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<any>(null);
@@ -610,9 +619,10 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
   const lastRouteFetchKeyRef = useRef('');
   const [ready, setReady] = useState(false);
   const [liveRouteKm, setLiveRouteKm] = useState<number | null>(null);
+  const [routePickupOrder, setRoutePickupOrder] = useState<string[]>([]);
 
   const routePickupKey = (selected?.routePickupIds ?? []).join('.');
-  const routeFetchKey = selected && step
+  const routeFetchKey = selected?.routePickupIds?.length
     ? `${selected.id}|${routePickupKey}|${selected.lat}|${selected.lng}|${JSON.stringify(pickupLocations)}`
     : '';
 
@@ -624,9 +634,12 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     userMovedMapRef.current = false;
     fittedRouteKeyRef.current = '';
     lastRouteFetchKeyRef.current = '';
+    setRoutePickupOrder([]);
   }, [selected?.id]);
   const onRouteKmRef = useRef(onRouteKm);
   onRouteKmRef.current = onRouteKm;
+  const onRouteOrderRef = useRef(onRouteOrder);
+  onRouteOrderRef.current = onRouteOrder;
 
   /* подключаем Leaflet CSS один раз */
   useEffect(() => {
@@ -711,7 +724,9 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 
       if (selected && step) {
         const readySet = new Set<string>(selected.pickupIds || []);
-        const routePids: string[] = selected.routePickupIds ?? [];
+        const routePids: string[] = routePickupOrder.length
+          ? routePickupOrder
+          : (selected.routePickupIds ?? []);
         routePids.forEach((pid: string, i: number) => {
           const pk = PICKUPS[pid] || PICKUPS.store;
           const pending = (selected.pendingParts || []).find((pp: { pickupId: string }) => pp.pickupId === pid);
@@ -737,6 +752,21 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
           );
           const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: isCurrent ? 600 : 200 }).addTo(map);
           m.bindTooltip(`${i+1}. ${pk.name}`, { direction:'top', offset:[0,-sz/2] });
+          markersRef.current.push(m);
+        });
+      } else if (selected?.routePickupIds?.length && !myDeliveryList && !step) {
+        const routePids: string[] = routePickupOrder.length
+          ? routePickupOrder
+          : selected.routePickupIds;
+        routePids.forEach((pid: string, i: number) => {
+          const pk = PICKUPS[pid] || PICKUPS.store;
+          const sz = 32;
+          const icon = mkIcon(
+            `<div style="width:${sz}px;height:${sz}px;border-radius:10px;background:rgba(6,16,10,.92);border:2px solid ${pk.color};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:${pk.color}">${i + 1}</div>`,
+            sz, sz, sz/2, sz/2
+          );
+          const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: 200 }).addTo(map);
+          m.bindTooltip(`${i + 1}. ${pk.name}`, { direction: 'top', offset: [0, -sz/2] });
           markersRef.current.push(m);
         });
       }
@@ -797,11 +827,11 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         );
       }
     });
-  }, [ready, orders, selected, pickupIdx, step, onSelect, TARIFF, courierPos, myDeliveryList]);
+  }, [ready, orders, selected, pickupIdx, step, onSelect, TARIFF, courierPos, myDeliveryList, routePickupOrder, PICKUPS]);
 
-  /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
+  /* маршрут доставки: кратчайший порядок забора → клиент */
   useEffect(() => {
-    if (!ready || !isMapAlive(mapRef.current) || !selected || !step || !routeFetchKey) return;
+    if (!ready || !isMapAlive(mapRef.current) || !selected || !routeFetchKey) return;
     if (lastRouteFetchKeyRef.current === routeFetchKey && routeRef.current) return;
     const routeIds = selected.routePickupIds ?? [];
     if (!routeIds.length) return;
@@ -818,12 +848,15 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       );
       if (cancelled || gen !== mapGenRef.current || routeVersion !== routeVersionRef.current || !isMapAlive(mapRef.current)) return;
       const map = mapRef.current;
+      const orderedIds = delivery.orderedPickupIds?.length ? delivery.orderedPickupIds : routeIds;
+      setRoutePickupOrder(orderedIds);
+      onRouteOrderRef.current?.(order.id, orderedIds);
       setLiveRouteKm(roundRouteKm(delivery.distanceKm));
       onRouteKmRef.current?.(order.id, roundRouteKm(delivery.distanceKm));
 
       const routeGeometry = delivery.geometry?.length >= 2
         ? delivery.geometry
-        : routeIds.map((pid: string) => {
+        : orderedIds.map((pid: string) => {
             const pk = PICKUPS[pid] || PICKUPS.store;
             return [pk.lat, pk.lng] as [number, number];
           }).concat([[order.lat, order.lng] as [number, number]]);
@@ -860,7 +893,9 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       navRouteRef.current = null;
       return;
     }
-    const routeIds = selected.routePickupIds ?? [];
+    const routeIds = routePickupOrder.length
+      ? routePickupOrder
+      : (selected.routePickupIds ?? []);
     if (!routeIds.length) return;
     const order = selected;
     const gen = mapGenRef.current;
@@ -890,7 +925,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     return () => {
       cancelled = true;
     };
-  }, [ready, selected?.id, selected?.lat, selected?.lng, routePickupKey, pickupIdx, step, courierPos?.lat, courierPos?.lng, PICKUPS]);
+  }, [ready, selected?.id, selected?.lat, selected?.lng, routePickupKey, pickupIdx, step, courierPos?.lat, courierPos?.lng, routePickupOrder, PICKUPS]);
 
   const displayKm = selected ? getOrderKm(selected, roadKm, liveRouteKm) : null;
 
@@ -923,7 +958,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       )}
       {!sheetOpen && displayKm != null && (
         <div style={{ position:'absolute', bottom:12, left:12, padding:'6px 12px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid rgba(31,215,96,.35)', zIndex:999, pointerEvents:'none', fontSize:11, fontWeight:700, color:'#1FD760' }}>
-          🛣 {formatKm(displayKm)} · забор → клиент
+          🛣 {formatKm(displayKm)} · кратчайший маршрут
         </div>
       )}
       {!sheetOpen && !courierPos && onEnableLocation && (
@@ -1080,6 +1115,10 @@ function CourierAppInner() {
   const waitingForPickup = !!(active && !active.pickupIds.length && active.pendingParts?.length);
   const [acceptErr, setAcceptErr] = useState('');
   const [routeKmLive, setRouteKmLive] = useState<Record<string, number>>({});
+  const [routePickupOrders, setRoutePickupOrders] = useState<Record<string, string[]>>({});
+  const onRouteOrder = useCallback((orderId: string, pickupIds: string[]) => {
+    setRoutePickupOrders(prev => ({ ...prev, [orderId]: pickupIds }));
+  }, []);
   const kmForOrder = useCallback(
     (o: { id: string; distanceKm?: number }) => getOrderKm(o, roadKm, routeKmLive[o.id]),
     [roadKm, routeKmLive],
@@ -1391,7 +1430,7 @@ function CourierAppInner() {
                   <LeafletMap key="orders-map" orders={mapOrders} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} onRouteKm={(id, km) => setRouteKmLive(prev => {
                     if (km == null) { const n = { ...prev }; delete n[id]; return n; }
                     return { ...prev, [id]: km };
-                  })}/>
+                  })} onRouteOrder={onRouteOrder} />
           </div>
 
                 {/* BOTTOM SHEET — детали заказа, фиксированный оверлей */}
@@ -1442,11 +1481,13 @@ function CourierAppInner() {
                             {courierWaitingBanner('preparing', selected.orderKind || 'market')}
                           </div>
                         )}
-                        {selected.pickupIds.map((pid:string, pi:number) => {
+                        {(routePickupOrders[selected.id]?.length
+                          ? routePickupOrders[selected.id]
+                          : selected.routePickupIds)?.map((pid:string, pi:number) => {
                           const pk = PICKUPS[pid]||PICKUPS.store;
                           return (
                             <div key={pi} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
-                              <div style={{ width:32, height:32, borderRadius:9, background:pk.color+'22', border:`1.5px solid ${pk.color}55`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{pk.e}</div>
+                              <div style={{ width:32, height:32, borderRadius:9, background:pk.color+'22', border:`1.5px solid ${pk.color}55`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:800, color:pk.color, flexShrink:0 }}>{pi+1}</div>
                               <div style={{ flex:1 }}>
                                 <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>{pk.id==='store'?'ЗАБРАТЬ ИЗ МАГАЗИНА':'ЗАБРАТЬ ИЗ РЕСТОРАНА'}</div>
                                 <div style={{ fontSize:13, fontWeight:700, color:pk.color }}>{pk.name}</div>
@@ -1634,7 +1675,7 @@ function CourierAppInner() {
               <LeafletMap key="active-map" orders={[active]} selected={active} onSelect={()=>{}} height={250} pickupIdx={pickupIdx} step={step} TARIFF={TARIFF} roadKm={roadKm} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} onRouteKm={(id, km) => setRouteKmLive(prev => {
                 if (km == null) { const n = { ...prev }; delete n[id]; return n; }
                 return { ...prev, [id]: km };
-              })}/>
+              })} onRouteOrder={onRouteOrder} />
               <div style={{ padding:'16px 18px 110px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
                 <div>
@@ -1655,7 +1696,7 @@ function CourierAppInner() {
                   const canGoToClient = readyCollected && !(order && getPendingPartsForCourier(order).length)
                   return (
                     <>
-                      <CourierPickupPoints orderRaw={activeRaw} PICKUPS={PICKUPS} onFocus={chooseFirstPickup} />
+                      <CourierPickupPoints orderRaw={activeRaw} PICKUPS={PICKUPS} onFocus={chooseFirstPickup} routeOrder={routePickupOrders[active.id]} />
 
                       {waitingForPickup && (
                         <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,184,0,.08)', border:'1px solid rgba(255,184,0,.35)', marginBottom:14 }}>

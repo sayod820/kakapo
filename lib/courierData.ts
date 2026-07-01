@@ -118,61 +118,115 @@ async function fetchLegRoute(
   }
 }
 
-/** Порядок точек забора: каждый раз — ближайшая следующая по дорогам */
-async function orderPickupsByNearestRoad(
-  pickupIds: string[],
-  locations: PickupLocationMap,
-): Promise<{ lat: number; lng: number }[]> {
-  if (!pickupIds.length) return [];
-  if (pickupIds.length === 1) return [pickupCoord(pickupIds[0], locations)];
+const legKmCache = new Map<string, number>();
 
-  const remaining = new Set(pickupIds);
-  const startId = pickupIds.includes('store') ? 'store' : pickupIds[0];
-  const ordered: { lat: number; lng: number }[] = [pickupCoord(startId, locations)];
-  remaining.delete(startId);
-
-  while (remaining.size) {
-    const cur = ordered[ordered.length - 1];
-    let bestId = '';
-    let bestKm = Infinity;
-    for (const id of remaining) {
-      const km = await legDistanceKm(cur, pickupCoord(id, locations));
-      if (km < bestKm) {
-        bestKm = km;
-        bestId = id;
-      }
-    }
-    ordered.push(pickupCoord(bestId, locations));
-    remaining.delete(bestId);
-  }
-  return ordered;
+async function legDistanceKmCached(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): Promise<number> {
+  const key = `${a.lat.toFixed(5)},${a.lng.toFixed(5)}|${b.lat.toFixed(5)},${b.lng.toFixed(5)}`;
+  const hit = legKmCache.get(key);
+  if (hit != null) return hit;
+  const km = await legDistanceKm(a, b);
+  legKmCache.set(key, km);
+  legKmCache.set(`${b.lat.toFixed(5)},${b.lng.toFixed(5)}|${a.lat.toFixed(5)},${a.lng.toFixed(5)}`, km);
+  return km;
 }
 
-/** Точки маршрута: ближайшие точки забора по дорогам → клиент */
+async function routeTotalKm(points: { lat: number; lng: number }[]): Promise<number> {
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    total += await legDistanceKmCached(points[i], points[i + 1]);
+  }
+  return total;
+}
+
+function permuteIds(ids: string[]): string[][] {
+  if (ids.length <= 1) return [ids];
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i++) {
+    const head = ids[i];
+    const tail = [...ids.slice(0, i), ...ids.slice(i + 1)];
+    for (const p of permuteIds(tail)) out.push([head, ...p]);
+  }
+  return out;
+}
+
+/** Кратчайший порядок забора: все перестановки → клиент, минимум км по дорогам */
+async function orderPickupsByShortestRoad(
+  pickupIds: string[],
+  client: { lat: number; lng: number },
+  locations: PickupLocationMap,
+): Promise<string[]> {
+  const unique = [...new Set(pickupIds)];
+  if (!unique.length) return [];
+  if (unique.length === 1) return unique;
+
+  const perms = permuteIds(unique);
+  let best = unique;
+  let bestKm = Infinity;
+
+  for (const perm of perms) {
+    const points = [...perm.map(id => pickupCoord(id, locations)), client];
+    const km = await routeTotalKm(points);
+    if (km < bestKm) {
+      bestKm = km;
+      best = perm;
+    }
+  }
+  return best;
+}
+
+/** Прямая линия — запасной порядок точек */
+function orderPickupsByShortestStraight(
+  pickupIds: string[],
+  client: { lat: number; lng: number },
+  locations: PickupLocationMap,
+): string[] {
+  const unique = [...new Set(pickupIds)];
+  if (unique.length <= 1) return unique;
+  const perms = permuteIds(unique);
+  let best = unique;
+  let bestKm = Infinity;
+  for (const perm of perms) {
+    const points = [...perm.map(id => pickupCoord(id, locations)), client];
+    let km = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+      km += calcDistanceKm(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
+    }
+    if (km < bestKm) {
+      bestKm = km;
+      best = perm;
+    }
+  }
+  return best;
+}
+
+/** Точки маршрута: кратчайший порядок забора по дорогам → клиент */
 export async function buildOrderRoutePointsAsync(
   order: RoadKmOrderInput,
   locations: PickupLocationMap = PICKUP_LOCATIONS,
-): Promise<{ lat: number; lng: number }[]> {
+): Promise<{ points: { lat: number; lng: number }[]; orderedPickupIds: string[] }> {
   const pickupIds = resolveRoutePickupIds(order);
   const client = normalizeClientCoords(order.lat, order.lng);
-  const pickups = await orderPickupsByNearestRoad(pickupIds, locations);
-  return dedupeRoutePoints([...pickups, client]);
+  const orderedPickupIds = await orderPickupsByShortestRoad(pickupIds, client, locations);
+  const pickups = orderedPickupIds.map(id => pickupCoord(id, locations));
+  return {
+    orderedPickupIds,
+    points: dedupeRoutePoints([...pickups, client]),
+  };
 }
 
-/** Синхронный список точек (без оптимизации порядка) — запасной вариант */
+/** Синхронный список точек — кратчайший порядок по прямой (запасной вариант) */
 export function buildOrderRoutePoints(
   order: RoadKmOrderInput,
   locations: PickupLocationMap = PICKUP_LOCATIONS
 ): { lat: number; lng: number }[] {
-  const fallback = locations.store ?? { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng, name: STORE_LOCATION.name };
   const pickupIds = resolveRoutePickupIds(order);
   const client = normalizeClientCoords(order.lat, order.lng);
-  const points = pickupIds.map(id => {
-    const p = locations[id] ?? fallback;
-    return { lat: p.lat, lng: p.lng };
-  });
-  points.push(client);
-  return dedupeRoutePoints(points);
+  const ordered = orderPickupsByShortestStraight(pickupIds, client, locations);
+  const pickups = ordered.map(id => pickupCoord(id, locations));
+  return dedupeRoutePoints([...pickups, client]);
 }
 
 /** Маршрут участок за участком: каждый отрезок — дорога или прямая (без объездов OSRM) */
@@ -228,8 +282,9 @@ export async function fetchOrderDeliveryRoute(
   locations?: PickupLocationMap
 ): Promise<RouteResult> {
   const locs = locations ?? PICKUP_LOCATIONS;
-  const points = await buildOrderRoutePointsAsync(order, locs);
-  return fetchRouteByLegs(points);
+  const { points, orderedPickupIds } = await buildOrderRoutePointsAsync(order, locs);
+  const route = await fetchRouteByLegs(points);
+  return { ...route, orderedPickupIds };
 }
 
 /** Точное расстояние заказа по дорогам */
@@ -290,6 +345,8 @@ export interface RouteResult {
   durationMin: number;
   /** координаты для Leaflet: [lat, lng][] */
   geometry: [number, number][];
+  /** Оптимальный порядок точек забора (ближайший маршрут → клиент) */
+  orderedPickupIds?: string[];
 }
 
 export interface DeliveryPriceResult {
