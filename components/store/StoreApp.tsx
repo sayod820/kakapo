@@ -3039,6 +3039,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const [reviewed, setReviewed] = useState<Record<string, Review>>({});
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [showRev, setShowRev] = useState(null);
   const [reviewTarget, setReviewTarget] = useState<ClientReviewTarget | null>(null);
   const [step, setStep] = useState(1);
@@ -3065,7 +3066,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     return () => clearInterval(id);
   }, [apiOrders, user?.phone, user?.name]);
   const submitReview = async () => {
-    if (!showRev || !reviewTarget || rating <= 0) return;
+    if (!showRev || !reviewTarget || rating <= 0 || reviewSubmitting) return;
     const raw = resolveOrderForReview(showRev.id, apiOrders, showRev);
     if (!raw) {
       showToast?.("Не удалось определить заказ для отзыва");
@@ -3074,53 +3075,59 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     const { productKey, productName, productId } = reviewTarget;
     const prompt = reviewPromptForTarget(reviewTarget);
     const reviewKey = clientReviewKey(showRev.id, productKey);
+    setReviewSubmitting(true);
     let created: Review | null = null;
-    if (USE_API) {
-      try {
-        created = await api.createReview({
-          orderId: showRev.id,
+    try {
+      if (USE_API) {
+        try {
+          created = await api.createReview({
+            orderId: showRev.id,
+            productKey,
+            productName,
+            productId,
+            restId: 'STORE',
+            client: user?.name || raw?.client?.name || showRev.phone || "Клиент",
+            rating,
+            text: reviewText.trim() || `${"★".repeat(rating)}`,
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Не удалось отправить отзыв";
+          showToast?.(msg);
+          return;
+        }
+      } else {
+        created = {
+          id: Date.now(),
+          restId: 'STORE',
           productKey,
           productName,
           productId,
-          restId: 'STORE',
-          client: user?.name || raw?.client?.name || showRev.phone || "Клиент",
+          client: user?.name || 'Клиент',
           rating,
-          text: reviewText.trim() || `${"★".repeat(rating)}`,
-        });
-      } catch (e) {
-        showToast?.(e?.message || "Не удалось отправить отзыв");
+          text: reviewText,
+          date: 'Сегодня',
+          status: 'new',
+        } as Review;
+        saveLocalReview(showRev.id, created, user?.phone, productKey);
+      }
+      const nextReviewed = { ...reviewed, [reviewKey]: created };
+      setReviewed(nextReviewed);
+      const pending = getPendingReviewTargets(raw, nextReviewed);
+      if (pending.length > 0) {
+        setReviewTarget(pending[0]);
+        setRating(0);
+        setReviewText("");
+        showToast?.(`Следующий товар: ${resolveReviewTargetLabel(pending[0])}`);
         return;
       }
-    } else {
-      created = {
-        id: Date.now(),
-        restId: 'STORE',
-        productKey,
-        productName,
-        productId,
-        client: user?.name || 'Клиент',
-        rating,
-        text: reviewText,
-        date: 'Сегодня',
-        status: 'new',
-      } as Review;
-      saveLocalReview(showRev.id, created, user?.phone, productKey);
-    }
-    const nextReviewed = { ...reviewed, [reviewKey]: created };
-    setReviewed(nextReviewed);
-    const pending = getPendingReviewTargets(raw, nextReviewed);
-    if (pending.length > 0) {
-      setReviewTarget(pending[0]);
+      setShowRev(null);
+      setReviewTarget(null);
       setRating(0);
       setReviewText("");
-      showToast?.(`Следующий товар: ${resolveReviewTargetLabel(pending[0])}`);
-      return;
+      showToast?.(prompt.success);
+    } finally {
+      setReviewSubmitting(false);
     }
-    setShowRev(null);
-    setReviewTarget(null);
-    setRating(0);
-    setReviewText("");
-    showToast?.(prompt.success);
   };
   const orderReviews = useCallback((orderId: string) => {
     const row = ordersList.find(x => x.id === orderId);
@@ -3300,8 +3307,8 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
               {["","😤 Плохо","😕 Так себе","😐 Нормально","😊 Хорошо","🤩 Отлично!"][rating]}
             </div>
             <textarea className="inp" value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder={reviewModalPrompt.placeholder} rows={3} style={{ width:"100%", marginBottom:14, resize:"vertical" }}/>
-            <button onClick={submitReview} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0?1:.5 }}>
-              <Ic n="star" s={16} c="white"/>Отправить отзыв
+            <button onClick={submitReview} disabled={reviewSubmitting || rating <= 0} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0 && !reviewSubmitting?1:.5 }}>
+              <Ic n="star" s={16} c="white"/>{reviewSubmitting ? "Отправка…" : "Отправить отзыв"}
             </button>
           </div>
         </div>
@@ -3425,8 +3432,8 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             </div>
             <div style={{ textAlign:"center", fontSize:14, color:"var(--gd)", fontWeight:700, marginBottom:12 }}>{["","😤","😕","😐","😊","🤩 Отлично!"][rating]}</div>
             <textarea className="inp" value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder={reviewModalPrompt.placeholder} rows={3} style={{ width:"100%", marginBottom:14, resize:"vertical" }}/>
-            <button onClick={submitReview} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0?1:.5 }}>
-              <Ic n="star" s={16} c="white"/>Отправить
+            <button onClick={submitReview} disabled={reviewSubmitting || rating <= 0} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0 && !reviewSubmitting?1:.5 }}>
+              <Ic n="star" s={16} c="white"/>{reviewSubmitting ? "Отправка…" : "Отправить"}
             </button>
           </div>
         </div>

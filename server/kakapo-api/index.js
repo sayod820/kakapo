@@ -29,6 +29,7 @@ import {
   findClientByPhone,
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
+import { createReviewRecord } from './reviewLogic.js'
 import { normalizeLevelAssignMode } from './loyaltyLock.js'
 import {
   RECOVERY_RETENTION_DAYS,
