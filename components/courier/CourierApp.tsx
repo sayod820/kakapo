@@ -561,7 +561,8 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
   const mapRef       = useRef<any>(null);
   const mapGenRef    = useRef(0);
   const markersRef   = useRef<any[]>([]);
-  const routesRef    = useRef<any[]>([]);
+  const routeRef     = useRef<any | null>(null);
+  const navRouteRef  = useRef<any | null>(null);
   const roadKmRef = useRef(roadKm);
   const courierPosRef = useRef(courierPos);
   const pickupLocRef = useRef(pickupLocations);
@@ -626,8 +627,10 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     return () => {
       cancelled = true;
       mapGenRef.current += 1;
-      routesRef.current.forEach(r => { try { r.remove(); } catch {} });
-      routesRef.current = [];
+      try { routeRef.current?.remove(); } catch {}
+      try { navRouteRef.current?.remove(); } catch {}
+      routeRef.current = null;
+      navRouteRef.current = null;
       markersRef.current.forEach(m => { try { m.remove(); } catch {} });
       markersRef.current = [];
       destroyMap(mapRef.current, containerRef.current);
@@ -764,9 +767,8 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       setLiveRouteKm(roundRouteKm(delivery.distanceKm));
       onRouteKmRef.current?.(order.id, roundRouteKm(delivery.distanceKm));
 
-      routesRef.current.push(
-        L.polyline(delivery.geometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(map)
-      );
+      try { routeRef.current?.remove(); } catch {}
+      routeRef.current = L.polyline(delivery.geometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(map);
 
       if (delivery.geometry.length >= 2) {
         try {
@@ -774,34 +776,51 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         } catch { /* ignore */ }
       }
 
-      /* пунктир — где едет курьер (только если включён GPS) */
-      const pos = courierPosRef.current;
-      if (pos && (step === 'toPickup' || step === 'toClient')) {
-        const pids: string[] = routeIds;
-        const navPoints = step === 'toClient'
-          ? [{ lat: pos.lat, lng: pos.lng }, { lat: order.lat, lng: order.lng }]
-          : (() => {
-              const curPk = PICKUPS[pids[pickupIdx]] || PICKUPS.store;
-              return [{ lat: pos.lat, lng: pos.lng }, { lat: curPk.lat, lng: curPk.lng }];
-            })();
-        const nav = await fetchRoute(navPoints);
-        if (!cancelled && gen === mapGenRef.current && isMapAlive(mapRef.current)) {
-          routesRef.current.push(
-            L.polyline(nav.geometry, {
-              color: step === 'toClient' ? '#3B8EF0' : '#FFB800',
-              weight: 3, opacity: 0.55, dashArray: '8 6',
-            }).addTo(mapRef.current)
-          );
-        }
-      }
     });
 
     return () => {
       cancelled = true;
-      routesRef.current.forEach(r => { try { r.remove(); } catch {} });
-      routesRef.current = [];
+      try { routeRef.current?.remove(); } catch {}
+      routeRef.current = null;
     };
-  }, [ready, selected, pickupIdx, step, sheetOpen, courierPos, pickupLocations]);
+  }, [ready, selected, step, pickupLocations]);
+
+  useEffect(() => {
+    if (!ready || !isMapAlive(mapRef.current) || !selected || !step) return;
+    const pos = courierPosRef.current;
+    if (!pos || (step !== 'toPickup' && step !== 'toClient')) {
+      try { navRouteRef.current?.remove(); } catch {}
+      navRouteRef.current = null;
+      return;
+    }
+    const routeIds = selected.routePickupIds ?? [];
+    if (!routeIds.length) return;
+    const order = selected;
+    let cancelled = false;
+
+    import('leaflet').then(async L => {
+      const pids: string[] = routeIds;
+      const navPoints = step === 'toClient'
+        ? [{ lat: pos.lat, lng: pos.lng }, { lat: order.lat, lng: order.lng }]
+        : (() => {
+            const curPk = PICKUPS[pids[pickupIdx]] || PICKUPS.store;
+            return [{ lat: pos.lat, lng: pos.lng }, { lat: curPk.lat, lng: curPk.lng }];
+          })();
+      const nav = await fetchRoute(navPoints);
+      if (cancelled || !isMapAlive(mapRef.current)) return;
+      try { navRouteRef.current?.remove(); } catch {}
+      navRouteRef.current = L.polyline(nav.geometry, {
+        color: step === 'toClient' ? '#3B8EF0' : '#FFB800',
+        weight: 3, opacity: 0.55, dashArray: '8 6',
+      }).addTo(mapRef.current);
+    });
+
+    return () => {
+      cancelled = true;
+      try { navRouteRef.current?.remove(); } catch {}
+      navRouteRef.current = null;
+    };
+  }, [ready, selected, pickupIdx, step, courierPos, pickupLocations]);
 
   const displayKm = selected ? getOrderKm(selected, roadKm, liveRouteKm) : null;
 
