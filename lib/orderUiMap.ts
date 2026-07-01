@@ -4,7 +4,7 @@ import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { enrichCourierOrderPayment, mapCourierPayLabel } from './courierPayment'
 import { normalizeClientCoords } from './courierData'
 import type { DemoCourierOrder } from './demoOrders'
-import { orderGoodsTotal } from './orderLoyaltyAmount'
+import { orderGoodsTotal, orderPayableTotal } from './orderLoyaltyAmount'
 import { expectedOrderBonus } from './loyaltyBonus'
 import {
   allPartsDone,
@@ -54,13 +54,14 @@ export function mapOrdersForClient(
         qty: it.qty,
         price: it.price,
       })),
-      total: orderGoodsTotal(order),
+      goodsTotal: orderGoodsTotal(order),
+      total: orderPayableTotal(order),
       bonus: expectedOrderBonus(order, profile?.level, profile?.vip, orders, {
         loyaltyPeriod: profile?.loyaltyPeriod,
         bonusEligibleFrom: profile?.bonusEligibleFrom,
       }),
       bonusSpent: order.bonusSpent ?? 0,
-      delivery: order.deliveryFee ?? 0,
+      delivery: Number(order.deliveryFee) || 0,
       addr: order.client?.addr || '',
       restId: order.restId || order.items?.find(it => it.restId)?.restId || '',
       cancelReason: order.status === 'cancelled' ? 'Отменён' : undefined,

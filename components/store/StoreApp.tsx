@@ -2953,6 +2953,22 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     </div>
   );
 };
+function clientOrderBreakdown(o: {
+  goodsTotal?: number
+  total: number
+  delivery?: number
+  bonusSpent?: number
+  items: { price: number; qty: number }[]
+}) {
+  const goods = o.goodsTotal ?? o.items.reduce((s, it) => s + it.price * it.qty, 0)
+  const delivery = Number(o.delivery) || 0
+  const bonusSpent = Number(o.bonusSpent) || 0
+  const payable = o.goodsTotal != null
+    ? Number(o.total) || 0
+    : Math.max(0, Math.round((goods + delivery - bonusSpent) * 100) / 100)
+  return { goods, delivery, bonusSpent, payable }
+}
+
 const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const apiOrders = useOrders(s => s.orders);
   const { prods, restaurants } = useLiveCatalog();
@@ -3039,6 +3055,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
   const ST = OSTATUS;
   const selectedContacts = selected ? orderContacts(selected.id) : [];
+  const selectedAmounts = selected ? clientOrderBreakdown(selected) : null;
 
   const repeatOrder = (order) => {
     const silentAdd = (id, price, name, emoji, restId) => onAdd(id, price, name, emoji, restId, true);
@@ -3129,9 +3146,27 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             <span style={{ fontSize:12, color:"var(--t2)" }}>Адрес</span>
             <span style={{ fontSize:12, fontWeight:700, color:"var(--t2)", textAlign:"right", maxWidth:"60%" }}>{selected.addr}</span>
           </div>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginTop:10, borderTop:"1px solid var(--b1)", paddingTop:10 }}>
-            <span style={{ fontSize:14, fontWeight:700 }}>Итого</span>
-            <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{selected.total.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
+          <div style={{ marginTop:10, borderTop:"1px solid var(--b1)", paddingTop:10, display:"flex", flexDirection:"column", gap:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+              <span style={{ fontSize:12, color:"var(--t2)" }}>Товары</span>
+              <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.goods.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+            </div>
+            {selectedAmounts!.delivery > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                <span style={{ fontSize:12, color:"var(--t2)" }}>Доставка</span>
+                <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.delivery.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+              </div>
+            )}
+            {selectedAmounts!.bonusSpent > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                <span style={{ fontSize:12, color:"var(--t2)" }}>Бонусы</span>
+                <span className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>−{selectedAmounts!.bonusSpent.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+              </div>
+            )}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", paddingTop:8, borderTop:"1px solid var(--b1)" }}>
+              <span style={{ fontSize:14, fontWeight:700 }}>Итого</span>
+              <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{selectedAmounts!.payable.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
+            </div>
           </div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -3224,6 +3259,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
         {filtered.map((o,i) => {
           const st = ST[o.status];
           const contacts = orderContacts(o.id);
+          const amounts = clientOrderBreakdown(o);
           return (
             <div key={o.id} className="card" onClick={() => setSelected(o)} style={{ cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both`, borderLeft:`3px solid ${st.c}`, overflow:"hidden" }}>
               {o.status==="delivering" && (
@@ -3245,7 +3281,10 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                     <div style={{ fontSize:11, color:"var(--t3)" }}>{o.date} · {o.time}</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div className="ub" style={{ fontSize:15, fontWeight:900 }}>{o.total.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900 }}>{amounts.payable.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
+                    {amounts.delivery > 0 && (
+                      <div style={{ fontSize:9, color:"var(--t3)", marginTop:1 }}>вкл. доставка {amounts.delivery.toFixed(2)}</div>
+                    )}
                     <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>{o.items.reduce((s,it)=>s+it.qty,0)} товаров</div>
                   </div>
                 </div>

@@ -46,3 +46,20 @@ export function orderSpentContribution(
 ): number {
   return orderGoodsTotal(order)
 }
+
+/** Сумма к оплате клиентом: товары + доставка − бонусы. */
+export function orderPayableTotal(
+  order: Pick<Order, 'total' | 'deliveryFee' | 'bonusSpent' | 'items' | 'goodsTotal'>,
+): number {
+  const stored = Number(order.total)
+  const goods = orderGoodsTotal(order)
+  const delivery = Number(order.deliveryFee) || 0
+  const bonus = Number(order.bonusSpent) || 0
+  if (Number.isFinite(stored) && stored > 0) {
+    if (delivery > 0 && Math.abs(stored - goods) < 0.05 && goods + delivery - bonus > stored + 0.05) {
+      return Math.max(0, Math.round((goods + delivery - bonus) * 100) / 100)
+    }
+    return stored
+  }
+  return Math.max(0, Math.round((goods + delivery - bonus) * 100) / 100)
+}
