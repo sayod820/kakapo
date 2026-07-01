@@ -1624,7 +1624,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           {formatBulkPricingHint(p) && (
             <div style={{ fontSize:11, color:"#FF8C00", fontWeight:700, marginBottom:10, padding:"8px 10px", borderRadius:10, background:"rgba(255,140,0,.08)", border:"1px solid rgba(255,140,0,.2)" }}>
               📦 {formatBulkPricingHint(p)}
-            </div>
+          </div>
           )}
           {bulkPricingHintForQty(p, qty) && (
             <div style={{ fontSize:11, color:qty > 0 && bulkPricingHintForQty(p, qty)?.startsWith('Опт') ? 'var(--gr)' : '#FF8C00', fontWeight:700, marginBottom:10 }}>
@@ -1809,7 +1809,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               );
             })}
           </div>
-        </div>
+            </div>
       )}
       {items.length > 0 && (
         <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:210, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(14px + env(safe-area-inset-bottom, 0px))" }}>
@@ -1818,7 +1818,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--t3)", marginBottom:6 }}>
                 <span>Без скидок</span>
                 <span style={{ textDecoration:"line-through" }}>{retailSub.toFixed(2)} ЅМ</span>
-              </div>
+          </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bulkSaved > 0 || saleSaved > 0 ? 6 : 0 }}>
               <span style={{ color:"var(--t2)" }}>Товары ({tqty} поз.)</span>
@@ -1828,18 +1828,18 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
                 <span>Оптовая скидка</span>
                 <span style={{ fontWeight:700 }}>−{bulkSaved.toFixed(2)} ЅМ</span>
-              </div>
+          </div>
             )}
             {saleSaved > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
                 <span>Скидка по акции</span>
                 <span style={{ fontWeight:700 }}>−{saleSaved.toFixed(2)} ЅМ</span>
-              </div>
-            )}
+        </div>
+      )}
             {totalSaved > 0 && (
               <div style={{ marginTop:6, padding:"8px 10px", borderRadius:9, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", fontSize:12, fontWeight:800, color:"var(--gr)" }}>
                 🎉 Вы сэкономили {totalSaved.toFixed(2)} ЅМ
-              </div>
+          </div>
             )}
             <div style={{ height:1, background:"var(--b1)", margin:"10px 0 8px" }}/>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
@@ -2292,10 +2292,10 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
                       >
                         ✏️
                       </button>
-                    </div>
+          </div>
                   );
                 })}
-              </div>
+        </div>
               <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <button type="button" onClick={() => openCheckoutAddrEditor(null)} className="btn"
                   style={{ flex: 1, minWidth: 120, padding: "8px 12px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "rgba(31,215,96,.1)", border: "1px solid rgba(31,215,96,.3)", color: "var(--gr)" }}>
@@ -2390,31 +2390,31 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
                 <span style={{ color:'var(--gd)', fontWeight:800 }}>{(user.bonus || 0).toLocaleString()}</span>
                 {' · '}можно списать до{' '}
                 <span style={{ color:'var(--gr)', fontWeight:800 }}>−{getBonusUsable(user, sub)} ЅМ</span>
-              </div>
-            </div>
           </div>
-          <div className={`toggle ${useBonus?"on":""}`} onClick={() => setUseBonus(v => !v)}><div className="toggle-dot"/></div>
         </div>
-        )}
       </div>
+          <div className={`toggle ${useBonus?"on":""}`} onClick={() => setUseBonus(v => !v)}><div className="toggle-dot"/></div>
+      </div>
+        )}
+    </div>
       <div ref={checkoutFooterRef} style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px calc(28px + env(safe-area-inset-bottom, 0px))" }}>
         {addrReady && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0 }}>
               <span style={{ color: 'var(--t2)' }}>Товары</span>
               <span>{sub.toFixed(2)} ЅМ</span>
-            </div>
+      </div>
             {bulkSaved > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6, color: 'var(--gr)' }}>
                 <span>Оптовая скидка</span>
                 <span>−{bulkSaved.toFixed(2)} ЅМ</span>
-              </div>
+      </div>
             )}
             {saleSaved > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6, color: 'var(--gr)' }}>
                 <span>Скидка по акции</span>
                 <span>−{saleSaved.toFixed(2)} ЅМ</span>
-              </div>
+      </div>
             )}
             {totalSaved > 0 && (
               <div style={{ fontSize:11, color:'var(--gr)', fontWeight:700, marginBottom: 6 }}>🎉 Сэкономили {totalSaved.toFixed(2)} ЅМ</div>
@@ -2423,24 +2423,24 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6 }}>
                 <span style={{ color: 'var(--t2)' }}>Доставка</span>
                 <span>{effectiveDelivery.toFixed(2)} ЅМ</span>
-              </div>
+      </div>
             )}
             {bonusUsable > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom: 6, fontWeight:700 }}>
                 <span style={{ color: 'var(--gd)' }}>⭐ Бонусы</span>
                 <span style={{ color: 'var(--gr)' }}>−{bonusUsable} ЅМ</span>
-              </div>
+    </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, paddingTop: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0, borderTop: bonusUsable > 0 || effectiveDelivery > 0 ? '1px solid var(--b1)' : 'none' }}>
               <span>{pay === 'credit' ? (effectiveDelivery > 0 ? '💵 Доставка + 👑 в долг' : '👑 В кредит') : '💵 К оплате'}</span>
               <span className="ub" style={{ color:"var(--gd)" }}>{payable.toFixed(2)} ЅМ</span>
-            </div>
-          </div>
+      </div>
+      </div>
         )}
         {prodItems.length > 0 && restItems.length > 0 && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"rgba(59,142,240,.08)", border:"1px solid rgba(59,142,240,.2)", fontSize:12, color:"var(--t2)", textAlign:"center" }}>
             📦 Один заказ · сборщик соберёт товары, ресторан приготовит блюда
-          </div>
+      </div>
         )}
         {submitErr && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"rgba(255,69,69,.1)", border:"1px solid rgba(255,69,69,.3)", fontSize:12, color:"#FF4545", textAlign:"center" }}>
@@ -2461,7 +2461,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           }}
         >
           {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>{addrReady ? `Подтвердить · ${payable.toFixed(2)} ЅМ` : "Подтвердить заказ"}</>}
-        </button>
+      </button>
       </div>
       <ClientAddressEditorSheet
         open={addrEditorOpen}
@@ -2490,8 +2490,8 @@ function CartPageBoot({ go }: { go: (p: string) => void }) {
           <div style={{ flex: 1 }}>
             <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Корзина</div>
             <div style={{ fontSize: 10, color: "var(--t2)", marginTop: 1 }}>Загрузка…</div>
-          </div>
-        </div>
+      </div>
+      </div>
       </header>
       <div style={{ padding: "48px 24px", textAlign: "center" }}>
         <div style={{ width: 36, height: 36, margin: "0 auto", borderRadius: "50%", border: "3px solid rgba(31,215,96,.2)", borderTopColor: "var(--gr)", animation: "spin 0.8s linear infinite" }} />
@@ -2661,8 +2661,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                 {unreadNotifs > 9 ? "9+" : unreadNotifs}
       </div>
             )}
-      </button>
-      </div>
+          </button>
+        </div>
       </header>
 
       <div style={{ padding:"16px 18px 110px" }}>
@@ -2693,34 +2693,34 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                   boxShadow:'0 2px 8px rgba(255,184,0,.5)', animation:'crownFloat 2.5s ease-in-out infinite',
                 }}>👑</div>
               )}
-      </div>
+          </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
                 <div className="ub" style={{ fontSize:15, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
-      </div>
+          </div>
               <div style={{ fontSize:12, color:"var(--t2)", marginBottom: user.card ? 2 : 5 }}>{user.phone}</div>
               {user.card && (
                 <div style={{ fontSize:11, color:"var(--t3)", marginBottom:5, display:"flex", alignItems:"center", gap:4 }}>
                   <Ic n="card" s={11} c="var(--t3)"/>
                   {user.card}
-          </div>
+        </div>
               )}
               <span style={{
                 fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20, display:'inline-flex', alignItems:'center', gap:4,
               }}>
                 <UserStatusBadge user={{ ...user, vip: profileLoyalty.isVip, level: profileLoyalty.level }} size="md" />
               </span>
+            </div>
         </div>
-      </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:8 }}>
             <div style={{ padding:"10px 8px", borderRadius:12, background:`${profileTheme.accent}14`, border:`1px solid ${profileTheme.border}`, textAlign:"center", minWidth:0 }}>
               <div className="ub" style={{ fontSize:18, fontWeight:900, color:profileTheme.accent, lineHeight:1.1 }}>{(user.bonus || 0).toLocaleString()}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>бонусов</div>
-            </div>
+              </div>
             <div style={{ padding:"10px 8px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center", minWidth:0 }}>
               <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--gr)", lineHeight:1.1 }}>{orderCount}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>{orderCount === 1 ? "заказ" : orderCount >= 2 && orderCount <= 4 ? "заказа" : "заказов"}</div>
-            </div>
+              </div>
             <button
               type="button"
               onClick={() => go("wishlist")}
@@ -2735,8 +2735,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               <div className="ub" style={{ fontSize:18, fontWeight:900, color: wishCount > 0 ? "var(--red)" : "var(--t2)", lineHeight:1.1 }}>{wishCount}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>избранное</div>
             </button>
-          </div>
-          </div>
+              </div>
+              </div>
 
         <LoyaltyStatusCard loyalty={profileLoyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
 
@@ -2749,7 +2749,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
             >
               <div style={{ width:34, height:34, borderRadius:10, background:`${item.c}14`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                 <Ic n={item.icon} s={16} c={item.c}/>
-          </div>
+            </div>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>{item.l}</div>
                 {item.s && <div style={{ fontSize:11, color:"var(--t3)", marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.s}</div>}
@@ -2762,9 +2762,9 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                 ) : null}
                 <Ic n="arr" s={14} c="var(--t3)"/>
               </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
         <div className="card" style={cardAccent}>
           {confirmDelete ? (
@@ -2772,7 +2772,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               <div style={{ fontSize:13, fontWeight:800, color:"var(--red)", marginBottom:8 }}>Удалить аккаунт?</div>
               <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.5, marginBottom:14 }}>
                 Аккаунт попадёт в восстановление на 30 дней — можно вернуть профиль, заказы и бонусы. После этого срока регистрация начнётся заново. Заказы останутся в отчётах админа.
-              </div>
+          </div>
               <div style={{ display:"flex", gap:8 }}>
                 <button
                   type="button"
@@ -2808,13 +2808,13 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                 >
                   Отмена
                 </button>
-              </div>
-              </div>
+          </div>
+        </div>
           ) : (
             <div onClick={() => setConfirmDelete(true)} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
               <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.08)", display:"flex", alignItems:"center", justifyContent:"center" }}>
                 <Ic n="trash" s={16} c="var(--red)"/>
-              </div>
+      </div>
               <div style={{ flex:1, fontSize:13, fontWeight:700, color:"var(--red)" }}>Удалить аккаунт</div>
             </div>
           )}
@@ -3202,13 +3202,13 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
   if (!sessionReady) return <StoreSessionBoot />;
 
   if (!user) {
-    return (
+  return (
       <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
         <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Войдите, чтобы видеть отзывы</div>
         <button onClick={() => go("auth")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white" }}>Войти</button>
         <Nav page="profile" go={go} user={user}/>
-      </div>
+            </div>
     );
   }
 
@@ -3225,7 +3225,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
             <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Мои отзывы</div>
             <div style={{ fontSize: 10, color: "var(--t2)", marginTop: 1 }}>
               {loading ? "Загрузка…" : withReplies ? `${withReplies} с ответами` : `${reviews.length} отзывов`}
-            </div>
+          </div>
           </div>
         </div>
       </header>
@@ -3269,7 +3269,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
             </div>
           );
         })}
-      </div>
+          </div>
       <Nav page="profile" go={go} user={user}/>
     </div>
   );
@@ -3293,10 +3293,10 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
         animation: `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both`,
       }}
     >
-      <div>
+              <div>
         <div style={{ fontSize: 30, marginBottom: 8, lineHeight: 1 }}>{cat.e}</div>
         <div className="ub" style={{ fontSize: 15, fontWeight: 800, color: "#fff", lineHeight: 1.2 }}>{shortLabel}</div>
-      </div>
+                  </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
         <span style={{
           padding: "4px 10px",
@@ -3308,14 +3308,14 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
           color: cat.color,
         }}>−{maxDisc}%</span>
         <span style={{ fontSize: 15, color: "rgba(255,255,255,.4)", fontWeight: 300 }}>→</span>
-      </div>
-    </div>
+                </div>
+              </div>
   );
 };
 
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
   const qty = cart[p.id] || 0;
-  return (
+                return (
     <div
       onClick={() => go("product", { id: p.id })}
       style={{
@@ -3333,18 +3333,18 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
       }}
     >
       <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: p.grad || "rgba(255,69,69,.06)" }}>
-        {p.e}
+                      {p.e}
         <div className="ub" style={{ position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 8, background: "var(--red)", fontSize: 10, fontWeight: 900, color: "#fff" }}>−{disc}%</div>
-      </div>
+                    </div>
       <div style={{ padding: "10px 11px 11px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ fontSize: 9, fontWeight: 700, color: catLabel ? "rgba(255,140,140,.85)" : "transparent", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4, minHeight: 11, lineHeight: 1 }}>
           {catLabel || "·"}
-        </div>
+                      </div>
         <div style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.35, height: 30, marginBottom: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{p.name}</div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 6 }}>
           <span className="ub" style={{ fontSize: 14, fontWeight: 900, color: "#FF6B6B" }}>{Number(p.price).toFixed(2)}<span style={{ fontSize: 8, color: "var(--gd)", marginLeft: 2 }}> ЅМ</span></span>
           {p.old > p.price && <span style={{ fontSize: 10, color: "var(--t3)", textDecoration: "line-through" }}>{Number(p.old).toFixed(2)}</span>}
-        </div>
+                    </div>
         <div style={{ minHeight: 22, marginBottom: 8 }}>
           {stockLabel ? (
             <>
@@ -3375,9 +3375,9 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
             </div>
           )}
         </div>
-      </div>
-    </div>
-  );
+                    </div>
+                  </div>
+                );
 };
 
 const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
@@ -3459,9 +3459,9 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
           <div style={{ fontSize: 52, marginBottom: 16, animation: "float 3s ease-in-out infinite" }}>🏷️</div>
           <div className="ub" style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>Загрузка акций…</div>
           <div style={{ fontSize: 13, color: "var(--t2)" }}>Подождите немного</div>
-        </div>
+                    </div>
         <Nav page="promos" go={go} user={user}/>
-      </div>
+                  </div>
     );
   }
 
@@ -3478,9 +3478,9 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{cat.label}</div>
               <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 2 }}>Только акционные · {formatProductCount(items.length)}</div>
-            </div>
+                </div>
             <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-          </div>
+            </div>
         </header>
         <div style={{ padding: "14px 18px 110px" }}>
           {items.length === 0 ? (
@@ -3496,9 +3496,9 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
                   <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
                 </div>
               ))}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
+                  </div>
         {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />}
         <Nav page="promos" go={go} user={user}/>
       </div>
@@ -3518,9 +3518,9 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
           </div>
           <button onClick={() => go("search")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Ic n="search" s={17} c="var(--t2)"/>
-          </button>
+                  </button>
           <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-        </div>
+                </div>
       </header>
 
       <div style={{ padding: "14px 18px 110px" }}>
@@ -3580,16 +3580,16 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
                       onClick={() => setSelectedCat(cat.id)}
                       animDelay={i * 0.04}
                     />
-                  ))}
-                </div>
+              ))}
+            </div>
               </section>
             )}
           </>
         )}
-      </div>
+              </div>
       {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />}
       <Nav page="promos" go={go} user={user}/>
-    </div>
+            </div>
   );
 };
 
@@ -4413,42 +4413,42 @@ const VIPPage = ({ go, user, setUser }) => {
       <div style={{ padding:"16px 18px 100px" }}>
         {isVip ? (
           <>
-            <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,#1A1000,#2E1E00,#1A1000)", border:"1.5px solid rgba(255,184,0,.4)", boxShadow:"0 8px 40px rgba(255,184,0,.2)" }}>
-              <div style={{ position:"absolute", inset:0, opacity:.04, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
-              <div style={{ position:"absolute", right:-30, top:-30, width:160, height:160, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(20px)" }}/>
-              <div style={{ position:"relative", zIndex:2, padding:"22px 22px 20px" }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+        <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,#1A1000,#2E1E00,#1A1000)", border:"1.5px solid rgba(255,184,0,.4)", boxShadow:"0 8px 40px rgba(255,184,0,.2)" }}>
+          <div style={{ position:"absolute", inset:0, opacity:.04, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
+          <div style={{ position:"absolute", right:-30, top:-30, width:160, height:160, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(20px)" }}/>
+          <div style={{ position:"relative", zIndex:2, padding:"22px 22px 20px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                  <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,var(--gd2),var(--gd))", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <Ic n="crown" s={18} c="var(--bg)" w={2}/>
+                  </div>
                   <div>
-                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                      <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,var(--gd2),var(--gd))", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                        <Ic n="crown" s={18} c="var(--bg)" w={2}/>
-                      </div>
-                      <div>
                         <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>КАКАПО VIP</div>
                         <div style={{ fontSize:9, color:"rgba(255,184,0,.6)" }}>{tier.label.toUpperCase()} MEMBER</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ textAlign:"right" }}>
-                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Клиент с</div>
-                    <div style={{ fontSize:11, fontWeight:700, color:"var(--gd)" }}>{memberSinceLabel}</div>
-                  </div>
-                </div>
-                <div className="ub" style={{ fontSize:20, letterSpacing:3, color:"var(--gd)", marginBottom:16, textShadow:"0 2px 12px rgba(255,184,0,.5)" }}>
-                  {cardLabel}
-                </div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
-                  <div>
-                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Имя</div>
-                    <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)" }}>{user?.name?.toUpperCase() || "ДИЛОВАР Р."}</div>
-                  </div>
-                  <div style={{ textAlign:"right" }}>
-                    <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Лимит</div>
-                    <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>{creditLimit.toLocaleString()} ЅМ</div>
                   </div>
                 </div>
               </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Клиент с</div>
+                    <div style={{ fontSize:11, fontWeight:700, color:"var(--gd)" }}>{memberSinceLabel}</div>
+              </div>
             </div>
+            <div className="ub" style={{ fontSize:20, letterSpacing:3, color:"var(--gd)", marginBottom:16, textShadow:"0 2px 12px rgba(255,184,0,.5)" }}>
+                  {cardLabel}
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
+              <div>
+                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Имя</div>
+                <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)" }}>{user?.name?.toUpperCase() || "ДИЛОВАР Р."}</div>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Лимит</div>
+                <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>{creditLimit.toLocaleString()} ЅМ</div>
+              </div>
+            </div>
+          </div>
+        </div>
 
             <div style={{ display:"grid", gridTemplateColumns: debtSectionOn ? "1fr 1fr 1fr" : "1fr", gap:10, marginBottom:16 }}>
               {[
@@ -4457,13 +4457,13 @@ const VIPPage = ({ go, user, setUser }) => {
                   { l:"Долг",      v:`${creditUsed.toLocaleString()} ЅМ`, c: creditUsed > 0 ? "var(--red)" : "var(--gr)" },
                   { l:"Лимит",     v:`${creditLimit.toLocaleString()} ЅМ`, c:"var(--blue)" },
                 ] : []),
-              ].map((s,i) => (
-                <div key={i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 10px", textAlign:"center" }}>
-                  <div className="ub" style={{ fontSize:15, fontWeight:900, color:s.c, marginBottom:3 }}>{s.v}</div>
-                  <div style={{ fontSize:10, color:"var(--t3)" }}>{s.l}</div>
-                </div>
-              ))}
+          ].map((s,i) => (
+            <div key={i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 10px", textAlign:"center" }}>
+              <div className="ub" style={{ fontSize:15, fontWeight:900, color:s.c, marginBottom:3 }}>{s.v}</div>
+              <div style={{ fontSize:10, color:"var(--t3)" }}>{s.l}</div>
             </div>
+          ))}
+        </div>
           </>
         ) : (
           <>
@@ -4548,16 +4548,16 @@ const VIPPage = ({ go, user, setUser }) => {
           <>
             {showVipSupport && <VipSupportBlock />}
 
-            <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Ваши привилегии</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
               {(showVipSupport ? PERKS : PERKS.filter(p => p.title !== 'Линия поддержки VIP')).map((perk,i) => (
-                <div key={i} style={{ background:"var(--l2)", border:`1px solid ${perk.color}22`, borderRadius:16, padding:"14px 12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
-                  <div style={{ fontSize:26, marginBottom:8 }}>{perk.e}</div>
-                  <div style={{ fontSize:12, fontWeight:800, color:perk.color, marginBottom:4, lineHeight:1.3 }}>{perk.title}</div>
-                  <div style={{ fontSize:10, color:"var(--t3)", lineHeight:1.55 }}>{perk.desc}</div>
-                </div>
-              ))}
+            <div key={i} style={{ background:"var(--l2)", border:`1px solid ${perk.color}22`, borderRadius:16, padding:"14px 12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
+              <div style={{ fontSize:26, marginBottom:8 }}>{perk.e}</div>
+              <div style={{ fontSize:12, fontWeight:800, color:perk.color, marginBottom:4, lineHeight:1.3 }}>{perk.title}</div>
+              <div style={{ fontSize:10, color:"var(--t3)", lineHeight:1.55 }}>{perk.desc}</div>
             </div>
+          ))}
+        </div>
           </>
         ) : (
           <>
@@ -4570,14 +4570,14 @@ const VIPPage = ({ go, user, setUser }) => {
                   <div style={{ fontSize:10, color:"var(--t3)", lineHeight:1.55 }}>{perk.desc}</div>
                 </div>
               ))}
-            </div>
+      </div>
 
             <div style={{ background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.16)", borderRadius:18, padding:"18px" }}>
               <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:8, color:"var(--gd)" }}>Как получить VIP</div>
               <div style={{ fontSize:11, color:"var(--t2)", lineHeight:1.65 }}>
                 Выполняйте условия программы: оформляйте заказы, накапливайте сумму покупок и оставляйте отзывы. Как только все условия будут выполнены, VIP станет доступен автоматически.
               </div>
-            </div>
+                </div>
           </>
         )}
       </div>
@@ -6959,18 +6959,18 @@ const AddressesPage = ({ go, user }) => {
               <div style={{ display: 'flex', gap: 8 }}>
                 {['🏠 Дом', '💼 Работа', '📍 Другое'].map(l => (
                   <button key={l} onClick={() => setLabel(l)} className="btn" style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${label === l ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`, background: label === l ? 'rgba(31,215,96,.1)' : 'var(--l3)', color: label === l ? 'var(--gr)' : 'var(--t2)', fontFamily: 'Nunito' }}>{l}</button>
-                ))}
-              </div>
+              ))}
+            </div>
               <div style={{ borderRadius: 18, background: 'var(--l1)', border: '1px solid var(--b1)', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица</div>
                   <input className="inp" value={mapStreet} readOnly placeholder="Двигайте карту — улица появится сама" style={{ width: '100%', opacity: mapStreet ? 1 : 0.7 }} />
-                </div>
+              </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Номер дома *</div>
                     <input className="inp" value={house} onChange={e => setHouse(e.target.value)} placeholder="144" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
-                  </div>
+            </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Подъезд</div>
                     <input className="inp" value={ent} onChange={e => setEnt(e.target.value)} placeholder="2" style={{ width: '100%', fontSize: 13, padding: '11px 12px' }} />
@@ -6994,7 +6994,7 @@ const AddressesPage = ({ go, user }) => {
                   style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'linear-gradient(135deg,var(--gr2),var(--gr))', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: buildFullStreet() && coords ? 1 : 0.5 }}
                 >
                   ✓ Подтвердить и сохранить адрес
-                </button>
+            </button>
               </div>
             </div>
           </div>

@@ -754,9 +754,6 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     let cancelled = false;
 
     import('leaflet').then(async L => {
-      routesRef.current.forEach(r => { try { r.remove(); } catch {} });
-      routesRef.current = [];
-
       /* основная линия — магазин/ресторан(ы) → клиент (км и тариф; не от курьера) */
       const delivery = await fetchOrderDeliveryRoute(
         { routePickupIds: routeIds, lat: order.lat, lng: order.lng },
@@ -767,12 +764,18 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       setLiveRouteKm(roundRouteKm(delivery.distanceKm));
       onRouteKmRef.current?.(order.id, roundRouteKm(delivery.distanceKm));
 
+      const routeGeometry = delivery.geometry?.length >= 2
+        ? delivery.geometry
+        : routeIds.map((pid: string) => {
+            const pk = PICKUPS[pid] || PICKUPS.store;
+            return [pk.lat, pk.lng] as [number, number];
+          }).concat([[order.lat, order.lng] as [number, number]]);
       try { routeRef.current?.remove(); } catch {}
-      routeRef.current = L.polyline(delivery.geometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(map);
+      routeRef.current = L.polyline(routeGeometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(map);
 
-      if (delivery.geometry.length >= 2) {
+      if (routeGeometry.length >= 2) {
         try {
-          map.fitBounds(L.latLngBounds(delivery.geometry), { padding: [36, 36], maxZoom: 16 });
+          map.fitBounds(L.latLngBounds(routeGeometry), { padding: [36, 36], maxZoom: 16 });
         } catch { /* ignore */ }
       }
 
