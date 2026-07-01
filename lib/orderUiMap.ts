@@ -10,6 +10,7 @@ import {
   allRestPartsDone,
   anyPartDone,
   getAllPickupIds,
+  resolveOrderRoutePickupIds,
   getMarketItems,
   getMarketStatus,
   getRestItems,
@@ -510,12 +511,15 @@ export function mapCancelledOrdersForAssembler(orders: Order[]) {
 /** Один заказ → формат курьера (с учётом частичной готовности) */
 export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoCourierOrder {
   const order = normalizeOrder(o)
-  const routePickupIds = getCourierAcceptPickupIds(order)
+  const acceptPickupIds = getCourierAcceptPickupIds(order)
+  const routePickupIds = resolveOrderRoutePickupIds(order)
   const pendingParts = getPendingPartsForCourier(order)
   const base = {
     id: order.id,
-    pickupIds: routePickupIds,
-    mapPickupIds: routePickupIds,
+    pickupIds: acceptPickupIds,
+    mapPickupIds: acceptPickupIds,
+    routePickupIds,
+    distanceKm: order.distanceKm,
     mixed: isMixedOrder(order),
     orderKind: inferOrderType(order),
     pendingParts,

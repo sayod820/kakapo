@@ -335,8 +335,14 @@ function calcDelivery(dist: number, weight: number, TARIFF = DEFAULT_PRICING): n
   return calcDeliveryFee(dist, weight, TARIFF);
 }
 
-function getOrderKm(o: { id: string }, roadKm: Record<string, number>): number | null {
-  return roadKm[o.id] ?? null;
+function getOrderKm(
+  o: { id: string; distanceKm?: number },
+  roadKm: Record<string, number>,
+): number | null {
+  const fromRoad = roadKm[o.id];
+  if (fromRoad != null && fromRoad > 0) return fromRoad;
+  if (o.distanceKm != null && o.distanceKm > 0) return o.distanceKm;
+  return null;
 }
 
 function kmStr(km: number | null): string {
@@ -727,7 +733,8 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 
   /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
   useEffect(() => {
-    if (!ready || !isMapAlive(mapRef.current) || !selected?.pickupIds || !step) return;
+    const routeIds = selected?.routePickupIds ?? selected?.pickupIds ?? [];
+    if (!ready || !isMapAlive(mapRef.current) || !selected || !step || !routeIds.length) return;
     const gen = mapGenRef.current;
     let cancelled = false;
 
@@ -735,8 +742,11 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       routesRef.current.forEach(r => { try { r.remove(); } catch {} });
       routesRef.current = [];
 
-      /* основная линия — только от точек забора до клиента */
-      const delivery = await fetchOrderDeliveryRoute(selected, pickupLocRef.current);
+      /* основная линия — все точки забора → клиент */
+      const delivery = await fetchOrderDeliveryRoute(
+        { routePickupIds: routeIds, lat: selected.lat, lng: selected.lng },
+        pickupLocRef.current,
+      );
       if (cancelled || gen !== mapGenRef.current || !isMapAlive(mapRef.current)) return;
 
       routesRef.current.push(
@@ -746,7 +756,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       /* пунктир — где едет курьер (только если включён GPS) */
       const pos = courierPosRef.current;
       if (pos && (step === 'toPickup' || step === 'toClient')) {
-        const pids: string[] = selected.pickupIds;
+        const pids: string[] = routeIds;
         const navPoints = step === 'toClient'
           ? [{ lat: pos.lat, lng: pos.lng }, { lat: selected.lat, lng: selected.lng }]
           : (() => {

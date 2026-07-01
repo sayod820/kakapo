@@ -32,13 +32,27 @@ export function formatKm(km: number, withUnit = true): string {
   return withUnit ? `${n} км` : n;
 }
 
+export type RoadKmOrderInput = {
+  pickupIds?: string[];
+  /** Полный маршрут забора (все точки заказа) — приоритет для OSRM */
+  routePickupIds?: string[];
+  lat: number;
+  lng: number;
+};
+
+function resolveRoutePickupIds(order: RoadKmOrderInput): string[] {
+  if (order.routePickupIds?.length) return order.routePickupIds;
+  if (order.pickupIds?.length) return order.pickupIds;
+  return ['store'];
+}
+
 /** Точки маршрута ДОСТАВКИ: магазин/ресторан(ы) → клиент (без курьера) */
 export function buildOrderRoutePoints(
-  order: { pickupIds: string[]; lat: number; lng: number },
+  order: RoadKmOrderInput,
   locations: PickupLocationMap = PICKUP_LOCATIONS
 ): { lat: number; lng: number }[] {
   const fallback = locations.store ?? { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng, name: STORE_LOCATION.name };
-  const pickupIds = order.pickupIds?.length ? order.pickupIds : ['store'];
+  const pickupIds = resolveRoutePickupIds(order);
   const points = pickupIds.map(id => {
     const p = locations[id] ?? fallback;
     return { lat: p.lat, lng: p.lng };
@@ -49,7 +63,7 @@ export function buildOrderRoutePoints(
 
 /** Полный маршрут доставки по дорогам (для карты и км) */
 export async function fetchOrderDeliveryRoute(
-  order: { pickupIds: string[]; lat: number; lng: number },
+  order: RoadKmOrderInput,
   locations?: PickupLocationMap
 ): Promise<RouteResult> {
   return fetchRoute(buildOrderRoutePoints(order, locations));
@@ -57,7 +71,7 @@ export async function fetchOrderDeliveryRoute(
 
 /** Точное расстояние заказа по дорогам (OSRM) */
 export async function fetchOrderRoadKm(
-  order: { pickupIds: string[]; lat: number; lng: number },
+  order: RoadKmOrderInput,
   locations?: PickupLocationMap
 ): Promise<number> {
   const route = await fetchRoute(buildOrderRoutePoints(order, locations));
@@ -65,7 +79,7 @@ export async function fetchOrderRoadKm(
 }
 
 /** Пакетный расчёт км для нескольких заказов */
-export async function fetchOrdersRoadKm<T extends { id: string; pickupIds: string[]; lat: number; lng: number }>(
+export async function fetchOrdersRoadKm<T extends { id: string } & RoadKmOrderInput>(
   orders: T[],
   locations: PickupLocationMap = PICKUP_LOCATIONS
 ): Promise<Record<string, number>> {
@@ -75,13 +89,13 @@ export async function fetchOrdersRoadKm<T extends { id: string; pickupIds: strin
         const km = await fetchOrderRoadKm(o, locations);
         return [o.id, km] as const;
       } catch {
-        const pids = o.pickupIds?.length ? o.pickupIds : ['store'];
-        const first = locations[pids[0] ?? 'store'] ?? locations.store;
-        return [o.id, roundRouteKm(calcDistanceKm(
-          first?.lat ?? STORE_LOCATION.lat,
-          first?.lng ?? STORE_LOCATION.lng,
-          o.lat, o.lng
-        ) * 1.25)] as const;
+        const pids = resolveRoutePickupIds(o);
+        const points = buildOrderRoutePoints({ ...o, routePickupIds: pids }, locations);
+        let totalKm = 0;
+        for (let i = 1; i < points.length; i++) {
+          totalKm += calcDistanceKm(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng);
+        }
+        return [o.id, roundRouteKm(totalKm * 1.25)] as const;
       }
     })
   );

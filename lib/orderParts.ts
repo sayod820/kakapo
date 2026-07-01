@@ -157,6 +157,16 @@ export function getAllPickupIds(o: Order): string[] {
   return ids
 }
 
+/** Точки маршрута для OSRM: сохранённый маршрут курьера → точки из заказа → все точки забора */
+export function resolveOrderRoutePickupIds(o: Order): string[] {
+  const order = normalizeOrder(o)
+  if (order.courierRoute?.length) return order.courierRoute
+  const saved = (order.pickupIds || []).filter(Boolean)
+  if (saved.length) return saved
+  const all = getAllPickupIds(order)
+  return all.length ? all : ['store']
+}
+
 export function isPickupPointReady(o: Order, pickupId: string): boolean {
   const order = normalizeOrder(o)
   if (pickupId === 'store') return getMarketStatus(order) === 'done'
