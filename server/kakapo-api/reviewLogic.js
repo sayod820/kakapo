@@ -1,4 +1,5 @@
 export function updateRestaurantRating(db, restId) {
+  if (!restId || restId === 'STORE') return
   const list = (db.reviews || []).filter(r => r.restId === restId)
   const r = db.restaurants.find(x => x.id === restId)
   if (!r) return
@@ -9,12 +10,19 @@ export function updateRestaurantRating(db, restId) {
 }
 
 export function createReviewRecord(db, body) {
-  const rest = db.restaurants.find(r => r.id === body.restId)
+  if (!db._seq) db._seq = {}
+  if (typeof db._seq.review !== 'number') {
+    const ids = (db.reviews || []).map(r => Number(r.id) || 0)
+    db._seq.review = ids.length ? Math.max(...ids) : 0
+  }
+  const restId = String(body.restId || 'STORE')
+  const isStore = restId === 'STORE'
+  const rest = isStore ? null : db.restaurants.find(r => r.id === restId)
   const rating = Math.min(5, Math.max(1, Number(body.rating) || 5))
   const review = {
     id: ++db._seq.review,
-    restId: String(body.restId),
-    restName: rest?.name || body.restName || '',
+    restId,
+    restName: isStore ? 'КАКАПО Магазин' : (rest?.name || body.restName || ''),
     orderId: body.orderId ? String(body.orderId) : '',
     client: String(body.client || 'Клиент').trim(),
     rating,
@@ -22,9 +30,10 @@ export function createReviewRecord(db, body) {
     date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }),
     status: 'new',
     restSeen: false,
-    restNotified: true,
+    restNotified: !isStore,
     urgent: rating <= 2,
     createdAt: new Date().toISOString(),
+    targetType: isStore ? 'market' : 'restaurant',
   }
   if (!Array.isArray(db.reviews)) db.reviews = []
   db.reviews.unshift(review)

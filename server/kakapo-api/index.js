@@ -1889,15 +1889,23 @@ app.get('/reviews', (req, res) => {
   res.json(list)
 })
 app.post('/reviews', (req, res) => {
-  if (!req.body.restId) return res.status(400).json({ detail: 'Укажите ресторан' })
+  const restId = String(req.body.restId || '')
+  if (!restId) return res.status(400).json({ detail: 'Укажите ресторан или магазин' })
   const dup = req.body.orderId
-    ? (db.reviews || []).find(r => r.orderId && r.orderId === String(req.body.orderId))
+    ? (db.reviews || []).find(
+      r => r.orderId && r.orderId === String(req.body.orderId) && String(r.restId || '') === restId,
+    )
     : null
   if (dup) return res.status(400).json({ detail: 'Отзыв по этому заказу уже оставлен' })
-  const review = createReviewRecord(db, req.body)
-  persist()
-  broadcastReview(review)
-  res.json(review)
+  try {
+    const review = createReviewRecord(db, req.body)
+    persist()
+    broadcastReview(review)
+    res.json(review)
+  } catch (e) {
+    console.error('[reviews] create failed', e)
+    res.status(500).json({ detail: 'Не удалось сохранить отзыв. Подождите 5–15 сек и попробуйте снова.' })
+  }
 })
 app.patch('/reviews/:id', (req, res) => {
   const rev = (db.reviews || []).find(r => String(r.id) === String(req.params.id))

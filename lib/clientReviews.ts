@@ -1,3 +1,4 @@
+import { clientReviewKey, STORE_REVIEW_REST_ID } from './clientOrderReview'
 import { api } from './api'
 import { USE_API } from './config'
 import type { Order, Review } from './types'
@@ -26,9 +27,10 @@ export function loadLocalReviews(phone?: string): Record<string, Review> {
   return map && typeof map === 'object' ? map : {}
 }
 
-export function saveLocalReview(orderId: string, review: Review, phone?: string) {
+export function saveLocalReview(orderId: string, review: Review, phone?: string, restId?: string) {
   const map = loadLocalReviews(phone)
-  map[String(orderId)] = review
+  const key = clientReviewKey(orderId, restId || review.restId || STORE_REVIEW_REST_ID)
+  map[key] = review
   saveAccountJson(ACCOUNT_NS.reviewsLocal, map, phone)
 }
 
@@ -45,7 +47,10 @@ export async function loadClientReviewMap(
     const byOrder = r.orderId && orderIds.has(String(r.orderId))
     const byName = name && (r.client || '').trim().toLowerCase() === name
     if (byOrder || byName) {
-      if (r.orderId) map[String(r.orderId)] = r
+      if (r.orderId) {
+        const key = clientReviewKey(String(r.orderId), String(r.restId || STORE_REVIEW_REST_ID))
+        map[key] = r
+      }
     }
   })
   return map

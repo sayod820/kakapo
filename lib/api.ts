@@ -30,7 +30,7 @@ export const getToken = (): string | null => {
 function formatApiError(detail: unknown, status?: number): string {
   if (typeof detail === 'string') {
     if (detail === 'Internal Server Error' && status === 500) {
-      return 'Сервер временно недоступен. Подождите 5 сек и попробуйте снова.'
+      return 'Сервер временно недоступен. Подождите 5–15 сек и попробуйте снова.'
     }
     return detail
   }
@@ -79,7 +79,9 @@ async function parseErrorResponse(res: Response): Promise<string> {
 const RETRY_STATUS = new Set([500, 502, 503, 504])
 const REQUEST_TIMEOUT_MS = 25000
 const LIST_TIMEOUT_MS = 35000
+const REVIEW_TIMEOUT_MS = 45000
 const MAX_ATTEMPTS = 3
+const RETRY_DELAY_MS = 5000
 
 function withTimeout<T>(promise: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -128,7 +130,7 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
   } catch (e) {
     const timedOut = e instanceof Error && e.message.includes('Сервер не отвечает')
     if (timedOut && attempt < MAX_ATTEMPTS - 1) {
-      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
       return requestUrl<T>(url, options, attempt + 1, timeoutMs)
     }
     if (timedOut) {
@@ -139,8 +141,8 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
 
   if (!res.ok) {
     const message = await parseErrorResponse(res)
-    if (RETRY_STATUS.has(res.status) && attempt < 2) {
-      await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
+    if (RETRY_STATUS.has(res.status) && attempt < MAX_ATTEMPTS - 1) {
+      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
       return requestUrl<T>(url, options, attempt + 1, timeoutMs)
     }
     throw new Error(message || `Ошибка ${res.status}`)
@@ -385,7 +387,7 @@ export const api = {
   getReviews: (restId?: string) =>
     request<Review[]>(`/reviews${restId ? `?restId=${encodeURIComponent(restId)}` : ''}`),
   createReview: (data: Partial<Review>) =>
-    request<Review>('/reviews', { method: 'POST', body: JSON.stringify(data) }),
+    request<Review>('/reviews', { method: 'POST', body: JSON.stringify(data) }, 0, REVIEW_TIMEOUT_MS),
   updateReview: (id: number, data: Partial<Review>) =>
     request<Review>(`/reviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 

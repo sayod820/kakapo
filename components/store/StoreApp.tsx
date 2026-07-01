@@ -17,6 +17,15 @@ import {
   telHref,
   type ClientOrderContact,
 } from "@/lib/clientOrderContacts";
+import {
+  canClientReviewOrder,
+  clientReviewKey,
+  getClientReviewTargets,
+  getPendingReviewTargets,
+  resolveReviewTargetLabel,
+  reviewPromptForTarget,
+  type ClientReviewTarget,
+} from "@/lib/clientOrderReview";
 import { useAssemblerTeam, hydrateAssemblerTeamStore } from "@/lib/assemblerTeamStore";
 import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
@@ -2995,6 +3004,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
   const [showRev, setShowRev] = useState(null);
+  const [reviewTarget, setReviewTarget] = useState<ClientReviewTarget | null>(null);
   const [step, setStep] = useState(1);
   useEffect(() => {
     const oid = params?.orderId || params?.id
@@ -3019,14 +3029,12 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     return () => clearInterval(id);
   }, [apiOrders, user?.phone, user?.name]);
   const submitReview = async () => {
-    if (!showRev || rating <= 0) return;
+    if (!showRev || !reviewTarget || rating <= 0) return;
     const raw = apiOrders.find(o => o.id === showRev.id);
-    const restId = showRev.restId || raw?.restId || raw?.items?.find(it => it.restId)?.restId;
+    const restId = reviewTarget.restId;
+    const prompt = reviewPromptForTarget(reviewTarget);
+    const reviewKey = clientReviewKey(showRev.id, restId);
     if (USE_API) {
-      if (!restId) {
-        showToast?.("Отзыв доступен только для заказов из ресторана");
-        return;
-      }
       try {
         const created = await api.createReview({
           orderId: showRev.id,
@@ -3035,23 +3043,55 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           rating,
           text: reviewText.trim() || `${"★".repeat(rating)}`,
         });
-        setReviewed(r => ({ ...r, [showRev.id]: created }));
+        setReviewed(r => ({ ...r, [reviewKey]: created }));
       } catch (e) {
         showToast?.(e?.message || "Не удалось отправить отзыв");
         return;
       }
     }
     if (!USE_API) {
-      const created = { id: Date.now(), restId: restId || '', client: user?.name || 'Клиент', rating, text: reviewText, date: 'Сегодня', status: 'new' } as Review;
-      saveLocalReview(showRev.id, created, user?.phone);
-      setReviewed(r => ({ ...r, [showRev.id]: created }));
+      const created = {
+        id: Date.now(),
+        restId,
+        client: user?.name || 'Клиент',
+        rating,
+        text: reviewText,
+        date: 'Сегодня',
+        status: 'new',
+      } as Review;
+      saveLocalReview(showRev.id, created, user?.phone, restId);
+      setReviewed(r => ({ ...r, [reviewKey]: created }));
     }
     setShowRev(null);
+    setReviewTarget(null);
     setRating(0);
     setReviewText("");
-    showToast?.("⭐ Спасибо! Ресторан получил ваш отзыв");
+    showToast?.(prompt.success);
   };
-  const canReview = (o) => o.status === "delivered" && !reviewed[o.id] && (USE_API ? !!o.restId : true);
+  const orderReviews = useCallback((orderId: string) => {
+    const raw = apiOrders.find(o => o.id === orderId);
+    if (!raw) return Object.entries(reviewed).filter(([k]) => k.startsWith(`${orderId}:`)).map(([, v]) => v);
+    return getClientReviewTargets(raw)
+      .map(t => reviewed[clientReviewKey(orderId, t.restId)])
+      .filter(Boolean);
+  }, [apiOrders, reviewed]);
+  const canReview = (o) => {
+    const raw = apiOrders.find(x => x.id === o.id);
+    if (!raw) return false;
+    return canClientReviewOrder(raw, reviewed, o.status);
+  };
+  const openReview = (o) => {
+    const raw = apiOrders.find(x => x.id === o.id);
+    if (!raw) return;
+    const pending = getPendingReviewTargets(raw, reviewed);
+    if (!pending.length) return;
+    setShowRev(o);
+    setReviewTarget(pending[0]);
+    setRating(0);
+    setReviewText("");
+  };
+  const reviewModalPrompt = reviewTarget ? reviewPromptForTarget(reviewTarget) : null;
+  const reviewModalLabel = reviewTarget ? resolveReviewTargetLabel(reviewTarget, restaurants) : '';
   const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
   const ST = OSTATUS;
   const selectedContacts = selected ? orderContacts(selected.id) : [];
@@ -3174,26 +3214,29 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             <Ic n="repeat" s={16} c="white"/>Повторить заказ
           </button>
           {canReview(selected) && (
-            <button onClick={() => { setShowRev(selected); setRating(0); setReviewText(""); }} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+            <button onClick={() => openReview(selected)} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
               <Ic n="star" s={16} c="var(--gd)"/>Оставить отзыв
             </button>
           )}
-          {reviewed[selected.id] && <ClientReviewBlock review={reviewed[selected.id]} orderId={selected.id} />}
+          {orderReviews(selected.id).map(rev => (
+            <ClientReviewBlock key={`${selected.id}-${rev.restId}`} review={rev} orderId={selected.id} />
+          ))}
         </div>
       </div>
-      {showRev && (
+      {showRev && reviewModalPrompt && (
         <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-          <div onClick={() => setShowRev(null)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
+          <div onClick={() => { setShowRev(null); setReviewTarget(null); }} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
           <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:480, background:"var(--l1)", borderTop:"1px solid var(--b1)", borderRadius:"24px 24px 0 0", padding:"20px 20px 36px", animation:"slideUp .4s cubic-bezier(.16,1,.3,1)" }}>
             <div style={{ width:40, height:4, borderRadius:2, background:"var(--b2)", margin:"0 auto 16px" }}/>
-            <div style={{ fontSize:16, fontWeight:800, textAlign:"center", marginBottom:16 }}>Оцените заказ {showRev.id}</div>
+            <div style={{ fontSize:16, fontWeight:800, textAlign:"center", marginBottom:4 }}>{reviewModalPrompt.title}</div>
+            <div style={{ fontSize:12, color:"var(--t2)", textAlign:"center", marginBottom:16 }}>{reviewModalLabel} · {showRev.id}</div>
             <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:10 }}>
               {[1,2,3,4,5].map(i => <svg key={i} width={36} height={36} viewBox="0 0 24 24" style={{ cursor:"pointer" }} onClick={() => setRating(i)}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=rating?"#FFB800":"rgba(255,184,0,.12)"} stroke="#FFB800" strokeWidth={1}/></svg>)}
             </div>
             <div style={{ textAlign:"center", fontSize:14, color:"var(--gd)", fontWeight:700, marginBottom:12, minHeight:22 }}>
               {["","😤 Плохо","😕 Так себе","😐 Нормально","😊 Хорошо","🤩 Отлично!"][rating]}
             </div>
-            <textarea className="inp" value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder="Комментарий (необязательно)…" rows={3} style={{ width:"100%", marginBottom:14, resize:"vertical" }}/>
+            <textarea className="inp" value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder={reviewModalPrompt.placeholder} rows={3} style={{ width:"100%", marginBottom:14, resize:"vertical" }}/>
             <button onClick={submitReview} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0?1:.5 }}>
               <Ic n="star" s={16} c="white"/>Отправить отзыв
             </button>
@@ -3295,7 +3338,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                 <ClientOrderContactsBlock contacts={contacts} pickups={pickups} compact onCallClick={e => e.stopPropagation()} />
                 <div style={{ display:"flex", gap:8 }}>
                   {o.status==="delivering" && o.trackable && <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="map" s={13} c="white"/>Отследить</button>}
-                  {canReview(o) && <button className="btn" onClick={e=>{e.stopPropagation();setShowRev(o);setRating(0);setReviewText("");}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd)"/>Отзыв</button>}
+                  {canReview(o) && <button className="btn" onClick={e=>{e.stopPropagation();openReview(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd)"/>Отзыв</button>}
                   <button type="button" className="btn" onClick={e=>{e.stopPropagation();repeatOrder(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="repeat" s={13} c="var(--t2)"/>Повторить</button>
                 </div>
                 {o.cancelReason && <div style={{ marginTop:9, padding:"7px 10px", borderRadius:9, background:"rgba(255,69,69,.07)", border:"1px solid rgba(255,69,69,.2)", fontSize:11, color:"var(--red)" }}>ℹ️ {o.cancelReason}</div>}
@@ -3304,17 +3347,18 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           );
         })}
       </div>
-      {showRev && (
+      {showRev && reviewModalPrompt && (
         <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-          <div onClick={() => setShowRev(null)} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
+          <div onClick={() => { setShowRev(null); setReviewTarget(null); }} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
           <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:480, background:"var(--l1)", borderTop:"1px solid var(--b1)", borderRadius:"24px 24px 0 0", padding:"20px 20px 36px", animation:"slideUp .4s cubic-bezier(.16,1,.3,1)" }}>
             <div style={{ width:40, height:4, borderRadius:2, background:"var(--b2)", margin:"0 auto 16px" }}/>
-            <div style={{ fontSize:16, fontWeight:800, textAlign:"center", marginBottom:16 }}>Оцените заказ</div>
+            <div style={{ fontSize:16, fontWeight:800, textAlign:"center", marginBottom:4 }}>{reviewModalPrompt.title}</div>
+            <div style={{ fontSize:12, color:"var(--t2)", textAlign:"center", marginBottom:16 }}>{reviewModalLabel}</div>
             <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:10 }}>
               {[1,2,3,4,5].map(i => <svg key={i} width={36} height={36} viewBox="0 0 24 24" style={{ cursor:"pointer" }} onClick={() => setRating(i)}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=rating?"#FFB800":"rgba(255,184,0,.12)"} stroke="#FFB800" strokeWidth={1}/></svg>)}
             </div>
             <div style={{ textAlign:"center", fontSize:14, color:"var(--gd)", fontWeight:700, marginBottom:12 }}>{["","😤","😕","😐","😊","🤩 Отлично!"][rating]}</div>
-            <textarea className="inp" value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder="Комментарий…" rows={3} style={{ width:"100%", marginBottom:14, resize:"vertical" }}/>
+            <textarea className="inp" value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder={reviewModalPrompt.placeholder} rows={3} style={{ width:"100%", marginBottom:14, resize:"vertical" }}/>
             <button onClick={submitReview} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:rating>0?1:.5 }}>
               <Ic n="star" s={16} c="white"/>Отправить
             </button>
@@ -6057,7 +6101,7 @@ const AdminPushPage = ({go}) => {
     {e:'🚀',t:'Доставка бесплатно!',b:'Сегодня доставляем бесплатно при любом заказе 🎉'},
     {e:'🎁',t:'Бонусы истекают',b:'Ваши бонусы сгорят через 3 дня. Потратьте их!'},
     {e:'💳',t:'VIP привилегия',b:'Как VIP клиент вы получаете кредитный лимит 3 000 ЅМ'},
-    {e:'⭐',t:'Оцените заказ',  b:'Расскажите как прошла доставка. Нам важно ваше мнение!'},
+    {e:'⭐',t:'Оцените товары',  b:'Расскажите о блюдах или товарах из заказа — отзыв увидит ресторан или магазин.'},
   ];
 
   const HISTORY = [
