@@ -51,6 +51,12 @@ export function useOrderRoadKm<T extends RoadKmOrder | Order>(
     if (!enabled || !normalized.length) return;
     let cancelled = false;
     setLoading(true);
+    const pendingIds = new Set(normalized.map(o => o.id));
+    setRoadKm(prev => {
+      const next = { ...prev };
+      for (const id of pendingIds) delete next[id];
+      return next;
+    });
     fetchOrdersRoadKm(normalized, locations).then(map => {
       if (!cancelled) {
         setRoadKm(prev => ({ ...prev, ...map }));
@@ -58,7 +64,7 @@ export function useOrderRoadKm<T extends RoadKmOrder | Order>(
       }
     });
     return () => { cancelled = true; };
-  }, [enabled, ordersKey, locKey, normalized, locations]);
+  }, [enabled, ordersKey, locKey]);
 
   return { roadKm, loading };
 }

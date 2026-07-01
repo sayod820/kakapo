@@ -350,10 +350,9 @@ function getOrderKm(
   roadKm: Record<string, number>,
   liveKm?: number | null,
 ): number | null {
-  if (liveKm != null && liveKm > 0 && liveKm <= MAX_LOCAL_ROUTE_KM) return liveKm;
   const fromRoad = roadKm[o.id];
   if (fromRoad != null && fromRoad > 0 && fromRoad <= MAX_LOCAL_ROUTE_KM) return fromRoad;
-  if (o.distanceKm != null && o.distanceKm > 0 && o.distanceKm <= MAX_LOCAL_ROUTE_KM) return o.distanceKm;
+  if (liveKm != null && liveKm > 0 && liveKm <= MAX_LOCAL_ROUTE_KM) return liveKm;
   return null;
 }
 
@@ -1116,11 +1115,51 @@ function CourierAppInner() {
   const [acceptErr, setAcceptErr] = useState('');
   const [routeKmLive, setRouteKmLive] = useState<Record<string, number>>({});
   const [routePickupOrders, setRoutePickupOrders] = useState<Record<string, string[]>>({});
+  const orderRouteKeys = useMemo(
+    () => Object.fromEntries(
+      ordersForRoadKm.map(o => [
+        o.id,
+        `${(o.routePickupIds ?? o.pickupIds ?? []).join('.')}|${o.lat}|${o.lng}`,
+      ]),
+    ),
+    [ordersForRoadKm],
+  );
+  const prevRouteKeysRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    setRouteKmLive(prev => {
+      const next = { ...prev };
+      for (const [id, key] of Object.entries(orderRouteKeys)) {
+        if (prevRouteKeysRef.current[id] && prevRouteKeysRef.current[id] !== key) delete next[id];
+      }
+      prevRouteKeysRef.current = orderRouteKeys;
+      return next;
+    });
+  }, [orderRouteKeys]);
+
+  const onRouteKm = useCallback((orderId: string, km: number | null) => {
+    setRouteKmLive(prev => {
+      if (km == null) {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      }
+      return { ...prev, [orderId]: km };
+    });
+  }, []);
+
   const onRouteOrder = useCallback((orderId: string, pickupIds: string[]) => {
     setRoutePickupOrders(prev => ({ ...prev, [orderId]: pickupIds }));
   }, []);
+
   const kmForOrder = useCallback(
-    (o: { id: string; distanceKm?: number }) => getOrderKm(o, roadKm, routeKmLive[o.id]),
+    (o: { id: string; distanceKm?: number }) => {
+      const fromHook = roadKm[o.id];
+      const fromMap = routeKmLive[o.id];
+      if (fromHook != null && fromHook > 0) return fromHook;
+      if (fromMap != null && fromMap > 0) return fromMap;
+      return null;
+    },
     [roadKm, routeKmLive],
   );
   const deliveryFeeForOrder = useCallback(
@@ -1427,10 +1466,7 @@ function CourierAppInner() {
             ) : (
               <>
                 <div style={{ margin:'12px 0 0' }}>
-                  <LeafletMap key="orders-map" orders={mapOrders} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} onRouteKm={(id, km) => setRouteKmLive(prev => {
-                    if (km == null) { const n = { ...prev }; delete n[id]; return n; }
-                    return { ...prev, [id]: km };
-                  })} onRouteOrder={onRouteOrder} />
+                  <LeafletMap key="orders-map" orders={mapOrders} selected={selected} onSelect={setSelected} TARIFF={TARIFF} roadKm={roadKm} sheetOpen={!!selected} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} onRouteKm={onRouteKm} onRouteOrder={onRouteOrder} />
           </div>
 
                 {/* BOTTOM SHEET — детали заказа, фиксированный оверлей */}
@@ -1672,10 +1708,7 @@ function CourierAppInner() {
                   <div style={{ fontSize:11, color:'#3D6645' }}>Назад к списку доставок</div>
               </div>
             </div>
-              <LeafletMap key="active-map" orders={[active]} selected={active} onSelect={()=>{}} height={250} pickupIdx={pickupIdx} step={step} TARIFF={TARIFF} roadKm={roadKm} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} onRouteKm={(id, km) => setRouteKmLive(prev => {
-                if (km == null) { const n = { ...prev }; delete n[id]; return n; }
-                return { ...prev, [id]: km };
-              })} onRouteOrder={onRouteOrder} />
+              <LeafletMap key="active-map" orders={[active]} selected={active} onSelect={()=>{}} height={250} pickupIdx={pickupIdx} step={step} TARIFF={TARIFF} roadKm={roadKm} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} onRouteKm={onRouteKm} onRouteOrder={onRouteOrder} />
               <div style={{ padding:'16px 18px 110px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
                 <div>
