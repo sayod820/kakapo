@@ -733,8 +733,10 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 
   /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
   useEffect(() => {
+    if (!ready || !isMapAlive(mapRef.current) || !selected || !step) return;
     const routeIds = selected.routePickupIds ?? selected.pickupIds ?? [];
-    if (!ready || !isMapAlive(mapRef.current) || !selected || !step || !routeIds.length) return;
+    if (!routeIds.length) return;
+    const order = selected;
     const gen = mapGenRef.current;
     let cancelled = false;
 
@@ -744,7 +746,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 
       /* основная линия — магазин/ресторан(ы) → клиент (км и тариф; не от курьера) */
       const delivery = await fetchOrderDeliveryRoute(
-        { routePickupIds: routeIds, lat: selected.lat, lng: selected.lng },
+        { routePickupIds: routeIds, lat: order.lat, lng: order.lng },
         pickupLocRef.current,
       );
       if (cancelled || gen !== mapGenRef.current || !isMapAlive(mapRef.current)) return;
@@ -758,7 +760,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       if (pos && (step === 'toPickup' || step === 'toClient')) {
         const pids: string[] = routeIds;
         const navPoints = step === 'toClient'
-          ? [{ lat: pos.lat, lng: pos.lng }, { lat: selected.lat, lng: selected.lng }]
+          ? [{ lat: pos.lat, lng: pos.lng }, { lat: order.lat, lng: order.lng }]
           : (() => {
               const curPk = PICKUPS[pids[pickupIdx]] || PICKUPS.store;
               return [{ lat: pos.lat, lng: pos.lng }, { lat: curPk.lat, lng: curPk.lng }];
