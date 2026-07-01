@@ -161,16 +161,16 @@ export function getAllPickupIds(o: Order): string[] {
   return ids
 }
 
-/** Маршрут для расчёта км: только точки из заказа (магазин → ресторан(ы)), затем клиент */
+/** Маршрут для расчёта км: только реальные товары заказа (без лишних restIds) */
 export function resolveOrderRoutePickupIds(o: Order): string[] {
   const order = normalizeOrder(o)
-  const restIds = getRestIdsFromOrder(order)
   const hasMarket = hasMarketPart(order)
-  if (hasMarket || restIds.length) {
-    return resolveCheckoutPickupIds({ hasMarketItems: hasMarket, restIds })
-  }
-  const saved = (order.pickupIds || []).filter(Boolean)
-  return saved.length ? saved : ['store']
+  const restIds = [...new Set(
+    getRestItems(order.items)
+      .map(it => (it.restId ? String(it.restId) : ''))
+      .filter(Boolean),
+  )]
+  return resolveCheckoutPickupIds({ hasMarketItems: hasMarket, restIds })
 }
 
 export function isPickupPointReady(o: Order, pickupId: string): boolean {

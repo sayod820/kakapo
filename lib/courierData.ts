@@ -41,8 +41,8 @@ export type RoadKmOrderInput = {
 };
 
 function resolveRoutePickupIds(order: RoadKmOrderInput): string[] {
-  if (order.routePickupIds?.length) return order.routePickupIds;
-  if (order.pickupIds?.length) return order.pickupIds;
+  if (order.routePickupIds?.length) return [...new Set(order.routePickupIds)];
+  if (order.pickupIds?.length) return [...new Set(order.pickupIds)];
   return ['store'];
 }
 
@@ -175,16 +175,10 @@ export function buildOrderRoutePoints(
   return dedupeRoutePoints(points);
 }
 
-/** Маршрут участок за участком: дорога или прямая на каждом отрезке */
+/** Маршрут участок за участком: каждый отрезок — дорога или прямая (без объездов OSRM) */
 async function fetchRouteByLegs(points: { lat: number; lng: number }[]): Promise<RouteResult> {
   if (points.length < 2) {
     return { distanceKm: 0, durationMin: 0, geometry: points.map(p => [p.lat, p.lng] as [number, number]) };
-  }
-
-  try {
-    return await fetchOsrmRoute(points);
-  } catch {
-    /* по участкам: дорога, иначе прямая */
   }
 
   let totalKm = 0;

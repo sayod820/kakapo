@@ -744,7 +744,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
   /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
   useEffect(() => {
     if (!ready || !isMapAlive(mapRef.current) || !selected || !step) return;
-    const routeIds = selected.routePickupIds ?? selected.pickupIds ?? [];
+    const routeIds = selected.routePickupIds ?? [];
     if (!routeIds.length) return;
     const order = selected;
     const gen = mapGenRef.current;
@@ -760,12 +760,19 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         pickupLocRef.current,
       );
       if (cancelled || gen !== mapGenRef.current || !isMapAlive(mapRef.current)) return;
+      const map = mapRef.current;
       setLiveRouteKm(roundRouteKm(delivery.distanceKm));
       onRouteKmRef.current?.(order.id, roundRouteKm(delivery.distanceKm));
 
       routesRef.current.push(
-        L.polyline(delivery.geometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(mapRef.current)
+        L.polyline(delivery.geometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(map)
       );
+
+      if (delivery.geometry.length >= 2) {
+        try {
+          map.fitBounds(L.latLngBounds(delivery.geometry), { padding: [36, 36], maxZoom: 16 });
+        } catch { /* ignore */ }
+      }
 
       /* пунктир — где едет курьер (только если включён GPS) */
       const pos = courierPosRef.current;
