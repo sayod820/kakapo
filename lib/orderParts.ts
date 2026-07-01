@@ -110,17 +110,26 @@ export function getMarketStatus(o: Order): PartStatus {
   return 'new'
 }
 
+/** Заказ с отдельным статусом на каждый ресторан (смешанный, мульти-ресторан, market+rest) */
+export function orderUsesPerRestPartStatus(o: Order): boolean {
+  const order = normalizeOrder(o)
+  if (isMixedOrder(order)) return true
+  if (hasMarketPart(order) && hasRestPart(order)) return true
+  if (getRestIdsFromOrder(order).length > 1) return true
+  if (order.restParts && Object.keys(order.restParts).length > 0) return true
+  return false
+}
+
 export function getRestPartStatus(o: Order, restId: string): PartStatus {
+  const order = normalizeOrder(o)
   const key = String(restId)
-  if (o.restParts?.[key]) return o.restParts[key]
-  if (!hasRestPart(o, key)) return 'done'
-  if (!isMixedOrder(o) || !hasMarketPart(o)) {
-    if (o.status === 'ready' || o.status === 'assembler_done' || o.status === 'courier_picked' || o.status === 'delivering' || o.status === 'delivered') {
-      return 'done'
-    }
-    if (o.status === 'cooking') return 'cooking'
-    return 'new'
+  if (order.restParts?.[key]) return order.restParts[key]
+  if (!hasRestPart(order, key)) return 'done'
+  if (orderUsesPerRestPartStatus(order)) return 'new'
+  if (order.status === 'ready' || order.status === 'assembler_done' || order.status === 'courier_picked' || order.status === 'delivering' || order.status === 'delivered') {
+    return 'done'
   }
+  if (order.status === 'cooking') return 'cooking'
   return 'new'
 }
 
@@ -314,8 +323,18 @@ export function normalizeOrder(raw: Order): Order {
 
   if (type === 'mixed' && !order.restParts && restIds.length) {
     order.restParts = Object.fromEntries(
-      restIds.map(id => [id, getRestPartStatus({ ...order, restParts: {} }, id)]),
+      restIds.map(id => [id, 'new' as PartStatus]),
     ) as Record<string, PartStatus>
+  }
+
+  if (hasMarketPart(order) && hasRestPart(order) && order.type !== 'mixed') {
+    order.type = 'mixed'
+    if (!order.restParts && restIds.length) {
+      order.restParts = Object.fromEntries(
+        restIds.map(id => [id, 'new' as PartStatus]),
+      ) as Record<string, PartStatus>
+    }
+    if (!order.marketStatus) order.marketStatus = getMarketStatus(order)
   }
 
   if (hasMarketPart(order) && !order.marketStatus) {

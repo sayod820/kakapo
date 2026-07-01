@@ -619,7 +619,7 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
   const newOrders = orders.filter(o=>o.status==='new').length;
 
   const isOrderReady = (o) => {
-    if (o.status !== 'ready') return false
+    if (!['ready', 'courier_picked', 'delivering'].includes(o.status)) return false
     const raw = apiOrders.find(x => x.id === o.id)
     const pickupId = rest ? restIdToPickupId(rest.id) : ''
     const handedOff = pickupId ? (raw?.pickedUpIds || []).includes(pickupId) : false
@@ -679,7 +679,7 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
           const hasCourier = hasOrderCourierAssigned(raw?.courier)
           const handedOff = pickupId ? (raw?.pickedUpIds || []).includes(pickupId) : false
           const isReadyWaiting = o.status === 'ready' && !hasCourier
-          const isCourierAssigned = o.status === 'ready' && hasCourier && !handedOff
+          const isCourierAssigned = ['ready', 'courier_picked', 'delivering'].includes(o.status) && hasCourier && !handedOff
           const showHandoff = isCourierAssigned
           const cardBorder = o.status === 'new'
             ? 'rgba(255,69,69,.4)'

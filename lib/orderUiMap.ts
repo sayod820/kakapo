@@ -561,6 +561,22 @@ export function mapOrdersForCourier(orders: Order[]): import('./demoOrders').Dem
     .map(o => mapSingleOrderForCourier(o))
 }
 
+/** UI-статус части ресторана в кабинете партнёра */
+export function restaurantPartUiStatus(
+  order: Order,
+  restId: string,
+): 'new' | 'cooking' | 'ready' | 'courier_picked' | 'delivering' | 'delivered' {
+  const o = normalizeOrder(order)
+  const rid = String(restId)
+  if (o.status === 'delivered') return 'delivered'
+  const part = getRestPartStatus(o, rid)
+  if (part === 'done') {
+    if (['courier_picked', 'delivering'].includes(o.status)) return o.status
+    return 'ready'
+  }
+  return restPartToUiStatus(part)
+}
+
 /** Ресторан ещё ждёт передачи собранного заказа курьеру */
 export function isRestaurantHandoffPending(order: Order, restId: string): boolean {
   const o = normalizeOrder(order)
@@ -586,18 +602,9 @@ export function mapOrdersForRestaurant(orders: Order[], restId: string) {
     .map(o => {
       const order = normalizeOrder(o)
       const restItems = getRestItemsForOrder(order, rid)
-      const partStatus = (() => {
-        if (order.status === 'delivered') return 'delivered' as const
-        if (isMixedOrder(order)) {
-          const part = getRestPartStatus(order, restId)
-          if (part === 'done') {
-            if (['courier_picked', 'delivering'].includes(order.status)) return order.status
-            return 'ready'
-          }
-          return restPartToUiStatus(part)
-        }
-        return order.status
-      })()
+      const partStatus = hasRestPart(order, rid)
+        ? restaurantPartUiStatus(order, rid)
+        : (order.status === 'delivered' ? 'delivered' as const : order.status)
       return {
         id: order.id,
         time: order.createdAt || '',

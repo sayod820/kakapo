@@ -39,13 +39,41 @@ def get_market_status(order: dict) -> str:
     return "new"
 
 
+def _order_uses_per_rest_part_status(order: dict) -> bool:
+    items = order.get("items") or []
+    t = infer_type(order)
+    if t == "mixed":
+        return True
+    if _market_items(items) and _rest_items(items):
+        return True
+    rest_ids = set()
+    if order.get("restId"):
+        rest_ids.add(str(order["restId"]))
+    for rid in order.get("restIds") or []:
+        rest_ids.add(str(rid))
+    for it in _rest_items(items):
+        if it.get("restId"):
+            rest_ids.add(str(it["restId"]))
+    if len(rest_ids) > 1:
+        return True
+    if order.get("restParts"):
+        return True
+    return False
+
+
 def get_rest_part_status(order: dict, rest_id: str) -> str:
     parts = order.get("restParts") or {}
-    if rest_id in parts:
-        return parts[rest_id]
-    if not _rest_items(order.get("items") or [], rest_id):
+    key = str(rest_id)
+    if key in parts:
+        return parts[key]
+    has_part = bool(_rest_items(order.get("items") or [], rest_id))
+    if order.get("restIds") and key in [str(r) for r in order.get("restIds") or []]:
+        has_part = True
+    if str(order.get("restId") or "") == key:
+        has_part = True
+    if not has_part:
         return "done"
-    if infer_type(order) == "mixed":
+    if _order_uses_per_rest_part_status(order):
         return "new"
     st = order.get("status", "new")
     if st in ("ready", "assembler_done", "courier_picked", "delivering", "delivered"):

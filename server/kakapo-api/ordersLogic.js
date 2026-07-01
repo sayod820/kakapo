@@ -37,19 +37,29 @@ export function getMarketStatus(order) {
   return 'new'
 }
 
+function orderUsesPerRestPartStatus(order) {
+  const items = order.items || []
+  const t = inferType(order)
+  if (t === 'mixed') return true
+  if (marketItems(items).length > 0 && restItems(items).length > 0) return true
+  const ids = collectRestIds(order)
+  if (ids.length > 1) return true
+  if (order.restParts && Object.keys(order.restParts).length > 0) return true
+  return false
+}
+
 export function getRestPartStatus(order, restId) {
   const parts = order.restParts || {}
   const key = String(restId)
   if (parts[key]) return parts[key]
-  if (!restItems(order.items || [], restId).length) return 'done'
-  const mixed = inferType(order) === 'mixed'
-  const hasMarket = marketItems(order.items || []).length > 0
-  if (!mixed || !hasMarket) {
-    const st = order.status
-    if (['ready', 'assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(st)) return 'done'
-    if (st === 'cooking') return 'cooking'
-    return 'new'
-  }
+  const hasPart = restItems(order.items || [], restId).length > 0
+    || (order.restIds || []).map(String).includes(key)
+    || String(order.restId || '') === key
+  if (!hasPart) return 'done'
+  if (orderUsesPerRestPartStatus(order)) return 'new'
+  const st = order.status
+  if (['ready', 'assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(st)) return 'done'
+  if (st === 'cooking') return 'cooking'
   return 'new'
 }
 
