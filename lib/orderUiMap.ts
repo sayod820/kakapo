@@ -2,6 +2,7 @@ import type { Order, OrderStatus, OrderType } from './types'
 import type { AdminClient } from './clientCrm'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { enrichCourierOrderPayment, mapCourierPayLabel } from './courierPayment'
+import { normalizeClientCoords } from './courierData'
 import type { DemoCourierOrder } from './demoOrders'
 import { orderGoodsTotal } from './orderLoyaltyAmount'
 import { expectedOrderBonus } from './loyaltyBonus'
@@ -514,6 +515,7 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
   const acceptPickupIds = getCourierAcceptPickupIds(order)
   const routePickupIds = resolveOrderRoutePickupIds(order)
   const pendingParts = getPendingPartsForCourier(order)
+  const clientCoords = normalizeClientCoords(order.client?.lat, order.client?.lng)
   const base = {
     id: order.id,
     pickupIds: acceptPickupIds,
@@ -528,8 +530,8 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
     client: order.client?.name || '',
     phone: order.client?.phone || '',
     addr: order.client?.addr || '',
-    lat: order.client?.lat ?? 38.325,
-    lng: order.client?.lng ?? 69.028,
+    lat: clientCoords.lat,
+    lng: clientCoords.lng,
     weight: Math.round((order.weightKg ?? Math.max(1, (order.items?.reduce((s, i) => s + i.qty, 0) || 1) * 0.4)) * 10) / 10,
     pay: mapCourierPayLabel(order),
     time: order.createdAt || '',

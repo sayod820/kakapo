@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
-import { fetchOrdersRoadKm, type RoadKmOrderInput } from './courierData';
+import { fetchOrdersRoadKm, normalizeClientCoords, type RoadKmOrderInput } from './courierData';
 import { usePickupLocations } from './courierStore';
 import { normalizeOrder, resolveOrderRoutePickupIds } from './orderParts';
 import type { Order } from './types';
@@ -10,18 +10,20 @@ type RoadKmOrder = { id: string; distanceKm?: number } & RoadKmOrderInput;
 function normalizeRoadKmOrder(o: RoadKmOrder | Order): RoadKmOrder {
   if ('lat' in o && typeof o.lat === 'number' && 'lng' in o && typeof o.lng === 'number') {
     const mapped = o as RoadKmOrder;
-    if (mapped.routePickupIds?.length) return mapped;
+    const coords = normalizeClientCoords(mapped.lat, mapped.lng);
+    if (mapped.routePickupIds?.length) return { ...mapped, ...coords };
     if (mapped.pickupIds?.length) {
-      return { ...mapped, routePickupIds: mapped.pickupIds };
+      return { ...mapped, ...coords, routePickupIds: mapped.pickupIds };
     }
-    return mapped;
+    return { ...mapped, ...coords };
   }
   const order = normalizeOrder(o as Order);
   const routePickupIds = resolveOrderRoutePickupIds(order);
+  const coords = normalizeClientCoords(order.client?.lat, order.client?.lng);
   return {
     id: order.id,
-    lat: order.client?.lat ?? 38.325,
-    lng: order.client?.lng ?? 69.028,
+    lat: coords.lat,
+    lng: coords.lng,
     pickupIds: order.pickupIds,
     routePickupIds,
     distanceKm: order.distanceKm,

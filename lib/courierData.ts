@@ -46,6 +46,33 @@ function resolveRoutePickupIds(order: RoadKmOrderInput): string[] {
   return ['store'];
 }
 
+/** Зона доставки — Яван и окрестности */
+const SERVICE_BOUNDS = { latMin: 38.15, latMax: 38.55, lngMin: 68.85, lngMax: 69.25 };
+
+/** Координаты клиента: без 0,0, без перепутанных lat/lng */
+export function normalizeClientCoords(lat?: number | null, lng?: number | null): { lat: number; lng: number } {
+  let la = Number(lat);
+  let ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) {
+    return { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng };
+  }
+  if (la > 60 && la < 75 && ln > 35 && ln < 45) [la, ln] = [ln, la];
+  const ok = la >= SERVICE_BOUNDS.latMin && la <= SERVICE_BOUNDS.latMax
+    && ln >= SERVICE_BOUNDS.lngMin && ln <= SERVICE_BOUNDS.lngMax
+    && !(Math.abs(la) < 0.01 && Math.abs(ln) < 0.01);
+  if (!ok) return { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng };
+  return { lat: la, lng: ln };
+}
+
+function dedupeRoutePoints(points: { lat: number; lng: number }[]): { lat: number; lng: number }[] {
+  const out: { lat: number; lng: number }[] = [];
+  for (const p of points) {
+    const near = out.some(q => calcDistanceKm(q.lat, q.lng, p.lat, p.lng) < 0.08);
+    if (!near) out.push(p);
+  }
+  return out.length >= 2 ? out : points;
+}
+
 /** Точки маршрута ДОСТАВКИ: магазин → ресторан(ы) → клиент по дорогам (OSRM). Без курьера. */
 export function buildOrderRoutePoints(
   order: RoadKmOrderInput,
@@ -53,12 +80,13 @@ export function buildOrderRoutePoints(
 ): { lat: number; lng: number }[] {
   const fallback = locations.store ?? { lat: STORE_LOCATION.lat, lng: STORE_LOCATION.lng, name: STORE_LOCATION.name };
   const pickupIds = resolveRoutePickupIds(order);
+  const client = normalizeClientCoords(order.lat, order.lng);
   const points = pickupIds.map(id => {
     const p = locations[id] ?? fallback;
     return { lat: p.lat, lng: p.lng };
   });
-  points.push({ lat: order.lat, lng: order.lng });
-  return points;
+  points.push(client);
+  return dedupeRoutePoints(points);
 }
 
 /** Полный маршрут доставки по дорогам (для карты и км) */
