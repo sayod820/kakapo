@@ -566,13 +566,28 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
   const roadKmRef = useRef(roadKm);
   const courierPosRef = useRef(courierPos);
   const pickupLocRef = useRef(pickupLocations);
+  const routeVersionRef = useRef(0);
+  const autoFittingRef = useRef(false);
+  const userMovedMapRef = useRef(false);
+  const fittedRouteKeyRef = useRef('');
+  const lastRouteFetchKeyRef = useRef('');
   const [ready, setReady] = useState(false);
   const [liveRouteKm, setLiveRouteKm] = useState<number | null>(null);
+
+  const routePickupKey = (selected?.routePickupIds ?? []).join('.');
+  const routeFetchKey = selected && step
+    ? `${selected.id}|${routePickupKey}|${selected.lat}|${selected.lng}|${JSON.stringify(pickupLocations)}`
+    : '';
 
   useEffect(() => { roadKmRef.current = roadKm; }, [roadKm]);
   useEffect(() => { courierPosRef.current = courierPos; }, [courierPos]);
   useEffect(() => { pickupLocRef.current = pickupLocations; }, [pickupLocations]);
   useEffect(() => { setLiveRouteKm(null); }, [selected?.id, step]);
+  useEffect(() => {
+    userMovedMapRef.current = false;
+    fittedRouteKeyRef.current = '';
+    lastRouteFetchKeyRef.current = '';
+  }, [selected?.id]);
   const onRouteKmRef = useRef(onRouteKm);
   onRouteKmRef.current = onRouteKm;
 
@@ -616,10 +631,13 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         inertia: false,
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+      map.on('movestart zoomstart', () => {
+        if (!autoFittingRef.current) userMovedMapRef.current = true;
+      });
       mapRef.current = map;
       map.whenReady(() => {
         if (cancelled || gen !== mapGenRef.current) return;
-        applyDefaultMapView(map);
+        if (!step) applyDefaultMapView(map);
         setReady(true);
       });
     });
@@ -746,20 +764,22 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 
   /* маршрут доставки: магазин/ресторан → клиент (+ пунктир курьера при активной доставке) */
   useEffect(() => {
-    if (!ready || !isMapAlive(mapRef.current) || !selected || !step) return;
+    if (!ready || !isMapAlive(mapRef.current) || !selected || !step || !routeFetchKey) return;
+    if (lastRouteFetchKeyRef.current === routeFetchKey && routeRef.current) return;
     const routeIds = selected.routePickupIds ?? [];
     if (!routeIds.length) return;
     const order = selected;
     const gen = mapGenRef.current;
+    const routeVersion = ++routeVersionRef.current;
     let cancelled = false;
+    const routeKey = `${order.id}:${routeIds.join('.')}:${order.lat}:${order.lng}`;
 
     import('leaflet').then(async L => {
-      /* основная линия — магазин/ресторан(ы) → клиент (км и тариф; не от курьера) */
       const delivery = await fetchOrderDeliveryRoute(
         { routePickupIds: routeIds, lat: order.lat, lng: order.lng },
         pickupLocRef.current,
       );
-      if (cancelled || gen !== mapGenRef.current || !isMapAlive(mapRef.current)) return;
+      if (cancelled || gen !== mapGenRef.current || routeVersion !== routeVersionRef.current || !isMapAlive(mapRef.current)) return;
       const map = mapRef.current;
       setLiveRouteKm(roundRouteKm(delivery.distanceKm));
       onRouteKmRef.current?.(order.id, roundRouteKm(delivery.distanceKm));
@@ -770,23 +790,30 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
             const pk = PICKUPS[pid] || PICKUPS.store;
             return [pk.lat, pk.lng] as [number, number];
           }).concat([[order.lat, order.lng] as [number, number]]);
-      try { routeRef.current?.remove(); } catch {}
-      routeRef.current = L.polyline(routeGeometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(map);
 
-      if (routeGeometry.length >= 2) {
-        try {
-          map.fitBounds(L.latLngBounds(routeGeometry), { padding: [36, 36], maxZoom: 16 });
-        } catch { /* ignore */ }
+      if (routeRef.current) {
+        routeRef.current.setLatLngs(routeGeometry);
+      } else {
+        routeRef.current = L.polyline(routeGeometry, { color: '#1FD760', weight: 5, opacity: 0.9 }).addTo(map);
       }
+      lastRouteFetchKeyRef.current = routeFetchKey;
 
+      if (routeGeometry.length >= 2 && !userMovedMapRef.current && fittedRouteKeyRef.current !== routeKey) {
+        try {
+          autoFittingRef.current = true;
+          map.fitBounds(L.latLngBounds(routeGeometry), { padding: [36, 36], maxZoom: 16 });
+          fittedRouteKeyRef.current = routeKey;
+        } catch { /* ignore */ }
+        finally {
+          window.setTimeout(() => { autoFittingRef.current = false; }, 150);
+        }
+      }
     });
 
     return () => {
       cancelled = true;
-      try { routeRef.current?.remove(); } catch {}
-      routeRef.current = null;
     };
-  }, [ready, selected, step, pickupLocations]);
+  }, [ready, routeFetchKey, step]);
 
   useEffect(() => {
     if (!ready || !isMapAlive(mapRef.current) || !selected || !step) return;
@@ -799,6 +826,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     const routeIds = selected.routePickupIds ?? [];
     if (!routeIds.length) return;
     const order = selected;
+    const gen = mapGenRef.current;
     let cancelled = false;
 
     import('leaflet').then(async L => {
@@ -810,20 +838,22 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
             return [{ lat: pos.lat, lng: pos.lng }, { lat: curPk.lat, lng: curPk.lng }];
           })();
       const nav = await fetchRoute(navPoints);
-      if (cancelled || !isMapAlive(mapRef.current)) return;
-      try { navRouteRef.current?.remove(); } catch {}
-      navRouteRef.current = L.polyline(nav.geometry, {
-        color: step === 'toClient' ? '#3B8EF0' : '#FFB800',
-        weight: 3, opacity: 0.55, dashArray: '8 6',
-      }).addTo(mapRef.current);
+      if (cancelled || gen !== mapGenRef.current || !isMapAlive(mapRef.current)) return;
+      const navGeometry = nav.geometry;
+      if (navRouteRef.current) {
+        navRouteRef.current.setLatLngs(navGeometry);
+      } else {
+        navRouteRef.current = L.polyline(navGeometry, {
+          color: step === 'toClient' ? '#3B8EF0' : '#FFB800',
+          weight: 3, opacity: 0.55, dashArray: '8 6',
+        }).addTo(mapRef.current);
+      }
     });
 
     return () => {
       cancelled = true;
-      try { navRouteRef.current?.remove(); } catch {}
-      navRouteRef.current = null;
     };
-  }, [ready, selected, pickupIdx, step, courierPos, pickupLocations]);
+  }, [ready, selected?.id, selected?.lat, selected?.lng, routePickupKey, pickupIdx, step, courierPos?.lat, courierPos?.lng, PICKUPS]);
 
   const displayKm = selected ? getOrderKm(selected, roadKm, liveRouteKm) : null;
 
