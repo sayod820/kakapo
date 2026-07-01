@@ -45,23 +45,53 @@ export function saveLocalReview(orderId: string, review: Review, phone?: string,
   saveAccountJson(ACCOUNT_NS.reviewsLocal, map, phone)
 }
 
+export function sortReviewsNewestFirst(list: Review[]): Review[] {
+  return [...list].sort((a, b) => {
+    const ta = a.createdAt || a.date || ''
+    const tb = b.createdAt || b.date || ''
+    return tb.localeCompare(ta)
+  })
+}
+
+export function avgReviewRating(list: Review[]): number | null {
+  if (!list.length) return null
+  const sum = list.reduce((s, r) => s + (Number(r.rating) || 0), 0)
+  return Math.round((sum / list.length) * 10) / 10
+}
+
+export function resolveReviewPlaceName(
+  restId: string,
+  review?: Pick<Review, 'restName'>,
+  restaurants: { id: string; name?: string; emoji?: string }[] = [],
+): string {
+  if (restId === STORE_REVIEW_REST_ID) return '🏪 КАКАПО Магазин'
+  const r = restaurants.find(x => x.id === restId)
+  if (r) return `${r.emoji || '🍽'} ${r.name}`
+  if (review?.restName) return review.restName
+  return 'Ресторан'
+}
+
 export async function loadClientReviewMap(
   apiOrders: Order[],
   user?: { phone?: string; name?: string } | null,
 ): Promise<Record<string, Review>> {
   if (!USE_API) return loadLocalReviews(user?.phone || getClientPhone(user))
   const list = await api.getReviews()
-  const mine = getClientPhone(user)
   const orderIds = getClientOrderIds(apiOrders, user)
+  const name = (user?.name || '').trim().toLowerCase()
   const map: Record<string, Review> = {}
   list.forEach(r => {
     const oid = r.orderId ? String(r.orderId) : ''
     const byOrder = oid && orderIds.has(oid)
-    const byPhone = mine && phoneDigits(r.client || '') === mine
-    if (!byOrder && !byPhone) return
+    const byName = name && (r.client || '').trim().toLowerCase() === name
+    if (!byOrder && !byName) return
     if (!oid) return
     const key = clientReviewKey(oid, String(r.restId || STORE_REVIEW_REST_ID))
     map[key] = r
   })
+  const local = loadLocalReviews(user?.phone || getClientPhone(user))
+  for (const [key, rev] of Object.entries(local)) {
+    if (!map[key]) map[key] = rev
+  }
   return map
 }

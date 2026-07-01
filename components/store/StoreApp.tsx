@@ -59,7 +59,7 @@ import { mergeWishData, saveRemoteWish, wishBundleFromClient } from "@/lib/clien
 import { formatMemberSinceLabel, qualifiesForDebtSection } from "@/lib/cardCrm";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import ClientAddressEditorSheet from "@/components/store/ClientAddressEditorSheet";
-import { loadClientReviewMap, loadLocalReviews, saveLocalReview } from "@/lib/clientReviews";
+import { loadClientReviewMap, loadLocalReviews, saveLocalReview, sortReviewsNewestFirst, resolveReviewPlaceName, avgReviewRating } from "@/lib/clientReviews";
 import { getLoyaltyProgress, LOYALTY_TIERS, mergeStoreUserWithCrmLoyalty, resolveAdminVipActive } from "@/lib/clientLoyalty";
 import { loyaltyLockFromRecord, isManualLoyaltyActive } from "@/lib/loyaltyAdminLock";
 import { syncLoyaltyBonuses, deliveredOrdersNeedingBonusSync } from "@/lib/loyaltyBonus";
@@ -1697,7 +1697,8 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   }
   const qty = cart[p.id] || 0;
   const [tab, setTab] = useState("desc");
-  const [myRating, setMyRating] = useState(0);
+  const [storeReviews, setStoreReviews] = useState<Review[]>([]);
+  const [revLoading, setRevLoading] = useState(false);
   const photo = useProductPhotos(s => s.photos[p.id]);
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const pCat = productCatSlug(p);
@@ -1709,6 +1710,19 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const lineTotal = calcLineTotal(p, qty);
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
+  useEffect(() => {
+    if (tab !== "rev") return;
+    if (!USE_API) {
+      setStoreReviews([]);
+      setRevLoading(false);
+      return;
+    }
+    setRevLoading(true);
+    api.getReviews("STORE")
+      .then(list => setStoreReviews(sortReviewsNewestFirst(list).slice(0, 12)))
+      .catch(() => setStoreReviews([]))
+      .finally(() => setRevLoading(false));
+  }, [tab]);
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -1783,22 +1797,36 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         )}
         {tab==="rev" && (
           <div style={{ animation:"fadeIn .3s ease" }}>
-            {[{name:"Диловар Р.",av:"Д",r:5,d:"12 мая",t:"Отличное качество! Буду заказывать снова."},{name:"Нилуфар Х.",av:"Н",r:4,d:"10 мая",t:"Хороший товар, доставили быстро."}].map((rv,i) => (
-              <div key={i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px", marginBottom:10 }}>
+            <div style={{ padding:"12px 14px", borderRadius:14, background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.22)", marginBottom:14, fontSize:12, color:"var(--t2)", lineHeight:1.55 }}>
+              Отзывы о товарах оставляются после доставки заказа — в разделе <button type="button" onClick={() => go("orders")} className="btn" style={{ display:"inline", padding:0, background:"transparent", border:"none", color:"var(--gd)", fontWeight:800, fontSize:12 }}>Мои заказы</button>.
+            </div>
+            {revLoading && <div style={{ textAlign:"center", padding:24, color:"var(--t3)", fontSize:13 }}>Загрузка отзывов…</div>}
+            {!revLoading && storeReviews.length === 0 && (
+              <div style={{ textAlign:"center", padding:"28px 16px", color:"var(--t3)", fontSize:13 }}>
+                Пока нет отзывов о товарах магазина
+              </div>
+            )}
+            {!revLoading && storeReviews.map((rv, i) => (
+              <div key={rv.id || i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px", marginBottom:10 }}>
                 <div style={{ display:"flex", gap:10, marginBottom:8 }}>
-                  <div style={{ width:36, height:36, borderRadius:"50%", background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:14, fontWeight:900, color:"var(--bg)", flexShrink:0 }}>{rv.av}</div>
-                  <div><div style={{ fontSize:13, fontWeight:700 }}>{rv.name}</div><div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2 }}><Stars r={rv.r} s={9}/><span style={{ fontSize:10, color:"var(--t3)" }}>{rv.d}</span></div></div>
+                  <div style={{ width:36, height:36, borderRadius:"50%", background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:14, fontWeight:900, color:"var(--bg)", flexShrink:0 }}>{(rv.client || "К").charAt(0)}</div>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700 }}>{rv.client}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2 }}>
+                      <Stars r={rv.rating} s={9}/>
+                      <span style={{ fontSize:10, color:"var(--t3)" }}>{rv.date}</span>
+                      {rv.orderId && <span style={{ fontSize:10, color:"var(--t3)" }}>· {rv.orderId}</span>}
+                    </div>
+                  </div>
                 </div>
-                <p style={{ fontSize:12, color:"var(--t2)", lineHeight:1.6 }}>{rv.t}</p>
+                <p style={{ fontSize:12, color:"var(--t2)", lineHeight:1.6 }}>{rv.text}</p>
+                {(rv.adminReply || rv.restReply) && (
+                  <div style={{ marginTop:8, fontSize:11, color:"var(--blue)", padding:"8px 10px", background:"rgba(59,142,240,.08)", borderRadius:10 }}>
+                    {rv.adminReply || rv.restReply}
+                  </div>
+                )}
               </div>
             ))}
-            <div style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"16px" }}>
-              <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>Ваша оценка:</div>
-              <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-                {[1,2,3,4,5].map(i => <svg key={i} width={30} height={30} viewBox="0 0 24 24" style={{ cursor:"pointer" }} onClick={() => setMyRating(i)}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=myRating?"#FFB800":"rgba(255,184,0,.15)"} stroke="#FFB800" strokeWidth={1}/></svg>)}
-              </div>
-              <button className="btn" style={{ width:"100%", padding:"12px", borderRadius:13, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13, display:"flex", alignItems:"center", justifyContent:"center", gap:7, opacity:myRating>0?1:.5 }}><Ic n="star" s={15} c="white"/>Отправить отзыв</button>
-            </div>
           </div>
         )}
         {related.length > 0 && (
@@ -3039,23 +3067,22 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     const restId = reviewTarget.restId;
     const prompt = reviewPromptForTarget(reviewTarget);
     const reviewKey = clientReviewKey(showRev.id, restId);
+    let created: Review | null = null;
     if (USE_API) {
       try {
-        const created = await api.createReview({
+        created = await api.createReview({
           orderId: showRev.id,
           restId,
           client: user?.name || raw?.client?.name || showRev.phone || "Клиент",
           rating,
           text: reviewText.trim() || `${"★".repeat(rating)}`,
         });
-        setReviewed(r => ({ ...r, [reviewKey]: created }));
       } catch (e) {
         showToast?.(e?.message || "Не удалось отправить отзыв");
         return;
       }
-    }
-    if (!USE_API) {
-      const created = {
+    } else {
+      created = {
         id: Date.now(),
         restId,
         client: user?.name || 'Клиент',
@@ -3065,7 +3092,16 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
         status: 'new',
       } as Review;
       saveLocalReview(showRev.id, created, user?.phone, restId);
-      setReviewed(r => ({ ...r, [reviewKey]: created }));
+    }
+    const nextReviewed = { ...reviewed, [reviewKey]: created };
+    setReviewed(nextReviewed);
+    const pending = getPendingReviewTargets(raw, nextReviewed);
+    if (pending.length > 0) {
+      setReviewTarget(pending[0]);
+      setRating(0);
+      setReviewText("");
+      showToast?.(`Ещё отзыв: ${resolveReviewTargetLabel(pending[0], restaurants)}`);
+      return;
     }
     setShowRev(null);
     setReviewTarget(null);
@@ -3098,6 +3134,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   };
   const reviewModalPrompt = reviewTarget ? reviewPromptForTarget(reviewTarget) : null;
   const reviewModalLabel = reviewTarget ? resolveReviewTargetLabel(reviewTarget, restaurants) : '';
+  const reviewModalOrder = showRev ? resolveOrderForReview(showRev.id, apiOrders, showRev) : null;
+  const reviewModalTotal = reviewModalOrder ? getClientReviewTargets(reviewModalOrder).length : 0;
+  const reviewModalDone = reviewModalOrder && reviewTarget
+    ? getClientReviewTargets(reviewModalOrder).findIndex(t => t.restId === reviewTarget.restId) + 1
+    : 0;
   const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
   const ST = OSTATUS;
   const selectedContacts = selected ? orderContacts(selected.id) : [];
@@ -3235,7 +3276,10 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:480, background:"var(--l1)", borderTop:"1px solid var(--b1)", borderRadius:"24px 24px 0 0", padding:"20px 20px 36px", animation:"slideUp .4s cubic-bezier(.16,1,.3,1)" }}>
             <div style={{ width:40, height:4, borderRadius:2, background:"var(--b2)", margin:"0 auto 16px" }}/>
             <div style={{ fontSize:16, fontWeight:800, textAlign:"center", marginBottom:4 }}>{reviewModalPrompt.title}</div>
-            <div style={{ fontSize:12, color:"var(--t2)", textAlign:"center", marginBottom:16 }}>{reviewModalLabel} · {showRev.id}</div>
+            <div style={{ fontSize:12, color:"var(--t2)", textAlign:"center", marginBottom:16 }}>
+              {reviewModalLabel} · {showRev.id}
+              {reviewModalTotal > 1 && <span style={{ display:"block", marginTop:4, color:"var(--gd)" }}>Отзыв {reviewModalDone} из {reviewModalTotal}</span>}
+            </div>
             <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:10 }}>
               {[1,2,3,4,5].map(i => <svg key={i} width={36} height={36} viewBox="0 0 24 24" style={{ cursor:"pointer" }} onClick={() => setRating(i)}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=rating?"#FFB800":"rgba(255,184,0,.12)"} stroke="#FFB800" strokeWidth={1}/></svg>)}
             </div>
@@ -3359,7 +3403,10 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:480, background:"var(--l1)", borderTop:"1px solid var(--b1)", borderRadius:"24px 24px 0 0", padding:"20px 20px 36px", animation:"slideUp .4s cubic-bezier(.16,1,.3,1)" }}>
             <div style={{ width:40, height:4, borderRadius:2, background:"var(--b2)", margin:"0 auto 16px" }}/>
             <div style={{ fontSize:16, fontWeight:800, textAlign:"center", marginBottom:4 }}>{reviewModalPrompt.title}</div>
-            <div style={{ fontSize:12, color:"var(--t2)", textAlign:"center", marginBottom:16 }}>{reviewModalLabel}</div>
+            <div style={{ fontSize:12, color:"var(--t2)", textAlign:"center", marginBottom:16 }}>
+              {reviewModalLabel}
+              {reviewModalTotal > 1 && <span style={{ display:"block", marginTop:4, color:"var(--gd)" }}>Отзыв {reviewModalDone} из {reviewModalTotal}</span>}
+            </div>
             <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:10 }}>
               {[1,2,3,4,5].map(i => <svg key={i} width={36} height={36} viewBox="0 0 24 24" style={{ cursor:"pointer" }} onClick={() => setRating(i)}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=rating?"#FFB800":"rgba(255,184,0,.12)"} stroke="#FFB800" strokeWidth={1}/></svg>)}
             </div>
@@ -3396,7 +3443,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
     }
     try {
       const map = await loadClientReviewMap(apiOrders, user);
-      setReviews(Object.values(map).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+      setReviews(sortReviewsNewestFirst(Object.values(map)));
     } catch {
       setReviews([]);
     } finally {
@@ -3456,7 +3503,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
             <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
             <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>Пока нет отзывов</div>
             <div style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, marginBottom: 20 }}>
-              После доставки заказа из ресторана вы сможете оценить блюда и получить ответ от ресторана
+              После доставки заказа оцените товары магазина или блюда ресторана — ответ придёт сюда
             </div>
             <button onClick={() => go("orders")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white", fontSize: 13 }}>
               Перейти к заказам
@@ -3464,12 +3511,12 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
           </div>
         )}
         {!loading && reviews.map((rev, i) => {
-          const rest = restaurants.find(r => r.id === rev.restId);
+          const place = resolveReviewPlaceName(rev.restId, rev, restaurants);
           return (
             <div key={rev.id} id={`client-review-${rev.id}`} className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 12, animation: `fadeUp .4s ease ${i * .06}s both`, border: highlightId === rev.id ? "1px solid rgba(59,142,240,.45)" : undefined, boxShadow: highlightId === rev.id ? "0 0 0 1px rgba(59,142,240,.15)" : undefined }}>
               <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 800 }}>{rest?.name || rev.restName || "Ресторан"}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800 }}>{place}</div>
                   {rev.orderId && <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>Заказ {rev.orderId}</div>}
                 </div>
                 {(rev.adminReply || rev.restReply) && (
@@ -7989,11 +8036,23 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const { restaurants, prods } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
+  const [restReviews, setRestReviews] = useState<Review[]>([]);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
   const totalQtyNum = sumCartUnits(cart || {}, prods);
 
   useEffect(() => {
     setActiveCat(ALL_REST_MENU);
+  }, [r?.id]);
+
+  useEffect(() => {
+    if (!r?.id) return;
+    if (!USE_API) {
+      setRestReviews([]);
+      return;
+    }
+    api.getReviews(r.id)
+      .then(list => setRestReviews(sortReviewsNewestFirst(list).slice(0, 6)))
+      .catch(() => setRestReviews([]));
   }, [r?.id]);
 
   if (!r) return null;
@@ -8126,6 +8185,25 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
             </div>
           );
         })}
+
+        {restReviews.length > 0 && (
+          <div style={{ marginTop: 18, paddingTop: 18, borderTop: "1px solid var(--b1)" }}>
+            <div style={{ fontFamily: "Unbounded", fontSize: 14, fontWeight: 800, marginBottom: 12 }}>Отзывы клиентов</div>
+            {restReviews.map((rev, i) => (
+              <div key={rev.id || i} style={{ padding: "12px 14px", background: "var(--l2)", border: "1px solid var(--b1)", borderRadius: 14, marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{rev.client}</span>
+                  <span style={{ fontSize: 10, color: "var(--t3)" }}>{rev.date}</span>
+                </div>
+                <div style={{ marginBottom: 6 }}><Stars r={rev.rating} s={10} /></div>
+                <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.55 }}>{rev.text}</div>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: "var(--t3)", textAlign: "center" }}>
+              Оценить блюда можно после доставки заказа
+            </div>
+          </div>
+        )}
       </div>
 
       {totalQtyNum>0&&(
@@ -8135,13 +8213,6 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
     </div>
   );
 };
-const REVIEWS_DATA = [
-  {id:1,restId:'R-01',client:'Зафар М.',  rating:2,text:'Долго ждали, еда была холодная',  date:'16 мая',status:'new'},
-  {id:2,restId:'R-02',client:'Лола К.',   rating:5,text:'Отличная пицца! Быстро доставили',date:'15 мая',status:'read'},
-  {id:3,restId:'R-03',client:'Бахром Т.', rating:4,text:'Вкусные роллы, но дорого',        date:'15 мая',status:'read'},
-  {id:4,restId:'R-01',client:'Нилуфар С.',rating:1,text:'Неправильный заказ привезли',     date:'14 мая',status:'new'},
-];
-
 const ASSEMBLERS_DATA = [
   {id:'A-01',name:'Камола Юсупова', phone:'+992 93 500 11 22',status:'active',ordersToday:12,avgTime:8, rating:4.9},
   {id:'A-02',name:'Шахло Рахимова', phone:'+992 93 500 33 44',status:'active',ordersToday:9, avgTime:11,rating:4.7},
@@ -8737,19 +8808,61 @@ const AdminPartnersPage = ({go}) => {
 };
 
 const AdminReviewsPage = ({go}) => {
-  const [reviews, setReviews] = useState(REVIEWS_DATA);
-  const [filter,  setFilter]  = useState('all');
-  const newCount = reviews.filter(r=>r.status==='new').length;
-  const filtered = filter==='all'?reviews:filter==='new'?reviews.filter(r=>r.status==='new'):reviews.filter(r=>String(r.rating)===filter);
-  const markRead = (id) => setReviews(rs=>rs.map(r=>r.id===id?{...r,status:'read'}:r));
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [filter, setFilter] = useState('all');
+  const [loading, setLoading] = useState(false);
+  const [replyId, setReplyId] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState('');
+
+  const loadReviews = async () => {
+    if (!USE_API) {
+      setReviews([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const list = await api.getReviews();
+      setReviews(sortReviewsNewestFirst(list));
+    } catch {
+      setReviews([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadReviews(); }, []);
+
+  const patchReview = async (id: number, data: Partial<Review>) => {
+    if (USE_API) {
+      try {
+        const updated = await api.updateReview(id, data);
+        setReviews(rs => rs.map(r => r.id === id ? { ...r, ...updated } : r));
+        return;
+      } catch { /* local fallback */ }
+    }
+    setReviews(rs => rs.map(r => r.id === id ? { ...r, ...data } : r));
+  };
+
+  const newCount = reviews.filter(r => r.status === 'new').length;
+  const filtered = filter === 'all'
+    ? reviews
+    : filter === 'new'
+      ? reviews.filter(r => r.status === 'new')
+      : reviews.filter(r => String(r.rating) === filter);
+  const avg = avgReviewRating(reviews);
 
   return (
-    <AdminWrap go={go} title="Отзывы" subtitle="Жалобы и отзывы клиентов на рестораны">
+    <AdminWrap go={go} title="Отзывы" subtitle="Жалобы и отзывы клиентов на рестораны и магазин">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+        <button onClick={loadReviews} className="ab" style={{ padding: '6px 12px', fontSize: 11 }} disabled={loading}>
+          {loading ? '…' : '↻ Обновить'}
+        </button>
+      </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
         {[
           {l:'Всего отзывов',v:reviews.length,c:'#EBF5ED'},
           {l:'Новых',v:newCount,c:'#FF4545'},
-          {l:'Средний рейтинг',v:'4.5 ★',c:'#FFB800'},
+          {l:'Средний рейтинг',v:avg != null ? `${avg} ★` : '—',c:'#FFB800'},
           {l:'Жалоб (1-2 ★)',v:reviews.filter(r=>r.rating<=2).length,c:'#FF4545'},
         ].map((s,i)=>(
           <div key={i} className="ac" style={{padding:'14px 16px'}}>
@@ -8766,35 +8879,60 @@ const AdminReviewsPage = ({go}) => {
           </button>
         ))}
       </div>
+      {loading && <div style={{ textAlign: 'center', padding: 32, color: '#8FB897' }}>Загрузка…</div>}
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 40, color: '#8FB897' }}>Пока нет отзывов</div>
+      )}
       <div style={{display:'flex',flexDirection:'column',gap:12}}>
         {filtered.map((rev,i)=>{
-          const rest = RESTAURANTS.find(r=>r.id===rev.restId);
+          const place = resolveReviewPlaceName(rev.restId, rev, RESTAURANTS);
           return (
             <div key={rev.id} className="ac" style={{padding:'15px 17px',border:`1.5px solid ${rev.status==='new'?'rgba(255,69,69,.3)':'#162B1A'}`,animation:`fadeIn .4s ease ${i*.06}s both`}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
                 <div style={{display:'flex',alignItems:'center',gap:10}}>
-                  <div style={{width:36,height:36,borderRadius:'50%',background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#030B05',flexShrink:0}}>{rev.client.charAt(0)}</div>
+                  <div style={{width:36,height:36,borderRadius:'50%',background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#030B05',flexShrink:0}}>{(rev.client || 'К').charAt(0)}</div>
                   <div>
                     <div style={{fontSize:13,fontWeight:700}}>{rev.client}</div>
-                    <div style={{display:'flex',gap:2,marginTop:2}}>
+                    <div style={{display:'flex',gap:2,marginTop:2,alignItems:'center',flexWrap:'wrap'}}>
                       {[1,2,3,4,5].map(s=><span key={s} style={{fontSize:12,color:s<=rev.rating?'#FFB800':'#1D3822'}}>★</span>)}
                       <span style={{fontSize:10,color:'#3D6645',marginLeft:4}}>{rev.date}</span>
+                      {rev.orderId && <span style={{ fontSize: 10, color: '#3D6645' }}>· {rev.orderId}</span>}
                     </div>
                   </div>
                 </div>
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <span style={{padding:'2px 9px',borderRadius:8,fontSize:11,background:'rgba(0,0,0,.3)',border:'1px solid #162B1A',color:'#8FB897'}}>{rest?.emoji} {rest?.name}</span>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                  <span style={{padding:'2px 9px',borderRadius:8,fontSize:11,background:'rgba(0,0,0,.3)',border:'1px solid #162B1A',color:'#8FB897'}}>{place}</span>
                   {rev.status==='new'&&<span style={{padding:'2px 8px',borderRadius:7,fontSize:10,fontWeight:800,background:'rgba(255,69,69,.12)',color:'#FF4545',border:'1px solid rgba(255,69,69,.28)'}}>Новый</span>}
                 </div>
               </div>
               <div style={{fontSize:13,color:'#EBF5ED',lineHeight:1.6,marginBottom:10,padding:'10px 13px',background:'#0C1C0F',borderRadius:10,border:'1px solid #162B1A'}}>
-                "{rev.text}"
+                "{rev.text || 'Без комментария'}"
               </div>
-              <div style={{display:'flex',gap:8}}>
-                {rev.status==='new'&&<button onClick={()=>markRead(rev.id)} className="ab abg" style={{padding:'5px 13px',fontSize:11}}>✓ Прочитано</button>}
-                <button className="ab" style={{padding:'5px 13px',fontSize:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0'}}>💬 Ответить</button>
-                {rev.rating<=2&&<button className="ab abd" style={{padding:'5px 13px',fontSize:11}}>⚠️ Предупредить ресторан</button>}
-              </div>
+              {rev.adminReply && (
+                <div style={{ fontSize: 12, color: '#3B8EF0', marginBottom: 10, padding: '8px 12px', background: 'rgba(59,142,240,.08)', borderRadius: 9 }}>
+                  💬 КАКАПО: {rev.adminReply}
+                </div>
+              )}
+              {rev.restReply && (
+                <div style={{ fontSize: 12, color: '#1FD760', marginBottom: 10, padding: '8px 12px', background: 'rgba(31,215,96,.08)', borderRadius: 9 }}>
+                  🍽 Ответ: {rev.restReply}
+                </div>
+              )}
+              {replyId === rev.id ? (
+                <div>
+                  <textarea className="ai" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Ответ клиенту от КАКАПО…" rows={2} style={{ marginBottom: 8, resize: 'vertical' }} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => { patchReview(rev.id, { adminReply: replyText, status: 'read' }); setReplyId(null); setReplyText(''); }} className="ab abp" style={{ padding: '5px 12px', fontSize: 11 }}>Отправить ответ</button>
+                    <button onClick={() => { setReplyId(null); setReplyText(''); }} className="ab" style={{ padding: '5px 12px', fontSize: 11 }}>Отмена</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  {rev.status==='new'&&<button onClick={()=>patchReview(rev.id, { status: 'read' })} className="ab abg" style={{padding:'5px 13px',fontSize:11}}>✓ Прочитано</button>}
+                  <button onClick={() => { setReplyId(rev.id); setReplyText(rev.adminReply || ''); }} className="ab" style={{padding:'5px 13px',fontSize:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0'}}>💬 Ответить</button>
+                  {rev.rating<=2&&rev.restId!=='STORE'&&<button onClick={()=>patchReview(rev.id, { urgent: true, restNotified: true, restSeen: false })} className="ab abd" style={{padding:'5px 13px',fontSize:11}}>⚠️ Предупредить ресторан</button>}
+                </div>
+              )}
             </div>
           );
         })}

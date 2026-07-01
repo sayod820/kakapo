@@ -146,6 +146,7 @@ import { formatPromoStockAdmin, isPromoStockAvailable, isPromoStockExhausted, is
 import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
 import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
 import { api } from '@/lib/api'
+import { avgReviewRating, resolveReviewPlaceName, sortReviewsNewestFirst } from '@/lib/clientReviews'
 import type { Promo } from '@/lib/types'
 import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
@@ -2438,9 +2439,9 @@ function ReviewsPage() {
     setLoading(true);
     try {
       const list = await api.getReviews();
-      setReviews(list.length ? list : REVIEWS);
+      setReviews(sortReviewsNewestFirst(list));
     } catch {
-      setReviews(REVIEWS);
+      setReviews([]);
     } finally {
       setLoading(false);
     }
@@ -2481,8 +2482,11 @@ function ReviewsPage() {
         <StatCard l="Средний рейтинг" v={`${avgRating} ★`} c="#FFB800" />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {!loading && reviews.length === 0 && (
+          <div style={{ textAlign: 'center', padding: 40, color: '#8FB897', fontSize: 13 }}>Пока нет отзывов</div>
+        )}
         {reviews.map((rev, i) => {
-          const rest = rests.find(r => r.id === rev.restId);
+          const place = resolveReviewPlaceName(rev.restId, rev, rests);
           return (
             <div key={rev.id} className="ac" style={{ padding: '15px 17px', border: `1.5px solid ${rev.status === 'new' ? 'rgba(255,69,69,.3)' : '#162B1A'}`, animation: `fadeUp .4s ease ${i * .06}s both` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
@@ -2499,8 +2503,7 @@ function ReviewsPage() {
               </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 8, background: 'rgba(0,0,0,.3)', border: '1px solid #162B1A' }}>
-                    <span style={{ fontSize: 14 }}>{rest?.emoji}</span>
-                    <span style={{ fontSize: 11, color: '#8FB897' }}>{rest?.name || rev.restName}</span>
+                    <span style={{ fontSize: 11, color: '#8FB897' }}>{place}</span>
               </div>
                   {rev.status === 'new' && <Badge v="Новый" c="#FF4545" />}
                   {rev.restSeen ? <Badge v="Ресторан видел" c="#1FD760" /> : <Badge v="Не прочитан рест." c="#FFB800" />}
@@ -2534,7 +2537,7 @@ function ReviewsPage() {
                     <button onClick={() => patchReview(rev.id, { status: 'read' })} className="ab abg" style={{ padding: '5px 12px', fontSize: 11 }}>✓ Прочитано</button>
                   )}
                   <button onClick={() => { setReplyId(rev.id); setReplyText(rev.adminReply || ''); }} className="ab" style={{ padding: '5px 12px', fontSize: 11, background: 'rgba(59,142,240,.1)', border: '1.5px solid rgba(59,142,240,.3)', color: '#3B8EF0' }}>💬 Ответить</button>
-                  {rev.rating <= 2 && (
+                  {rev.rating <= 2 && rev.restId !== 'STORE' && (
                     <button onClick={() => patchReview(rev.id, { urgent: true, restNotified: true, restSeen: false })} className="ab abd" style={{ padding: '5px 12px', fontSize: 11 }}>⚠️ Предупредить ресторан</button>
                   )}
                 </div>

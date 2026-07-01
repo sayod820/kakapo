@@ -202,6 +202,15 @@ async function createReviewViaAppRoute(data: Partial<Review>): Promise<Review> {
   return res.json()
 }
 
+async function updateReviewViaAppRoute(id: number, data: Partial<Review>): Promise<Review> {
+  const res = await reviewViaAppRoute(`/api/reviews/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(await parseErrorResponse(res))
+  return res.json()
+}
+
 // ════════════════════════════════════════════════
 // АВТОРИЗАЦИЯ
 // ════════════════════════════════════════════════
@@ -432,7 +441,9 @@ export const api = {
       ? createReviewViaAppRoute(data)
       : request<Review>('/reviews', { method: 'POST', body: JSON.stringify(data) }, 0, REVIEW_TIMEOUT_MS),
   updateReview: (id: number, data: Partial<Review>) =>
-    request<Review>(`/reviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    typeof window !== 'undefined'
+      ? updateReviewViaAppRoute(id, data)
+      : request<Review>(`/reviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Push ──
   getPushState: () => request<{ autoSettings: import('./pushCrm').PushAutoSetting[]; history: import('./pushCrm').PushCampaign[] }>('/push'),

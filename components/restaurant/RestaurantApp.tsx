@@ -9,6 +9,8 @@ import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichRestaurants } from '@/lib/enrichCatalog'
 import { api } from '@/lib/api'
+import { sortReviewsNewestFirst } from '@/lib/clientReviews'
+import { useWebSocket } from '@/lib/ws'
 import type { Review } from '@/lib/types'
 import Link from 'next/link'
 import RestaurantLoginPage from '@/components/restaurant/RestaurantLoginPage'
@@ -212,11 +214,26 @@ function RestaurantAppInner() {
   const loadReviews = useCallback(async () => {
     if (!rest?.id || !USE_API) return;
     try {
-      setReviews(await api.getReviews(rest.id));
+      const list = await api.getReviews(rest.id);
+      setReviews(sortReviewsNewestFirst(list));
     } catch {
       setReviews([]);
     }
   }, [rest?.id]);
+
+  useWebSocket('restaurant', useCallback((msg) => {
+    if (msg.event !== 'review_update' || !msg.review || !rest?.id) return;
+    if (String(msg.review.restId) !== String(rest.id)) return;
+    setReviews(rs => {
+      const idx = rs.findIndex(r => r.id === msg.review.id);
+      if (idx >= 0) {
+        const next = [...rs];
+        next[idx] = { ...next[idx], ...msg.review };
+        return sortReviewsNewestFirst(next);
+      }
+      return sortReviewsNewestFirst([msg.review, ...rs]);
+    });
+  }, [rest?.id]));
 
   useEffect(() => {
     loadReviews();
@@ -1467,14 +1484,16 @@ function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge
   );
 
   const saveReply = async (id: number) => {
+    const text = replyText.trim();
+    if (!text) return;
     if (USE_API) {
       try {
-        await api.updateReview(id, { restReply: replyText, restSeen: true });
+        await api.updateReview(id, { restReply: text, restSeen: true });
       } catch { return; }
     }
+    setReviews(rs => rs.map(r => r.id === id ? { ...r, restReply: text, restSeen: true } : r));
     setReplyId(null);
     setReplyText('');
-    onRefresh();
   };
 
   return (
