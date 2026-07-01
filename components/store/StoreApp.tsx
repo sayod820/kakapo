@@ -1,8 +1,8 @@
 'use client'
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type MouseEvent } from "react";
 import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
-import { hydrateCourierStores } from "@/lib/courierStore";
+import { hydrateCourierStores, usePickups } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
@@ -11,6 +11,13 @@ import { useOrders, USE_API, useRestaurants, usePromos } from "@/lib/store";
 import { api } from "@/lib/api";
 import { enrichRestaurants } from "@/lib/enrichCatalog";
 import { mapOrdersForClient } from "@/lib/orderUiMap";
+import {
+  resolveClientOrderContacts,
+  clientContactPointLabel,
+  telHref,
+  type ClientOrderContact,
+} from "@/lib/clientOrderContacts";
+import { useAssemblerTeam, hydrateAssemblerTeamStore } from "@/lib/assemblerTeamStore";
 import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
@@ -565,6 +572,117 @@ const ORDER_STATUS_FILTERS = [
   { id: 'delivering', l: 'Путь', ic: 'truck', c: 'var(--blue)', activeBg: 'rgba(59,142,240,.1)', activeBd: 'rgba(59,142,240,.28)' },
   { id: 'delivered', l: 'Готов', ic: 'check', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
 ];
+
+const CONTACT_ROLE_STYLE: Record<ClientOrderContact['role'], { c: string; bg: string; bd: string }> = {
+  assembler: { c: 'var(--pur)', bg: 'rgba(155,109,255,.1)', bd: 'rgba(155,109,255,.28)' },
+  store: { c: 'var(--gr)', bg: 'rgba(31,215,96,.1)', bd: 'rgba(31,215,96,.28)' },
+  restaurant: { c: 'var(--gd)', bg: 'rgba(255,184,0,.1)', bd: 'rgba(255,184,0,.28)' },
+  courier: { c: 'var(--blue)', bg: 'rgba(59,142,240,.1)', bd: 'rgba(59,142,240,.28)' },
+};
+
+function ClientOrderContactsBlock({
+  contacts,
+  pickups,
+  compact,
+  onCallClick,
+}: {
+  contacts: ClientOrderContact[]
+  pickups: import('@/lib/pickups').PickupPoint[]
+  compact?: boolean
+  onCallClick?: (e: MouseEvent) => void
+}) {
+  if (!contacts.length) return null
+  if (compact) {
+    return (
+      <div
+        className="hscroll"
+        style={{ gap: 8, marginBottom: 10, paddingBottom: 2 }}
+        onClick={onCallClick}
+      >
+        {contacts.map((c, i) => {
+          const st = CONTACT_ROLE_STYLE[c.role]
+          const sub = clientContactPointLabel(c, pickups)
+          return (
+            <a
+              key={`${c.role}-${c.pickupId || ''}-${i}`}
+              href={telHref(c.phone)}
+              className="btn"
+              onClick={e => e.stopPropagation()}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 11px',
+                borderRadius: 12,
+                background: st.bg,
+                border: `1px solid ${st.bd}`,
+                textDecoration: 'none',
+                color: 'inherit',
+                flexShrink: 0,
+                maxWidth: 220,
+              }}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1 }}>{c.emoji}</span>
+              <div style={{ minWidth: 0, textAlign: 'left' }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: st.c }}>{c.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--t2)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {c.role === 'courier' && !c.pickedUpFrom ? c.name : (sub || c.name)}
+                </div>
+              </div>
+              <Ic n="phone" s={13} c={st.c} />
+            </a>
+          )
+        })}
+      </div>
+    )
+  }
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--t2)', marginBottom: 8, letterSpacing: '.02em' }}>
+        Связаться
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {contacts.map((c, i) => {
+          const st = CONTACT_ROLE_STYLE[c.role]
+          const sub = clientContactPointLabel(c, pickups)
+          return (
+            <a
+              key={`${c.role}-${c.pickupId || ''}-${i}`}
+              href={telHref(c.phone)}
+              className="btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '13px 14px',
+                borderRadius: 14,
+                background: st.bg,
+                border: `1px solid ${st.bd}`,
+                textDecoration: 'none',
+                color: 'inherit',
+              }}
+            >
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(0,0,0,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                {c.emoji}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: st.c }}>{c.label}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{c.name}</div>
+                {sub && (
+                  <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>{sub}</div>
+                )}
+                <div style={{ fontSize: 12, color: 'var(--t2)', marginTop: 3 }}>{c.phone}</div>
+              </div>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(0,0,0,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Ic n="phone" s={16} c={st.c} />
+              </div>
+            </a>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function ruCount(n: number, one: string, few: string, many: string) {
   const mod10 = n % 10
@@ -2838,6 +2956,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
 const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const apiOrders = useOrders(s => s.orders);
   const { prods, restaurants } = useLiveCatalog();
+  const pickups = usePickups();
+  const assemblers = useAssemblerTeam();
   const ordersList = useMemo(() => {
     const mine = phoneDigits(user?.phone || getActiveClientPhone(user) || '');
     if (!mine) return [];
@@ -2848,6 +2968,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     [...fromApi, ...demoStatic].forEach(o => byId.set(o.id, o));
     return Array.from(byId.values());
   }, [apiOrders, user?.phone, user?.level, user?.vip]);
+  const orderContacts = useCallback((orderId: string) => {
+    const raw = apiOrders.find(o => o.id === orderId);
+    if (!raw) return [];
+    return resolveClientOrderContacts(raw, pickups, assemblers);
+  }, [apiOrders, pickups, assemblers]);
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [reviewed, setReviewed] = useState<Record<string, Review>>({});
@@ -2913,6 +3038,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const canReview = (o) => o.status === "delivered" && !reviewed[o.id] && (USE_API ? !!o.restId : true);
   const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
   const ST = OSTATUS;
+  const selectedContacts = selected ? orderContacts(selected.id) : [];
 
   const repeatOrder = (order) => {
     const silentAdd = (id, price, name, emoji, restId) => onAdd(id, price, name, emoji, restId, true);
@@ -2987,6 +3113,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             <div><div style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>Заказ доставлен!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>Начислено <span style={{ color:"var(--gd)", fontWeight:700 }}>+{selected.bonus} бонусов</span></div></div>
           </div>
         )}
+        <ClientOrderContactsBlock contacts={selectedContacts} pickups={pickups} />
         <div className="card" style={{ marginBottom:14, overflow:"hidden" }}>
           <div style={{ padding:"13px 15px", borderBottom:"1px solid var(--b1)", fontSize:13, fontWeight:800 }}>Состав заказа</div>
           {selected.items.map((item,i) => (
@@ -3096,8 +3223,9 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
       <div style={{ padding:"14px 18px 100px", display:"flex", flexDirection:"column", gap:12 }}>
         {filtered.map((o,i) => {
           const st = ST[o.status];
+          const contacts = orderContacts(o.id);
           return (
-            <div key={o.id} className="card" onClick={() => setSelected(o)} style={{ cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both` }}>
+            <div key={o.id} className="card" onClick={() => setSelected(o)} style={{ cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both`, borderLeft:`3px solid ${st.c}`, overflow:"hidden" }}>
               {o.status==="delivering" && (
                 <div style={{ padding:"9px 14px", background:"rgba(59,142,240,.08)", borderBottom:"1px solid rgba(59,142,240,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -3121,10 +3249,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                     <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>{o.items.reduce((s,it)=>s+it.qty,0)} товаров</div>
                   </div>
                 </div>
-                <div style={{ display:"flex", gap:5, marginBottom:10 }}>
+                <div style={{ display:"flex", gap:5, marginBottom: contacts.length ? 8 : 10 }}>
                   {o.items.slice(0,3).map((it,j) => <div key={j} style={{ width:36, height:36, borderRadius:10, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{it.e}</div>)}
                   <div style={{ flex:1, display:"flex", justifyContent:"flex-end", alignItems:"center" }}><Ic n="arr" s={14} c="var(--t3)"/></div>
                 </div>
+                <ClientOrderContactsBlock contacts={contacts} pickups={pickups} compact onCallClick={e => e.stopPropagation()} />
                 <div style={{ display:"flex", gap:8 }}>
                   {o.status==="delivering" && o.trackable && <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="map" s={13} c="white"/>Отследить</button>}
                   {canReview(o) && <button className="btn" onClick={e=>{e.stopPropagation();setShowRev(o);setRating(0);setReviewText("");}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd)"/>Отзыв</button>}
@@ -8956,6 +9085,7 @@ function KakapoAppInner() {
 
   useEffect(() => {
     hydrateCourierStores();
+    hydrateAssemblerTeamStore();
     useProductPhotos.getState().hydrate();
   }, []);
 
