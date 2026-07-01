@@ -4,13 +4,19 @@ import { backendFetch, readBackendError } from '@/lib/server/backendFetch'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
+function reviewsPath(req: NextRequest): string {
+  const restId = req.nextUrl.searchParams.get('restId')
+  const productId = req.nextUrl.searchParams.get('productId')
+  const q = new URLSearchParams()
+  if (restId) q.set('restId', restId)
+  if (productId) q.set('productId', productId)
+  const qs = q.toString()
+  return qs ? `/reviews?${qs}` : '/reviews'
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const restId = req.nextUrl.searchParams.get('restId')
-    const path = restId
-      ? `/reviews?restId=${encodeURIComponent(restId)}`
-      : '/reviews'
-    const res = await backendFetch(path)
+    const res = await backendFetch(reviewsPath(req))
     const text = await res.text()
     if (!res.ok) {
       return NextResponse.json(
@@ -31,14 +37,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const restId = String(body.restId || '').trim()
+    const productKey = String(body.productKey || '').trim()
+    const productName = String(body.productName || '').trim()
     const orderId = String(body.orderId || '').trim()
     const rating = Math.min(5, Math.max(1, Math.round(Number(body.rating) || 0)))
     const text = String(body.text || '').trim()
     const client = String(body.client || 'Клиент').trim()
 
-    if (!restId) {
-      return NextResponse.json({ detail: 'Укажите ресторан или магазин' }, { status: 400 })
+    if (!productKey) {
+      return NextResponse.json({ detail: 'Укажите товар для отзыва' }, { status: 400 })
     }
     if (!orderId) {
       return NextResponse.json({ detail: 'Укажите номер заказа' }, { status: 400 })
@@ -48,12 +55,14 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = {
-      restId,
+      productKey,
+      productName: productName || undefined,
+      productId: body.productId != null ? body.productId : undefined,
       orderId,
       rating,
       text: text || '★'.repeat(rating),
       client,
-      restName: body.restName ? String(body.restName) : undefined,
+      restId: 'STORE',
     }
 
     const res = await backendFetch('/reviews', {

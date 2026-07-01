@@ -2537,8 +2537,8 @@ function ReviewsPage() {
                     <button onClick={() => patchReview(rev.id, { status: 'read' })} className="ab abg" style={{ padding: '5px 12px', fontSize: 11 }}>✓ Прочитано</button>
                   )}
                   <button onClick={() => { setReplyId(rev.id); setReplyText(rev.adminReply || ''); }} className="ab" style={{ padding: '5px 12px', fontSize: 11, background: 'rgba(59,142,240,.1)', border: '1.5px solid rgba(59,142,240,.3)', color: '#3B8EF0' }}>💬 Ответить</button>
-                  {rev.rating <= 2 && rev.restId !== 'STORE' && (
-                    <button onClick={() => patchReview(rev.id, { urgent: true, restNotified: true, restSeen: false })} className="ab abd" style={{ padding: '5px 12px', fontSize: 11 }}>⚠️ Предупредить ресторан</button>
+                  {rev.rating <= 2 && (
+                    <button onClick={() => patchReview(rev.id, { urgent: true })} className="ab abd" style={{ padding: '5px 12px', fontSize: 11 }}>⚠️ Важно</button>
                   )}
                 </div>
               )}

@@ -125,7 +125,7 @@ export function nextCartQty(p: Partial<Product>, current: number, add: boolean):
 export function orderItemFromProduct(p: Partial<Product>, qty: number) {
   const weighted = isWeighted(p)
   return {
-    ...(typeof p.id === 'number' ? { id: p.id, productId: p.id } : {}),
+    ...(typeof p.id === 'number' ? { id: p.id, product_id: p.id } : {}),
     promoUnits: qty,
     name: weighted ? `${p.name} (${formatWeightGrams(qty)})` : (p.name || 'Товар'),
     e: p.e || '📦',

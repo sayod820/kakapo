@@ -1516,7 +1516,7 @@ function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge
           <div style={{ textAlign: 'center', padding: '40px 20px', color: '#8FB897' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
             <div style={{ fontFamily: 'Unbounded', fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Пока нет отзывов</div>
-            <div style={{ fontSize: 12 }}>Клиенты смогут оценить заказ после доставки</div>
+            <div style={{ fontSize: 12 }}>Клиенты оценивают конкретные товары после доставки в приложении магазина</div>
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

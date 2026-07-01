@@ -1,42 +1,57 @@
-import { getMarketItems, getRestIdsFromOrder, getRestItemsForOrder, normalizeOrder } from './orderParts'
-import type { Order, Review } from './types'
+import { normalizeOrder } from './orderParts'
+import type { Order, OrderItem, Review } from './types'
+
+/** Все отзывы о товарах идут в магазин (не в ресторан) */
 export const STORE_REVIEW_REST_ID = 'STORE'
 
-export type ClientReviewTargetType = 'restaurant' | 'market'
-
 export interface ClientReviewTarget {
-  type: ClientReviewTargetType
-  restId: string
+  productKey: string
+  productId?: number | string
+  productName: string
+  emoji: string
 }
 
-export function clientReviewKey(orderId: string, restId: string): string {
-  return `${orderId}:${restId}`
+type OrderItemExt = OrderItem & { productId?: number; cartLineId?: string }
+
+/** Стабильный ключ позиции заказа для отзыва */
+export function productReviewKeyFromItem(item: OrderItem, index: number): string {
+  const it = item as OrderItemExt
+  if (it.product_id != null && Number(it.product_id) > 0) return `p${it.product_id}`
+  if (it.productId != null && Number(it.productId) > 0) return `p${it.productId}`
+  if (it.id != null && Number(it.id) > 0) return `p${it.id}`
+  if (it.art) return `a${String(it.art).trim()}`
+  if (it.cartLineId) return `c${String(it.cartLineId)}`
+  const name = String(it.name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '_')
+    .slice(0, 48)
+  return `line${index}_${name || 'item'}`
 }
 
+export function clientReviewKey(orderId: string, productKey: string): string {
+  return `${orderId}:${productKey}`
+}
+
+export function reviewKeyFromRecord(orderId: string, review: Review): string {
+  if (review.productKey) return clientReviewKey(orderId, review.productKey)
+  // старые отзывы по ресторану — не считаем как товарные
+  return ''
+}
+
+/** Каждая позиция заказа — отдельный отзыв о товаре */
 export function getClientReviewTargets(order: Order): ClientReviewTarget[] {
   const o = normalizeOrder(order)
-  const out: ClientReviewTarget[] = []
-  for (const rid of getRestIdsFromOrder(o)) {
-    if (getRestItemsForOrder(o, rid).length > 0) {
-      out.push({ type: 'restaurant', restId: rid })
-    }
-  }
-  if (getMarketItems(o.items).length > 0) {
-    out.push({ type: 'market', restId: STORE_REVIEW_REST_ID })
-  }
-  if (!out.length && o.type === 'restaurant' && o.restId) {
-    out.push({ type: 'restaurant', restId: String(o.restId) })
-  }
-  return out
+  return (o.items || []).map((item, index) => ({
+    productKey: productReviewKeyFromItem(item, index),
+    productId: item.product_id ?? item.id,
+    productName: String(item.name || 'Товар').trim() || 'Товар',
+    emoji: item.e || '📦',
+  }))
 }
 
-export function resolveReviewTargetLabel(
-  target: ClientReviewTarget,
-  restaurants: { id: string; name?: string; emoji?: string }[] = [],
-): string {
-  if (target.type === 'market') return '🏪 Магазин КАКАПО'
-  const r = restaurants.find(x => x.id === target.restId)
-  return r ? `${r.emoji || '🍽'} ${r.name}` : 'Ресторан'
+export function resolveReviewTargetLabel(target: ClientReviewTarget): string {
+  return `${target.emoji} ${target.productName}`
 }
 
 export function getPendingReviewTargets(
@@ -44,7 +59,7 @@ export function getPendingReviewTargets(
   reviewed: Record<string, Review>,
 ): ClientReviewTarget[] {
   return getClientReviewTargets(order).filter(
-    t => !reviewed[clientReviewKey(order.id, t.restId)],
+    t => !reviewed[clientReviewKey(order.id, t.productKey)],
   )
 }
 
@@ -62,23 +77,27 @@ export function reviewPromptForTarget(target: ClientReviewTarget): {
   placeholder: string
   success: string
 } {
-  if (target.type === 'market') {
-    return {
-      title: 'Оцените товары',
-      placeholder: 'Что понравилось в товарах? (необязательно)…',
-      success: '⭐ Спасибо! Отзыв о товарах отправлен',
-    }
-  }
   return {
-    title: 'Оцените блюда',
-    placeholder: 'Что понравилось в ресторане? (необязательно)…',
-    success: '⭐ Спасибо! Ресторан получил ваш отзыв',
+    title: 'Оцените товар',
+    placeholder: `Что понравилось в «${target.productName}»? (необязательно)…`,
+    success: `⭐ Спасибо! Отзыв о «${target.productName}» отправлен`,
   }
 }
 
 type ClientOrderRow = {
   id: string
-  items?: { e?: string; name: string; qty: number; price: number; restId?: string }[]
+  items?: {
+    e?: string
+    name: string
+    qty: number
+    price: number
+    restId?: string
+    id?: number
+    art?: string
+    product_id?: number
+    source?: string
+    cartLineId?: string
+  }[]
   orderType?: string
   restId?: string
   phone?: string
@@ -95,21 +114,23 @@ export function resolveOrderForReview(
 ): Order | null {
   const raw = apiOrders.find(o => o.id === orderId)
   if (raw) return normalizeOrder(raw)
-  if (!clientRow) return null
-  const hasItems = (clientRow.items?.length ?? 0) > 0
-  if (!hasItems && !clientRow.restId) return null
+  if (!clientRow?.items?.length) return null
   return normalizeOrder({
     id: orderId,
-    type: (clientRow.orderType as Order['type']) || (clientRow.restId ? 'restaurant' : 'market'),
+    type: (clientRow.orderType as Order['type']) || 'market',
     status: 'delivered',
-    items: (clientRow.items || []).map(it => ({
+    items: clientRow.items.map(it => ({
       e: it.e || '📦',
       name: it.name,
       qty: it.qty,
       unit: 'шт',
       price: it.price,
-      source: (it.restId || clientRow.restId) ? 'restaurant' as const : 'market' as const,
-      restId: it.restId || clientRow.restId,
+      id: it.id,
+      art: it.art,
+      product_id: it.product_id,
+      source: it.source === 'restaurant' || it.restId ? 'restaurant' as const : 'market' as const,
+      restId: it.restId,
+      cartLineId: it.cartLineId,
     })),
     restId: clientRow.restId,
     client: { name: '', phone: clientRow.phone || '', addr: clientRow.addr || '' },

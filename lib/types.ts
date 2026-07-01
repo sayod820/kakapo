@@ -174,6 +174,10 @@ export interface Review {
   restId: string
   restName?: string
   orderId?: string
+  productKey?: string
+  productId?: number | string
+  productName?: string
+  targetType?: 'product' | 'market' | 'restaurant'
   client: string
   rating: number
   text: string

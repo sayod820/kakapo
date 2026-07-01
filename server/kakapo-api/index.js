@@ -1886,19 +1886,26 @@ app.patch('/cards/:num', (req, res) => {
 app.get('/reviews', (req, res) => {
   let list = db.reviews || []
   if (req.query.restId) list = list.filter(r => r.restId === req.query.restId)
+  if (req.query.productId) {
+    const pid = String(req.query.productId)
+    list = list.filter(r =>
+      String(r.productId ?? '') === pid
+      || String(r.productKey ?? '') === `p${pid}`,
+    )
+  }
   res.json(list)
 })
 app.post('/reviews', (req, res) => {
   ensureReviews()
-  if (!Array.isArray(db.restaurants)) db.restaurants = []
-  const restId = String(req.body.restId || '')
-  if (!restId) return res.status(400).json({ detail: 'Укажите ресторан или магазин' })
-  const dup = req.body.orderId
-    ? (db.reviews || []).find(
-      r => r.orderId && r.orderId === String(req.body.orderId) && String(r.restId || '') === restId,
-    )
-    : null
-  if (dup) return res.status(400).json({ detail: 'Отзыв по этому заказу уже оставлен' })
+  if (!Array.isArray(db.restaurants)) db.reaurants = []
+  const productKey = String(req.body.productKey || '').trim()
+  const orderId = req.body.orderId ? String(req.body.orderId) : ''
+  if (!productKey) return res.status(400).json({ detail: 'Укажите товар для отзыва' })
+  if (!orderId) return res.status(400).json({ detail: 'Укажите номер заказа' })
+  const dup = (db.reviews || []).find(
+    r => r.orderId === orderId && String(r.productKey || '') === productKey,
+  )
+  if (dup) return res.status(400).json({ detail: 'Отзыв по этому товару уже оставлен' })
   try {
     const review = createReviewRecord(db, req.body)
     persist()

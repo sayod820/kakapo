@@ -1198,11 +1198,12 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
 
 function ClientReviewBlock({ review, orderId, embedded }: { review: Review; orderId?: string; embedded?: boolean }) {
   const hasReply = !!(review.adminReply || review.restReply);
+  const title = review.productName || 'Ваш отзыв';
   return (
     <div style={embedded ? undefined : { padding: 14, borderRadius: 15, background: "rgba(255,184,0,.06)", border: "1px solid rgba(255,184,0,.22)", marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        {!embedded && <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gd)" }}>⭐ Ваш отзыв{orderId ? ` · ${orderId}` : ''}</div>}
-        {embedded && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--t2)" }}>Ваша оценка</div>}
+        {!embedded && <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gd)" }}>⭐ {title}{orderId ? ` · ${orderId}` : ''}</div>}
+        {embedded && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--t2)" }}>{review.productName || 'Ваша оценка'}</div>}
         <span style={{ fontSize: 10, color: "var(--t3)" }}>{review.date}</span>
       </div>
       <div style={{ display: "flex", gap: 2, marginBottom: 8 }}>
@@ -1718,7 +1719,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
       return;
     }
     setRevLoading(true);
-    api.getReviews("STORE")
+    api.getReviews({ productId: p.id })
       .then(list => setStoreReviews(sortReviewsNewestFirst(list).slice(0, 12)))
       .catch(() => setStoreReviews([]))
       .finally(() => setRevLoading(false));
@@ -2282,15 +2283,21 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       client: { name, phone, addr: fullAddrLine, lat: clientLat, lng: clientLng },
       items: [
         ...prodItems.map(p => orderItemFromProduct(p, p.qty)),
-        ...restItems.map(p => ({
-          name: p.name || 'Блюдо',
-          e: p.e || '🍽',
-          qty: p.qty,
-          unit: 'порция',
-          price: Number(p.price) || 0,
-          source: 'restaurant',
-          restId: p.restId,
-        })),
+        ...restItems.map(p => {
+          const menuIdMatch = String(p.id).match(/^R[^_]+_(\d+)$/)
+          const menuId = menuIdMatch ? Number(menuIdMatch[1]) : undefined
+          return {
+            name: p.name || 'Блюдо',
+            e: p.e || '🍽',
+            qty: p.qty,
+            unit: 'порция',
+            price: Number(p.price) || 0,
+            source: 'restaurant',
+            restId: p.restId,
+            ...(menuId ? { id: menuId } : {}),
+            cartLineId: String(p.id),
+          }
+        }),
       ],
       total: Number(payable.toFixed(2)),
       goodsTotal: Number(sub.toFixed(2)),
@@ -3064,15 +3071,18 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
       showToast?.("Не удалось определить заказ для отзыва");
       return;
     }
-    const restId = reviewTarget.restId;
+    const { productKey, productName, productId } = reviewTarget;
     const prompt = reviewPromptForTarget(reviewTarget);
-    const reviewKey = clientReviewKey(showRev.id, restId);
+    const reviewKey = clientReviewKey(showRev.id, productKey);
     let created: Review | null = null;
     if (USE_API) {
       try {
         created = await api.createReview({
           orderId: showRev.id,
-          restId,
+          productKey,
+          productName,
+          productId,
+          restId: 'STORE',
           client: user?.name || raw?.client?.name || showRev.phone || "Клиент",
           rating,
           text: reviewText.trim() || `${"★".repeat(rating)}`,
@@ -3084,14 +3094,17 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     } else {
       created = {
         id: Date.now(),
-        restId,
+        restId: 'STORE',
+        productKey,
+        productName,
+        productId,
         client: user?.name || 'Клиент',
         rating,
         text: reviewText,
         date: 'Сегодня',
         status: 'new',
       } as Review;
-      saveLocalReview(showRev.id, created, user?.phone, restId);
+      saveLocalReview(showRev.id, created, user?.phone, productKey);
     }
     const nextReviewed = { ...reviewed, [reviewKey]: created };
     setReviewed(nextReviewed);
@@ -3100,7 +3113,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
       setReviewTarget(pending[0]);
       setRating(0);
       setReviewText("");
-      showToast?.(`Ещё отзыв: ${resolveReviewTargetLabel(pending[0], restaurants)}`);
+      showToast?.(`Следующий товар: ${resolveReviewTargetLabel(pending[0])}`);
       return;
     }
     setShowRev(null);
@@ -3114,7 +3127,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     const raw = resolveOrderForReview(orderId, apiOrders, row);
     if (!raw) return Object.entries(reviewed).filter(([k]) => k.startsWith(`${orderId}:`)).map(([, v]) => v);
     return getClientReviewTargets(raw)
-      .map(t => reviewed[clientReviewKey(orderId, t.restId)])
+      .map(t => reviewed[clientReviewKey(orderId, t.productKey)])
       .filter(Boolean);
   }, [apiOrders, ordersList, reviewed]);
   const canReview = (o) => {
@@ -3133,11 +3146,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     setReviewText("");
   };
   const reviewModalPrompt = reviewTarget ? reviewPromptForTarget(reviewTarget) : null;
-  const reviewModalLabel = reviewTarget ? resolveReviewTargetLabel(reviewTarget, restaurants) : '';
+  const reviewModalLabel = reviewTarget ? resolveReviewTargetLabel(reviewTarget) : '';
   const reviewModalOrder = showRev ? resolveOrderForReview(showRev.id, apiOrders, showRev) : null;
   const reviewModalTotal = reviewModalOrder ? getClientReviewTargets(reviewModalOrder).length : 0;
   const reviewModalDone = reviewModalOrder && reviewTarget
-    ? getClientReviewTargets(reviewModalOrder).findIndex(t => t.restId === reviewTarget.restId) + 1
+    ? getClientReviewTargets(reviewModalOrder).findIndex(t => t.productKey === reviewTarget.productKey) + 1
     : 0;
   const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
   const ST = OSTATUS;
@@ -3266,7 +3279,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             </button>
           )}
           {orderReviews(selected.id).map(rev => (
-            <ClientReviewBlock key={`${selected.id}-${rev.restId}`} review={rev} orderId={selected.id} />
+            <ClientReviewBlock key={`${selected.id}-${rev.productKey || rev.id}`} review={rev} orderId={selected.id} />
           ))}
         </div>
       </div>
@@ -3511,7 +3524,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
           </div>
         )}
         {!loading && reviews.map((rev, i) => {
-          const place = resolveReviewPlaceName(rev.restId, rev, restaurants);
+          const place = resolveReviewPlaceName(rev.restId || 'STORE', rev, restaurants);
           return (
             <div key={rev.id} id={`client-review-${rev.id}`} className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 12, animation: `fadeUp .4s ease ${i * .06}s both`, border: highlightId === rev.id ? "1px solid rgba(59,142,240,.45)" : undefined, boxShadow: highlightId === rev.id ? "0 0 0 1px rgba(59,142,240,.15)" : undefined }}>
               <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -8036,23 +8049,11 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const { restaurants, prods } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
-  const [restReviews, setRestReviews] = useState<Review[]>([]);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
   const totalQtyNum = sumCartUnits(cart || {}, prods);
 
   useEffect(() => {
     setActiveCat(ALL_REST_MENU);
-  }, [r?.id]);
-
-  useEffect(() => {
-    if (!r?.id) return;
-    if (!USE_API) {
-      setRestReviews([]);
-      return;
-    }
-    api.getReviews(r.id)
-      .then(list => setRestReviews(sortReviewsNewestFirst(list).slice(0, 6)))
-      .catch(() => setRestReviews([]));
   }, [r?.id]);
 
   if (!r) return null;
@@ -8186,24 +8187,6 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           );
         })}
 
-        {restReviews.length > 0 && (
-          <div style={{ marginTop: 18, paddingTop: 18, borderTop: "1px solid var(--b1)" }}>
-            <div style={{ fontFamily: "Unbounded", fontSize: 14, fontWeight: 800, marginBottom: 12 }}>Отзывы клиентов</div>
-            {restReviews.map((rev, i) => (
-              <div key={rev.id || i} style={{ padding: "12px 14px", background: "var(--l2)", border: "1px solid var(--b1)", borderRadius: 14, marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>{rev.client}</span>
-                  <span style={{ fontSize: 10, color: "var(--t3)" }}>{rev.date}</span>
-                </div>
-                <div style={{ marginBottom: 6 }}><Stars r={rev.rating} s={10} /></div>
-                <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.55 }}>{rev.text}</div>
-              </div>
-            ))}
-            <div style={{ fontSize: 11, color: "var(--t3)", textAlign: "center" }}>
-              Оценить блюда можно после доставки заказа
-            </div>
-          </div>
-        )}
       </div>
 
       {totalQtyNum>0&&(
@@ -8930,7 +8913,7 @@ const AdminReviewsPage = ({go}) => {
                 <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                   {rev.status==='new'&&<button onClick={()=>patchReview(rev.id, { status: 'read' })} className="ab abg" style={{padding:'5px 13px',fontSize:11}}>✓ Прочитано</button>}
                   <button onClick={() => { setReplyId(rev.id); setReplyText(rev.adminReply || ''); }} className="ab" style={{padding:'5px 13px',fontSize:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0'}}>💬 Ответить</button>
-                  {rev.rating<=2&&rev.restId!=='STORE'&&<button onClick={()=>patchReview(rev.id, { urgent: true, restNotified: true, restSeen: false })} className="ab abd" style={{padding:'5px 13px',fontSize:11}}>⚠️ Предупредить ресторан</button>}
+                  {rev.rating<=2&&<button onClick={()=>patchReview(rev.id, { urgent: true })} className="ab abd" style={{padding:'5px 13px',fontSize:11}}>⚠️ Важно</button>}
                 </div>
               )}
             </div>

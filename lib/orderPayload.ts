@@ -30,6 +30,7 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
     const art = it.art ?? it.article
     if (art) item.art = String(art)
     if (source === 'restaurant' && it.restId) item.restId = String(it.restId)
+    if (it.cartLineId) item.cartLineId = String(it.cartLineId)
     return item
   })
 

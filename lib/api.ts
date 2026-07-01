@@ -185,12 +185,31 @@ async function reviewViaAppRoute(path: string, options: RequestInit = {}): Promi
   })
 }
 
-async function getReviewsViaAppRoute(restId?: string): Promise<Review[]> {
-  const q = restId ? `?restId=${encodeURIComponent(restId)}` : ''
-  const res = await reviewViaAppRoute(`/api/reviews${q}`)
+async function getReviewsViaAppRoute(filter?: string | { restId?: string; productId?: string | number }): Promise<Review[]> {
+  const q = new URLSearchParams()
+  if (typeof filter === 'string') {
+    if (filter) q.set('restId', filter)
+  } else if (filter) {
+    if (filter.restId) q.set('restId', filter.restId)
+    if (filter.productId != null && filter.productId !== '') q.set('productId', String(filter.productId))
+  }
+  const qs = q.toString()
+  const res = await reviewViaAppRoute(`/api/reviews${qs ? `?${qs}` : ''}`)
   if (!res.ok) throw new Error(await parseErrorResponse(res))
   const data = await res.json()
   return Array.isArray(data) ? data : []
+}
+
+function reviewsQuery(filter?: string | { restId?: string; productId?: string | number }): string {
+  const q = new URLSearchParams()
+  if (typeof filter === 'string') {
+    if (filter) q.set('restId', filter)
+  } else if (filter) {
+    if (filter.restId) q.set('restId', filter.restId)
+    if (filter.productId != null && filter.productId !== '') q.set('productId', String(filter.productId))
+  }
+  const qs = q.toString()
+  return qs ? `?${qs}` : ''
 }
 
 async function createReviewViaAppRoute(data: Partial<Review>): Promise<Review> {
@@ -432,10 +451,10 @@ export const api = {
     request<AdminCard>(`/cards/${encodeURIComponent(num.trim())}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // ── Отзывы ──
-  getReviews: (restId?: string) =>
+  getReviews: (filter?: string | { restId?: string; productId?: string | number }) =>
     typeof window !== 'undefined'
-      ? getReviewsViaAppRoute(restId)
-      : request<Review[]>(`/reviews${restId ? `?restId=${encodeURIComponent(restId)}` : ''}`),
+      ? getReviewsViaAppRoute(filter)
+      : request<Review[]>(`/reviews${reviewsQuery(filter)}`),
   createReview: (data: Partial<Review>) =>
     typeof window !== 'undefined'
       ? createReviewViaAppRoute(data)
