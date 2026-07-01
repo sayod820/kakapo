@@ -1,6 +1,7 @@
 import { BACKEND_URL } from '@/lib/config'
 
 const RETRY_STATUS = new Set([500, 502, 503, 504])
+const RETRY_DELAY_MS = 5000
 
 export async function wakeBackend() {
   try {
@@ -15,7 +16,7 @@ export async function backendFetch(
 ): Promise<Response> {
   let lastRes: Response | null = null
   for (let i = 0; i < attempts; i++) {
-    if (i > 0) await new Promise(r => setTimeout(r, 1500 * i))
+    if (i > 0) await new Promise(r => setTimeout(r, RETRY_DELAY_MS * i))
     else await wakeBackend()
 
     try {
@@ -49,7 +50,7 @@ export async function readBackendError(res: Response): Promise<string> {
     }
   } catch { /* plain text */ }
   if (text === 'Internal Server Error') {
-    return 'Сервер временно недоступен. Подождите 10 сек и попробуйте снова.'
+    return 'Сервер временно недоступен. Подождите 5–15 сек и попробуйте снова.'
   }
   return text.slice(0, 200)
 }

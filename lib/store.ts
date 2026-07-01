@@ -16,6 +16,7 @@ import {
   normalizeOrders,
 } from './orderParts'
 import { ASSEMBLER_NAME } from './courierStats'
+import { kakapoNowTime } from './kakapoTime'
 import { ensureArray } from './apiGuards'
 import { onOrderStatusChange, onRestPartAccepted } from './pushService'
 import { creditBonusOnDeliveryLocal, reverseBonusOnOrderCancelLocal } from './loyaltyBonus'
@@ -364,7 +365,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       ...prepared,
       id: `K-${Date.now()}`,
       status: 'new',
-      createdAt: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: kakapoNowTime(),
       createdAtIso: new Date().toISOString(),
       client: data.client || { name: data.client_name, phone: data.client_phone, addr: data.address },
       items: prepared.items || data.items || [],

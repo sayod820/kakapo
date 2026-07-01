@@ -5,6 +5,7 @@ import { enrichCourierOrderPayment, mapCourierPayLabel } from './courierPayment'
 import { normalizeClientCoords } from './courierData'
 import type { DemoCourierOrder } from './demoOrders'
 import { orderGoodsTotal, orderPayableTotal } from './orderLoyaltyAmount'
+import { formatKakapoOrderDate, formatKakapoOrderTime, kakapoNowTime } from './kakapoTime'
 import { expectedOrderBonus } from './loyaltyBonus'
 import {
   allPartsDone,
@@ -43,8 +44,8 @@ export function mapOrdersForClient(
     return {
       id: order.id,
       phone: order.client?.phone || '',
-      date: 'Сегодня',
-      time: order.createdAt || '',
+      date: formatKakapoOrderDate(order),
+      time: formatKakapoOrderTime(order),
       status,
       trackable: status === 'delivering',
       eta: status === 'delivering' ? '~15 мин' : null,
@@ -53,6 +54,7 @@ export function mapOrdersForClient(
         name: it.name,
         qty: it.qty,
         price: it.price,
+        restId: it.restId,
       })),
       goodsTotal: orderGoodsTotal(order),
       total: orderPayableTotal(order),
@@ -295,7 +297,7 @@ export function mapOrdersForAdmin(
       courier: order.courier?.name || '—',
       courierPhone: order.courier?.phone || '',
       assembler: order.assembler?.name || '—',
-      time: order.createdAt || '',
+      time: formatKakapoOrderTime(order),
       deliveredAt: order.deliveredAt || '',
       addr: order.client?.addr || '',
       comment: order.comment || '',
@@ -319,7 +321,7 @@ export const COURIER_ASSIGNED_STATUSES: OrderStatus[] = ['courier_picked', 'deli
 export function adminExtrasForStatusChange(newStatus: OrderStatus): Record<string, unknown> {
   const extra: Record<string, unknown> = {}
   if (newStatus === 'delivered') {
-    extra.deliveredAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    extra.deliveredAt = kakapoNowTime()
   }
   if (!COURIER_ASSIGNED_STATUSES.includes(newStatus)) {
     extra.courier = null
@@ -467,7 +469,7 @@ function mapAssemblerOrderShape(o: Order) {
           : (ms === 'new' ? 'accepted' as const : 'assembling' as const)
   return {
     id: order.id,
-    time: order.createdAt || '',
+    time: formatKakapoOrderTime(order),
     priority: order.priority || 'normal',
     mixed: isMixedOrder(order),
     queue,
@@ -535,7 +537,7 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
     lng: clientCoords.lng,
     weight: Math.round((order.weightKg ?? Math.max(1, (order.items?.reduce((s, i) => s + i.qty, 0) || 1) * 0.4)) * 10) / 10,
     pay: mapCourierPayLabel(order),
-    time: order.createdAt || '',
+    time: formatKakapoOrderTime(order),
     sum: Math.max(0, order.total - (order.deliveryFee ?? 0)),
     items: (order.items || []).map(it => ({
       e: it.e,
@@ -608,7 +610,7 @@ export function mapOrdersForRestaurant(orders: Order[], restId: string) {
         : (order.status === 'delivered' ? 'delivered' as const : order.status)
       return {
         id: order.id,
-        time: order.createdAt || '',
+        time: formatKakapoOrderTime(order),
         client: order.client.name,
         phone: order.client.phone,
         items: restItems.map(it => ({ e: it.e, name: it.name, qty: it.qty, price: it.price })),

@@ -1,7 +1,5 @@
-import { getMarketItems, getRestIdsFromOrder, getRestItems, normalizeOrder } from './orderParts'
+import { getMarketItems, getRestIdsFromOrder, getRestItemsForOrder, normalizeOrder } from './orderParts'
 import type { Order, Review } from './types'
-
-/** ID «ресторана» для отзывов о товарах магазина (не курьер) */
 export const STORE_REVIEW_REST_ID = 'STORE'
 
 export type ClientReviewTargetType = 'restaurant' | 'market'
@@ -19,12 +17,15 @@ export function getClientReviewTargets(order: Order): ClientReviewTarget[] {
   const o = normalizeOrder(order)
   const out: ClientReviewTarget[] = []
   for (const rid of getRestIdsFromOrder(o)) {
-    if (getRestItems(o.items, rid).length > 0) {
+    if (getRestItemsForOrder(o, rid).length > 0) {
       out.push({ type: 'restaurant', restId: rid })
     }
   }
   if (getMarketItems(o.items).length > 0) {
     out.push({ type: 'market', restId: STORE_REVIEW_REST_ID })
+  }
+  if (!out.length && o.type === 'restaurant' && o.restId) {
+    out.push({ type: 'restaurant', restId: String(o.restId) })
   }
   return out
 }
@@ -73,4 +74,46 @@ export function reviewPromptForTarget(target: ClientReviewTarget): {
     placeholder: 'Что понравилось в ресторане? (необязательно)…',
     success: '⭐ Спасибо! Ресторан получил ваш отзыв',
   }
+}
+
+type ClientOrderRow = {
+  id: string
+  items?: { e?: string; name: string; qty: number; price: number; restId?: string }[]
+  orderType?: string
+  restId?: string
+  phone?: string
+  addr?: string
+  time?: string
+  total?: number
+}
+
+/** Заказ для отзыва: из API или из карточки «Мои заказы» */
+export function resolveOrderForReview(
+  orderId: string,
+  apiOrders: Order[],
+  clientRow?: ClientOrderRow | null,
+): Order | null {
+  const raw = apiOrders.find(o => o.id === orderId)
+  if (raw) return normalizeOrder(raw)
+  if (!clientRow) return null
+  const hasItems = (clientRow.items?.length ?? 0) > 0
+  if (!hasItems && !clientRow.restId) return null
+  return normalizeOrder({
+    id: orderId,
+    type: (clientRow.orderType as Order['type']) || (clientRow.restId ? 'restaurant' : 'market'),
+    status: 'delivered',
+    items: (clientRow.items || []).map(it => ({
+      e: it.e || '📦',
+      name: it.name,
+      qty: it.qty,
+      unit: 'шт',
+      price: it.price,
+      source: (it.restId || clientRow.restId) ? 'restaurant' as const : 'market' as const,
+      restId: it.restId || clientRow.restId,
+    })),
+    restId: clientRow.restId,
+    client: { name: '', phone: clientRow.phone || '', addr: clientRow.addr || '' },
+    total: clientRow.total || 0,
+    createdAt: clientRow.time,
+  } as Order)
 }

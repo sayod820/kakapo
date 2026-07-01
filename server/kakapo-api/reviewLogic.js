@@ -1,7 +1,7 @@
 export function updateRestaurantRating(db, restId) {
   if (!restId || restId === 'STORE') return
   const list = (db.reviews || []).filter(r => r.restId === restId)
-  const r = db.restaurants.find(x => x.id === restId)
+  const r = (db.restaurants || []).find(x => x.id === restId)
   if (!r) return
   if (!list.length) return
   const avg = list.reduce((s, rev) => s + (Number(rev.rating) || 0), 0) / list.length
@@ -17,7 +17,7 @@ export function createReviewRecord(db, body) {
   }
   const restId = String(body.restId || 'STORE')
   const isStore = restId === 'STORE'
-  const rest = isStore ? null : db.restaurants.find(r => r.id === restId)
+  const rest = isStore ? null : (db.restaurants || []).find(r => r.id === restId)
   const rating = Math.min(5, Math.max(1, Number(body.rating) || 5))
   const review = {
     id: ++db._seq.review,
@@ -27,7 +27,7 @@ export function createReviewRecord(db, body) {
     client: String(body.client || 'Клиент').trim(),
     rating,
     text: String(body.text || '').trim(),
-    date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }),
+    date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'Asia/Dushanbe' }),
     status: 'new',
     restSeen: false,
     restNotified: !isStore,

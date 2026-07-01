@@ -363,7 +363,7 @@ function ensureNotifications() {
 ensureNotifications()
 
 function nowTime() {
-  return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Dushanbe' })
 }
 
 app.get('/health', (_req, res) => {
@@ -1889,6 +1889,8 @@ app.get('/reviews', (req, res) => {
   res.json(list)
 })
 app.post('/reviews', (req, res) => {
+  ensureReviews()
+  if (!Array.isArray(db.restaurants)) db.restaurants = []
   const restId = String(req.body.restId || '')
   if (!restId) return res.status(400).json({ detail: 'Укажите ресторан или магазин' })
   const dup = req.body.orderId

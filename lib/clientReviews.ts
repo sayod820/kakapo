@@ -23,8 +23,19 @@ export function getClientOrderIds(apiOrders: Order[], user?: { phone?: string; n
 }
 
 export function loadLocalReviews(phone?: string): Record<string, Review> {
-  const map = loadAccountJson<Record<string, Review>>(ACCOUNT_NS.reviewsLocal, {}, phone)
-  return map && typeof map === 'object' ? map : {}
+  const raw = loadAccountJson<Record<string, Review>>(ACCOUNT_NS.reviewsLocal, {}, phone)
+  if (!raw || typeof raw !== 'object') return {}
+  const map: Record<string, Review> = {}
+  for (const [key, rev] of Object.entries(raw)) {
+    if (!rev) continue
+    if (key.includes(':')) {
+      map[key] = rev
+      continue
+    }
+    const rid = String(rev.restId || STORE_REVIEW_REST_ID)
+    map[clientReviewKey(key, rid)] = { ...rev, restId: rid }
+  }
+  return map
 }
 
 export function saveLocalReview(orderId: string, review: Review, phone?: string, restId?: string) {
@@ -40,18 +51,17 @@ export async function loadClientReviewMap(
 ): Promise<Record<string, Review>> {
   if (!USE_API) return loadLocalReviews(user?.phone || getClientPhone(user))
   const list = await api.getReviews()
+  const mine = getClientPhone(user)
   const orderIds = getClientOrderIds(apiOrders, user)
-  const name = (user?.name || '').trim().toLowerCase()
   const map: Record<string, Review> = {}
   list.forEach(r => {
-    const byOrder = r.orderId && orderIds.has(String(r.orderId))
-    const byName = name && (r.client || '').trim().toLowerCase() === name
-    if (byOrder || byName) {
-      if (r.orderId) {
-        const key = clientReviewKey(String(r.orderId), String(r.restId || STORE_REVIEW_REST_ID))
-        map[key] = r
-      }
-    }
+    const oid = r.orderId ? String(r.orderId) : ''
+    const byOrder = oid && orderIds.has(oid)
+    const byPhone = mine && phoneDigits(r.client || '') === mine
+    if (!byOrder && !byPhone) return
+    if (!oid) return
+    const key = clientReviewKey(oid, String(r.restId || STORE_REVIEW_REST_ID))
+    map[key] = r
   })
   return map
 }

@@ -24,6 +24,7 @@ import {
   getPendingReviewTargets,
   resolveReviewTargetLabel,
   reviewPromptForTarget,
+  resolveOrderForReview,
   type ClientReviewTarget,
 } from "@/lib/clientOrderReview";
 import { useAssemblerTeam, hydrateAssemblerTeamStore } from "@/lib/assemblerTeamStore";
@@ -3030,7 +3031,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   }, [apiOrders, user?.phone, user?.name]);
   const submitReview = async () => {
     if (!showRev || !reviewTarget || rating <= 0) return;
-    const raw = apiOrders.find(o => o.id === showRev.id);
+    const raw = resolveOrderForReview(showRev.id, apiOrders, showRev);
+    if (!raw) {
+      showToast?.("Не удалось определить заказ для отзыва");
+      return;
+    }
     const restId = reviewTarget.restId;
     const prompt = reviewPromptForTarget(reviewTarget);
     const reviewKey = clientReviewKey(showRev.id, restId);
@@ -3069,19 +3074,20 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     showToast?.(prompt.success);
   };
   const orderReviews = useCallback((orderId: string) => {
-    const raw = apiOrders.find(o => o.id === orderId);
+    const row = ordersList.find(x => x.id === orderId);
+    const raw = resolveOrderForReview(orderId, apiOrders, row);
     if (!raw) return Object.entries(reviewed).filter(([k]) => k.startsWith(`${orderId}:`)).map(([, v]) => v);
     return getClientReviewTargets(raw)
       .map(t => reviewed[clientReviewKey(orderId, t.restId)])
       .filter(Boolean);
-  }, [apiOrders, reviewed]);
+  }, [apiOrders, ordersList, reviewed]);
   const canReview = (o) => {
-    const raw = apiOrders.find(x => x.id === o.id);
+    const raw = resolveOrderForReview(o.id, apiOrders, o);
     if (!raw) return false;
     return canClientReviewOrder(raw, reviewed, o.status);
   };
   const openReview = (o) => {
-    const raw = apiOrders.find(x => x.id === o.id);
+    const raw = resolveOrderForReview(o.id, apiOrders, o);
     if (!raw) return;
     const pending = getPendingReviewTargets(raw, reviewed);
     if (!pending.length) return;

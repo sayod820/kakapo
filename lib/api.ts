@@ -163,6 +163,45 @@ async function createOrderViaAppRoute(data: unknown): Promise<Order> {
   return res.json()
 }
 
+async function reviewsViaAppRoute<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers as Record<string, string> || {}) },
+  })
+  if (!res.ok) {
+    const message = await parseErrorResponse(res)
+    throw new Error(message)
+  }
+  return parseSuccessBody<T>(res)
+}
+
+async function reviewViaAppRoute(path: string, options: RequestInit = {}): Promise<Response> {
+  return fetch(path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers as Record<string, string> || {}) },
+  })
+}
+
+async function getReviewsViaAppRoute(restId?: string): Promise<Review[]> {
+  const q = restId ? `?restId=${encodeURIComponent(restId)}` : ''
+  const res = await reviewViaAppRoute(`/api/reviews${q}`)
+  if (!res.ok) throw new Error(await parseErrorResponse(res))
+  const data = await res.json()
+  return Array.isArray(data) ? data : []
+}
+
+async function createReviewViaAppRoute(data: Partial<Review>): Promise<Review> {
+  const res = await reviewViaAppRoute('/api/reviews', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(await parseErrorResponse(res))
+  return res.json()
+}
+
 // ════════════════════════════════════════════════
 // АВТОРИЗАЦИЯ
 // ════════════════════════════════════════════════
@@ -385,9 +424,13 @@ export const api = {
 
   // ── Отзывы ──
   getReviews: (restId?: string) =>
-    request<Review[]>(`/reviews${restId ? `?restId=${encodeURIComponent(restId)}` : ''}`),
+    typeof window !== 'undefined'
+      ? getReviewsViaAppRoute(restId)
+      : request<Review[]>(`/reviews${restId ? `?restId=${encodeURIComponent(restId)}` : ''}`),
   createReview: (data: Partial<Review>) =>
-    request<Review>('/reviews', { method: 'POST', body: JSON.stringify(data) }, 0, REVIEW_TIMEOUT_MS),
+    typeof window !== 'undefined'
+      ? createReviewViaAppRoute(data)
+      : request<Review>('/reviews', { method: 'POST', body: JSON.stringify(data) }, 0, REVIEW_TIMEOUT_MS),
   updateReview: (id: number, data: Partial<Review>) =>
     request<Review>(`/reviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 

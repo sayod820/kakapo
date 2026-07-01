@@ -170,7 +170,12 @@ export function applyAdminStatusFields(order, newStatus) {
     order.pickedUpIds = []
   }
   if (newStatus === 'delivered' && !order.deliveredAt) {
-    order.deliveredAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    order.deliveredAt = new Date().toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Asia/Dushanbe',
+    })
+    order.deliveredAtIso = new Date().toISOString()
   }
 
   if (newStatus === 'new') {
