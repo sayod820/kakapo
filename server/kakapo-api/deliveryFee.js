@@ -1,5 +1,29 @@
 /** Расчёт и фиксация стоимости доставки на сервере */
 
+export const DEFAULT_PRICING = {
+  base: 10,
+  baseDist: 2.5,
+  perKm: 3,
+  heavyKg: 50,
+  heavyExtra: 10,
+  freeFrom: 0,
+  courierCommissionPercent: 15,
+}
+
+export function normalizePricing(raw = {}) {
+  return {
+    base: Number(raw.base) || DEFAULT_PRICING.base,
+    baseDist: Number(raw.baseDist) ?? DEFAULT_PRICING.baseDist,
+    perKm: Number(raw.perKm) ?? DEFAULT_PRICING.perKm,
+    heavyKg: Number(raw.heavyKg) ?? DEFAULT_PRICING.heavyKg,
+    heavyExtra: Number(raw.heavyExtra) ?? DEFAULT_PRICING.heavyExtra,
+    freeFrom: Number(raw.freeFrom) ?? 0,
+    courierCommissionPercent: Math.max(0, Math.min(100, Number(
+      raw.courierCommissionPercent ?? raw.courierCommissionPerOrder ?? DEFAULT_PRICING.courierCommissionPercent,
+    ) || 0)),
+  }
+}
+
 export function calcDeliveryFee(distKm, weightKg, pricing) {
   let fee = Number(pricing.base) || 0
   const baseDist = Number(pricing.baseDist) || 0

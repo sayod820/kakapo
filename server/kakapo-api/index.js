@@ -14,7 +14,7 @@ import {
   restItems,
 } from './ordersLogic.js'
 import { creditDeliveredOrder, processPayout, getPendingBalance } from './restaurantStats.js'
-import { lockOrderDeliveryFee } from './deliveryFee.js'
+import { lockOrderDeliveryFee, normalizePricing } from './deliveryFee.js'
 import {
   applyBonusSpendOnOrder,
   creditClientBonusOnDelivery,
@@ -1386,9 +1386,12 @@ app.delete('/clients/:id', (req, res) => {
   res.json({ ok: true })
 })
 
-app.get('/settings/pricing', (_req, res) => res.json(db.settings.pricing))
+app.get('/settings/pricing', (_req, res) => {
+  db.settings.pricing = normalizePricing(db.settings.pricing || {})
+  res.json(db.settings.pricing)
+})
 app.patch('/settings/pricing', (req, res) => {
-  db.settings.pricing = { ...db.settings.pricing, ...req.body }
+  db.settings.pricing = normalizePricing({ ...db.settings.pricing, ...req.body })
   persist()
   res.json(db.settings.pricing)
 })

@@ -7306,6 +7306,7 @@ function TariffPage() {
   const apiOrders = useOrders(s => s.orders)
   const couriers = useCourierTeam()
   const pricing = usePricingStore(s => s.pricing)
+  const pricingHydrated = usePricingStore(s => s.hydrated)
   const setPricing = usePricingStore(s => s.setPricing)
   const { roadKm } = useOrderRoadKm(apiOrders)
 
@@ -7317,10 +7318,16 @@ function TariffPage() {
   const [testDist, setTestDist] = useState('3.4')
   const [testWeight, setTestWeight] = useState('8.5')
   const [testAmount, setTestAmount] = useState('65')
+  const editingRef = useRef(false)
 
   useEffect(() => {
+    usePricingStore.getState().hydrate()
+  }, [])
+
+  useEffect(() => {
+    if (!pricingHydrated || editingRef.current) return
     setT(normalizePricing({ ...DEFAULT_PRICING, ...pricing }))
-  }, [pricing])
+  }, [pricing, pricingHydrated])
 
   const orders = useMemo(
     () => prepareOrdersForFinance(USE_API ? apiOrders : [], USE_API ? undefined : ALL_ORDERS),
@@ -7338,6 +7345,10 @@ function TariffPage() {
 
   const dirty = JSON.stringify(t) !== JSON.stringify(normalizePricing({ ...DEFAULT_PRICING, ...pricing }))
 
+  useEffect(() => {
+    editingRef.current = dirty
+  }, [dirty])
+
   const save = async () => {
     const err = validatePricing(t)
     if (err) { setSaveErr(err); return }
@@ -7347,15 +7358,17 @@ function TariffPage() {
       const normalized = normalizePricing(t)
       if (USE_API) {
         const savedPricing = await api.updatePricing(normalized)
-        usePricingStore.setState({ pricing: normalizePricing({ ...DEFAULT_PRICING, ...savedPricing }) })
+        const merged = normalizePricing({ ...DEFAULT_PRICING, ...savedPricing })
+        usePricingStore.setState({ pricing: merged })
         try {
           if (typeof BroadcastChannel !== 'undefined') {
-            new BroadcastChannel('kakapo-pricing').postMessage({ type: 'update', pricing: savedPricing })
+            new BroadcastChannel('kakapo-pricing').postMessage({ type: 'update', pricing: merged })
           }
         } catch { /* ignore */ }
       } else {
         setPricing(normalized)
       }
+      editingRef.current = false
       setT(normalized)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -7367,16 +7380,19 @@ function TariffPage() {
   }
 
   const applyPreset = (config: typeof DEFAULT_PRICING) => {
+    editingRef.current = true
     setT(normalizePricing(config))
     setSaveErr('')
   }
 
   const resetDefaults = () => {
-    setT({ ...DEFAULT_PRICING })
+    editingRef.current = true
+    setT(normalizePricing(DEFAULT_PRICING))
     setSaveErr('')
   }
 
   const updateField = (key: keyof typeof t, raw: string) => {
+    editingRef.current = true
     const num = parseFloat(raw)
     setT(v => ({ ...v, [key]: Number.isFinite(num) ? num : 0 }))
     setSaveErr('')

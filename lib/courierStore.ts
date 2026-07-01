@@ -2,6 +2,7 @@
 import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
 import { DEFAULT_PRICING, type PricingConfig } from './courierData';
+import { normalizePricing } from './tariffCrm';
 import { DEFAULT_PICKUPS, pickupsToLocationMap, type PickupPoint, type PickupLocationMap, upsertRestaurantPickup, type RestaurantPickupSync, restIdToPickupId } from './pickups';
 import { USE_API } from './config';
 import { api } from './api';
@@ -31,7 +32,7 @@ function loadPricing(): PricingConfig {
   try {
     const raw = localStorage.getItem(PRICING_KEY);
     if (!raw) return DEFAULT_PRICING;
-    return { ...DEFAULT_PRICING, ...JSON.parse(raw) };
+    return normalizePricing({ ...DEFAULT_PRICING, ...JSON.parse(raw) });
   } catch {
     return DEFAULT_PRICING;
   }
@@ -72,9 +73,11 @@ export const usePricingStore = create<PricingStore>((set, get) => ({
     set({ pricing: loadPricing(), hydrated: true });
   },
   setPricing: p => set(s => {
-    const pricing = { ...s.pricing, ...p };
+    const pricing = normalizePricing({ ...s.pricing, ...p });
     if (!USE_API) saveJson(PRICING_KEY, pricing);
-    else api.updatePricing(pricing).catch(console.error);
+    else void api.updatePricing(pricing).then(saved => {
+      usePricingStore.setState({ pricing: normalizePricing({ ...DEFAULT_PRICING, ...saved }) });
+    }).catch(console.error);
     try {
       if (typeof BroadcastChannel !== 'undefined') {
         new BroadcastChannel('kakapo-pricing').postMessage({ type: 'update', pricing });
@@ -190,10 +193,10 @@ export async function syncCourierStoresFromApi() {
     const pickups = ensureArray<PickupPoint>(pickupsRaw, 'pickups');
     await syncCourierTeamFromApi();
     usePickupStore.setState({ pickups, hydrated: true });
-    usePricingStore.setState({ pricing: { ...DEFAULT_PRICING, ...pricing }, hydrated: true });
+    usePricingStore.setState({ pricing: normalizePricing({ ...DEFAULT_PRICING, ...pricing }), hydrated: true });
   } catch (e) {
     console.error(e);
     usePickupStore.setState({ pickups: DEFAULT_PICKUPS, hydrated: true });
-    usePricingStore.setState({ pricing: DEFAULT_PRICING, hydrated: true });
+    usePricingStore.setState({ pricing: normalizePricing(DEFAULT_PRICING), hydrated: true });
   }
 }

@@ -19,6 +19,7 @@ DEFAULT_PRICING = {
     "heavyKg": 50,
     "heavyExtra": 10,
     "freeFrom": 0,
+    "courierCommissionPercent": 15,
 }
 
 
@@ -29,6 +30,7 @@ class PricingPatch(BaseModel):
     heavyKg: float | None = None
     heavyExtra: float | None = None
     freeFrom: float | None = None
+    courierCommissionPercent: float | None = None
 
 
 async def _get_pricing(db: AsyncSession) -> dict:
