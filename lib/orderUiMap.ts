@@ -25,7 +25,6 @@ import {
   isMarketPartActive,
   isMixedOrder,
   hasMarketPart,
-  isMarketItem,
   isRestPartActive,
   inferOrderType,
   normalizeOrder,
@@ -350,31 +349,23 @@ export function buildAdminStatusPatch(order: Order | undefined, newStatus: Order
   const o = { ...order, status: newStatus }
   const items = o.items || []
 
-  if (isMixedOrder(o)) {
+  if (isMixedOrder(o) || o.type === 'restaurant') {
+    // Админ — источник истины: выбранный статус применяется ко всем частям (магазин + рестораны)
     const restIds = getRestIdsFromOrder(o)
     const market = hasMarketPart(o)
+    const reset = ['new', 'cancelled'].includes(newStatus)
+    const inProgress = ['assembling', 'cooking'].includes(newStatus)
+    const done = ['ready', 'assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(newStatus)
 
-    if (['new', 'cancelled'].includes(newStatus)) {
+    if (reset) {
       if (market) extra.marketStatus = 'new'
       if (restIds.length) extra.restParts = Object.fromEntries(restIds.map(id => [id, 'new']))
       extra.items = items.map(it => ({ ...it, done: false }))
-    } else if (newStatus === 'assembling') {
+    } else if (inProgress) {
       if (market) extra.marketStatus = 'assembling'
-      if (restIds.length) extra.restParts = Object.fromEntries(restIds.map(id => [id, 'new']))
-      extra.items = items.map(it => ({ ...it, done: false }))
-    } else if (newStatus === 'cooking') {
-      if (market) extra.marketStatus = 'new'
       if (restIds.length) extra.restParts = Object.fromEntries(restIds.map(id => [id, 'cooking']))
       extra.items = items.map(it => ({ ...it, done: false }))
-    } else if (newStatus === 'ready') {
-      if (market) extra.marketStatus = 'done'
-      if (restIds.length) extra.restParts = Object.fromEntries(restIds.map(id => [id, 'new']))
-      extra.items = items.map(it => (isMarketItem(it) ? { ...it, done: true } : { ...it, done: false }))
-    } else if (newStatus === 'assembler_done') {
-      if (market) extra.marketStatus = 'done'
-      if (restIds.length) extra.restParts = Object.fromEntries(restIds.map(id => [id, 'done']))
-      extra.items = items.map(it => ({ ...it, done: true }))
-    } else if (['courier_picked', 'delivering', 'delivered'].includes(newStatus)) {
+    } else if (done) {
       if (market) extra.marketStatus = 'done'
       if (restIds.length) extra.restParts = Object.fromEntries(restIds.map(id => [id, 'done']))
       extra.items = items.map(it => ({ ...it, done: true }))

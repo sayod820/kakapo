@@ -186,28 +186,20 @@ export function applyAdminStatusFields(order, newStatus) {
   const restIds = collectRestIds(order)
   const hasM = marketItems(items).length > 0
 
-  if (t === 'mixed') {
-    if (['new', 'cancelled'].includes(newStatus)) {
+  if (t === 'mixed' || t === 'restaurant') {
+    // Админ — источник истины: выбранный статус применяется ко всем частям (магазин + рестораны)
+    const reset = ['new', 'cancelled'].includes(newStatus)
+    const inProgress = ['assembling', 'cooking'].includes(newStatus)
+    const done = ['ready', 'assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(newStatus)
+    if (reset) {
       if (hasM) order.marketStatus = 'new'
       if (restIds.length) order.restParts = Object.fromEntries(restIds.map(id => [id, 'new']))
       order.items = items.map(it => ({ ...it, done: false }))
-    } else if (newStatus === 'assembling') {
+    } else if (inProgress) {
       if (hasM) order.marketStatus = 'assembling'
-      if (restIds.length) order.restParts = Object.fromEntries(restIds.map(id => [id, 'new']))
-      order.items = items.map(it => ({ ...it, done: false }))
-    } else if (newStatus === 'cooking') {
-      if (hasM) order.marketStatus = 'new'
       if (restIds.length) order.restParts = Object.fromEntries(restIds.map(id => [id, 'cooking']))
       order.items = items.map(it => ({ ...it, done: false }))
-    } else if (newStatus === 'ready') {
-      if (hasM) order.marketStatus = 'done'
-      if (restIds.length) order.restParts = Object.fromEntries(restIds.map(id => [id, 'new']))
-      order.items = items.map(it => (marketItems([it]).length ? { ...it, done: true } : { ...it, done: false }))
-    } else if (newStatus === 'assembler_done') {
-      if (hasM) order.marketStatus = 'done'
-      if (restIds.length) order.restParts = Object.fromEntries(restIds.map(id => [id, 'done']))
-      order.items = items.map(it => ({ ...it, done: true }))
-    } else if (['courier_picked', 'delivering', 'delivered'].includes(newStatus)) {
+    } else if (done) {
       if (hasM) order.marketStatus = 'done'
       if (restIds.length) order.restParts = Object.fromEntries(restIds.map(id => [id, 'done']))
       order.items = items.map(it => ({ ...it, done: true }))
