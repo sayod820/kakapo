@@ -637,10 +637,6 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     setRoutePickupOrder([]);
   }, [selected?.id]);
 
-  useEffect(() => {
-    fittedClusterKeyRef.current = '';
-  }, [orders, myDeliveryList, step]);
-
   const onRouteKmRef = useRef(onRouteKm);
   onRouteKmRef.current = onRouteKm;
   const onRouteOrderRef = useRef(onRouteOrder);
@@ -692,7 +688,13 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       mapRef.current = map;
       map.whenReady(() => {
         if (cancelled || gen !== mapGenRef.current) return;
-        if (!step) applyDefaultMapView(map);
+        if (!step) {
+          autoFittingRef.current = true;
+          try { applyDefaultMapView(map); }
+          finally { window.setTimeout(() => { autoFittingRef.current = false; }, 150); }
+        }
+        // стартовое позиционирование карты не считаем ручным перемещением пользователя
+        userMovedMapRef.current = false;
         setReady(true);
       });
     });
