@@ -9372,8 +9372,6 @@ function KakapoAppInner() {
         const remote = clientCartPayload(remoteClient);
         const remoteWish = wishBundleFromClient(remoteClient);
         const remoteAddresses = addressBundleFromClient(remoteClient);
-        const remoteAddresses = addressBundleFromClient(remoteClient);
-        const remoteAddresses = addressBundleFromClient(remoteClient);
         const merged = mergeCartData(localBundle, remote);
         const mergedWish = mergeWishData(localWishBundle, remoteWish);
         const mergedAddresses = mergeAddressData(localAddressBundle, remoteAddresses);
