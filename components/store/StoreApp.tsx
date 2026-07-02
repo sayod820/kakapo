@@ -1196,13 +1196,13 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
 }
 
 
-function ClientReviewBlock({ review, orderId, embedded, restaurants = [] }: { review: Review; orderId?: string; embedded?: boolean; restaurants?: { id: string; name?: string; emoji?: string }[] }) {
+function ClientReviewBlock({ review, orderId, embedded, restaurants = [], showOrderId = false }: { review: Review; orderId?: string; embedded?: boolean; restaurants?: { id: string; name?: string; emoji?: string }[]; showOrderId?: boolean }) {
   const hasReply = !!(review.adminReply || review.restReply);
   const title = resolveReviewPlaceName(String(review.restId || ''), review, restaurants);
   return (
     <div style={embedded ? undefined : { padding: 14, borderRadius: 15, background: "rgba(255,184,0,.06)", border: "1px solid rgba(255,184,0,.22)", marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        {!embedded && <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gd)" }}>⭐ {title}{orderId ? ` · ${orderId}` : ''}</div>}
+        {!embedded && <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gd)" }}>⭐ {title}{showOrderId && orderId ? ` · ${orderId}` : ''}</div>}
         {embedded && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--t2)" }}>{title}</div>}
         <span style={{ fontSize: 10, color: "var(--t3)" }}>{review.date}</span>
       </div>
@@ -1816,7 +1816,6 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
                     <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2 }}>
                       <Stars r={rv.rating} s={9}/>
                       <span style={{ fontSize:10, color:"var(--t3)" }}>{rv.date}</span>
-                      {rv.orderId && <span style={{ fontSize:10, color:"var(--t3)" }}>· {rv.orderId}</span>}
                 </div>
               </div>
               </div>
@@ -3151,41 +3150,58 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     }
     setReviewSubmitting(true);
     const nextReviewed = { ...reviewed };
+    const errors: string[] = [];
+    let saved = 0;
     try {
       for (const target of reviewModalTargets) {
         const draft = reviewDrafts[target.restId] || { rating: 0, text: '' };
         const reviewKey = clientReviewKey(showRev.id, target.restId);
-        let created: Review | null = null;
-        if (USE_API) {
-          created = await api.createReview({
-            orderId: showRev.id,
-            restId: target.restId,
-            client: user?.name || raw?.client?.name || showRev.phone || "Клиент",
-            rating: draft.rating,
-            text: draft.text.trim() || `${"★".repeat(draft.rating)}`,
-          });
-        } else {
-          created = {
-            id: Date.now() + Math.floor(Math.random() * 1000),
-            restId: target.restId,
-            restName: resolveReviewTargetLabel(target, restaurants),
-            client: user?.name || 'Клиент',
-            rating: draft.rating,
-            text: draft.text.trim() || `${"★".repeat(draft.rating)}`,
-            date: 'Сегодня',
-            status: 'new',
-            orderId: showRev.id,
-          } as Review;
-          saveLocalReview(showRev.id, created, user?.phone, target.restId);
+        if (nextReviewed[reviewKey]) continue;
+        try {
+          let created: Review | null = null;
+          if (USE_API) {
+            created = await api.createReview({
+              orderId: showRev.id,
+              restId: target.restId,
+              restName: resolveReviewTargetLabel(target, restaurants),
+              client: user?.name || raw?.client?.name || showRev.phone || "Клиент",
+              rating: draft.rating,
+              text: draft.text.trim() || `${"★".repeat(draft.rating)}`,
+            });
+          } else {
+            created = {
+              id: Date.now() + Math.floor(Math.random() * 1000),
+              restId: target.restId,
+              restName: resolveReviewTargetLabel(target, restaurants),
+              client: user?.name || 'Клиент',
+              rating: draft.rating,
+              text: draft.text.trim() || `${"★".repeat(draft.rating)}`,
+              date: 'Сегодня',
+              status: 'new',
+              orderId: showRev.id,
+            } as Review;
+            saveLocalReview(showRev.id, created, user?.phone, target.restId);
+          }
+          if (created) {
+            nextReviewed[reviewKey] = created;
+            saved += 1;
+          }
+        } catch (e) {
+          const label = resolveReviewTargetLabel(target, restaurants);
+          errors.push(`${label}: ${e instanceof Error ? e.message : 'ошибка'}`);
         }
-        if (created) nextReviewed[reviewKey] = created;
       }
       setReviewed(nextReviewed);
-      closeReview();
-      showToast?.(reviewModalTargets.length > 1 ? "⭐ Спасибо! Все отзывы отправлены" : "⭐ Спасибо! Отзыв отправлен");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Не удалось отправить отзыв";
-      showToast?.(msg);
+      if (saved > 0) {
+        if (errors.length) {
+          showToast?.(`Сохранено ${saved} из ${reviewModalTargets.length}. ${errors[0]}`);
+        } else {
+          closeReview();
+          showToast?.(reviewModalTargets.length > 1 ? "⭐ Спасибо! Все отзывы отправлены" : "⭐ Спасибо! Отзыв отправлен");
+        }
+      } else if (errors.length) {
+        showToast?.(errors[0]);
+      }
     } finally {
       setReviewSubmitting(false);
     }

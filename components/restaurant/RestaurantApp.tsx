@@ -242,6 +242,10 @@ function RestaurantAppInner() {
     return () => clearInterval(id);
   }, [loadReviews]);
 
+  useEffect(() => {
+    if (page === 'reviews') loadReviews();
+  }, [page, loadReviews]);
+
   const unseenReviews = reviews.filter(r => !r.restSeen).length;
 
   useEffect(() => {
@@ -1489,9 +1493,9 @@ function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge
     if (USE_API) {
       try {
         await api.updateReview(id, { restReply: text, restSeen: true });
+        onRefresh?.();
       } catch { return; }
     }
-    setReviews(rs => rs.map(r => r.id === id ? { ...r, restReply: text, restSeen: true } : r));
     setReplyId(null);
     setReplyText('');
   };
@@ -1516,7 +1520,7 @@ function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge
           <div style={{ textAlign: 'center', padding: '40px 20px', color: '#8FB897' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
             <div style={{ fontFamily: 'Unbounded', fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Пока нет отзывов</div>
-            <div style={{ fontSize: 12 }}>Клиенты оценивают конкретные товары после доставки в приложении магазина</div>
+            <div style={{ fontSize: 12 }}>Клиенты оценивают магазин и ресторан после доставки заказа</div>
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1536,7 +1540,6 @@ function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                   {!rev.restSeen && <span style={{ fontSize: 9, fontWeight: 800, color: '#FFB800', background: 'rgba(255,184,0,.12)', padding: '2px 7px', borderRadius: 6 }}>НОВЫЙ</span>}
                   {rev.urgent && <span style={{ fontSize: 9, fontWeight: 800, color: '#FF4545', background: 'rgba(255,69,69,.12)', padding: '2px 7px', borderRadius: 6 }}>СРОЧНО</span>}
-                  {rev.orderId && <span style={{ fontSize: 10, color: '#3D6645' }}>{rev.orderId}</span>}
                 </div>
               </div>
               <div style={{ fontSize: 13, color: '#EBF5ED', lineHeight: 1.55, padding: '10px 12px', background: '#0C1C0F', borderRadius: 10, border: '1px solid #162B1A', marginBottom: 10 }}>

@@ -1890,7 +1890,10 @@ app.patch('/cards/:num', (req, res) => {
 
 app.get('/reviews', (req, res) => {
   let list = db.reviews || []
-  if (req.query.restId) list = list.filter(r => r.restId === req.query.restId)
+  if (req.query.restId) {
+    const rid = String(req.query.restId)
+    list = list.filter(r => String(r.restId || '') === rid)
+  }
   if (req.query.productId) {
     const pid = String(req.query.productId)
     list = list.filter(r =>
