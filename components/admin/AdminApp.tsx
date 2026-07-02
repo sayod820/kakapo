@@ -147,6 +147,7 @@ import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
 import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
 import { api } from '@/lib/api'
 import { avgReviewRating, resolveReviewPlaceName, sortReviewsNewestFirst } from '@/lib/clientReviews'
+import { STORE_REVIEW_REST_ID } from '@/lib/clientOrderReview'
 import type { Promo, Review } from '@/lib/types'
 import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
@@ -2421,11 +2422,16 @@ function PartnersPage() {
 }
 
 /* ── ОТЗЫВЫ ─────────────────────────────────────── */
+function isStoreReview(rev: Review) {
+  return String(rev.restId || '') === STORE_REVIEW_REST_ID
+}
+
 function ReviewsPage() {
   const apiRests = useRestaurants(s => s.restaurants);
   const rests = USE_API && apiRests.length ? enrichRestaurants(apiRests, RESTAURANTS) : RESTAURANTS;
   const [reviews, setReviews] = useState(REVIEWS);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<'store' | 'restaurants'>('restaurants');
   const [replyId, setReplyId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
 
@@ -2455,33 +2461,64 @@ function ReviewsPage() {
     setReviews(rs => rs.map(r => r.id === id ? { ...r, ...data } : r));
   };
 
-  const avgRating = reviews.length
-    ? (reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length).toFixed(1)
-    : '—';
+  const storeReviews = reviews.filter(isStoreReview);
+  const restaurantReviews = reviews.filter(r => !isStoreReview(r));
+  const visible = tab === 'store' ? storeReviews : restaurantReviews;
+  const avgRating = avgReviewRating(visible);
+  const avgLabel = avgRating != null ? `${avgRating} ★` : '—';
 
   const Stars = ({ n }: { n: number }) => (
     <span>{[1, 2, 3, 4, 5].map(i => <span key={i} style={{ color: i <= n ? '#FFB800' : '#1D3822', fontSize: 13 }}>★</span>)}</span>
   );
 
+  const tabBtn = (id: 'store' | 'restaurants', label: string, count: number, color: string) => {
+    const on = tab === id;
+    return (
+      <button
+        type="button"
+        onClick={() => { setTab(id); setReplyId(null); setReplyText(''); }}
+        className="ab"
+        style={{
+          padding: '8px 16px',
+          fontSize: 12,
+          fontWeight: 800,
+          borderRadius: 12,
+          background: on ? `${color}18` : 'transparent',
+          border: `1.5px solid ${on ? `${color}55` : '#162B1A'}`,
+          color: on ? color : '#8FB897',
+        }}
+      >
+        {label} ({count})
+      </button>
+    );
+  };
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {tabBtn('store', '🛒 Магазин', storeReviews.length, '#1FD760')}
+          {tabBtn('restaurants', '🍽 Рестораны', restaurantReviews.length, '#FF8C00')}
+        </div>
         <button onClick={loadReviews} className="ab" style={{ padding: '6px 12px', fontSize: 11 }} disabled={loading}>
           {loading ? '…' : '↻ Обновить'}
         </button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
-        <StatCard l="Всего отзывов" v={reviews.length} />
-        <StatCard l="Новых" v={reviews.filter(r => r.status === 'new').length} c="#FF4545" />
-        <StatCard l="Жалоб (≤2★)" v={reviews.filter(r => r.rating <= 2).length} c="#FF4545" />
-        <StatCard l="Средний рейтинг" v={`${avgRating} ★`} c="#FFB800" />
+        <StatCard l="Всего отзывов" v={visible.length} />
+        <StatCard l="Новых" v={visible.filter(r => r.status === 'new').length} c="#FF4545" />
+        <StatCard l="Жалоб (≤2★)" v={visible.filter(r => r.rating <= 2).length} c="#FF4545" />
+        <StatCard l="Средний рейтинг" v={avgLabel} c="#FFB800" />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {!loading && reviews.length === 0 && (
-          <div style={{ textAlign: 'center', padding: 40, color: '#8FB897', fontSize: 13 }}>Пока нет отзывов</div>
+        {!loading && visible.length === 0 && (
+          <div style={{ textAlign: 'center', padding: 40, color: '#8FB897', fontSize: 13 }}>
+            {tab === 'store' ? 'Пока нет отзывов о магазине' : 'Пока нет отзывов о ресторанах'}
+          </div>
         )}
-        {reviews.map((rev, i) => {
+        {visible.map((rev, i) => {
           const place = resolveReviewPlaceName(rev.restId, rev, rests);
+          const isStore = isStoreReview(rev);
           return (
             <div key={rev.id} className="ac" style={{ padding: '15px 17px', border: `1.5px solid ${rev.status === 'new' ? 'rgba(255,69,69,.3)' : '#162B1A'}`, animation: `fadeUp .4s ease ${i * .06}s both` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
@@ -2501,7 +2538,7 @@ function ReviewsPage() {
                     <span style={{ fontSize: 11, color: '#8FB897' }}>{place}</span>
               </div>
                   {rev.status === 'new' && <Badge v="Новый" c="#FF4545" />}
-                  {rev.restSeen ? <Badge v="Ресторан видел" c="#1FD760" /> : <Badge v="Не прочитан рест." c="#FFB800" />}
+                  {!isStore && (rev.restSeen ? <Badge v="Ресторан видел" c="#1FD760" /> : <Badge v="Не прочитан рест." c="#FFB800" />)}
                   {rev.urgent && <Badge v="Срочно" c="#FF4545" />}
                 </div>
               </div>
@@ -2513,7 +2550,7 @@ function ReviewsPage() {
                   💬 КАКАПО: {rev.adminReply}
                 </div>
               )}
-              {rev.restReply && (
+              {!isStore && rev.restReply && (
                 <div style={{ fontSize: 12, color: '#1FD760', marginBottom: 10, padding: '8px 12px', background: 'rgba(31,215,96,.08)', borderRadius: 9, border: '1px solid rgba(31,215,96,.2)' }}>
                   🍽 Ресторан: {rev.restReply}
                 </div>
@@ -8076,7 +8113,7 @@ function AdminAppInner() {
     return () => {};
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Жалобы и отзывы клиентов',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
