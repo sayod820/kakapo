@@ -528,6 +528,27 @@ function spreadOrderCoords<T extends { id: string; lat: number; lng: number }>(o
   return out
 }
 
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6371
+  const dLat = (b.lat - a.lat) * Math.PI / 180
+  const dLng = (b.lng - a.lng) * Math.PI / 180
+  const la1 = a.lat * Math.PI / 180
+  const la2 = b.lat * Math.PI / 180
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+/** Находит самое плотное скопление заказов (кластер с максимумом соседей в радиусе) */
+function densestOrderCluster<T extends { lat: number; lng: number }>(orders: T[], radiusKm = 1.5): T[] {
+  if (orders.length <= 1) return orders
+  let best: T[] = []
+  for (const o of orders) {
+    const near = orders.filter(x => haversineKm(o, x) <= radiusKm)
+    if (near.length > best.length) best = near
+  }
+  return best.length ? best : orders
+}
+
 function useCourierLocation() {
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -615,6 +636,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
   const autoFittingRef = useRef(false);
   const userMovedMapRef = useRef(false);
   const fittedRouteKeyRef = useRef('');
+  const fittedClusterKeyRef = useRef('');
   const lastRouteFetchKeyRef = useRef('');
   const [ready, setReady] = useState(false);
   const [liveRouteKm, setLiveRouteKm] = useState<number | null>(null);
@@ -635,6 +657,11 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     lastRouteFetchKeyRef.current = '';
     setRoutePickupOrder([]);
   }, [selected?.id]);
+
+  useEffect(() => {
+    fittedClusterKeyRef.current = '';
+  }, [orders, myDeliveryList, step]);
+
   const onRouteKmRef = useRef(onRouteKm);
   onRouteKmRef.current = onRouteKm;
   const onRouteOrderRef = useRef(onRouteOrder);
@@ -812,6 +839,49 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       }
     });
   }, [ready, orders, selected, pickupIdx, step, onSelect, TARIFF, courierPos, myDeliveryList, routePickupOrder, PICKUPS]);
+
+  useEffect(() => {
+    if (!ready || !isMapAlive(mapRef.current) || step || myDeliveryList || selected || userMovedMapRef.current) return
+    const map = mapRef.current
+    const cluster = densestOrderCluster(orders)
+    if (!cluster.length) {
+      if (!fittedClusterKeyRef.current) {
+        autoFittingRef.current = true
+        try {
+          applyDefaultMapView(map)
+          fittedClusterKeyRef.current = 'default'
+        } finally {
+          window.setTimeout(() => { autoFittingRef.current = false }, 150)
+        }
+      }
+      return
+    }
+
+    const clusterKey = cluster
+      .map(o => `${o.id}:${o.lat.toFixed(4)}:${o.lng.toFixed(4)}`)
+      .sort()
+      .join('|')
+    if (fittedClusterKeyRef.current === clusterKey) return
+
+    import('leaflet').then(L => {
+      if (!isMapAlive(mapRef.current) || mapRef.current !== map || userMovedMapRef.current) return
+      autoFittingRef.current = true
+      try {
+        const bounds = L.latLngBounds(cluster.map(o => [o.lat, o.lng] as [number, number]))
+        if (cluster.length === 1) {
+          const only = cluster[0]
+          map.setView([only.lat, only.lng], 15, { animate: false })
+        } else {
+          map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 })
+        }
+        fittedClusterKeyRef.current = clusterKey
+      } catch {
+        // ignore destroyed map
+      } finally {
+        window.setTimeout(() => { autoFittingRef.current = false }, 150)
+      }
+    })
+  }, [ready, orders, selected, step, myDeliveryList]);
 
   /* маршрут доставки: кратчайший порядок забора → клиент.
      Показываем только после принятия заказа (step задан) — в списке доступных заказов маршрут не рисуем. */
