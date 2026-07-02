@@ -1,4 +1,5 @@
 import type { Product, Restaurant } from './types'
+import { USE_API } from './config'
 
 /** Синонимы catId из API/GBS → slug каталога в приложении */
 const CAT_ALIASES: Record<string, string> = {
@@ -15,11 +16,13 @@ export function productCatSlug(p: { catId?: string; cat?: string }): string {
 /** Дополняет товар из API полями UI (grad, desc…) из локального seed */
 export function enrichProducts(api: Product[], seed: any[]): any[] {
   const list = Array.isArray(api) ? api : []
-  if (!list.length) return seed
+  if (!list.length) return USE_API ? [] : seed
   return list.map(p => {
     const base = seed.find(s => s.id === p.id || s.art === p.art) || {}
     const discount = p.discount ?? (p.old && p.old > p.price ? Math.round((1 - p.price / p.old) * 100) : 0)
     const catId = productCatSlug({ catId: p.catId || base.catId, cat: base.cat })
+    const seedRating = !USE_API && typeof base.r === 'number' ? base.r : 0
+    const seedReviewCount = !USE_API && typeof base.rv === 'number' ? base.rv : 0
     return {
       ...base,
       ...p,
@@ -38,8 +41,8 @@ export function enrichProducts(api: Product[], seed: any[]): any[] {
       minWeight: p.minWeight || base.minWeight,
       bulkPricing: p.bulkPricing || base.bulkPricing,
       specs: base.specs || {},
-      r: base.r ?? 4.8,
-      rv: base.rv ?? 100,
+      r: typeof (p as any).r === 'number' ? (p as any).r : seedRating,
+      rv: typeof (p as any).rv === 'number' ? (p as any).rv : seedReviewCount,
       isNew: base.isNew ?? false,
       org: p.organic ?? base.org ?? false,
     }
@@ -49,13 +52,7 @@ export function enrichProducts(api: Product[], seed: any[]): any[] {
 /** Дополняет ресторан из API полями UI из seed (рейтинг и число отзывов — только из API) */
 export function enrichRestaurants(api: Restaurant[], seed: any[]): any[] {
   const list = Array.isArray(api) ? api : []
-  if (!list.length) {
-    return seed.map(r => ({
-      ...r,
-      rating: 0,
-      reviews: 0,
-    }))
-  }
+  if (!list.length) return USE_API ? [] : seed.map(r => ({ ...r, rating: 0, reviews: 0 }))
   return list.map(r => {
     const base = seed.find(s => s.id === r.id) || {}
     const { rating: _seedRating, reviews: _seedReviews, ...baseUi } = base

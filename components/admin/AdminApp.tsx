@@ -736,7 +736,11 @@ function OrdersPage() {
   const couriers = useCourierTeam();
   const assemblers = useAssemblerTeam();
   const apiRests = useRestaurants(s => s.restaurants);
-  const restaurants = USE_API && apiRests.length ? enrichRestaurants(apiRests, RESTAURANTS) : RESTAURANTS;
+  const restaurantsLoaded = useRestaurants(s => s.loaded);
+  const restaurants = useMemo(
+    () => (!USE_API ? RESTAURANTS : (restaurantsLoaded ? enrichRestaurants(apiRests, RESTAURANTS) : [])),
+    [apiRests, restaurantsLoaded],
+  );
   const [demoPatch, setDemoPatch] = useState({});
   const [busyKey, setBusyKey] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1215,9 +1219,13 @@ function serializeBulkPricing(rows) {
 function ProductsPage() {
   const { setPhoto, getPhoto, hydrate } = useProductPhotos();
   const apiProducts = useProducts(s => s.products);
+  const productsLoaded = useProducts(s => s.loaded);
   const saveProduct = useProducts(s => s.saveProduct);
   const removeProduct = useProducts(s => s.removeProduct);
-  const prods = useMemo(() => stripProductSaleFields(enrichProducts(apiProducts, PRODS)), [apiProducts]);
+  const prods = useMemo(
+    () => (USE_API && !productsLoaded ? [] : stripProductSaleFields(enrichProducts(apiProducts, PRODS))),
+    [apiProducts, productsLoaded],
+  );
   const [search,  setSearch]  = useState('');
   const [catFlt,  setCatFlt]  = useState('all');
   const [statFlt, setStatFlt] = useState('all');
@@ -1673,18 +1681,19 @@ function PartnersPage() {
   const syncRestaurantPickup = usePickupStore(s => s.syncRestaurantPickup);
   const updatePickup = usePickupStore(s => s.updatePickup);
   const apiRests = useRestaurants(s => s.restaurants);
+  const restaurantsLoaded = useRestaurants(s => s.loaded);
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
   const blockRestaurantApi = useRestaurants(s => s.blockRestaurant);
   const fetchRestaurantsApi = useRestaurants(s => s.fetchRestaurants);
   const updateRestaurantApi = useRestaurants(s => s.updateRestaurant);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
-  const [rests, setRests] = useState(RESTAURANTS.map(r => ({ ...r })));
+  const [rests, setRests] = useState<any[]>(() => (USE_API ? [] : RESTAURANTS.map(r => ({ ...r }))));
   const [savingInfo, setSavingInfo] = useState(false);
   useEffect(() => {
-    if (USE_API && apiRests.length) {
+    if (USE_API && restaurantsLoaded) {
       setRests(enrichRestaurants(apiRests, RESTAURANTS));
     }
-  }, [apiRests]);
+  }, [apiRests, restaurantsLoaded]);
   const [sel, setSel] = useState<any>(null);
   const [tab, setTab] = useState('info');
   const [showAdd, setShowAdd] = useState(false);
@@ -2428,7 +2437,11 @@ function isStoreReview(rev: Review) {
 
 function ReviewsPage() {
   const apiRests = useRestaurants(s => s.restaurants);
-  const rests = USE_API && apiRests.length ? enrichRestaurants(apiRests, RESTAURANTS) : RESTAURANTS;
+  const restaurantsLoaded = useRestaurants(s => s.loaded);
+  const rests = useMemo(
+    () => (!USE_API ? RESTAURANTS : (restaurantsLoaded ? enrichRestaurants(apiRests, RESTAURANTS) : [])),
+    [apiRests, restaurantsLoaded],
+  );
   const [reviews, setReviews] = useState(REVIEWS);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<'store' | 'restaurants'>('restaurants');
@@ -6710,6 +6723,7 @@ function PushPage() {
 function FinancePage() {
   const apiOrders = useOrders(s => s.orders)
   const apiRests = useRestaurants(s => s.restaurants)
+  const restaurantsLoaded = useRestaurants(s => s.loaded)
   const fetchRestaurants = useRestaurants(s => s.fetchRestaurants)
   const couriers = useCourierTeam()
   const assemblers = useAssemblerTeam()
@@ -6718,7 +6732,7 @@ function FinancePage() {
 
   const [tab, setTab] = useState<FinanceTab>('shop')
   const [payouts, setPayouts] = useState<any[]>([])
-  const [localRests, setLocalRests] = useState(() => RESTAURANTS.map(r => ({ ...r, paidRevenueMonth: r.paidRevenueMonth ?? 0 })))
+  const [localRests, setLocalRests] = useState(() => (USE_API ? [] : RESTAURANTS.map(r => ({ ...r, paidRevenueMonth: r.paidRevenueMonth ?? 0 }))))
   const [payTarget, setPayTarget] = useState<any>(null)
   const [payMethod, setPayMethod] = useState('cash')
   const [payNote, setPayNote] = useState('')
@@ -6732,9 +6746,15 @@ function FinancePage() {
     [apiOrders],
   )
   const restaurants = useMemo(() => {
-    if (USE_API && apiRests.length) return enrichRestaurants(apiRests, RESTAURANTS)
+    if (USE_API) {
+      if (!restaurantsLoaded) return []
+      return enrichRestaurants(apiRests, RESTAURANTS).map(r => ({
+        ...r,
+        paidRevenueMonth: (localRests.find(l => l.id === r.id)?.paidRevenueMonth) ?? r.paidRevenueMonth ?? 0,
+      }))
+    }
     return localRests
-  }, [apiRests, localRests])
+  }, [apiRests, restaurantsLoaded, localRests])
 
   useEffect(() => {
     if (USE_API) {
@@ -7337,19 +7357,37 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
    DASHBOARD — обзор всех 4 приложений
 ══════════════════════════════════════════════════════ */
 function DashboardPage({setPage}) {
-  const totalRestRev = RESTAURANTS.reduce((s,r)=>s+r.revenueMonth,0);
-  const totalComm    = RESTAURANTS.reduce((s,r)=>s+Math.round(r.revenueMonth*r.commission/100),0);
-  const activeRest   = REST_ORDERS.filter(o=>o.status!=='delivered').length;
-  const storeOrders  = ALL_ORDERS.filter(o=>o.type==='market'&&o.status!=='delivered');
+  const apiOrders = useOrders(s => s.orders);
+  const apiRests = useRestaurants(s => s.restaurants);
+  const restaurantsLoaded = useRestaurants(s => s.loaded);
+  const couriers = useCourierTeam();
+  const assemblers = useAssemblerTeam();
+  const rests = useMemo(
+    () => (!USE_API ? RESTAURANTS : (restaurantsLoaded ? enrichRestaurants(apiRests, RESTAURANTS) : [])),
+    [apiRests, restaurantsLoaded],
+  );
+  const orders = useMemo(
+    () => (USE_API ? mapOrdersForAdmin(apiOrders, rests, []) : ALL_ORDERS),
+    [apiOrders, rests],
+  );
+  const totalRestRev = rests.reduce((s,r)=>s+(r.revenueMonth||0),0);
+  const totalComm    = rests.reduce((s,r)=>s+Math.round((r.revenueMonth||0)*r.commission/100),0);
+  const activeRest   = (USE_API ? orders : REST_ORDERS).filter(o=>o.status!=='delivered'&&o.status!=='cancelled').length;
+  const storeOrders  = orders.filter(o=>o.type==='market'&&o.status!=='delivered'&&o.status!=='cancelled');
+  const openRestLabel = restaurantsLoaded || !USE_API
+    ? `${rests.filter(r=>r.open).length}/${rests.length} открыто`
+    : '…';
+  const activeCourierCount = couriers.filter(c => c.status === 'busy' || c.status === 'available').length;
+  const workingAssemblers = assemblers.filter(a => a.status === 'working' || a.status === 'available').length;
   return (
     <div>
       {/* 4 apps */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
         {[
-          {e:'🛒',l:'Магазин',v:'Работает',sub:'48 заказов сегодня',c:'#1FD760',a:'orders'},
-          {e:'🍽',l:'Рестораны',v:`${RESTAURANTS.filter(r=>r.open).length}/${RESTAURANTS.length} открыто`,sub:`${activeRest} активных заказов`,c:'#FF8C00',a:'partners'},
-          {e:'🛵',l:'Курьеры',v:'3 активных',sub:'1 офлайн · Live GPS',c:'#3B8EF0',a:'couriers'},
-          {e:'📦',l:'Сборщики',v:'2 на смене',sub:'12 собрано сегодня',c:'#9B6DFF',a:'assemblers'},
+          {e:'🛒',l:'Магазин',v:'Работает',sub:`${storeOrders.length} активных заказов`,c:'#1FD760',a:'orders'},
+          {e:'🍽',l:'Рестораны',v:openRestLabel,sub:`${activeRest} активных заказов`,c:'#FF8C00',a:'partners'},
+          {e:'🛵',l:'Курьеры',v:`${activeCourierCount} активных`,sub:'Live GPS',c:'#3B8EF0',a:'couriers'},
+          {e:'📦',l:'Сборщики',v:`${workingAssemblers} на смене`,sub:'Сборка заказов',c:'#9B6DFF',a:'assemblers'},
         ].map((s,i)=>(
           <div key={i} className="ac" style={{padding:16,cursor:'pointer',transition:'transform .15s'}} onClick={()=>setPage(s.a)} onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'} onMouseLeave={e=>e.currentTarget.style.transform='none'}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}><span style={{fontSize:26}}>{s.e}</span><div style={{width:8,height:8,borderRadius:'50%',background:s.c,animation:'pulse 2s infinite',marginTop:4}}/></div>
@@ -7376,7 +7414,7 @@ function DashboardPage({setPage}) {
           </div>
           <table className="at">
             <thead><tr><th>ID</th><th>Тип</th><th>Клиент</th><th>Сумма</th><th>Статус</th></tr></thead>
-            <tbody>{ALL_ORDERS.filter(o=>o.status!=='delivered').map(o=>{
+            <tbody>{orders.filter(o=>o.status!=='delivered'&&o.status!=='cancelled').slice(0,8).map(o=>{
               const s=SC_STATUS[o.status]||{l:o.status,c:'#8FB897'};
               return(<tr key={o.id}>
                 <td><span className="ub" style={{fontSize:11,color:'#1FD760'}}>{o.id}</span></td>

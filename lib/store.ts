@@ -743,6 +743,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
 // ── PRODUCTS ─────────────────────────────────────
 interface ProductsStore {
   products: Product[]
+  loaded: boolean
   fetchProducts: () => Promise<void>
   saveProduct: (data: Partial<Product> & { art?: string; id?: number }) => Promise<Product | null>
   updateProduct: (id: number, updates: Partial<Product>) => void
@@ -751,10 +752,19 @@ interface ProductsStore {
 }
 export const useProducts = create<ProductsStore>((set, get) => ({
   products: USE_API ? [] : PRODUCTS,
+  loaded: !USE_API,
 
   fetchProducts: async () => {
-    if (!USE_API) return
-    try { set({ products: ensureArray<Product>(await api.getProducts(), 'products') }) } catch (e) { console.error(e) }
+    if (!USE_API) {
+      set({ loaded: true })
+      return
+    }
+    try {
+      set({ products: ensureArray<Product>(await api.getProducts(), 'products'), loaded: true })
+    } catch (e) {
+      console.error(e)
+      set({ loaded: true })
+    }
   },
 
   saveProduct: async (data) => {
@@ -829,6 +839,7 @@ export const usePromos = create<PromosStore>((set) => ({
 // ── RESTAURANTS ──────────────────────────────────
 interface RestaurantsStore {
   restaurants: Restaurant[]
+  loaded: boolean
   fetchRestaurants: () => Promise<void>
   toggleOpen: (id: string) => Promise<void>
   updateRestaurant: (id: string, data: Partial<Restaurant>) => Promise<Restaurant | void>
@@ -838,10 +849,19 @@ interface RestaurantsStore {
 }
 export const useRestaurants = create<RestaurantsStore>((set, get) => ({
   restaurants: USE_API ? [] : RESTAURANTS,
+  loaded: !USE_API,
 
   fetchRestaurants: async () => {
-    if (!USE_API) return
-    try { set({ restaurants: ensureArray<Restaurant>(await api.getRestaurants(), 'restaurants') }) } catch (e) { console.error(e) }
+    if (!USE_API) {
+      set({ loaded: true })
+      return
+    }
+    try {
+      set({ restaurants: ensureArray<Restaurant>(await api.getRestaurants(), 'restaurants'), loaded: true })
+    } catch (e) {
+      console.error(e)
+      set({ loaded: true })
+    }
   },
 
   toggleOpen: async (id) => {

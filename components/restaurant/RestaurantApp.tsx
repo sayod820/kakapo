@@ -128,13 +128,14 @@ function RestaurantAppInner() {
   const updateStatusApi = useOrders(s => s.updateStatus);
   const updateRestPart = useOrders(s => s.updateRestPart);
   const apiRests = useRestaurants(s => s.restaurants);
+  const restaurantsLoaded = useRestaurants(s => s.loaded);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
   const [session, setSession] = useState<RestaurantSession | null>(() => loadRestaurantSession());
   const [rest, setRest] = useState<(typeof DEMO_RESTAURANTS)[0] | null>(null);
   const [menu, setMenu] = useState<(typeof DEMO_RESTAURANTS)[0]['menu']>([]);
   const orders = useMemo(
-    () => (USE_API && rest ? mapOrdersForRestaurant(apiOrders, rest.id) : DEMO_ORDERS),
+    () => (USE_API ? (rest ? mapOrdersForRestaurant(apiOrders, rest.id) : []) : DEMO_ORDERS),
     [apiOrders, rest]
   );
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -153,6 +154,7 @@ function RestaurantAppInner() {
   const isOpen = rest ? (typeof rest.open === 'boolean' ? rest.open : (rest.isOpen ?? true)) : true;
 
   const loginRestaurants = useMemo((): RestaurantLoginProfile[] => {
+    if (USE_API && !restaurantsLoaded) return [];
     const enriched = enrichRestaurants(USE_API ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
     return enriched
       .filter(r => r.phone)
@@ -173,7 +175,7 @@ function RestaurantAppInner() {
 
   useEffect(() => {
     if (!session || rest) return;
-    if (USE_API && !apiRests.length) return;
+    if (USE_API && !restaurantsLoaded) return;
     const enriched = enrichRestaurants(USE_API ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
     const found = enriched.find(r => r.id === session.restId);
     if (found) applyRestaurant(found);
@@ -193,7 +195,7 @@ function RestaurantAppInner() {
   }, [rest?.id, toggleOpenApi, isOpen]);
 
   useEffect(() => {
-    if (USE_API && apiRests.length && rest?.id) {
+    if (USE_API && restaurantsLoaded && rest?.id) {
       const enriched = enrichRestaurants(apiRests, DEMO_RESTAURANTS);
       const found = enriched.find(r => r.id === rest.id);
       if (found) {
@@ -206,7 +208,7 @@ function RestaurantAppInner() {
   const onLoginSuccess = (s: RestaurantSession) => {
     saveRestaurantSession(s);
     setSession(s);
-    if (USE_API && !apiRests.length) {
+    if (USE_API && !restaurantsLoaded) {
       setPage('dashboard');
       return;
     }

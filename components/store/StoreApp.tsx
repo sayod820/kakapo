@@ -7,6 +7,7 @@ import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
 import { productCatSlug } from "@/lib/enrichCatalog";
+import { productRatingUi, restaurantCuisineLabel, restaurantRatingLabel, restaurantReviewsLabel } from "@/lib/catalogUi";
 import { useOrders, USE_API, useRestaurants, usePromos } from "@/lib/store";
 import { api } from "@/lib/api";
 import { enrichRestaurants } from "@/lib/enrichCatalog";
@@ -503,7 +504,7 @@ const RESTAURANTS = [
     ]
   },
   {
-    id:'R-03', name:'Суши Яван',          emoji:'🍣', rating:4.9, reviews:94,
+    id:'R-03', name:'Суши Яван',          emoji:'🍣', rating:4.9, reviews:0,
     cuisine:'Японская',              tags:['Роллы','Суши','Рамен'],
     minOrder:30, deliveryMin:45, deliveryFee:7, open:true,
     hours:'11:00–22:00', img:'linear-gradient(135deg,#0A0A1A,#1A1A3A)',
@@ -519,7 +520,7 @@ const RESTAURANTS = [
     ]
   },
   {
-    id:'R-04', name:'Фаст-фуд 24/7',     emoji:'🍟', rating:4.3, reviews:521,
+    id:'R-04', name:'Фаст-фуд 24/7',     emoji:'🍟', rating:4.3, reviews:0,
     cuisine:'Быстрое питание',             tags:['Бургеры','Хот-дог','Картошка'],
     minOrder:10, deliveryMin:20, deliveryFee:3, open:true,
     hours:'00:00–24:00', img:'linear-gradient(135deg,#1A1000,#3A2200)',
@@ -1311,6 +1312,8 @@ const FAQ = () => {
   {q:"Что если меня нет дома?",              a:"Курьер подождёт 10 минут. Оставьте комментарий к заказу — например, 'оставить у соседа'."},
 ]; };
 const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
+  const { catalogReady } = useLiveCatalog();
+  const rating = productRatingUi(p, catalogReady);
   const qty  = cart[p.id] || 0;
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const bulkHint = formatBulkPricingHint(p);
@@ -1337,7 +1340,9 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
       <div style={{ padding:"10px 10px 10px", flex:1, display:"flex", flexDirection:"column", gap:3, minHeight:0 }}>
         <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:32, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{p.name}</div>
         <div style={{ fontSize:10, color:"var(--t3)", minHeight:14 }}>{p.unit}</div>
-        <div style={{ display:"flex", alignItems:"center", gap:3, minHeight:14 }}><Stars r={p.r} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{p.r}({p.rv})</span></div>
+        <div style={{ display:"flex", alignItems:"center", gap:3, minHeight:14 }}>
+          {rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}
+        </div>
         <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:2, minHeight:18 }}>
           <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
           {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
@@ -1372,7 +1377,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 };
 
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
-  const { prods, restaurants } = useLiveCatalog();
+  const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
@@ -1434,9 +1439,9 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
               <div style={{ padding:"14px 12px 10px", position:"relative", zIndex:1 }}>
                 <div style={{ fontSize:36, marginBottom:6 }}>{r.emoji}</div>
                 <div className="ub" style={{ fontSize:12, fontWeight:900, color:"white", marginBottom:2, lineHeight:1.3 }}>{r.name}</div>
-                <div style={{ fontSize:10, color:"rgba(255,255,255,.6)", marginBottom:8 }}>{r.cuisine}</div>
+                <div style={{ fontSize:10, color:"rgba(255,255,255,.6)", marginBottom:8 }}>{restaurantCuisineLabel(r.cuisine, restaurantsReady)}</div>
                 <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-                  <span style={{ padding:"2px 7px", borderRadius:7, fontSize:9, fontWeight:800, background:"rgba(0,0,0,.4)", color:"rgba(255,255,255,.8)" }}>★ {r.rating}</span>
+                  <span style={{ padding:"2px 7px", borderRadius:7, fontSize:9, fontWeight:800, background:"rgba(0,0,0,.4)", color:"rgba(255,255,255,.8)" }}>★ {restaurantRatingLabel(r.rating, restaurantsReady)}</span>
                 </div>
               </div>
             </div>
@@ -1467,7 +1472,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 };
 
 const CatalogPage = ({ go, cart, user }) => {
-  const { prods, restaurants } = useLiveCatalog();
+  const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   return (
   <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart} user={user}/>
@@ -1493,7 +1498,7 @@ const CatalogPage = ({ go, cart, user }) => {
               </div>
             </div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
-              <div style={{ fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--org)" }}>{restaurants.length}</div>
+              <div style={{ fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--org)" }}>{restaurantsReady ? restaurants.length : '…'}</div>
               <div style={{ fontSize:10, color:"rgba(255,255,255,.4)" }}>ресторана</div>
               <div style={{ marginTop:6, fontSize:11, fontWeight:700, color:"var(--org)" }}>Смотреть →</div>
             </div>
@@ -1522,7 +1527,7 @@ const CatalogPage = ({ go, cart, user }) => {
 );
 };
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
-  const { prods } = useLiveCatalog();
+  const { prods, catalogReady } = useLiveCatalog();
   const { isVip } = resolveUserVip(user);
   const [sort,    setSort]    = useState("pop");
   const [view,    setView]    = useState("grid");
@@ -1540,6 +1545,13 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   else if (sort === "exp") items = [...items].sort((a,b) => b.price - a.price);
   else if (sort === "sale") items = items.filter(p => p.old).sort((a,b) => (1-b.price/b.old) - (1-a.price/a.old));
   else if (isHotHits) items = [...items].sort((a,b) => (b.r || 0) - (a.r || 0));
+  if (USE_API && !catalogReady) {
+    return (
+      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", color:"var(--t3)", fontSize:13 }}>
+        Загрузка каталога…
+      </div>
+    );
+  }
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
@@ -1601,6 +1613,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {items.map((p,i) => {
               const qty = cart[p.id]||0, disc = p.old ? Math.round((1-p.price/p.old)*100) : 0;
+              const rating = productRatingUi(p, catalogReady);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product", { id:p.id })}>
                   <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative" }}>
@@ -1609,7 +1622,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:1 }}>{p.name}</div>
                     <div style={{ fontSize:10, color:"var(--t3)", marginBottom:4 }}>{p.unit}</div>
-                    <div style={{ display:"flex", alignItems:"center", gap:3 }}><Stars r={p.r} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{p.r}</span></div>
+                    <div style={{ display:"flex", alignItems:"center", gap:3 }}>{rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}</div>
                     <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:4 }}>
                       <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                       {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
@@ -1687,9 +1700,9 @@ const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
 };
 
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
-  const { prods } = useLiveCatalog();
-  const p = prods.find(x => x.id == params?.id) || prods[0];
-  if (!p) {
+  const { prods, catalogReady } = useLiveCatalog();
+  const p = prods.find(x => x.id == params?.id);
+  if (!catalogReady || !p) {
     return (
       <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", padding:"40px 18px", color:"var(--t2)" }}>
         Загрузка товара...
@@ -1769,7 +1782,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         <div style={{ fontSize:11, color:"var(--t3)", marginBottom:10 }}>{CATS.find(c => c.id === pCat)?.label || p.catLabel || p.cat}</div>
         <div className="ub" style={{ fontSize:22, fontWeight:900, lineHeight:1.2, marginBottom:10 }}>{p.name}</div>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-          <Stars r={p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({storeRevLabel} отзывов)</span>
+          <Stars r={USE_API ? 0 : p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{USE_API ? storeRevLabel : p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({storeRevLabel} отзывов)</span>
           <span style={{ fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:4 }}><div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>В наличии</span>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:16 }}>
@@ -1894,12 +1907,13 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   );
 };
 const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady = true, user }) => {
-  const { prods } = useLiveCatalog();
+  const { prods, catalogReady } = useLiveCatalog();
   const items = buildCartLineItems(cart, cartMeta, prods);
   const prodItems = items.filter(p => !p.isRest);
   const cartBoot =
     (cartHasQty(cart) && items.length === 0) ||
-    (!cartSyncReady && !!user?.phone && !cartHasQty(cart));
+    (!cartSyncReady && !!user?.phone && !cartHasQty(cart)) ||
+    (USE_API && !catalogReady && cartHasQty(cart));
   if (cartBoot) return <CartPageBoot go={go} />;
   const retailSub = items.reduce((s, p) => s + (p.isRest ? (Number(p.price) || 0) * p.qty : lineRetailTotal(p, p.qty)), 0);
   const bulkSaved = prodItems.reduce((s, p) => s + lineBulkSavings(p, p.qty), 0);
@@ -3946,7 +3960,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
 };
 
 const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
-  const { prods } = useLiveCatalog();
+  const { prods, catalogReady } = useLiveCatalog();
   const { isVip } = resolveUserVip(user);
   const items = useMemo(
     () => prods.filter(p => wished[p.id]),
@@ -4003,7 +4017,7 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 };
 
 const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
-  const { prods } = useLiveCatalog();
+  const { prods, catalogReady } = useLiveCatalog();
   const { isVip } = resolveUserVip(user);
   const [query, setQuery] = useState("");
   const iRef = useRef();
@@ -4062,6 +4076,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
               {results.map((p,i) => {
                 const qty=cart[p.id]||0, disc=p.old?Math.round((1-p.price/p.old)*100):0;
+                const rating = productRatingUi(p, catalogReady);
                 return (
                   <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product",{id:p.id})}>
                     <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative" }}>
@@ -4070,7 +4085,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:13, fontWeight:700, marginBottom:1 }}>{p.name}</div>
                       <div style={{ fontSize:10, color:"var(--t3)", marginBottom:4 }}>{p.unit}</div>
-                      <div style={{ display:"flex", alignItems:"center", gap:3 }}><Stars r={p.r} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{p.r}({p.rv})</span></div>
+                      <div style={{ display:"flex", alignItems:"center", gap:3 }}>{rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}</div>
                       <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:4 }}>
                         <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                         {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
@@ -8466,16 +8481,25 @@ const PartnerLoginPage = ({go}) => {
 
 const PartnerDashPage = ({go}) => {
   const apiRests = useRestaurants(s => s.restaurants);
+  const restaurantsLoaded = useRestaurants(s => s.loaded);
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
   const [partnerUser] = useState(()=>{try{return JSON.parse(localStorage.getItem('kp_partner')||'null');}catch{return PARTNER_USERS[0];}});
-  const seedRest = partnerUser ? RESTAURANTS.find(r=>r.id===partnerUser.restId) : RESTAURANTS[0];
   const rest = useMemo(() => {
-    if (USE_API && apiRests.length && partnerUser?.restId) {
+    if (!partnerUser?.restId) return null;
+    if (USE_API) {
+      if (!restaurantsLoaded) return null;
       const enriched = enrichRestaurants(apiRests, RESTAURANTS);
-      return enriched.find(r => r.id === partnerUser.restId) || enriched[0];
+      return enriched.find(r => r.id === partnerUser.restId) || null;
     }
-    return seedRest;
-  }, [apiRests, partnerUser?.restId, seedRest]);
+    return RESTAURANTS.find(r => r.id === partnerUser.restId) || null;
+  }, [apiRests, restaurantsLoaded, partnerUser?.restId]);
+  if (!rest) {
+    return (
+      <div style={{ minHeight:'100vh', background:'var(--bg)', maxWidth:480, margin:'0 auto', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t3)', fontSize:13 }}>
+        Загрузка кабинета…
+      </div>
+    );
+  }
   const isOpen = rest ? (typeof rest.open === 'boolean' ? rest.open : true) : true;
   const [tab,   setTab]   = useState('orders');
   const [menu,  setMenu]  = useState(rest ? rest.menu : []);
@@ -8681,18 +8705,19 @@ const PartnerDashPage = ({go}) => {
 };
 const AdminPartnersPage = ({go}) => {
   const apiRests = useRestaurants(s => s.restaurants);
+  const restaurantsLoaded = useRestaurants(s => s.loaded);
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
-  const [rests,   setRests]   = useState(RESTAURANTS.map(r=>({...r,commEdit:r.commission})));
+  const [rests,   setRests]   = useState(() => (USE_API ? [] : RESTAURANTS.map(r=>({...r,commEdit:r.commission}))));
   const [sel,     setSel]     = useState(null);
   const [rtab,    setRtab]    = useState('info');
   const [showAdd, setShowAdd] = useState(false);
   const [showPay, setShowPay] = useState(null);
 
   useEffect(() => {
-    if (USE_API && apiRests.length) {
+    if (USE_API && restaurantsLoaded) {
       setRests(enrichRestaurants(apiRests, RESTAURANTS).map(r => ({ ...r, commEdit: r.commission })));
     }
-  }, [apiRests]);
+  }, [apiRests, restaurantsLoaded]);
 
   const toggleOpen = (id) => { void toggleOpenApi(id); };
   const saveComm   = (id,v) => setRests(rs=>rs.map(r=>r.id===id?{...r,commission:v,commEdit:v}:r));
