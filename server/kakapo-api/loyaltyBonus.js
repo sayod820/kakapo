@@ -4,7 +4,6 @@ import {
   isLevelLocked,
   isAutoLevelActive,
   isLoyaltyPeriodCurrent,
-  clearLevelLock,
   inferLevelAssignMode,
   vipUntilAfterDays,
   AUTO_LEVEL_DEFAULT_TERM_DAYS,

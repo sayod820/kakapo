@@ -2,16 +2,14 @@ import express from 'express'
 import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
-import { loadDb, saveDb, getDbStats, isPersistentDataDir } from './db.js'
-import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, DEFAULT_REVIEWS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
+import { loadDb, scheduleSaveDb, flushDb, getDbStats } from './db.js'
+import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
 import {
   applyStatusPatch,
   inferType,
   isAssemblerOrder,
-  isCourierSync,
   isCourierMapSync,
   marketItems,
-  restItems,
 } from './ordersLogic.js'
 import { creditDeliveredOrder, processPayout, getPendingBalance } from './restaurantStats.js'
 import { lockOrderDeliveryFee, normalizePricing } from './deliveryFee.js'
@@ -32,7 +30,6 @@ import {
 import { createReviewRecord, updateRestaurantRating, updateStoreRating } from './reviewLogic.js'
 import { normalizeLevelAssignMode } from './loyaltyLock.js'
 import {
-  RECOVERY_RETENTION_DAYS,
   recoveryExpiresAtIso,
   isRecoveryExpired,
   expireRecoveryClients,
@@ -66,7 +63,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
 const db = seedIfEmpty()
 
 function persist() {
-  saveDb()
+  scheduleSaveDb()
 }
 
 function ensurePromos() {
@@ -1012,23 +1009,6 @@ function clearPersonalNotificationsOnServer(phone) {
 }
 
 /** Удалить заказы — только для демо/тестов, не для удаления клиентов */
-function purgeOrdersAndReviewsForPhone(phone) {
-  const key = normalizePhoneDigits(phone)
-  if (!key) return 0
-  const orderIds = new Set(
-    (db.orders || [])
-      .filter(o => normalizePhoneDigits(o.client?.phone) === key)
-      .map(o => String(o.id)),
-  )
-  const before = (db.orders || []).length
-  db.orders = (db.orders || []).filter(o => !orderIds.has(String(o.id)))
-  if (Array.isArray(db.reviews) && orderIds.size) {
-    db.reviews = db.reviews.filter(r => !r.orderId || !orderIds.has(String(r.orderId)))
-  }
-  return before - (db.orders || []).length
-}
-
-/** Полное удаление профилей по телефону — заказы остаются для отчётов */
 function purgeClientProfilesForPhone(phone, { rememberDeleted = false } = {}) {
   const key = normalizePhoneDigits(phone)
   if (!key) return { orders: 0, clients: 0 }
@@ -1770,13 +1750,7 @@ function runLoyaltyBackfill() {
     repairMisstampedOrders()
     backfillOrderAccountIds()
     const r = backfillAllMissedBonuses(db, loyaltyHooks())
-    if (r.totalOrders > 0) {
-      console.log(`[loyalty] backfill: +${r.totalCredited} bonus, ${r.totalOrders} orders, ${r.clients} clients`)
-    }
     const rec = reconcileAllClientBonuses(db, loyaltyHooks())
-    if (rec.adjusted > 0) {
-      console.log(`[loyalty] reconcile: ${rec.adjusted} clients adjusted of ${rec.clients}`)
-    }
     if (r.totalOrders > 0 || rec.adjusted > 0) persist()
   } catch (e) {
     console.error('[loyalty] backfill failed', e)
@@ -2078,8 +2052,46 @@ app.get('/admin/dashboard', (_req, res) => {
 app.post('/sync/woocommerce', (_req, res) => res.json({ ok: true, synced: 0 }))
 app.post('/sync/gbs', (_req, res) => res.json({ ok: true, synced: 0 }))
 
+app.use((err, _req, res, next) => {
+  if (res.headersSent) return next(err)
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({ detail: 'Некорректный JSON' })
+  }
+  console.error('[api] unhandled', err)
+  res.status(500).json({ detail: 'Внутренняя ошибка сервера' })
+})
+
 const httpServer = createServer(app)
 const wss = new WebSocketServer({ noServer: true })
+const WS_HEARTBEAT_MS = 30_000
+
+const wsHeartbeat = setInterval(() => {
+  for (const ws of clients) {
+    if (ws.readyState !== 1) {
+      clients.delete(ws)
+      continue
+    }
+    ws.ping()
+  }
+}, WS_HEARTBEAT_MS)
+wsHeartbeat.unref()
+
+function shutdown(signal) {
+  console.error(`[shutdown] ${signal}`)
+  flushDb()
+  httpServer.close(() => process.exit(0))
+  setTimeout(() => process.exit(1), 5000).unref()
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err)
+  flushDb()
+})
 
 httpServer.on('upgrade', (req, socket, head) => {
   if (!req.url?.startsWith('/ws/')) {

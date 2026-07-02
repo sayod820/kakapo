@@ -5,6 +5,15 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const DATA_DIR = process.env.DATA_DIR || join(__dirname, 'data')
 const DB_FILE = join(DATA_DIR, 'kakapo.json')
+const SAVE_DEBOUNCE_MS = Number(process.env.DB_SAVE_DEBOUNCE_MS) || 120
+
+let cache = null
+let saveTimer = null
+let saveDirty = false
+
+function ensureDataDir() {
+  mkdirSync(dirname(DB_FILE), { recursive: true })
+}
 
 const DEFAULT = {
   products: [],
@@ -53,8 +62,6 @@ const DEFAULT = {
   _seq: { order: 4832, product: 12, category: 2, review: 0, promo: 7, payout: 0 },
 }
 
-let cache = null
-
 export function getDbFilePath() {
   return DB_FILE
 }
@@ -91,7 +98,7 @@ export function getDbStats() {
 export function loadDb() {
   if (cache) return cache
   if (!existsSync(DB_FILE)) {
-    mkdirSync(dirname(DB_FILE), { recursive: true })
+    ensureDataDir()
     cache = structuredClone(DEFAULT)
     saveDb()
     return cache
@@ -104,8 +111,30 @@ export function loadDb() {
 }
 
 export function saveDb() {
-  mkdirSync(dirname(DB_FILE), { recursive: true })
+  if (!cache) return
+  ensureDataDir()
   writeFileSync(DB_FILE, JSON.stringify(cache, null, 2), 'utf8')
+  saveDirty = false
+}
+
+/** Отложенная запись — снижает лаг при серии persist() подряд */
+export function scheduleSaveDb() {
+  if (!cache) return
+  saveDirty = true
+  if (saveTimer) return
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    if (saveDirty) saveDb()
+  }, SAVE_DEBOUNCE_MS)
+}
+
+/** Немедленно сбросить отложенную запись (shutdown, критические операции) */
+export function flushDb() {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  if (saveDirty) saveDb()
 }
 
 export function resetCache() {
