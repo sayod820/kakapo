@@ -8182,7 +8182,7 @@ function PublicReviewsSheet({
 }
 
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
-  const { restaurants, prods } = useLiveCatalog();
+  const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
   const [showRevModal, setShowRevModal] = useState(false);
@@ -8210,13 +8210,17 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   }, [r?.id]);
 
   useEffect(() => {
-    if (!showRevModal) return;
     loadRestReviews();
-  }, [showRevModal, loadRestReviews]);
+  }, [loadRestReviews]);
 
   const openReviews = () => setShowRevModal(true);
-  const reviewAvg = restReviews.length ? avgReviewRating(restReviews) : (Number(r?.rating) || null);
-  const reviewCount = restReviews.length || Number(r?.reviews) || 0;
+  const reviewAvg = restReviews.length
+    ? avgReviewRating(restReviews)
+    : (restaurantsReady ? (Number(r?.rating) || null) : null);
+  const reviewCount = restReviews.length
+    ? restReviews.length
+    : (restaurantsReady ? (Number(r?.reviews) || 0) : 0);
+  const ratingLabel = reviewAvg != null ? String(reviewAvg) : (revLoading ? '…' : '—');
 
   if (!r) return null;
 
@@ -8273,7 +8277,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
             <button type="button" onClick={openReviews} className="btn" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,background:'rgba(255,184,0,.14)',border:'1px solid rgba(255,184,0,.35)',color:'var(--gd)',fontSize:12,fontWeight:800}}>
               <Ic n="star" s={13} c="var(--gd)"/>
-              <span style={{fontWeight:800}}>{r.rating}</span>
+              <span style={{fontWeight:800}}>{ratingLabel}</span>
               <span style={{color:'rgba(255,255,255,.55)',fontSize:11,fontWeight:600}}>({reviewCount})</span>
               <span style={{color:'white',fontSize:11,fontWeight:700}}>· Отзывы</span>
             </button>

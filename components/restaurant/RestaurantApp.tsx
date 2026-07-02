@@ -9,7 +9,7 @@ import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichRestaurants } from '@/lib/enrichCatalog'
 import { api } from '@/lib/api'
-import { sortReviewsNewestFirst } from '@/lib/clientReviews'
+import { sortReviewsNewestFirst, avgReviewRating } from '@/lib/clientReviews'
 import { useWebSocket } from '@/lib/ws'
 import type { Review } from '@/lib/types'
 import Link from 'next/link'
@@ -102,6 +102,14 @@ const DEMO_ORDERS = [
    total:70,status:'delivered',addr:'ул. Рудаки, 8', comment:''},
 ];
 
+function displayRestRating(reviews: Review[], rest: { rating?: number } | null, loaded: boolean): string {
+  const fromReviews = avgReviewRating(reviews)
+  if (fromReviews != null) return String(fromReviews)
+  if (!loaded) return '…'
+  const n = Number(rest?.rating)
+  return n > 0 ? String(n) : '—'
+}
+
 /* ══════════════════════════════════════════════════════
    MAIN APP
 ══════════════════════════════════════════════════════ */
@@ -130,6 +138,7 @@ function RestaurantAppInner() {
     [apiOrders, rest]
   );
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewsLoaded, setReviewsLoaded] = useState(!USE_API);
   const [alertOrder, setAlertOrder] = useState<any>(null);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => new Set());
   const seenNewOrderIds = useRef<Set<string>>(new Set());
@@ -144,7 +153,7 @@ function RestaurantAppInner() {
   const isOpen = rest ? (typeof rest.open === 'boolean' ? rest.open : (rest.isOpen ?? true)) : true;
 
   const loginRestaurants = useMemo((): RestaurantLoginProfile[] => {
-    const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
+    const enriched = enrichRestaurants(USE_API ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
     return enriched
       .filter(r => r.phone)
       .map(r => ({
@@ -164,7 +173,7 @@ function RestaurantAppInner() {
 
   useEffect(() => {
     if (!session || rest) return;
-    const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
+    const enriched = enrichRestaurants(USE_API ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
     const found = enriched.find(r => r.id === session.restId);
     if (found) applyRestaurant(found);
     else {
@@ -196,7 +205,7 @@ function RestaurantAppInner() {
   const onLoginSuccess = (s: RestaurantSession) => {
     saveRestaurantSession(s);
     setSession(s);
-    const enriched = enrichRestaurants(USE_API && apiRests.length ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
+    const enriched = enrichRestaurants(USE_API ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
     const found = enriched.find(r => r.id === s.restId);
     if (found) {
       applyRestaurant(found);
@@ -218,6 +227,8 @@ function RestaurantAppInner() {
       setReviews(sortReviewsNewestFirst(list));
     } catch {
       setReviews([]);
+    } finally {
+      setReviewsLoaded(true);
     }
   }, [rest?.id]);
 
@@ -234,6 +245,11 @@ function RestaurantAppInner() {
       return sortReviewsNewestFirst([msg.review, ...rs]);
     });
   }, [rest?.id]));
+
+  useEffect(() => {
+    setReviewsLoaded(!USE_API);
+    setReviews([]);
+  }, [rest?.id]);
 
   useEffect(() => {
     loadReviews();
@@ -424,11 +440,11 @@ function RestaurantAppInner() {
           </div>
         )}
 
-        {page==='dashboard' && <DashboardPage rest={rest} orders={orders} reviews={reviews} unseenReviews={unseenReviews} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout} hasAlert={!!alertOrder}/>}
+        {page==='dashboard' && <DashboardPage rest={rest} orders={orders} reviews={reviews} reviewsLoaded={reviewsLoaded} unseenReviews={unseenReviews} isOpen={isOpen} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout} hasAlert={!!alertOrder}/>}
         {page==='orders'    && <OrdersPage    rest={rest} orders={orders} apiOrders={apiOrders} reviewBadge={unseenReviews} onUpdate={updateOrderStatus} onHandoff={handoffToCourier} onPage={setPage}/>}
         {page==='menu'      && <MenuPage rest={rest} menu={menu} reviewBadge={unseenReviews} onToggle={toggleDish} onAdd={addDish} onRemove={removeDish} onAddCategory={addCategory} onRenameCategory={renameCategory} onRemoveCategory={removeCategory} onPage={setPage}/>}
-        {page==='reviews'   && <ReviewsPage   rest={rest} reviews={reviews} reviewBadge={unseenReviews} onRefresh={loadReviews} onPage={setPage} onMarkSeen={async (id) => { if (USE_API) await api.updateReview(id, { restSeen: true }); setReviews(rs => rs.map(r => r.id === id ? { ...r, restSeen: true } : r)); }}/>}
-        {page==='stats'     && <StatsPage     rest={rest} orders={orders} reviewBadge={unseenReviews} onPage={setPage}/>}
+        {page==='reviews'   && <ReviewsPage   rest={rest} reviews={reviews} reviewsLoaded={reviewsLoaded} reviewBadge={unseenReviews} onRefresh={loadReviews} onPage={setPage} onMarkSeen={async (id) => { if (USE_API) await api.updateReview(id, { restSeen: true }); setReviews(rs => rs.map(r => r.id === id ? { ...r, restSeen: true } : r)); }}/>}
+        {page==='stats'     && <StatsPage     rest={rest} orders={orders} reviews={reviews} reviewsLoaded={reviewsLoaded} reviewBadge={unseenReviews} onPage={setPage}/>}
         {page==='settings'  && <SettingsPage  rest={rest} isOpen={isOpen} reviewBadge={unseenReviews} onToggleOpen={toggleOpen} onPage={setPage} onLogout={logout}/>}
       </div>
     </>
@@ -502,14 +518,14 @@ function BottomNav({page, onPage, newOrders, reviewBadge}) {
 /* ══════════════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════════════ */
-function DashboardPage({rest, orders, reviews, unseenReviews, isOpen, onToggleOpen, onPage, onLogout, hasAlert}) {
+function DashboardPage({rest, orders, reviews, reviewsLoaded, unseenReviews, isOpen, onToggleOpen, onPage, onLogout, hasAlert}) {
   const todayOrders   = orders.filter(o=>o.status!=='delivered' && o.status!=='cancelled');
   const workOrders    = todayOrders.filter(o=>o.status==='new' || o.status==='cooking');
   const readyOrders   = todayOrders.filter(o=>o.status==='ready');
   const doneToday     = orders.filter(o=>o.status==='delivered').length;
   const revenue       = orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+o.total,0);
   const newOrders     = orders.filter(o=>o.status==='new').length;
-  const avgReview     = reviews.length ? (reviews.reduce((s,r)=>s+r.rating,0)/reviews.length).toFixed(1) : rest?.rating;
+  const avgReview     = displayRestRating(reviews, rest, reviewsLoaded);
 
   return (
     <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90,paddingTop:hasAlert?88:0}}>
@@ -1480,9 +1496,10 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
 /* ══════════════════════════════════════════════════════
    ОТЗЫВЫ
 ══════════════════════════════════════════════════════ */
-function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge = 0 }) {
+function ReviewsPage({ rest, reviews, reviewsLoaded, onPage, onRefresh, onMarkSeen, reviewBadge = 0 }) {
   const [replyId, setReplyId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
+  const ratingLabel = `${displayRestRating(reviews, rest, reviewsLoaded)} ★`;
   const Stars = ({ n }: { n: number }) => (
     <span>{[1, 2, 3, 4, 5].map(i => <span key={i} style={{ color: i <= n ? '#FFB800' : '#1D3822', fontSize: 14 }}>★</span>)}</span>
   );
@@ -1508,7 +1525,7 @@ function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge
           {[
             { l: 'Всего', v: reviews.length, c: '#EBF5ED' },
             { l: 'Новых', v: reviews.filter(r => !r.restSeen).length, c: '#FF4545' },
-            { l: 'Рейтинг', v: reviews.length ? `${(reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)} ★` : `${rest?.rating} ★`, c: '#FFB800' },
+            { l: 'Рейтинг', v: ratingLabel, c: '#FFB800' },
           ].map((s, i) => (
             <div key={i} style={{ background: '#091508', border: '1px solid #162B1A', borderRadius: 14, padding: '12px', textAlign: 'center' }}>
               <div style={{ fontSize: 10, color: '#8FB897', marginBottom: 4 }}>{s.l}</div>
@@ -1576,7 +1593,7 @@ function ReviewsPage({ rest, reviews, onPage, onRefresh, onMarkSeen, reviewBadge
 /* ══════════════════════════════════════════════════════
    СТАТИСТИКА
 ══════════════════════════════════════════════════════ */
-function StatsPage({rest, orders, onPage, reviewBadge = 0}) {
+function StatsPage({rest, orders, reviews, reviewsLoaded, onPage, reviewBadge = 0}) {
   const delivered = orders.filter(o=>o.status==='delivered');
   const revenue   = delivered.reduce((s,o)=>s+o.total,0);
   const commission= Math.round(revenue*rest?.commission/100);
@@ -1618,7 +1635,7 @@ function StatsPage({rest, orders, onPage, reviewBadge = 0}) {
           {[
             {l:'Заказов',v:delivered.length,c:'#3B8EF0'},
             {l:'Ср. чек', v:`${delivered.length?Math.round(revenue/delivered.length):0} ЅМ`,c:'#FFB800'},
-            {l:'Рейтинг', v:`★ ${rest?.rating}`,c:'#FFB800'},
+            {l:'Рейтинг', v:`★ ${displayRestRating(reviews, rest, reviewsLoaded)}`,c:'#FFB800'},
           ].map((s,i)=>(
             <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'13px 10px',textAlign:'center'}}>
               <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:s.c,marginBottom:3}}>{s.v}</div>

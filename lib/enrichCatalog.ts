@@ -46,15 +46,24 @@ export function enrichProducts(api: Product[], seed: any[]): any[] {
   })
 }
 
-/** Дополняет ресторан из API полями UI из seed */
+/** Дополняет ресторан из API полями UI из seed (рейтинг и число отзывов — только из API) */
 export function enrichRestaurants(api: Restaurant[], seed: any[]): any[] {
   const list = Array.isArray(api) ? api : []
-  if (!list.length) return seed
+  if (!list.length) {
+    return seed.map(r => ({
+      ...r,
+      rating: 0,
+      reviews: 0,
+    }))
+  }
   return list.map(r => {
     const base = seed.find(s => s.id === r.id) || {}
+    const { rating: _seedRating, reviews: _seedReviews, ...baseUi } = base
     return {
-      ...base,
+      ...baseUi,
       ...r,
+      rating: typeof r.rating === 'number' ? r.rating : 0,
+      reviews: typeof r.reviews === 'number' ? r.reviews : 0,
       blocked: !!r.blocked,
       open: r.blocked ? false : (typeof r.open === 'boolean' ? r.open : (base.open ?? true)),
       img: r.img || base.img || 'linear-gradient(135deg,#1A1A1A,#2A2A2A)',

@@ -12,6 +12,7 @@ export function useCatalogData(fallbackProds: any[], fallbackRests: any[]) {
   const restaurants = useRestaurants(s => s.restaurants)
   return useMemo(() => {
     const catalogReady = !USE_API || products.length > 0
+    const restaurantsReady = !USE_API || restaurants.length > 0
     const promosReady = !USE_API || promosLoaded
     const rawProds = USE_API
       ? enrichProducts(products.length > 0 ? products : fallbackProds, fallbackProds)
@@ -20,9 +21,10 @@ export function useCatalogData(fallbackProds: any[], fallbackRests: any[]) {
     return {
       prods,
       catalogReady,
+      restaurantsReady,
       promosReady,
       restaurants: USE_API
-        ? (restaurants.length > 0 ? enrichRestaurants(restaurants, fallbackRests) : fallbackRests)
+        ? enrichRestaurants(restaurants, fallbackRests)
         : fallbackRests,
     }
   }, [products, promos, promosLoaded, restaurants, fallbackProds, fallbackRests])
