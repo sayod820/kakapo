@@ -753,21 +753,6 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
           m.bindTooltip(`${i+1}. ${pk.name}`, { direction:'top', offset:[0,-sz/2] });
           markersRef.current.push(m);
         });
-      } else if (selected?.routePickupIds?.length && !myDeliveryList && !step) {
-        const routePids: string[] = routePickupOrder.length
-          ? routePickupOrder
-          : selected.routePickupIds;
-        routePids.forEach((pid: string, i: number) => {
-          const pk = PICKUPS[pid] || PICKUPS.store;
-          const sz = 32;
-          const icon = mkIcon(
-            `<div style="width:${sz}px;height:${sz}px;border-radius:10px;background:rgba(6,16,10,.92);border:2px solid ${pk.color};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:${pk.color}">${i + 1}</div>`,
-            sz, sz, sz/2, sz/2
-          );
-          const m = L.marker([pk.lat, pk.lng], { icon, zIndexOffset: 200 }).addTo(map);
-          m.bindTooltip(`${i + 1}. ${pk.name}`, { direction: 'top', offset: [0, -sz/2] });
-          markersRef.current.push(m);
-        });
       }
 
       const coords = spreadOrderCoords(orders)
@@ -828,9 +813,15 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
     });
   }, [ready, orders, selected, pickupIdx, step, onSelect, TARIFF, courierPos, myDeliveryList, routePickupOrder, PICKUPS]);
 
-  /* маршрут доставки: кратчайший порядок забора → клиент */
+  /* маршрут доставки: кратчайший порядок забора → клиент.
+     Показываем только после принятия заказа (step задан) — в списке доступных заказов маршрут не рисуем. */
   useEffect(() => {
-    if (!ready || !isMapAlive(mapRef.current) || !selected || !routeFetchKey) return;
+    if (!ready || !isMapAlive(mapRef.current) || !selected || !routeFetchKey || !step) {
+      try { routeRef.current?.remove(); } catch {}
+      routeRef.current = null;
+      lastRouteFetchKeyRef.current = '';
+      return;
+    }
     if (lastRouteFetchKeyRef.current === routeFetchKey && routeRef.current) return;
     const routeIds = selected.routePickupIds ?? [];
     if (!routeIds.length) return;

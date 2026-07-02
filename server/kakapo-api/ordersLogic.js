@@ -30,7 +30,7 @@ export function getMarketStatus(order) {
   const mkt = marketItems(items)
   if (mkt.length > 0 && mkt.every(it => it.done)) return 'done'
   if (order.status === 'assembler_done') return 'done'
-  if (inferType(order) === 'market' && ['courier_picked', 'delivering', 'delivered'].includes(order.status)) {
+  if (inferType(order) === 'market' && ['ready', 'courier_picked', 'delivering', 'delivered'].includes(order.status)) {
     return 'done'
   }
   if (order.status === 'assembling') return 'assembling'
@@ -107,7 +107,7 @@ function isAssemblerStoreHandoffPending(order) {
   if ((order.pickedUpIds || []).includes('store')) return false
   const t = inferType(order)
   if (t === 'mixed') return getMarketStatus(order) === 'done'
-  if (t === 'market') return ['assembler_done', 'courier_picked'].includes(order.status)
+  if (t === 'market') return ['ready', 'assembler_done', 'courier_picked'].includes(order.status)
   return false
 }
 
@@ -116,7 +116,7 @@ export function isCourierReady(order) {
   if (order.courier?.name && order.courier?.phone) return false
   const t = inferType(order)
   if (t === 'mixed') return anyPartDone(order) && ['ready', 'assembler_done'].includes(order.status)
-  if (t === 'market') return order.status === 'assembler_done'
+  if (t === 'market') return ['ready', 'assembler_done'].includes(order.status)
   if (t === 'restaurant') return order.status === 'ready' || allPartsDone(order)
   return false
 }

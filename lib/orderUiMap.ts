@@ -127,7 +127,7 @@ export function isCourierFullyReadyOrder(o: Order): boolean {
   }
   if (!allPartsDone(order)) return false
   if (t === 'mixed') return ['ready', 'assembler_done'].includes(order.status)
-  if (t === 'market') return order.status === 'assembler_done'
+  if (t === 'market') return ['ready', 'assembler_done'].includes(order.status)
   return false
 }
 
@@ -183,7 +183,7 @@ export function isCourierReadyOrder(o: Order): boolean {
     return order.status === 'ready' || allRestPartsDone(order)
   }
   if (t === 'mixed') return anyPartDone(order) && (order.status === 'ready' || order.status === 'assembler_done')
-  if (t === 'market') return order.status === 'assembler_done'
+  if (t === 'market') return ['ready', 'assembler_done'].includes(order.status)
   return false
 }
 

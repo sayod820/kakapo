@@ -102,8 +102,8 @@ export function getMarketStatus(o: Order): PartStatus {
   const marketItemsList = getMarketItems(o.items)
   if (marketItemsList.length > 0 && marketItemsList.every(it => it.done)) return 'done'
   if (o.status === 'assembler_done') return 'done'
-  // Чисто магазинный заказ: курьер уже принял → сборка завершена
-  if (inferOrderType(o) === 'market' && ['courier_picked', 'delivering', 'delivered'].includes(o.status)) {
+  // Магазин: админ отметил «Готов» / заказ уже у курьера → сборка завершена
+  if (inferOrderType(o) === 'market' && ['ready', 'courier_picked', 'delivering', 'delivered'].includes(o.status)) {
     return 'done'
   }
   if (o.status === 'assembling') return 'assembling'
