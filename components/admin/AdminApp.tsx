@@ -2434,6 +2434,8 @@ function ReviewsPage() {
   const [tab, setTab] = useState<'store' | 'restaurants'>('restaurants');
   const [replyId, setReplyId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const loadReviews = async () => {
     if (!USE_API) { setReviews([]); return; }
@@ -2464,8 +2466,55 @@ function ReviewsPage() {
   const storeReviews = reviews.filter(isStoreReview);
   const restaurantReviews = reviews.filter(r => !isStoreReview(r));
   const visible = tab === 'store' ? storeReviews : restaurantReviews;
+  const visibleIds = visible.map(r => r.id);
+  const allVisibleSelected = visible.length > 0 && visible.every(r => selected.has(r.id));
+  const selectedOnTab = visible.filter(r => selected.has(r.id));
   const avgRating = avgReviewRating(visible);
   const avgLabel = avgRating != null ? `${avgRating} ★` : '—';
+
+  const toggleSelect = (id: number) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleIds.forEach(id => next.delete(id));
+      else visibleIds.forEach(id => next.add(id));
+      return next;
+    });
+  };
+
+  const deleteReviewsByIds = async (ids: number[]) => {
+    if (!ids.length || deleting) return;
+    if (!window.confirm(ids.length === 1 ? 'Удалить этот отзыв?' : `Удалить выбранные отзывы (${ids.length})?`)) return;
+    setDeleting(true);
+    try {
+      if (USE_API) {
+        if (ids.length === 1) await api.deleteReview(ids[0]);
+        else await api.deleteReviewsBulk(ids);
+      }
+      setReviews(rs => rs.filter(r => !ids.includes(r.id)));
+      setSelected(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
+      if (replyId != null && ids.includes(replyId)) {
+        setReplyId(null);
+        setReplyText('');
+      }
+    } catch {
+      window.alert('Не удалось удалить отзыв(ы). Попробуйте ещё раз.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const Stars = ({ n }: { n: number }) => (
     <span>{[1, 2, 3, 4, 5].map(i => <span key={i} style={{ color: i <= n ? '#FFB800' : '#1D3822', fontSize: 13 }}>★</span>)}</span>
@@ -2476,7 +2525,7 @@ function ReviewsPage() {
     return (
       <button
         type="button"
-        onClick={() => { setTab(id); setReplyId(null); setReplyText(''); }}
+        onClick={() => { setTab(id); setReplyId(null); setReplyText(''); setSelected(new Set()); }}
         className="ab"
         style={{
           padding: '8px 16px',
@@ -2510,6 +2559,30 @@ function ReviewsPage() {
         <StatCard l="Жалоб (≤2★)" v={visible.filter(r => r.rating <= 2).length} c="#FF4545" />
         <StatCard l="Средний рейтинг" v={avgLabel} c="#FFB800" />
       </div>
+      {visible.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#8FB897', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={toggleSelectAllVisible}
+              style={{ width: 16, height: 16, accentColor: '#1FD760' }}
+            />
+            Выбрать все на вкладке ({visible.length})
+          </label>
+          {selectedOnTab.length > 0 && (
+            <button
+              type="button"
+              onClick={() => deleteReviewsByIds(selectedOnTab.map(r => r.id))}
+              disabled={deleting}
+              className="ab abd"
+              style={{ padding: '6px 14px', fontSize: 11 }}
+            >
+              {deleting ? 'Удаление…' : `🗑 Удалить выбранные (${selectedOnTab.length})`}
+            </button>
+          )}
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {!loading && visible.length === 0 && (
           <div style={{ textAlign: 'center', padding: 40, color: '#8FB897', fontSize: 13 }}>
@@ -2520,9 +2593,15 @@ function ReviewsPage() {
           const place = resolveReviewPlaceName(rev.restId, rev, rests);
           const isStore = isStoreReview(rev);
           return (
-            <div key={rev.id} className="ac" style={{ padding: '15px 17px', border: `1.5px solid ${rev.status === 'new' ? 'rgba(255,69,69,.3)' : '#162B1A'}`, animation: `fadeUp .4s ease ${i * .06}s both` }}>
+            <div key={rev.id} className="ac" style={{ padding: '15px 17px', border: `1.5px solid ${selected.has(rev.id) ? 'rgba(31,215,96,.45)' : rev.status === 'new' ? 'rgba(255,69,69,.3)' : '#162B1A'}`, animation: `fadeUp .4s ease ${i * .06}s both` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(rev.id)}
+                    onChange={() => toggleSelect(rev.id)}
+                    style={{ width: 16, height: 16, marginTop: 10, accentColor: '#1FD760', flexShrink: 0 }}
+                  />
                   <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 13, fontWeight: 900, color: '#030B05', flexShrink: 0 }}>{rev.client.charAt(0)}</div>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{rev.client}</div>
@@ -2572,6 +2651,7 @@ function ReviewsPage() {
                   {rev.rating <= 2 && (
                     <button onClick={() => patchReview(rev.id, { urgent: true })} className="ab abd" style={{ padding: '5px 12px', fontSize: 11 }}>⚠️ Важно</button>
                   )}
+                  <button onClick={() => deleteReviewsByIds([rev.id])} disabled={deleting} className="ab abd" style={{ padding: '5px 12px', fontSize: 11 }}>🗑 Удалить</button>
                 </div>
               )}
             </div>

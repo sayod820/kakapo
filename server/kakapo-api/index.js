@@ -27,7 +27,7 @@ import {
   findClientByPhone,
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
-import { createReviewRecord, updateRestaurantRating, updateStoreRating } from './reviewLogic.js'
+import { createReviewRecord, updateRestaurantRating, updateStoreRating, deleteReviewRecords } from './reviewLogic.js'
 import { normalizeLevelAssignMode } from './loyaltyLock.js'
 import {
   recoveryExpiresAtIso,
@@ -1909,6 +1909,22 @@ app.patch('/reviews/:id', (req, res) => {
   persist()
   broadcastReview(rev)
   res.json(rev)
+})
+app.delete('/reviews/:id', (req, res) => {
+  ensureReviews()
+  const result = deleteReviewRecords(db, [req.params.id])
+  if (!result.deleted) return res.status(404).json({ detail: 'Отзыв не найден' })
+  persist()
+  res.json({ ok: true, deleted: result.deleted })
+})
+app.post('/reviews/bulk-delete', (req, res) => {
+  ensureReviews()
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : []
+  if (!ids.length) return res.status(400).json({ detail: 'Укажите id отзывов' })
+  const result = deleteReviewRecords(db, ids)
+  if (!result.deleted) return res.status(404).json({ detail: 'Отзывы не найдены' })
+  persist()
+  res.json({ ok: true, deleted: result.deleted })
 })
 function ensurePush() {
   if (!db.push) {

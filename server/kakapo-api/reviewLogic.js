@@ -62,3 +62,22 @@ export function createReviewRecord(db, body) {
   else updateRestaurantRating(db, restId)
   return review
 }
+
+const STORE_ID = STORE_REVIEW_REST_ID
+
+export function deleteReviewRecords(db, ids) {
+  const idSet = new Set((ids || []).map(id => String(id)).filter(Boolean))
+  if (!idSet.size) return { deleted: 0 }
+  const before = (db.reviews || []).length
+  const affectedRestIds = new Set()
+  let storeAffected = false
+  db.reviews = (db.reviews || []).filter(r => {
+    if (!idSet.has(String(r.id))) return true
+    if (String(r.restId) === STORE_ID) storeAffected = true
+    else affectedRestIds.add(String(r.restId))
+    return false
+  })
+  if (storeAffected) updateStoreRating(db)
+  for (const rid of affectedRestIds) updateRestaurantRating(db, rid)
+  return { deleted: before - (db.reviews || []).length }
+}

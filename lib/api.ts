@@ -230,6 +230,20 @@ async function updateReviewViaAppRoute(id: number, data: Partial<Review>): Promi
   return res.json()
 }
 
+async function deleteReviewViaAppRoute(id: number): Promise<void> {
+  const res = await reviewViaAppRoute(`/api/reviews/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorResponse(res))
+}
+
+async function deleteReviewsBulkViaAppRoute(ids: number[]): Promise<{ deleted: number }> {
+  const res = await reviewViaAppRoute('/api/reviews/bulk-delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+  if (!res.ok) throw new Error(await parseErrorResponse(res))
+  return res.json()
+}
+
 // ════════════════════════════════════════════════
 // АВТОРИЗАЦИЯ
 // ════════════════════════════════════════════════
@@ -463,6 +477,14 @@ export const api = {
     typeof window !== 'undefined'
       ? updateReviewViaAppRoute(id, data)
       : request<Review>(`/reviews/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteReview: (id: number) =>
+    typeof window !== 'undefined'
+      ? deleteReviewViaAppRoute(id)
+      : request<{ ok: boolean; deleted: number }>(`/reviews/${id}`, { method: 'DELETE' }),
+  deleteReviewsBulk: (ids: number[]) =>
+    typeof window !== 'undefined'
+      ? deleteReviewsBulkViaAppRoute(ids)
+      : request<{ ok: boolean; deleted: number }>('/reviews/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
 
   // ── Push ──
   getPushState: () => request<{ autoSettings: import('./pushCrm').PushAutoSetting[]; history: import('./pushCrm').PushCampaign[] }>('/push'),
