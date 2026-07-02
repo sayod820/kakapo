@@ -8239,12 +8239,9 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           </button>
           <div style={{flex:1,minWidth:0}}>
             <div className="ub" style={{fontSize:15,fontWeight:900,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
-            <div style={{display:'flex',alignItems:'center',gap:6,marginTop:1,flexWrap:'wrap'}}>
-              <button type="button" onClick={openReviews} className="btn" style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 8px',borderRadius:20,background:'rgba(255,184,0,.1)',border:'1px solid rgba(255,184,0,.28)',color:'var(--gd)',fontSize:10,fontWeight:800}}>
-                <Ic n="star" s={10} c="var(--gd)"/>
-                {r.rating} · Отзывы ({reviewCount})
-              </button>
-              <span style={{fontSize:10,color:'var(--t3)'}}>· {r.cuisine}</span>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginTop:1}}>
+              <span style={{fontSize:10,color:'var(--t3)'}}>{r.cuisine}</span>
+              <span style={{fontSize:10,color:'var(--t3)'}}>·</span>
               <span style={{fontSize:10,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'● Открыто':'● Закрыто'}</span>
         </div>
         </div>
