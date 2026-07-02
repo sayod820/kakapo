@@ -467,8 +467,8 @@ function formatProductCount(n) {
 
 const RESTAURANTS = [
   {
-    id:'R-01', name:'Чайхона Оромгох',   emoji:'🍖', rating:4.8, reviews:312,
-    cuisine:'Таджикская кухня',            tags:['Плов','Шашлык','Манты'],
+    id:'R-01', name:'Чайхона Оромгох',   emoji:'🍖', rating:4.8, reviews:0,
+    cuisine:'Таджикская',            tags:['Плов','Шашлык','Манты'],
     minOrder:20, deliveryMin:35, deliveryFee:5, open:true,
     hours:'09:00–23:00', img:'linear-gradient(135deg,#2A1506,#4A2A0C)',
     address:'ул. Рудаки, 15',             commission:15, email:'chaihona@kakapo.tj', revenueMonth:14280, ordersMonth:312,
@@ -485,8 +485,8 @@ const RESTAURANTS = [
     ]
   },
   {
-    id:'R-02', name:'Пицца Яван',         emoji:'🍕', rating:4.6, reviews:187,
-    cuisine:'Итальянская кухня',           tags:['Пицца','Бургеры','Паста'],
+    id:'R-02', name:'Пицца Яван',         emoji:'🍕', rating:4.6, reviews:0,
+    cuisine:'Итальянская',           tags:['Пицца','Бургеры','Паста'],
     minOrder:25, deliveryMin:40, deliveryFee:5, open:true,
     hours:'10:00–22:00', img:'linear-gradient(135deg,#1A0808,#3A1010)',
     address:'ул. Ленина, 28',             commission:18, email:'pizza@kakapo.tj', revenueMonth:9680, ordersMonth:187,
@@ -504,7 +504,7 @@ const RESTAURANTS = [
   },
   {
     id:'R-03', name:'Суши Яван',          emoji:'🍣', rating:4.9, reviews:94,
-    cuisine:'Японская кухня',              tags:['Роллы','Суши','Рамен'],
+    cuisine:'Японская',              tags:['Роллы','Суши','Рамен'],
     minOrder:30, deliveryMin:45, deliveryFee:7, open:true,
     hours:'11:00–22:00', img:'linear-gradient(135deg,#0A0A1A,#1A1A3A)',
     address:'ул. Сомони, 8',              commission:20, email:'sushi@kakapo.tj', revenueMonth:7340, ordersMonth:94,
@@ -1699,6 +1699,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const qty = cart[p.id] || 0;
   const [tab, setTab] = useState("desc");
   const [storeReviews, setStoreReviews] = useState<Review[]>([]);
+  const [storeRevCount, setStoreRevCount] = useState<number | null>(null);
   const [revLoading, setRevLoading] = useState(false);
   const photo = useProductPhotos(s => s.photos[p.id]);
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
@@ -1712,6 +1713,15 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
   useEffect(() => {
+    if (!USE_API) {
+      setStoreRevCount(0);
+      return;
+    }
+    api.getReviews({ restId: 'STORE' })
+      .then(list => setStoreRevCount(list.length))
+      .catch(() => setStoreRevCount(0));
+  }, []);
+  useEffect(() => {
     if (tab !== "rev") return;
     if (!USE_API) {
       setStoreReviews([]);
@@ -1720,10 +1730,15 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
     }
     setRevLoading(true);
     api.getReviews({ restId: 'STORE' })
-      .then(list => setStoreReviews(sortReviewsNewestFirst(list).slice(0, 12)))
+      .then(list => {
+        const sorted = sortReviewsNewestFirst(list);
+        setStoreReviews(sorted.slice(0, 12));
+        setStoreRevCount(sorted.length);
+      })
       .catch(() => setStoreReviews([]))
       .finally(() => setRevLoading(false));
   }, [tab]);
+  const storeRevLabel = storeRevCount == null ? '…' : String(storeRevCount);
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
       <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -1754,7 +1769,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         <div style={{ fontSize:11, color:"var(--t3)", marginBottom:10 }}>{CATS.find(c => c.id === pCat)?.label || p.catLabel || p.cat}</div>
         <div className="ub" style={{ fontSize:22, fontWeight:900, lineHeight:1.2, marginBottom:10 }}>{p.name}</div>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-          <Stars r={p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({p.rv} отзывов)</span>
+          <Stars r={p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({storeRevLabel} отзывов)</span>
           <span style={{ fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:4 }}><div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>В наличии</span>
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:16 }}>
@@ -1782,7 +1797,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           </div>
         </div>
         <div style={{ borderBottom:"1px solid var(--b1)", display:"flex", marginBottom:18 }}>
-          {[{id:"desc",l:"Описание"},{id:"spec",l:"Характеристики"},{id:"rev",l:`Отзывы (${p.rv})`}].map(t => (
+          {[{id:"desc",l:"Описание"},{id:"spec",l:"Характеристики"},{id:"rev",l:`Отзывы (${storeRevLabel})`}].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} className="btn" style={{ flex:1, padding:"11px 4px", fontSize:13, background:"transparent", color:tab===t.id?"var(--gr)":"var(--t2)", borderBottom:`2px solid ${tab===t.id?"var(--gr)":"transparent"}`, borderRadius:0, fontWeight:700, transition:"all .2s" }}>{t.l}</button>
           ))}
         </div>
@@ -8015,7 +8030,7 @@ const AdminChatSupportPage = ({go}) => {
 };
 
 const RestaurantsPage = ({go, cart, onAdd}) => {
-  const { restaurants, prods } = useLiveCatalog();
+  const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
@@ -8070,7 +8085,7 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
                 <div style={{position:'absolute',inset:0,opacity:.04,background:'repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,1) 8px,rgba(255,255,255,1) 9px)'}}/>
                 <div>
                   <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:'white',marginBottom:4,textShadow:'0 2px 8px rgba(0,0,0,.5)'}}>{r.name}</div>
-                  <div style={{fontSize:12,color:'rgba(255,255,255,.7)',marginBottom:8}}>{r.cuisine}</div>
+                  <div style={{fontSize:12,color:'rgba(255,255,255,.7)',marginBottom:8}}>{restaurantsReady ? r.cuisine : '…'}</div>
                   <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                     {r.tags.map((t,j)=><span key={j} style={{padding:'3px 8px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(255,255,255,.15)',color:'white'}}>{t}</span>)}
                   </div>
@@ -8081,8 +8096,8 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
               <div style={{padding:'12px 16px',display:'flex',alignItems:'center'}}>
                 <div style={{display:'flex',alignItems:'center',gap:4}}>
                   <span style={{color:'var(--gd)',fontSize:14}}>★</span>
-                  <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800}}>{r.rating}</span>
-                  <span style={{fontSize:11,color:'var(--t3)'}}>({r.reviews})</span>
+                  <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800}}>{restaurantsReady ? r.rating : '…'}</span>
+                  <span style={{fontSize:11,color:'var(--t3)'}}>({restaurantsReady ? (Number(r.reviews) || 0) : '…'})</span>
                 </div>
               </div>
             </div>
@@ -8188,6 +8203,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const [showRevModal, setShowRevModal] = useState(false);
   const [restReviews, setRestReviews] = useState<Review[]>([]);
   const [revLoading, setRevLoading] = useState(false);
+  const [revsLoaded, setRevsLoaded] = useState(!USE_API);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
   const totalQtyNum = sumCartUnits(cart || {}, prods);
 
@@ -8200,13 +8216,22 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
     if (!USE_API) {
       setRestReviews([]);
       setRevLoading(false);
+      setRevsLoaded(true);
       return;
     }
     setRevLoading(true);
     api.getReviews({ restId: r.id })
       .then(list => setRestReviews(sortReviewsNewestFirst(list)))
       .catch(() => setRestReviews([]))
-      .finally(() => setRevLoading(false));
+      .finally(() => {
+        setRevLoading(false);
+        setRevsLoaded(true);
+      });
+  }, [r?.id]);
+
+  useEffect(() => {
+    setRevsLoaded(!USE_API);
+    setRestReviews([]);
   }, [r?.id]);
 
   useEffect(() => {
@@ -8216,11 +8241,10 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const openReviews = () => setShowRevModal(true);
   const reviewAvg = restReviews.length
     ? avgReviewRating(restReviews)
-    : (restaurantsReady ? (Number(r?.rating) || null) : null);
-  const reviewCount = restReviews.length
-    ? restReviews.length
-    : (restaurantsReady ? (Number(r?.reviews) || 0) : 0);
-  const ratingLabel = reviewAvg != null ? String(reviewAvg) : (revLoading ? '…' : '—');
+    : (revsLoaded && restaurantsReady ? (Number(r?.rating) || null) : null);
+  const reviewCount = revsLoaded ? restReviews.length : null;
+  const reviewCountLabel = reviewCount == null ? '…' : String(reviewCount);
+  const ratingLabel = reviewAvg != null ? String(reviewAvg) : (revLoading || !revsLoaded ? '…' : '—');
 
   if (!r) return null;
 
@@ -8244,7 +8268,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           <div style={{flex:1,minWidth:0}}>
             <div className="ub" style={{fontSize:15,fontWeight:900,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
             <div style={{display:'flex',alignItems:'center',gap:6,marginTop:1}}>
-              <span style={{fontSize:10,color:'var(--t3)'}}>{r.cuisine}</span>
+              <span style={{fontSize:10,color:'var(--t3)'}}>{restaurantsReady ? r.cuisine : '…'}</span>
               <span style={{fontSize:10,color:'var(--t3)'}}>·</span>
               <span style={{fontSize:10,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'● Открыто':'● Закрыто'}</span>
         </div>
@@ -8278,11 +8302,11 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
             <button type="button" onClick={openReviews} className="btn" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,background:'rgba(255,184,0,.14)',border:'1px solid rgba(255,184,0,.35)',color:'var(--gd)',fontSize:12,fontWeight:800}}>
               <Ic n="star" s={13} c="var(--gd)"/>
               <span style={{fontWeight:800}}>{ratingLabel}</span>
-              <span style={{color:'rgba(255,255,255,.55)',fontSize:11,fontWeight:600}}>({reviewCount})</span>
+              <span style={{color:'rgba(255,255,255,.55)',fontSize:11,fontWeight:600}}>({reviewCountLabel})</span>
               <span style={{color:'white',fontSize:11,fontWeight:700}}>· Отзывы</span>
             </button>
             <span style={{width:1,height:14,background:'var(--b1)'}}/>
-            <span style={{fontSize:12,color:'var(--t2)'}}>{r.cuisine}</span>
+            <span style={{fontSize:12,color:'var(--t2)'}}>{restaurantsReady ? r.cuisine : '…'}</span>
             <span style={{width:1,height:14,background:'var(--b1)'}}/>
             <span style={{fontSize:12,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'🟢 Открыто':'🔴 Закрыто'}</span>
           </div>

@@ -66,6 +66,7 @@ export function enrichRestaurants(api: Restaurant[], seed: any[]): any[] {
       reviews: typeof r.reviews === 'number' ? r.reviews : 0,
       blocked: !!r.blocked,
       open: r.blocked ? false : (typeof r.open === 'boolean' ? r.open : (base.open ?? true)),
+      cuisine: r.cuisine || base.cuisine || '',
       img: r.img || base.img || 'linear-gradient(135deg,#1A1A1A,#2A2A2A)',
       tags: base.tags || [],
       minOrder: base.minOrder ?? 20,

@@ -58,7 +58,7 @@ const CSS = `
 /* ── DEMO DATA ───────────────────────────────────── */
 const DEMO_RESTAURANTS = [
   {id:'R-01',name:'Чайхона Оромгох',  emoji:'🍖',email:'chaihona@kakapo.tj', pass:'rest123',
-   cuisine:'Таджикская кухня', address:'ул. Рудаки, 15', phone:'+992 93 111 22 33',
+   cuisine:'Таджикская', address:'ул. Рудаки, 15', phone:'+992 93 111 22 33',
    rating:4.8, commission:15, isOpen:true,
    hours:{open:'09:00',close:'23:00'},
    categories:['Горячее','Шашлык','Салаты','Супы','Напитки'],
@@ -173,6 +173,7 @@ function RestaurantAppInner() {
 
   useEffect(() => {
     if (!session || rest) return;
+    if (USE_API && !apiRests.length) return;
     const enriched = enrichRestaurants(USE_API ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
     const found = enriched.find(r => r.id === session.restId);
     if (found) applyRestaurant(found);
@@ -205,6 +206,10 @@ function RestaurantAppInner() {
   const onLoginSuccess = (s: RestaurantSession) => {
     saveRestaurantSession(s);
     setSession(s);
+    if (USE_API && !apiRests.length) {
+      setPage('dashboard');
+      return;
+    }
     const enriched = enrichRestaurants(USE_API ? apiRests : DEMO_RESTAURANTS, DEMO_RESTAURANTS);
     const found = enriched.find(r => r.id === s.restId);
     if (found) {
@@ -378,6 +383,16 @@ function RestaurantAppInner() {
   };
 
   if (!rest) {
+    if (session) {
+      return (
+        <>
+          <style>{CSS}</style>
+          <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100dvh', background: '#030B05', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8FB897', fontSize: 14 }}>
+            Загрузка ресторана…
+          </div>
+        </>
+      );
+    }
     return (
       <>
         <style>{CSS}</style>
