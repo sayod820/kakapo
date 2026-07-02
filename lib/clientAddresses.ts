@@ -6,6 +6,7 @@ import {
   saveAccountJson,
 } from './clientAccountStorage'
 import { getActiveClientPhone, loadStoreUser } from './clientSession'
+import { USE_API } from './config'
 
 /** @deprecated legacy global key — only for migration */
 export const ADDRESSES_STORAGE_KEY = 'kakapo-client-addresses'
@@ -67,8 +68,33 @@ export function loadClientAddresses(phone?: string): ClientSavedAddress[] {
   return Array.isArray(list) ? list : []
 }
 
-export function saveClientAddresses(list: ClientSavedAddress[], phone?: string) {
+export function loadClientAddressesUpdatedAt(phone?: string): string {
+  return loadAccountJson<string>(ACCOUNT_NS.addressesUpdatedAt, '', phone) || ''
+}
+
+/** Локальное сохранение без обращения к серверу — для слияния данных при синхронизации. */
+export function saveClientAddressesLocal(
+  list: ClientSavedAddress[],
+  phone?: string,
+  updatedAt?: string,
+) {
   saveAccountJson(ACCOUNT_NS.addresses, list, phone)
+  saveAccountJson(ACCOUNT_NS.addressesUpdatedAt, updatedAt || new Date().toISOString(), phone)
+}
+
+/** Сохранение адресов: локально + (при USE_API) отправка на сервер для синхронизации между устройствами. */
+export function saveClientAddresses(list: ClientSavedAddress[], phone?: string) {
+  const ts = new Date().toISOString()
+  saveAccountJson(ACCOUNT_NS.addresses, list, phone)
+  saveAccountJson(ACCOUNT_NS.addressesUpdatedAt, ts, phone)
+
+  if (!USE_API || typeof window === 'undefined') return
+  const clientId = loadStoreUser()?.clientId
+  if (!clientId) return
+  // fire-and-forget: не блокируем UI
+  void import('./clientAddressSync')
+    .then(m => m.saveRemoteAddresses(clientId, list, ts))
+    .catch(() => { /* оставляем локальную копию, синхронизируем позже */ })
 }
 
 /** Адрес при регистрации — единственный и по умолчанию */

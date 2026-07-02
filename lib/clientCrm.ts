@@ -59,6 +59,9 @@ export interface AdminClient {
   /** Избранные товары (синхронизация между устройствами) */
   wished?: Record<string, boolean>
   wishedUpdatedAt?: string
+  /** Сохранённые адреса доставки (синхронизация между устройствами) */
+  addresses?: unknown[]
+  addressesUpdatedAt?: string
 }
 
 export function qualifiesForDebtSection(
@@ -258,6 +261,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     cartUpdatedAt: raw.cartUpdatedAt || undefined,
     wished: raw.wished && typeof raw.wished === 'object' && !Array.isArray(raw.wished) ? raw.wished : undefined,
     wishedUpdatedAt: raw.wishedUpdatedAt || undefined,
+    addresses: Array.isArray(raw.addresses) ? raw.addresses : undefined,
+    addressesUpdatedAt: raw.addressesUpdatedAt || undefined,
   }
 }
 

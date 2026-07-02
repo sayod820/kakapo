@@ -1110,6 +1110,8 @@ function normalizeClientRow(raw) {
     cartUpdatedAt: raw.cartUpdatedAt || undefined,
     wished: raw.wished && typeof raw.wished === 'object' && !Array.isArray(raw.wished) ? raw.wished : {},
     wishedUpdatedAt: raw.wishedUpdatedAt || undefined,
+    addresses: Array.isArray(raw.addresses) ? raw.addresses : [],
+    addressesUpdatedAt: raw.addressesUpdatedAt || undefined,
   }
 }
 

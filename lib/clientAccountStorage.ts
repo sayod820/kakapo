@@ -4,6 +4,7 @@ import { getActiveClientPhone, loadStoreUser, phoneDigits } from './clientSessio
 
 export const ACCOUNT_NS = {
   addresses: 'addresses',
+  addressesUpdatedAt: 'addresses_updated_at',
   notifications: 'notifications',
   reviewRepliesSeen: 'review_replies_seen',
   cart: 'cart',

@@ -53,10 +53,11 @@ import {
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
 import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
-import { loadClientAddresses, saveClientAddresses, formatClientAddressLine, ensureClientDefaultAddress } from "@/lib/clientAddresses";
+import { loadClientAddresses, loadClientAddressesUpdatedAt, saveClientAddresses, saveClientAddressesLocal, formatClientAddressLine, ensureClientDefaultAddress } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import { mergeCartData, saveRemoteCart, cartSyncTimestamp, findSyncClient, clientCartPayload } from "@/lib/clientCartSync";
 import { mergeWishData, saveRemoteWish, wishBundleFromClient } from "@/lib/clientWishSync";
+import { mergeAddressData, addressBundleFromClient, saveRemoteAddresses } from "@/lib/clientAddressSync";
 import { formatMemberSinceLabel, qualifiesForDebtSection } from "@/lib/cardCrm";
 import ClientLoginPage from "@/components/store/ClientLoginPage";
 import ClientAddressEditorSheet from "@/components/store/ClientAddressEditorSheet";
@@ -7118,6 +7119,7 @@ const AddressesPage = ({ go, user }) => {
     const saved = loadClientAddresses(clientPhone);
     return saved.length ? saved : (clientPhone ? [] : DEFAULT_ADDRESSES);
   });
+  const persistReadyRef = useRef(false);
   const [showAdd, setShowAdd] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [street, setStreet] = useState('');
@@ -7140,8 +7142,28 @@ const AddressesPage = ({ go, user }) => {
 
   useEffect(() => {
     if (!clientPhone) return;
+    if (!persistReadyRef.current) {
+      persistReadyRef.current = true;
+      return;
+    }
     saveClientAddresses(addrs, clientPhone);
   }, [addrs, clientPhone]);
+
+  useEffect(() => {
+    if (!clientPhone) return;
+    const refresh = () => setAddrs(loadClientAddresses(clientPhone));
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('storage', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('storage', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [clientPhone]);
 
   const resetForm = () => {
     setShowAdd(false);
@@ -9278,6 +9300,7 @@ function KakapoAppInner() {
   const wishedUpdatedAtRef = useRef(sessionBoot.wishedUpdatedAt);
   const wishMutatedByUserRef = useRef(false);
   const wishedRef = useRef(sessionBoot.wished);
+  const addressesUpdatedAtRef = useRef('');
   const [cartSyncReady, setCartSyncReady] = useState(() => {
     if (!USE_API) return true;
     const boot = sessionBoot;
@@ -9328,6 +9351,10 @@ function KakapoAppInner() {
     const localWishedUpdatedAt = loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', user.phone);
     const localWishBundle = { wished: localWished, wishedUpdatedAt: localWishedUpdatedAt };
     wishedUpdatedAtRef.current = localWishedUpdatedAt;
+    const localAddresses = loadClientAddresses(user.phone);
+    const localAddressesUpdatedAt = loadClientAddressesUpdatedAt(user.phone);
+    const localAddressBundle = { addresses: localAddresses, addressesUpdatedAt: localAddressesUpdatedAt };
+    addressesUpdatedAtRef.current = localAddressesUpdatedAt;
     setCart(localCart);
     setCartMeta(localMeta);
     setCartUpdatedAt(localUpdatedAt);
@@ -9344,8 +9371,12 @@ function KakapoAppInner() {
         const remoteClient = await findSyncClient(user.phone, user.clientId);
         const remote = clientCartPayload(remoteClient);
         const remoteWish = wishBundleFromClient(remoteClient);
+        const remoteAddresses = addressBundleFromClient(remoteClient);
+        const remoteAddresses = addressBundleFromClient(remoteClient);
+        const remoteAddresses = addressBundleFromClient(remoteClient);
         const merged = mergeCartData(localBundle, remote);
         const mergedWish = mergeWishData(localWishBundle, remoteWish);
+        const mergedAddresses = mergeAddressData(localAddressBundle, remoteAddresses);
         if (cancelled) return;
         cartMutatedByUserRef.current = false;
         cartUpdatedAtRef.current = merged.cartUpdatedAt || '';
@@ -9374,6 +9405,16 @@ function KakapoAppInner() {
         ) {
           void saveRemoteWish(user.clientId, mergedWish.wished, mergedWish.wishedUpdatedAt);
         }
+        saveClientAddressesLocal(mergedAddresses.addresses, user.phone, mergedAddresses.addressesUpdatedAt);
+        const localAddrTs = cartSyncTimestamp(localAddressesUpdatedAt);
+        const remoteAddrTs = cartSyncTimestamp(remoteAddresses.addressesUpdatedAt);
+        if (
+          localAddrTs > remoteAddrTs
+          || (localAddrTs === remoteAddrTs && localAddresses.length > 0 && !remoteAddresses.addresses.length)
+        ) {
+          void saveRemoteAddresses(user.clientId, mergedAddresses.addresses, mergedAddresses.addressesUpdatedAt);
+        }
+        addressesUpdatedAtRef.current = mergedAddresses.addressesUpdatedAt || '';
       } catch { /* оставляем локальные данные */ }
       finally {
         if (!cancelled) setCartSyncReady(true);
@@ -9459,6 +9500,19 @@ function KakapoAppInner() {
           setWishedUpdatedAt(mergedWish.wishedUpdatedAt || '');
           saveAccountJson(ACCOUNT_NS.wished, mergedWish.wished, user.phone);
           saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, mergedWish.wishedUpdatedAt || '', user.phone);
+        }
+
+        const localAddressBundle = {
+          addresses: loadClientAddresses(user.phone),
+          addressesUpdatedAt: addressesUpdatedAtRef.current,
+        };
+        const mergedAddresses = mergeAddressData(localAddressBundle, remoteAddresses);
+        const addressChanged =
+          cartSyncTimestamp(mergedAddresses.addressesUpdatedAt) !== cartSyncTimestamp(addressesUpdatedAtRef.current)
+          || JSON.stringify(mergedAddresses.addresses) !== JSON.stringify(localAddressBundle.addresses);
+        if (addressChanged) {
+          addressesUpdatedAtRef.current = mergedAddresses.addressesUpdatedAt || '';
+          saveClientAddressesLocal(mergedAddresses.addresses, user.phone, mergedAddresses.addressesUpdatedAt);
         }
       } catch { /* ignore */ }
     };
