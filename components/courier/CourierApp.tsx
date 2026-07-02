@@ -528,27 +528,6 @@ function spreadOrderCoords<T extends { id: string; lat: number; lng: number }>(o
   return out
 }
 
-function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const R = 6371
-  const dLat = (b.lat - a.lat) * Math.PI / 180
-  const dLng = (b.lng - a.lng) * Math.PI / 180
-  const la1 = a.lat * Math.PI / 180
-  const la2 = b.lat * Math.PI / 180
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2
-  return 2 * R * Math.asin(Math.sqrt(h))
-}
-
-/** Находит самое плотное скопление заказов (кластер с максимумом соседей в радиусе) */
-function densestOrderCluster<T extends { lat: number; lng: number }>(orders: T[], radiusKm = 1.5): T[] {
-  if (orders.length <= 1) return orders
-  let best: T[] = []
-  for (const o of orders) {
-    const near = orders.filter(x => haversineKm(o, x) <= radiusKm)
-    if (near.length > best.length) best = near
-  }
-  return best.length ? best : orders
-}
-
 function useCourierLocation() {
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -843,8 +822,9 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
   useEffect(() => {
     if (!ready || !isMapAlive(mapRef.current) || step || myDeliveryList || selected || userMovedMapRef.current) return
     const map = mapRef.current
-    const cluster = densestOrderCluster(orders)
-    if (!cluster.length) {
+    // Показываем все заказы: подбираем масштаб так, чтобы все точки поместились на карте
+    const points = orders.filter(o => Number.isFinite(o.lat) && Number.isFinite(o.lng))
+    if (!points.length) {
       if (!fittedClusterKeyRef.current) {
         autoFittingRef.current = true
         try {
@@ -857,7 +837,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       return
     }
 
-    const clusterKey = cluster
+    const clusterKey = points
       .map(o => `${o.id}:${o.lat.toFixed(4)}:${o.lng.toFixed(4)}`)
       .sort()
       .join('|')
@@ -867,12 +847,12 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       if (!isMapAlive(mapRef.current) || mapRef.current !== map || userMovedMapRef.current) return
       autoFittingRef.current = true
       try {
-        const bounds = L.latLngBounds(cluster.map(o => [o.lat, o.lng] as [number, number]))
-        if (cluster.length === 1) {
-          const only = cluster[0]
+        if (points.length === 1) {
+          const only = points[0]
           map.setView([only.lat, only.lng], 15, { animate: false })
         } else {
-          map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 })
+          const bounds = L.latLngBounds(points.map(o => [o.lat, o.lng] as [number, number]))
+          map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 })
         }
         fittedClusterKeyRef.current = clusterKey
       } catch {
