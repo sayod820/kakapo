@@ -8104,16 +8104,119 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
 
 const ALL_REST_MENU = '__all__';
 
+function reviewCountLabel(n: number): string {
+  const m = Math.abs(n) % 100;
+  const m10 = m % 10;
+  if (m10 === 1 && m !== 11) return 'отзыв';
+  if (m10 >= 2 && m10 <= 4 && (m < 12 || m > 14)) return 'отзыва';
+  return 'отзывов';
+}
+
+function PublicReviewsSheet({
+  title,
+  subtitle,
+  reviews,
+  loading,
+  avgRating,
+  onClose,
+}: {
+  title: string;
+  subtitle?: string;
+  reviews: Review[];
+  loading: boolean;
+  avgRating: number | null;
+  onClose: () => void;
+}) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
+      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 20px 36px', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 16px' }} />
+        <div style={{ fontSize: 16, fontWeight: 800, textAlign: 'center', marginBottom: 4 }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 12, color: 'var(--t2)', textAlign: 'center', marginBottom: 14 }}>{subtitle}</div>}
+        {!loading && reviews.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 14px', borderRadius: 14, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.22)' }}>
+            <Stars r={avgRating || 0} s={14} />
+            <span className="ub" style={{ fontSize: 18, fontWeight: 900, color: 'var(--gd)' }}>{avgRating ?? '—'}</span>
+            <span style={{ fontSize: 12, color: 'var(--t2)' }}>· {reviews.length} {reviewCountLabel(reviews.length)}</span>
+          </div>
+        )}
+        {loading && <div style={{ textAlign: 'center', padding: 32, color: 'var(--t3)', fontSize: 13 }}>Загрузка отзывов…</div>}
+        {!loading && reviews.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--t3)' }}>
+            <div style={{ fontSize: 44, marginBottom: 10 }}>⭐</div>
+            <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 6, color: 'var(--t2)' }}>Пока нет отзывов</div>
+            <div style={{ fontSize: 12, lineHeight: 1.55 }}>Станьте первым — оцените после доставки заказа</div>
+          </div>
+        )}
+        {!loading && reviews.map((rv, i) => (
+          <div key={rv.id || i} style={{ background: 'var(--l2)', border: '1px solid var(--b1)', borderRadius: 16, padding: 14, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,var(--gr3),var(--gr))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 14, fontWeight: 900, color: 'var(--bg)', flexShrink: 0 }}>
+                {(rv.client || 'К').charAt(0)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{rv.client || 'Клиент'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                  <Stars r={rv.rating} s={9} />
+                  <span style={{ fontSize: 10, color: 'var(--t3)' }}>{rv.date}</span>
+                </div>
+              </div>
+            </div>
+            {rv.text && <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.6, margin: 0 }}>{rv.text}</p>}
+            {rv.restReply && (
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--gr)', padding: '8px 10px', background: 'rgba(31,215,96,.08)', borderRadius: 10, lineHeight: 1.5 }}>
+                🍽 Ответ ресторана: {rv.restReply}
+              </div>
+            )}
+            {rv.adminReply && (
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--blue)', padding: '8px 10px', background: 'rgba(59,142,240,.08)', borderRadius: 10, lineHeight: 1.5 }}>
+                💬 Ответ КАКАПО: {rv.adminReply}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const { restaurants, prods } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
+  const [showRevModal, setShowRevModal] = useState(false);
+  const [restReviews, setRestReviews] = useState<Review[]>([]);
+  const [revLoading, setRevLoading] = useState(false);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
   const totalQtyNum = sumCartUnits(cart || {}, prods);
 
   useEffect(() => {
     setActiveCat(ALL_REST_MENU);
   }, [r?.id]);
+
+  const loadRestReviews = useCallback(() => {
+    if (!r?.id) return;
+    if (!USE_API) {
+      setRestReviews([]);
+      setRevLoading(false);
+      return;
+    }
+    setRevLoading(true);
+    api.getReviews({ restId: r.id })
+      .then(list => setRestReviews(sortReviewsNewestFirst(list)))
+      .catch(() => setRestReviews([]))
+      .finally(() => setRevLoading(false));
+  }, [r?.id]);
+
+  useEffect(() => {
+    if (!showRevModal) return;
+    loadRestReviews();
+  }, [showRevModal, loadRestReviews]);
+
+  const openReviews = () => setShowRevModal(true);
+  const reviewAvg = restReviews.length ? avgReviewRating(restReviews) : (Number(r?.rating) || null);
+  const reviewCount = restReviews.length || Number(r?.reviews) || 0;
 
   if (!r) return null;
 
@@ -8136,8 +8239,11 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           </button>
           <div style={{flex:1,minWidth:0}}>
             <div className="ub" style={{fontSize:15,fontWeight:900,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
-            <div style={{display:'flex',alignItems:'center',gap:6,marginTop:1}}>
-              <span style={{fontSize:10,color:'var(--gd)',fontWeight:700}}>★ {r.rating}</span>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginTop:1,flexWrap:'wrap'}}>
+              <button type="button" onClick={openReviews} className="btn" style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 8px',borderRadius:20,background:'rgba(255,184,0,.1)',border:'1px solid rgba(255,184,0,.28)',color:'var(--gd)',fontSize:10,fontWeight:800}}>
+                <Ic n="star" s={10} c="var(--gd)"/>
+                {r.rating} · Отзывы ({reviewCount})
+              </button>
               <span style={{fontSize:10,color:'var(--t3)'}}>· {r.cuisine}</span>
               <span style={{fontSize:10,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'● Открыто':'● Закрыто'}</span>
         </div>
@@ -8168,7 +8274,12 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
         <div style={{position:'relative',zIndex:1}}>
           <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:'white',marginBottom:4}}>{r.name}</div>
           <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-            <span style={{color:'var(--gd)',display:'flex',alignItems:'center',gap:4,fontSize:13}}>★ <span style={{fontWeight:800}}>{r.rating}</span> <span style={{color:'var(--t3)',fontSize:11}}>({r.reviews})</span></span>
+            <button type="button" onClick={openReviews} className="btn" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,background:'rgba(255,184,0,.14)',border:'1px solid rgba(255,184,0,.35)',color:'var(--gd)',fontSize:12,fontWeight:800}}>
+              <Ic n="star" s={13} c="var(--gd)"/>
+              <span style={{fontWeight:800}}>{r.rating}</span>
+              <span style={{color:'rgba(255,255,255,.55)',fontSize:11,fontWeight:600}}>({reviewCount})</span>
+              <span style={{color:'white',fontSize:11,fontWeight:700}}>· Отзывы</span>
+            </button>
             <span style={{width:1,height:14,background:'var(--b1)'}}/>
             <span style={{fontSize:12,color:'var(--t2)'}}>{r.cuisine}</span>
             <span style={{width:1,height:14,background:'var(--b1)'}}/>
@@ -8250,6 +8361,16 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
 
       {totalQtyNum>0&&(
         <FloatingCartBtn count={totalQty} onClick={() => go("cart")} />
+      )}
+      {showRevModal && (
+        <PublicReviewsSheet
+          title={`Отзывы · ${r.name}`}
+          subtitle="Что говорят клиенты после заказа"
+          reviews={restReviews}
+          loading={revLoading}
+          avgRating={reviewAvg}
+          onClose={() => setShowRevModal(false)}
+        />
       )}
       <Nav page="home" go={go}/>
     </div>
