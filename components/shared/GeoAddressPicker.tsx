@@ -281,7 +281,7 @@ export default function GeoAddressPicker({ value, onChange, weightKg = 2, orderA
 
       {resolved && price && !routeLoading && (
         <div style={{ marginTop: 10, borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(31,215,96,.25)' }}>
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative', isolation: 'isolate', zIndex: 0 }}>
             <RouteMiniMap geometry={resolved.geometry} height={140} />
             <div style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', padding: '4px 12px', borderRadius: 20, background: 'rgba(3,11,5,.85)', border: '1px solid rgba(31,215,96,.3)', fontSize: 11, fontWeight: 700, color: 'var(--gr)', whiteSpace: 'nowrap', zIndex: 500 }}>
               🛣 {formatKm(resolved.distanceKm)} · {routeLabel} · ~{resolved.durationMin} мин
