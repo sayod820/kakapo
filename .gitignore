@@ -4,10 +4,6 @@ node_modules/
 .env.local
 .DS_Store
 *.log
-.vercel
-backend/__pycache__/
-backend/*.db
-backend/.venv/
 server/node_modules/
 server/data/
 server/kakapo-api/node_modules/

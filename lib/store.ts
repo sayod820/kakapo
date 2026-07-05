@@ -2,7 +2,7 @@
 import { create } from 'zustand'
 import type { Order, OrderStatus, OrderItem, Product, Restaurant, Promo } from './types'
 import { INITIAL_ORDERS, PRODUCTS, RESTAURANTS } from './data'
-import { api, setToken, getToken } from './api'
+import { api } from './api'
 import { USE_API } from './config'
 import { isCourierReadyOrder, isCourierSyncOrder, isCourierMapSyncOrder, isCourierRoleOrder, isAssemblerOrder, buildAdminStatusPatch } from './orderUiMap'
 import { isAssemblerOrderClaimed, orderHasAssemblerAssignment } from './assemblerTeam'
@@ -951,59 +951,4 @@ export const useRestaurants = create<RestaurantsStore>((set, get) => ({
       })
     }))
   },
-}))
-
-// ── AUTH ─────────────────────────────────────────
-interface AuthStore {
-  token: string | null
-  role: string | null
-  userId: number | null
-  name: string
-  email: string
-  hydrated: boolean
-  hydrate: () => void
-  sendOTP: (phone: string) => Promise<boolean>
-  verifyOTP: (phone: string, code: string) => Promise<boolean>
-  login: (email: string, password: string) => Promise<boolean>
-  logout: () => void
-}
-export const useAuth = create<AuthStore>((set) => ({
-  token: null, role: null, userId: null, name: '', email: '', hydrated: false,
-
-  hydrate: () => {
-    if (typeof window === 'undefined') return
-    const t = getToken()
-    if (t) set({ token: t, hydrated: true })
-    else set({ hydrated: true })
-  },
-
-  sendOTP: async (phone) => {
-    if (!USE_API) return true
-    try { await api.sendOTP(phone); return true } catch { return false }
-  },
-
-  verifyOTP: async (phone, code) => {
-    if (!USE_API) {
-      if (code === '1234') { set({ role: 'client', name: 'Демо' }); return true }
-      return false
-    }
-    try {
-      const r = await api.verifyOTP(phone, code)
-      setToken(r.access_token)
-      set({ token: r.access_token, role: r.role, userId: Number(r.user_id) || null, name: r.name })
-      return true
-    } catch { return false }
-  },
-
-  login: async (email, password) => {
-    if (!USE_API) return false
-    try {
-      const r = await api.login(email, password)
-      setToken(r.access_token)
-      set({ token: r.access_token, role: r.role, userId: r.user_id, name: r.name, email })
-      return true
-    } catch { return false }
-  },
-
-  logout: () => { setToken(null); set({ token: null, role: null, userId: null, name: '', email: '' }) },
 }))

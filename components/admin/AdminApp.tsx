@@ -1277,7 +1277,16 @@ function ProductsPage() {
     });
   }, [editP, getPhoto]);
 
-  const syncGBS = () => { setSyncMsg('loading'); setTimeout(()=>setSyncMsg('ok'),1800); setTimeout(()=>setSyncMsg(''),5000); };
+  const syncGBS = async () => {
+    setSyncMsg('loading');
+    try {
+      const r = USE_API ? await api.syncGBS() : { synced: 0 };
+      setSyncMsg(`demo:${r?.synced ?? 0}`);
+    } catch {
+      setSyncMsg('demo:0');
+    }
+    setTimeout(()=>setSyncMsg(''),5000);
+  };
 
   const toggleStatFlt = (id) => setStatFlt(s => s === id ? 'all' : id);
 
@@ -1402,7 +1411,7 @@ function ProductsPage() {
           <div style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',fontSize:15,pointerEvents:'none'}}>🔍</div>
           <input className="ai" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Артикул, название, категория..." style={{paddingLeft:38}}/>
         </div>
-        {syncMsg==='ok'&&<div style={{fontSize:11,color:'#1FD760',fontWeight:700}}>✓ GBS Market синхронизирован</div>}
+        {syncMsg.startsWith('demo:')&&<div style={{fontSize:11,color:'#FFB800',fontWeight:700}}>⚠ Demo-режим: GBS Market не подключён (синхронизировано: {syncMsg.split(':')[1]})</div>}
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           <button onClick={syncGBS} className="ab abg" style={{display:'flex',alignItems:'center',gap:6}}>
             {syncMsg==='loading'?<div style={{width:13,height:13,borderRadius:'50%',border:'2px solid rgba(31,215,96,.3)',borderTopColor:'#1FD760',animation:'spin 1s linear infinite'}}/>:'🔄'}
@@ -7301,12 +7310,13 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
               <div className="ub" style={{fontSize:14,fontWeight:800}}>JSON API · GBS Market</div>
               <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:12,color:gbsOn?'#1FD760':'#3D6645',fontWeight:700}}>{gbsOn?'Активно':'Выкл.'}</span><Tog on={gbsOn} set={() => setGbsOn(v => !v)}/></div>
             </div>
+            <div style={{marginBottom:12,padding:'8px 12px',borderRadius:8,background:'rgba(255,184,0,.08)',border:'1px solid rgba(255,184,0,.25)',fontSize:11,color:'#FFB800',fontWeight:700}}>⚠ Demo-режим: реального подключения к кассовому терминалу нет, синхронизация не отправляет данные на устройство</div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 90px',gap:10}}><NI lbl="IP адрес кассы" val={gbsIP} set={setGbsIP} ph="http://192.168.1.100"/><NI lbl="Порт" val={gbsPort} set={setGbsPort} ph="8419"/></div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><NI lbl="Логин" val={gbsUser} set={setGbsUser}/><NI lbl="Пароль" val={gbsPass} set={setGbsPass} type="password" ph="••••••••••••"/></div>
             </div>
             <button type="button" onClick={testConn} className="ab" style={{width:'100%',marginTop:14,padding:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0',display:'flex',alignItems:'center',justifyContent:'center',gap:8,fontSize:13}}>
-              {testSt==='loading'?<><div style={{width:16,height:16,borderRadius:'50%',border:'2px solid rgba(59,142,240,.3)',borderTopColor:'#3B8EF0',animation:'spin 1s linear infinite'}}/>Проверка...</>:testSt==='ok'?'✅ Соединение установлено!':testSt==='err'?'❌ Не удалось подключиться':'🔌 Проверить соединение'}
+              {testSt==='loading'?<><div style={{width:16,height:16,borderRadius:'50%',border:'2px solid rgba(59,142,240,.3)',borderTopColor:'#3B8EF0',animation:'spin 1s linear infinite'}}/>Проверка...</>:testSt==='ok'?'⚠ Demo: заглушка ответила OK (устройство не проверялось)':testSt==='err'?'❌ Не удалось подключиться':'🔌 Проверить соединение'}
             </button>
             <div style={{marginTop:12,fontSize:11,color:'#3D6645'}}>
               Синхронизация товаров: <button type="button" onClick={() => setPage('products')} className="btn" style={{background:'none',border:'none',color:'#1FD760',fontWeight:700,cursor:'pointer',padding:0,fontSize:11}}>Товары → Синх. GBS</button>
@@ -7322,7 +7332,8 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
       {stab==='sms'&&(
         <div className="ac" style={{padding:20,maxWidth:520}}>
           <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:6}}>SMS провайдер (OTP)</div>
-          <div style={{fontSize:11,color:'#3D6645',marginBottom:16}}>Для входа курьеров, сборщиков и партнёров. Тариф доставки — в разделе «Тариф доставки».</div>
+          <div style={{fontSize:11,color:'#3D6645',marginBottom:12}}>Для входа курьеров, сборщиков и партнёров. Тариф доставки — в разделе «Тариф доставки».</div>
+          <div style={{marginBottom:16,padding:'8px 12px',borderRadius:8,background:'rgba(255,184,0,.08)',border:'1px solid rgba(255,184,0,.25)',fontSize:11,color:'#FFB800',fontWeight:700}}>⚠ Demo-режим: OTP всегда «1234», реальные SMS не отправляются ни одним провайдером</div>
           <div style={{display:'flex',gap:8,marginBottom:14}}>
             {[{id:'smspro',l:'🇹🇯 SmsPro.tj'},{id:'eskiz',l:'🇺🇿 Eskiz'},{id:'twilio',l:'🌍 Twilio'}].map(p=><button key={p.id} type="button" onClick={()=>setSmsP(p.id)} className="ab" style={{flex:1,padding:'9px 6px',fontSize:12,background:smsP===p.id?'rgba(31,215,96,.12)':'#0C1C0F',border:`1.5px solid ${smsP===p.id?'rgba(31,215,96,.35)':'#162B1A'}`,color:smsP===p.id?'#1FD760':'#8FB897'}}>{p.l}</button>)}
           </div>

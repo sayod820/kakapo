@@ -1,4 +1,5 @@
 /** Сессия ресторана после входа по телефону */
+import { createRoleSession } from './roleSession'
 
 export interface RestaurantSession {
   restId: string
@@ -6,27 +7,11 @@ export interface RestaurantSession {
   name: string
 }
 
-const KEY = 'kakapo_restaurant_session'
+const session = createRoleSession<RestaurantSession>(
+  'kakapo_restaurant_session',
+  (s): s is RestaurantSession => !!s?.restId && !!s?.phone
+)
 
-export function loadRestaurantSession(): RestaurantSession | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = sessionStorage.getItem(KEY)
-    if (!raw) return null
-    const s = JSON.parse(raw) as RestaurantSession
-    if (!s?.restId || !s?.phone) return null
-    return s
-  } catch {
-    return null
-  }
-}
-
-export function saveRestaurantSession(session: RestaurantSession) {
-  if (typeof window === 'undefined') return
-  sessionStorage.setItem(KEY, JSON.stringify(session))
-}
-
-export function clearRestaurantSession() {
-  if (typeof window === 'undefined') return
-  sessionStorage.removeItem(KEY)
-}
+export const loadRestaurantSession = session.load
+export const saveRestaurantSession = session.save
+export const clearRestaurantSession = session.clear

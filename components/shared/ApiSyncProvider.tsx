@@ -1,18 +1,11 @@
 'use client'
 import { useEffect } from 'react'
-import { useAuth } from '@/lib/store'
 import { USE_API } from '@/lib/config'
 import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 
 type Props = { children: React.ReactNode; mode?: 'all' | 'assembler' | 'courier' | 'catalog' }
 
 export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
-  const hydrate = useAuth(s => s.hydrate)
-
-  useEffect(() => {
-    hydrate()
-  }, [hydrate])
-
   useEffect(() => {
     if (!USE_API) return
     clearAppDataLocalCacheOnce()
