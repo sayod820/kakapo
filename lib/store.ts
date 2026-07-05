@@ -193,9 +193,10 @@ export function mergeOrderFields(local: Order, remote: Order, adminPin?: AdminOr
     if (adminPin.pickedUpIds) merged.pickedUpIds = adminPin.pickedUpIds
     return merged
   }
-  const pickedUpIds = USE_API
-    ? (remote.pickedUpIds ?? local.pickedUpIds ?? [])
-    : [...new Set([...(local.pickedUpIds || []), ...(remote.pickedUpIds || [])])]
+  // pickedUpIds монотонны: раз точка забрана — она остаётся забранной, пока сервер
+  // явно не сбросит список (через adminPin выше). Иначе устаревший опрос сервера,
+  // догнавший локальную оптимистичную отметку, стирал уже поставленную галочку.
+  const pickedUpIds = [...new Set([...(local.pickedUpIds || []), ...(remote.pickedUpIds || [])])]
   const useRemoteCourier = remote.courier === null || !!remote.courier?.name
   const useRemoteAssembler = remote.assembler === null || !!remote.assembler?.name
   const courierRoute = remote.courierRoute === null
