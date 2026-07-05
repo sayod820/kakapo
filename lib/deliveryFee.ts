@@ -59,12 +59,21 @@ export function resolveOrderDeliveryFee(
   return computeLiveDeliveryFee(o, pricing, roadKm)
 }
 
+/**
+ * Стоимость доставки для клиента фиксирована при оформлении и не должна меняться по факту
+ * реального маршрута — иначе «Итого» у клиента и «Доставка» у курьера расходятся. Считаем
+ * живым по км только если заказ каким-то образом дошёл до доставки без зафиксированной суммы.
+ */
 export function buildDeliveryFeePatch(
   order: Order,
   pricing: PricingConfig,
   roadKm: Record<string, number> = {},
 ): { deliveryFee: number; deliveryFeeLocked: true } {
   const o = normalizeOrder(order)
+  const saved = Math.max(0, Number(o.deliveryFee) || 0)
+  if (o.deliveryFeeLocked === true && saved > 0) {
+    return { deliveryFee: saved, deliveryFeeLocked: true }
+  }
   return {
     deliveryFee: computeLiveDeliveryFee(o, pricing, roadKm),
     deliveryFeeLocked: true,

@@ -356,12 +356,14 @@ function getOrderKm(
   return null;
 }
 
-/** Стоимость доставки по тем же км, что показываем курьеру (без «замороженной» суммы до расчёта маршрута) */
+/** Стоимость доставки — фиксирована для клиента при оформлении; живой расчёт по км — только пока фиксации ещё нет */
 function courierDeliveryFee(
-  o: { weight: number; sum?: number },
+  o: { weight: number; sum?: number; deliveryFee?: number; deliveryFeeLocked?: boolean },
   km: number | null,
   TARIFF = DEFAULT_PRICING,
 ): number | null {
+  const locked = Number(o.deliveryFee) || 0
+  if (o.deliveryFeeLocked === true && locked > 0) return locked
   if (km == null || km <= 0) return null;
   return calcDeliveryPrice({
     orderAmount: o.sum ?? 0,
@@ -1210,7 +1212,7 @@ function CourierAppInner() {
     [roadKm, routeKmLive],
   );
   const deliveryFeeForOrder = useCallback(
-    (o: { id: string; weight: number; sum?: number; distanceKm?: number }) =>
+    (o: { id: string; weight: number; sum?: number; distanceKm?: number; deliveryFee?: number; deliveryFeeLocked?: boolean }) =>
       courierDeliveryFee(o, kmForOrder(o), TARIFF),
     [kmForOrder, TARIFF],
   );

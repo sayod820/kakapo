@@ -535,6 +535,8 @@ export function mapSingleOrderForCourier(o: Order): import('./demoOrders').DemoC
     pay: mapCourierPayLabel(order),
     time: formatKakapoOrderTime(order),
     sum: Math.max(0, order.total - (order.deliveryFee ?? 0)),
+    deliveryFee: order.deliveryFee ?? 0,
+    deliveryFeeLocked: order.deliveryFeeLocked === true,
     items: (order.items || []).map(it => ({
       e: it.e,
       n: it.name,

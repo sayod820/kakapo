@@ -29,6 +29,9 @@ export interface DemoCourierOrder {
   cashDue?: number;
   time: string;
   sum: number;
+  /** Стоимость доставки, зафиксированная при оформлении — не меняется по факту маршрута */
+  deliveryFee?: number;
+  deliveryFeeLocked?: boolean;
   items: { e: string; n: string; q: number; p: number; source?: string }[];
   /** waiting — ещё не собирается; preparing — готовится; ready — можно забирать */
   mapStatus?: 'waiting' | 'preparing' | 'ready';
