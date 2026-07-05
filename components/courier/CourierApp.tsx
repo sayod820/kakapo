@@ -731,13 +731,17 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 
       if (selected && step) {
         const readySet = new Set<string>(selected.pickupIds || []);
+        const pickedSet = new Set<string>(selected.pickedUpIds || []);
         const routePids: string[] = routePickupOrder.length
           ? routePickupOrder
           : (selected.routePickupIds ?? []);
         routePids.forEach((pid: string, i: number) => {
           const pk = PICKUPS[pid] || PICKUPS.store;
           const pending = (selected.pendingParts || []).find((pp: { pickupId: string }) => pp.pickupId === pid);
-          const isReady = readySet.has(pid);
+          const isPicked = pickedSet.has(pid);
+          // Забранная точка не исчезает с карты — она остаётся видимой с галочкой ✓,
+          // пока курьер не заберёт (или не сдаст клиенту) все точки заказа.
+          const isReady = readySet.has(pid) || isPicked;
           if (!isReady && pending) {
             const sz = 30;
             const icon = mkIcon(
@@ -750,8 +754,8 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
             return;
           }
           if (!isReady) return;
-          const isCurrent = step === 'toPickup' && i === pickupIdx;
-          const isDone    = step === 'toClient' || step === 'done' || (step === 'toPickup' && i < pickupIdx);
+          const isCurrent = step === 'toPickup' && i === pickupIdx && !isPicked;
+          const isDone    = isPicked || step === 'toClient' || step === 'done' || (step === 'toPickup' && i < pickupIdx);
           const sz = isCurrent ? 40 : 30;
           const icon = mkIcon(
             `<div style="width:${sz}px;height:${sz}px;border-radius:10px;background:${isCurrent?pk.color+'33':isDone?'rgba(6,16,10,.7)':'rgba(6,16,10,.92)'};border:2px solid ${isCurrent?pk.color:isDone?pk.color+'55':'#2a4a2a'};display:flex;align-items:center;justify-content:center;font-size:${isCurrent?20:15}px;box-shadow:${isCurrent?`0 0 16px ${pk.color}99`:'none'};opacity:${isDone?0.5:1}">${isDone?'✓':pk.e}</div>`,
