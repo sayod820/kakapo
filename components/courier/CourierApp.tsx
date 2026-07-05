@@ -395,7 +395,7 @@ function CourierPaymentFooter({
 }) {
   const pm = resolveCourierPayment(
     {
-      total: (order.cashDue ?? 0) + (order.creditAmount ?? order.sum),
+      total: (order.sum ?? 0) + (dlv ?? 0),
       deliveryFee: dlv ?? undefined,
       creditAmount: order.creditAmount,
       payment_method: order.paymentMethod,
@@ -462,7 +462,7 @@ function courierCashToCollect(
 ): string {
   const pm = resolveCourierPayment(
     {
-      total: (order.cashDue ?? 0) + (order.creditAmount ?? order.sum),
+      total: (order.sum ?? 0) + (dlv ?? 0),
       deliveryFee: dlv ?? undefined,
       creditAmount: order.creditAmount,
       payment_method: order.paymentMethod,
