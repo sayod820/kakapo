@@ -302,16 +302,39 @@ export function restPartToUiStatus(part: PartStatus): 'new' | 'cooking' | 'ready
   return 'cooking'
 }
 
+/**
+ * До фикса orderItemFromProduct штучные товары с qty>1 сохранялись с price = сумма всей
+ * строки (а не цена за единицу) — тогда каждый экран, читающий price*qty, домножал сумму
+ * строки на qty ещё раз. goodsTotal всегда считался верно (независимо от этого бага) —
+ * используем его как эталон и, если суммы заметно расходятся, делим price на qty,
+ * восстанавливая цену за единицу. На уже согласованных заказах ничего не меняется.
+ */
+function repairLegacyItemPricing(items: OrderItem[], goodsTotal?: number): OrderItem[] {
+  if (!items.length || goodsTotal == null || !Number.isFinite(goodsTotal)) return items
+  if (!items.some(it => (Number(it.qty) || 1) > 1)) return items
+  const rawSum = items.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0)
+  const tolerance = Math.max(0.05, goodsTotal * 0.01)
+  if (Math.abs(rawSum - goodsTotal) <= tolerance) return items
+  return items.map(it => {
+    const qty = Number(it.qty) || 1
+    if (qty <= 1) return it
+    return { ...it, price: Math.round((Number(it.price) / qty) * 100) / 100 }
+  })
+}
+
 export function normalizeOrder(raw: Order): Order {
   const savedStatus = raw.status
   const inferredType = inferOrderType({
     ...raw,
     items: coerceOrderItems(raw.items, Number(raw.total) || 0, raw.type),
   })
-  const items = coerceOrderItems(raw.items, Number(raw.total) || 0, inferredType).map(it => ({
-    ...it,
-    source: it.source ?? (it.restId ? 'restaurant' as const : 'market' as const),
-  }))
+  const items = repairLegacyItemPricing(
+    coerceOrderItems(raw.items, Number(raw.total) || 0, inferredType).map(it => ({
+      ...it,
+      source: it.source ?? (it.restId ? 'restaurant' as const : 'market' as const),
+    })),
+    raw.goodsTotal,
+  )
   const type = inferOrderType({ ...raw, items })
   const restIds = getRestIdsFromOrder({ ...raw, items, type })
   const order: Order = {
