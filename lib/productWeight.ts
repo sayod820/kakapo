@@ -131,7 +131,12 @@ export function orderItemFromProduct(p: Partial<Product>, qty: number) {
     e: p.e || '📦',
     qty: weighted ? 1 : qty,
     unit: weighted ? formatWeightGrams(qty) : (p.unit || 'шт'),
-    price: Number(calcLineTotal(p, qty).toFixed(2)),
+    // Инвариант везде в проекте: price — цена ЗА ЕДИНИЦУ, price*qty = сумма строки.
+    // Для весового товара qty=1, поэтому price = сумма за весь вес (calcLineTotal).
+    // Для штучного — price должен быть ценой за 1 шт (с учётом опта), а не суммой строки.
+    price: weighted
+      ? Number(calcLineTotal(p, qty).toFixed(2))
+      : Number(effectiveUnitPrice(p, qty).toFixed(2)),
     source: 'market' as const,
     ...(p.art ? { art: p.art } : {}),
   }
