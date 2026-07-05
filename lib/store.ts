@@ -715,16 +715,18 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   updateOrderItems: async (orderId, items, extra) => {
     const order = get().orders.find(o => o.id === orderId)
     if (!order) return
-    const itemsSubtotal = items.reduce((s, it) => s + it.price * it.qty, 0)
+    const itemsSubtotal = Math.round(items.reduce((s, it) => s + it.price * it.qty, 0) * 100) / 100
     const total = Math.round((itemsSubtotal + (order.deliveryFee ?? 0)) * 100) / 100
-    const patch = { items, total, ...extra }
+    // goodsTotal должен идти в ногу с items — иначе админка/клиент показывают
+    // застывшую сумму с момента оформления, а курьер считает актуальную по items.
+    const patch = { items, total, goodsTotal: itemsSubtotal, ...extra }
     patchOrders(set, get, s => s.map(o => o.id === orderId ? { ...o, ...patch } : o))
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(orderId, order.status, patch)
         patchOrders(set, get, s => s.map(o => {
           if (o.id !== orderId) return o
-          return normalizeOrder({ ...o, ...updated, items: updated.items ?? items, total: updated.total ?? total })
+          return normalizeOrder({ ...o, ...updated, items: updated.items ?? items, total: updated.total ?? total, goodsTotal: updated.goodsTotal ?? itemsSubtotal })
         }))
       } catch (e) {
         console.error(e)

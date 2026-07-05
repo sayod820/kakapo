@@ -243,6 +243,7 @@ export function applyStatusPatch(order, body) {
   if (body.deliveryFeeLocked != null) order.deliveryFeeLocked = body.deliveryFeeLocked
   if (body.items != null) order.items = body.items
   if (body.total != null) order.total = body.total
+  if (body.goodsTotal != null) order.goodsTotal = body.goodsTotal
   if (body.assemblerNote != null) order.assemblerNote = body.assemblerNote
   if ('courierAtClient' in body) order.courierAtClient = !!body.courierAtClient
 
