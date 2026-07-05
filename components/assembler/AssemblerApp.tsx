@@ -2,7 +2,7 @@
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react'
 import { useOrders, useProducts, USE_API } from '@/lib/store'
 import { mapOrdersForAssembler, mapCancelledOrdersForAssembler, mapSingleOrderForAssembler, buildAdminStatusPatch, isAssemblerCancelledVisible } from '@/lib/orderUiMap'
-import { getMarketStatus, getPendingPartsForCourier, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
+import { getMarketStatus, getPendingPartsForCourier, getAllPickupIds, isPickupPointReady, isMixedOrder, normalizeOrder } from '@/lib/orderParts'
 import { ASSEMBLER_NAME } from '@/lib/courierStats'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import { useApiSync } from '@/lib/useApiSync'
@@ -322,7 +322,13 @@ function AssemblerAppInner() {
     if (!raw) return;
     const order = normalizeOrder(raw);
     const pickedUpIds = [...new Set([...(order.pickedUpIds || []), 'store'])];
-    const nextStatus = getPendingPartsForCourier(order).length > 0 ? 'courier_picked' : 'delivering';
+    // Переходим к "delivering" только когда ВСЕ готовые точки (в т.ч. рестораны из
+    // смешанного заказа) уже отмечены забранными — иначе статус мог "перепрыгнуть"
+    // вперёд, пока курьер ещё не забрал заказ у второй точки.
+    const patched = { ...order, pickedUpIds };
+    const readyPoints = getAllPickupIds(order).filter(pid => isPickupPointReady(patched, pid));
+    const allReadyPicked = readyPoints.length > 0 && readyPoints.every(pid => pickedUpIds.includes(pid));
+    const nextStatus = allReadyPicked && !getPendingPartsForCourier(patched).length ? 'delivering' : 'courier_picked';
     await updateStatus(orderId, nextStatus, { pickedUpIds });
     if (page === 'collect') navigate('dashboard');
   };
