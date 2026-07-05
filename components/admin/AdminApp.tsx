@@ -561,12 +561,10 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
   const st = adminStatusLabel(order.status)
   const showAssembler = order.type === 'market' || order.type === 'mixed'
   const PART_LABELS = { new: 'Новый', assembling: 'Собирается', done: 'Готово', cooking: 'Готовится' }
-  const goodsTotal = order.itemsDetailed?.length
-    ? Math.round(order.itemsDetailed.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0) * 100) / 100
-    : Number(order.goodsTotal ?? order.total) || 0
+  const goodsTotal = Number(order.goodsTotal ?? order.total) || 0
   const deliveryFee = Number(order.deliveryFee) || 0
   const bonusSpent = Number(order.bonusSpent) || 0
-  const payableTotal = Math.max(0, Math.round((goodsTotal + deliveryFee - bonusSpent) * 100) / 100)
+  const payableTotal = Number(order.payableTotal) || 0
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.72)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e=>e.stopPropagation()} className="ac" style={{ width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', padding:22 }}>
