@@ -6,7 +6,6 @@ import {
   pickClientDisplayName,
   normalizeClient,
   withLoyaltyNote,
-  maxClientLevel,
   loyaltyStatsFromOrders,
   type AdminClient,
   type ClientLevel,
@@ -26,20 +25,20 @@ import { USE_API } from './config'
 import { api } from './api'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
-import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, inferLevelTermDays, isAutoLevelActive, resolveCardAuthoritativeLevel, normalizeLoyaltyLevel, AUTO_LEVEL_DEFAULT_TERM_DAYS, VIP_PERMANENT_DAYS, vipUntilAfterDays, isLegacyMonthEndLoyaltyTerm } from './loyaltyAdminLock'
+import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, resolveCardAuthoritativeLevel, normalizeLoyaltyLevel, VIP_PERMANENT_DAYS } from './loyaltyAdminLock'
 import type { Order } from './types'
 
 export type { ClientProfileForm, CardLoyaltyForm }
 export { emptyClientProfileForm, emptyCardLoyaltyForm, clientProfileFromClient, cardLoyaltyFromCard }
 
-/** Уровень по доставленным заказам текущего месяца (для авто-режима). */
+/** Уровень по доставленным заказам за скользящие 30 дней (для авто-режима). */
 export function earnedAutoLevelForClient(
   phone: string,
   client?: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration'> | null,
   orders?: Order[],
 ): ClientLevel {
   const list = orders ?? []
-  const { spent, orderCount } = loyaltyStatsFromOrders(list, phone, currentLoyaltyPeriod(), client)
+  const { spent, orderCount } = loyaltyStatsFromOrders(list, phone, client)
   return earnedLevelForPeriod(spent, orderCount)
 }
 
@@ -379,7 +378,6 @@ export async function saveCardLoyalty(
   const prevVip = !!(card.vip ?? client?.vip)
 
   const assignMode = form.levelAssignMode ?? inferLevelAssignMode(card, client)
-  const prevMode = card.levelAssignMode ?? client?.levelAssignMode ?? inferLevelAssignMode(card, client)
   if (assignMode === 'auto') {
     clearManualLoyaltyOverride(card.num)
   }
@@ -390,8 +388,6 @@ export async function saveCardLoyalty(
   }
 
   const statusChanged = !!form.vip !== prevVip || resolvedLevel !== prevLevel
-  const modeChanged = assignMode !== prevMode
-  const levelChanged = resolvedLevel !== prevLevel
   const tierLimit = getTierDefaultDebtLimit(resolvedLevel, !!form.vip)
   const resolvedDebtEnabled = assignMode === 'auto'
     ? qualifiesForDebtSection(resolvedLevel, !!form.vip)
@@ -402,34 +398,17 @@ export async function saveCardLoyalty(
     ? formLimit
     : (debtEligible && tierLimit > 0 ? tierLimit : 0)
 
-  let termDays = form.levelTermDays
+  // Авто-режим больше не хранит «срок действия» — уровень всегда живой пересчёт
+  // из трат за скользящие 30 дней (см. resolveEffectiveClientLevel). Срок нужен
+  // только ручному режиму (admin явно выбирает 7/30/90 дней или навсегда).
   const adminExplicitTerm = typeof form.levelTermDays === 'number' ? form.levelTermDays : undefined
-  const adminTermOnly = adminExplicitTerm != null && !modeChanged
-  if (assignMode === 'auto') {
-    const existingUntil = card.levelValidUntil ?? client?.levelValidUntil
-    const isLegacyMonthEnd = isLegacyMonthEndLoyaltyTerm(existingUntil)
-    if (adminTermOnly) {
-      termDays = adminExplicitTerm
-    } else if (levelChanged || modeChanged || isLegacyMonthEnd || !existingUntil) {
-      termDays = AUTO_LEVEL_DEFAULT_TERM_DAYS
-    } else {
-      termDays = adminExplicitTerm ?? inferLevelTermDays(
-        'auto',
+  const lockFields = assignMode === 'auto'
+    ? { levelAssignMode: 'auto' as const, levelValidUntil: undefined, levelLockedPeriod: undefined }
+    : resolveLevelLockFromTerm(
+        assignMode,
         resolvedLevel,
-        existingUntil,
-        card.levelLockedPeriod ?? client?.levelLockedPeriod,
+        adminExplicitTerm ?? (resolvedLevel === 'basic' ? VIP_PERMANENT_DAYS : 0),
       )
-      if (termDays <= 0) termDays = AUTO_LEVEL_DEFAULT_TERM_DAYS
-    }
-  } else {
-    termDays = adminExplicitTerm ?? (resolvedLevel === 'basic' ? VIP_PERMANENT_DAYS : 0)
-  }
-
-  const lockFields = resolveLevelLockFromTerm(
-    assignMode,
-    resolvedLevel,
-    termDays,
-  )
   const cardLevelStored = resolvedLevel === 'basic' ? '' : resolvedLevel
   const cardLevelForApi = resolvedLevel === 'basic' ? 'basic' : resolvedLevel
 
@@ -582,8 +561,12 @@ export async function saveCardLoyalty(
   void syncActiveStoreSessionFromPhone(phone)
 }
 
-/** Сброс статуса и VIP в начале нового месяца */
-export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?: Order[]): boolean {
+/**
+ * Снять истёкшую РУЧНУЮ блокировку статуса и откатить на авто-расчёт по скользящему окну.
+ * Авто-режим тут ничего не делает — он всегда живой (см. resolveEffectiveClientLevel),
+ * никакого «сброса по календарному месяцу» больше нет.
+ */
+export function syncExpiredManualLoyaltyLock(phone: string, cardNum?: string, orders?: Order[]): boolean {
   const clientStore = useClientStore.getState()
   const cardStore = useCardStore.getState()
   const client = clientStore.clients.find(c => phonesMatch(c.phone, phone))
@@ -592,37 +575,20 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
     ? cardStore.cards.find(c => cardNumsMatch(c.num, num) && c.status !== 'unlinked')
     : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
 
-  const storedPeriod = card?.loyaltyPeriod || client?.loyaltyPeriod
-  if (!storedPeriod) return false
-  if (isLoyaltyPeriodCurrent(storedPeriod)) return false
-
-  const oldPeriod = storedPeriod
-  const period = currentLoyaltyPeriod()
   const assignMode = inferLevelAssignMode(card || {}, client)
+  if (assignMode !== 'manual') return false
+
   const levelValidUntil = card?.levelValidUntil || client?.levelValidUntil
+  const levelLockedPeriod = card?.levelLockedPeriod || client?.levelLockedPeriod
   const untilExpired = !!(levelValidUntil && Date.now() > new Date(levelValidUntil).getTime())
-  const manualLockMonth = !!(card?.levelLockedPeriod === oldPeriod || client?.levelLockedPeriod === oldPeriod)
+  const periodLockExpired = !!(levelLockedPeriod && !isLoyaltyPeriodCurrent(levelLockedPeriod))
+  if (!untilExpired && !periodLockExpired) return false
+
   const account = client || undefined
   const { spent, orderCount } = orders?.length
-    ? loyaltyStatsFromOrders(orders, phone, oldPeriod, account)
+    ? loyaltyStatsFromOrders(orders, phone, account)
     : { spent: client?.spent || 0, orderCount: client?.orders || 0 }
-
-  const curLevel = resolveCardAuthoritativeLevel(card || undefined, client || undefined)
-  const stillManualLocked = assignMode === 'manual'
-    && !untilExpired
-    && !manualLockMonth
-    && (levelValidUntil || card?.levelLockedPeriod || client?.levelLockedPeriod)
-
-  let nextLevel: ClientLevel = 'basic'
-  if (assignMode === 'manual' && stillManualLocked) {
-    nextLevel = curLevel
-  } else if (assignMode === 'manual' && (manualLockMonth || untilExpired)) {
-    nextLevel = earnedLevelForPeriod(spent, orderCount)
-  } else if (assignMode === 'auto') {
-    nextLevel = 'basic'
-  } else if (manualLockMonth) {
-    nextLevel = earnedLevelForPeriod(spent, orderCount)
-  }
+  const nextLevel = earnedLevelForPeriod(spent, orderCount)
 
   let nextVip = !!(card?.vip ?? client?.vip)
   const vipUntil = card?.vipUntil || client?.vipUntil
@@ -630,9 +596,7 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
     nextVip = qualifiesAutoVip(spent, orderCount, 0)
   }
 
-  const clearManualLock = manualLockMonth || untilExpired
-  const nextAssignMode = (clearManualLock && assignMode === 'manual') ? 'auto' as const : assignMode
-  const debtPatch = nextAssignMode === 'auto' && qualifiesForDebtSection(nextLevel, nextVip)
+  const debtPatch = qualifiesForDebtSection(nextLevel, nextVip)
     ? {
         debtEnabled: true as const,
         ...(getTierDefaultDebtLimit(nextLevel, nextVip) > 0
@@ -642,10 +606,10 @@ export function syncMonthlyLoyaltyReset(phone: string, cardNum?: string, orders?
     : {}
   const patch = {
     level: nextLevel,
-    loyaltyPeriod: period,
-    levelLockedPeriod: clearManualLock ? undefined : (card?.levelLockedPeriod || client?.levelLockedPeriod),
-    levelValidUntil: untilExpired ? undefined : levelValidUntil,
-    levelAssignMode: nextAssignMode,
+    loyaltyPeriod: currentLoyaltyPeriod(),
+    levelLockedPeriod: undefined,
+    levelValidUntil: undefined,
+    levelAssignMode: 'auto' as const,
     vip: nextVip,
     vipUntil: nextVip && vipUntil && Date.now() <= new Date(vipUntil).getTime() ? vipUntil : undefined,
     ...debtPatch,
@@ -667,51 +631,44 @@ export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: 
     ? cardStore.cards.find(c => cardNumsMatch(c.num, num) && c.status !== 'unlinked')
     : cardStore.cards.find(c => c.status === 'active' && c.phone && phonesMatch(c.phone, phone))
 
+  // Авто-уровень — живой пересчёт из скользящего окна на каждый вызов: пишем level
+  // как есть (в т.ч. вниз, если траты за последние 30 дней упали), без «срока действия».
   const period = currentLoyaltyPeriod()
-  const autoUntil = vipUntilAfterDays(AUTO_LEVEL_DEFAULT_TERM_DAYS)
   const cardVip = !!(card?.vip ?? client?.vip)
   const clientVip = !!(client?.vip ?? card?.vip)
   if (card) {
-    const prev = (card.level || 'basic') as ClientLevel
-    const keepLevel = maxClientLevel(level, prev)
-    const levelChanged = keepLevel !== prev
-    const refreshUntil = levelChanged
-      || !card.levelValidUntil
-      || isLegacyMonthEndLoyaltyTerm(card.levelValidUntil)
-    const debtPatch = qualifiesForDebtSection(keepLevel, cardVip)
+    const debtPatch = qualifiesForDebtSection(level, cardVip)
       ? {
           debtEnabled: true as const,
-          ...(getTierDefaultDebtLimit(keepLevel, cardVip) > 0
-            ? { debtLimit: getTierDefaultDebtLimit(keepLevel, cardVip) }
+          ...(getTierDefaultDebtLimit(level, cardVip) > 0
+            ? { debtLimit: getTierDefaultDebtLimit(level, cardVip) }
             : {}),
         }
       : {}
     cardStore.updateCardLoyalty(card.num, {
-      level: keepLevel,
+      level,
       loyaltyPeriod: period,
-      ...(refreshUntil ? { levelValidUntil: autoUntil, levelAssignMode: 'auto' as const } : {}),
+      levelAssignMode: 'auto' as const,
+      levelValidUntil: undefined,
+      levelLockedPeriod: undefined,
       ...debtPatch,
     })
   }
   if (client) {
-    const prev = (client.level || 'basic') as ClientLevel
-    const keepLevel = maxClientLevel(level, prev)
-    const levelChanged = keepLevel !== prev
-    const refreshUntil = levelChanged
-      || !client.levelValidUntil
-      || isLegacyMonthEndLoyaltyTerm(client.levelValidUntil)
-    const debtPatch = qualifiesForDebtSection(keepLevel, clientVip)
+    const debtPatch = qualifiesForDebtSection(level, clientVip)
       ? {
           debtEnabled: true as const,
-          ...(getTierDefaultDebtLimit(keepLevel, clientVip) > 0
-            ? { debtLimit: getTierDefaultDebtLimit(keepLevel, clientVip) }
+          ...(getTierDefaultDebtLimit(level, clientVip) > 0
+            ? { debtLimit: getTierDefaultDebtLimit(level, clientVip) }
             : {}),
         }
       : {}
     clientStore.updateClient(client.id, {
-      level: keepLevel,
+      level,
       loyaltyPeriod: period,
-      ...(refreshUntil ? { levelValidUntil: autoUntil, levelAssignMode: 'auto' as const } : {}),
+      levelAssignMode: 'auto' as const,
+      levelValidUntil: undefined,
+      levelLockedPeriod: undefined,
       ...(card ? { card: card.num } : {}),
       ...debtPatch,
     })

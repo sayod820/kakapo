@@ -68,3 +68,22 @@ export function isLoyaltyPeriodCurrent(stored?: string | null): boolean {
   if (!stored) return false
   return stored === currentLoyaltyPeriod()
 }
+
+/** Скользящее окно статуса/кэшбэка клиента (вместо календарного месяца). */
+export const LOYALTY_WINDOW_DAYS = 30
+
+export function loyaltyWindowStartMs(days = LOYALTY_WINDOW_DAYS, now = Date.now()): number {
+  return now - days * 86400000
+}
+
+/** Заказ попадает в скользящее окно `days` дней, заканчивающееся в момент `now`. */
+export function orderInLoyaltyWindow(
+  order: Pick<Order, 'createdAt' | 'deliveredAt' | 'status'> & { date?: string; createdAtIso?: string; deliveredAtIso?: string },
+  days = LOYALTY_WINDOW_DAYS,
+  now = Date.now(),
+): boolean {
+  const d = parseOrderLoyaltyDate(order)
+  if (!d) return true
+  const t = d.getTime()
+  return t >= loyaltyWindowStartMs(days, now) && t <= now
+}

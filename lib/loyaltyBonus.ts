@@ -20,7 +20,7 @@ import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
 import { inferLevelAssignMode } from './loyaltyAdminLock'
 import { onBonusCredited } from './pushService'
-import { currentLoyaltyPeriod, loyaltyPeriodForOrder } from './loyaltyPeriod'
+import { currentLoyaltyPeriod, LOYALTY_WINDOW_DAYS, loyaltyWindowStartMs } from './loyaltyPeriod'
 import { findMergedClientByPhone } from './clientProfileSync'
 import { phoneDigits } from './clientSession'
 
@@ -70,16 +70,16 @@ function orderSortKey(order: Order): number {
   return Number.isNaN(d.getTime()) ? 0 : d.getTime()
 }
 
-/** Доставленные заказы того же месяца, которые были раньше текущего. */
+/** Доставленные заказы за скользящие 30 дней ДО этого заказа (для маржинального кэшбэка). */
 function priorDeliveredOrders(phone: string, allDelivered: Order[], order: Order): Order[] {
-  const period = loyaltyPeriodForOrder(order)
   const orderKey = orderSortKey(order)
+  const windowStart = loyaltyWindowStartMs(LOYALTY_WINDOW_DAYS, orderKey)
   const orderId = String(order.id)
   return allDelivered.filter(o => {
     if (!phonesMatch(o.client?.phone || '', phone)) return false
-    if (loyaltyPeriodForOrder(o) !== period) return false
     if (String(o.id) === orderId) return false
     const k = orderSortKey(o)
+    if (k < windowStart) return false
     if (k < orderKey) return true
     if (k > orderKey) return false
     return String(o.id) < orderId
@@ -93,10 +93,9 @@ export function resolveOrderBonusLevel(
   order: Order,
   _vip?: boolean,
 ): ClientLevel {
-  const period = loyaltyPeriodForOrder(order)
   const priorOnly = priorDeliveredOrders(phone, allDelivered, order)
-  const { spent, orderCount } = loyaltyStatsFromOrders(priorOnly, phone, period)
-  return resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel
+  const spent = Math.round(priorOnly.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10
+  return resolveEffectiveClientLevel(spent, priorOnly.length, 'basic') as ClientLevel
 }
 
 type MarginalBand = { from: number; to: number; percent: number }
@@ -243,17 +242,18 @@ export function resolveOrderStatusLevel(
   allDelivered: Order[],
   order: Order,
   storedLevel?: ClientLevel | string,
-  storedPeriod?: string,
 ): ClientLevel {
-  const period = loyaltyPeriodForOrder(order)
-  const including = allDelivered.filter(o =>
-    phonesMatch(o.client?.phone || '', phone)
-    && loyaltyPeriodForOrder(o) === period
-    && (orderSortKey(o) < orderSortKey(order)
-      || (orderSortKey(o) === orderSortKey(order) && String(o.id) <= String(order.id))),
-  )
-  const { spent, orderCount } = loyaltyStatsFromOrders(including, phone, period)
-  return resolveEffectiveClientLevel(spent, orderCount, storedLevel, storedPeriod || period) as ClientLevel
+  const orderKey = orderSortKey(order)
+  const windowStart = loyaltyWindowStartMs(LOYALTY_WINDOW_DAYS, orderKey)
+  const including = allDelivered.filter(o => {
+    if (!phonesMatch(o.client?.phone || '', phone)) return false
+    const k = orderSortKey(o)
+    if (k < windowStart || k > orderKey) return false
+    if (k === orderKey) return String(o.id) <= String(order.id)
+    return true
+  })
+  const spent = Math.round(including.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10
+  return resolveEffectiveClientLevel(spent, including.length, storedLevel) as ClientLevel
 }
 
 /** Ожидаемый баланс: welcome + кэшбэк за доставленные заказы − списанные бонусы. */
@@ -314,7 +314,7 @@ export function reconcileClientBonusesLocal(phone: string, orders: Order[], refu
   const nextLevel: ClientLevel = delivered.length
     ? (vip
       ? ((client?.level || card?.level || 'basic') as ClientLevel)
-      : resolveEffectiveClientLevel(spent, orderCount, 'basic', period) as ClientLevel)
+      : resolveEffectiveClientLevel(spent, orderCount, 'basic') as ClientLevel)
     : 'basic'
 
   if (client) {
@@ -436,9 +436,9 @@ export function expectedOrderBonus(
     if (order.status === 'delivered') {
       return calcOrderMarginalBonusEarned(phone, delivered, order, vip, cfg, merged)
     }
-    const period = currentLoyaltyPeriod()
+    const windowStart = loyaltyWindowStartMs(LOYALTY_WINDOW_DAYS)
     const priorEligible = delivered
-      .filter(o => loyaltyPeriodForOrder(o) === period)
+      .filter(o => orderSortKey(o) >= windowStart)
       .filter(o => isOrderMarginalBonusEligible(o, merged))
       .reduce((sum, o) => sum + bonusEligibleTotal(o), 0)
     const useVip = !!(vip && isOrderVipBonusEligible(order, merged))

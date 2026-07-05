@@ -195,8 +195,9 @@ export function formatClientLevelPeriod(
     }
   }
 
-  const monthEnds = loyaltyPeriodEndsLabel(period)
-  return { periodLabel, periodEnds: monthEnds, periodSubtitle: `${periodLabel} · действует до ${monthEnds}` }
+  // Авто-режим — статус живой, пересчитывается по тратам за последние 30 дней,
+  // без фиксированной даты окончания (в отличие от ручного назначения выше).
+  return { periodLabel, periodEnds: '', periodSubtitle: 'Автоматически · по покупкам за последние 30 дней' }
 }
 
 /** Ручной статус активен (закреплён админом, авторасчёт не применяется). */
@@ -372,9 +373,7 @@ export function formatAdminLevelExpiry(record: LoyaltyLockFields): string {
   const lvl = record.level
   if (!lvl || lvl === 'basic') return 'Постоянно'
   if (record.levelAssignMode === 'auto') {
-    if (!isAutoLevelActive(record)) return 'авто истекло'
-    if (!record.levelValidUntil) return 'авто · постоянно'
-    return `авто · до ${formatVipUntilLabel(record.levelValidUntil)}`
+    return 'авто · за 30 дней'
   }
   if (isLevelLocked(record)) {
     if (!record.levelValidUntil && !record.levelLockedPeriod) return 'ручной · постоянно'

@@ -113,7 +113,6 @@ export function getLoyaltyProgress(
       spent,
       orderCount,
       storedLevel,
-      storedPeriod,
       lockRecord,
     )
   }

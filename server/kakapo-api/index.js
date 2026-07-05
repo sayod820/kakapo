@@ -17,6 +17,8 @@ import {
   applyBonusSpendOnOrder,
   creditClientBonusOnDelivery,
   applyClientLoyaltyAfterDelivery,
+  applyLevelUpgrade,
+  clearExpiredManualLoyaltyLock,
   ensureLoyaltySettings,
   syncCardDebtLimitsFromLoyalty,
   backfillAllMissedBonuses,
@@ -28,7 +30,7 @@ import {
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
 import { createReviewRecord, updateRestaurantRating, updateStoreRating, deleteReviewRecords } from './reviewLogic.js'
-import { normalizeLevelAssignMode } from './loyaltyLock.js'
+import { normalizeLevelAssignMode, inferLevelAssignMode, isLevelLocked, loyaltyLockRecord } from './loyaltyLock.js'
 import {
   recoveryExpiresAtIso,
   isRecoveryExpired,
@@ -1032,6 +1034,30 @@ function runAccountLifecycleMaintenance() {
   return expireRecoveryClients(db, { unlinkCardsForClient, persist })
 }
 
+/**
+ * Авто-статус — живая функция от трат за скользящие 30 дней (не привязан к календарному
+ * месяцу), поэтому может «тихо» понизиться без единого нового заказа. Освежаем его при
+ * каждом чтении клиентов/карт, а не только по событиям заказа.
+ */
+function runLoyaltyMaintenance() {
+  const loyalty = ensureLoyaltySettings(db)
+  let changed = false
+  for (const client of db.clients || []) {
+    if (!client.phone) continue
+    const card = client.card ? findCardByNum(client.card) : null
+    const beforeLevel = client.level
+    clearExpiredManualLoyaltyLock(db, client.phone, client, card, loyalty)
+    if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
+      applyLevelUpgrade(db, client.phone, client, card, loyalty)
+    }
+    if (client.level !== beforeLevel) {
+      changed = true
+      if (card) syncClientFromCardRow(card)
+    }
+  }
+  if (changed) persist()
+}
+
 function forgetDeletedPhone(phone) {
   ensureDeletedPhoneKeys()
   const key = normalizePhoneDigits(phone)
@@ -1117,6 +1143,7 @@ function normalizeClientRow(raw) {
 
 app.get('/clients', (_req, res) => {
   runAccountLifecycleMaintenance()
+  runLoyaltyMaintenance()
   res.json(listVisibleClients())
 })
 app.post('/clients', (req, res) => {
@@ -1503,6 +1530,7 @@ function migrateLoyaltyRows() {
 }
 
 app.get('/cards', (_req, res) => {
+  runLoyaltyMaintenance()
   const list = (db.cards || [])
     .filter(c => !c.phone || !isPhoneTombstoned(c.phone))
     .map(c => normalizeCardRow({ ...c, num: c.num }))

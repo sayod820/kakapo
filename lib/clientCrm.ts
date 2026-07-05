@@ -4,8 +4,8 @@ import type { Order } from './types'
 import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
-import { currentLoyaltyPeriod, orderInLoyaltyPeriod, isLoyaltyPeriodCurrent } from './loyaltyPeriod'
-import { isLevelLocked, loyaltyLockFromRecord, type LoyaltyLockFields, isAutoLevelActive } from './loyaltyAdminLock'
+import { orderInLoyaltyWindow, LOYALTY_WINDOW_DAYS } from './loyaltyPeriod'
+import { isLevelLocked, loyaltyLockFromRecord, type LoyaltyLockFields } from './loyaltyAdminLock'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { bonusEligibleTotal } from './orderLoyaltyAmount'
 
@@ -274,17 +274,17 @@ export function hasEarnedBronze(spent: number, _orderCount = 0): boolean {
   return spent >= min
 }
 
-/** Доставленные заказы клиента за период (по умолчанию — текущий месяц) */
+/** Доставленные заказы клиента за скользящее окно (по умолчанию — последние 30 дней). */
 export function loyaltyOrdersForClient(
   orders: Order[],
   phone: string,
-  period = currentLoyaltyPeriod(),
   account?: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration'> | null,
+  now = Date.now(),
 ): Order[] {
   return orders.filter(
     o => phonesMatch(o.client?.phone || '', phone)
       && o.status === 'delivered'
-      && orderInLoyaltyPeriod(o, period)
+      && orderInLoyaltyWindow(o, LOYALTY_WINDOW_DAYS, now)
       && (!account || orderBelongsToClientAccount(o, account)),
   )
 }
@@ -292,12 +292,11 @@ export function loyaltyOrdersForClient(
 export function loyaltyStatsFromOrders(
   orders: Order[],
   phone: string,
-  period = currentLoyaltyPeriod(),
   account?: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration'> | null,
-): { orderCount: number; spent: number; period: string } {
-  const delivered = loyaltyOrdersForClient(orders, phone, period, account)
+  now = Date.now(),
+): { orderCount: number; spent: number } {
+  const delivered = loyaltyOrdersForClient(orders, phone, account, now)
   return {
-    period,
     orderCount: delivered.length,
     spent: Math.round(delivered.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10,
   }
@@ -314,12 +313,15 @@ export function maxClientLevel(a: ClientLevel, b: ClientLevel): ClientLevel {
   return loyaltyTierIndex(a) >= loyaltyTierIndex(b) ? a : b
 }
 
-/** Уровень за текущий месяц: авто + назначение админки (только если задан в этом месяце) */
+/**
+ * Эффективный уровень клиента: ручной статус (закреплённый админом) держится, пока не истёк срок;
+ * автоматический — всегда живая функция от трат за скользящее окно (LOYALTY_WINDOW_DAYS), без
+ * привязки к календарному месяцу и без отдельного «сброса».
+ */
 export function resolveEffectiveClientLevel(
   spent: number,
   orderCount: number,
   storedLevel?: ClientLevel | 'new',
-  storedPeriod?: string,
   lock?: LoyaltyLockFields,
 ): ClientLevel {
   const normalizedStored = storedLevel === 'new' ? 'basic' : storedLevel
@@ -329,53 +331,7 @@ export function resolveEffectiveClientLevel(
     return normalizedStored || 'basic'
   }
 
-  const earned = suggestLevel(spent)
-  const earnedBronze = hasEarnedBronze(spent, orderCount)
-
-  if (effectiveLock.levelAssignMode === 'auto' && isAutoLevelActive(effectiveLock)) {
-    return earnedBronze ? earned : 'basic'
-  }
-
-  const storedActive = isLoyaltyPeriodCurrent(storedPeriod)
-  const adminAssignedLegacy = !!normalizedStored && normalizedStored !== 'basic' && !storedPeriod
-  const storedForMonth = storedActive && normalizedStored && normalizedStored !== 'basic'
-    ? normalizedStored
-    : adminAssignedLegacy
-      ? normalizedStored!
-      : 'basic'
-
-  if (storedForMonth !== 'basic') {
-    if (effectiveLock.levelAssignMode === 'manual' && isLevelLocked(effectiveLock)) {
-      return storedForMonth
-    }
-    if (!earnedBronze && !storedActive && !adminAssignedLegacy) return 'basic'
-    if (!earnedBronze) return storedForMonth
-    const earnedIdx = loyaltyTierIndex(earned)
-    const storedIdx = loyaltyTierIndex(storedForMonth)
-    return earnedIdx > storedIdx ? earned : storedForMonth
-  }
-
-  return earnedBronze ? earned : 'basic'
-}
-
-export function shouldAutoUpgradeLevel(
-  stored: ClientLevel | undefined,
-  effective: ClientLevel,
-  storedPeriod?: string,
-  lock?: LoyaltyLockFields,
-): boolean {
-  if (isLevelLocked(lock)) return false
-  if (!storedPeriod) {
-    if (!stored || stored === 'basic') return effective !== 'basic'
-    return loyaltyTierIndex(effective) > loyaltyTierIndex(stored)
-  }
-  if (!isLoyaltyPeriodCurrent(storedPeriod) && effective === 'basic' && stored !== 'basic') {
-    return true // месяц сменился — сбросить до basic
-  }
-  if (effective === stored && isLoyaltyPeriodCurrent(storedPeriod)) return false
-  if (!stored || stored === 'basic') return effective !== 'basic'
-  if (!isLoyaltyPeriodCurrent(storedPeriod)) return effective !== 'basic'
-  return loyaltyTierIndex(effective) > loyaltyTierIndex(stored)
+  return hasEarnedBronze(spent, orderCount) ? suggestLevel(spent) : 'basic'
 }
 
 export function suggestLevel(spent: number, cfg?: ReturnType<typeof loadLoyaltyStatusConfig>): ClientLevel {
@@ -417,7 +373,7 @@ export function statsFromOrders(
 ): ClientOrderStats {
   const phone = client.phone
   const related = orders.filter(o => orderBelongsToClientAccount(o, client))
-  const delivered = loyaltyOrdersForClient(orders, phone, currentLoyaltyPeriod(), client)
+  const delivered = loyaltyOrdersForClient(orders, phone, client)
   const active = related.filter(o => o.status !== 'cancelled')
   return {
     orders: delivered.length,
@@ -438,7 +394,7 @@ export function enrichClientWithOrders(client: AdminClient, orders: Order[]): Ad
   const storedLevel = (client.level || 'basic') as ClientLevel
   const lock = loyaltyLockFromRecord(client, storedLevel)
   const level = hasLive
-    ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, client.loyaltyPeriod, lock)
+    ? resolveEffectiveClientLevel(spent, ordersCount, storedLevel, lock)
     : storedLevel
   const lastLabel = formatLastActivity(hasLive ? (live.lastOrderAt || client.lastOrderAt) : undefined)
   return {

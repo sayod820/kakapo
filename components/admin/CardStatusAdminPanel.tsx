@@ -446,7 +446,7 @@ export default function CardStatusAdminPanel() {
                 const vipExpiry = formatAdminVipExpiry({ ...card, vip: st.vip })
                 const phone = card.phone || client?.phone || ''
                 const autoStats = isAuto && phone
-                  ? loyaltyStatsFromOrders(orders, phone, undefined, client)
+                  ? loyaltyStatsFromOrders(orders, phone, client)
                   : null
                 const autoVipEligible = autoStats
                   ? qualifiesAutoVip(autoStats.spent, autoStats.orderCount, client?.reviews ?? 0)
