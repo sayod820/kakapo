@@ -1048,7 +1048,7 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
               <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:4}}>
                 <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:item.done?'#3D6645':'#9B6DFF'}}>{item.qty} шт</span>
                 <span style={{fontSize:11,color:'#3D6645'}}>· {item.unit}</span>
-                <span style={{fontSize:11,color:'#FFB800',fontWeight:700}}>{item.price.toFixed(2)} ЅМ</span>
+                <span style={{fontSize:11,color:'#FFB800',fontWeight:700}}>{(item.price * item.qty).toFixed(2)} ЅМ</span>
               </div>
               <span style={{fontFamily:'Unbounded',fontSize:9,color:'#3D6645',fontWeight:700}}>{item.art}</span>
             </div>
