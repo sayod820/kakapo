@@ -786,7 +786,7 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
                         <span style={{fontSize:13,fontWeight:600}}>{it.name}</span>
                         <span style={{fontSize:11,color:'#3D6645'}}>× {it.qty}</span>
                       </div>
-                      <span style={{fontSize:12,fontWeight:700,color:'#FFB800',fontFamily:'Unbounded'}}>{(it.price*it.qty)} ЅМ</span>
+                      <span style={{fontSize:12,fontWeight:700,color:'#FFB800',fontFamily:'Unbounded'}}>{it.price.toFixed(2)} ЅМ</span>
                     </div>
                   ))}
                 </div>

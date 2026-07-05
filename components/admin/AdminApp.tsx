@@ -643,7 +643,7 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
                     <div style={{ fontSize:10, color:'#3D6645' }}>{it.qty} шт · {it.source === 'restaurant' ? 'ресторан' : 'магазин'}</div>
                   </div>
                 </div>
-                <div className="ub" style={{ fontSize:12, fontWeight:800 }}>{(it.price * it.qty).toFixed(1)} ЅМ</div>
+                <div className="ub" style={{ fontSize:12, fontWeight:800 }}>{it.price.toFixed(1)} ЅМ</div>
               </div>
             ))}
           </div>
