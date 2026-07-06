@@ -1,12 +1,17 @@
+import crypto from 'crypto'
 import { fetchAllGbsGoods, fetchGbsSaleDocuments } from './gbsClient.js'
 import { findClientByPhone, applyClientLoyaltyAfterDelivery } from './loyaltyBonus.js'
+
+export function generateIngestToken() {
+  return crypto.randomBytes(24).toString('hex')
+}
 
 /**
  * Обновляет stock/price существующих товаров KAKAPO по совпадению art === Barcode.
  * Новые товары из кассы не создаются — только обновление уже заведённых у нас.
+ * Чистая функция — не знает, откуда взялся массив goods (прямой опрос кассы или пуш от агента).
  */
-export async function syncGbsProducts(db, gbsSettings) {
-  const goods = await fetchAllGbsGoods(gbsSettings)
+export function applyGbsGoodsToProducts(db, goods) {
   const byBarcode = new Map()
   for (const g of goods) {
     const code = String(g?.Barcode || '').trim().toUpperCase()
@@ -46,6 +51,11 @@ export async function syncGbsProducts(db, gbsSettings) {
   }
 }
 
+export async function syncGbsProducts(db, gbsSettings) {
+  const goods = await fetchAllGbsGoods(gbsSettings)
+  return applyGbsGoodsToProducts(db, goods)
+}
+
 /** Правдоподобные имена полей с картой/телефоном клиента в документе — уточняются по факту реального ответа кассы. */
 const CLIENT_FIELD_CANDIDATES = ['Card', 'CardNum', 'CardNumber', 'DiscountCard', 'Client', 'ClientCard', 'Buyer', 'Phone', 'ClientPhone']
 
@@ -81,9 +91,10 @@ function resolveClientForIdentifier(db, hooks, identifier) {
  * которых удаётся распознать по номеру карты/телефону в документе. Чек без
  * распознанного клиента не создаёт заказ (админка/курьер/сборщик рассчитаны на
  * заказ с клиентом) — просто учитывается в сводке как unmatchedToClient.
- * Идемпотентно по doc.Uid — повторный запуск не задваивает импорт.
+ * Идемпотентно по doc.Uid — повторный запуск не задваивает импорт. Чистая функция
+ * относительно источника документов (прямой опрос или пуш от локального агента).
  */
-export async function syncGbsSales(db, gbsSettings, hooks) {
+export function applyGbsSaleDocuments(db, documents, hooks) {
   if (!db.settings) db.settings = {}
   if (!db.settings.admin) db.settings.admin = {}
   if (!db.settings.admin.gbs) db.settings.admin.gbs = {}
@@ -92,19 +103,12 @@ export async function syncGbsSales(db, gbsSettings, hooks) {
   const importedDocUids = Array.isArray(gbs.importedDocUids) ? gbs.importedDocUids : []
   const importedSet = new Set(importedDocUids.map(x => x.uid))
 
-  const todayIso = new Date().toISOString().slice(0, 10)
-  const lastSync = gbs.lastSalesSyncIso ? String(gbs.lastSalesSyncIso).slice(0, 10) : null
-  const fallbackStart = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const dateStart = lastSync || fallbackStart
-
-  const docs = await fetchGbsSaleDocuments(gbsSettings, dateStart, todayIso)
-
   if (!Array.isArray(db.orders)) db.orders = []
 
   let imported = 0
   let unmatchedToClient = 0
 
-  for (const doc of docs) {
+  for (const doc of documents) {
     const uid = String(doc?.Uid || '')
     if (!uid || importedSet.has(uid) || doc?.IsDeleted) continue
     importedSet.add(uid)
@@ -151,12 +155,28 @@ export async function syncGbsSales(db, gbsSettings, hooks) {
     const t = Date.parse(x.dateTime)
     return Number.isNaN(t) || t >= cutoffMs
   })
-  gbs.lastSalesSyncIso = new Date().toISOString()
 
-  return { imported, unmatchedToClient, totalDocs: docs.length }
+  return { imported, unmatchedToClient, totalDocs: documents.length }
 }
 
-/** Полный цикл: товары + продажи. Сбой одного шага не должен ронять другой. */
+export async function syncGbsSales(db, gbsSettings, hooks) {
+  if (!db.settings) db.settings = {}
+  if (!db.settings.admin) db.settings.admin = {}
+  if (!db.settings.admin.gbs) db.settings.admin.gbs = {}
+  const gbs = db.settings.admin.gbs
+
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const lastSync = gbs.lastSalesSyncIso ? String(gbs.lastSalesSyncIso).slice(0, 10) : null
+  const fallbackStart = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const dateStart = lastSync || fallbackStart
+
+  const docs = await fetchGbsSaleDocuments(gbsSettings, dateStart, todayIso)
+  const result = applyGbsSaleDocuments(db, docs, hooks)
+  gbs.lastSalesSyncIso = new Date().toISOString()
+  return result
+}
+
+/** Полный цикл прямого опроса кассы: товары + продажи. Сбой одного шага не должен ронять другой. */
 export async function runGbsSyncCycle(db, hooks) {
   if (!db.settings) db.settings = {}
   if (!db.settings.admin) db.settings.admin = {}
@@ -181,6 +201,16 @@ export async function runGbsSyncCycle(db, hooks) {
     errors.push(`Продажи: ${e?.message || e}`)
   }
 
+  stampSyncResult(gbs, products, sales, errors)
+  if (typeof hooks?.persist === 'function') hooks.persist()
+  if (products?.updated && typeof hooks?.broadcast === 'function') {
+    hooks.broadcast('products_synced', { count: products.updated })
+  }
+
+  return { ok: errors.length === 0, products, sales, errors }
+}
+
+function stampSyncResult(gbs, products, sales, errors) {
   gbs.lastSyncIso = new Date().toISOString()
   gbs.lastSyncSummary = {
     matched: products?.matched ?? null,
@@ -189,7 +219,37 @@ export async function runGbsSyncCycle(db, hooks) {
     unmatchedToClient: sales?.unmatchedToClient ?? null,
   }
   gbs.lastSyncError = errors.length ? errors.join('; ') : null
+}
 
+/**
+ * Приём данных, которые уже собрал и прислал локальный агент (для случая, когда касса
+ * стоит за роутером магазина и облачный backend не может достучаться до неё напрямую).
+ * Никаких сетевых запросов к кассе тут нет — только матчинг присланных goods/documents.
+ */
+export function ingestGbsPayload(db, hooks, payload) {
+  if (!db.settings) db.settings = {}
+  if (!db.settings.admin) db.settings.admin = {}
+  if (!db.settings.admin.gbs) db.settings.admin.gbs = {}
+  const gbs = db.settings.admin.gbs
+
+  const errors = []
+  let products = null
+  let sales = null
+
+  try {
+    products = applyGbsGoodsToProducts(db, Array.isArray(payload?.goods) ? payload.goods : [])
+  } catch (e) {
+    errors.push(`Товары: ${e?.message || e}`)
+  }
+
+  try {
+    sales = applyGbsSaleDocuments(db, Array.isArray(payload?.documents) ? payload.documents : [], hooks)
+  } catch (e) {
+    errors.push(`Продажи: ${e?.message || e}`)
+  }
+
+  stampSyncResult(gbs, products, sales, errors)
+  gbs.lastIngestIso = gbs.lastSyncIso
   if (typeof hooks?.persist === 'function') hooks.persist()
   if (products?.updated && typeof hooks?.broadcast === 'function') {
     hooks.broadcast('products_synced', { count: products.updated })

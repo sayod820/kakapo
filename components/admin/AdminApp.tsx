@@ -7181,6 +7181,11 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
   const [gbsLastSyncIso, setGbsLastSyncIso] = useState('')
   const [gbsLastSyncSummary, setGbsLastSyncSummary] = useState<{ matched: number | null; updated: number | null; imported: number | null; unmatchedToClient: number | null } | null>(null)
   const [gbsLastSyncError, setGbsLastSyncError] = useState('')
+  const [gbsIngestToken, setGbsIngestToken] = useState('')
+  const [gbsLastIngestIso, setGbsLastIngestIso] = useState('')
+  const [gbsTokenCopied, setGbsTokenCopied] = useState(false)
+  const [gbsConfigCopied, setGbsConfigCopied] = useState(false)
+  const [regenBusy, setRegenBusy] = useState(false)
   const [smsP, setSmsP] = useState('smspro')
   const [smsKey, setSmsKey] = useState('')
   const [storeInfo, setStoreInfo] = useState(DEFAULT_STORE_INFO)
@@ -7225,6 +7230,8 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
         if (remote.gbs.lastSyncIso) setGbsLastSyncIso(remote.gbs.lastSyncIso)
         if (remote.gbs.lastSyncSummary) setGbsLastSyncSummary(remote.gbs.lastSyncSummary)
         setGbsLastSyncError(remote.gbs.lastSyncError || '')
+        if (remote.gbs.ingestToken) setGbsIngestToken(remote.gbs.ingestToken)
+        if (remote.gbs.lastIngestIso) setGbsLastIngestIso(remote.gbs.lastIngestIso)
       }
       if (remote.sms) {
         if (remote.sms.provider) setSmsP(remote.sms.provider)
@@ -7271,6 +7278,30 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
       setTestSt('err')
       setTimeout(() => setTestSt(''), 6000)
     }
+  }
+
+  const regenIngestToken = async () => {
+    if (!USE_API) return
+    setRegenBusy(true)
+    try {
+      const r = await api.regenerateGbsIngestToken()
+      setGbsIngestToken(r.ingestToken)
+    } catch { /* ignore */ }
+    setRegenBusy(false)
+  }
+
+  const kakapoAgentUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/kakapo` : 'https://ВАШ-ДОМЕН/api/kakapo'
+  const gbsAgentConfig = JSON.stringify({
+    gbsIp: 'http://localhost',
+    gbsPort: gbsPort || '8419',
+    gbsUser: gbsUser || 'admin',
+    gbsPass: gbsPass || 'ПАРОЛЬ_ИЗ_НАСТРОЕК_GBS_MARKET',
+    kakapoUrl: kakapoAgentUrl,
+    ingestToken: gbsIngestToken || 'нажмите «Сгенерировать» ниже',
+  }, null, 2)
+
+  const copyText = async (text: string, onDone: () => void) => {
+    try { await navigator.clipboard.writeText(text); onDone() } catch { /* ignore */ }
   }
 
   const STABS = [
@@ -7354,6 +7385,47 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
           <div style={{padding:'14px 16px',borderRadius:14,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.2)'}}>
             <div className="ub" style={{fontSize:12,fontWeight:800,color:'#1FD760',marginBottom:10}}>📋 Инструкция GBS Market</div>
             {['1. Откройте GBS Market на кассовом компьютере','2. Настройки → Интеграции → API','3. Поставить ✓ "Активировать JSON API"','4. Скопируйте IP кассы','5. Вставьте IP выше и нажмите "Проверить"','6. Включите тумблер — начнётся синхронизация каждые 15 мин','','Забираем из кассы (только чтение, обратно не отправляем):','• Остатки и цены — по совпадению артикула KAK-XXXX со штрихкодом в кассе','• Чеки продаж офлайн-магазина — привязываются к клиенту, если в чеке есть номер карты/телефон'].map((s,i)=><div key={i} style={{fontSize:11,color:s===''?undefined:s.startsWith('•')?'#FFB800':'#8FB897',marginBottom:4,lineHeight:1.5,fontWeight:s.startsWith('Забираем')||s===''?700:400}}>{s}</div>)}
+          </div>
+
+          <div className="ac" style={{padding:20,gridColumn:'1 / -1'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+              <div className="ub" style={{fontSize:14,fontWeight:800}}>🖥 Локальный агент (если касса за роутером магазина)</div>
+            </div>
+            <div style={{marginBottom:14,padding:'8px 12px',borderRadius:8,background:'rgba(255,184,0,.08)',border:'1px solid rgba(255,184,0,.25)',fontSize:11,color:'#FFB800',lineHeight:1.6}}>
+              Наш сервер работает в облаке и не может напрямую достучаться до кассы в локальной сети магазина. Решение: маленький скрипт запускается прямо на кассовом компьютере (или там, где GBS Market слушает <b>localhost</b>), сам читает данные и отправляет их к нам — входящих подключений к кассе не требуется, ничего в роутере настраивать не нужно.
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+              <div>
+                <div style={{fontSize:11,color:'#3D6645',fontWeight:700,marginBottom:6}}>1. Токен агента (секретный, для авторизации)</div>
+                <div style={{display:'flex',gap:8}}>
+                  <input readOnly value={gbsIngestToken || '— сохраните настройки, чтобы сгенерировать —'} className="ai" style={{flex:1,fontFamily:'monospace',fontSize:11}} onFocus={e=>e.target.select()}/>
+                  <button type="button" disabled={!gbsIngestToken} onClick={()=>copyText(gbsIngestToken, ()=>{setGbsTokenCopied(true); setTimeout(()=>setGbsTokenCopied(false),2000)})} className="ab" style={{padding:'0 12px',fontSize:11}}>{gbsTokenCopied?'✓':'📋'}</button>
+                  <button type="button" disabled={regenBusy || !USE_API} onClick={regenIngestToken} className="ab" style={{padding:'0 12px',fontSize:11}}>{regenBusy?'…':'🔄'}</button>
+                </div>
+                {gbsLastIngestIso && <div style={{fontSize:10,color:'#3D6645',marginTop:6}}>Последние данные от агента: {new Date(gbsLastIngestIso).toLocaleString('ru-RU')}</div>}
+
+                <div style={{fontSize:11,color:'#3D6645',fontWeight:700,marginTop:14,marginBottom:6}}>2. Скачайте скрипт и пример настроек</div>
+                <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                  <a href="/downloads/gbs-local-agent.ps1" download className="btn" style={{color:'#1FD760',fontSize:11,fontWeight:700}}>⬇ gbs-local-agent.ps1</a>
+                  <a href="/downloads/gbs-agent.config.example.json" download className="btn" style={{color:'#1FD760',fontSize:11,fontWeight:700}}>⬇ gbs-agent.config.example.json</a>
+                </div>
+
+                <div style={{fontSize:11,color:'#3D6645',fontWeight:700,marginTop:14,marginBottom:6}}>3. Запустите постоянно</div>
+                <div style={{fontSize:11,color:'#8FB897',lineHeight:1.6}}>
+                  Планировщик заданий Windows → создать задачу → триггер «При входе в систему» + повтор каждые 15 минут, действие:
+                  <div style={{marginTop:6,padding:8,borderRadius:6,background:'#0C1C0F',fontFamily:'monospace',fontSize:10,wordBreak:'break-all'}}>powershell.exe -ExecutionPolicy Bypass -File "C:\gbs-agent\gbs-local-agent.ps1"</div>
+                </div>
+              </div>
+
+              <div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                  <div style={{fontSize:11,color:'#3D6645',fontWeight:700}}>Готовый gbs-agent.config.json — положите рядом со скриптом на кассовом ПК</div>
+                  <button type="button" onClick={()=>copyText(gbsAgentConfig, ()=>{setGbsConfigCopied(true); setTimeout(()=>setGbsConfigCopied(false),2000)})} className="ab" style={{padding:'2px 10px',fontSize:11}}>{gbsConfigCopied?'✓ Скопировано':'📋 Копировать'}</button>
+                </div>
+                <pre style={{margin:0,padding:12,borderRadius:8,background:'#0C1C0F',border:'1px solid #162B1A',fontFamily:'monospace',fontSize:10.5,color:'#8FB897',whiteSpace:'pre-wrap',wordBreak:'break-all'}}>{gbsAgentConfig}</pre>
+              </div>
+            </div>
           </div>
         </div>
       )}

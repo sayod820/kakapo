@@ -51,7 +51,7 @@ import {
   getCourierWalletTransactions,
 } from './courierWallet.js'
 import { testGbsStatus } from './gbsClient.js'
-import { runGbsSyncCycle } from './gbsSync.js'
+import { runGbsSyncCycle, ingestGbsPayload, generateIngestToken } from './gbsSync.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
@@ -1446,6 +1446,7 @@ const DEFAULT_ADMIN_SETTINGS = {
   gbs: {
     enabled: false, ip: 'http://192.168.1.100', port: '8419', user: 'admin', pass: '',
     lastSyncIso: null, lastSyncSummary: null, lastSyncError: null, importedDocUids: [],
+    ingestToken: null, lastIngestIso: null,
   },
   sms: { provider: 'smspro', apiKey: '' },
   store: {
@@ -1467,6 +1468,7 @@ function ensureAdminSettings() {
   }
   const a = db.settings.admin
   if (!a.gbs) a.gbs = { ...DEFAULT_ADMIN_SETTINGS.gbs }
+  if (!a.gbs.ingestToken) { a.gbs.ingestToken = generateIngestToken(); persist() }
   if (!a.sms) a.sms = { ...DEFAULT_ADMIN_SETTINGS.sms }
   if (!a.store) a.store = { ...DEFAULT_ADMIN_SETTINGS.store }
   return a
@@ -2130,6 +2132,32 @@ app.post('/sync/gbs', async (_req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, detail: e?.message || 'Ошибка синхронизации GBS Market' })
   }
+})
+
+/**
+ * Приём данных от локального агента (для касс за роутером, недоступных облачному backend
+ * напрямую) — агент сам опрашивает localhost:8419 на месте и присылает сюда сырые
+ * goods/documents. Авторизация отдельным токеном (не Basic Auth кассы).
+ */
+app.post('/gbs/ingest', async (req, res) => {
+  const gbs = ensureAdminSettings().gbs
+  const token = req.get('X-GBS-Ingest-Token') || ''
+  if (!gbs.ingestToken || token !== gbs.ingestToken) {
+    return res.status(401).json({ ok: false, detail: 'Неверный токен агента' })
+  }
+  try {
+    const result = ingestGbsPayload(db, gbsHooks(), req.body || {})
+    res.json(result)
+  } catch (e) {
+    res.status(500).json({ ok: false, detail: e?.message || 'Ошибка обработки данных от агента' })
+  }
+})
+
+app.post('/gbs/ingest-token/regenerate', (_req, res) => {
+  const gbs = ensureAdminSettings().gbs
+  gbs.ingestToken = generateIngestToken()
+  persist()
+  res.json({ ingestToken: gbs.ingestToken })
 })
 
 app.use((err, _req, res, next) => {

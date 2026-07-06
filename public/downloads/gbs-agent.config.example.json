@@ -1,0 +1,8 @@
+{
+  "gbsIp": "http://localhost",
+  "gbsPort": "8419",
+  "gbsUser": "admin",
+  "gbsPass": "ПАРОЛЬ_ИЗ_НАСТРОЕК_GBS_MARKET",
+  "kakapoUrl": "https://ВАШ-ДОМЕН/api/kakapo",
+  "ingestToken": "ТОКЕН_ИЗ_АДМИНКИ_KAKAPO"
+}

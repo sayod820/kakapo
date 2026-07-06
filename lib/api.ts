@@ -445,6 +445,8 @@ export const api = {
       lastSyncIso?: string | null
       lastSyncSummary?: { matched: number | null; updated: number | null; imported: number | null; unmatchedToClient: number | null } | null
       lastSyncError?: string | null
+      ingestToken?: string | null
+      lastIngestIso?: string | null
     }
     sms: { provider: string; apiKey: string }
     store: Record<string, string>
@@ -523,4 +525,5 @@ export const api = {
     detail?: string
   }>('/sync/gbs', { method: 'POST' }),
   testGBS: () => request<{ ok: boolean; status?: unknown; detail?: string }>('/sync/gbs/test', { method: 'POST' }),
+  regenerateGbsIngestToken: () => request<{ ingestToken: string }>('/gbs/ingest-token/regenerate', { method: 'POST' }),
 }
