@@ -1048,7 +1048,7 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
               <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:4}}>
                 <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:item.done?'#3D6645':'#9B6DFF'}}>{item.qty} шт</span>
                 <span style={{fontSize:11,color:'#3D6645'}}>· {item.unit}</span>
-                <span style={{fontSize:11,color:'#FFB800',fontWeight:700}}>{(item.price*item.qty).toFixed(2)} ЅМ</span>
+                <span style={{fontSize:11,color:'#FFB800',fontWeight:700}}>{(item.price * item.qty).toFixed(2)} ЅМ</span>
               </div>
               <span style={{fontFamily:'Unbounded',fontSize:9,color:'#3D6645',fontWeight:700}}>{item.art}</span>
             </div>
@@ -1214,7 +1214,7 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
                     <span style={{fontSize:24}}>{item.e}</span>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{item.name}</div>
-                      <div style={{fontSize:10,color:'#8FB897'}}>{item.art} · {item.unit} · {(item.price * item.qty).toFixed(2)} ЅМ</div>
+                      <div style={{fontSize:10,color:'#8FB897'}}>{item.art} · {item.unit} · {item.price.toFixed(2)} ЅМ</div>
                     </div>
                     <button type="button" onClick={() => removeItem(item.id)} className="btn"
                       style={{width:30,height:30,borderRadius:10,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',color:'#FF6969',fontSize:14,flexShrink:0}}>

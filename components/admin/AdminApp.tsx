@@ -564,7 +564,7 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
   const goodsTotal = Number(order.goodsTotal ?? order.total) || 0
   const deliveryFee = Number(order.deliveryFee) || 0
   const bonusSpent = Number(order.bonusSpent) || 0
-  const payableTotal = Math.max(0, Math.round((goodsTotal + deliveryFee - bonusSpent) * 100) / 100)
+  const payableTotal = Number(order.payableTotal) || 0
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.72)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e=>e.stopPropagation()} className="ac" style={{ width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', padding:22 }}>
@@ -641,7 +641,7 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
                     <div style={{ fontSize:10, color:'#3D6645' }}>{it.qty} шт · {it.source === 'restaurant' ? 'ресторан' : 'магазин'}</div>
                   </div>
                 </div>
-                <div className="ub" style={{ fontSize:12, fontWeight:800 }}>{(it.price * it.qty).toFixed(1)} ЅМ</div>
+                <div className="ub" style={{ fontSize:12, fontWeight:800 }}>{it.price.toFixed(1)} ЅМ</div>
               </div>
             ))}
           </div>

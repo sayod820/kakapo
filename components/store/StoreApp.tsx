@@ -3018,6 +3018,8 @@ function clientOrderBreakdown(o: {
   bonusSpent?: number
   items: { price: number; qty: number }[]
 }) {
+  // В заказах price хранится как цена за единицу (как в product catalog)
+  // Поэтому нужно умножать на qty для получения суммы
   const goods = o.goodsTotal ?? o.items.reduce((s, it) => s + it.price * it.qty, 0)
   const delivery = Number(o.delivery) || 0
   const bonusSpent = Number(o.bonusSpent) || 0
@@ -3328,7 +3330,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 15px", borderBottom:i<selected.items.length-1?"1px solid var(--b1)":"none" }}>
               <div style={{ width:42, height:42, borderRadius:11, background:"var(--l3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{item.e}</div>
               <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600 }}>{item.name}</div><div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>× {item.qty}</div></div>
-              <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price*item.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
             </div>
           ))}
         </div>
