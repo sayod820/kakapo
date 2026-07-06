@@ -50,11 +50,21 @@ import {
   normalizeCourierAccount,
   getCourierWalletTransactions,
 } from './courierWallet.js'
+import { testGbsStatus } from './gbsClient.js'
+import { runGbsSyncCycle } from './gbsSync.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
   ensureCardRowForClient,
   syncClientFromCardRow,
+})
+
+const gbsHooks = () => ({
+  findCardByNum,
+  ensureCardRowForClient,
+  syncClientFromCardRow,
+  persist,
+  broadcast,
 })
 
 const PORT = Number(process.env.PORT) || 8000
@@ -1433,7 +1443,10 @@ app.patch('/settings/loyalty', (req, res) => {
 })
 
 const DEFAULT_ADMIN_SETTINGS = {
-  gbs: { enabled: false, ip: 'http://192.168.1.100', port: '8419', user: 'admin', pass: '' },
+  gbs: {
+    enabled: false, ip: 'http://192.168.1.100', port: '8419', user: 'admin', pass: '',
+    lastSyncIso: null, lastSyncSummary: null, lastSyncError: null, importedDocUids: [],
+  },
   sms: { provider: 'smspro', apiKey: '' },
   store: {
     name: 'КАКАПО',
@@ -2096,7 +2109,28 @@ app.get('/admin/dashboard', (_req, res) => {
   })
 })
 app.post('/sync/woocommerce', (_req, res) => res.json({ ok: true, synced: 0 }))
-app.post('/sync/gbs', (_req, res) => res.json({ ok: true, synced: 0 }))
+
+app.post('/sync/gbs/test', async (_req, res) => {
+  const gbs = ensureAdminSettings().gbs
+  if (!gbs.ip || !gbs.port) return res.status(400).json({ detail: 'Не заданы IP/порт кассы' })
+  try {
+    const status = await testGbsStatus(gbs)
+    res.json({ ok: true, status })
+  } catch (e) {
+    res.status(502).json({ ok: false, detail: e?.message || 'Не удалось подключиться к кассе' })
+  }
+})
+
+app.post('/sync/gbs', async (_req, res) => {
+  const gbs = ensureAdminSettings().gbs
+  if (!gbs.enabled) return res.status(400).json({ ok: false, detail: 'GBS Market выключен в настройках' })
+  try {
+    const result = await runGbsSyncCycle(db, gbsHooks())
+    res.json(result)
+  } catch (e) {
+    res.status(500).json({ ok: false, detail: e?.message || 'Ошибка синхронизации GBS Market' })
+  }
+})
 
 app.use((err, _req, res, next) => {
   if (res.headersSent) return next(err)
@@ -2121,6 +2155,13 @@ const wsHeartbeat = setInterval(() => {
   }
 }, WS_HEARTBEAT_MS)
 wsHeartbeat.unref()
+
+// Кэш кассы GBS Market обновляется раз в 5-20 минут — опрашивать чаще бессмысленно.
+const GBS_SYNC_INTERVAL_MS = 15 * 60 * 1000
+const gbsSyncTimer = setInterval(() => {
+  runGbsSyncCycle(db, gbsHooks()).catch(e => console.error('[gbs] sync cycle failed', e))
+}, GBS_SYNC_INTERVAL_MS)
+gbsSyncTimer.unref()
 
 function shutdown(signal) {
   console.error(`[shutdown] ${signal}`)
@@ -2166,4 +2207,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   }
   console.log(`   Health: http://0.0.0.0:${PORT}/health\n`)
   setImmediate(() => runLoyaltyBackfill())
+  setImmediate(() => {
+    runGbsSyncCycle(db, gbsHooks()).catch(e => console.error('[gbs] startup sync failed', e))
+  })
 })
