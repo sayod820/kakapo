@@ -1,4 +1,4 @@
-# ══════════════════════════════════════════════════════════════
+﻿# ══════════════════════════════════════════════════════════════
 # KAKAPO — локальный агент синхронизации с кассой GBS Market
 #
 # Нужен, когда касса стоит в локальной сети магазина за обычным
@@ -56,7 +56,8 @@ function Get-GbsPaginated {
   do {
     $qs = @("page=$page", "page_size=200")
     foreach ($key in $Query.Keys) { $qs += "$key=$([uri]::EscapeDataString([string]$Query[$key]))" }
-    $url = "$gbsBase$Path`?" + ($qs -join '&')
+    $queryString = $qs -join '&'
+    $url = $gbsBase + $Path + '?' + $queryString
     $resp = Invoke-RestMethod -Uri $url -Headers $gbsHeaders -Method Get -TimeoutSec 20
     if ($resp.Status -and $resp.Status -ne 'Ok') { throw "касса вернула Status=$($resp.Status)" }
     if ($resp.Data) { $items += $resp.Data }
@@ -77,8 +78,8 @@ try {
   $payload = @{ goods = $goods; documents = $documents } | ConvertTo-Json -Depth 12 -Compress
 
   $ingestUrl = "$($config.kakapoUrl.TrimEnd('/'))/gbs/ingest"
-  $result = Invoke-RestMethod -Uri $ingestUrl -Method Post -Body $payload -ContentType 'application/json; charset=utf-8' `
-    -Headers @{ 'X-GBS-Ingest-Token' = $config.ingestToken } -TimeoutSec 30
+  $ingestHeaders = @{ 'X-GBS-Ingest-Token' = $config.ingestToken }
+  $result = Invoke-RestMethod -Uri $ingestUrl -Method Post -Body $payload -ContentType 'application/json; charset=utf-8' -Headers $ingestHeaders -TimeoutSec 30
 
   if ($result.ok) {
     Write-Log "OK: goods=$($goods.Count) documents=$($documents.Count) matched=$($result.products.matched) updated=$($result.products.updated) imported=$($result.sales.imported)"
