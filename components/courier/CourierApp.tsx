@@ -27,7 +27,6 @@ import type { Order } from '@/lib/types'
 import { useApiSync } from '@/lib/useApiSync'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
-import { orderItemsSubtotal, resolveCourierPayment } from '@/lib/courierPayment'
 import { canCourierAffordOrder, getCourierBalance, getCourierCommissionPerOrder, getCourierCommissionPercent, formatCourierCommissionPercent } from '@/lib/courierWallet'
 import { formatCourierAccountDisplay } from '@/lib/courierAccount'
 import { api } from '@/lib/api'
@@ -386,6 +385,25 @@ function orderDelivery(
   return fee
 }
 
+/**
+ * Курьеру — только уже посчитанные один раз поля (sum/cashDue/creditAmount/pay из
+ * mapSingleOrderForCourier → enrichCourierOrderPayment), без повторного пересчёта из
+ * items/total. Так сумма у курьера не может разойтись с админкой/клиентом.
+ */
+function courierPaymentFromMapped(
+  order: { sum: number; paymentMethod?: string; creditAmount?: number; pay?: string },
+  dlv: number | null,
+): { isCredit: boolean; products: number; delivery: number; credit: number; cash: number; payLabel: string } {
+  const delivery = dlv ?? 0
+  const isCredit = order.paymentMethod === 'credit'
+  if (isCredit) {
+    const credit = order.creditAmount ?? 0
+    return { isCredit: true, products: credit, delivery, credit, cash: delivery, payLabel: order.pay || 'VIP-кредит' }
+  }
+  const products = order.sum ?? 0
+  return { isCredit: false, products, delivery, credit: 0, cash: products + delivery, payLabel: order.pay || 'Наличными' }
+}
+
 function CourierPaymentFooter({
   order,
   dlv,
@@ -395,17 +413,7 @@ function CourierPaymentFooter({
   dlv: number | null
   size?: 'md' | 'lg'
 }) {
-  const pm = resolveCourierPayment(
-    {
-      total: (order.sum ?? 0) + (dlv ?? 0),
-      deliveryFee: dlv ?? undefined,
-      creditAmount: order.creditAmount,
-      payment_method: order.paymentMethod,
-      pay: order.paymentMethod ?? order.pay,
-      items: order.items,
-    },
-    dlv,
-  )
+  const pm = courierPaymentFromMapped(order, dlv)
   const amountSize = size === 'lg' ? 30 : 26
   if (pm.isCredit) {
     return (
@@ -462,17 +470,7 @@ function courierCashToCollect(
   order: { sum: number; items?: { p: number; q: number }[]; paymentMethod?: string; creditAmount?: number; cashDue?: number; pay?: string },
   dlv: number | null,
 ): string {
-  const pm = resolveCourierPayment(
-    {
-      total: (order.sum ?? 0) + (dlv ?? 0),
-      deliveryFee: dlv ?? undefined,
-      creditAmount: order.creditAmount,
-      payment_method: order.paymentMethod,
-      pay: order.paymentMethod ?? order.pay,
-      items: order.items,
-    },
-    dlv,
-  )
+  const pm = courierPaymentFromMapped(order, dlv)
   return dlv != null ? `${pm.cash.toFixed(2)} ЅМ` : '…'
 }
 
@@ -1621,8 +1619,7 @@ function CourierAppInner() {
                           const isHeavy = selected.weight > TARIFF.heavyKg;
                           const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
                           const isCredit = selected.paymentMethod === 'credit';
-                          const itemsTotal = orderItemsSubtotal(selected.items);
-                          const productSum = isCredit ? selected.sum : (itemsTotal || selected.sum);
+                          const productSum = selected.sum;
                           return (
                             <>
                               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
@@ -1823,8 +1820,7 @@ function CourierAppInner() {
                   const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
                   const isHeavy = active.weight > TARIFF.heavyKg;
                   const isCredit = active.paymentMethod === 'credit';
-                  const itemsTotal = orderItemsSubtotal(active.items);
-                  const productSum = isCredit ? active.sum : (itemsTotal || active.sum);
+                  const productSum = active.sum;
                   const clientTotal = dlv != null ? (isCredit ? dlv : productSum + dlv) : null;
                   return (
                     <div style={{ background:'rgba(31,215,96,.08)', border:'2px solid rgba(31,215,96,.4)', borderRadius:16, padding:'16px', marginBottom:18 }}>

@@ -561,9 +561,7 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
   const st = adminStatusLabel(order.status)
   const showAssembler = order.type === 'market' || order.type === 'mixed'
   const PART_LABELS = { new: 'Новый', assembling: 'Собирается', done: 'Готово', cooking: 'Готовится' }
-  const goodsTotal = order.itemsDetailed?.length
-    ? Math.round(order.itemsDetailed.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0) * 100) / 100
-    : Number(order.goodsTotal ?? order.total) || 0
+  const goodsTotal = Number(order.goodsTotal ?? order.total) || 0
   const deliveryFee = Number(order.deliveryFee) || 0
   const bonusSpent = Number(order.bonusSpent) || 0
   const payableTotal = Math.max(0, Math.round((goodsTotal + deliveryFee - bonusSpent) * 100) / 100)
