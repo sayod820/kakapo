@@ -159,14 +159,26 @@ export function orderSpentContribution(order) {
   return bonusEligibleTotal(order)
 }
 
+/**
+ * Сумма товаров для бонуса/трат — сначала надёжное goodsTotal (не зависит от items и не
+ * наследует их баги), items — резерв только если goodsTotal нет, и то со страховкой: если
+ * items дают сумму намного больше total-based оценки, это признак испорченных items —
+ * доверяем total. Зеркало lib/orderLoyaltyAmount.ts (orderGoodsTotal) на клиенте.
+ */
 export function bonusEligibleTotal(order) {
-  const fromItems = orderItemsSubtotal(order)
-  if (fromItems > 0) return fromItems
+  const explicit = Number(order.goodsTotal)
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit
 
   const total = Number(order.total) || 0
   const bonusSpent = Number(order.bonusSpent) || 0
   const delivery = Number(order.deliveryFee) || 0
-  return Math.max(0, Math.round((total + bonusSpent - delivery) * 100) / 100)
+  const fromTotal = Math.max(0, Math.round((total + bonusSpent - delivery) * 100) / 100)
+
+  const fromItems = orderItemsSubtotal(order)
+  if (fromItems <= 0) return fromTotal
+  if (delivery <= 0) return fromItems
+  if (fromItems > fromTotal + 0.05) return fromTotal
+  return fromItems
 }
 
 /** Статистика клиента за скользящее окно (по умолчанию — последние 30 дней). */
