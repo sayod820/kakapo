@@ -48,6 +48,14 @@ $authPair = "$($config.gbsUser):$($config.gbsPass)"
 $authBytes = [System.Text.Encoding]::UTF8.GetBytes($authPair)
 $gbsHeaders = @{ Authorization = 'Basic ' + [Convert]::ToBase64String($authBytes) }
 
+function Get-ErrorDetail($errRecord) {
+  $detail = $errRecord.Exception.Message
+  if ($errRecord.ErrorDetails -and $errRecord.ErrorDetails.Message) {
+    $detail = "$detail | Ответ сервера: $($errRecord.ErrorDetails.Message)"
+  }
+  return $detail
+}
+
 function Get-GbsPaginated {
   param([string]$Path, [hashtable]$Query)
   $items = @()
@@ -68,15 +76,27 @@ function Get-GbsPaginated {
   return $items
 }
 
+$goods = $null
+$documents = $null
+
 try {
   $goods = Get-GbsPaginated -Path '/goods' -Query @{}
+} catch {
+  Write-Log "ERROR при чтении товаров у кассы (localhost:$($config.gbsPort)): $(Get-ErrorDetail $_)"
+  exit 1
+}
 
+try {
   $dateStart = (Get-Date).AddDays(-3).ToString('yyyy-MM-dd')
   $dateEnd = (Get-Date).ToString('yyyy-MM-dd')
   $documents = Get-GbsPaginated -Path '/documents' -Query @{ type = 'Sale'; date_start = $dateStart; date_end = $dateEnd }
+} catch {
+  Write-Log "ERROR при чтении чеков у кассы (localhost:$($config.gbsPort)): $(Get-ErrorDetail $_)"
+  exit 1
+}
 
+try {
   $payload = @{ goods = $goods; documents = $documents } | ConvertTo-Json -Depth 12 -Compress
-
   $ingestUrl = "$($config.kakapoUrl.TrimEnd('/'))/gbs/ingest"
   $ingestHeaders = @{ 'X-GBS-Ingest-Token' = $config.ingestToken }
   $result = Invoke-RestMethod -Uri $ingestUrl -Method Post -Body $payload -ContentType 'application/json; charset=utf-8' -Headers $ingestHeaders -TimeoutSec 30
@@ -87,6 +107,6 @@ try {
     Write-Log "ПРИНЯТО С ОШИБКАМИ: $($result.errors -join '; ')"
   }
 } catch {
-  Write-Log "ERROR: $($_.Exception.Message)"
+  Write-Log "ERROR при отправке на сервер KAKAPO ($($config.kakapoUrl)): $(Get-ErrorDetail $_)"
   exit 1
 }
