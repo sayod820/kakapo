@@ -58,6 +58,17 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
       ...restIds.map(restIdToPickupId),
     ]
 
+  // Эталон «сумма товаров без доставки» — берём то, что реально посчитал чекаут (raw.goodsTotal);
+  // если его почему-то нет, считаем сами из уже очищенных items (price здесь — за 1 шт).
+  const rawGoodsTotal = Number(raw.goodsTotal)
+  const itemsSum = cleanItems.reduce(
+    (s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1),
+    0,
+  )
+  const goodsTotal = Number.isFinite(rawGoodsTotal) && rawGoodsTotal >= 0
+    ? rawGoodsTotal
+    : itemsSum
+
   const payload: Record<string, unknown> = {
     type: orderType,
     items: cleanItems,
@@ -68,6 +79,7 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
     lat,
     lng,
     total: Number(Number(raw.total ?? 0).toFixed(2)),
+    goodsTotal: Number(goodsTotal.toFixed(2)),
     deliveryFee: Number(Number(raw.deliveryFee ?? 0).toFixed(2)),
     // Не блокируем пересчёт при placeholder 0 — сумма фиксируется при доставке курьером
     deliveryFeeLocked: Number(raw.deliveryFee) > 0 && raw.deliveryFeeLocked === true,
