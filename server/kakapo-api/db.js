@@ -22,6 +22,7 @@ const DEFAULT = {
   pickups: [],
   couriers: [],
   assemblers: [],
+  cashiers: [],
   clients: [],
   settings: {
     pricing: { base: 10, baseDist: 2.5, perKm: 3, heavyKg: 50, heavyExtra: 10, freeFrom: 0, courierCommissionPercent: 15 },

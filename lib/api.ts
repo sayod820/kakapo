@@ -7,6 +7,7 @@ import type { PricingConfig } from './courierData'
 import type { AdminCourier } from './courierTeam'
 import type { CourierWalletSnapshot } from './courierWalletTx'
 import type { AdminAssembler } from './assemblerTeam'
+import type { AdminCashier } from './cashierTeam'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
@@ -378,6 +379,26 @@ export const api = {
     request<AdminAssembler>('/assemblers', { method: 'POST', body: JSON.stringify(data) }),
   updateAssembler: (id: string, data: Partial<AdminAssembler>) =>
     request<AdminAssembler>(`/assemblers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Касса (POS) ──
+  getCashiers: () => request<AdminCashier[]>('/pos/cashiers'),
+  createCashier: (data: Partial<AdminCashier>) =>
+    request<AdminCashier>('/pos/cashiers', { method: 'POST', body: JSON.stringify(data) }),
+  updateCashier: (id: string, data: Partial<AdminCashier>) =>
+    request<AdminCashier>(`/pos/cashiers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  createPosSale: (data: {
+    items: { productId: number; qty: number; price: number; unit?: string }[]
+    clientPhone?: string
+    clientName?: string
+    bonusSpent?: number
+    paymentMethod?: 'cash' | 'card' | 'credit'
+    cashierId?: string
+    cashierName?: string
+  }) => request<{
+    order: Order
+    loyalty: { earned: number; credited: number; bonus: number; orders: number }
+    client: AdminClient | null
+  }>('/pos/sale', { method: 'POST', body: JSON.stringify(data) }),
 
   getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>

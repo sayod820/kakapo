@@ -50,11 +50,20 @@ import {
   normalizeCourierAccount,
   getCourierWalletTransactions,
 } from './courierWallet.js'
+import { createPosSale } from './posLogic.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
   ensureCardRowForClient,
   syncClientFromCardRow,
+})
+
+const posHooks = () => ({
+  findCardByNum,
+  ensureCardRowForClient,
+  syncClientFromCardRow,
+  persist,
+  broadcast,
 })
 
 const PORT = Number(process.env.PORT) || 8000
@@ -979,6 +988,58 @@ app.patch('/assemblers/:id', (req, res) => {
   Object.assign(a, normalizeAssemblerRow({ ...a, ...req.body, id: a.id }))
   persist()
   res.json(a)
+})
+
+function normalizeCashierRow(raw) {
+  return {
+    ...raw,
+    salesToday: Number(raw.salesToday) || 0,
+    salesTotal: Number(raw.salesTotal) || 0,
+    blocked: !!raw.blocked,
+    pin: String(raw.pin || '0000'),
+  }
+}
+
+app.get('/pos/cashiers', (_req, res) => res.json(db.cashiers || []))
+app.post('/pos/cashiers', (req, res) => {
+  if (!db.cashiers) db.cashiers = []
+  const nums = db.cashiers.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+  const n = (nums.length ? Math.max(...nums) : 0) + 1
+  const row = normalizeCashierRow({
+    id: `PC-${String(n).padStart(2, '0')}`,
+    salesToday: 0,
+    salesTotal: 0,
+    blocked: false,
+    pin: '0000',
+    ...req.body,
+  })
+  db.cashiers.push(row)
+  persist()
+  res.json(row)
+})
+app.patch('/pos/cashiers/:id', (req, res) => {
+  const c = (db.cashiers || []).find(x => x.id === req.params.id)
+  if (!c) return res.status(404).json({ detail: 'Кассир не найден' })
+  Object.assign(c, normalizeCashierRow({ ...c, ...req.body, id: c.id }))
+  persist()
+  res.json(c)
+})
+
+app.post('/pos/sale', (req, res) => {
+  try {
+    const result = createPosSale(db, posHooks(), req.body || {})
+    if (result.order.cashierId) {
+      const cashier = (db.cashiers || []).find(c => c.id === result.order.cashierId)
+      if (cashier) {
+        cashier.salesToday = Math.round(((Number(cashier.salesToday) || 0) + result.order.goodsTotal) * 100) / 100
+        cashier.salesTotal = Math.round(((Number(cashier.salesTotal) || 0) + result.order.goodsTotal) * 100) / 100
+        persist()
+      }
+    }
+    res.json(result)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
+  }
 })
 
 function normalizePhoneDigits(phone) {

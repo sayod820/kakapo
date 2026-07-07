@@ -83,6 +83,11 @@ export interface Order {
   accountGeneration?: number
   /** Выручка ресторану уже начислена */
   revenueCredited?: boolean
+  /** Источник заказа: онлайн-checkout по умолчанию, 'pos' — продажа за прилавком в кассе */
+  source?: 'market' | 'pos'
+  /** Кассир, оформивший продажу за прилавком (source === 'pos') */
+  cashierId?: string
+  cashierName?: string
 }
 
 export type SellType = 'piece' | 'weight'

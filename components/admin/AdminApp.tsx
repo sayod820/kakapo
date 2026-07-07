@@ -25,6 +25,13 @@ import {
   type AssemblerStatus,
 } from '@/lib/assemblerTeam'
 import {
+  useCashierTeamStore,
+  useCashierTeam,
+  syncCashierTeamFromApi,
+  hydrateCashierTeamStore,
+} from '@/lib/cashierTeamStore'
+import { emptyCashierForm, type AdminCashier } from '@/lib/cashierTeam'
+import {
   useClientStore,
   useClients,
   hydrateClientStore,
@@ -418,7 +425,7 @@ const NAV_GROUPS = [
   {g:'Общее',     items:[{id:'dashboard',icon:'📊',l:'Dashboard'},{id:'orders',icon:'📦',l:'Все заказы'}]},
   {g:'Магазин',   items:[{id:'products',icon:'🥦',l:'Товары'},{id:'categories',icon:'📁',l:'Категории'},{id:'inventory',icon:'📋',l:'Склад'},{id:'promos',icon:'💸',l:'Акции'}]},
   {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'},{id:'pickups',icon:'📍',l:'Точки забора'}]},
-  {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
+  {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'cashiers',icon:'🧾',l:'Кассиры'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
   {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'debts',icon:'📒',l:'Долги VIP'},{id:'push',icon:'🔔',l:'Push'}]},
   {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
   {g:'Контент',   items:[{id:'banners',icon:'🖼',l:'Баннеры / Слайдеры'}]},
@@ -574,6 +581,7 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
             <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
               <Badge v={st.l} c={st.c}/>
               <Badge v={order.type==='restaurant'?'🍽 Ресторан':order.type==='mixed'?'🔀 Смешанный':'🛒 Магазин'} c={order.type==='restaurant'?'#FF8C00':'#1FD760'}/>
+              {order.source==='pos' && <Badge v={`🧾 За прилавком${order.cashierName ? ` · ${order.cashierName}` : ''}`} c="#1FD760"/>}
               {order.archived && <Badge v="архив" c="#FFB800"/>}
             </div>
           </div>
@@ -1141,7 +1149,10 @@ function OrdersPage() {
                     <span className="ub" style={{fontSize:11,color:'#1FD760'}}>{o.id}</span>
                     {o.archived && <div style={{ fontSize:9, color:'#FFB800', marginTop:2 }}>архив</div>}
                   </td>
-                  <td><span style={{fontSize:10,padding:'2px 7px',borderRadius:6,background:o.type==='restaurant'?'rgba(255,140,0,.12)':'rgba(31,215,96,.1)',color:o.type==='restaurant'?'#FF8C00':'#1FD760'}}>{o.type==='restaurant'?`🍽 ${o.rest||''}` :o.type==='mixed'?'🔀 Смеш.':'🛒'}</span></td>
+                  <td>
+                    <span style={{fontSize:10,padding:'2px 7px',borderRadius:6,background:o.type==='restaurant'?'rgba(255,140,0,.12)':'rgba(31,215,96,.1)',color:o.type==='restaurant'?'#FF8C00':'#1FD760'}}>{o.type==='restaurant'?`🍽 ${o.rest||''}` :o.type==='mixed'?'🔀 Смеш.':'🛒'}</span>
+                    {o.source==='pos' && <div style={{fontSize:9,padding:'1px 6px',borderRadius:5,background:'rgba(31,215,96,.12)',color:'#1FD760',fontWeight:700,marginTop:3,display:'inline-block'}}>🧾 За прилавком</div>}
+                  </td>
                   <td><div style={{fontWeight:600,fontSize:12}}>{o.client}</div><div style={{fontSize:10,color:'#3D6645'}}>{o.phone}</div></td>
                   <td style={{fontSize:10,color:'#8FB897',maxWidth:100}}>{o.addr||'—'}</td>
                   <td style={{fontSize:11,color:'#8FB897',maxWidth:130}}>{o.items}</td>
@@ -3718,6 +3729,122 @@ function AssemblersPage() {
               <NI lbl="PIN код (4 цифры)" val={form.otp || ''} set={v => setF('otp', v)} ph="5678" />
               {formErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{formErr}</div>}
               <button onClick={saveAssembler} className="ab abp" style={{ width: '100%', padding: 11 }}>
+                {editId ? '✓ Сохранить' : '✓ Добавить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── КАССИРЫ ────────────────────────────────────── */
+function CashiersPage() {
+  const cashiers = useCashierTeam();
+  const { addCashier, updateCashier, toggleBlock } = useCashierTeamStore();
+  const [editId, setEditId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState(emptyCashierForm());
+  const [formErr, setFormErr] = useState('');
+
+  const openAdd = () => {
+    setForm(emptyCashierForm());
+    setFormErr('');
+    setEditId(null);
+    setShowAdd(true);
+  };
+
+  const openEdit = (c: AdminCashier) => {
+    setForm({ name: c.name, pin: c.pin, blocked: c.blocked });
+    setFormErr('');
+    setEditId(c.id);
+    setShowAdd(true);
+  };
+
+  const closeModal = () => {
+    setShowAdd(false);
+    setEditId(null);
+    setFormErr('');
+  };
+
+  const saveCashier = () => {
+    const name = form.name.trim();
+    const pin = (form.pin || '').trim();
+    if (!name) { setFormErr('Укажите ФИО'); return; }
+    if (!/^\d{4}$/.test(pin)) { setFormErr('PIN — ровно 4 цифры'); return; }
+    const payload = { ...form, name, pin };
+    if (editId) updateCashier(editId, payload);
+    else addCashier(payload);
+    closeModal();
+  };
+
+  const setF = <K extends keyof typeof form>(key: K, val: (typeof form)[K]) =>
+    setForm(prev => ({ ...prev, [key]: val }));
+
+  const totalToday = cashiers.reduce((s, c) => s + (Number(c.salesToday) || 0), 0);
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 18 }}>
+        <StatCard l="Кассиров" v={cashiers.length} />
+        <StatCard l="Активных" v={cashiers.filter(c => !c.blocked).length} c="#1FD760" />
+        <StatCard l="Продано сегодня" v={`${totalToday.toLocaleString('ru-RU')} ЅМ`} c="#FFB800" />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button onClick={openAdd} className="ab abp">+ Добавить кассира</button>
+      </div>
+      <div className="ac">
+        <table className="at">
+          <thead>
+            <tr>
+              <th>Кассир</th>
+              <th>PIN</th>
+              <th>Статус</th>
+              <th>Сегодня</th>
+              <th>Всего</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {cashiers.map(c => (
+              <tr key={c.id} style={c.blocked ? { opacity: .65 } : undefined}>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#17B34E,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 13, fontWeight: 900, color: 'white', flexShrink: 0 }}>{c.name.charAt(0)}</div>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
+                  </div>
+                </td>
+                <td style={{ fontFamily: 'monospace', color: '#8FB897' }}>{c.pin}</td>
+                <td><Badge v={c.blocked ? 'Заблокирован' : 'Активен'} c={c.blocked ? '#FF4545' : '#1FD760'} /></td>
+                <td><span className="ub" style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>{c.salesToday.toLocaleString('ru-RU')} ЅМ</span></td>
+                <td style={{ color: '#8FB897' }}>{c.salesTotal.toLocaleString('ru-RU')} ЅМ</td>
+                <td>
+                  <div style={{ display: 'flex', gap: 5 }}>
+                    <button onClick={() => openEdit(c)} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>✏️</button>
+                    <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
+                      {c.blocked ? 'Разблок' : 'Блок'}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {showAdd && (
+        <div className="amod">
+          <div className="amodbg" onClick={closeModal} />
+          <div className="amodbox" style={{ maxWidth: 380 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{editId ? 'Редактировать кассира' : 'Добавить кассира'}</div>
+              <button onClick={closeModal} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <NI lbl="ФИО *" val={form.name} set={v => setF('name', v)} ph="Имя Фамилия" />
+              <NI lbl="PIN код (4 цифры) *" val={form.pin || ''} set={v => setF('pin', v)} ph="1111" />
+              {formErr && <div style={{ fontSize: 12, color: '#FF4545', fontWeight: 700 }}>{formErr}</div>}
+              <button onClick={saveCashier} className="ab abp" style={{ width: '100%', padding: 11 }}>
                 {editId ? '✓ Сохранить' : '✓ Добавить'}
               </button>
             </div>
@@ -8230,6 +8357,8 @@ function AdminAppInner() {
     void syncCourierTeamFromApi();
     hydrateAssemblerTeamStore();
     void syncAssemblerTeamFromApi();
+    hydrateCashierTeamStore();
+    void syncCashierTeamFromApi();
     if (!USE_API) {
       hydrateClientStore();
       hydrateCardStore();
@@ -8239,8 +8368,8 @@ function AdminAppInner() {
     useProductPhotos.getState().hydrate();
     return () => {};
   }, []);
-  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',cashiers:'Кассиры',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',cashiers:'Продажи за прилавком · kakapo-pos',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
@@ -8253,6 +8382,7 @@ function AdminAppInner() {
       {page==='reviews'    && <ReviewsPage/>}
       {page==='couriers'   && <CouriersPage/>}
       {page==='assemblers' && <AssemblersPage/>}
+      {page==='cashiers'   && <CashiersPage/>}
       {page==='clients'    && <ClientsPage/>}
       {page==='cards'      && <CardsPage setPage={setPage}/>}
       {page==='debts'      && <DebtsPage setPage={setPage}/>}
