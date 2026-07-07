@@ -1278,19 +1278,12 @@ function ProductsPage() {
   const syncGBS = async () => {
     setSyncMsg('loading');
     try {
-      if (!USE_API) { setSyncMsg('err:доступно только в режиме сервера'); }
-      else {
-        const r = await api.syncGBS();
-        if (!r.ok && r.detail) setSyncMsg(`err:${r.detail}`);
-        else {
-          const p = r.products, s = r.sales;
-          setSyncMsg(`ok:товары ${p?.matched ?? 0} сопоставлено / ${p?.updated ?? 0} обновлено · продажи ${s?.imported ?? 0} импортировано${s?.unmatchedToClient ? ` (${s.unmatchedToClient} без клиента)` : ''}`);
-        }
-      }
-    } catch (e) {
-      setSyncMsg(`err:${e instanceof Error ? e.message : 'ошибка синхронизации'}`);
+      const r = USE_API ? await api.syncGBS() : { synced: 0 };
+      setSyncMsg(`demo:${r?.synced ?? 0}`);
+    } catch {
+      setSyncMsg('demo:0');
     }
-    setTimeout(()=>setSyncMsg(''),8000);
+    setTimeout(()=>setSyncMsg(''),5000);
   };
 
   const toggleStatFlt = (id) => setStatFlt(s => s === id ? 'all' : id);
@@ -1416,8 +1409,7 @@ function ProductsPage() {
           <div style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',fontSize:15,pointerEvents:'none'}}>🔍</div>
           <input className="ai" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Артикул, название, категория..." style={{paddingLeft:38}}/>
         </div>
-        {syncMsg.startsWith('ok:')&&<div style={{fontSize:11,color:'#1FD760',fontWeight:700}}>✓ {syncMsg.slice(3)}</div>}
-        {syncMsg.startsWith('err:')&&<div style={{fontSize:11,color:'#FF4545',fontWeight:700}}>⚠ {syncMsg.slice(4)}</div>}
+        {syncMsg.startsWith('demo:')&&<div style={{fontSize:11,color:'#FFB800',fontWeight:700}}>⚠ Demo-режим: GBS Market не подключён (синхронизировано: {syncMsg.split(':')[1]})</div>}
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           <button onClick={syncGBS} className="ab abg" style={{display:'flex',alignItems:'center',gap:6}}>
             {syncMsg==='loading'?<div style={{width:13,height:13,borderRadius:'50%',border:'2px solid rgba(31,215,96,.3)',borderTopColor:'#1FD760',animation:'spin 1s linear infinite'}}/>:'🔄'}
@@ -7177,15 +7169,6 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
   const [gbsUser, setGbsUser] = useState('admin')
   const [gbsPass, setGbsPass] = useState('')
   const [testSt, setTestSt] = useState('')
-  const [testErr, setTestErr] = useState('')
-  const [gbsLastSyncIso, setGbsLastSyncIso] = useState('')
-  const [gbsLastSyncSummary, setGbsLastSyncSummary] = useState<{ matched: number | null; updated: number | null; imported: number | null; unmatchedToClient: number | null } | null>(null)
-  const [gbsLastSyncError, setGbsLastSyncError] = useState('')
-  const [gbsIngestToken, setGbsIngestToken] = useState('')
-  const [gbsLastIngestIso, setGbsLastIngestIso] = useState('')
-  const [gbsTokenCopied, setGbsTokenCopied] = useState(false)
-  const [gbsConfigCopied, setGbsConfigCopied] = useState(false)
-  const [regenBusy, setRegenBusy] = useState(false)
   const [smsP, setSmsP] = useState('smspro')
   const [smsKey, setSmsKey] = useState('')
   const [storeInfo, setStoreInfo] = useState(DEFAULT_STORE_INFO)
@@ -7227,11 +7210,6 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
         if (remote.gbs.port) setGbsPort(remote.gbs.port)
         if (remote.gbs.user) setGbsUser(remote.gbs.user)
         if (remote.gbs.pass != null) setGbsPass(remote.gbs.pass)
-        if (remote.gbs.lastSyncIso) setGbsLastSyncIso(remote.gbs.lastSyncIso)
-        if (remote.gbs.lastSyncSummary) setGbsLastSyncSummary(remote.gbs.lastSyncSummary)
-        setGbsLastSyncError(remote.gbs.lastSyncError || '')
-        if (remote.gbs.ingestToken) setGbsIngestToken(remote.gbs.ingestToken)
-        if (remote.gbs.lastIngestIso) setGbsLastIngestIso(remote.gbs.lastIngestIso)
       }
       if (remote.sms) {
         if (remote.sms.provider) setSmsP(remote.sms.provider)
@@ -7264,44 +7242,17 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
   }
 
   const testConn = async () => {
-    if (!USE_API) { setTestErr('Доступно только в режиме сервера'); setTestSt('err'); setTimeout(() => setTestSt(''), 4000); return }
     setTestSt('loading')
     setSaveErr('')
-    setTestErr('')
     try {
-      const r = await api.testGBS()
-      if (!r.ok) throw new Error(r.detail || 'Касса не ответила')
+      if (USE_API && gbsOn) await api.syncGBS()
+      else await new Promise(r => setTimeout(r, 1200))
       setTestSt('ok')
       setTimeout(() => setTestSt(''), 5000)
-    } catch (e) {
-      setTestErr(e instanceof Error ? e.message : 'Не удалось подключиться')
+    } catch {
       setTestSt('err')
-      setTimeout(() => setTestSt(''), 6000)
+      setTimeout(() => setTestSt(''), 4000)
     }
-  }
-
-  const regenIngestToken = async () => {
-    if (!USE_API) return
-    setRegenBusy(true)
-    try {
-      const r = await api.regenerateGbsIngestToken()
-      setGbsIngestToken(r.ingestToken)
-    } catch { /* ignore */ }
-    setRegenBusy(false)
-  }
-
-  const kakapoAgentUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/kakapo` : 'https://ВАШ-ДОМЕН/api/kakapo'
-  const gbsAgentConfig = JSON.stringify({
-    gbsIp: 'http://localhost',
-    gbsPort: gbsPort || '8419',
-    gbsUser: gbsUser || 'admin',
-    gbsPass: gbsPass || 'ПАРОЛЬ_ИЗ_НАСТРОЕК_GBS_MARKET',
-    kakapoUrl: kakapoAgentUrl,
-    ingestToken: gbsIngestToken || 'нажмите «Сгенерировать» ниже',
-  }, null, 2)
-
-  const copyText = async (text: string, onDone: () => void) => {
-    try { await navigator.clipboard.writeText(text); onDone() } catch { /* ignore */ }
   }
 
   const STABS = [
@@ -7357,75 +7308,21 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
               <div className="ub" style={{fontSize:14,fontWeight:800}}>JSON API · GBS Market</div>
               <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:12,color:gbsOn?'#1FD760':'#3D6645',fontWeight:700}}>{gbsOn?'Активно':'Выкл.'}</span><Tog on={gbsOn} set={() => setGbsOn(v => !v)}/></div>
             </div>
-            <div style={{marginBottom:12,padding:'8px 12px',borderRadius:8,background:'rgba(59,142,240,.08)',border:'1px solid rgba(59,142,240,.25)',fontSize:11,color:'#3B8EF0',fontWeight:700}}>ℹ JSON API кассы работает только на чтение — забираем остатки/цены/чеки, отправлять наш каталог в кассу нельзя</div>
+            <div style={{marginBottom:12,padding:'8px 12px',borderRadius:8,background:'rgba(255,184,0,.08)',border:'1px solid rgba(255,184,0,.25)',fontSize:11,color:'#FFB800',fontWeight:700}}>⚠ Demo-режим: реального подключения к кассовому терминалу нет, синхронизация не отправляет данные на устройство</div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 90px',gap:10}}><NI lbl="IP адрес кассы" val={gbsIP} set={setGbsIP} ph="http://192.168.1.100"/><NI lbl="Порт" val={gbsPort} set={setGbsPort} ph="8419"/></div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><NI lbl="Логин" val={gbsUser} set={setGbsUser}/><NI lbl="Пароль" val={gbsPass} set={setGbsPass} type="password" ph="••••••••••••"/></div>
             </div>
             <button type="button" onClick={testConn} className="ab" style={{width:'100%',marginTop:14,padding:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0',display:'flex',alignItems:'center',justifyContent:'center',gap:8,fontSize:13}}>
-              {testSt==='loading'?<><div style={{width:16,height:16,borderRadius:'50%',border:'2px solid rgba(59,142,240,.3)',borderTopColor:'#3B8EF0',animation:'spin 1s linear infinite'}}/>Проверка...</>:testSt==='ok'?'✓ Касса ответила, соединение работает':testSt==='err'?`❌ ${testErr || 'Не удалось подключиться'}`:'🔌 Проверить соединение'}
+              {testSt==='loading'?<><div style={{width:16,height:16,borderRadius:'50%',border:'2px solid rgba(59,142,240,.3)',borderTopColor:'#3B8EF0',animation:'spin 1s linear infinite'}}/>Проверка...</>:testSt==='ok'?'⚠ Demo: заглушка ответила OK (устройство не проверялось)':testSt==='err'?'❌ Не удалось подключиться':'🔌 Проверить соединение'}
             </button>
-            {(gbsLastSyncIso || gbsLastSyncError) && (
-              <div style={{marginTop:12,padding:'8px 12px',borderRadius:8,background:gbsLastSyncError?'rgba(255,69,69,.08)':'rgba(31,215,96,.06)',border:`1px solid ${gbsLastSyncError?'rgba(255,69,69,.25)':'rgba(31,215,96,.2)'}`,fontSize:11}}>
-                <div style={{fontWeight:700,color:gbsLastSyncError?'#FF4545':'#1FD760',marginBottom:4}}>
-                  Последняя синхронизация: {gbsLastSyncIso ? new Date(gbsLastSyncIso).toLocaleString('ru-RU') : '—'}
-                </div>
-                {gbsLastSyncSummary && !gbsLastSyncError && (
-                  <div style={{color:'#8FB897'}}>
-                    Товары: {gbsLastSyncSummary.matched ?? 0} сопоставлено / {gbsLastSyncSummary.updated ?? 0} обновлено · Продажи: {gbsLastSyncSummary.imported ?? 0} импортировано{gbsLastSyncSummary.unmatchedToClient ? `, ${gbsLastSyncSummary.unmatchedToClient} без привязки к клиенту` : ''}
-                  </div>
-                )}
-                {gbsLastSyncError && <div style={{color:'#FF4545'}}>{gbsLastSyncError}</div>}
-              </div>
-            )}
             <div style={{marginTop:12,fontSize:11,color:'#3D6645'}}>
               Синхронизация товаров: <button type="button" onClick={() => setPage('products')} className="btn" style={{background:'none',border:'none',color:'#1FD760',fontWeight:700,cursor:'pointer',padding:0,fontSize:11}}>Товары → Синх. GBS</button>
             </div>
           </div>
           <div style={{padding:'14px 16px',borderRadius:14,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.2)'}}>
             <div className="ub" style={{fontSize:12,fontWeight:800,color:'#1FD760',marginBottom:10}}>📋 Инструкция GBS Market</div>
-            {['1. Откройте GBS Market на кассовом компьютере','2. Настройки → Интеграции → API','3. Поставить ✓ "Активировать JSON API"','4. Скопируйте IP кассы','5. Вставьте IP выше и нажмите "Проверить"','6. Включите тумблер — начнётся синхронизация каждые 15 мин','','Забираем из кассы (только чтение, обратно не отправляем):','• Остатки и цены — по совпадению артикула KAK-XXXX со штрихкодом в кассе','• Чеки продаж офлайн-магазина — привязываются к клиенту, если в чеке есть номер карты/телефон'].map((s,i)=><div key={i} style={{fontSize:11,color:s===''?undefined:s.startsWith('•')?'#FFB800':'#8FB897',marginBottom:4,lineHeight:1.5,fontWeight:s.startsWith('Забираем')||s===''?700:400}}>{s}</div>)}
-          </div>
-
-          <div className="ac" style={{padding:20,gridColumn:'1 / -1'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-              <div className="ub" style={{fontSize:14,fontWeight:800}}>🖥 Локальный агент (если касса за роутером магазина)</div>
-            </div>
-            <div style={{marginBottom:14,padding:'8px 12px',borderRadius:8,background:'rgba(255,184,0,.08)',border:'1px solid rgba(255,184,0,.25)',fontSize:11,color:'#FFB800',lineHeight:1.6}}>
-              Наш сервер работает в облаке и не может напрямую достучаться до кассы в локальной сети магазина. Решение: маленький скрипт запускается прямо на кассовом компьютере (или там, где GBS Market слушает <b>localhost</b>), сам читает данные и отправляет их к нам — входящих подключений к кассе не требуется, ничего в роутере настраивать не нужно.
-            </div>
-
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
-              <div>
-                <div style={{fontSize:11,color:'#3D6645',fontWeight:700,marginBottom:6}}>1. Токен агента (секретный, для авторизации)</div>
-                <div style={{display:'flex',gap:8}}>
-                  <input readOnly value={gbsIngestToken || '— сохраните настройки, чтобы сгенерировать —'} className="ai" style={{flex:1,fontFamily:'monospace',fontSize:11}} onFocus={e=>e.target.select()}/>
-                  <button type="button" disabled={!gbsIngestToken} onClick={()=>copyText(gbsIngestToken, ()=>{setGbsTokenCopied(true); setTimeout(()=>setGbsTokenCopied(false),2000)})} className="ab" style={{padding:'0 12px',fontSize:11}}>{gbsTokenCopied?'✓':'📋'}</button>
-                  <button type="button" disabled={regenBusy || !USE_API} onClick={regenIngestToken} className="ab" style={{padding:'0 12px',fontSize:11}}>{regenBusy?'…':'🔄'}</button>
-                </div>
-                {gbsLastIngestIso && <div style={{fontSize:10,color:'#3D6645',marginTop:6}}>Последние данные от агента: {new Date(gbsLastIngestIso).toLocaleString('ru-RU')}</div>}
-
-                <div style={{fontSize:11,color:'#3D6645',fontWeight:700,marginTop:14,marginBottom:6}}>2. Скачайте скрипт и пример настроек</div>
-                <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                  <a href="/downloads/gbs-local-agent.ps1" download className="btn" style={{color:'#1FD760',fontSize:11,fontWeight:700}}>⬇ gbs-local-agent.ps1</a>
-                  <a href="/downloads/gbs-agent.config.example.json" download className="btn" style={{color:'#1FD760',fontSize:11,fontWeight:700}}>⬇ gbs-agent.config.example.json</a>
-                </div>
-
-                <div style={{fontSize:11,color:'#3D6645',fontWeight:700,marginTop:14,marginBottom:6}}>3. Запустите постоянно</div>
-                <div style={{fontSize:11,color:'#8FB897',lineHeight:1.6}}>
-                  Планировщик заданий Windows → создать задачу → триггер «При входе в систему» + повтор каждые 15 минут, действие:
-                  <div style={{marginTop:6,padding:8,borderRadius:6,background:'#0C1C0F',fontFamily:'monospace',fontSize:10,wordBreak:'break-all'}}>powershell.exe -ExecutionPolicy Bypass -File "C:\gbs-agent\gbs-local-agent.ps1"</div>
-                </div>
-              </div>
-
-              <div>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-                  <div style={{fontSize:11,color:'#3D6645',fontWeight:700}}>Готовый gbs-agent.config.json — положите рядом со скриптом на кассовом ПК</div>
-                  <button type="button" onClick={()=>copyText(gbsAgentConfig, ()=>{setGbsConfigCopied(true); setTimeout(()=>setGbsConfigCopied(false),2000)})} className="ab" style={{padding:'2px 10px',fontSize:11}}>{gbsConfigCopied?'✓ Скопировано':'📋 Копировать'}</button>
-                </div>
-                <pre style={{margin:0,padding:12,borderRadius:8,background:'#0C1C0F',border:'1px solid #162B1A',fontFamily:'monospace',fontSize:10.5,color:'#8FB897',whiteSpace:'pre-wrap',wordBreak:'break-all'}}>{gbsAgentConfig}</pre>
-              </div>
-            </div>
+            {['1. Откройте GBS Market на кассовом компьютере','2. Настройки → Интеграции → API','3. Поставить ✓ "Активировать JSON API"','4. Скопируйте IP кассы','5. Вставьте IP выше и нажмите "Проверить"','6. Включите тумблер — начнётся синхронизация','','Синхронизируется:','• Товары по артикулу KAK-XXXX','• Продажи по карте КАКАПО-XXXX','• Долги VIP клиентов','• История покупок'].map((s,i)=><div key={i} style={{fontSize:11,color:s===''?undefined:s.startsWith('•')?'#FFB800':'#8FB897',marginBottom:4,lineHeight:1.5,fontWeight:s.startsWith('Синх')||s===''?700:400}}>{s}</div>)}
           </div>
         </div>
       )}

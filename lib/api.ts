@@ -440,14 +440,7 @@ export const api = {
   updateLoyalty: (data: Record<string, unknown>) =>
     request('/settings/loyalty', { method: 'PATCH', body: JSON.stringify(data) }),
   getAdminSettings: () => request<{
-    gbs: {
-      enabled: boolean; ip: string; port: string; user: string; pass: string
-      lastSyncIso?: string | null
-      lastSyncSummary?: { matched: number | null; updated: number | null; imported: number | null; unmatchedToClient: number | null } | null
-      lastSyncError?: string | null
-      ingestToken?: string | null
-      lastIngestIso?: string | null
-    }
+    gbs: { enabled: boolean; ip: string; port: string; user: string; pass: string }
     sms: { provider: string; apiKey: string }
     store: Record<string, string>
   }>('/settings/admin'),
@@ -517,13 +510,5 @@ export const api = {
 
   // ── Синхронизация ──
   syncWoo: () => request('/sync/woocommerce', { method: 'POST' }),
-  syncGBS: () => request<{
-    ok: boolean
-    products?: { matched: number; updated: number; totalGbsGoods: number; unmatchedGbsCount: number } | null
-    sales?: { imported: number; unmatchedToClient: number; totalDocs: number } | null
-    errors?: string[]
-    detail?: string
-  }>('/sync/gbs', { method: 'POST' }),
-  testGBS: () => request<{ ok: boolean; status?: unknown; detail?: string }>('/sync/gbs/test', { method: 'POST' }),
-  regenerateGbsIngestToken: () => request<{ ingestToken: string }>('/gbs/ingest-token/regenerate', { method: 'POST' }),
+  syncGBS: () => request('/sync/gbs', { method: 'POST' }),
 }
