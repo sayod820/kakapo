@@ -12,6 +12,53 @@ import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
 
+// ── Склад: поставщики / приход / списания / расходы ──
+export interface Supplier {
+  id: string
+  name: string
+  phone: string
+  addr: string
+  note: string
+  debt: number
+}
+export interface StockReceiptItem { productId: number; name: string; qty: number; costPrice: number }
+export interface StockReceipt {
+  id: string
+  supplierId: string
+  supplierName: string
+  items: StockReceiptItem[]
+  totalCost: number
+  paidNow: number
+  debtDelta: number
+  createdAtIso: string
+  createdBy: string
+}
+export interface WriteOffItem { productId: number; name: string; qty: number; costPrice: number }
+export interface WriteOff {
+  id: string
+  items: WriteOffItem[]
+  reason: string
+  totalCost: number
+  createdAtIso: string
+  createdBy: string
+}
+export interface Expense {
+  id: string
+  category: string
+  amount: number
+  note: string
+  createdAtIso: string
+  createdBy: string
+}
+export interface SupplierPayment {
+  id: string
+  supplierId: string
+  amount: number
+  note: string
+  createdAtIso: string
+  createdBy: string
+}
+
 // ── Хранение токена ──
 let _token: string | null = null
 export const setToken = (t: string | null) => {
@@ -399,6 +446,35 @@ export const api = {
     loyalty: { earned: number; credited: number; bonus: number; orders: number }
     client: AdminClient | null
   }>('/pos/sale', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Склад: поставщики / приход / списания / расходы ──
+  getSuppliers: () => request<Supplier[]>('/suppliers'),
+  createSupplier: (data: Partial<Supplier>) =>
+    request<Supplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
+  updateSupplier: (id: string, data: Partial<Supplier>) =>
+    request<Supplier>(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  paySupplierDebt: (id: string, data: { amount: number; note?: string; createdBy?: string }) =>
+    request<SupplierPayment>(`/suppliers/${id}/pay`, { method: 'POST', body: JSON.stringify(data) }),
+
+  getStockReceipts: () => request<StockReceipt[]>('/stock-receipts'),
+  createStockReceipt: (data: {
+    supplierId?: string
+    supplierName?: string
+    items: { productId: number; qty: number; costPrice: number }[]
+    paidNow?: number
+    createdBy?: string
+  }) => request<StockReceipt>('/stock-receipts', { method: 'POST', body: JSON.stringify(data) }),
+
+  getWriteOffs: () => request<WriteOff[]>('/write-offs'),
+  createWriteOff: (data: {
+    items: { productId: number; qty: number }[]
+    reason: string
+    createdBy?: string
+  }) => request<WriteOff>('/write-offs', { method: 'POST', body: JSON.stringify(data) }),
+
+  getExpenses: () => request<Expense[]>('/expenses'),
+  createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string }) =>
+    request<Expense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
 
   getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>

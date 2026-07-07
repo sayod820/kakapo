@@ -51,6 +51,7 @@ import {
   getCourierWalletTransactions,
 } from './courierWallet.js'
 import { createPosSale } from './posLogic.js'
+import { createStockReceipt, createWriteOff, createExpense, paySupplierDebt } from './inventoryLogic.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
@@ -1039,6 +1040,78 @@ app.post('/pos/sale', (req, res) => {
     res.json(result)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
+  }
+})
+
+/* ── Поставщики ── */
+app.get('/suppliers', (_req, res) => res.json(db.suppliers || []))
+app.post('/suppliers', (req, res) => {
+  if (!db.suppliers) db.suppliers = []
+  const nums = db.suppliers.map(s => parseInt(String(s.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
+  const n = (nums.length ? Math.max(...nums) : 0) + 1
+  const row = {
+    id: `SUP-${String(n).padStart(2, '0')}`,
+    name: String(req.body?.name || '').trim(),
+    phone: String(req.body?.phone || '').trim(),
+    addr: String(req.body?.addr || '').trim(),
+    note: String(req.body?.note || '').trim(),
+    debt: 0,
+  }
+  if (!row.name) return res.status(400).json({ detail: 'Укажите название поставщика' })
+  db.suppliers.push(row)
+  persist()
+  res.json(row)
+})
+app.patch('/suppliers/:id', (req, res) => {
+  const s = (db.suppliers || []).find(x => x.id === req.params.id)
+  if (!s) return res.status(404).json({ detail: 'Поставщик не найден' })
+  Object.assign(s, req.body, { id: s.id })
+  persist()
+  res.json(s)
+})
+app.post('/suppliers/:id/pay', (req, res) => {
+  try {
+    const payment = paySupplierDebt(db, { ...req.body, supplierId: req.params.id })
+    persist()
+    res.json(payment)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось погасить долг' })
+  }
+})
+
+/* ── Приход товара ── */
+app.get('/stock-receipts', (_req, res) => res.json(db.stockReceipts || []))
+app.post('/stock-receipts', (req, res) => {
+  try {
+    const receipt = createStockReceipt(db, req.body || {})
+    persist()
+    res.json(receipt)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести приход' })
+  }
+})
+
+/* ── Списания ── */
+app.get('/write-offs', (_req, res) => res.json(db.writeOffs || []))
+app.post('/write-offs', (req, res) => {
+  try {
+    const writeOff = createWriteOff(db, req.body || {})
+    persist()
+    res.json(writeOff)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести списание' })
+  }
+})
+
+/* ── Расходы ── */
+app.get('/expenses', (_req, res) => res.json(db.expenses || []))
+app.post('/expenses', (req, res) => {
+  try {
+    const expense = createExpense(db, req.body || {})
+    persist()
+    res.json(expense)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось добавить расход' })
   }
 })
 
