@@ -83,13 +83,6 @@ export interface Order {
   accountGeneration?: number
   /** Выручка ресторану уже начислена */
   revenueCredited?: boolean
-  /** Источник заказа: онлайн-checkout по умолчанию, 'retail-till' — чек кассы на точке KAKAPO Ритейл */
-  source?: 'market' | 'retail-till'
-  locationId?: string
-  shiftId?: string
-  cashierName?: string
-  correctionReason?: string
-  correctedAtIso?: string
 }
 
 export type SellType = 'piece' | 'weight'

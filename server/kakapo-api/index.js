@@ -29,14 +29,6 @@ import {
   createExpense,
   applyBulkPriceChange,
 } from './retailLogic.js'
-import {
-  getOpenTillShift,
-  openTillShift,
-  closeTillShift,
-  createTillSale,
-  createTillReturn,
-  applyTillCorrection,
-} from './tillLogic.js'
 import { lockOrderDeliveryFee, normalizePricing } from './deliveryFee.js'
 import {
   applyBonusSpendOnOrder,
@@ -80,14 +72,6 @@ const loyaltyHooks = () => ({
   findCardByNum,
   ensureCardRowForClient,
   syncClientFromCardRow,
-})
-
-const tillHooks = () => ({
-  findCardByNum,
-  ensureCardRowForClient,
-  syncClientFromCardRow,
-  persist,
-  broadcast,
 })
 
 const PORT = Number(process.env.PORT) || 8000
@@ -1128,60 +1112,6 @@ app.post('/products/bulk-price', (req, res) => {
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось изменить цены' })
   }
-})
-
-/* ── KAKAPO Ритейл: касса (till) на точке ── */
-app.get('/till/shift/current', (req, res) => {
-  const locationId = String(req.query?.locationId || '')
-  const cashierName = String(req.query?.cashierName || '')
-  res.json(getOpenTillShift(db, locationId, cashierName))
-})
-app.post('/till/shift/open', (req, res) => {
-  try {
-    const shift = openTillShift(db, req.body || {})
-    persist()
-    res.json(shift)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось открыть смену' })
-  }
-})
-app.post('/till/shift/close', (req, res) => {
-  try {
-    const shift = closeTillShift(db, req.body || {})
-    persist()
-    res.json(shift)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось закрыть смену' })
-  }
-})
-app.post('/till/sale', (req, res) => {
-  try {
-    const result = createTillSale(db, tillHooks(), req.body || {})
-    res.json(result)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
-  }
-})
-app.post('/till/return', (req, res) => {
-  try {
-    const result = createTillReturn(db, tillHooks(), req.body || {})
-    res.json(result)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось оформить возврат' })
-  }
-})
-app.post('/till/correction', (req, res) => {
-  try {
-    const order = applyTillCorrection(db, req.body || {})
-    persist()
-    res.json(order)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось применить коррекцию' })
-  }
-})
-app.get('/till/receipts', (req, res) => {
-  const shiftId = String(req.query?.shiftId || '')
-  res.json((db.orders || []).filter(o => o.source === 'retail-till' && o.shiftId === shiftId))
 })
 
 function normalizePhoneDigits(phone) {

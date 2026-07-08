@@ -56,24 +56,6 @@ export interface RetailExpense {
   createdAtIso: string
   createdBy: string
 }
-export interface TillShift {
-  id: string
-  locationId: string
-  cashierName: string
-  openingCash: number
-  openedAtIso: string
-  closedAtIso: string | null
-  closingCashDeclared: number | null
-  expectedCash: number | null
-  difference: number | null
-  status: 'open' | 'closed'
-  revenue?: number
-  checks?: number
-  cashTotal?: number
-  cardTotal?: number
-  debtTotal?: number
-}
-
 // ── Хранение токена ──
 let _token: string | null = null
 export const setToken = (t: string | null) => {
@@ -483,27 +465,6 @@ export const api = {
   // ── KAKAPO Ритейл: массовое изменение цен ──
   bulkPriceChange: (data: { catId?: string; mode: 'percent' | 'fixed'; value: number }) =>
     request<{ updated: number }>('/products/bulk-price', { method: 'POST', body: JSON.stringify(data) }),
-
-  // ── KAKAPO Ритейл: касса (till) на точке ──
-  getCurrentTillShift: (locationId: string, cashierName: string) =>
-    request<TillShift | null>(`/till/shift/current?locationId=${encodeURIComponent(locationId)}&cashierName=${encodeURIComponent(cashierName)}`),
-  openTillShift: (data: { locationId: string; cashierName: string; openingCash: number }) =>
-    request<TillShift>('/till/shift/open', { method: 'POST', body: JSON.stringify(data) }),
-  closeTillShift: (data: { locationId: string; cashierName: string; closingCashDeclared: number }) =>
-    request<TillShift>('/till/shift/close', { method: 'POST', body: JSON.stringify(data) }),
-  createTillSale: (data: {
-    locationId: string
-    cashierName: string
-    items: { productId: number; qty: number; price: number; unit?: string }[]
-    clientPhone?: string
-    bonusSpent?: number
-    paymentMethod?: 'cash' | 'card' | 'debt'
-  }) => request<{ order: Order; loyalty: { earned: number; credited: number; bonus: number; orders: number } }>('/till/sale', { method: 'POST', body: JSON.stringify(data) }),
-  createTillReturn: (data: { orderId: string }) =>
-    request<{ order: Order; loyalty: { credited: number; bonus: number; orders: number } }>('/till/return', { method: 'POST', body: JSON.stringify(data) }),
-  applyTillCorrection: (data: { orderId: string; delta: number; reason?: string }) =>
-    request<Order>('/till/correction', { method: 'POST', body: JSON.stringify(data) }),
-  getTillReceipts: (shiftId: string) => request<Order[]>(`/till/receipts?shiftId=${encodeURIComponent(shiftId)}`),
 
   getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>
