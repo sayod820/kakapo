@@ -210,21 +210,18 @@ const LEVEL_LABELS: Record<ClientLevel, string> = {
 }
 
 type PosPage =
-  | 'sales' | 'products' | 'clients' | 'loyalty' | 'debts'
-  | 'warehouse' | 'suppliers' | 'finance' | 'reports' | 'staff' | 'settings'
+  | 'sales' | 'products' | 'clients' | 'debts'
+  | 'warehouse' | 'suppliers' | 'finance' | 'reports'
 
 const PAGES: { id: PosPage; label: string; icon: string }[] = [
   { id: 'sales', label: 'Касса', icon: '🛒' },
   { id: 'products', label: 'Товары', icon: '📦' },
   { id: 'clients', label: 'Клиенты', icon: '👥' },
-  { id: 'loyalty', label: 'Бонусы', icon: '⭐' },
   { id: 'debts', label: 'Долги', icon: '💳' },
   { id: 'warehouse', label: 'Склад', icon: '🏬' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚' },
   { id: 'finance', label: 'Финансы', icon: '💰' },
   { id: 'reports', label: 'Отчёты', icon: '📊' },
-  { id: 'staff', label: 'Сотрудники', icon: '👤' },
-  { id: 'settings', label: 'Настройки', icon: '⚙️' },
 ]
 
 function money(n: number | undefined | null) {
@@ -606,42 +603,6 @@ function ClientsView({ clients, search }: { clients: AdminClient[]; search: stri
   )
 }
 
-/* ═══════════════ БОНУСЫ (карты) ═══════════════ */
-function LoyaltyView({ cards, search }: { cards: AdminCard[]; search: string }) {
-  const s = search.trim().toLowerCase()
-  const list = cards.filter(c => !s || `${c.num} ${c.client} ${c.phone}`.toLowerCase().includes(s))
-  const totalBonus = cards.reduce((sum, c) => sum + (Number(c.bonus) || 0), 0)
-  return (
-    <>
-      <div className="k-kpis">
-        <div className="k-kpi"><div className="kl">Всего карт</div><div className="kv">{cards.length}</div></div>
-        <div className="k-kpi"><div className="kl">Активных</div><div className="kv">{cards.filter(c => c.status === 'active').length}</div></div>
-        <div className="k-kpi"><div className="kl">Бонусов начислено</div><div className="kv" style={{ color: 'var(--gold)' }}>{totalBonus}</div></div>
-        <div className="k-kpi"><div className="kl">VIP-карт</div><div className="kv">{cards.filter(c => c.vip).length}</div></div>
-      </div>
-      <Card title={`Карты лояльности · ${list.length}`}>
-        <div style={{ maxHeight: '55vh', overflow: 'auto' }}>
-          <table className="k-tbl">
-            <thead><tr><th>Карта</th><th>Клиент</th><th>Статус</th><th className="num">Бонусы</th><th className="num">Долг</th></tr></thead>
-            <tbody>
-              {list.map(c => (
-                <tr key={c.num}>
-                  <td style={{ fontWeight: 800 }}>{c.num}</td>
-                  <td>{c.client || '—'}</td>
-                  <td><span className="k-badge" style={{ background: c.status === 'active' ? '#12351e' : '#2a2414', color: c.status === 'active' ? 'var(--green)' : 'var(--gold)' }}>{c.status === 'active' ? 'Активна' : c.status === 'blocked' ? 'Заблок.' : 'Не привязана'}</span></td>
-                  <td className="num" style={{ color: 'var(--gold)' }}>{c.bonus}</td>
-                  <td className="num" style={{ color: Number(c.debt) > 0 ? 'var(--red)' : 'var(--muted)' }}>{money(c.debt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!list.length && <div className="k-empty">Карт нет</div>}
-        </div>
-      </Card>
-    </>
-  )
-}
-
 /* ═══════════════ ДОЛГИ ═══════════════ */
 function DebtsView({ clients, cards, sales }: { clients: AdminClient[]; cards: AdminCard[]; sales: PosSale[] }) {
   const debtClients = clients.filter(c => Number(c.debt) > 0)
@@ -899,72 +860,6 @@ function ReportsView({ report }: { report: any }) {
   )
 }
 
-/* ═══════════════ СОТРУДНИКИ (кассиры/смены) ═══════════════ */
-function StaffView({ cashiers, shifts, reloadAll }: { cashiers: any[]; shifts: any[]; reloadAll: () => Promise<void> }) {
-  const [name, setName] = useState('')
-  const [pin, setPin] = useState('')
-  const [cashierId, setCashierId] = useState('')
-  const [openingCash, setOpeningCash] = useState('')
-  const [closeShiftId, setCloseShiftId] = useState('')
-  const [closingCash, setClosingCash] = useState('')
-  const [msg, setMsg] = useState('')
-  async function addCashier() { try { await api.createCashier({ name, pin }); setName(''); setPin(''); setMsg('Кассир добавлен'); await reloadAll() } catch (e) { setMsg(e instanceof Error ? e.message : 'Ошибка') } }
-  async function openShift() { try { await api.openPosShift({ cashierId, openingCash: Number(openingCash) || 0 }); setMsg('Смена открыта'); await reloadAll() } catch (e) { setMsg(e instanceof Error ? e.message : 'Ошибка') } }
-  async function closeShift() { try { await api.closePosShift(closeShiftId, { closingCash: Number(closingCash) || 0 }); setMsg('Смена закрыта'); await reloadAll() } catch (e) { setMsg(e instanceof Error ? e.message : 'Ошибка') } }
-  return (
-    <div className="k-grid2">
-      <Card title="Кассиры и смены">
-        <div className="k-grid2">
-          <div className="k-field"><label>Имя кассира</label><input className="k-inp" value={name} onChange={e => setName(e.target.value)} /></div>
-          <div className="k-field"><label>PIN</label><input className="k-inp" value={pin} onChange={e => setPin(e.target.value)} /></div>
-        </div>
-        <button className="k-btn k-btn-g" onClick={addCashier}>Добавить кассира</button>
-        <div style={{ borderTop: '1px solid var(--border)', margin: '16px 0' }} />
-        <div className="k-grid2">
-          <div className="k-field"><label>Кассир</label><select className="k-sel" value={cashierId} onChange={e => setCashierId(e.target.value)}><option value="">Выберите</option>{cashiers.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-          <div className="k-field"><label>Стартовый остаток</label><input className="k-inp" type="number" step="0.01" value={openingCash} onChange={e => setOpeningCash(e.target.value)} /></div>
-        </div>
-        <button className="k-btn k-btn-s" onClick={openShift}>Открыть смену</button>
-        <div style={{ borderTop: '1px solid var(--border)', margin: '16px 0' }} />
-        <div className="k-grid2">
-          <div className="k-field"><label>Открытая смена</label><select className="k-sel" value={closeShiftId} onChange={e => setCloseShiftId(e.target.value)}><option value="">Выберите</option>{shifts.filter(s => s.status === 'open').map(s => <option key={s.id} value={s.id}>{s.cashierName} · {fmtIso(s.openedAtIso)}</option>)}</select></div>
-          <div className="k-field"><label>Факт в кассе</label><input className="k-inp" type="number" step="0.01" value={closingCash} onChange={e => setClosingCash(e.target.value)} /></div>
-        </div>
-        <button className="k-btn k-btn-s" onClick={closeShift}>Закрыть смену</button>
-        <Alert text={msg} />
-      </Card>
-      <Card title="Журнал смен">
-        {shifts.length ? (
-          <table className="k-tbl"><thead><tr><th>Кассир</th><th>Статус</th><th className="num">Продажи</th><th className="num">Наличные</th></tr></thead>
-            <tbody>{shifts.slice(0, 16).map(s => <tr key={s.id}><td>{s.cashierName}</td><td><span className="k-badge" style={{ background: s.status === 'open' ? '#12351e' : '#1a1a1a', color: s.status === 'open' ? 'var(--green)' : 'var(--muted)' }}>{s.status === 'open' ? 'Открыта' : 'Закрыта'}</span></td><td className="num">{s.salesCount}</td><td className="num">{money(s.salesCash)}</td></tr>)}</tbody></table>
-        ) : <div className="k-empty">Смен нет</div>}
-      </Card>
-    </div>
-  )
-}
-
-/* ═══════════════ НАСТРОЙКИ ═══════════════ */
-function SettingsView({ products, clients, cards }: { products: Product[]; clients: AdminClient[]; cards: AdminCard[] }) {
-  return (
-    <div className="k-grid2">
-      <Card title="Магазин">
-        <div className="k-field"><label>Название</label><input className="k-inp" defaultValue="Магазин KAKAPO" /></div>
-        <div className="k-field"><label>Валюта</label><input className="k-inp" defaultValue="сомони (сом)" /></div>
-        <div className="k-field"><label>Адрес</label><input className="k-inp" defaultValue="—" /></div>
-        <div style={{ color: 'var(--muted)', fontSize: 12 }}>Данные товаров, клиентов и карт — общие со всеми приложениями KAKAPO.</div>
-      </Card>
-      <Card title="Данные системы">
-        <div className="k-kpis" style={{ gridTemplateColumns: '1fr 1fr', margin: 0 }}>
-          <div className="k-kpi"><div className="kl">Товаров</div><div className="kv">{products.length}</div></div>
-          <div className="k-kpi"><div className="kl">Клиентов</div><div className="kv">{clients.length}</div></div>
-          <div className="k-kpi"><div className="kl">Карт</div><div className="kv">{cards.length}</div></div>
-          <div className="k-kpi"><div className="kl">Синхронизация</div><div className="kv" style={{ color: 'var(--green)', fontSize: 16 }}>онлайн</div></div>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
 /* ═══════════════ КОРНЕВОЙ КОМПОНЕНТ ═══════════════ */
 function PosAppInner() {
   useApiSync('pos')
@@ -1019,7 +914,6 @@ function PosAppInner() {
             <div className="name">Магазин KAKAPO <span>▾</span></div>
             <div className="k-online"><span className="d" />Онлайн</div>
             <Clock />
-            <button className="k-changebtn" onClick={() => setPage('staff')}>🔄 Сменить кассу</button>
           </div>
         </div>
       </aside>
@@ -1053,14 +947,11 @@ function PosAppInner() {
               </div>
               {current === 'products' ? <ProductsView products={products} search={search} />
                 : current === 'clients' ? <ClientsView clients={clients} search={search} />
-                : current === 'loyalty' ? <LoyaltyView cards={cards} search={search} />
                 : current === 'debts' ? <DebtsView clients={clients} cards={cards} sales={pos.sales} />
                 : current === 'warehouse' ? <WarehouseView products={products} suppliers={pos.suppliers} expiry={pos.expiry} reloadAll={reloadAll} />
                 : current === 'suppliers' ? <SuppliersView suppliers={pos.suppliers} reloadAll={reloadAll} />
                 : current === 'finance' ? <FinanceView financeSummary={pos.financeSummary} expenses={pos.expenses} openShiftId={openShift?.id} reloadAll={reloadAll} />
-                : current === 'reports' ? <ReportsView report={pos.report} />
-                : current === 'staff' ? <StaffView cashiers={pos.cashiers} shifts={pos.shifts} reloadAll={reloadAll} />
-                : <SettingsView products={products} clients={clients} cards={cards} />}
+                : <ReportsView report={pos.report} />}
             </>
           )}
         </div>
