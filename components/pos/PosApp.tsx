@@ -13,36 +13,106 @@ import type { Product, PosSale } from '@/lib/types'
 import type { AdminClient } from '@/lib/clientCrm'
 import type { AdminCard } from '@/lib/cardCrm'
 
+/* ══════════════════════════════════════════════════════
+   KAKAPO POS / Склад — интерфейс в стиле Odoo
+   Светлая ERP-тема: верхняя панель приложения, панель
+   управления с хлебными крошками, list/form views.
+══════════════════════════════════════════════════════ */
+
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap');
-  *{box-sizing:border-box}
-  html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',system-ui,sans-serif}
-  .pos-shell{min-height:100vh;background:#030B05;color:#EBF5ED}
-  .pos-wrap{max-width:1280px;margin:0 auto;padding:20px}
-  .pos-card{background:#091508;border:1px solid #18321E;border-radius:18px}
-  .pos-grid{display:grid;gap:16px}
-  .pos-nav{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
-  .pos-btn{border:none;cursor:pointer;border-radius:12px;padding:10px 14px;font:700 13px 'Nunito',system-ui,sans-serif}
-  .pos-btn-main{background:#1FD760;color:#05210D}
-  .pos-btn-soft{background:#122315;color:#A9D9B4;border:1px solid #203A25}
-  .pos-chip{padding:8px 12px;border-radius:999px;background:#102113;border:1px solid #1D3622;color:#8FB897;font-size:12px;font-weight:800}
-  .pos-input,.pos-select,.pos-textarea{width:100%;border-radius:12px;border:1px solid #203A25;background:#061109;color:#EBF5ED;padding:10px 12px;font:600 14px 'Nunito',system-ui,sans-serif}
-  .pos-textarea{min-height:84px;resize:vertical}
-  .pos-label{font-size:11px;color:#8FB897;margin-bottom:6px;font-weight:800}
-  .pos-table{width:100%;border-collapse:collapse}
-  .pos-table th,.pos-table td{padding:10px 8px;border-bottom:1px solid #17311D;text-align:left;font-size:13px;vertical-align:top}
-  .pos-table th{font-size:11px;color:#8FB897;text-transform:uppercase;letter-spacing:.04em}
-  .pos-kpi{padding:16px;border-radius:16px;background:#0D1A10;border:1px solid #1A3320}
-  .pos-kpi b{display:block;font-size:24px;margin-top:8px}
-  .pos-empty{padding:18px;border-radius:14px;background:#0A1510;border:1px dashed #214128;color:#7EA889}
-  @media (max-width: 900px){.pos-two{grid-template-columns:1fr !important}.pos-three{grid-template-columns:1fr !important}}
+  @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+  .odoo *{box-sizing:border-box}
+  .odoo{min-height:100vh;background:#eaeaea;color:#374151;font-family:'Roboto',system-ui,-apple-system,sans-serif;font-size:13px}
+  .odoo button{font-family:inherit}
+
+  /* Верхняя панель приложения (app navbar) */
+  .odoo-navbar{position:sticky;top:0;z-index:30;background:#714B67;color:#fff;display:flex;align-items:center;gap:4px;padding:0 8px;height:46px;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+  .odoo-brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;padding:0 12px 0 6px;white-space:nowrap}
+  .odoo-brand .dot{width:22px;height:22px;border-radius:5px;background:#fff;color:#714B67;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+  .odoo-menu{display:flex;align-items:center;gap:2px;overflow-x:auto;flex:1}
+  .odoo-menu::-webkit-scrollbar{height:0}
+  .odoo-menuitem{border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;padding:0 12px;height:46px;font-size:13px;font-weight:500;white-space:nowrap;border-bottom:3px solid transparent}
+  .odoo-menuitem:hover{background:rgba(255,255,255,.1);color:#fff}
+  .odoo-menuitem.active{color:#fff;background:rgba(255,255,255,.14);border-bottom-color:#fff}
+  .odoo-userarea{display:flex;align-items:center;gap:10px;padding-left:8px}
+  .odoo-avatar{width:28px;height:28px;border-radius:50%;background:#a186a0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px}
+
+  /* Панель управления (control panel) */
+  .odoo-control{background:#fff;border-bottom:1px solid #dcdce0;padding:8px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .odoo-breadcrumb{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:500;color:#374151}
+  .odoo-breadcrumb .crumb-app{color:#714B67;font-weight:500}
+  .odoo-breadcrumb .sep{color:#adadad}
+  .odoo-cp-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+  /* Контент */
+  .odoo-content{padding:16px}
+  .odoo-grid{display:grid;gap:16px}
+
+  /* Карточки / form view */
+  .odoo-card{background:#fff;border:1px solid #dcdce0;border-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  .odoo-card-head{padding:12px 16px;border-bottom:1px solid #ebebeb;display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .odoo-card-title{font-size:15px;font-weight:700;color:#374151}
+  .odoo-card-body{padding:16px}
+
+  /* Кнопки */
+  .odoo-btn{border:1px solid transparent;cursor:pointer;border-radius:4px;padding:7px 14px;font-size:13px;font-weight:500;transition:background .12s,border-color .12s}
+  .odoo-btn:disabled{opacity:.55;cursor:not-allowed}
+  .odoo-btn-primary{background:#714B67;color:#fff;border-color:#714B67}
+  .odoo-btn-primary:hover:not(:disabled){background:#5c3d54}
+  .odoo-btn-secondary{background:#fff;color:#714B67;border-color:#714B67}
+  .odoo-btn-secondary:hover:not(:disabled){background:#f3edf2}
+  .odoo-btn-success{background:#00A09D;color:#fff;border-color:#00A09D}
+  .odoo-btn-success:hover:not(:disabled){background:#008783}
+  .odoo-btn-light{background:#fff;color:#495057;border-color:#ced4da}
+  .odoo-btn-light:hover:not(:disabled){background:#f6f6f6}
+
+  /* Поля ввода */
+  .odoo-field{margin-bottom:12px}
+  .odoo-label{display:block;font-size:13px;color:#6b7280;margin-bottom:4px;font-weight:500}
+  .odoo-input,.odoo-select,.odoo-textarea{width:100%;border:1px solid #ced4da;border-radius:4px;background:#fff;color:#374151;padding:6px 10px;font-size:13px;outline:none;transition:border-color .12s,box-shadow .12s}
+  .odoo-input:focus,.odoo-select:focus,.odoo-textarea:focus{border-color:#714B67;box-shadow:0 0 0 2px rgba(113,75,103,.15)}
+  .odoo-textarea{min-height:72px;resize:vertical}
+
+  /* Списки (list view) */
+  .odoo-table{width:100%;border-collapse:collapse;background:#fff}
+  .odoo-table th{background:#fff;color:#6b7280;font-size:12px;font-weight:700;text-align:left;padding:8px 12px;border-bottom:1px solid #dcdce0;text-transform:none;position:sticky;top:0}
+  .odoo-table td{padding:8px 12px;border-bottom:1px solid #ededed;font-size:13px;color:#374151;vertical-align:middle}
+  .odoo-table tbody tr:hover{background:#f5f2f4}
+  .odoo-table .num{text-align:right;font-variant-numeric:tabular-nums}
+
+  /* KPI-плитки */
+  .odoo-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .odoo-kpi{background:#fff;border:1px solid #dcdce0;border-radius:4px;padding:14px 16px}
+  .odoo-kpi .k-label{font-size:12px;color:#8f8f8f;font-weight:500}
+  .odoo-kpi .k-value{font-size:22px;font-weight:700;color:#374151;margin-top:6px}
+  .odoo-kpi .k-sub{font-size:12px;color:#adadad;margin-top:4px}
+
+  /* Чипы статусов */
+  .odoo-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:500;background:#f0edf1;color:#714B67;border:1px solid #e0d6de}
+  .odoo-badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:700}
+  .odoo-badge-open{background:#e5f6f5;color:#00807d}
+  .odoo-badge-closed{background:#efefef;color:#7a7a7a}
+  .odoo-badge-warn{background:#fdecea;color:#c0392b}
+
+  .odoo-alert{padding:10px 14px;border-radius:4px;font-size:13px;background:#e5f6f5;color:#00706e;border:1px solid #b8e5e3}
+  .odoo-alert-error{background:#fdecea;color:#b93a2b;border-color:#f5c6cb}
+  .odoo-empty{padding:28px 16px;text-align:center;color:#9a9a9a;font-size:13px}
+
+  .odoo-row-actions{display:flex;gap:8px;align-items:center}
+  .odoo-statusbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+
+  @media (max-width:960px){
+    .odoo-kpis{grid-template-columns:repeat(2,1fr)}
+    .odoo-two{grid-template-columns:1fr !important}
+    .odoo-three{grid-template-columns:1fr !important}
+  }
 `
 
 type PosPage = 'sales' | 'cash' | 'warehouse' | 'revision' | 'expiry' | 'suppliers' | 'debts' | 'finance' | 'reports'
 
 const PAGES: { id: PosPage; label: string }[] = [
-  { id: 'sales', label: 'POS' },
-  { id: 'cash', label: 'Касса' },
+  { id: 'sales', label: 'Касса POS' },
+  { id: 'cash', label: 'Смены' },
   { id: 'warehouse', label: 'Склад' },
   { id: 'revision', label: 'Ревизия' },
   { id: 'expiry', label: 'Сроки' },
@@ -67,28 +137,41 @@ function fmtIso(iso?: string | null) {
   return d.toLocaleString('ru-RU')
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="pos-kpi">
-      <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 800 }}>{label}</div>
-      <b>{value}</b>
-      {sub && <div style={{ marginTop: 6, fontSize: 12, color: '#6F9D79' }}>{sub}</div>}
+    <div className="odoo-kpi">
+      <div className="k-label">{label}</div>
+      <div className="k-value">{value}</div>
+      {sub && <div className="k-sub">{sub}</div>}
     </div>
   )
 }
 
-function SectionCard({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
+function Card({ title, children, actions }: { title: string; children: ReactNode; actions?: ReactNode }) {
   return (
-    <section className="pos-card" style={{ padding: 18 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 14 }}>
-        <div>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
-        </div>
-        {right}
+    <section className="odoo-card">
+      <div className="odoo-card-head">
+        <div className="odoo-card-title">{title}</div>
+        {actions}
       </div>
-      {children}
+      <div className="odoo-card-body">{children}</div>
     </section>
   )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="odoo-field">
+      <label className="odoo-label">{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function Alert({ text }: { text: string }) {
+  if (!text) return null
+  const isError = /не удал|ошибк|недостаточно|error/i.test(text)
+  return <div className={`odoo-alert ${isError ? 'odoo-alert-error' : ''}`} style={{ marginTop: 12 }}>{text}</div>
 }
 
 function ProductPicker({
@@ -101,7 +184,7 @@ function ProductPicker({
   onChange: (id: number) => void
 }) {
   return (
-    <select className="pos-select" value={String(value || '')} onChange={e => onChange(Number(e.target.value) || 0)}>
+    <select className="odoo-select" value={String(value || '')} onChange={e => onChange(Number(e.target.value) || 0)}>
       <option value="">Выберите товар</option>
       {products.map(p => (
         <option key={p.id} value={p.id}>{p.name} · {money(p.price)} · ост: {p.stock}</option>
@@ -115,7 +198,6 @@ function PosSalesPanel({
   clients,
   cards,
   sales,
-  cashiers,
   openShift,
   reloadAll,
 }: {
@@ -123,7 +205,6 @@ function PosSalesPanel({
   clients: AdminClient[]
   cards: AdminCard[]
   sales: PosSale[]
-  cashiers: Array<{ id: string; name: string }>
   openShift?: { id: string; cashierId: string; cashierName: string }
   reloadAll: () => Promise<void>
 }) {
@@ -184,98 +265,98 @@ function PosSalesPanel({
   }
 
   return (
-    <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1.3fr .9fr' }}>
-      <SectionCard title="Новая POS-продажа" right={<div className="pos-chip">{openShift ? `Смена: ${openShift.cashierName}` : 'Смена не открыта'}</div>}>
-        <div className="pos-grid" style={{ gap: 12 }}>
-          {rows.map((row, idx) => (
-            <div key={idx} className="pos-grid pos-three" style={{ gridTemplateColumns: '2fr .6fr auto' }}>
-              <div>
-                <div className="pos-label">Товар</div>
-                <ProductPicker products={products} value={row.productId} onChange={productId => setRows(list => list.map((x, i) => i === idx ? { ...x, productId } : x))} />
-              </div>
-              <div>
-                <div className="pos-label">Кол-во</div>
-                <input className="pos-input" type="number" min="0.01" step="0.01" value={row.qty} onChange={e => setRows(list => list.map((x, i) => i === idx ? { ...x, qty: Number(e.target.value) || 0 } : x))} />
-              </div>
-              <button className="pos-btn pos-btn-soft" style={{ alignSelf: 'end' }} onClick={() => setRows(list => list.length === 1 ? list : list.filter((_, i) => i !== idx))}>Удалить</button>
-            </div>
-          ))}
-          <button className="pos-btn pos-btn-soft" onClick={() => setRows(list => [...list, { productId: products[0]?.id || 0, qty: 1 }])}>Добавить строку</button>
+    <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1.4fr .9fr' }}>
+      <Card
+        title="Новый чек"
+        actions={
+          openShift
+            ? <span className="odoo-chip">Кассир: {openShift.cashierName}</span>
+            : <span className="odoo-badge odoo-badge-warn">Смена не открыта</span>
+        }
+      >
+        <table className="odoo-table" style={{ marginBottom: 12 }}>
+          <thead>
+            <tr><th style={{ width: '55%' }}>Товар</th><th className="num" style={{ width: '25%' }}>Кол-во</th><th style={{ width: '20%' }} /></tr>
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => (
+              <tr key={idx}>
+                <td><ProductPicker products={products} value={row.productId} onChange={productId => setRows(list => list.map((x, i) => i === idx ? { ...x, productId } : x))} /></td>
+                <td><input className="odoo-input" type="number" min="0.01" step="0.01" value={row.qty} onChange={e => setRows(list => list.map((x, i) => i === idx ? { ...x, qty: Number(e.target.value) || 0 } : x))} /></td>
+                <td><button className="odoo-btn odoo-btn-light" onClick={() => setRows(list => list.length === 1 ? list : list.filter((_, i) => i !== idx))}>Удалить</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <button className="odoo-btn odoo-btn-secondary" onClick={() => setRows(list => [...list, { productId: products[0]?.id || 0, qty: 1 }])}>+ Добавить строку</button>
 
-          <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div>
-              <div className="pos-label">Клиент</div>
-              <select className="pos-select" value={clientId} onChange={e => setClientId(e.target.value)}>
-                <option value="">Без клиента</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>)}
-              </select>
-            </div>
-            <div>
-              <div className="pos-label">Карта</div>
-              <select className="pos-select" value={cardNum} onChange={e => setCardNum(e.target.value)}>
-                <option value="">Без карты</option>
-                {cards.filter(c => c.status === 'active').map(c => <option key={c.num} value={c.num}>{c.num} · {c.client || c.phone}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="pos-grid pos-three" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-            <div>
-              <div className="pos-label">Оплата</div>
-              <select className="pos-select" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as 'cash' | 'card' | 'credit' | 'mixed')}>
-                <option value="cash">Наличные</option>
-                <option value="card">Карта</option>
-                <option value="credit">В долг</option>
-                <option value="mixed">Смешанная</option>
-              </select>
-            </div>
-            <div>
-              <div className="pos-label">Наличные</div>
-              <input className="pos-input" type="number" step="0.01" value={paidCash} onChange={e => setPaidCash(e.target.value)} />
-            </div>
-            <div>
-              <div className="pos-label">Карта / долг</div>
-              <input className="pos-input" type="number" step="0.01" value={paymentMethod === 'credit' ? debtAdded : paidCard} onChange={e => paymentMethod === 'credit' ? setDebtAdded(e.target.value) : setPaidCard(e.target.value)} />
-            </div>
-          </div>
-
-          <div>
-            <div className="pos-label">Комментарий</div>
-            <textarea className="pos-textarea" value={note} onChange={e => setNote(e.target.value)} />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 12, color: '#8FB897' }}>Итог</div>
-              <div style={{ fontSize: 24, fontWeight: 900 }}>{money(total)}</div>
-            </div>
-            <button className="pos-btn pos-btn-main" disabled={busy || !rows.some(r => r.productId && r.qty > 0)} onClick={submitSale}>
-              {busy ? 'Проведение...' : 'Провести продажу'}
-            </button>
-          </div>
-          {msg && <div className="pos-empty">{msg}</div>}
+        <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16 }}>
+          <Field label="Клиент">
+            <select className="odoo-select" value={clientId} onChange={e => setClientId(e.target.value)}>
+              <option value="">Без клиента</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>)}
+            </select>
+          </Field>
+          <Field label="Карта лояльности">
+            <select className="odoo-select" value={cardNum} onChange={e => setCardNum(e.target.value)}>
+              <option value="">Без карты</option>
+              {cards.filter(c => c.status === 'active').map(c => <option key={c.num} value={c.num}>{c.num} · {c.client || c.phone}</option>)}
+            </select>
+          </Field>
         </div>
-      </SectionCard>
 
-      <SectionCard title="Последние продажи">
+        <div className="odoo-grid odoo-three" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+          <Field label="Способ оплаты">
+            <select className="odoo-select" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as 'cash' | 'card' | 'credit' | 'mixed')}>
+              <option value="cash">Наличные</option>
+              <option value="card">Карта</option>
+              <option value="credit">В долг</option>
+              <option value="mixed">Смешанная</option>
+            </select>
+          </Field>
+          <Field label="Наличными">
+            <input className="odoo-input" type="number" step="0.01" value={paidCash} onChange={e => setPaidCash(e.target.value)} />
+          </Field>
+          <Field label={paymentMethod === 'credit' ? 'В долг' : 'Картой'}>
+            <input className="odoo-input" type="number" step="0.01" value={paymentMethod === 'credit' ? debtAdded : paidCard} onChange={e => paymentMethod === 'credit' ? setDebtAdded(e.target.value) : setPaidCard(e.target.value)} />
+          </Field>
+        </div>
+
+        <Field label="Примечание">
+          <textarea className="odoo-textarea" value={note} onChange={e => setNote(e.target.value)} />
+        </Field>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, borderTop: '1px solid #ededed', paddingTop: 14, marginTop: 4 }}>
+          <div>
+            <div style={{ fontSize: 12, color: '#8f8f8f' }}>Итого к оплате</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: '#374151' }}>{money(total)}</div>
+          </div>
+          <button className="odoo-btn odoo-btn-success" disabled={busy || !rows.some(r => r.productId && r.qty > 0)} onClick={submitSale}>
+            {busy ? 'Проведение…' : 'Оплатить и провести'}
+          </button>
+        </div>
+        <Alert text={msg} />
+      </Card>
+
+      <Card title="Последние продажи">
         {sales.length ? (
-          <table className="pos-table">
+          <table className="odoo-table">
             <thead>
-              <tr><th>ID</th><th>Сумма</th><th>Оплата</th><th>Когда</th></tr>
+              <tr><th>Чек</th><th className="num">Сумма</th><th>Оплата</th><th>Дата</th></tr>
             </thead>
             <tbody>
-              {sales.slice(0, 10).map(s => (
+              {sales.slice(0, 12).map(s => (
                 <tr key={s.id}>
                   <td>{s.id}</td>
-                  <td>{money(s.total)}</td>
+                  <td className="num">{money(s.total)}</td>
                   <td>{s.paymentMethod}</td>
                   <td>{fmtIso(s.createdAtIso)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        ) : <div className="pos-empty">Продаж пока нет.</div>}
-      </SectionCard>
+        ) : <div className="odoo-empty">Продаж пока нет.</div>}
+      </Card>
     </div>
   )
 }
@@ -330,77 +411,61 @@ function CashDeskPanel({
   }
 
   return (
-    <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-      <SectionCard title="Кассиры и смены">
-        <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <div>
-            <div className="pos-label">Имя кассира</div>
-            <input className="pos-input" value={name} onChange={e => setName(e.target.value)} />
-          </div>
-          <div>
-            <div className="pos-label">PIN</div>
-            <input className="pos-input" value={pin} onChange={e => setPin(e.target.value)} />
-          </div>
+    <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <Card title="Кассиры и смены">
+        <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <Field label="Имя кассира"><input className="odoo-input" value={name} onChange={e => setName(e.target.value)} /></Field>
+          <Field label="PIN"><input className="odoo-input" value={pin} onChange={e => setPin(e.target.value)} /></Field>
         </div>
-        <div style={{ marginTop: 12 }}>
-          <button className="pos-btn pos-btn-main" onClick={createNewCashier}>Добавить кассира</button>
-        </div>
+        <button className="odoo-btn odoo-btn-primary" onClick={createNewCashier}>Добавить кассира</button>
 
-        <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 18 }}>
-          <div>
-            <div className="pos-label">Открыть смену</div>
-            <select className="pos-select" value={cashierId} onChange={e => setCashierId(e.target.value)}>
+        <div style={{ borderTop: '1px solid #ededed', margin: '18px 0 14px' }} />
+
+        <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <Field label="Кассир для смены">
+            <select className="odoo-select" value={cashierId} onChange={e => setCashierId(e.target.value)}>
               <option value="">Выберите кассира</option>
               {cashiers.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-          </div>
-          <div>
-            <div className="pos-label">Стартовый остаток</div>
-            <input className="pos-input" type="number" step="0.01" value={openingCash} onChange={e => setOpeningCash(e.target.value)} />
-          </div>
+          </Field>
+          <Field label="Стартовый остаток кассы"><input className="odoo-input" type="number" step="0.01" value={openingCash} onChange={e => setOpeningCash(e.target.value)} /></Field>
         </div>
-        <div style={{ marginTop: 12 }}>
-          <button className="pos-btn pos-btn-soft" onClick={openShift}>Открыть смену</button>
-        </div>
+        <button className="odoo-btn odoo-btn-secondary" onClick={openShift}>Открыть смену</button>
 
-        <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 18 }}>
-          <div>
-            <div className="pos-label">Закрыть смену</div>
-            <select className="pos-select" value={closeShiftId} onChange={e => setCloseShiftId(e.target.value)}>
+        <div style={{ borderTop: '1px solid #ededed', margin: '18px 0 14px' }} />
+
+        <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <Field label="Открытая смена">
+            <select className="odoo-select" value={closeShiftId} onChange={e => setCloseShiftId(e.target.value)}>
               <option value="">Выберите смену</option>
               {shifts.filter(s => s.status === 'open').map(s => <option key={s.id} value={s.id}>{s.cashierName} · {fmtIso(s.openedAtIso)}</option>)}
             </select>
-          </div>
-          <div>
-            <div className="pos-label">Факт в кассе</div>
-            <input className="pos-input" type="number" step="0.01" value={closingCash} onChange={e => setClosingCash(e.target.value)} />
-          </div>
+          </Field>
+          <Field label="Факт в кассе"><input className="odoo-input" type="number" step="0.01" value={closingCash} onChange={e => setClosingCash(e.target.value)} /></Field>
         </div>
-        <div style={{ marginTop: 12 }}>
-          <button className="pos-btn pos-btn-soft" onClick={closeShift}>Закрыть смену</button>
-        </div>
-        {msg && <div className="pos-empty" style={{ marginTop: 14 }}>{msg}</div>}
-      </SectionCard>
+        <button className="odoo-btn odoo-btn-light" onClick={closeShift}>Закрыть смену</button>
+        <Alert text={msg} />
+      </Card>
 
-      <SectionCard title="Список смен">
+      <Card title="Журнал смен">
         {shifts.length ? (
-          <table className="pos-table">
+          <table className="odoo-table">
             <thead>
-              <tr><th>Кассир</th><th>Статус</th><th>Продажи</th><th>Наличные</th></tr>
+              <tr><th>Кассир</th><th>Статус</th><th className="num">Продажи</th><th className="num">Наличные</th></tr>
             </thead>
             <tbody>
-              {shifts.slice(0, 12).map(s => (
+              {shifts.slice(0, 14).map(s => (
                 <tr key={s.id}>
                   <td>{s.cashierName}</td>
-                  <td>{s.status}</td>
-                  <td>{s.salesCount}</td>
-                  <td>{money(s.salesCash)}</td>
+                  <td><span className={`odoo-badge ${s.status === 'open' ? 'odoo-badge-open' : 'odoo-badge-closed'}`}>{s.status === 'open' ? 'Открыта' : 'Закрыта'}</span></td>
+                  <td className="num">{s.salesCount}</td>
+                  <td className="num">{money(s.salesCash)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        ) : <div className="pos-empty">Смен ещё нет.</div>}
-      </SectionCard>
+        ) : <div className="odoo-empty">Смен ещё нет.</div>}
+      </Card>
     </div>
   )
 }
@@ -445,55 +510,52 @@ function WarehousePanel({ products, suppliers, reloadAll }: { products: Product[
   }
 
   return (
-    <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-      <SectionCard title="Складские операции">
-        <div className="pos-grid" style={{ gap: 18 }}>
-          <div className="pos-card" style={{ padding: 14 }}>
-            <div style={{ fontWeight: 900, marginBottom: 12 }}>Приход</div>
-            <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-              <div><div className="pos-label">Товар</div><ProductPicker products={products} value={receiptProductId} onChange={setReceiptProductId} /></div>
-              <div><div className="pos-label">Поставщик</div><select className="pos-select" value={supplierId} onChange={e => setSupplierId(e.target.value)}><option value="">Без поставщика</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-              <div><div className="pos-label">Количество</div><input className="pos-input" type="number" step="0.01" value={receiptQty} onChange={e => setReceiptQty(e.target.value)} /></div>
-              <div><div className="pos-label">Себестоимость</div><input className="pos-input" type="number" step="0.01" value={receiptCost} onChange={e => setReceiptCost(e.target.value)} /></div>
-              <div><div className="pos-label">Срок годности</div><input className="pos-input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} /></div>
-            </div>
-            <div style={{ marginTop: 12 }}><button className="pos-btn pos-btn-main" onClick={addReceipt}>Сохранить приход</button></div>
+    <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1.2fr' }}>
+      <div className="odoo-grid" style={{ gap: 16 }}>
+        <Card title="Приход товара">
+          <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <Field label="Товар"><ProductPicker products={products} value={receiptProductId} onChange={setReceiptProductId} /></Field>
+            <Field label="Поставщик">
+              <select className="odoo-select" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
+                <option value="">Без поставщика</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Количество"><input className="odoo-input" type="number" step="0.01" value={receiptQty} onChange={e => setReceiptQty(e.target.value)} /></Field>
+            <Field label="Себестоимость"><input className="odoo-input" type="number" step="0.01" value={receiptCost} onChange={e => setReceiptCost(e.target.value)} /></Field>
+            <Field label="Срок годности"><input className="odoo-input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} /></Field>
           </div>
+          <button className="odoo-btn odoo-btn-primary" onClick={addReceipt}>Оприходовать</button>
+        </Card>
 
-          <div className="pos-card" style={{ padding: 14 }}>
-            <div style={{ fontWeight: 900, marginBottom: 12 }}>Списание</div>
-            <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-              <div><div className="pos-label">Товар</div><ProductPicker products={products} value={writeoffProductId} onChange={setWriteoffProductId} /></div>
-              <div><div className="pos-label">Количество</div><input className="pos-input" type="number" step="0.01" value={writeoffQty} onChange={e => setWriteoffQty(e.target.value)} /></div>
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <div className="pos-label">Причина</div>
-              <input className="pos-input" value={reason} onChange={e => setReason(e.target.value)} />
-            </div>
-            <div style={{ marginTop: 12 }}><button className="pos-btn pos-btn-soft" onClick={addWriteoff}>Провести списание</button></div>
+        <Card title="Списание товара">
+          <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <Field label="Товар"><ProductPicker products={products} value={writeoffProductId} onChange={setWriteoffProductId} /></Field>
+            <Field label="Количество"><input className="odoo-input" type="number" step="0.01" value={writeoffQty} onChange={e => setWriteoffQty(e.target.value)} /></Field>
           </div>
+          <Field label="Причина"><input className="odoo-input" value={reason} onChange={e => setReason(e.target.value)} /></Field>
+          <button className="odoo-btn odoo-btn-light" onClick={addWriteoff}>Провести списание</button>
+          <Alert text={msg} />
+        </Card>
+      </div>
 
-          {msg && <div className="pos-empty">{msg}</div>}
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Текущие остатки">
-        <table className="pos-table">
+      <Card title="Остатки на складе">
+        <table className="odoo-table">
           <thead>
-            <tr><th>Товар</th><th>Остаток</th><th>Цена</th><th>Себестоимость</th></tr>
+            <tr><th>Товар</th><th className="num">Остаток</th><th className="num">Цена</th><th className="num">Себест.</th></tr>
           </thead>
           <tbody>
-            {products.slice(0, 20).map(p => (
+            {products.slice(0, 30).map(p => (
               <tr key={p.id}>
-                <td>{p.name}</td>
-                <td>{p.stock}</td>
-                <td>{money(p.price)}</td>
-                <td>{money(p.costPrice)}</td>
+                <td>{p.name}{Number(p.stock) <= 5 && <span className="odoo-badge odoo-badge-warn" style={{ marginLeft: 8 }}>мало</span>}</td>
+                <td className="num">{p.stock}</td>
+                <td className="num">{money(p.price)}</td>
+                <td className="num">{money(p.costPrice)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </SectionCard>
+      </Card>
     </div>
   )
 }
@@ -501,7 +563,7 @@ function WarehousePanel({ products, suppliers, reloadAll }: { products: Product[
 function RevisionPanel({ products, reloadAll }: { products: Product[]; reloadAll: () => Promise<void> }) {
   const [counts, setCounts] = useState<Record<number, string>>({})
   const [msg, setMsg] = useState('')
-  const list = products.slice(0, 15)
+  const list = products.slice(0, 20)
 
   async function saveRevision() {
     try {
@@ -517,50 +579,52 @@ function RevisionPanel({ products, reloadAll }: { products: Product[]; reloadAll
   }
 
   return (
-    <SectionCard title="Ревизия остатков">
-      <table className="pos-table">
+    <Card title="Инвентаризация / ревизия" actions={<button className="odoo-btn odoo-btn-primary" onClick={saveRevision}>Сохранить ревизию</button>}>
+      <table className="odoo-table">
         <thead>
-          <tr><th>Товар</th><th>Системный остаток</th><th>Фактический остаток</th></tr>
+          <tr><th>Товар</th><th className="num">Учётный остаток</th><th className="num">Фактический остаток</th><th className="num">Отклонение</th></tr>
         </thead>
         <tbody>
-          {list.map(p => (
-            <tr key={p.id}>
-              <td>{p.name}</td>
-              <td>{p.stock}</td>
-              <td><input className="pos-input" value={counts[p.id] ?? String(p.stock)} onChange={e => setCounts(s => ({ ...s, [p.id]: e.target.value }))} /></td>
-            </tr>
-          ))}
+          {list.map(p => {
+            const counted = counts[p.id] === undefined ? p.stock : Number(counts[p.id]) || 0
+            const diff = counted - p.stock
+            return (
+              <tr key={p.id}>
+                <td>{p.name}</td>
+                <td className="num">{p.stock}</td>
+                <td className="num"><input className="odoo-input" style={{ maxWidth: 120, marginLeft: 'auto', textAlign: 'right' }} value={counts[p.id] ?? String(p.stock)} onChange={e => setCounts(s => ({ ...s, [p.id]: e.target.value }))} /></td>
+                <td className="num" style={{ color: diff === 0 ? '#9a9a9a' : diff > 0 ? '#00807d' : '#c0392b' }}>{diff > 0 ? `+${diff}` : diff}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
-      <div style={{ marginTop: 14, display: 'flex', gap: 12, alignItems: 'center' }}>
-        <button className="pos-btn pos-btn-main" onClick={saveRevision}>Сохранить ревизию</button>
-        {msg && <span className="pos-empty" style={{ padding: '10px 12px' }}>{msg}</span>}
-      </div>
-    </SectionCard>
+      <Alert text={msg} />
+    </Card>
   )
 }
 
 function ExpiryPanel({ expiry }: { expiry: any[] }) {
   return (
-    <SectionCard title="Товары со сроком">
+    <Card title="Контроль сроков годности">
       {expiry.length ? (
-        <table className="pos-table">
+        <table className="odoo-table">
           <thead>
-            <tr><th>Товар</th><th>Остаток</th><th>Срок</th><th>Дней осталось</th></tr>
+            <tr><th>Товар</th><th className="num">Остаток партии</th><th>Годен до</th><th className="num">Дней осталось</th></tr>
           </thead>
           <tbody>
             {expiry.map(row => (
               <tr key={`${row.receiptId}-${row.productId}`}>
                 <td>{row.productName}</td>
-                <td>{row.qty}</td>
+                <td className="num">{row.qty}</td>
                 <td>{row.expiryDate}</td>
-                <td>{row.daysLeft}</td>
+                <td className="num"><span className={`odoo-badge ${row.daysLeft <= 3 ? 'odoo-badge-warn' : 'odoo-badge-open'}`}>{row.daysLeft}</span></td>
               </tr>
             ))}
           </tbody>
         </table>
-      ) : <div className="pos-empty">Нет партий с близким сроком годности.</div>}
-    </SectionCard>
+      ) : <div className="odoo-empty">Нет партий с близким сроком годности.</div>}
+    </Card>
   )
 }
 
@@ -595,35 +659,46 @@ function SuppliersPanel({ suppliers, reloadAll }: { suppliers: any[]; reloadAll:
   }
 
   return (
-    <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-      <SectionCard title="Поставщики">
-        <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <div><div className="pos-label">Название</div><input className="pos-input" value={name} onChange={e => setName(e.target.value)} /></div>
-          <div><div className="pos-label">Телефон</div><input className="pos-input" value={phone} onChange={e => setPhone(e.target.value)} /></div>
+    <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1.2fr' }}>
+      <Card title="Поставщики и оплаты">
+        <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <Field label="Название"><input className="odoo-input" value={name} onChange={e => setName(e.target.value)} /></Field>
+          <Field label="Телефон"><input className="odoo-input" value={phone} onChange={e => setPhone(e.target.value)} /></Field>
         </div>
-        <div style={{ marginTop: 12 }}><button className="pos-btn pos-btn-main" onClick={addSupplier}>Добавить поставщика</button></div>
-        <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 18 }}>
-          <div><div className="pos-label">Поставщик</div><select className="pos-select" value={supplierId} onChange={e => setSupplierId(e.target.value)}><option value="">Выберите</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-          <div><div className="pos-label">Сумма оплаты</div><input className="pos-input" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+        <button className="odoo-btn odoo-btn-primary" onClick={addSupplier}>Добавить поставщика</button>
+
+        <div style={{ borderTop: '1px solid #ededed', margin: '18px 0 14px' }} />
+
+        <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <Field label="Поставщик">
+            <select className="odoo-select" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
+              <option value="">Выберите</option>
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Сумма оплаты"><input className="odoo-input" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></Field>
         </div>
-        <div style={{ marginTop: 12 }}><button className="pos-btn pos-btn-soft" onClick={paySupplier}>Оплатить поставщику</button></div>
-        {msg && <div className="pos-empty" style={{ marginTop: 14 }}>{msg}</div>}
-      </SectionCard>
-      <SectionCard title="Баланс поставщиков">
-        <table className="pos-table">
-          <thead><tr><th>Поставщик</th><th>Долг</th><th>Поставлено</th><th>Оплачено</th></tr></thead>
-          <tbody>
-            {suppliers.map(s => (
-              <tr key={s.id}>
-                <td>{s.name}</td>
-                <td>{money(s.payableAmount)}</td>
-                <td>{money(s.totalSupplied)}</td>
-                <td>{money(s.totalPaid)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </SectionCard>
+        <button className="odoo-btn odoo-btn-secondary" onClick={paySupplier}>Оплатить поставщику</button>
+        <Alert text={msg} />
+      </Card>
+
+      <Card title="Баланс поставщиков">
+        {suppliers.length ? (
+          <table className="odoo-table">
+            <thead><tr><th>Поставщик</th><th className="num">Долг</th><th className="num">Поставлено</th><th className="num">Оплачено</th></tr></thead>
+            <tbody>
+              {suppliers.map(s => (
+                <tr key={s.id}>
+                  <td>{s.name}</td>
+                  <td className="num" style={{ color: Number(s.payableAmount) > 0 ? '#c0392b' : '#9a9a9a' }}>{money(s.payableAmount)}</td>
+                  <td className="num">{money(s.totalSupplied)}</td>
+                  <td className="num">{money(s.totalPaid)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <div className="odoo-empty">Поставщиков пока нет.</div>}
+      </Card>
     </div>
   )
 }
@@ -633,30 +708,30 @@ function DebtsPanel({ clients, cards, sales }: { clients: AdminClient[]; cards: 
   const debtCards = cards.filter(c => Number(c.debt) > 0)
   const creditSales = sales.filter(s => Number(s.debtAdded) > 0)
   return (
-    <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-      <SectionCard title="Клиенты с долгами">
+    <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <Card title="Клиенты с долгами">
         {debtClients.length ? (
-          <table className="pos-table">
-            <thead><tr><th>Клиент</th><th>Телефон</th><th>Долг</th></tr></thead>
-            <tbody>{debtClients.map(c => <tr key={c.id}><td>{c.name}</td><td>{c.phone}</td><td>{money(c.debt)}</td></tr>)}</tbody>
+          <table className="odoo-table">
+            <thead><tr><th>Клиент</th><th>Телефон</th><th className="num">Долг</th></tr></thead>
+            <tbody>{debtClients.map(c => <tr key={c.id}><td>{c.name}</td><td>{c.phone}</td><td className="num" style={{ color: '#c0392b' }}>{money(c.debt)}</td></tr>)}</tbody>
           </table>
-        ) : <div className="pos-empty">Клиентских долгов пока нет.</div>}
-      </SectionCard>
-      <SectionCard title="Карты и продажи в долг">
+        ) : <div className="odoo-empty">Клиентских долгов пока нет.</div>}
+      </Card>
+      <Card title="Карты и продажи в долг">
         {debtCards.length || creditSales.length ? (
           <>
-            <table className="pos-table">
-              <thead><tr><th>Карта</th><th>Клиент</th><th>Долг</th></tr></thead>
-              <tbody>{debtCards.map(c => <tr key={c.num}><td>{c.num}</td><td>{c.client}</td><td>{money(c.debt)}</td></tr>)}</tbody>
+            <table className="odoo-table" style={{ marginBottom: 16 }}>
+              <thead><tr><th>Карта</th><th>Клиент</th><th className="num">Долг</th></tr></thead>
+              <tbody>{debtCards.map(c => <tr key={c.num}><td>{c.num}</td><td>{c.client}</td><td className="num" style={{ color: '#c0392b' }}>{money(c.debt)}</td></tr>)}</tbody>
             </table>
-            <div style={{ marginTop: 16, fontWeight: 900 }}>Последние продажи в долг</div>
-            <table className="pos-table">
-              <thead><tr><th>ID</th><th>Клиент</th><th>Сумма</th></tr></thead>
-              <tbody>{creditSales.slice(0, 8).map(s => <tr key={s.id}><td>{s.id}</td><td>{s.clientName || '—'}</td><td>{money(s.debtAdded)}</td></tr>)}</tbody>
+            <div className="odoo-card-title" style={{ fontSize: 13, marginBottom: 8 }}>Последние продажи в долг</div>
+            <table className="odoo-table">
+              <thead><tr><th>Чек</th><th>Клиент</th><th className="num">Сумма</th></tr></thead>
+              <tbody>{creditSales.slice(0, 10).map(s => <tr key={s.id}><td>{s.id}</td><td>{s.clientName || '—'}</td><td className="num">{money(s.debtAdded)}</td></tr>)}</tbody>
             </table>
           </>
-        ) : <div className="pos-empty">Продаж в долг пока нет.</div>}
-      </SectionCard>
+        ) : <div className="odoo-empty">Продаж в долг пока нет.</div>}
+      </Card>
     </div>
   )
 }
@@ -680,31 +755,31 @@ function FinancePanel({ financeSummary, expenses, openShiftId, reloadAll }: { fi
   }
 
   return (
-    <div className="pos-grid" style={{ gap: 16 }}>
-      <div className="pos-grid pos-three" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <Stat label="Выручка" value={money(financeSummary?.revenue)} />
-        <Stat label="Наличные" value={money(financeSummary?.cashRevenue)} />
-        <Stat label="Карта" value={money(financeSummary?.cardRevenue)} />
-        <Stat label="Выдано в долг" value={money(financeSummary?.creditIssued)} />
+    <div className="odoo-grid" style={{ gap: 16 }}>
+      <div className="odoo-kpis">
+        <Kpi label="Выручка" value={money(financeSummary?.revenue)} />
+        <Kpi label="Наличные" value={money(financeSummary?.cashRevenue)} />
+        <Kpi label="Безнал (карта)" value={money(financeSummary?.cardRevenue)} />
+        <Kpi label="Выдано в долг" value={money(financeSummary?.creditIssued)} />
       </div>
-      <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <SectionCard title="Добавить расход">
-          <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div><div className="pos-label">Категория</div><input className="pos-input" value={category} onChange={e => setCategory(e.target.value)} /></div>
-            <div><div className="pos-label">Сумма</div><input className="pos-input" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+      <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1.2fr' }}>
+        <Card title="Добавить расход">
+          <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <Field label="Категория"><input className="odoo-input" value={category} onChange={e => setCategory(e.target.value)} /></Field>
+            <Field label="Сумма"><input className="odoo-input" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></Field>
           </div>
-          <div style={{ marginTop: 12 }}><div className="pos-label">Комментарий</div><textarea className="pos-textarea" value={note} onChange={e => setNote(e.target.value)} /></div>
-          <div style={{ marginTop: 12 }}><button className="pos-btn pos-btn-main" onClick={addExpense}>Сохранить расход</button></div>
-          {msg && <div className="pos-empty" style={{ marginTop: 14 }}>{msg}</div>}
-        </SectionCard>
-        <SectionCard title="Последние расходы">
+          <Field label="Комментарий"><textarea className="odoo-textarea" value={note} onChange={e => setNote(e.target.value)} /></Field>
+          <button className="odoo-btn odoo-btn-primary" onClick={addExpense}>Сохранить расход</button>
+          <Alert text={msg} />
+        </Card>
+        <Card title="Последние расходы">
           {expenses.length ? (
-            <table className="pos-table">
-              <thead><tr><th>Категория</th><th>Сумма</th><th>Когда</th></tr></thead>
-              <tbody>{expenses.slice(0, 10).map(e => <tr key={e.id}><td>{e.category}</td><td>{money(e.amount)}</td><td>{fmtIso(e.createdAtIso)}</td></tr>)}</tbody>
+            <table className="odoo-table">
+              <thead><tr><th>Категория</th><th className="num">Сумма</th><th>Дата</th></tr></thead>
+              <tbody>{expenses.slice(0, 12).map(e => <tr key={e.id}><td>{e.category}</td><td className="num">{money(e.amount)}</td><td>{fmtIso(e.createdAtIso)}</td></tr>)}</tbody>
             </table>
-          ) : <div className="pos-empty">Расходов пока нет.</div>}
-        </SectionCard>
+          ) : <div className="odoo-empty">Расходов пока нет.</div>}
+        </Card>
       </div>
     </div>
   )
@@ -713,30 +788,30 @@ function FinancePanel({ financeSummary, expenses, openShiftId, reloadAll }: { fi
 function ReportsPanel({ report }: { report: any }) {
   const summary = report?.summary || {}
   return (
-    <div className="pos-grid" style={{ gap: 16 }}>
-      <div className="pos-grid pos-three" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <Stat label="Продаж" value={String(summary.salesCount || 0)} />
-        <Stat label="Долг клиентов" value={money(summary.clientDebt)} />
-        <Stat label="Долг поставщикам" value={money(summary.supplierDebt)} />
-        <Stat label="Расходы" value={money(summary.expenses)} />
+    <div className="odoo-grid" style={{ gap: 16 }}>
+      <div className="odoo-kpis">
+        <Kpi label="Продаж всего" value={String(summary.salesCount || 0)} />
+        <Kpi label="Долг клиентов" value={money(summary.clientDebt)} />
+        <Kpi label="Долг поставщикам" value={money(summary.supplierDebt)} />
+        <Kpi label="Расходы" value={money(summary.expenses)} />
       </div>
-      <div className="pos-grid pos-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <SectionCard title="Топ товаров">
+      <div className="odoo-grid odoo-two" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <Card title="Топ товаров по выручке">
           {report?.topProducts?.length ? (
-            <table className="pos-table">
-              <thead><tr><th>Товар</th><th>Кол-во</th><th>Выручка</th></tr></thead>
-              <tbody>{report.topProducts.map((p: any) => <tr key={p.productId}><td>{p.productName}</td><td>{p.qty}</td><td>{money(p.revenue)}</td></tr>)}</tbody>
+            <table className="odoo-table">
+              <thead><tr><th>Товар</th><th className="num">Кол-во</th><th className="num">Выручка</th></tr></thead>
+              <tbody>{report.topProducts.map((p: any) => <tr key={p.productId}><td>{p.productName}</td><td className="num">{p.qty}</td><td className="num">{money(p.revenue)}</td></tr>)}</tbody>
             </table>
-          ) : <div className="pos-empty">Пока нет данных.</div>}
-        </SectionCard>
-        <SectionCard title="Последние продажи">
+          ) : <div className="odoo-empty">Пока нет данных.</div>}
+        </Card>
+        <Card title="Последние продажи">
           {report?.recentSales?.length ? (
-            <table className="pos-table">
-              <thead><tr><th>ID</th><th>Сумма</th><th>Когда</th></tr></thead>
-              <tbody>{report.recentSales.map((s: PosSale) => <tr key={s.id}><td>{s.id}</td><td>{money(s.total)}</td><td>{fmtIso(s.createdAtIso)}</td></tr>)}</tbody>
+            <table className="odoo-table">
+              <thead><tr><th>Чек</th><th className="num">Сумма</th><th>Дата</th></tr></thead>
+              <tbody>{report.recentSales.map((s: PosSale) => <tr key={s.id}><td>{s.id}</td><td className="num">{money(s.total)}</td><td>{fmtIso(s.createdAtIso)}</td></tr>)}</tbody>
             </table>
-          ) : <div className="pos-empty">Продаж пока нет.</div>}
-        </SectionCard>
+          ) : <div className="odoo-empty">Продаж пока нет.</div>}
+        </Card>
       </div>
     </div>
   )
@@ -772,58 +847,72 @@ function PosAppInner() {
   }
 
   const currentPage = (PAGES.some(p => p.id === page) ? page : 'sales') as PosPage
+  const currentLabel = PAGES.find(p => p.id === currentPage)?.label || 'Касса POS'
 
   return (
-    <div className="pos-shell">
+    <div className="odoo">
       <style>{CSS}</style>
-      <div className="pos-wrap">
-        <div className="pos-card" style={{ padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 12, color: '#8FB897', fontWeight: 900 }}>6-е приложение KAKAPO</div>
-              <div style={{ fontSize: 32, fontWeight: 900 }}>POS / Касса / Склад</div>
-              <div style={{ marginTop: 6, color: '#6F9D79' }}>Один общий источник данных для товаров, клиентов, карт, долгов и складских остатков.</div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <div className="pos-chip">Товаров: {products.length}</div>
-              <div className="pos-chip">Низкий остаток: {lowStock}</div>
-              <div className="pos-chip">Открытая смена: {openShift ? openShift.cashierName : 'нет'}</div>
-            </div>
-          </div>
-          <div className="pos-nav">
-            {PAGES.map(item => (
-              <button key={item.id} className={`pos-btn ${currentPage === item.id ? 'pos-btn-main' : 'pos-btn-soft'}`} onClick={() => setPage(item.id)}>
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        <div style={{ marginTop: 18 }}>
-          {!booted ? (
-            <div className="pos-empty">Загрузка POS-модуля...</div>
-          ) : pos.apiError ? (
-            <div className="pos-empty">{pos.apiError}</div>
-          ) : currentPage === 'sales' ? (
-            <PosSalesPanel products={products} clients={clients} cards={cards} sales={pos.sales} cashiers={pos.cashiers} openShift={openShift} reloadAll={reloadAll} />
-          ) : currentPage === 'cash' ? (
-            <CashDeskPanel cashiers={pos.cashiers} shifts={pos.shifts} reloadAll={reloadAll} />
-          ) : currentPage === 'warehouse' ? (
-            <WarehousePanel products={products} suppliers={pos.suppliers} reloadAll={reloadAll} />
-          ) : currentPage === 'revision' ? (
-            <RevisionPanel products={products} reloadAll={reloadAll} />
-          ) : currentPage === 'expiry' ? (
-            <ExpiryPanel expiry={pos.expiry} />
-          ) : currentPage === 'suppliers' ? (
-            <SuppliersPanel suppliers={pos.suppliers} reloadAll={reloadAll} />
-          ) : currentPage === 'debts' ? (
-            <DebtsPanel clients={clients} cards={cards} sales={pos.sales} />
-          ) : currentPage === 'finance' ? (
-            <FinancePanel financeSummary={pos.financeSummary} expenses={pos.expenses} openShiftId={openShift?.id} reloadAll={reloadAll} />
-          ) : (
-            <ReportsPanel report={pos.report} />
-          )}
+      {/* App navbar */}
+      <div className="odoo-navbar">
+        <div className="odoo-brand"><span className="dot">K</span> KAKAPO POS</div>
+        <div className="odoo-menu">
+          {PAGES.map(item => (
+            <button
+              key={item.id}
+              className={`odoo-menuitem ${currentPage === item.id ? 'active' : ''}`}
+              onClick={() => setPage(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
+        <div className="odoo-userarea">
+          <div className="odoo-avatar">{openShift ? openShift.cashierName.slice(0, 1).toUpperCase() : 'A'}</div>
+        </div>
+      </div>
+
+      {/* Control panel */}
+      <div className="odoo-control">
+        <div className="odoo-breadcrumb">
+          <span className="crumb-app">POS / Склад</span>
+          <span className="sep">/</span>
+          <span>{currentLabel}</span>
+        </div>
+        <div className="odoo-statusbar">
+          <span className="odoo-chip">Товаров: {products.length}</span>
+          <span className="odoo-chip">Низкий остаток: {lowStock}</span>
+          <span className={`odoo-badge ${openShift ? 'odoo-badge-open' : 'odoo-badge-closed'}`}>
+            {openShift ? `Смена: ${openShift.cashierName}` : 'Смена закрыта'}
+          </span>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="odoo-content">
+        {!booted ? (
+          <div className="odoo-card"><div className="odoo-empty">Загрузка модуля POS…</div></div>
+        ) : pos.apiError ? (
+          <div className="odoo-card"><div className="odoo-empty">{pos.apiError}</div></div>
+        ) : currentPage === 'sales' ? (
+          <PosSalesPanel products={products} clients={clients} cards={cards} sales={pos.sales} openShift={openShift} reloadAll={reloadAll} />
+        ) : currentPage === 'cash' ? (
+          <CashDeskPanel cashiers={pos.cashiers} shifts={pos.shifts} reloadAll={reloadAll} />
+        ) : currentPage === 'warehouse' ? (
+          <WarehousePanel products={products} suppliers={pos.suppliers} reloadAll={reloadAll} />
+        ) : currentPage === 'revision' ? (
+          <RevisionPanel products={products} reloadAll={reloadAll} />
+        ) : currentPage === 'expiry' ? (
+          <ExpiryPanel expiry={pos.expiry} />
+        ) : currentPage === 'suppliers' ? (
+          <SuppliersPanel suppliers={pos.suppliers} reloadAll={reloadAll} />
+        ) : currentPage === 'debts' ? (
+          <DebtsPanel clients={clients} cards={cards} sales={pos.sales} />
+        ) : currentPage === 'finance' ? (
+          <FinancePanel financeSummary={pos.financeSummary} expenses={pos.expenses} openShiftId={openShift?.id} reloadAll={reloadAll} />
+        ) : (
+          <ReportsPanel report={pos.report} />
+        )}
       </div>
     </div>
   )
