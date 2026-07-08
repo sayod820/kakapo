@@ -50,6 +50,32 @@ import {
   normalizeCourierAccount,
   getCourierWalletTransactions,
 } from './courierWallet.js'
+import {
+  ensurePosCollections,
+  listCashiers,
+  createCashier,
+  updateCashier,
+  listPosShifts,
+  openPosShift,
+  closePosShift,
+  listSuppliers,
+  createSupplier,
+  updateSupplier,
+  createSupplierPayment,
+  listExpenses,
+  createExpense,
+  listStockReceipts,
+  createStockReceipt,
+  listStockWriteoffs,
+  createStockWriteoff,
+  listStockRevisions,
+  createStockRevision,
+  listExpiryItems,
+  listPosSales,
+  createPosSale,
+  getPosFinanceSummary,
+  getPosReport,
+} from './posLogic.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
@@ -63,6 +89,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
   .map(s => s.trim())
   .filter(Boolean)
 const db = seedIfEmpty()
+ensurePosCollections(db)
 
 function persist() {
   scheduleSaveDb()
@@ -155,6 +182,20 @@ const clients = new Set()
 
 function broadcast(event, order) {
   const msg = JSON.stringify({ event, order })
+  for (const ws of clients) {
+    if (ws.readyState === 1) ws.send(msg)
+  }
+}
+
+function broadcastProduct(product) {
+  const msg = JSON.stringify({ event: 'product_update', product })
+  for (const ws of clients) {
+    if (ws.readyState === 1) ws.send(msg)
+  }
+}
+
+function broadcastPosUpdate(payload = {}) {
+  const msg = JSON.stringify({ event: 'pos_update', payload })
   for (const ws of clients) {
     if (ws.readyState === 1) ws.send(msg)
   }
@@ -437,6 +478,7 @@ app.post('/products', (req, res) => {
   }
   db.products.push(p)
   persist()
+  broadcastProduct(p)
   res.json(p)
 })
 app.patch('/products/:id', (req, res) => {
@@ -444,11 +486,14 @@ app.patch('/products/:id', (req, res) => {
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
   Object.assign(p, req.body)
   persist()
+  broadcastProduct(p)
   res.json(p)
 })
 app.delete('/products/:id', (req, res) => {
-  db.products = db.products.filter(x => x.id !== Number(req.params.id))
+  const id = Number(req.params.id)
+  db.products = db.products.filter(x => x.id !== id)
   persist()
+  broadcastProduct({ id, deleted: true })
   res.json({ ok: true })
 })
 
@@ -979,6 +1024,163 @@ app.patch('/assemblers/:id', (req, res) => {
   Object.assign(a, normalizeAssemblerRow({ ...a, ...req.body, id: a.id }))
   persist()
   res.json(a)
+})
+
+app.get('/cashiers', (_req, res) => {
+  res.json(listCashiers(db))
+})
+app.post('/cashiers', (req, res) => {
+  try {
+    const row = createCashier(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'cashier', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось создать кассира' })
+  }
+})
+app.patch('/cashiers/:id', (req, res) => {
+  try {
+    const row = updateCashier(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'cashier', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить кассира' })
+  }
+})
+
+app.get('/pos/shifts', (_req, res) => {
+  res.json(listPosShifts(db))
+})
+app.post('/pos/shifts/open', (req, res) => {
+  try {
+    const row = openPosShift(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'shift', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось открыть смену' })
+  }
+})
+app.patch('/pos/shifts/:id/close', (req, res) => {
+  try {
+    const row = closePosShift(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'shift', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось закрыть смену' })
+  }
+})
+
+app.get('/pos/sales', (_req, res) => {
+  res.json(listPosSales(db))
+})
+app.post('/pos/sales', (req, res) => {
+  try {
+    const row = createPosSale(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'sale', id: row.id })
+    broadcastProduct({ reason: 'sale' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
+  }
+})
+
+app.get('/stock/receipts', (_req, res) => {
+  res.json(listStockReceipts(db))
+})
+app.post('/stock/receipts', (req, res) => {
+  try {
+    const row = createStockReceipt(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'receipt', id: row.id })
+    broadcastProduct({ reason: 'receipt' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести приход' })
+  }
+})
+app.get('/stock/writeoffs', (_req, res) => {
+  res.json(listStockWriteoffs(db))
+})
+app.post('/stock/writeoffs', (req, res) => {
+  try {
+    const row = createStockWriteoff(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'writeoff', id: row.id })
+    broadcastProduct({ reason: 'writeoff' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести списание' })
+  }
+})
+app.get('/stock/revisions', (_req, res) => {
+  res.json(listStockRevisions(db))
+})
+app.post('/stock/revisions', (req, res) => {
+  try {
+    const row = createStockRevision(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'revision', id: row.id })
+    broadcastProduct({ reason: 'revision' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось сохранить ревизию' })
+  }
+})
+app.get('/stock/expiry', (req, res) => {
+  res.json(listExpiryItems(db, Number(req.query.days) || 14))
+})
+
+app.get('/suppliers', (_req, res) => {
+  res.json(listSuppliers(db))
+})
+app.post('/suppliers', (req, res) => {
+  try {
+    const row = createSupplier(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'supplier', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось создать поставщика' })
+  }
+})
+app.patch('/suppliers/:id', (req, res) => {
+  try {
+    const row = updateSupplier(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'supplier', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить поставщика' })
+  }
+})
+app.post('/suppliers/:id/payments', (req, res) => {
+  try {
+    const row = createSupplierPayment(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'supplier_payment', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести оплату поставщику' })
+  }
+})
+
+app.get('/expenses', (_req, res) => {
+  res.json(listExpenses(db))
+})
+app.post('/expenses', (req, res) => {
+  try {
+    const row = createExpense(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'expense', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось добавить расход' })
+  }
 })
 
 function normalizePhoneDigits(phone) {
@@ -2085,6 +2287,14 @@ app.get('/finance/summary', (_req, res) => {
     payouts: (db.payouts || []).slice(0, 50),
     ordersDelivered: delivered.length,
   })
+})
+
+app.get('/finance/pos-summary', (_req, res) => {
+  res.json(getPosFinanceSummary(db))
+})
+
+app.get('/reports/pos', (_req, res) => {
+  res.json(getPosReport(db))
 })
 
 app.get('/admin/dashboard', (_req, res) => {

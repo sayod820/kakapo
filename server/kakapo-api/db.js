@@ -59,6 +59,15 @@ const DEFAULT = {
   promos: [],
   payouts: [],
   deletedPhoneKeys: [],
+  cashiers: [],
+  posShifts: [],
+  posSales: [],
+  stockReceipts: [],
+  writeOffs: [],
+  stockRevisions: [],
+  suppliers: [],
+  supplierPayments: [],
+  expenses: [],
   _seq: { order: 4832, product: 12, category: 2, review: 0, promo: 7, payout: 0 },
 }
 
@@ -107,6 +116,15 @@ export function loadDb() {
   if (!Array.isArray(cache.deletedPhoneKeys)) cache.deletedPhoneKeys = []
   if (!cache.settings) cache.settings = structuredClone(DEFAULT.settings)
   if (!cache.settings.admin) cache.settings.admin = structuredClone(DEFAULT.settings.admin)
+  if (!Array.isArray(cache.cashiers)) cache.cashiers = []
+  if (!Array.isArray(cache.posShifts)) cache.posShifts = []
+  if (!Array.isArray(cache.posSales)) cache.posSales = []
+  if (!Array.isArray(cache.stockReceipts)) cache.stockReceipts = []
+  if (!Array.isArray(cache.writeOffs)) cache.writeOffs = []
+  if (!Array.isArray(cache.stockRevisions)) cache.stockRevisions = []
+  if (!Array.isArray(cache.suppliers)) cache.suppliers = []
+  if (!Array.isArray(cache.supplierPayments)) cache.supplierPayments = []
+  if (!Array.isArray(cache.expenses)) cache.expenses = []
   return cache
 }
 

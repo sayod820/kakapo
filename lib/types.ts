@@ -125,6 +125,143 @@ export interface BulkPriceTier {
   price: number
 }
 
+export interface PosCashier {
+  id: string
+  name: string
+  pin: string
+  active: boolean
+  salesCount: number
+  salesTotal: number
+  createdAtIso?: string
+}
+
+export interface PosShift {
+  id: string
+  cashierId: string
+  cashierName: string
+  openedAtIso: string
+  closedAtIso?: string | null
+  openingCash: number
+  closingCash?: number | null
+  salesCash: number
+  salesCard: number
+  salesCredit: number
+  salesCount: number
+  expenseTotal: number
+  status: 'open' | 'closed'
+  note?: string
+}
+
+export interface PosSupplier {
+  id: string
+  name: string
+  category?: string
+  phone?: string
+  address?: string
+  note?: string
+  payableAmount: number
+  totalSupplied: number
+  totalPaid: number
+  lastDeliveryAtIso?: string | null
+}
+
+export interface SupplierPayment {
+  id: string
+  supplierId: string
+  supplierName: string
+  amount: number
+  paidAtIso: string
+  note?: string
+}
+
+export interface PosExpense {
+  id: string
+  category: string
+  amount: number
+  note?: string
+  createdBy?: string
+  createdAtIso: string
+  shiftId?: string
+}
+
+export interface StockReceiptItem {
+  productId: number
+  productName: string
+  qty: number
+  remainingQty: number
+  costPrice: number
+  expiryDate?: string | null
+}
+
+export interface StockReceipt {
+  id: string
+  supplierId?: string | null
+  supplierName?: string
+  createdAtIso: string
+  createdBy?: string
+  totalCost: number
+  paidNow: number
+  debtAdded: number
+  items: StockReceiptItem[]
+}
+
+export interface StockWriteoffItem {
+  productId: number
+  productName: string
+  qty: number
+}
+
+export interface StockWriteoff {
+  id: string
+  createdAtIso: string
+  createdBy?: string
+  reason: string
+  totalCost: number
+  items: StockWriteoffItem[]
+}
+
+export interface StockRevisionItem {
+  productId: number
+  productName: string
+  systemStock: number
+  countedStock: number
+  diff: number
+}
+
+export interface StockRevision {
+  id: string
+  createdAtIso: string
+  createdBy?: string
+  items: StockRevisionItem[]
+}
+
+export interface PosSaleItem {
+  productId: number
+  productName: string
+  qty: number
+  price: number
+  lineTotal: number
+}
+
+export interface PosSale {
+  id: string
+  createdAtIso: string
+  cashierId?: string
+  cashierName?: string
+  shiftId?: string
+  clientId?: string
+  clientName?: string
+  clientPhone?: string
+  cardNum?: string
+  paymentMethod: 'cash' | 'card' | 'credit' | 'mixed'
+  total: number
+  paidCash: number
+  paidCard: number
+  debtAdded: number
+  note?: string
+  items: PosSaleItem[]
+}
+
 export interface Restaurant {
   id: string
   name: string

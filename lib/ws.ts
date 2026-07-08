@@ -5,14 +5,16 @@ import { useEffect, useRef, useState } from 'react'
 import { getToken } from './api'
 import { USE_API, getWsUrl } from './config'
 
-export type WSRole = 'client' | 'courier' | 'assembler' | 'restaurant' | 'admin'
+export type WSRole = 'client' | 'courier' | 'assembler' | 'restaurant' | 'admin' | 'pos'
 
 export interface WSMessage {
-  event: 'new_order' | 'order_update' | 'notification' | 'review_update' | 'loyalty_update'
+  event: 'new_order' | 'order_update' | 'order_deleted' | 'notification' | 'review_update' | 'loyalty_update' | 'courier_wallet_update' | 'product_update' | 'pos_update'
   order?: any
   notification?: any
   review?: any
   loyalty?: { phone?: string; bonus?: number; card?: string }
+  product?: any
+  payload?: any
 }
 
 export function useWebSocket(

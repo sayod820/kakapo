@@ -7,10 +7,11 @@ import { syncClientsFromApi } from './clientStore'
 import { syncCardsFromApi } from './cardStore'
 import { syncAssemblerTeamFromApi } from './assemblerTeamStore'
 import { syncPushFromApi } from './pushStore'
+import { syncPosFromApi } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 
-export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog'
+export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
 const INTERVAL_MS = 12000
 
@@ -18,6 +19,7 @@ function wsRoleForMode(mode: SyncMode) {
   if (mode === 'assembler') return 'assembler' as const
   if (mode === 'courier') return 'courier' as const
   if (mode === 'restaurant') return 'restaurant' as const
+  if (mode === 'pos') return 'pos' as const
   return 'admin' as const
 }
 
@@ -33,6 +35,16 @@ export function useApiSync(mode: SyncMode = 'all') {
     }
     if (msg.event === 'courier_wallet_update') {
       void syncCourierStoresFromApi()
+      return
+    }
+    if (msg.event === 'product_update') {
+      void useProducts.getState().fetchProducts()
+      if (mode === 'pos') void syncPosFromApi()
+      return
+    }
+    if (msg.event === 'pos_update') {
+      void useProducts.getState().fetchProducts()
+      void syncPosFromApi()
       return
     }
     if (msg.order) {
@@ -54,6 +66,7 @@ export function useApiSync(mode: SyncMode = 'all') {
     if (mode === 'assembler') orders.fetchAssemblerOrders()
     else if (mode === 'courier') orders.fetchCourierOrders()
     else if (mode === 'restaurant') orders.fetchRestaurantOrders()
+    else if (mode === 'pos') syncPosFromApi()
     else if (mode === 'all') orders.fetchOrders()
   })
 
@@ -77,6 +90,13 @@ export function useApiSync(mode: SyncMode = 'all') {
           tasks.push(
             syncAssemblerTeamFromApi(),
             syncPushFromApi(),
+          )
+        }
+        if (mode === 'pos') {
+          tasks.push(
+            syncClientsFromApi(),
+            syncCardsFromApi(),
+            syncPosFromApi(),
           )
         }
         if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())

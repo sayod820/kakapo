@@ -6,6 +6,7 @@ const APPS = [
   { href:'/restaurant', icon:'🍽', title:'Кабинет ресторана',  desc:'Для партнёров-ресторанов',    sub:'Заказы · Меню · Статистика · Стоп-лист', color:'#FF8C00', bg:'linear-gradient(135deg,#1A0800,#2A1400)', border:'rgba(255,140,0,.3)' },
   { href:'/assembler',  icon:'📦', title:'Сборщик',            desc:'Сборка заказов',              sub:'Список товаров · История · Статистика',  color:'#9B6DFF', bg:'linear-gradient(135deg,#0D0619,#1A0A30)', border:'rgba(155,109,255,.3)' },
   { href:'/courier',    icon:'🛵', title:'Курьер',             desc:'Приложение курьера',          sub:'Заказы · GPS · Заработок',               color:'#3B8EF0', bg:'linear-gradient(135deg,#050A18,#0A1430)', border:'rgba(59,142,240,.3)' },
+  { href:'/pos',        icon:'🏪', title:'POS / Склад',        desc:'Касса, склад и финансы',      sub:'POS · Ревизия · Сроки · Поставщики · Долги', color:'#14D4B4', bg:'linear-gradient(135deg,#041816,#0B2D29)', border:'rgba(20,212,180,.3)' },
   { href:'/admin',      icon:'⚙️',  title:'Админ панель',       desc:'Управление всей экосистемой', sub:'Товары · Категории · Рестораны · Финансы · Команда', color:'#FFB800', bg:'linear-gradient(135deg,#1A1000,#2A1C00)', border:'rgba(255,184,0,.3)', full:true },
 ]
 
@@ -45,6 +46,7 @@ export default function PortalPage() {
             ['🛵 Курьер OTP','1234'],
             ['📦 Сборщик PIN','5678'],
             ['🍽 Ресторан OTP','1234 · +992 93 111 22 33'],
+            ['🏪 POS PIN','создаётся в разделе Касса'],
             ['⚙️ Админ','admin@kakapo.tj / admin123'],
           ].map(([l,v],i)=>(
             <div key={i} style={{ fontSize:11, color:'#3D6645' }}>

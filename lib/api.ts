@@ -1,7 +1,24 @@
 // ════════════════════════════════════════════════
 // KAKAPO — API клиент (связь с backend)
 // ════════════════════════════════════════════════
-import type { Order, Product, Restaurant, Category, Promo, RestaurantPayout, Review } from './types'
+import type {
+  Order,
+  Product,
+  Restaurant,
+  Category,
+  Promo,
+  RestaurantPayout,
+  Review,
+  PosCashier,
+  PosShift,
+  PosSupplier,
+  SupplierPayment,
+  PosExpense,
+  StockReceipt,
+  StockWriteoff,
+  StockRevision,
+  PosSale,
+} from './types'
 import type { PickupPoint } from './pickups'
 import type { PricingConfig } from './courierData'
 import type { AdminCourier } from './courierTeam'
@@ -507,6 +524,72 @@ export const api = {
   // ── Админ ──
   getDashboard: () => request<any>('/admin/dashboard'),
   getFinanceSummary: () => request<any>('/finance/summary'),
+
+  // ── POS / склад ──
+  getCashiers: () => request<PosCashier[]>('/cashiers'),
+  createCashier: (data: { name: string; pin: string }) =>
+    request<PosCashier>('/cashiers', { method: 'POST', body: JSON.stringify(data) }),
+  updateCashier: (id: string, data: Partial<PosCashier>) =>
+    request<PosCashier>(`/cashiers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getPosShifts: () => request<PosShift[]>('/pos/shifts'),
+  openPosShift: (data: { cashierId: string; openingCash: number; note?: string }) =>
+    request<PosShift>('/pos/shifts/open', { method: 'POST', body: JSON.stringify(data) }),
+  closePosShift: (id: string, data: { closingCash: number; note?: string }) =>
+    request<PosShift>(`/pos/shifts/${id}/close`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getPosSales: () => request<PosSale[]>('/pos/sales'),
+  createPosSale: (data: {
+    cashierId?: string
+    shiftId?: string
+    clientId?: string
+    clientName?: string
+    clientPhone?: string
+    cardNum?: string
+    paymentMethod: 'cash' | 'card' | 'credit' | 'mixed'
+    paidCash?: number
+    paidCard?: number
+    debtAdded?: number
+    note?: string
+    items: { productId: number; qty: number; price?: number }[]
+  }) => request<PosSale>('/pos/sales', { method: 'POST', body: JSON.stringify(data) }),
+  getStockReceipts: () => request<StockReceipt[]>('/stock/receipts'),
+  createStockReceipt: (data: {
+    supplierId?: string
+    createdBy?: string
+    paidNow?: number
+    items: { productId: number; qty: number; costPrice?: number; expiryDate?: string | null }[]
+  }) => request<StockReceipt>('/stock/receipts', { method: 'POST', body: JSON.stringify(data) }),
+  getStockWriteoffs: () => request<StockWriteoff[]>('/stock/writeoffs'),
+  createStockWriteoff: (data: {
+    reason: string
+    createdBy?: string
+    items: { productId: number; qty: number }[]
+  }) => request<StockWriteoff>('/stock/writeoffs', { method: 'POST', body: JSON.stringify(data) }),
+  getStockRevisions: () => request<StockRevision[]>('/stock/revisions'),
+  createStockRevision: (data: {
+    createdBy?: string
+    items: { productId: number; countedStock: number }[]
+  }) => request<StockRevision>('/stock/revisions', { method: 'POST', body: JSON.stringify(data) }),
+  getStockExpiry: (days = 14) =>
+    request<Array<{
+      receiptId: string
+      productId: number
+      productName: string
+      qty: number
+      expiryDate: string
+      daysLeft: number
+    }>>(`/stock/expiry?days=${days}`),
+  getSuppliers: () => request<PosSupplier[]>('/suppliers'),
+  createSupplier: (data: { name: string; category?: string; phone?: string; address?: string; note?: string }) =>
+    request<PosSupplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
+  updateSupplier: (id: string, data: Partial<PosSupplier>) =>
+    request<PosSupplier>(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  createSupplierPayment: (id: string, data: { amount: number; note?: string }) =>
+    request<SupplierPayment>(`/suppliers/${id}/payments`, { method: 'POST', body: JSON.stringify(data) }),
+  getExpenses: () => request<PosExpense[]>('/expenses'),
+  createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string; shiftId?: string }) =>
+    request<PosExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  getPosFinanceSummary: () => request<any>('/finance/pos-summary'),
+  getPosReport: () => request<any>('/reports/pos'),
 
   // ── Синхронизация ──
   syncWoo: () => request('/sync/woocommerce', { method: 'POST' }),
