@@ -118,12 +118,6 @@ export interface Product {
   minWeight?: number
   /** Оптовые цены: от minQty шт (или г) — цена за единицу */
   bulkPricing?: BulkPriceTier[]
-  /** Разбивка остатка по точкам KAKAPO Ритейл (id точки → количество); сумма = stock */
-  stockByLocation?: Record<string, number>
-  /** Минимальный остаток для алерта в KAKAPO Ритейл */
-  minStock?: number
-  /** Цена для VIP-клиентов (KAKAPO Ритейл) */
-  vipPrice?: number | null
 }
 
 export interface BulkPriceTier {

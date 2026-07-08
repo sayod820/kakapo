@@ -6,7 +6,6 @@ const APPS = [
   { href:'/restaurant', icon:'🍽', title:'Кабинет ресторана',  desc:'Для партнёров-ресторанов',    sub:'Заказы · Меню · Статистика · Стоп-лист', color:'#FF8C00', bg:'linear-gradient(135deg,#1A0800,#2A1400)', border:'rgba(255,140,0,.3)' },
   { href:'/assembler',  icon:'📦', title:'Сборщик',            desc:'Сборка заказов',              sub:'Список товаров · История · Статистика',  color:'#9B6DFF', bg:'linear-gradient(135deg,#0D0619,#1A0A30)', border:'rgba(155,109,255,.3)' },
   { href:'/courier',    icon:'🛵', title:'Курьер',             desc:'Приложение курьера',          sub:'Заказы · GPS · Заработок',               color:'#3B8EF0', bg:'linear-gradient(135deg,#050A18,#0A1430)', border:'rgba(59,142,240,.3)' },
-  { href:'/retail',     icon:'🏷', title:'KAKAPO Ритейл',      desc:'Точки продаж и склад',        sub:'Локации · Остатки · Приход · Инвентаризация', color:'#1FD760', bg:'linear-gradient(135deg,#061A0C,#0F3020)', border:'rgba(31,215,96,.3)' },
   { href:'/admin',      icon:'⚙️',  title:'Админ панель',       desc:'Управление всей экосистемой', sub:'Товары · Категории · Рестораны · Финансы · Команда', color:'#FFB800', bg:'linear-gradient(135deg,#1A1000,#2A1C00)', border:'rgba(255,184,0,.3)', full:true },
 ]
 

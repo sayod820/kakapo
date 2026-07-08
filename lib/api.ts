@@ -11,51 +11,6 @@ import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
 
-// ── KAKAPO Ритейл: точки продаж / склад ──
-export interface RetailLocation {
-  id: string
-  name: string
-  address: string
-  type: 'shop' | 'warehouse'
-  isActive: boolean
-}
-export interface StockBatch {
-  id: string
-  productId: number
-  productName: string
-  locationId: string
-  quantity: number
-  expiryDate: string | null
-  costPrice: number
-  supplierId: string | null
-  receivedAtIso: string
-}
-export interface StockRevisionItem { productId: number; name: string; systemStock: number; countedStock: number; diff: number }
-export interface StockRevision {
-  id: string
-  locationId: string
-  items: StockRevisionItem[]
-  createdAtIso: string
-  createdBy: string
-}
-export interface RetailSupplier {
-  id: string
-  name: string
-  category: string
-  phone: string
-  address: string
-  payableAmount: number
-  lastDeliveryAtIso: string | null
-}
-export interface RetailExpense {
-  id: string
-  category: string
-  amount: number
-  note: string
-  locationId: string | null
-  createdAtIso: string
-  createdBy: string
-}
 // ── Хранение токена ──
 let _token: string | null = null
 export const setToken = (t: string | null) => {
@@ -423,48 +378,6 @@ export const api = {
     request<AdminAssembler>('/assemblers', { method: 'POST', body: JSON.stringify(data) }),
   updateAssembler: (id: string, data: Partial<AdminAssembler>) =>
     request<AdminAssembler>(`/assemblers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-
-  // ── KAKAPO Ритейл: точки продаж ──
-  getLocations: () => request<RetailLocation[]>('/locations'),
-  createLocation: (data: { name: string; address?: string; type?: 'shop' | 'warehouse' }) =>
-    request<RetailLocation>('/locations', { method: 'POST', body: JSON.stringify(data) }),
-  updateLocation: (id: string, data: Partial<RetailLocation>) =>
-    request<RetailLocation>(`/locations/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-
-  // ── KAKAPO Ритейл: склад ──
-  stockIncome: (data: {
-    locationId: string
-    supplierId?: string
-    paidNow?: number
-    items: { productId: number; qty: number; costPrice?: number; expiryDate?: string | null }[]
-    createdBy?: string
-  }) => request<{ id: string; totalCost: number; batches: StockBatch[] }>('/stock/income', { method: 'POST', body: JSON.stringify(data) }),
-  stockWriteoff: (data: { locationId: string; items: { productId: number; qty: number }[]; reason: string; createdBy?: string }) =>
-    request<{ id: string }>('/stock/writeoff', { method: 'POST', body: JSON.stringify(data) }),
-  stockTransfer: (data: { fromLocationId: string; toLocationId: string; items: { productId: number; qty: number }[]; createdBy?: string }) =>
-    request<{ id: string }>('/stock/transfer', { method: 'POST', body: JSON.stringify(data) }),
-  stockInventory: (data: { locationId: string; items: { productId: number; countedStock: number }[]; createdBy?: string }) =>
-    request<StockRevision>('/stock/inventory', { method: 'POST', body: JSON.stringify(data) }),
-  getStockBatches: (expiringSoon?: boolean) =>
-    request<StockBatch[]>(`/stock/batches${expiringSoon ? '?expiring_soon=true' : ''}`),
-
-  // ── KAKAPO Ритейл: поставщики ──
-  getRetailSuppliers: () => request<RetailSupplier[]>('/suppliers'),
-  createRetailSupplier: (data: { name: string; category?: string; phone?: string; address?: string }) =>
-    request<RetailSupplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
-  updateRetailSupplier: (id: string, data: Partial<RetailSupplier>) =>
-    request<RetailSupplier>(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  payRetailSupplier: (id: string, data: { amount: number }) =>
-    request<RetailSupplier>(`/suppliers/${id}/pay`, { method: 'POST', body: JSON.stringify(data) }),
-
-  // ── KAKAPO Ритейл: расходы ──
-  getRetailExpenses: () => request<RetailExpense[]>('/expenses'),
-  createRetailExpense: (data: { category: string; amount: number; note?: string; locationId?: string; createdBy?: string }) =>
-    request<RetailExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
-
-  // ── KAKAPO Ритейл: массовое изменение цен ──
-  bulkPriceChange: (data: { catId?: string; mode: 'percent' | 'fixed'; value: number }) =>
-    request<{ updated: number }>('/products/bulk-price', { method: 'POST', body: JSON.stringify(data) }),
 
   getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>
