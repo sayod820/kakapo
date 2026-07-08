@@ -59,14 +59,14 @@ export function stockAtLocation(db, product, locationId) {
   return 0
 }
 
-function recalcTotalStock(product) {
+export function recalcTotalStock(product) {
   const map = product.stockByLocation
   if (!map || typeof map !== 'object') return
   product.stock = Math.round(Object.values(map).reduce((s, v) => s + (Number(v) || 0), 0) * 100) / 100
 }
 
 /** На первую операцию с несколькими точками — раскладывает существующий stock в явную карту */
-function materializeStockMap(db, product) {
+export function materializeStockMap(db, product) {
   ensureArrays(db)
   if (!product.stockByLocation || typeof product.stockByLocation !== 'object') {
     product.stockByLocation = {}
@@ -79,13 +79,13 @@ function materializeStockMap(db, product) {
   return product.stockByLocation
 }
 
-function findProduct(db, productId) {
+export function findProduct(db, productId) {
   const product = (db.products || []).find(p => p.id === Number(productId))
   if (!product) throw new Error(`Товар не найден (id ${productId})`)
   return product
 }
 
-function findLocation(db, locationId) {
+export function findLocation(db, locationId) {
   ensureArrays(db)
   const loc = db.locations.find(l => l.id === locationId)
   if (!loc) throw new Error('Точка не найдена')

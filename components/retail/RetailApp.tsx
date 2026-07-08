@@ -12,6 +12,7 @@ import { saveCardLoyalty } from '@/lib/clientCardSync'
 import { phonesMatch } from '@/lib/clientCrm'
 import { loadDebtHistory, subscribeDebtHistory } from '@/lib/clientVipCredit'
 import { useCourierTeam, hydrateCourierTeamStore } from '@/lib/courierTeamStore'
+import RetailTill from '@/components/retail/RetailTill'
 import { useAssemblerTeam, hydrateAssemblerTeamStore } from '@/lib/assemblerTeamStore'
 
 const CSS = `
@@ -254,6 +255,7 @@ export default function RetailApp() {
   const [expenses, setExpenses] = useState<RetailExpense[]>([])
   const [activeLocationId, setActiveLocationId] = useState<string>('all')
   const [loaded, setLoaded] = useState(false)
+  const [tillLocation, setTillLocation] = useState<RetailLocation | null>(null)
 
   const reloadLocations = () => { void api.getLocations().then(setLocations).catch(() => {}) }
   const reloadBatches = () => { void api.getStockBatches().then(setBatches).catch(() => {}) }
@@ -346,7 +348,7 @@ export default function RetailApp() {
             {!loaded ? null : (
               <>
                 {module === 'locations' && (
-                  <LocationsModule locations={locations} products={products} orders={allOrders} batches={batches} activeLocationId={activeLocationId} onReload={reloadLocations} />
+                  <LocationsModule locations={locations} products={products} orders={allOrders} batches={batches} activeLocationId={activeLocationId} onReload={reloadLocations} onOpenTill={setTillLocation} />
                 )}
                 {module === 'dashboard' && (
                   <DashboardModule products={products} orders={allOrders} batches={batches} debtCards={debtCards} activeLocationId={activeLocationId} locationsCount={locations.length} />
@@ -366,13 +368,18 @@ export default function RetailApp() {
           </div>
         </div>
       </div>
+
+      {tillLocation && (
+        <RetailTill locationId={tillLocation.id} locationName={tillLocation.name} onClose={() => setTillLocation(null)} />
+      )}
     </div>
   )
 }
 
 /* ══════════ ТОЧКИ ПРОДАЖ ══════════ */
-function LocationsModule({ locations, products, batches, activeLocationId, onReload }: {
+function LocationsModule({ locations, products, orders, batches, activeLocationId, onReload, onOpenTill }: {
   locations: RetailLocation[]; products: Product[]; orders: Order[]; batches: StockBatch[]; activeLocationId: string; onReload: () => void
+  onOpenTill: (loc: RetailLocation) => void
 }) {
   const [showAdd, setShowAdd] = useState(false)
   const [name, setName] = useState('')
@@ -399,6 +406,11 @@ function LocationsModule({ locations, products, batches, activeLocationId, onRel
   }).length
   const expiringCount = (locId: string) => batches.filter(b => b.locationId === locId && daysUntil(b.expiryDate) != null && (daysUntil(b.expiryDate) as number) <= 7).length
   const batchesStored = (locId: string) => batches.filter(b => b.locationId === locId).reduce((s, b) => s + b.quantity, 0)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const deliveredTodayAt = (locId: string) => orders.filter(o =>
+    o.source === 'retail-till' && o.locationId === locId && o.status === 'delivered' && (o.deliveredAtIso || '').slice(0, 10) === todayStr)
+  const revenueTodayAt = (locId: string) => deliveredTodayAt(locId).reduce((s, o) => s + (Number(o.goodsTotal) || 0), 0)
+  const checksTodayAt = (locId: string) => deliveredTodayAt(locId).length
 
   return (
     <div>
@@ -426,11 +438,14 @@ function LocationsModule({ locations, products, batches, activeLocationId, onRel
                   </>
                 ) : (
                   <>
-                    <div><div className="v mono" style={{ color: 'var(--gr)' }}>—</div><div className="l">выручка сегодня</div></div>
-                    <div><div className="v mono" style={{ color: alerts > 0 ? 'var(--red)' : 'var(--t1)' }}>{alerts}</div><div className="l">алертов склада</div></div>
+                    <div><div className="v mono" style={{ color: 'var(--gr)' }}>{money(revenueTodayAt(loc.id))}</div><div className="l">выручка сегодня</div></div>
+                    <div><div className="v mono">{checksTodayAt(loc.id)}</div><div className="l">чеков сегодня</div></div>
                   </>
                 )}
               </div>
+              {loc.type === 'shop' && (
+                <button className="btn rbtn rbtn-primary" style={{ width: '100%', marginTop: 12, justifyContent: 'center' }} onClick={() => onOpenTill(loc)}>🧾 Открыть кассу</button>
+              )}
             </div>
           )
         })}
