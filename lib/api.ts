@@ -58,6 +58,27 @@ export interface SupplierPayment {
   createdAtIso: string
   createdBy: string
 }
+export interface PosShift {
+  id: string
+  cashierId: string
+  cashierName: string
+  openingCash: number
+  openedAtIso: string
+  closedAtIso: string | null
+  closingCashDeclared: number | null
+  expectedCash: number | null
+  difference: number | null
+  salesCount?: number
+  salesTotal?: number
+  status: 'open' | 'closed'
+}
+export interface StockRevisionItem { productId: number; name: string; systemStock: number; countedStock: number; diff: number }
+export interface StockRevision {
+  id: string
+  items: StockRevisionItem[]
+  createdAtIso: string
+  createdBy: string
+}
 
 // ── Хранение токена ──
 let _token: string | null = null
@@ -446,6 +467,22 @@ export const api = {
     loyalty: { earned: number; credited: number; bonus: number; orders: number }
     client: AdminClient | null
   }>('/pos/sale', { method: 'POST', body: JSON.stringify(data) }),
+  createPosReturn: (data: { orderId: string }) => request<{
+    order: Order
+    loyalty: { credited: number; bonus: number; orders: number }
+  }>('/pos/return', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Смена кассира ──
+  getCurrentPosShift: (cashierId: string) => request<PosShift | null>(`/pos/shift/current?cashierId=${encodeURIComponent(cashierId)}`),
+  openPosShift: (data: { cashierId: string; cashierName?: string; openingCash: number }) =>
+    request<PosShift>('/pos/shift/open', { method: 'POST', body: JSON.stringify(data) }),
+  closePosShift: (data: { cashierId: string; closingCashDeclared: number }) =>
+    request<PosShift>('/pos/shift/close', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Ревизия склада ──
+  getStockRevisions: () => request<StockRevision[]>('/stock-revisions'),
+  createStockRevision: (data: { items: { productId: number; countedStock: number }[]; createdBy?: string }) =>
+    request<StockRevision>('/stock-revisions', { method: 'POST', body: JSON.stringify(data) }),
 
   // ── Склад: поставщики / приход / списания / расходы ──
   getSuppliers: () => request<Supplier[]>('/suppliers'),

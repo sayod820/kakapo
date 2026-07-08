@@ -65,6 +65,8 @@ const DEFAULT = {
   writeOffs: [],
   expenses: [],
   supplierPayments: [],
+  posShifts: [],
+  stockRevisions: [],
   _seq: { order: 4832, product: 12, category: 2, review: 0, promo: 7, payout: 0 },
 }
 

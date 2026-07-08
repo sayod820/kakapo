@@ -1,4 +1,5 @@
-import { findClientByPhone, applyClientLoyaltyAfterDelivery } from './loyaltyBonus.js'
+import { findClientByPhone, applyClientLoyaltyAfterDelivery, reverseClientBonusOnOrderCancel } from './loyaltyBonus.js'
+import { getOpenShift } from './posShiftLogic.js'
 
 function nextPosOrderId(db) {
   if (!db._seq) db._seq = {}
@@ -15,6 +16,10 @@ function nextPosOrderId(db) {
 export function createPosSale(db, hooks, payload) {
   const rawItems = Array.isArray(payload?.items) ? payload.items : []
   if (!rawItems.length) throw new Error('Корзина пуста')
+
+  const cashierId = String(payload?.cashierId || '')
+  const shift = cashierId ? getOpenShift(db, cashierId) : null
+  if (!shift) throw new Error('Нет открытой смены — откройте смену перед продажей')
 
   // ─── Фаза 1: только валидация, без единой мутации — если что-то не так
   // (не хватает лимита в долг, товара не существует и т.п.), сервер не должен
@@ -118,6 +123,7 @@ export function createPosSale(db, hooks, payload) {
     pay: paymentMethod,
     ...(creditAmount > 0 ? { creditAmount } : {}),
     source: 'pos',
+    shiftId: shift.id,
     cashierId: String(payload?.cashierId || ''),
     cashierName: String(payload?.cashierName || ''),
     deliveredAt: now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Dushanbe' }),
@@ -137,4 +143,54 @@ export function createPosSale(db, hooks, payload) {
   if (typeof hooks?.broadcast === 'function') hooks.broadcast('order_update', order)
 
   return { order, loyalty, client: client ? findClientByPhone(db, client.phone) : null }
+}
+
+/**
+ * Возврат чека, пробитого в кассе (только целиком, не по позициям). Восстанавливает склад
+ * по штучным позициям, откатывает бонус/долг через тот же механизм, что и обычная отмена
+ * заказа (reverseClientBonusOnOrderCancel), помечает заказ отменённым.
+ */
+export function createPosReturn(db, hooks, payload) {
+  const orderId = String(payload?.orderId || '').trim()
+  if (!orderId) throw new Error('Не указан заказ для возврата')
+
+  const order = (db.orders || []).find(o => o.id === orderId)
+  if (!order) throw new Error('Заказ не найден')
+  if (order.source !== 'pos') throw new Error('Возврат в кассе доступен только для продаж, пробитых в кассе')
+  if (order.status === 'cancelled') throw new Error('Этот заказ уже возвращён/отменён')
+  if (order.status !== 'delivered') throw new Error('Возврат возможен только для завершённой продажи')
+
+  const prev = { ...order, client: { ...order.client } }
+
+  for (const it of order.items || []) {
+    const product = (db.products || []).find(p => p.id === Number(it.product_id ?? it.id))
+    if (!product) continue
+    const weighted = product.sellType === 'weight'
+    if (!weighted) {
+      product.stock = Math.round(((Number(product.stock) || 0) + (Number(it.qty) || 0)) * 100) / 100
+    }
+  }
+
+  if (Number(order.creditAmount) > 0 && order.client?.phone) {
+    const client = findClientByPhone(db, order.client.phone)
+    let card = client?.card ? hooks.findCardByNum(client.card) : null
+    if (!card && client) card = hooks.ensureCardRowForClient(client)
+    if (card) {
+      card.debt = Math.max(0, Math.round(((Number(card.debt) || 0) - Number(order.creditAmount)) * 100) / 100)
+      hooks.syncClientFromCardRow(card)
+    }
+  }
+
+  order.status = 'cancelled'
+  order.cancelReason = 'Возврат в кассе'
+
+  let loyalty = { credited: 0, bonus: 0, orders: 0 }
+  if (order.client?.phone) {
+    loyalty = reverseClientBonusOnOrderCancel(db, prev, order, hooks)
+  }
+
+  if (typeof hooks?.persist === 'function') hooks.persist()
+  if (typeof hooks?.broadcast === 'function') hooks.broadcast('order_update', order)
+
+  return { order, loyalty }
 }

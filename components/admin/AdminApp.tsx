@@ -153,6 +153,7 @@ import { formatPromoStockAdmin, isPromoStockAvailable, isPromoStockExhausted, is
 import ProductSearchPicker from '@/components/admin/ProductSearchPicker'
 import PromoScheduleFields, { scheduleFromPromo, scheduleToPromoPayload, type PromoScheduleForm } from '@/components/admin/PromoScheduleFields'
 import { api } from '@/lib/api'
+import type { Supplier, StockReceipt, StockRevision, Expense } from '@/lib/api'
 import { avgReviewRating, resolveReviewPlaceName, sortReviewsNewestFirst } from '@/lib/clientReviews'
 import { STORE_REVIEW_REST_ID } from '@/lib/clientOrderReview'
 import type { Promo, Review } from '@/lib/types'
@@ -427,7 +428,8 @@ const NAV_GROUPS = [
   {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'},{id:'pickups',icon:'📍',l:'Точки забора'}]},
   {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'cashiers',icon:'🧾',l:'Кассиры'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
   {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'debts',icon:'📒',l:'Долги VIP'},{id:'push',icon:'🔔',l:'Push'}]},
-  {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
+  {g:'Склад',     items:[{id:'suppliers',icon:'🚚',l:'Поставщики'},{id:'stock-receipts',icon:'📥',l:'Приход'},{id:'stock-revision',icon:'📋',l:'Ревизия'}]},
+  {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'expenses',icon:'💸',l:'Расходы'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
   {g:'Контент',   items:[{id:'banners',icon:'🖼',l:'Баннеры / Слайдеры'}]},
   {g:'Система',   items:[{id:'settings',icon:'⚙️',l:'Настройки'}]},
 ];
@@ -3851,6 +3853,358 @@ function CashiersPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── ПОСТАВЩИКИ ─────────────────────────────────── */
+function SuppliersAdminPage() {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [addr, setAddr] = useState('');
+  const [payAmount, setPayAmount] = useState<Record<string, string>>({});
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const reload = () => { void api.getSuppliers().then(s => { setSuppliers(s); setLoaded(true); }).catch(() => setLoaded(true)); };
+  useEffect(() => { reload(); }, []);
+
+  const addSupplier = async () => {
+    if (!name.trim()) { setErr('Укажите название'); return; }
+    setBusy(true); setErr('');
+    try {
+      await api.createSupplier({ name: name.trim(), phone: phone.trim(), addr: addr.trim() });
+      setName(''); setPhone(''); setAddr(''); setShowAdd(false);
+      reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Не удалось добавить поставщика');
+    } finally { setBusy(false); }
+  };
+
+  const pay = async (s: Supplier) => {
+    const amount = Number(payAmount[s.id]) || 0;
+    if (amount <= 0) return;
+    setBusy(true); setErr('');
+    try {
+      await api.paySupplierDebt(s.id, { amount, createdBy: 'admin' });
+      setPayAmount(p => ({ ...p, [s.id]: '' }));
+      reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Не удалось погасить долг');
+    } finally { setBusy(false); }
+  };
+
+  const totalDebt = suppliers.reduce((s, x) => s + x.debt, 0);
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 18 }}>
+        <StatCard l="Поставщиков" v={suppliers.length} />
+        <StatCard l="Долг перед поставщиками" v={`${totalDebt.toLocaleString('ru-RU')} ЅМ`} c={totalDebt > 0 ? '#FF8C00' : '#1FD760'} />
+      </div>
+      {err && <div style={{ fontSize: 12, color: '#FF4545', marginBottom: 12, fontWeight: 700 }}>{err}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button onClick={() => setShowAdd(v => !v)} className="ab abp">+ Поставщик</button>
+      </div>
+      {showAdd && (
+        <div className="ac" style={{ padding: 16, marginBottom: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ flex: 1, minWidth: 160 }}><NI lbl="Название *" val={name} set={setName} ph="ООО Ромашка" /></div>
+          <div style={{ flex: 1, minWidth: 160 }}><NI lbl="Телефон" val={phone} set={setPhone} ph="+992 __ ___ __ __" /></div>
+          <div style={{ flex: 1, minWidth: 160 }}><NI lbl="Адрес" val={addr} set={setAddr} ph="" /></div>
+          <button onClick={addSupplier} disabled={busy} className="ab abp" style={{ padding: '11px 18px' }}>Добавить</button>
+        </div>
+      )}
+      <div className="ac">
+        <table className="at">
+          <thead><tr><th>Поставщик</th><th>Телефон</th><th>Долг</th><th></th></tr></thead>
+          <tbody>
+            {suppliers.map(s => (
+              <tr key={s.id}>
+                <td style={{ fontWeight: 700, fontSize: 13 }}>{s.name}</td>
+                <td style={{ color: '#8FB897' }}>{s.phone || '—'}</td>
+                <td><span className="ub" style={{ fontWeight: 800, color: s.debt > 0 ? '#FFB800' : '#1FD760' }}>{s.debt.toLocaleString('ru-RU')} ЅМ</span></td>
+                <td>
+                  {s.debt > 0 && (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input className="ai" type="number" value={payAmount[s.id] || ''} onChange={e => setPayAmount(p => ({ ...p, [s.id]: e.target.value }))} placeholder="Сумма" style={{ width: 90, padding: '5px 9px', fontSize: 11 }} />
+                      <button onClick={() => pay(s)} disabled={busy} className="ab abg" style={{ padding: '4px 9px', fontSize: 11 }}>Погасить</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {loaded && suppliers.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', padding: 30 }}>Поставщиков пока нет</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ── ПРИХОД ─────────────────────────────────────── */
+function StockReceiptsAdminPage() {
+  const products = useProducts(s => s.products);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [receipts, setReceipts] = useState<StockReceipt[]>([]);
+  const [supplierId, setSupplierId] = useState('');
+  const [lines, setLines] = useState<{ productId: number; qty: string; costPrice: string }[]>([]);
+  const [productPick, setProductPick] = useState('');
+  const [paidNow, setPaidNow] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const reload = () => {
+    void api.getSuppliers().then(setSuppliers).catch(() => {});
+    void api.getStockReceipts().then(setReceipts).catch(() => {});
+  };
+  useEffect(() => { reload(); }, []);
+
+  const addLine = (productId: number) => {
+    if (lines.some(l => l.productId === productId)) return;
+    const p = products.find(x => x.id === productId);
+    setLines(ls => [...ls, { productId, qty: '1', costPrice: String(p?.costPrice || '') }]);
+    setProductPick('');
+  };
+  const setLine = (productId: number, patch: Partial<{ qty: string; costPrice: string }>) =>
+    setLines(ls => ls.map(l => l.productId === productId ? { ...l, ...patch } : l));
+  const removeLine = (productId: number) => setLines(ls => ls.filter(l => l.productId !== productId));
+  const total = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.costPrice) || 0), 0);
+
+  const submit = async () => {
+    if (!lines.length) { setErr('Добавьте хотя бы один товар'); return; }
+    setBusy(true); setErr('');
+    try {
+      await api.createStockReceipt({
+        supplierId: supplierId || undefined,
+        items: lines.map(l => ({ productId: l.productId, qty: Number(l.qty) || 0, costPrice: Number(l.costPrice) || 0 })),
+        paidNow: Number(paidNow) || 0,
+        createdBy: 'admin',
+      });
+      setLines([]); setPaidNow(''); setSupplierId('');
+      reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Не удалось провести приход');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
+      <div className="ac" style={{ padding: 18 }}>
+        <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>📥 Новый приход</div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Поставщик</div>
+          <select className="ai" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
+            <option value="">Без поставщика</option>
+            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Добавить товар</div>
+          <select className="ai" value={productPick} onChange={e => { const id = Number(e.target.value); if (id) addLine(id); }}>
+            <option value="">Выберите товар...</option>
+            {products.map(p => <option key={p.id} value={p.id}>{p.e} {p.name}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+          {lines.map(l => {
+            const p = products.find(x => x.id === l.productId);
+            return (
+              <div key={l.productId} style={{ padding: 10, background: '#0C1C0F', borderRadius: 10, border: '1px solid #162B1A', display: 'grid', gridTemplateColumns: '1.4fr .7fr .8fr auto', gap: 8, alignItems: 'center' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p?.e} {p?.name}</div>
+                <input className="ai" type="number" value={l.qty} onChange={e => setLine(l.productId, { qty: e.target.value })} placeholder="Кол-во" style={{ padding: '6px 9px', fontSize: 12 }} />
+                <input className="ai" type="number" value={l.costPrice} onChange={e => setLine(l.productId, { costPrice: e.target.value })} placeholder="Цена закупки" style={{ padding: '6px 9px', fontSize: 12 }} />
+                <button onClick={() => removeLine(l.productId)} className="ab abd" style={{ padding: '4px 9px', fontSize: 11 }}>✕</button>
+              </div>
+            );
+          })}
+          {lines.length === 0 && <div style={{ fontSize: 12, color: '#3D6645', textAlign: 'center', padding: 10 }}>Список пуст</div>}
+        </div>
+        <div style={{ marginBottom: 12 }}><NI lbl="Оплачено сейчас (остальное — в долг поставщику)" val={paidNow} set={setPaidNow} ph="0" type="number" /></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <span className="ub" style={{ fontSize: 13, fontWeight: 800 }}>Сумма прихода</span>
+          <span className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#1FD760' }}>{total.toLocaleString('ru-RU')} ЅМ</span>
+        </div>
+        {err && <div style={{ fontSize: 12, color: '#FF4545', marginBottom: 10, fontWeight: 700 }}>{err}</div>}
+        <button onClick={submit} disabled={busy || !lines.length} className="ab abp" style={{ width: '100%', padding: 11 }}>
+          {busy ? 'Проводим...' : '✓ Провести приход'}
+        </button>
+      </div>
+      <div className="ac">
+        <table className="at">
+          <thead><tr><th>№</th><th>Поставщик</th><th>Позиций</th><th>Сумма</th><th>В долг</th></tr></thead>
+          <tbody>
+            {receipts.slice().reverse().map(r => (
+              <tr key={r.id}>
+                <td style={{ fontSize: 11 }}>{r.id}</td>
+                <td style={{ color: '#8FB897', fontSize: 12 }}>{r.supplierName || 'без поставщика'}</td>
+                <td>{r.items.length}</td>
+                <td><span className="ub" style={{ fontWeight: 800, color: '#1FD760' }}>{r.totalCost.toLocaleString('ru-RU')} ЅМ</span></td>
+                <td style={{ color: r.debtDelta > 0 ? '#FFB800' : '#3D6645' }}>{r.debtDelta > 0 ? `${r.debtDelta.toLocaleString('ru-RU')} ЅМ` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {receipts.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', padding: 30 }}>Приходов пока не было</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ── РЕВИЗИЯ ────────────────────────────────────── */
+function StockRevisionAdminPage() {
+  const products = useProducts(s => s.products);
+  const [counted, setCounted] = useState<Record<number, string>>({});
+  const [revisions, setRevisions] = useState<StockRevision[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [search, setSearch] = useState('');
+
+  const reload = () => { void api.getStockRevisions().then(setRevisions).catch(() => {}); };
+  useEffect(() => { reload(); }, []);
+
+  const filtered = products.filter(p => !search.trim() || p.name.toLowerCase().includes(search.toLowerCase()) || p.art.toLowerCase().includes(search.toLowerCase()));
+  const touched = Object.entries(counted).filter(([, v]) => v !== '');
+
+  const submit = async () => {
+    if (!touched.length) { setErr('Введите фактический остаток хотя бы для одного товара'); return; }
+    setBusy(true); setErr('');
+    try {
+      await api.createStockRevision({
+        items: touched.map(([id, v]) => ({ productId: Number(id), countedStock: Number(v) || 0 })),
+        createdBy: 'admin',
+      });
+      setCounted({});
+      reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Не удалось провести ревизию');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 14 }}>
+        <input className="ai" value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по названию/артикулу..." style={{ maxWidth: 320 }} />
+      </div>
+      <div className="ac" style={{ marginBottom: 18 }}>
+        <table className="at">
+          <thead><tr><th>Артикул</th><th>Товар</th><th>По системе</th><th>Фактически</th><th>Разница</th></tr></thead>
+          <tbody>
+            {filtered.map(p => {
+              const val = counted[p.id];
+              const diff = val !== undefined && val !== '' ? (Number(val) || 0) - p.stock : null;
+              return (
+                <tr key={p.id}>
+                  <td style={{ fontSize: 11, color: '#8FB897' }}>{p.art}</td>
+                  <td style={{ fontWeight: 600 }}>{p.e} {p.name}</td>
+                  <td>{p.stock}</td>
+                  <td><input className="ai" type="number" value={val || ''} onChange={e => setCounted(c => ({ ...c, [p.id]: e.target.value }))} placeholder={String(p.stock)} style={{ width: 90, padding: '5px 9px', fontSize: 12 }} /></td>
+                  <td>
+                    {diff != null && diff !== 0 && (
+                      <span className="ub" style={{ fontWeight: 800, color: diff > 0 ? '#1FD760' : '#FF4545' }}>{diff > 0 ? '+' : ''}{diff}</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {err && <div style={{ fontSize: 12, color: '#FF4545', marginBottom: 10, fontWeight: 700 }}>{err}</div>}
+      <button onClick={submit} disabled={busy || !touched.length} className="ab abp" style={{ padding: '10px 20px', marginBottom: 24 }}>
+        {busy ? 'Применяем...' : `✓ Применить ревизию (${touched.length})`}
+      </button>
+
+      <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>История ревизий</div>
+      <div className="ac">
+        <table className="at">
+          <thead><tr><th>№</th><th>Дата</th><th>Позиций</th><th>Расхождение</th></tr></thead>
+          <tbody>
+            {revisions.slice().reverse().map(r => {
+              const netDiff = r.items.reduce((s, it) => s + it.diff, 0);
+              return (
+                <tr key={r.id}>
+                  <td style={{ fontSize: 11 }}>{r.id}</td>
+                  <td style={{ color: '#8FB897', fontSize: 12 }}>{new Date(r.createdAtIso).toLocaleString('ru-RU')}</td>
+                  <td>{r.items.length}</td>
+                  <td><span className="ub" style={{ fontWeight: 800, color: netDiff === 0 ? '#8FB897' : netDiff > 0 ? '#1FD760' : '#FF4545' }}>{netDiff > 0 ? '+' : ''}{netDiff}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {revisions.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', padding: 30 }}>Ревизий пока не было</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ── РАСХОДЫ ────────────────────────────────────── */
+function ExpensesAdminPage() {
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [category, setCategory] = useState('Аренда');
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const reload = () => { void api.getExpenses().then(setExpenses).catch(() => {}); };
+  useEffect(() => { reload(); }, []);
+
+  const submit = async () => {
+    if (!Number(amount) || Number(amount) <= 0) { setErr('Укажите сумму'); return; }
+    setBusy(true); setErr('');
+    try {
+      await api.createExpense({ category, amount: Number(amount), note, createdBy: 'admin' });
+      setAmount(''); setNote('');
+      reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Не удалось добавить расход');
+    } finally { setBusy(false); }
+  };
+
+  const total = expenses.reduce((s, e) => s + e.amount, 0);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="ac" style={{ padding: 18 }}>
+        <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>💸 Новый расход</div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4, fontWeight: 700 }}>Категория</div>
+          <select className="ai" value={category} onChange={e => setCategory(e.target.value)}>
+            {['Аренда', 'Зарплата', 'Коммунальные', 'Транспорт', 'Другое'].map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div style={{ marginBottom: 10 }}><NI lbl="Сумма" val={amount} set={setAmount} ph="0" type="number" /></div>
+        <div style={{ marginBottom: 14 }}><NI lbl="Заметка" val={note} set={setNote} ph="Необязательно" /></div>
+        {err && <div style={{ fontSize: 12, color: '#FF4545', marginBottom: 10, fontWeight: 700 }}>{err}</div>}
+        <button onClick={submit} disabled={busy} className="ab abp" style={{ width: '100%', padding: 11 }}>
+          {busy ? 'Сохраняем...' : '✓ Добавить расход'}
+        </button>
+      </div>
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 14 }}>
+          <StatCard l="Всего расходов" v={`${total.toLocaleString('ru-RU')} ЅМ`} c="#FF4545" />
+        </div>
+        <div className="ac">
+          <table className="at">
+            <thead><tr><th>Категория</th><th>Дата</th><th>Заметка</th><th>Сумма</th></tr></thead>
+            <tbody>
+              {expenses.slice().reverse().map(e => (
+                <tr key={e.id}>
+                  <td style={{ fontWeight: 600 }}>{e.category}</td>
+                  <td style={{ color: '#8FB897', fontSize: 12 }}>{new Date(e.createdAtIso).toLocaleString('ru-RU')}</td>
+                  <td style={{ color: '#8FB897', fontSize: 12 }}>{e.note || '—'}</td>
+                  <td><span className="ub" style={{ fontWeight: 800, color: '#FF4545' }}>−{e.amount.toLocaleString('ru-RU')} ЅМ</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {expenses.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', padding: 30 }}>Расходов пока не было</div>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -8368,8 +8722,9 @@ function AdminAppInner() {
     useProductPhotos.getState().hydrate();
     return () => {};
   }, []);
-  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',cashiers:'Кассиры',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',cashiers:'Продажи за прилавком · kakapo-pos',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',cashiers:'Кассиры',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',suppliers:'Поставщики','stock-receipts':'Приход','stock-revision':'Ревизия',expenses:'Расходы',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',cashiers:'Продажи за прилавком · kakapo-pos',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',suppliers:'Список поставщиков и долги перед ними',
+    'stock-receipts':'Поступление товара от поставщиков','stock-revision':'Инвентаризация и сверка остатков',expenses:'Учёт операционных расходов',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
@@ -8383,6 +8738,10 @@ function AdminAppInner() {
       {page==='couriers'   && <CouriersPage/>}
       {page==='assemblers' && <AssemblersPage/>}
       {page==='cashiers'   && <CashiersPage/>}
+      {page==='suppliers'  && <SuppliersAdminPage/>}
+      {page==='stock-receipts' && <StockReceiptsAdminPage/>}
+      {page==='stock-revision' && <StockRevisionAdminPage/>}
+      {page==='expenses'   && <ExpensesAdminPage/>}
       {page==='clients'    && <ClientsPage/>}
       {page==='cards'      && <CardsPage setPage={setPage}/>}
       {page==='debts'      && <DebtsPage setPage={setPage}/>}

@@ -50,8 +50,9 @@ import {
   normalizeCourierAccount,
   getCourierWalletTransactions,
 } from './courierWallet.js'
-import { createPosSale } from './posLogic.js'
-import { createStockReceipt, createWriteOff, createExpense, paySupplierDebt } from './inventoryLogic.js'
+import { createPosSale, createPosReturn } from './posLogic.js'
+import { createStockReceipt, createWriteOff, createExpense, paySupplierDebt, applyStockRevision } from './inventoryLogic.js'
+import { openShift, closeShift, getOpenShift } from './posShiftLogic.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
@@ -1040,6 +1041,51 @@ app.post('/pos/sale', (req, res) => {
     res.json(result)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
+  }
+})
+
+app.post('/pos/return', (req, res) => {
+  try {
+    const result = createPosReturn(db, posHooks(), req.body || {})
+    res.json(result)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось оформить возврат' })
+  }
+})
+
+/* ── Смена кассира ── */
+app.get('/pos/shift/current', (req, res) => {
+  const cashierId = String(req.query?.cashierId || '')
+  res.json(getOpenShift(db, cashierId))
+})
+app.post('/pos/shift/open', (req, res) => {
+  try {
+    const shift = openShift(db, req.body || {})
+    persist()
+    res.json(shift)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось открыть смену' })
+  }
+})
+app.post('/pos/shift/close', (req, res) => {
+  try {
+    const shift = closeShift(db, req.body || {})
+    persist()
+    res.json(shift)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось закрыть смену' })
+  }
+})
+
+/* ── Ревизия склада ── */
+app.get('/stock-revisions', (_req, res) => res.json(db.stockRevisions || []))
+app.post('/stock-revisions', (req, res) => {
+  try {
+    const revision = applyStockRevision(db, req.body || {})
+    persist()
+    res.json(revision)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести ревизию' })
   }
 })
 

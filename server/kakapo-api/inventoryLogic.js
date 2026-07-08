@@ -140,3 +140,43 @@ export function paySupplierDebt(db, payload) {
   db.supplierPayments.push(payment)
   return payment
 }
+
+/**
+ * Ревизия (инвентаризация): фактически пересчитанный остаток сразу становится новым stock,
+ * разница (излишек/недостача) только фиксируется в отчёте — без отдельного workflow
+ * согласования.
+ */
+export function applyStockRevision(db, payload) {
+  const rawItems = Array.isArray(payload?.items) ? payload.items : []
+  if (!rawItems.length) throw new Error('Добавьте хотя бы один товар')
+
+  const plannedItems = []
+  for (const raw of rawItems) {
+    const product = (db.products || []).find(p => p.id === Number(raw?.productId))
+    if (!product) throw new Error(`Товар не найден (id ${raw?.productId})`)
+    const counted = Number(raw?.countedStock)
+    if (!Number.isFinite(counted) || counted < 0) throw new Error(`Некорректный фактический остаток для «${product.name}»`)
+    const systemStock = Number(product.stock) || 0
+    plannedItems.push({ product, systemStock, counted, diff: Math.round((counted - systemStock) * 100) / 100 })
+  }
+
+  for (const p of plannedItems) {
+    p.product.stock = p.counted
+  }
+
+  const revision = {
+    id: nextId(db, 'stockRevision', 'REV'),
+    items: plannedItems.map(p => ({
+      productId: p.product.id,
+      name: p.product.name,
+      systemStock: p.systemStock,
+      countedStock: p.counted,
+      diff: p.diff,
+    })),
+    createdAtIso: new Date().toISOString(),
+    createdBy: String(payload?.createdBy || ''),
+  }
+  if (!Array.isArray(db.stockRevisions)) db.stockRevisions = []
+  db.stockRevisions.push(revision)
+  return revision
+}

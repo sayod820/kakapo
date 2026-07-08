@@ -1,9 +1,9 @@
 'use client'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react'
 import Link from 'next/link'
-import { useProducts, USE_API } from '@/lib/store'
+import { useProducts, useOrders, USE_API } from '@/lib/store'
 import { api } from '@/lib/api'
-import type { Supplier, StockReceipt, WriteOff, Expense } from '@/lib/api'
+import type { PosShift } from '@/lib/api'
 import type { Product, Order } from '@/lib/types'
 import type { AdminClient } from '@/lib/clientCrm'
 import { useClients, hydrateClientStore } from '@/lib/clientStore'
@@ -27,11 +27,11 @@ const CSS = `
   html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
   .ub{font-family:'Unbounded',sans-serif;}
   .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}.btn:active{transform:scale(.96);}
+  .btn:disabled{cursor:not-allowed;}
   .card{background:linear-gradient(165deg,#0C1C0F 0%,#091508 100%);border:1px solid #162B1A;border-radius:16px;}
   .inp{background:#0C1C0F;border:1.5px solid #162B1A;border-radius:12px;color:#EBF5ED;font-family:'Nunito',sans-serif;font-size:14px;outline:none;padding:11px 14px;width:100%;transition:border-color .2s;}
   .inp:focus{border-color:rgba(31,215,96,.5);}
   .inp::placeholder{color:#3D6645;}
-  select.inp{appearance:none;}
   @keyframes spin{from{transform:rotate(0);}to{transform:rotate(360deg);}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
   @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
@@ -63,23 +63,18 @@ const LEVEL_LABEL: Record<string, string> = {
 const LEVEL_COLOR: Record<string, string> = {
   basic: '#8FB897', bronze: '#CD7F32', silver: '#C0C0C0', gold: '#FFD700', platinum: '#B9F2FF',
 }
-const WRITE_OFF_REASONS = ['Порча', 'Просрочка', 'Недостача', 'Другое']
-const EXPENSE_CATEGORIES = ['Аренда', 'Зарплата', 'Коммунальные', 'Транспорт', 'Другое']
 
 function money(n: number): string {
   return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 })
 }
-function fmtDate(iso: string): string {
+function fmtDateTime(iso: string): string {
   try { return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return iso }
 }
 
-type ModuleId = 'sale' | 'receipts' | 'writeoffs' | 'expenses' | 'suppliers' | 'shift'
+type ModuleId = 'sale' | 'returns' | 'shift'
 const MODULES: { id: ModuleId; icon: string; label: string }[] = [
   { id: 'sale', icon: '🧾', label: 'Продажа' },
-  { id: 'receipts', icon: '📥', label: 'Приход' },
-  { id: 'writeoffs', icon: '🗑', label: 'Списание' },
-  { id: 'expenses', icon: '💸', label: 'Расходы' },
-  { id: 'suppliers', icon: '🚚', label: 'Поставщики' },
+  { id: 'returns', icon: '↩️', label: 'Возврат' },
   { id: 'shift', icon: '📊', label: 'Смена' },
 ]
 
@@ -97,11 +92,47 @@ function PosSessionBoot() {
   return <div style={{ minHeight: '100dvh', background: '#030B05' }} />
 }
 
+/* ── Экран «Открыть смену» — блокирует продажу, пока смены нет ── */
+function OpenShiftScreen({ cashierName, onOpened }: { cashierName: string; onOpened: (s: PosShift) => void }) {
+  const [openingCash, setOpeningCash] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const submit = async () => {
+    setBusy(true); setErr('')
+    try {
+      const cashierId = loadCashierSession()?.cashierId || ''
+      const shift = await api.openPosShift({ cashierId, cashierName, openingCash: Number(openingCash) || 0 })
+      onOpened(shift)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Не удалось открыть смену')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div className="card" style={{ width: '100%', maxWidth: 380, padding: 28, textAlign: 'center' }}>
+        <div style={{ fontSize: 46, marginBottom: 10 }}>🔓</div>
+        <div className="ub" style={{ fontSize: 17, fontWeight: 900, marginBottom: 6 }}>Смена не открыта</div>
+        <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 20 }}>{cashierName}, укажите сумму наличных в кассе на начало смены</div>
+        <input className="inp" type="number" value={openingCash} onChange={e => setOpeningCash(e.target.value)} placeholder="0" style={{ textAlign: 'center', fontSize: 20, fontWeight: 800, marginBottom: 14 }} autoFocus />
+        {err && <div style={{ fontSize: 12, color: '#FF6969', marginBottom: 12 }}>{err}</div>}
+        <button className="btn ub" onClick={submit} disabled={busy}
+          style={{ width: '100%', padding: 15, borderRadius: 14, fontSize: 14, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#17B34E,#1FD760)', opacity: busy ? .6 : 1 }}>
+          {busy ? 'Открываем...' : '✓ Открыть смену'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function PosAppInner() {
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const clients = useClients()
   const cashiers = useCashierTeam()
+  const allOrders = useOrders(s => s.orders)
+  const fetchOrders = useOrders(s => s.fetchOrders)
 
   const [session, setSession] = useState<CashierSession | null>(null)
   const [sessionReady, setSessionReady] = useState(false)
@@ -120,6 +151,14 @@ function PosAppInner() {
   }, [cashiers, session])
 
   const [module, setModule] = useState<ModuleId>('sale')
+
+  // ── Смена ──
+  const [shift, setShift] = useState<PosShift | null | undefined>(undefined) // undefined = ещё не загружено
+  useEffect(() => {
+    if (!cashierProfile) return
+    if (!USE_API) { setShift(null); return }
+    void api.getCurrentPosShift(cashierProfile.id).then(setShift).catch(() => setShift(null))
+  }, [cashierProfile])
 
   // ── Множественные открытые чеки ──
   const ticketSeq = useRef(1)
@@ -165,31 +204,8 @@ function PosAppInner() {
 
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const [receipt, setReceipt] = useState<{ order: Order; loyalty: { earned: number; bonus: number } } | null>(null)
+  const [receiptView, setReceiptView] = useState<{ order: Order; loyalty: { earned: number; bonus: number } } | null>(null)
   const [shiftSales, setShiftSales] = useState<Order[]>([])
-  const [shiftReceipts, setShiftReceipts] = useState<StockReceipt[]>([])
-  const [shiftWriteOffs, setShiftWriteOffs] = useState<WriteOff[]>([])
-  const [shiftExpenses, setShiftExpenses] = useState<Expense[]>([])
-
-  // ── Склад: поставщики / приход / списания / расходы ──
-  const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [receipts, setReceipts] = useState<StockReceipt[]>([])
-  const [writeOffs, setWriteOffs] = useState<WriteOff[]>([])
-  const [expenses, setExpenses] = useState<Expense[]>([])
-  const [invBusy, setInvBusy] = useState(false)
-  const [invErr, setInvErr] = useState('')
-
-  const reloadInventory = async () => {
-    if (!USE_API) return
-    const [s, r, w, e] = await Promise.all([
-      api.getSuppliers().catch(() => []),
-      api.getStockReceipts().catch(() => []),
-      api.getWriteOffs().catch(() => []),
-      api.getExpenses().catch(() => []),
-    ])
-    setSuppliers(s); setReceipts(r); setWriteOffs(w); setExpenses(e)
-  }
-  useEffect(() => { void reloadInventory() }, [])
 
   const cats = useMemo(() => {
     const map = new Map<string, string>()
@@ -283,7 +299,7 @@ function PosAppInner() {
         cashierId: cashierProfile?.id,
         cashierName: cashierProfile?.name,
       })
-      setReceipt({ order: result.order, loyalty: result.loyalty })
+      setReceiptView({ order: result.order, loyalty: result.loyalty })
       setShiftSales(s => [result.order, ...s])
       closeTicket(activeTicketId)
     } catch (e) {
@@ -317,6 +333,17 @@ function PosAppInner() {
     )
   }
 
+  if (shift === undefined) return <><style>{CSS}</style><PosSessionBoot /></>
+
+  if (!shift) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <OpenShiftScreen cashierName={cashierProfile.name} onOpened={s => setShift(s)} />
+      </>
+    )
+  }
+
   return (
     <div className="pos-shell">
       <style>{CSS}</style>
@@ -333,14 +360,13 @@ function PosAppInner() {
         ))}
         <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: '1px solid #162B1A' }}>
           <div style={{ fontSize: 12, fontWeight: 800, padding: '0 4px' }}>{cashierProfile.name}</div>
-          <div style={{ fontSize: 10, color: '#3D6645', padding: '2px 4px 10px' }}>Сегодня: {money(cashierProfile.salesToday)} ЅМ</div>
+          <div style={{ fontSize: 10, color: '#3D6645', padding: '2px 4px 10px' }}>Смена открыта · {money(shift.openingCash)} ЅМ на старте</div>
           <Link href="/" className="btn" style={{ display: 'block', textAlign: 'center', padding: '8px', borderRadius: 10, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', fontSize: 11, textDecoration: 'none', marginBottom: 6 }}>← На главную</Link>
           <button onClick={logout} className="btn" style={{ width: '100%', padding: 8, borderRadius: 10, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', color: '#FF6969', fontSize: 11, fontWeight: 700 }}>Выйти</button>
         </div>
       </aside>
 
       <div className="pos-main">
-        {/* Топбар мобильный/общий */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid #162B1A' }}>
           <div className="ub" style={{ fontSize: 15, fontWeight: 900 }}>{MODULES.find(m => m.id === module)?.icon} {MODULES.find(m => m.id === module)?.label}</div>
           <div style={{ marginLeft: 'auto', fontSize: 11, color: '#8FB897' }}>{cashierProfile.name}</div>
@@ -349,7 +375,6 @@ function PosAppInner() {
         <div className="pos-content" style={{ flex: 1, padding: 18, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {module === 'sale' && (
             <>
-              {/* Вкладки чеков */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
                 {ticketOrder.map((id, i) => {
                   const t = tickets[id]
@@ -373,7 +398,6 @@ function PosAppInner() {
               </div>
 
               <div className="pos-sale-grid card" style={{ overflow: 'hidden' }}>
-                {/* Товары */}
                 <div style={{ display: 'flex', flexDirection: 'column', borderRight: '1px solid #162B1A', minHeight: 0 }}>
                   <div style={{ padding: 14, borderBottom: '1px solid #162B1A' }}>
                     <input
@@ -409,7 +433,6 @@ function PosAppInner() {
                   </div>
                 </div>
 
-                {/* Корзина + клиент + оплата */}
                 <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
                     <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>ЧЕК ({cartLines.length})</div>
@@ -518,46 +541,18 @@ function PosAppInner() {
             </>
           )}
 
-          {module === 'receipts' && (
-            <ReceiptsModule products={products} suppliers={suppliers} receipts={receipts}
-              busy={invBusy} err={invErr} setErr={setInvErr}
-              cashierName={cashierProfile.name}
-              onCreated={r => { setReceipts(rs => [r, ...rs]); setShiftReceipts(rs => [r, ...rs]); void reloadInventory() }}
-              setBusy={setInvBusy} />
-          )}
-
-          {module === 'writeoffs' && (
-            <WriteOffsModule products={products} writeOffs={writeOffs}
-              busy={invBusy} err={invErr} setErr={setInvErr}
-              cashierName={cashierProfile.name}
-              onCreated={w => { setWriteOffs(ws => [w, ...ws]); setShiftWriteOffs(ws => [w, ...ws]) }}
-              setBusy={setInvBusy} />
-          )}
-
-          {module === 'expenses' && (
-            <ExpensesModule expenses={expenses}
-              busy={invBusy} err={invErr} setErr={setInvErr}
-              cashierName={cashierProfile.name}
-              onCreated={e => { setExpenses(es => [e, ...es]); setShiftExpenses(es => [e, ...es]) }}
-              setBusy={setInvBusy} />
-          )}
-
-          {module === 'suppliers' && (
-            <SuppliersModule suppliers={suppliers} busy={invBusy} err={invErr} setErr={setInvErr} setBusy={setInvBusy}
-              onChanged={s => setSuppliers(list => {
-                const i = list.findIndex(x => x.id === s.id)
-                if (i === -1) return [...list, s]
-                const next = [...list]; next[i] = s; return next
-              })} />
+          {module === 'returns' && (
+            <ReturnsModule shiftSales={shiftSales} allOrders={allOrders} fetchOrders={fetchOrders}
+              onReturned={(orderId) => setShiftSales(s => s.map(o => o.id === orderId ? { ...o, status: 'cancelled' } : o))} />
           )}
 
           {module === 'shift' && (
-            <ShiftModule sales={shiftSales} receipts={shiftReceipts} writeOffs={shiftWriteOffs} expenses={shiftExpenses} />
+            <ShiftModule shift={shift} sales={shiftSales} cashierId={cashierProfile.id}
+              onClosed={() => setShift(null)} />
           )}
         </div>
       </div>
 
-      {/* Нижняя панель (мобильный) */}
       <nav className="pos-bottombar">
         {MODULES.map(m => (
           <button key={m.id} className={`btn pos-bottom-item ${module === m.id ? 'active' : ''}`} onClick={() => setModule(m.id)}>
@@ -566,16 +561,16 @@ function PosAppInner() {
         ))}
       </nav>
 
-      {receipt && (
+      {receiptView && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20, animation: 'fadeIn .2s ease' }}>
           <div className="card" style={{ width: '100%', maxWidth: 380, padding: 24, animation: 'fadeUp .3s ease' }}>
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 44, marginBottom: 8 }}>✅</div>
               <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Продажа проведена</div>
-              <div style={{ fontSize: 11, color: '#3D6645' }}>{receipt.order.id}</div>
+              <div style={{ fontSize: 11, color: '#3D6645' }}>{receiptView.order.id}</div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14, maxHeight: 200, overflowY: 'auto' }}>
-              {(receipt.order.items || []).map((it, i) => (
+              {(receiptView.order.items || []).map((it, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                   <span style={{ color: '#8FB897' }}>{it.e} {it.name} × {it.qty}</span>
                   <span style={{ fontWeight: 700 }}>{money(it.price * it.qty)} ЅМ</span>
@@ -585,15 +580,15 @@ function PosAppInner() {
             <div style={{ borderTop: '1px solid #162B1A', paddingTop: 12, marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span className="ub" style={{ fontSize: 14, fontWeight: 800 }}>Итого</span>
-                <span className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#1FD760' }}>{money(Number(receipt.order.total) || 0)} ЅМ</span>
+                <span className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#1FD760' }}>{money(Number(receiptView.order.total) || 0)} ЅМ</span>
               </div>
-              {receipt.loyalty.earned > 0 && (
-                <div style={{ fontSize: 12, color: '#FFB800' }}>+{money(receipt.loyalty.earned)} ЅМ бонуса начислено · баланс {money(receipt.loyalty.bonus)} ЅМ</div>
+              {receiptView.loyalty.earned > 0 && (
+                <div style={{ fontSize: 12, color: '#FFB800' }}>+{money(receiptView.loyalty.earned)} ЅМ бонуса начислено · баланс {money(receiptView.loyalty.bonus)} ЅМ</div>
               )}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn ub" onClick={() => window.print()} style={{ flex: 1, padding: 13, borderRadius: 13, fontSize: 13, fontWeight: 700, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>🖨 Печать</button>
-              <button className="btn ub" onClick={() => setReceipt(null)} style={{ flex: 2, padding: 13, borderRadius: 13, fontSize: 13, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#17B34E,#1FD760)' }}>Новая продажа</button>
+              <button className="btn ub" onClick={() => setReceiptView(null)} style={{ flex: 2, padding: 13, borderRadius: 13, fontSize: 13, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#17B34E,#1FD760)' }}>Новая продажа</button>
             </div>
           </div>
         </div>
@@ -602,414 +597,202 @@ function PosAppInner() {
   )
 }
 
-/* ── Модуль «Приход» ── */
-function ReceiptsModule({ products, suppliers, receipts, busy, err, setErr, setBusy, onCreated, cashierName }: {
-  products: Product[]; suppliers: Supplier[]; receipts: StockReceipt[]
-  busy: boolean; err: string; setErr: (s: string) => void; setBusy: (b: boolean) => void
-  onCreated: (r: StockReceipt) => void; cashierName: string
+/* ── Модуль «Возврат» — только целиком, по номеру заказа ── */
+function ReturnsModule({ shiftSales, allOrders, fetchOrders, onReturned }: {
+  shiftSales: Order[]; allOrders: Order[]; fetchOrders: () => Promise<void>
+  onReturned: (orderId: string) => void
 }) {
-  const [supplierId, setSupplierId] = useState('')
-  const [lines, setLines] = useState<{ productId: number; qty: string; costPrice: string }[]>([])
-  const [productPick, setProductPick] = useState('')
-  const [paidNow, setPaidNow] = useState('')
+  const [query, setQuery] = useState('')
+  const [found, setFound] = useState<Order | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [done, setDone] = useState<string | null>(null)
 
-  const addLine = (productId: number) => {
-    if (lines.some(l => l.productId === productId)) return
-    const p = products.find(x => x.id === productId)
-    setLines(ls => [...ls, { productId, qty: '1', costPrice: String(p?.costPrice || '') }])
-    setProductPick('')
+  useEffect(() => { void fetchOrders() }, [fetchOrders])
+
+  const search = () => {
+    const id = query.trim().toUpperCase()
+    setErr(''); setDone(null)
+    if (!id) return
+    const order = allOrders.find(o => o.id.toUpperCase() === id) || shiftSales.find(o => o.id.toUpperCase() === id) || null
+    if (!order) { setErr('Заказ не найден'); setFound(null); return }
+    if (order.source !== 'pos') { setErr('Возврат в кассе доступен только для продаж из кассы'); setFound(null); return }
+    if (order.status === 'cancelled') { setErr('Этот заказ уже возвращён/отменён'); setFound(null); return }
+    setFound(order)
   }
-  const setLine = (productId: number, patch: Partial<{ qty: string; costPrice: string }>) =>
-    setLines(ls => ls.map(l => l.productId === productId ? { ...l, ...patch } : l))
-  const removeLine = (productId: number) => setLines(ls => ls.filter(l => l.productId !== productId))
 
-  const total = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.costPrice) || 0), 0)
-
-  const submit = async () => {
-    if (!lines.length) { setErr('Добавьте хотя бы один товар'); return }
+  const doReturn = async () => {
+    if (!found) return
     setBusy(true); setErr('')
     try {
-      const receipt = await api.createStockReceipt({
-        supplierId: supplierId || undefined,
-        items: lines.map(l => ({ productId: l.productId, qty: Number(l.qty) || 0, costPrice: Number(l.costPrice) || 0 })),
-        paidNow: Number(paidNow) || 0,
-        createdBy: cashierName,
-      })
-      onCreated(receipt)
-      setLines([]); setPaidNow(''); setSupplierId('')
+      await api.createPosReturn({ orderId: found.id })
+      setDone(found.id)
+      onReturned(found.id)
+      setFound(null)
+      setQuery('')
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Не удалось провести приход')
+      setErr(e instanceof Error ? e.message : 'Не удалось оформить возврат')
     } finally { setBusy(false) }
   }
 
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
-      <div className="card" style={{ padding: 18 }}>
-        <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>📥 Новый приход</div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Поставщик</div>
-          <select className="inp" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
-            <option value="">Без поставщика</option>
-            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Добавить товар</div>
-          <select className="inp" value={productPick} onChange={e => { const id = Number(e.target.value); if (id) addLine(id) }}>
-            <option value="">Выберите товар...</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.e} {p.name}</option>)}
-          </select>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-          {lines.map(l => {
-            const p = products.find(x => x.id === l.productId)
-            return (
-              <div key={l.productId} className="card" style={{ padding: 10, display: 'grid', gridTemplateColumns: '1.4fr .7fr .8fr auto', gap: 8, alignItems: 'center' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p?.e} {p?.name}</div>
-                <input className="inp" type="number" value={l.qty} onChange={e => setLine(l.productId, { qty: e.target.value })} placeholder="Кол-во" style={{ padding: '7px 10px', fontSize: 12 }} />
-                <input className="inp" type="number" value={l.costPrice} onChange={e => setLine(l.productId, { costPrice: e.target.value })} placeholder="Цена закупки" style={{ padding: '7px 10px', fontSize: 12 }} />
-                <button className="btn" onClick={() => removeLine(l.productId)} style={{ color: '#FF6969', fontSize: 13 }}>✕</button>
-              </div>
-            )
-          })}
-          {lines.length === 0 && <div style={{ fontSize: 12, color: '#3D6645', textAlign: 'center', padding: 10 }}>Список пуст</div>}
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Оплачено сейчас (остальное — в долг поставщику)</div>
-          <input className="inp" type="number" value={paidNow} onChange={e => setPaidNow(e.target.value)} placeholder="0" />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-          <span className="ub" style={{ fontSize: 13, fontWeight: 800 }}>Сумма прихода</span>
-          <span className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#1FD760' }}>{money(total)} ЅМ</span>
-        </div>
-        {err && <div style={{ fontSize: 12, color: '#FF6969', marginBottom: 10 }}>{err}</div>}
-        <button className="btn ub" onClick={submit} disabled={busy || !lines.length}
-          style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#17B34E,#1FD760)', opacity: busy || !lines.length ? .5 : 1 }}>
-          {busy ? 'Проводим...' : '✓ Провести приход'}
-        </button>
-      </div>
-
-      <div>
-        <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>ПОСЛЕДНИЕ ПРИХОДЫ</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {receipts.slice(0, 20).map(r => (
-            <div key={r.id} className="card" style={{ padding: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{r.id}</span>
-                <span className="ub" style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>{money(r.totalCost)} ЅМ</span>
-              </div>
-              <div style={{ fontSize: 11, color: '#8FB897' }}>{fmtDate(r.createdAtIso)} · {r.supplierName || 'без поставщика'} · {r.items.length} поз.</div>
-              {r.debtDelta > 0 && <div style={{ fontSize: 11, color: '#FFB800', marginTop: 2 }}>В долг: {money(r.debtDelta)} ЅМ</div>}
-            </div>
-          ))}
-          {receipts.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', fontSize: 12, padding: 20 }}>Приходов пока не было</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ── Модуль «Списание» ── */
-function WriteOffsModule({ products, writeOffs, busy, err, setErr, setBusy, onCreated, cashierName }: {
-  products: Product[]; writeOffs: WriteOff[]
-  busy: boolean; err: string; setErr: (s: string) => void; setBusy: (b: boolean) => void
-  onCreated: (w: WriteOff) => void; cashierName: string
-}) {
-  const [lines, setLines] = useState<{ productId: number; qty: string }[]>([])
-  const [productPick, setProductPick] = useState('')
-  const [reason, setReason] = useState(WRITE_OFF_REASONS[0])
-
-  const addLine = (productId: number) => {
-    if (lines.some(l => l.productId === productId)) return
-    setLines(ls => [...ls, { productId, qty: '1' }])
-    setProductPick('')
-  }
-  const setLine = (productId: number, qty: string) => setLines(ls => ls.map(l => l.productId === productId ? { ...l, qty } : l))
-  const removeLine = (productId: number) => setLines(ls => ls.filter(l => l.productId !== productId))
-
-  const submit = async () => {
-    if (!lines.length) { setErr('Добавьте хотя бы один товар'); return }
-    setBusy(true); setErr('')
-    try {
-      const writeOff = await api.createWriteOff({
-        items: lines.map(l => ({ productId: l.productId, qty: Number(l.qty) || 0 })),
-        reason,
-        createdBy: cashierName,
-      })
-      onCreated(writeOff)
-      setLines([])
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Не удалось провести списание')
-    } finally { setBusy(false) }
-  }
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
-      <div className="card" style={{ padding: 18 }}>
-        <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>🗑 Новое списание</div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Товар</div>
-          <select className="inp" value={productPick} onChange={e => { const id = Number(e.target.value); if (id) addLine(id) }}>
-            <option value="">Выберите товар...</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.e} {p.name} (остаток {p.stock})</option>)}
-          </select>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-          {lines.map(l => {
-            const p = products.find(x => x.id === l.productId)
-            return (
-              <div key={l.productId} className="card" style={{ padding: 10, display: 'grid', gridTemplateColumns: '1.6fr .8fr auto', gap: 8, alignItems: 'center' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p?.e} {p?.name}</div>
-                <input className="inp" type="number" value={l.qty} onChange={e => setLine(l.productId, e.target.value)} placeholder="Кол-во" style={{ padding: '7px 10px', fontSize: 12 }} />
-                <button className="btn" onClick={() => removeLine(l.productId)} style={{ color: '#FF6969', fontSize: 13 }}>✕</button>
-              </div>
-            )
-          })}
-          {lines.length === 0 && <div style={{ fontSize: 12, color: '#3D6645', textAlign: 'center', padding: 10 }}>Список пуст</div>}
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Причина</div>
-          <select className="inp" value={reason} onChange={e => setReason(e.target.value)}>
-            {WRITE_OFF_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </div>
-        {err && <div style={{ fontSize: 12, color: '#FF6969', marginBottom: 10 }}>{err}</div>}
-        <button className="btn ub" onClick={submit} disabled={busy || !lines.length}
-          style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#E24C4C,#FF6969)', opacity: busy || !lines.length ? .5 : 1 }}>
-          {busy ? 'Списываем...' : '✓ Списать'}
-        </button>
-      </div>
-
-      <div>
-        <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>ПОСЛЕДНИЕ СПИСАНИЯ</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {writeOffs.slice(0, 20).map(w => (
-            <div key={w.id} className="card" style={{ padding: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{w.id}</span>
-                <span className="ub" style={{ fontSize: 13, fontWeight: 800, color: '#FF6969' }}>{money(w.totalCost)} ЅМ</span>
-              </div>
-              <div style={{ fontSize: 11, color: '#8FB897' }}>{fmtDate(w.createdAtIso)} · {w.reason} · {w.items.length} поз.</div>
-            </div>
-          ))}
-          {writeOffs.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', fontSize: 12, padding: 20 }}>Списаний пока не было</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ── Модуль «Расходы» ── */
-function ExpensesModule({ expenses, busy, err, setErr, setBusy, onCreated, cashierName }: {
-  expenses: Expense[]
-  busy: boolean; err: string; setErr: (s: string) => void; setBusy: (b: boolean) => void
-  onCreated: (e: Expense) => void; cashierName: string
-}) {
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0])
-  const [amount, setAmount] = useState('')
-  const [note, setNote] = useState('')
-
-  const submit = async () => {
-    if (!Number(amount) || Number(amount) <= 0) { setErr('Укажите сумму'); return }
-    setBusy(true); setErr('')
-    try {
-      const expense = await api.createExpense({ category, amount: Number(amount), note, createdBy: cashierName })
-      onCreated(expense)
-      setAmount(''); setNote('')
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Не удалось добавить расход')
-    } finally { setBusy(false) }
-  }
-
-  const todayTotal = expenses
-    .filter(e => new Date(e.createdAtIso).toDateString() === new Date().toDateString())
-    .reduce((s, e) => s + e.amount, 0)
+  const todaySales = shiftSales.filter(o => o.status === 'delivered')
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
       <div className="card" style={{ padding: 18 }}>
-        <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>💸 Новый расход</div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Категория</div>
-          <select className="inp" value={category} onChange={e => setCategory(e.target.value)}>
-            {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+        <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>↩️ Возврат чека</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <input className="inp" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Номер заказа, напр. POS-00012" />
+          <button className="btn ub" onClick={search} style={{ padding: '0 16px', borderRadius: 12, fontSize: 12, fontWeight: 800, background: 'rgba(31,215,96,.12)', color: '#1FD760', border: '1px solid rgba(31,215,96,.3)' }}>Найти</button>
         </div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Сумма</div>
-          <input className="inp" type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" />
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Заметка</div>
-          <input className="inp" value={note} onChange={e => setNote(e.target.value)} placeholder="Необязательно" />
-        </div>
-        {err && <div style={{ fontSize: 12, color: '#FF6969', marginBottom: 10 }}>{err}</div>}
-        <button className="btn ub" onClick={submit} disabled={busy}
-          style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 14, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#17B34E,#1FD760)', opacity: busy ? .5 : 1 }}>
-          {busy ? 'Сохраняем...' : '✓ Добавить расход'}
-        </button>
+        {err && <div style={{ fontSize: 12, color: '#FF6969', marginBottom: 12 }}>{err}</div>}
+        {done && <div style={{ fontSize: 12, color: '#1FD760', marginBottom: 12 }}>✓ Заказ {done} возвращён</div>}
+        {found && (
+          <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 800 }}>{found.id}</span>
+              <span className="ub" style={{ fontSize: 15, fontWeight: 900, color: '#1FD760' }}>{money(Number(found.goodsTotal) || 0)} ЅМ</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 8 }}>{found.client?.name || 'Розница'} · {fmtDateTime(found.deliveredAtIso || found.createdAtIso || '')}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+              {(found.items || []).map((it, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#8FB897' }}>
+                  <span>{it.e} {it.name} × {it.qty}</span>
+                  <span>{money(it.price * it.qty)} ЅМ</span>
+                </div>
+              ))}
+            </div>
+            <button className="btn ub" onClick={doReturn} disabled={busy}
+              style={{ width: '100%', padding: 13, borderRadius: 13, fontSize: 13, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#E24C4C,#FF6969)', opacity: busy ? .6 : 1 }}>
+              {busy ? 'Оформляем...' : '✓ Оформить возврат (весь чек)'}
+            </button>
+          </div>
+        )}
       </div>
 
       <div>
-        <div className="card" style={{ padding: 14, marginBottom: 14, display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 12, color: '#8FB897' }}>Расходы сегодня</span>
-          <span className="ub" style={{ fontSize: 16, fontWeight: 900, color: '#FF6969' }}>{money(todayTotal)} ЅМ</span>
-        </div>
-        <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>ПОСЛЕДНИЕ РАСХОДЫ</div>
+        <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>ПРОДАЖИ ЭТОЙ СМЕНЫ</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {expenses.slice(0, 20).map(e => (
-            <div key={e.id} className="card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {todaySales.map(o => (
+            <button key={o.id} className="btn card" onClick={() => { setQuery(o.id); setFound(o); setErr(''); setDone(null) }}
+              style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700 }}>{e.category}</div>
-                <div style={{ fontSize: 11, color: '#3D6645' }}>{fmtDate(e.createdAtIso)}{e.note ? ` · ${e.note}` : ''}</div>
+                <div style={{ fontSize: 12, fontWeight: 700 }}>{o.id}</div>
+                <div style={{ fontSize: 11, color: '#3D6645' }}>{o.deliveredAt} · {o.client?.name || 'Розница'}</div>
               </div>
-              <span className="ub" style={{ fontSize: 13, fontWeight: 800, color: '#FF6969' }}>−{money(e.amount)} ЅМ</span>
-            </div>
+              <span className="ub" style={{ fontSize: 13, fontWeight: 800 }}>{money(Number(o.goodsTotal) || 0)} ЅМ</span>
+            </button>
           ))}
-          {expenses.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', fontSize: 12, padding: 20 }}>Расходов пока не было</div>}
+          {todaySales.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', fontSize: 12, padding: 20 }}>Продаж за смену пока нет</div>}
         </div>
       </div>
     </div>
   )
 }
 
-/* ── Модуль «Поставщики» ── */
-function SuppliersModule({ suppliers, busy, err, setErr, setBusy, onChanged }: {
-  suppliers: Supplier[]
-  busy: boolean; err: string; setErr: (s: string) => void; setBusy: (b: boolean) => void
-  onChanged: (s: Supplier) => void
+/* ── Модуль «Смена» — статус + закрытие с подсчётом наличности ── */
+function ShiftModule({ shift, sales, cashierId, onClosed }: {
+  shift: PosShift; sales: Order[]; cashierId: string; onClosed: () => void
 }) {
-  const [showAdd, setShowAdd] = useState(false)
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [payAmount, setPayAmount] = useState<Record<string, string>>({})
+  const [closing, setClosing] = useState(false)
+  const [closingCash, setClosingCash] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [result, setResult] = useState<PosShift | null>(null)
 
-  const addSupplier = async () => {
-    if (!name.trim()) { setErr('Укажите название'); return }
+  const delivered = sales.filter(o => o.status === 'delivered')
+  const cashSales = delivered.filter(o => o.payment_method === 'cash')
+  const cardSales = delivered.filter(o => o.payment_method === 'card')
+  const creditSales = delivered.filter(o => o.payment_method === 'credit')
+  const total = delivered.reduce((s, o) => s + (Number(o.goodsTotal) || 0), 0)
+  const cashTotal = cashSales.reduce((s, o) => s + (Number(o.goodsTotal) || 0), 0)
+
+  const submitClose = async () => {
     setBusy(true); setErr('')
     try {
-      const s = await api.createSupplier({ name: name.trim(), phone: phone.trim() })
-      onChanged(s)
-      setName(''); setPhone(''); setShowAdd(false)
+      const closed = await api.closePosShift({ cashierId, closingCashDeclared: Number(closingCash) || 0 })
+      setResult(closed)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Не удалось добавить поставщика')
+      setErr(e instanceof Error ? e.message : 'Не удалось закрыть смену')
     } finally { setBusy(false) }
   }
 
-  const pay = async (s: Supplier) => {
-    const amount = Number(payAmount[s.id]) || 0
-    if (amount <= 0) return
-    setBusy(true); setErr('')
-    try {
-      await api.paySupplierDebt(s.id, { amount })
-      onChanged({ ...s, debt: Math.round((s.debt - amount) * 100) / 100 })
-      setPayAmount(p => ({ ...p, [s.id]: '' }))
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Не удалось погасить долг')
-    } finally { setBusy(false) }
+  if (result) {
+    const diff = Number(result.difference) || 0
+    return (
+      <div className="card" style={{ padding: 24, maxWidth: 420, margin: '20px auto', textAlign: 'center' }}>
+        <div style={{ fontSize: 44, marginBottom: 10 }}>{diff === 0 ? '✅' : diff > 0 ? '📈' : '📉'}</div>
+        <div className="ub" style={{ fontSize: 16, fontWeight: 900, marginBottom: 16 }}>Смена закрыта</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20, textAlign: 'left' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#8FB897' }}><span>Ожидалось</span><span>{money(result.expectedCash || 0)} ЅМ</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#8FB897' }}><span>Заявлено фактически</span><span>{money(result.closingCashDeclared || 0)} ЅМ</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800 }}>
+            <span>Расхождение</span>
+            <span style={{ color: diff === 0 ? '#1FD760' : diff > 0 ? '#FFB800' : '#FF6969' }}>{diff > 0 ? '+' : ''}{money(diff)} ЅМ</span>
+          </div>
+        </div>
+        <button className="btn ub" onClick={onClosed} style={{ width: '100%', padding: 14, borderRadius: 14, fontSize: 13, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#17B34E,#1FD760)' }}>Открыть новую смену</button>
+      </div>
+    )
   }
-
-  const totalDebt = suppliers.reduce((s, x) => s + x.debt, 0)
-
-  return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 16 }}>
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Поставщиков</div>
-          <div className="ub" style={{ fontSize: 20, fontWeight: 900 }}>{suppliers.length}</div>
-        </div>
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Долг перед поставщиками</div>
-          <div className="ub" style={{ fontSize: 20, fontWeight: 900, color: totalDebt > 0 ? '#FFB800' : '#1FD760' }}>{money(totalDebt)} ЅМ</div>
-        </div>
-      </div>
-
-      {err && <div style={{ fontSize: 12, color: '#FF6969', marginBottom: 10 }}>{err}</div>}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button className="btn ub" onClick={() => setShowAdd(v => !v)} style={{ padding: '9px 16px', borderRadius: 12, fontSize: 12, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#17B34E,#1FD760)' }}>+ Поставщик</button>
-      </div>
-
-      {showAdd && (
-        <div className="card" style={{ padding: 16, marginBottom: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Название *</div>
-            <input className="inp" value={name} onChange={e => setName(e.target.value)} placeholder="ООО Ромашка" />
-          </div>
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Телефон</div>
-            <input className="inp" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+992 __ ___ __ __" />
-          </div>
-          <button className="btn ub" onClick={addSupplier} disabled={busy} style={{ padding: '11px 18px', borderRadius: 12, fontSize: 12, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#17B34E,#1FD760)' }}>Добавить</button>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {suppliers.map(s => (
-          <div key={s.id} className="card" style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 140 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{s.name}</div>
-              <div style={{ fontSize: 11, color: '#8FB897' }}>{s.phone || '—'}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 10, color: '#3D6645' }}>Долг</div>
-              <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: s.debt > 0 ? '#FFB800' : '#1FD760' }}>{money(s.debt)} ЅМ</div>
-            </div>
-            {s.debt > 0 && (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input className="inp" type="number" value={payAmount[s.id] || ''} onChange={e => setPayAmount(p => ({ ...p, [s.id]: e.target.value }))} placeholder="Сумма" style={{ width: 100, padding: '7px 10px', fontSize: 12 }} />
-                <button className="btn" onClick={() => pay(s)} disabled={busy} style={{ padding: '7px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: 'rgba(31,215,96,.12)', border: '1px solid rgba(31,215,96,.3)', color: '#1FD760' }}>Погасить</button>
-              </div>
-            )}
-          </div>
-        ))}
-        {suppliers.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', fontSize: 12, padding: 30 }}>Поставщиков пока нет</div>}
-      </div>
-    </div>
-  )
-}
-
-/* ── Модуль «Смена» ── */
-function ShiftModule({ sales, receipts, writeOffs, expenses }: {
-  sales: Order[]; receipts: StockReceipt[]; writeOffs: WriteOff[]; expenses: Expense[]
-}) {
-  const salesTotal = sales.reduce((s, o) => s + (Number(o.goodsTotal) || 0), 0)
-  const receiptsTotal = receipts.reduce((s, r) => s + r.totalCost, 0)
-  const writeOffsTotal = writeOffs.reduce((s, w) => s + w.totalCost, 0)
-  const expensesTotal = expenses.reduce((s, e) => s + e.amount, 0)
 
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 18 }}>
         <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Продажи</div>
-          <div className="ub" style={{ fontSize: 17, fontWeight: 900, color: '#1FD760' }}>{sales.length} · {money(salesTotal)} ЅМ</div>
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Продаж</div>
+          <div className="ub" style={{ fontSize: 17, fontWeight: 900, color: '#1FD760' }}>{delivered.length} · {money(total)} ЅМ</div>
         </div>
         <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Приход</div>
-          <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>{receipts.length} · {money(receiptsTotal)} ЅМ</div>
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Наличные</div>
+          <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>{cashSales.length} · {money(cashTotal)} ЅМ</div>
         </div>
         <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Списания</div>
-          <div className="ub" style={{ fontSize: 17, fontWeight: 900, color: '#FF6969' }}>{writeOffs.length} · {money(writeOffsTotal)} ЅМ</div>
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Карта</div>
+          <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>{cardSales.length} · {money(cardSales.reduce((s, o) => s + (Number(o.goodsTotal) || 0), 0))} ЅМ</div>
         </div>
         <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>Расходы</div>
-          <div className="ub" style={{ fontSize: 17, fontWeight: 900, color: '#FF6969' }}>{expenses.length} · {money(expensesTotal)} ЅМ</div>
+          <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>В долг</div>
+          <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>{creditSales.length} · {money(creditSales.reduce((s, o) => s + (Number(o.goodsTotal) || 0), 0))} ЅМ</div>
         </div>
       </div>
-      {sales.length === 0 && <div style={{ textAlign: 'center', color: '#3D6645', fontSize: 13, marginTop: 30 }}>Продаж за смену пока не было</div>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {sales.map(o => (
-          <div key={o.id} className="card" style={{ padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{o.id}</div>
-              <div style={{ fontSize: 11, color: '#3D6645' }}>{o.deliveredAt} · {o.client?.name || 'Розница'} · {(o.items || []).length} поз.</div>
-            </div>
-            <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{money(Number(o.goodsTotal) || 0)} ЅМ</div>
+
+      <div style={{ fontSize: 11, color: '#3D6645', marginBottom: 16 }}>Смена открыта {fmtDateTime(shift.openedAtIso)} · старт наличных {money(shift.openingCash)} ЅМ</div>
+
+      {!closing ? (
+        <button className="btn ub" onClick={() => setClosing(true)} style={{ padding: '13px 22px', borderRadius: 14, fontSize: 13, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#E24C4C,#FF6969)' }}>🔒 Закрыть смену</button>
+      ) : (
+        <div className="card" style={{ padding: 18, maxWidth: 380 }}>
+          <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>Закрытие смены</div>
+          <div style={{ fontSize: 11, color: '#3D6645', marginBottom: 10 }}>Ожидаемая сумма наличных: {money(shift.openingCash + cashTotal)} ЅМ</div>
+          <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 4 }}>Фактически наличных в кассе</div>
+          <input className="inp" type="number" value={closingCash} onChange={e => setClosingCash(e.target.value)} placeholder="0" style={{ marginBottom: 12 }} autoFocus />
+          {err && <div style={{ fontSize: 12, color: '#FF6969', marginBottom: 10 }}>{err}</div>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={() => setClosing(false)} style={{ flex: 1, padding: 12, borderRadius: 12, fontSize: 12, fontWeight: 700, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>Отмена</button>
+            <button className="btn ub" onClick={submitClose} disabled={busy} style={{ flex: 2, padding: 12, borderRadius: 12, fontSize: 12, fontWeight: 800, color: 'white', background: 'linear-gradient(135deg,#E24C4C,#FF6969)', opacity: busy ? .6 : 1 }}>
+              {busy ? 'Закрываем...' : '✓ Подтвердить закрытие'}
+            </button>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {delivered.length > 0 && (
+        <>
+          <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', margin: '22px 0 10px' }}>ПРОДАЖИ СМЕНЫ</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {delivered.map(o => (
+              <div key={o.id} className="card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{o.id}</div>
+                  <div style={{ fontSize: 11, color: '#3D6645' }}>{o.deliveredAt} · {o.client?.name || 'Розница'}</div>
+                </div>
+                <span className="ub" style={{ fontSize: 13, fontWeight: 800 }}>{money(Number(o.goodsTotal) || 0)} ЅМ</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
