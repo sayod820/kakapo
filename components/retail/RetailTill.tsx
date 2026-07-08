@@ -8,12 +8,15 @@ import { useCards, hydrateCardStore } from '@/lib/cardStore'
 import { useClients, hydrateClientStore } from '@/lib/clientStore'
 import { mergeCardsWithClients, type AdminCard } from '@/lib/cardCrm'
 import { phonesMatch } from '@/lib/clientCrm'
-import { isWeighted, nextCartQty, calcLineTotal, formatCartQty, formatPriceLabel, orderItemFromProduct } from '@/lib/productWeight'
+import { isWeighted, nextCartQty, calcLineTotal, formatCartQty, orderItemFromProduct } from '@/lib/productWeight'
+
+const LEVEL_LABEL: Record<string, string> = { basic: 'Базовый', bronze: 'Бронза', silver: 'Серебро', gold: 'Золото', platinum: 'Платина' }
+const LEVEL_COLOR: Record<string, string> = { basic: '#8FB897', bronze: '#CD7F32', silver: '#B8C4CC', gold: '#FFD700', platinum: '#9B6DFF' }
 
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap');
   .till-root{--bg:#030B05;--surface:#0A1710;--surface2:#0F2216;--border:#1A3322;--border2:#234430;--gr:#1FD760;--gr2:#17B34E;--gd:#FFB800;--org:#FF8C00;--blue:#3B8EF0;--pur:#9B6DFF;--red:#FF4545;--t1:#F1FBF3;--t2:#8FB897;--t3:#3D6645;
-    position:fixed;inset:0;z-index:400;background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden;}
+    position:fixed;inset:0;z-index:400;background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;display:flex;overflow:hidden;}
   .till-root *,.till-root *::before,.till-root *::after{box-sizing:border-box;}
   .till-root .ub{font-family:'Unbounded',sans-serif;}
   .till-root .mono{font-family:'JetBrains Mono',monospace;}
@@ -24,10 +27,8 @@ const CSS = `
   @keyframes tPop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}
   @keyframes tTileIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes tRowIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
-  @keyframes tSheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
   @keyframes tFade{from{opacity:0}to{opacity:1}}
   @keyframes tWeigh{0%{transform:translateY(0)}100%{transform:translateY(-2px)}}
-  @keyframes tFlash{0%{box-shadow:0 0 0 0 rgba(31,215,96,.55)}100%{box-shadow:0 0 0 16px rgba(31,215,96,0)}}
 
   .t-gate{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:20;}
   .t-gate-card{width:400px;background:var(--surface);border:1px solid var(--border);border-radius:26px;padding:34px 30px;animation:tPop .3s cubic-bezier(.16,1,.3,1);}
@@ -42,112 +43,114 @@ const CSS = `
   .t-btn-primary:hover{filter:brightness(1.06);}
   .t-btn-primary:disabled{opacity:.4;box-shadow:none;}
 
-  .t-topbar{display:flex;align-items:center;gap:12px;padding:12px 18px 6px;flex-shrink:0;}
-  .t-logo{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#0F8A3A,var(--gr));display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:900;font-size:14px;color:var(--bg);flex-shrink:0;}
-  .t-brand{display:flex;flex-direction:column;line-height:1.1;margin-right:4px;}
-  .t-brand b{font-family:'Unbounded';font-size:12.5px;font-weight:800;}
-  .t-brand span{font-size:9px;color:var(--t3);}
-  .t-search{flex:1;max-width:440px;display:flex;align-items:center;gap:9px;background:var(--surface);border:1.5px solid var(--border);border-radius:14px;padding:10px 15px;}
-  .t-search.active{border-color:var(--gr);}
-  .t-search input{flex:1;background:none;border:none;outline:none;font-size:13px;color:var(--t1);}
+  /* ── Left: catalog ── */
+  .t-catalog{flex:1;display:flex;flex-direction:column;min-width:0;height:100vh;}
+  .t-topbar{display:flex;align-items:center;gap:12px;padding:16px 22px 10px;flex-shrink:0;}
+  .t-search{flex:1;max-width:520px;display:flex;align-items:center;gap:10px;background:var(--surface);border:1.5px solid var(--border);border-radius:15px;padding:12px 16px;}
+  .t-search.active{border-color:var(--gr);box-shadow:0 0 0 3px rgba(31,215,96,.12);}
+  .t-search .ic{color:var(--t2);font-size:14px;}
+  .t-search input{flex:1;background:none;border:none;outline:none;font-size:13.5px;color:var(--t1);}
   .t-search input::placeholder{color:var(--t3);}
+  .t-scan-btn{width:38px;height:38px;border-radius:11px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--t2);flex-shrink:0;}
   .t-chips{display:flex;align-items:center;gap:6px;margin-left:auto;}
-  .t-chip{position:relative;width:34px;height:34px;border-radius:11px;background:var(--surface);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:11px;color:var(--t2);}
-  .t-chip.active{border-color:var(--gr);background:rgba(31,215,96,.12);color:var(--gr);}
-  .t-chip .cnt{position:absolute;top:-5px;right:-5px;min-width:14px;height:14px;padding:0 3px;border-radius:8px;background:var(--gd);color:#241900;font-size:8.5px;font-weight:900;display:flex;align-items:center;justify-content:center;}
-  .t-chip .rm{position:absolute;bottom:-5px;right:-5px;width:13px;height:13px;border-radius:50%;background:var(--red);color:white;font-size:7.5px;display:none;align-items:center;justify-content:center;}
+  .t-chip{position:relative;width:36px;height:36px;border-radius:11px;background:var(--surface);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:12px;color:var(--t2);}
+  .t-chip.active{border-color:var(--gr);background:rgba(31,215,96,.14);color:var(--gr);}
+  .t-chip .cnt{position:absolute;top:-5px;right:-5px;min-width:15px;height:15px;padding:0 3px;border-radius:8px;background:var(--gd);color:#241900;font-size:9px;font-weight:900;display:flex;align-items:center;justify-content:center;}
+  .t-chip .rm{position:absolute;bottom:-5px;right:-5px;width:14px;height:14px;border-radius:50%;background:var(--red);color:white;font-size:8px;display:none;align-items:center;justify-content:center;}
   .t-chip:hover .rm{display:flex;}
-  .t-chip-add{width:34px;height:34px;border-radius:11px;background:var(--surface);border:1.5px dashed var(--border2);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:var(--t2);}
-  .t-clock{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1;margin-left:6px;}
-  .t-clock b{font-family:'JetBrains Mono';font-size:12px;color:var(--gd);}
-  .t-clock span{font-size:8.5px;color:var(--t3);}
-  .t-btn-end{margin-left:8px;padding:8px 13px;border-radius:11px;background:rgba(255,69,69,.1);border:1px solid rgba(255,69,69,.28);color:var(--red);font-size:10.5px;font-weight:700;flex-shrink:0;}
+  .t-chip-add{width:36px;height:36px;border-radius:11px;background:var(--surface);border:1.5px dashed var(--border2);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:var(--t2);}
+  .t-cashier{display:flex;align-items:center;gap:9px;padding:6px 12px 6px 6px;border-radius:14px;background:var(--surface);border:1.5px solid var(--border);flex-shrink:0;}
+  .t-cashier .av{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#1E5BB5,var(--blue));display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:11px;flex-shrink:0;}
+  .t-cashier .info{line-height:1.15;}
+  .t-cashier .info b{font-size:11.5px;display:block;}
+  .t-cashier .info span{font-size:9px;color:var(--t3);}
+  .t-btn-end{padding:9px 15px;border-radius:12px;background:rgba(255,69,69,.1);border:1px solid rgba(255,69,69,.28);color:var(--red);font-size:11px;font-weight:700;flex-shrink:0;}
   .t-btn-end:hover{background:rgba(255,69,69,.16);}
-  .t-btn-close{width:34px;height:34px;border-radius:11px;background:var(--surface);border:1.5px solid var(--border);color:var(--t2);font-size:14px;flex-shrink:0;}
+  .t-btn-close{width:36px;height:36px;border-radius:11px;background:var(--surface);border:1.5px solid var(--border);color:var(--t2);font-size:15px;flex-shrink:0;}
   .t-btn-close:hover{color:var(--t1);border-color:var(--border2);}
 
-  .t-cats{display:flex;gap:8px;padding:12px 18px 4px;overflow-x:auto;flex-shrink:0;}
-  .t-cat{padding:8px 15px;border-radius:12px;font-size:12px;font-weight:700;background:var(--surface);border:1.5px solid var(--border);color:var(--t2);white-space:nowrap;flex-shrink:0;}
-  .t-cat.on{background:var(--gr);border-color:var(--gr);color:var(--bg);}
+  .t-cats{display:flex;gap:10px;padding:8px 22px 14px;overflow-x:auto;flex-shrink:0;}
+  .t-cat{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 18px;border-radius:16px;font-size:11.5px;font-weight:700;background:var(--surface);border:1.5px solid var(--border);color:var(--t2);white-space:nowrap;flex-shrink:0;min-width:76px;}
+  .t-cat .emj{font-size:19px;}
+  .t-cat.on{background:linear-gradient(135deg,var(--gr2),var(--gr));border-color:var(--gr);color:var(--bg);box-shadow:0 8px 20px rgba(31,215,96,.25);}
 
-  .t-grid-wrap{flex:1;overflow-y:auto;padding:10px 18px 120px;}
-  .t-p-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}
-  .t-p-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:16px;padding:14px 13px 12px;text-align:left;transition:border-color .15s,transform .1s;overflow:hidden;animation:tTileIn .2s ease both;display:flex;flex-direction:column;}
+  .t-grid-wrap{flex:1;overflow-y:auto;padding:6px 22px 24px;}
+  .t-p-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px;}
+  .t-p-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:18px;padding:0;text-align:left;transition:border-color .15s,transform .1s;overflow:hidden;animation:tTileIn .2s ease both;display:flex;flex-direction:column;}
   .t-p-tile:hover{border-color:var(--gr);transform:translateY(-2px);}
-  .t-p-emoji{font-size:28px;margin-bottom:8px;display:block;}
-  .t-p-name{font-size:12px;font-weight:800;line-height:1.25;margin-bottom:10px;min-height:30px;}
-  .t-p-price-chip{margin-top:auto;background:rgba(255,184,0,.1);border:1px solid rgba(255,184,0,.25);border-radius:11px;padding:7px 10px;display:flex;align-items:baseline;justify-content:space-between;}
-  .t-p-price{font-family:'JetBrains Mono';font-size:17px;font-weight:900;color:var(--gd);line-height:1;}
-  .t-p-unit{font-size:9px;color:var(--t2);font-weight:700;}
-  .t-p-badge{position:absolute;top:9px;right:9px;font-size:8.5px;font-weight:800;padding:3px 6px;border-radius:7px;background:rgba(155,109,255,.18);color:var(--pur);border:1px solid rgba(155,109,255,.35);}
-  .t-p-low{position:absolute;top:9px;left:9px;font-size:8px;font-weight:800;color:var(--bg);background:var(--red);padding:2px 6px;border-radius:6px;}
+  .t-p-img{height:76px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:34px;position:relative;}
+  .t-p-body{padding:11px 13px 13px;}
+  .t-p-name{font-size:12px;font-weight:700;line-height:1.3;margin-bottom:7px;min-height:31px;color:var(--t1);}
+  .t-p-stock{font-size:10px;color:var(--t3);margin-bottom:8px;}
+  .t-p-stock.low{color:var(--org);font-weight:700;}
+  .t-p-price-row{display:flex;align-items:baseline;justify-content:space-between;}
+  .t-p-price{font-family:'JetBrains Mono';font-size:16px;font-weight:900;color:var(--gr);line-height:1;}
+  .t-p-unit{font-size:9px;color:var(--t3);font-weight:700;}
+  .t-p-badge{position:absolute;top:8px;right:8px;font-size:8.5px;font-weight:800;padding:3px 7px;border-radius:7px;background:rgba(155,109,255,.85);color:white;}
+  .t-p-low-badge{position:absolute;top:8px;left:8px;font-size:8px;font-weight:800;color:white;background:var(--red);padding:2px 7px;border-radius:6px;}
 
-  .t-cartbar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);width:min(720px,calc(100% - 40px));background:var(--surface);border:1.5px solid var(--border2);border-radius:19px;padding:10px 12px;display:flex;align-items:center;gap:13px;box-shadow:0 16px 40px rgba(0,0,0,.5);z-index:60;cursor:pointer;}
-  .t-cartbar:hover{border-color:var(--gr);}
-  .t-cb-thumbs{display:flex;flex-shrink:0;}
-  .t-cb-thumb{width:36px;height:36px;border-radius:10px;background:var(--surface2);border:2px solid var(--surface);display:flex;align-items:center;justify-content:center;font-size:16px;margin-left:-9px;}
-  .t-cb-thumb:first-child{margin-left:0;}
-  .t-cb-info{flex:1;min-width:0;}
-  .t-cb-info .n{font-size:10.5px;color:var(--t2);font-weight:700;}
-  .t-cb-info .sum{font-family:'JetBrains Mono';font-size:20px;font-weight:900;color:var(--gr);line-height:1.15;}
-  .t-cb-open{flex-shrink:0;padding:11px 18px;border-radius:13px;background:var(--gr);color:var(--bg);font-weight:800;font-size:12px;}
+  /* ── Right: permanent cart panel ── */
+  .t-cartpanel{width:380px;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;height:100vh;}
+  .t-cart-client{margin:16px 16px 0;padding:13px 15px;border-radius:16px;background:var(--surface2);border:1.5px solid var(--border);cursor:pointer;transition:border-color .15s;}
+  .t-cart-client:hover{border-color:var(--border2);}
+  .t-cart-client-empty{display:flex;align-items:center;gap:10px;color:var(--t2);font-size:12.5px;font-weight:700;}
+  .t-cart-client-head{display:flex;align-items:center;gap:10px;}
+  .t-cart-client .av{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,#0F8A3A,var(--gr));display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:13px;color:var(--bg);flex-shrink:0;}
+  .t-cart-client .ci{flex:1;min-width:0;}
+  .t-cart-client .ci b{font-size:13px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .t-cart-client .ci span{font-size:10.5px;color:var(--t2);}
+  .t-cart-client .x{color:var(--t3);font-size:13px;flex-shrink:0;}
+  .t-cart-client .x:hover{color:var(--red);}
+  .t-tier-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:9px;font-size:10px;font-weight:800;margin-top:8px;}
+  .t-bonus-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:9px;font-size:10px;font-weight:800;margin-top:8px;margin-left:6px;background:rgba(255,184,0,.14);color:var(--gd);}
 
-  .t-sheet-overlay{position:fixed;inset:0;background:rgba(3,11,5,.6);z-index:150;animation:tFade .2s ease;}
-  .t-sheet{position:fixed;left:0;right:0;bottom:0;height:85vh;background:var(--surface);border-radius:24px 24px 0 0;border:1px solid var(--border2);border-bottom:none;box-shadow:0 -20px 50px rgba(0,0,0,.5);z-index:160;display:flex;flex-direction:column;overflow:hidden;animation:tSheetUp .3s cubic-bezier(.16,1,.3,1);}
-  .t-sheet-head{display:flex;align-items:center;gap:10px;padding:16px 20px 12px;flex-shrink:0;}
-  .t-sheet-head b{font-family:'Unbounded';font-size:14px;font-weight:800;}
-  .t-sheet-head .id{font-family:'JetBrains Mono';font-size:10.5px;color:var(--t3);}
-  .t-sheet-close{margin-left:auto;width:30px;height:30px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--t2);}
-  .t-sheet-fields{display:flex;gap:9px;padding:0 20px 12px;flex-shrink:0;}
-  .t-sfield{flex:1;background:var(--surface2);border:1.5px solid var(--border);border-radius:13px;padding:9px 12px;display:flex;align-items:center;gap:8px;}
-  .t-sfield .l{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;}
-  .t-sfield .v{flex:1;font-size:11.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .t-sfield .v.set{color:var(--gd);}
-  .t-sfield button{font-size:10px;color:var(--blue);font-weight:800;flex-shrink:0;}
-  .t-sfield .x{color:var(--t3);font-size:11px;flex-shrink:0;}
-  .t-sfield .x:hover{color:var(--red);}
-  .t-sheet-body{flex:1;overflow-y:auto;padding:2px 20px 8px;}
-  .t-sheet-empty{text-align:center;color:var(--t3);padding:50px 20px;}
-  .t-cart-row{display:flex;align-items:center;gap:11px;padding:10px 9px;border-radius:14px;animation:tRowIn .18s ease both;}
+  .t-cart-list{flex:1;overflow-y:auto;padding:12px 16px;}
+  .t-cart-empty{text-align:center;color:var(--t3);padding:60px 16px;font-size:12.5px;}
+  .t-cart-empty .ic{font-size:40px;opacity:.5;margin-bottom:10px;}
+  .t-cart-row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:13px;animation:tRowIn .18s ease both;}
   .t-cart-row:hover{background:var(--surface2);}
-  .t-cart-row .ic{width:40px;height:40px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+  .t-cart-row .ic{width:38px;height:38px;border-radius:11px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
   .t-cart-row .info{flex:1;min-width:0;}
-  .t-cart-row .name{font-size:12.5px;font-weight:700;}
-  .t-cart-row .sub{font-size:10px;color:var(--t3);margin-top:1px;}
-  .t-qtyctrl{display:flex;align-items:center;gap:7px;background:var(--surface2);border-radius:10px;padding:4px;flex-shrink:0;}
-  .t-qtyctrl button{width:22px;height:22px;border-radius:7px;font-size:14px;font-weight:800;color:var(--t2);display:flex;align-items:center;justify-content:center;}
+  .t-cart-row .name{font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .t-cart-row .sub{font-size:9.5px;color:var(--t3);margin-top:1px;}
+  .t-qtyctrl{display:flex;align-items:center;gap:6px;background:var(--surface2);border-radius:9px;padding:3px;flex-shrink:0;}
+  .t-qtyctrl button{width:20px;height:20px;border-radius:6px;font-size:13px;font-weight:800;color:var(--t2);display:flex;align-items:center;justify-content:center;}
   .t-qtyctrl button:hover{background:var(--border2);color:var(--t1);}
-  .t-qtyctrl span{font-size:12px;font-weight:800;min-width:16px;text-align:center;font-family:'JetBrains Mono';}
-  .t-cart-row .price{font-family:'JetBrains Mono';font-size:14.5px;font-weight:900;color:var(--gd);flex-shrink:0;min-width:66px;text-align:right;}
-  .t-cart-row .rm{width:24px;height:24px;border-radius:8px;color:var(--t3);font-size:12px;flex-shrink:0;}
+  .t-qtyctrl span{font-size:11px;font-weight:800;min-width:14px;text-align:center;font-family:'JetBrains Mono';}
+  .t-cart-row .price{font-family:'JetBrains Mono';font-size:13px;font-weight:900;color:var(--t1);flex-shrink:0;min-width:56px;text-align:right;}
+  .t-cart-row .rm{width:22px;height:22px;border-radius:7px;color:var(--t3);font-size:11px;flex-shrink:0;}
   .t-cart-row .rm:hover{background:rgba(255,69,69,.12);color:var(--red);}
-  .t-sheet-footer{border-top:1px solid var(--border);padding:13px 20px 16px;flex-shrink:0;background:var(--surface);}
-  .t-bonus-row{display:flex;align-items:center;gap:10px;background:rgba(255,184,0,.06);border:1px solid rgba(255,184,0,.2);border-radius:13px;padding:9px 12px;margin-bottom:9px;}
-  .t-bonus-row .txt{flex:1;font-size:11px;}
-  .t-bonus-row .txt b{color:var(--gd);font-family:'JetBrains Mono';}
-  .t-toggle{position:relative;width:38px;height:21px;background:var(--border2);border-radius:11px;flex-shrink:0;transition:background .15s;}
-  .t-toggle.on{background:var(--gd);}
-  .t-toggle i{position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:var(--t1);transition:transform .15s;}
-  .t-toggle.on i{transform:translateX(17px);background:var(--bg);}
-  .t-tot-row{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);margin-bottom:5px;}
-  .t-tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:9px;margin-bottom:13px;border-top:1px dashed var(--border);}
-  .t-tot-final b{font-family:'Unbounded';font-size:12.5px;}
-  .t-tot-final .sum{font-family:'JetBrains Mono';font-size:26px;font-weight:900;color:var(--gr);}
-  .t-pay-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:11px;}
-  .t-pm{padding:11px 6px;border-radius:13px;border:1.5px solid var(--border);background:var(--surface2);text-align:center;}
-  .t-pm .ic{font-size:16px;margin-bottom:3px;display:block;}
-  .t-pm span{font-size:10.5px;font-weight:700;color:var(--t2);}
-  .t-pm.on{border-color:var(--gr);background:rgba(31,215,96,.1);}
-  .t-pm.on span{color:var(--gr);}
-  .t-pm[data-m="credit"].on{border-color:var(--gd);background:rgba(255,184,0,.1);}
-  .t-pm[data-m="credit"].on span{color:var(--gd);}
-  .t-pm[data-m="card"].on{border-color:var(--blue);background:rgba(59,142,240,.1);}
-  .t-pm[data-m="card"].on span{color:var(--blue);}
-  .t-btn-checkout{width:100%;padding:16px;border-radius:15px;background:linear-gradient(135deg,var(--gr2),var(--gr));color:var(--bg);font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 10px 26px rgba(31,215,96,.28);}
+
+  .t-cart-footer{border-top:1px solid var(--border);padding:14px 16px 18px;flex-shrink:0;}
+  .t-tot-row{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);margin-bottom:6px;}
+  .t-tot-row.disc span:last-child{color:var(--red);}
+  .t-tot-row.bonus span:last-child{color:var(--gd);}
+  .t-tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:10px;margin-top:2px;margin-bottom:12px;border-top:1px dashed var(--border);}
+  .t-tot-final b{font-family:'Unbounded';font-size:13px;}
+  .t-tot-final .sum{font-family:'JetBrains Mono';font-size:24px;font-weight:900;color:var(--gr);}
+
+  .t-action-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:8px;}
+  .t-action-btn{display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 4px;border-radius:13px;background:var(--surface2);border:1.5px solid var(--border);font-size:10px;font-weight:700;color:var(--t2);}
+  .t-action-btn .ic{font-size:16px;}
+  .t-action-btn.on{border-color:var(--gd);background:rgba(255,184,0,.12);color:var(--gd);}
+  .t-action-row2{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:11px;}
+  .t-btn-debt{display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:13px;background:rgba(255,69,69,.1);border:1.5px solid rgba(255,69,69,.25);color:var(--red);font-size:11.5px;font-weight:800;}
+  .t-btn-debt.on{background:var(--red);color:white;border-color:var(--red);}
+  .t-btn-clear{display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 6px;border-radius:13px;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);font-size:11.5px;font-weight:800;}
+  .t-btn-clear:hover{color:var(--red);border-color:rgba(255,69,69,.28);}
+
+  .t-pay-row{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:11px;}
+  .t-pm{padding:12px 6px;border-radius:13px;border:1.5px solid var(--border);background:var(--surface2);text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .t-pm .ic{font-size:17px;}
+  .t-pm span{font-size:11px;font-weight:700;color:var(--t2);}
+  .t-pm.on[data-m="cash"]{border-color:var(--gr);background:var(--gr);}
+  .t-pm.on[data-m="cash"] span{color:var(--bg);}
+  .t-pm.on[data-m="card"]{border-color:var(--blue);background:var(--blue);}
+  .t-pm.on[data-m="card"] span{color:white;}
+  .t-btn-checkout{width:100%;padding:17px;border-radius:15px;background:linear-gradient(135deg,var(--gr2),var(--gr));color:var(--bg);font-weight:800;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:9px;box-shadow:0 12px 28px rgba(31,215,96,.3);}
   .t-btn-checkout:disabled{opacity:.35;box-shadow:none;}
-  .t-sheet-actions{display:flex;gap:8px;margin-top:8px;}
-  .t-sheet-actions button{flex:1;padding:8px;border-radius:11px;font-size:10.5px;font-weight:700;color:var(--t3);}
-  .t-sheet-actions button:hover{color:var(--red);}
+  .t-history-link{display:block;text-align:center;margin-top:9px;font-size:10.5px;color:var(--t3);font-weight:700;}
+  .t-history-link:hover{color:var(--t1);}
 
   .t-overlay{position:fixed;inset:0;background:rgba(3,11,5,.75);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;}
   .t-scale-card{width:300px;background:var(--surface);border:1.5px solid var(--border);border-radius:22px;padding:22px;text-align:center;animation:tPop .22s ease;}
@@ -227,9 +230,10 @@ interface TicketState {
   cart: Record<number, number>
   client: AdminCard | null
   bonusUsed: number
+  discountPct: number
   pay: PayMethod
 }
-function emptyTicket(): TicketState { return { cart: {}, client: null, bonusUsed: 0, pay: 'cash' } }
+function emptyTicket(): TicketState { return { cart: {}, client: null, bonusUsed: 0, discountPct: 0, pay: 'cash' } }
 
 function money(n: number): string { return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2) }
 
@@ -244,15 +248,11 @@ export default function RetailTill({ locationId, locationName, onClose }: { loca
   const [shift, setShift] = useState<TillShift | null | undefined>(undefined)
   const [gateBusy, setGateBusy] = useState(false)
   const [gateErr, setGateErr] = useState('')
-  const [clock, setClock] = useState('')
 
   useEffect(() => {
     void fetchProducts()
     hydrateCardStore()
     hydrateClientStore()
-    const iv = setInterval(() => setClock(new Date().toLocaleTimeString('ru-RU')), 1000)
-    setClock(new Date().toLocaleTimeString('ru-RU'))
-    return () => clearInterval(iv)
   }, [fetchProducts])
 
   const cards = useMemo(() => mergeCardsWithClients(cardsRaw, clients), [cardsRaw, clients])
@@ -288,14 +288,14 @@ export default function RetailTill({ locationId, locationName, onClose }: { loca
     )
   }
 
-  return <TillMain locationId={locationId} locationName={locationName} shift={shift} cashierName={cashierName} clock={clock}
-    products={products} cards={cards} clients={clients}
+  return <TillMain locationId={locationId} locationName={locationName} shift={shift} cashierName={cashierName}
+    products={products} cards={cards}
     onShiftClosed={() => setShift(null)} onClose={onClose} />
 }
 
-function TillMain({ locationId, locationName, shift, cashierName, clock, products, cards, clients, onShiftClosed, onClose }: {
-  locationId: string; locationName: string; shift: TillShift; cashierName: string; clock: string
-  products: Product[]; cards: AdminCard[]; clients: ReturnType<typeof useClients>
+function TillMain({ locationId, locationName, shift, cashierName, products, cards, onShiftClosed, onClose }: {
+  locationId: string; locationName: string; shift: TillShift; cashierName: string
+  products: Product[]; cards: AdminCard[]
   onShiftClosed: () => void; onClose: () => void
 }) {
   const ticketSeq = useRef(1)
@@ -335,9 +335,10 @@ function TillMain({ locationId, locationName, shift, cashierName, clock, product
   const [catFlt, setCatFlt] = useState('all')
   const [searchFocused, setSearchFocused] = useState(false)
   const [scaleProduct, setScaleProduct] = useState<Product | null>(null)
-  const [sheetOpen, setSheetOpen] = useState(false)
   const [clientModal, setClientModal] = useState(false)
   const [clientQuery, setClientQuery] = useState('')
+  const [discModal, setDiscModal] = useState(false)
+  const [discBuf, setDiscBuf] = useState('')
   const [cashModal, setCashModal] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
   const [busy, setBusy] = useState(false)
@@ -357,9 +358,9 @@ function TillMain({ locationId, locationName, shift, cashierName, clock, product
   useEffect(() => { reloadReceipts() }, [shift.id])
 
   const cats = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const p of products) if (p.catId) map.set(p.catId, p.cat || p.catId)
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
+    const map = new Map<string, { name: string; emoji: string }>()
+    for (const p of products) if (p.catId && !map.has(p.catId)) map.set(p.catId, { name: p.cat || p.catId, emoji: p.e })
+    return Array.from(map.entries()).map(([id, v]) => ({ id, ...v }))
   }, [products])
 
   const filteredProducts = useMemo(() => {
@@ -378,10 +379,13 @@ function TillMain({ locationId, locationName, shift, cashierName, clock, product
       .filter(l => l.product)
   }, [activeTicket.cart, products])
 
-  const goodsTotal = useMemo(() => Math.round(cartLines.reduce((s, l) => s + calcLineTotal(l.product, l.qty), 0) * 100) / 100, [cartLines])
+  const subtotal = useMemo(() => Math.round(cartLines.reduce((s, l) => s + calcLineTotal(l.product, l.qty), 0) * 100) / 100, [cartLines])
+  const discountAmt = Math.round(subtotal * (activeTicket.discountPct / 100) * 100) / 100
+  const goodsTotal = Math.max(0, Math.round((subtotal - discountAmt) * 100) / 100)
   const selectedClient = activeTicket.client
   const bonusUsable = selectedClient ? Math.min(Number(selectedClient.bonus) || 0, goodsTotal) : 0
-  const payable = Math.max(0, Math.round((goodsTotal - Math.min(activeTicket.bonusUsed, bonusUsable)) * 100) / 100)
+  const bonusApplied = Math.min(activeTicket.bonusUsed, bonusUsable)
+  const payable = Math.max(0, Math.round((goodsTotal - bonusApplied) * 100) / 100)
 
   const addToCart = (p: Product, qty?: number) => {
     patchActive(t => {
@@ -437,16 +441,17 @@ function TillMain({ locationId, locationName, shift, cashierName, clock, product
   const doCheckout = async () => {
     setBusy(true); setErr('')
     try {
+      const discountFactor = subtotal > 0 ? goodsTotal / subtotal : 1
       const items = cartLines.map(l => {
         const oi = orderItemFromProduct(l.product, l.qty)
-        return { productId: l.product.id, qty: oi.qty, price: oi.price, unit: oi.unit }
+        return { productId: l.product.id, qty: oi.qty, price: Math.round(oi.price * discountFactor * 100) / 100, unit: oi.unit }
       })
       const result = await api.createTillSale({
         locationId,
         cashierName,
         items,
         clientPhone: selectedClient?.phone,
-        bonusSpent: Math.min(activeTicket.bonusUsed, bonusUsable),
+        bonusSpent: bonusApplied,
         paymentMethod: activeTicket.pay,
       })
       setCashModal(false)
@@ -463,7 +468,6 @@ function TillMain({ locationId, locationName, shift, cashierName, clock, product
     setPrinting({ order })
     setTimeout(() => {
       setPrinting(null)
-      setSheetOpen(false)
       setToast({ title: `Чек ${order.id} проведён`, sub: `${order.payment_method === 'cash' ? 'Наличные' : order.payment_method === 'card' ? 'Картой' : 'В долг'} · ${money(Number(order.total))} ЅМ` })
       setTimeout(() => setToast(null), 2600)
     }, 1100)
@@ -502,122 +506,136 @@ function TillMain({ locationId, locationName, shift, cashierName, clock, product
     <div className="till-root">
       <style>{CSS}</style>
 
-      <div className="t-topbar">
-        <div className="t-logo">K</div>
-        <div className="t-brand"><b>KAKAPO</b><span>{locationName}</span></div>
-        <div className={`t-search ${searchFocused ? 'active' : ''}`}>
-          <span>🔍</span>
-          <input ref={scanRef} value={search} onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
-            onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleScan()}
-            placeholder="Штрихкод, артикул или название…" autoFocus />
-        </div>
-        <div className="t-chips">
-          {ticketOrder.map((id, i) => {
-            const t = tickets[id]
-            const count = Object.values(t?.cart || {}).filter(q => q > 0).length
-            return (
-              <div key={id} className={`t-chip ${id === activeTicketId ? 'active' : ''}`} onClick={() => setActiveTicketId(id)}>
-                {i + 1}{count > 0 && <span className="cnt">{count}</span>}
-                {ticketOrder.length > 1 && <span className="rm" onClick={e => { e.stopPropagation(); closeTicket(id) }}>✕</span>}
-              </div>
-            )
-          })}
-          <button className="t-chip-add" onClick={newTicket} title="Новый чек">+</button>
-        </div>
-        <div className="t-clock"><b className="mono">{clock}</b><span>смена {new Date(shift.openedAtIso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span></div>
-        <button className="t-btn-end" onClick={() => { setZOpen(true); setZResult(null); setClosingCash('') }}>Закрыть смену</button>
-        <button className="t-btn-close" onClick={onClose} title="Свернуть кассу">✕</button>
-      </div>
-
-      <div className="t-cats">
-        <button className={`t-cat ${catFlt === 'all' ? 'on' : ''}`} onClick={() => setCatFlt('all')}>Все</button>
-        {cats.map(c => <button key={c.id} className={`t-cat ${catFlt === c.id ? 'on' : ''}`} onClick={() => setCatFlt(c.id)}>{c.name}</button>)}
-      </div>
-
-      <div className="t-grid-wrap">
-        <div className="t-p-grid">
-          {filteredProducts.map(p => {
-            const stock = p.stock
-            return (
-              <button key={p.id} className="t-p-tile" onClick={() => tapProduct(p)}>
-                {isWeighted(p) && <span className="t-p-badge">⚖ вес</span>}
-                {!isWeighted(p) && stock < 5 && <span className="t-p-low">ост. {stock}</span>}
-                <span className="t-p-emoji">{p.e}</span>
-                <div className="t-p-name">{p.name}</div>
-                <div className="t-p-price-chip"><span className="t-p-price mono">{formatPriceLabel(p).split('/')[0]?.trim() || p.price.toFixed(2)}</span><span className="t-p-unit">ЅМ/{p.unit}</span></div>
-              </button>
-            )
-          })}
-          {filteredProducts.length === 0 && <div style={{ gridColumn: '1/-1', textAlign: 'center', color: 'var(--t3)', padding: 30 }}>Ничего не найдено</div>}
-        </div>
-      </div>
-
-      {cartLines.length === 0 ? (
-        <div className="t-cartbar" style={{ opacity: .7 }} onClick={() => setSheetOpen(true)}>
-          <span style={{ color: 'var(--t3)', fontSize: 12.5, fontWeight: 700 }}>🛒 Чек пуст — отсканируйте или выберите товар</span>
-        </div>
-      ) : (
-        <div className="t-cartbar" onClick={() => setSheetOpen(true)}>
-          <div className="t-cb-thumbs">
-            {cartLines.slice(0, 4).map(l => <div className="t-cb-thumb" key={l.product.id}>{l.product.e}</div>)}
-            {cartLines.length > 4 && <div className="t-cb-thumb" style={{ fontSize: 11, fontWeight: 800 }}>+{cartLines.length - 4}</div>}
+      <div className="t-catalog">
+        <div className="t-topbar">
+          <div className={`t-search ${searchFocused ? 'active' : ''}`}>
+            <span className="ic">🔍</span>
+            <input ref={scanRef} value={search} onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
+              onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleScan()}
+              placeholder="Поиск товара по названию, штрихкоду…" autoFocus />
           </div>
-          <div className="t-cb-info"><div className="n">{cartLines.length} {cartLines.length === 1 ? 'товар' : 'товара'} в чеке</div><div className="sum mono">{money(goodsTotal)} ЅМ</div></div>
-          <div className="t-cb-open">Открыть чек ›</div>
-        </div>
-      )}
-
-      {sheetOpen && (
-        <>
-          <div className="t-sheet-overlay" onClick={() => setSheetOpen(false)} />
-          <div className="t-sheet">
-            <div className="t-sheet-head"><b>Текущий чек</b><span className="id mono">{activeTicketId}</span><button className="t-sheet-close" onClick={() => setSheetOpen(false)}>✕</button></div>
-            <div className="t-sheet-fields">
-              <div className="t-sfield">
-                <span className="l">Клиент</span>
-                <span className={`v ${selectedClient ? 'set' : ''}`}>{selectedClient?.client || 'не выбран'}</span>
-                <button onClick={() => setClientModal(true)}>Выбрать</button>
-                {selectedClient && <span className="x" onClick={clearClient}>✕</span>}
-              </div>
-            </div>
-            <div className="t-sheet-body">
-              {cartLines.length === 0 ? (
-                <div className="t-sheet-empty">🛒<br />Чек пуст. Закройте панель и выберите товар.</div>
-              ) : cartLines.map(({ product, qty }) => (
-                <div className="t-cart-row" key={product.id}>
-                  <div className="ic">{product.e}</div>
-                  <div className="info"><div className="name">{product.name}</div><div className="sub">{formatCartQty(product, qty)} {isWeighted(product) ? '' : product.unit} · {money(product.price)} ЅМ</div></div>
-                  {!isWeighted(product) && <div className="t-qtyctrl"><button onClick={() => decFromCart(product)}>−</button><span>{qty}</span><button onClick={() => addToCart(product, 1)}>+</button></div>}
-                  <div className="price mono">{money(calcLineTotal(product, qty))}</div>
-                  <button className="rm" onClick={() => removeFromCart(product.id)}>✕</button>
+          <button className="t-scan-btn" onClick={() => scanRef.current?.focus()} title="Сканер">⌗</button>
+          <div className="t-chips">
+            {ticketOrder.map((id, i) => {
+              const t = tickets[id]
+              const count = Object.values(t?.cart || {}).filter(q => q > 0).length
+              return (
+                <div key={id} className={`t-chip ${id === activeTicketId ? 'active' : ''}`} onClick={() => setActiveTicketId(id)}>
+                  {i + 1}{count > 0 && <span className="cnt">{count}</span>}
+                  {ticketOrder.length > 1 && <span className="rm" onClick={e => { e.stopPropagation(); closeTicket(id) }}>✕</span>}
                 </div>
-              ))}
-            </div>
-            <div className="t-sheet-footer">
-              {selectedClient && Number(selectedClient.bonus) > 0 && (
-                <div className="t-bonus-row">
-                  <span className="txt">У клиента <b>{selectedClient.bonus}</b> бонусов · доступно <b>{bonusUsable.toFixed(0)}</b></span>
-                  <div className={`t-toggle ${activeTicket.bonusUsed > 0 ? 'on' : ''}`} onClick={() => patchActive({ bonusUsed: activeTicket.bonusUsed > 0 ? 0 : bonusUsable })}><i /></div>
-                </div>
-              )}
-              <div className="t-tot-row"><span>Позиций</span><span>{cartLines.length}</span></div>
-              {activeTicket.bonusUsed > 0 && <div className="t-tot-row" style={{ color: 'var(--gd)' }}><span>Списано бонусами</span><span>−{money(Math.min(activeTicket.bonusUsed, bonusUsable))}</span></div>}
-              <div className="t-tot-final"><b>Итого</b><span className="sum mono">{money(payable)} ЅМ</span></div>
-              <div className="t-pay-row">
-                <button className={`t-pm ${activeTicket.pay === 'cash' ? 'on' : ''}`} data-m="cash" onClick={() => patchActive({ pay: 'cash' })}><span className="ic">💵</span><span>Наличные</span></button>
-                <button className={`t-pm ${activeTicket.pay === 'card' ? 'on' : ''}`} data-m="card" onClick={() => patchActive({ pay: 'card' })}><span className="ic">💳</span><span>Карта</span></button>
-                <button className={`t-pm ${activeTicket.pay === 'debt' ? 'on' : ''}`} data-m="debt" onClick={() => patchActive({ pay: 'debt' })}><span className="ic">📝</span><span>В долг</span></button>
-              </div>
-              {err && <div style={{ fontSize: 11.5, color: 'var(--red)', marginBottom: 8, fontWeight: 700, textAlign: 'center' }}>{err}</div>}
-              <button className="t-btn-checkout" disabled={!cartLines.length || busy} onClick={startCheckout}><span>🖨</span><span>{busy ? 'Проводим...' : 'Оформить чек'}</span></button>
-              <div className="t-sheet-actions">
-                <button onClick={() => { patchActive({ cart: {}, client: null, bonusUsed: 0, pay: 'cash' }) }}>Очистить чек</button>
-                <button onClick={() => setHistoryOpen(true)} style={{ color: 'var(--t2)' }}>История</button>
-              </div>
-            </div>
+              )
+            })}
+            <button className="t-chip-add" onClick={newTicket} title="Новый чек">+</button>
           </div>
-        </>
-      )}
+          <div className="t-cashier">
+            <div className="av">{cashierName ? cashierName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?'}</div>
+            <div className="info"><b>{cashierName || 'Кассир'}</b><span>Смена с {new Date(shift.openedAtIso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span></div>
+          </div>
+          <button className="t-btn-end" onClick={() => { setZOpen(true); setZResult(null); setClosingCash('') }}>Закрыть смену</button>
+          <button className="t-btn-close" onClick={onClose} title="Свернуть кассу">✕</button>
+        </div>
+
+        <div className="t-cats">
+          <button className={`t-cat ${catFlt === 'all' ? 'on' : ''}`} onClick={() => setCatFlt('all')}><span className="emj">🗂</span>Все товары</button>
+          {cats.map(c => <button key={c.id} className={`t-cat ${catFlt === c.id ? 'on' : ''}`} onClick={() => setCatFlt(c.id)}><span className="emj">{c.emoji}</span>{c.name}</button>)}
+        </div>
+
+        <div className="t-grid-wrap">
+          <div className="t-p-grid">
+            {filteredProducts.map(p => {
+              const low = !isWeighted(p) && p.stock < 5
+              return (
+                <button key={p.id} className="t-p-tile" onClick={() => tapProduct(p)}>
+                  <div className="t-p-img">
+                    {isWeighted(p) && <span className="t-p-badge">⚖ вес</span>}
+                    {low && <span className="t-p-low-badge">ост. {p.stock}</span>}
+                    {p.e}
+                  </div>
+                  <div className="t-p-body">
+                    <div className="t-p-name">{p.name}</div>
+                    <div className={`t-p-stock ${low ? 'low' : ''}`}>{isWeighted(p) ? 'В наличии' : `В наличии: ${p.stock}`}</div>
+                    <div className="t-p-price-row"><span className="t-p-price mono">{money(p.price)}</span><span className="t-p-unit">ЅМ/{p.unit}</span></div>
+                  </div>
+                </button>
+              )
+            })}
+            {filteredProducts.length === 0 && <div style={{ gridColumn: '1/-1', textAlign: 'center', color: 'var(--t3)', padding: 30 }}>Ничего не найдено</div>}
+          </div>
+        </div>
+      </div>
+
+      <div className="t-cartpanel">
+        <div className="t-cart-client" onClick={() => setClientModal(true)}>
+          {selectedClient ? (
+            <>
+              <div className="t-cart-client-head">
+                <div className="av">{(selectedClient.client || selectedClient.num).split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}</div>
+                <div className="ci"><b>{selectedClient.client || selectedClient.num}</b><span>{selectedClient.phone}</span></div>
+                <span className="x" onClick={e => { e.stopPropagation(); clearClient() }}>✕</span>
+              </div>
+              <div>
+                {selectedClient.level && (
+                  <span className="t-tier-pill" style={{ background: `${LEVEL_COLOR[selectedClient.level] || '#8FB897'}22`, color: LEVEL_COLOR[selectedClient.level] || '#8FB897' }}>
+                    {selectedClient.vip ? '👑 VIP' : LEVEL_LABEL[selectedClient.level] || selectedClient.level}
+                  </span>
+                )}
+                {Number(selectedClient.bonus) > 0 && <span className="t-bonus-pill">💎 {selectedClient.bonus} бонусов</span>}
+              </div>
+            </>
+          ) : (
+            <div className="t-cart-client-empty"><span style={{ fontSize: 18 }}>👤</span>Выбрать клиента (необязательно)</div>
+          )}
+        </div>
+
+        <div className="t-cart-list">
+          {cartLines.length === 0 ? (
+            <div className="t-cart-empty"><div className="ic">🛒</div>Чек пуст.<br />Выберите товар в каталоге.</div>
+          ) : cartLines.map(({ product, qty }) => (
+            <div className="t-cart-row" key={product.id}>
+              <div className="ic">{product.e}</div>
+              <div className="info"><div className="name">{product.name}</div><div className="sub">{formatCartQty(product, qty)} {isWeighted(product) ? '' : product.unit} × {money(product.price)}</div></div>
+              {!isWeighted(product) && <div className="t-qtyctrl"><button onClick={() => decFromCart(product)}>−</button><span>{qty}</span><button onClick={() => addToCart(product, 1)}>+</button></div>}
+              <div className="price mono">{money(calcLineTotal(product, qty))}</div>
+              <button className="rm" onClick={() => removeFromCart(product.id)}>✕</button>
+            </div>
+          ))}
+        </div>
+
+        <div className="t-cart-footer">
+          <div className="t-tot-row"><span>{cartLines.length} товаров</span><span className="mono">{money(subtotal)} ЅМ</span></div>
+          {discountAmt > 0 && <div className="t-tot-row disc"><span>Скидка ({activeTicket.discountPct}%)</span><span>−{money(discountAmt)}</span></div>}
+          {bonusApplied > 0 && <div className="t-tot-row bonus"><span>Списано бонусами</span><span>−{money(bonusApplied)}</span></div>}
+          <div className="t-tot-final"><b>К оплате</b><span className="sum mono">{money(payable)} ЅМ</span></div>
+
+          <div className="t-action-grid">
+            <button className={`t-action-btn ${activeTicket.discountPct > 0 ? 'on' : ''}`} onClick={() => { setDiscBuf(activeTicket.discountPct ? String(activeTicket.discountPct) : ''); setDiscModal(true) }}>
+              <span className="ic">🏷</span>Скидка
+            </button>
+            <button className={`t-action-btn ${bonusApplied > 0 ? 'on' : ''}`} disabled={!selectedClient || bonusUsable <= 0}
+              onClick={() => patchActive({ bonusUsed: activeTicket.bonusUsed > 0 ? 0 : bonusUsable })}>
+              <span className="ic">🎁</span>Бонусы
+            </button>
+            <button className="t-action-btn" onClick={() => setHistoryOpen(true)}><span className="ic">📋</span>История</button>
+          </div>
+          <div className="t-action-row2">
+            <button className={`t-btn-debt ${activeTicket.pay === 'debt' ? 'on' : ''}`} onClick={() => patchActive({ pay: activeTicket.pay === 'debt' ? 'cash' : 'debt' })}>📝 В долг</button>
+            <button className="t-btn-clear" onClick={() => patchActive({ cart: {}, client: null, bonusUsed: 0, discountPct: 0, pay: 'cash' })}>🗑 Очистить</button>
+          </div>
+
+          {activeTicket.pay !== 'debt' && (
+            <div className="t-pay-row">
+              <button className={`t-pm ${activeTicket.pay === 'cash' ? 'on' : ''}`} data-m="cash" onClick={() => patchActive({ pay: 'cash' })}><span className="ic">💵</span><span>Наличные</span></button>
+              <button className={`t-pm ${activeTicket.pay === 'card' ? 'on' : ''}`} data-m="card" onClick={() => patchActive({ pay: 'card' })}><span className="ic">💳</span><span>Карта</span></button>
+            </div>
+          )}
+
+          {err && <div style={{ fontSize: 11.5, color: 'var(--red)', marginBottom: 8, fontWeight: 700, textAlign: 'center' }}>{err}</div>}
+          <button className="t-btn-checkout" disabled={!cartLines.length || busy} onClick={startCheckout}>
+            <span>{busy ? 'Проводим...' : `Оплатить ${money(payable)} ЅМ`}</span>
+          </button>
+        </div>
+      </div>
 
       {scaleProduct && <WeighModal product={scaleProduct} onDone={(kg) => { addToCart(scaleProduct, kg); setScaleProduct(null) }} onClose={() => setScaleProduct(null)} />}
 
@@ -634,6 +652,28 @@ function TillMain({ locationId, locationName, shift, cashierName, clock, product
             ))}
             {clientQuery.trim().length >= 2 && clientResults.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--t3)', padding: '6px 2px' }}>Не найдено</div>}
             <div className="t-modal-actions"><button className="t-btn-cancel" onClick={() => setClientModal(false)}>Отмена</button></div>
+          </div>
+        </div>
+      )}
+
+      {discModal && (
+        <div className="t-overlay" onClick={() => setDiscModal(false)}>
+          <div className="t-modal" onClick={e => e.stopPropagation()}>
+            <h3>🏷 Скидка на чек</h3>
+            <div className="t-kp-display"><div className="lbl">СКИДКА, %</div><div className="val mono">{discBuf || '0'}</div></div>
+            <div className="t-kp-quick">{[0, 5, 10, 15].map(v => <button key={v} onClick={() => setDiscBuf(String(v))}>{v}%</button>)}</div>
+            <div className="t-keypad">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map((k, i) => k === '' ? <div key={i} /> : (
+                <button key={k} className={k === '⌫' ? 'clear' : ''} onClick={() => {
+                  if (k === '⌫') { setDiscBuf(b => b.slice(0, -1)); return }
+                  setDiscBuf(b => (b + k).slice(0, 2))
+                }}>{k}</button>
+              ))}
+            </div>
+            <div className="t-modal-actions">
+              <button className="t-btn-cancel" onClick={() => setDiscModal(false)}>Отмена</button>
+              <button className="t-btn-confirm" onClick={() => { patchActive({ discountPct: Math.min(90, Number(discBuf) || 0) }); setDiscModal(false) }}>Применить</button>
+            </div>
           </div>
         </div>
       )}
