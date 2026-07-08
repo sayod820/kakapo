@@ -83,11 +83,6 @@ export interface Order {
   accountGeneration?: number
   /** Выручка ресторану уже начислена */
   revenueCredited?: boolean
-  /** Источник заказа: онлайн-checkout по умолчанию, 'pos' — продажа за прилавком в кассе */
-  source?: 'market' | 'pos'
-  /** Кассир, оформивший продажу за прилавком (source === 'pos') */
-  cashierId?: string
-  cashierName?: string
 }
 
 export type SellType = 'piece' | 'weight'
@@ -123,6 +118,10 @@ export interface Product {
   minWeight?: number
   /** Оптовые цены: от minQty шт (или г) — цена за единицу */
   bulkPricing?: BulkPriceTier[]
+  /** Разбивка остатка по точкам KAKAPO Ритейл (id точки → количество); сумма = stock */
+  stockByLocation?: Record<string, number>
+  /** Минимальный остаток для алерта в KAKAPO Ритейл */
+  minStock?: number
 }
 
 export interface BulkPriceTier {

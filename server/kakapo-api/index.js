@@ -12,6 +12,16 @@ import {
   marketItems,
 } from './ordersLogic.js'
 import { creditDeliveredOrder, processPayout, getPendingBalance } from './restaurantStats.js'
+import {
+  listLocations,
+  createLocation,
+  updateLocation,
+  createStockIncome,
+  createStockWriteoff,
+  createStockTransfer,
+  applyStockInventory,
+  listBatches,
+} from './retailLogic.js'
 import { lockOrderDeliveryFee, normalizePricing } from './deliveryFee.js'
 import {
   applyBonusSpendOnOrder,
@@ -50,22 +60,11 @@ import {
   normalizeCourierAccount,
   getCourierWalletTransactions,
 } from './courierWallet.js'
-import { createPosSale, createPosReturn } from './posLogic.js'
-import { createStockReceipt, createWriteOff, createExpense, paySupplierDebt, applyStockRevision } from './inventoryLogic.js'
-import { openShift, closeShift, getOpenShift } from './posShiftLogic.js'
 
 const loyaltyHooks = () => ({
   findCardByNum,
   ensureCardRowForClient,
   syncClientFromCardRow,
-})
-
-const posHooks = () => ({
-  findCardByNum,
-  ensureCardRowForClient,
-  syncClientFromCardRow,
-  persist,
-  broadcast,
 })
 
 const PORT = Number(process.env.PORT) || 8000
@@ -992,173 +991,67 @@ app.patch('/assemblers/:id', (req, res) => {
   res.json(a)
 })
 
-function normalizeCashierRow(raw) {
-  return {
-    ...raw,
-    salesToday: Number(raw.salesToday) || 0,
-    salesTotal: Number(raw.salesTotal) || 0,
-    blocked: !!raw.blocked,
-    pin: String(raw.pin || '0000'),
-  }
-}
-
-app.get('/pos/cashiers', (_req, res) => res.json(db.cashiers || []))
-app.post('/pos/cashiers', (req, res) => {
-  if (!db.cashiers) db.cashiers = []
-  const nums = db.cashiers.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
-  const n = (nums.length ? Math.max(...nums) : 0) + 1
-  const row = normalizeCashierRow({
-    id: `PC-${String(n).padStart(2, '0')}`,
-    salesToday: 0,
-    salesTotal: 0,
-    blocked: false,
-    pin: '0000',
-    ...req.body,
-  })
-  db.cashiers.push(row)
-  persist()
-  res.json(row)
-})
-app.patch('/pos/cashiers/:id', (req, res) => {
-  const c = (db.cashiers || []).find(x => x.id === req.params.id)
-  if (!c) return res.status(404).json({ detail: 'Кассир не найден' })
-  Object.assign(c, normalizeCashierRow({ ...c, ...req.body, id: c.id }))
-  persist()
-  res.json(c)
-})
-
-app.post('/pos/sale', (req, res) => {
+/* ── KAKAPO Ритейл: точки продаж ── */
+app.get('/locations', (_req, res) => res.json(listLocations(db)))
+app.post('/locations', (req, res) => {
   try {
-    const result = createPosSale(db, posHooks(), req.body || {})
-    if (result.order.cashierId) {
-      const cashier = (db.cashiers || []).find(c => c.id === result.order.cashierId)
-      if (cashier) {
-        cashier.salesToday = Math.round(((Number(cashier.salesToday) || 0) + result.order.goodsTotal) * 100) / 100
-        cashier.salesTotal = Math.round(((Number(cashier.salesTotal) || 0) + result.order.goodsTotal) * 100) / 100
-        persist()
-      }
-    }
-    res.json(result)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
-  }
-})
-
-app.post('/pos/return', (req, res) => {
-  try {
-    const result = createPosReturn(db, posHooks(), req.body || {})
-    res.json(result)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось оформить возврат' })
-  }
-})
-
-/* ── Смена кассира ── */
-app.get('/pos/shift/current', (req, res) => {
-  const cashierId = String(req.query?.cashierId || '')
-  res.json(getOpenShift(db, cashierId))
-})
-app.post('/pos/shift/open', (req, res) => {
-  try {
-    const shift = openShift(db, req.body || {})
+    const loc = createLocation(db, req.body || {})
     persist()
-    res.json(shift)
+    res.json(loc)
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось открыть смену' })
+    res.status(400).json({ detail: e?.message || 'Не удалось создать точку' })
   }
 })
-app.post('/pos/shift/close', (req, res) => {
+app.patch('/locations/:id', (req, res) => {
   try {
-    const shift = closeShift(db, req.body || {})
+    const loc = updateLocation(db, req.params.id, req.body || {})
     persist()
-    res.json(shift)
+    res.json(loc)
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось закрыть смену' })
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить точку' })
   }
 })
 
-/* ── Ревизия склада ── */
-app.get('/stock-revisions', (_req, res) => res.json(db.stockRevisions || []))
-app.post('/stock-revisions', (req, res) => {
+/* ── KAKAPO Ритейл: склад ── */
+app.post('/stock/income', (req, res) => {
   try {
-    const revision = applyStockRevision(db, req.body || {})
+    const income = createStockIncome(db, req.body || {})
     persist()
-    res.json(revision)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось провести ревизию' })
-  }
-})
-
-/* ── Поставщики ── */
-app.get('/suppliers', (_req, res) => res.json(db.suppliers || []))
-app.post('/suppliers', (req, res) => {
-  if (!db.suppliers) db.suppliers = []
-  const nums = db.suppliers.map(s => parseInt(String(s.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
-  const n = (nums.length ? Math.max(...nums) : 0) + 1
-  const row = {
-    id: `SUP-${String(n).padStart(2, '0')}`,
-    name: String(req.body?.name || '').trim(),
-    phone: String(req.body?.phone || '').trim(),
-    addr: String(req.body?.addr || '').trim(),
-    note: String(req.body?.note || '').trim(),
-    debt: 0,
-  }
-  if (!row.name) return res.status(400).json({ detail: 'Укажите название поставщика' })
-  db.suppliers.push(row)
-  persist()
-  res.json(row)
-})
-app.patch('/suppliers/:id', (req, res) => {
-  const s = (db.suppliers || []).find(x => x.id === req.params.id)
-  if (!s) return res.status(404).json({ detail: 'Поставщик не найден' })
-  Object.assign(s, req.body, { id: s.id })
-  persist()
-  res.json(s)
-})
-app.post('/suppliers/:id/pay', (req, res) => {
-  try {
-    const payment = paySupplierDebt(db, { ...req.body, supplierId: req.params.id })
-    persist()
-    res.json(payment)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось погасить долг' })
-  }
-})
-
-/* ── Приход товара ── */
-app.get('/stock-receipts', (_req, res) => res.json(db.stockReceipts || []))
-app.post('/stock-receipts', (req, res) => {
-  try {
-    const receipt = createStockReceipt(db, req.body || {})
-    persist()
-    res.json(receipt)
+    res.json(income)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести приход' })
   }
 })
-
-/* ── Списания ── */
-app.get('/write-offs', (_req, res) => res.json(db.writeOffs || []))
-app.post('/write-offs', (req, res) => {
+app.post('/stock/writeoff', (req, res) => {
   try {
-    const writeOff = createWriteOff(db, req.body || {})
+    const writeOff = createStockWriteoff(db, req.body || {})
     persist()
     res.json(writeOff)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести списание' })
   }
 })
-
-/* ── Расходы ── */
-app.get('/expenses', (_req, res) => res.json(db.expenses || []))
-app.post('/expenses', (req, res) => {
+app.post('/stock/transfer', (req, res) => {
   try {
-    const expense = createExpense(db, req.body || {})
+    const transfer = createStockTransfer(db, req.body || {})
     persist()
-    res.json(expense)
+    res.json(transfer)
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось добавить расход' })
+    res.status(400).json({ detail: e?.message || 'Не удалось выполнить перемещение' })
   }
+})
+app.post('/stock/inventory', (req, res) => {
+  try {
+    const revision = applyStockInventory(db, req.body || {})
+    persist()
+    res.json(revision)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось провести инвентаризацию' })
+  }
+})
+app.get('/stock/batches', (req, res) => {
+  const expiringSoonDays = req.query?.expiring_soon === 'true' ? 7 : null
+  res.json(listBatches(db, { expiringSoonDays }))
 })
 
 function normalizePhoneDigits(phone) {

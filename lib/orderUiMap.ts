@@ -295,8 +295,6 @@ export function mapOrdersForAdmin(
       total: orderGoodsTotal(order),
       goodsTotal: order.goodsTotal != null ? Number(order.goodsTotal) : orderGoodsTotal(order),
       payableTotal: Number(order.total) || 0,
-      source: order.source || 'market',
-      cashierName: order.cashierName || '',
       deliveryFee: order.deliveryFee ?? 0,
       bonusSpent: order.bonusSpent ?? 0,
       status: o.status ?? order.status,

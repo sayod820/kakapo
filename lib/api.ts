@@ -7,74 +7,33 @@ import type { PricingConfig } from './courierData'
 import type { AdminCourier } from './courierTeam'
 import type { CourierWalletSnapshot } from './courierWalletTx'
 import type { AdminAssembler } from './assemblerTeam'
-import type { AdminCashier } from './cashierTeam'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
 
-// ── Склад: поставщики / приход / списания / расходы ──
-export interface Supplier {
+// ── KAKAPO Ритейл: точки продаж / склад ──
+export interface RetailLocation {
   id: string
   name: string
-  phone: string
-  addr: string
-  note: string
-  debt: number
+  address: string
+  type: 'shop' | 'warehouse'
+  isActive: boolean
 }
-export interface StockReceiptItem { productId: number; name: string; qty: number; costPrice: number }
-export interface StockReceipt {
+export interface StockBatch {
   id: string
-  supplierId: string
-  supplierName: string
-  items: StockReceiptItem[]
-  totalCost: number
-  paidNow: number
-  debtDelta: number
-  createdAtIso: string
-  createdBy: string
-}
-export interface WriteOffItem { productId: number; name: string; qty: number; costPrice: number }
-export interface WriteOff {
-  id: string
-  items: WriteOffItem[]
-  reason: string
-  totalCost: number
-  createdAtIso: string
-  createdBy: string
-}
-export interface Expense {
-  id: string
-  category: string
-  amount: number
-  note: string
-  createdAtIso: string
-  createdBy: string
-}
-export interface SupplierPayment {
-  id: string
-  supplierId: string
-  amount: number
-  note: string
-  createdAtIso: string
-  createdBy: string
-}
-export interface PosShift {
-  id: string
-  cashierId: string
-  cashierName: string
-  openingCash: number
-  openedAtIso: string
-  closedAtIso: string | null
-  closingCashDeclared: number | null
-  expectedCash: number | null
-  difference: number | null
-  salesCount?: number
-  salesTotal?: number
-  status: 'open' | 'closed'
+  productId: number
+  productName: string
+  locationId: string
+  quantity: number
+  expiryDate: string | null
+  costPrice: number
+  supplierId: string | null
+  receivedAtIso: string
 }
 export interface StockRevisionItem { productId: number; name: string; systemStock: number; countedStock: number; diff: number }
 export interface StockRevision {
   id: string
+  locationId: string
   items: StockRevisionItem[]
   createdAtIso: string
   createdBy: string
@@ -448,70 +407,28 @@ export const api = {
   updateAssembler: (id: string, data: Partial<AdminAssembler>) =>
     request<AdminAssembler>(`/assemblers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  // ── Касса (POS) ──
-  getCashiers: () => request<AdminCashier[]>('/pos/cashiers'),
-  createCashier: (data: Partial<AdminCashier>) =>
-    request<AdminCashier>('/pos/cashiers', { method: 'POST', body: JSON.stringify(data) }),
-  updateCashier: (id: string, data: Partial<AdminCashier>) =>
-    request<AdminCashier>(`/pos/cashiers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  createPosSale: (data: {
-    items: { productId: number; qty: number; price: number; unit?: string }[]
-    clientPhone?: string
-    clientName?: string
-    bonusSpent?: number
-    paymentMethod?: 'cash' | 'card' | 'credit'
-    cashierId?: string
-    cashierName?: string
-  }) => request<{
-    order: Order
-    loyalty: { earned: number; credited: number; bonus: number; orders: number }
-    client: AdminClient | null
-  }>('/pos/sale', { method: 'POST', body: JSON.stringify(data) }),
-  createPosReturn: (data: { orderId: string }) => request<{
-    order: Order
-    loyalty: { credited: number; bonus: number; orders: number }
-  }>('/pos/return', { method: 'POST', body: JSON.stringify(data) }),
+  // ── KAKAPO Ритейл: точки продаж ──
+  getLocations: () => request<RetailLocation[]>('/locations'),
+  createLocation: (data: { name: string; address?: string; type?: 'shop' | 'warehouse' }) =>
+    request<RetailLocation>('/locations', { method: 'POST', body: JSON.stringify(data) }),
+  updateLocation: (id: string, data: Partial<RetailLocation>) =>
+    request<RetailLocation>(`/locations/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  // ── Смена кассира ──
-  getCurrentPosShift: (cashierId: string) => request<PosShift | null>(`/pos/shift/current?cashierId=${encodeURIComponent(cashierId)}`),
-  openPosShift: (data: { cashierId: string; cashierName?: string; openingCash: number }) =>
-    request<PosShift>('/pos/shift/open', { method: 'POST', body: JSON.stringify(data) }),
-  closePosShift: (data: { cashierId: string; closingCashDeclared: number }) =>
-    request<PosShift>('/pos/shift/close', { method: 'POST', body: JSON.stringify(data) }),
-
-  // ── Ревизия склада ──
-  getStockRevisions: () => request<StockRevision[]>('/stock-revisions'),
-  createStockRevision: (data: { items: { productId: number; countedStock: number }[]; createdBy?: string }) =>
-    request<StockRevision>('/stock-revisions', { method: 'POST', body: JSON.stringify(data) }),
-
-  // ── Склад: поставщики / приход / списания / расходы ──
-  getSuppliers: () => request<Supplier[]>('/suppliers'),
-  createSupplier: (data: Partial<Supplier>) =>
-    request<Supplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
-  updateSupplier: (id: string, data: Partial<Supplier>) =>
-    request<Supplier>(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  paySupplierDebt: (id: string, data: { amount: number; note?: string; createdBy?: string }) =>
-    request<SupplierPayment>(`/suppliers/${id}/pay`, { method: 'POST', body: JSON.stringify(data) }),
-
-  getStockReceipts: () => request<StockReceipt[]>('/stock-receipts'),
-  createStockReceipt: (data: {
+  // ── KAKAPO Ритейл: склад ──
+  stockIncome: (data: {
+    locationId: string
     supplierId?: string
-    supplierName?: string
-    items: { productId: number; qty: number; costPrice: number }[]
-    paidNow?: number
+    items: { productId: number; qty: number; costPrice?: number; expiryDate?: string | null }[]
     createdBy?: string
-  }) => request<StockReceipt>('/stock-receipts', { method: 'POST', body: JSON.stringify(data) }),
-
-  getWriteOffs: () => request<WriteOff[]>('/write-offs'),
-  createWriteOff: (data: {
-    items: { productId: number; qty: number }[]
-    reason: string
-    createdBy?: string
-  }) => request<WriteOff>('/write-offs', { method: 'POST', body: JSON.stringify(data) }),
-
-  getExpenses: () => request<Expense[]>('/expenses'),
-  createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string }) =>
-    request<Expense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  }) => request<{ id: string; totalCost: number; batches: StockBatch[] }>('/stock/income', { method: 'POST', body: JSON.stringify(data) }),
+  stockWriteoff: (data: { locationId: string; items: { productId: number; qty: number }[]; reason: string; createdBy?: string }) =>
+    request<{ id: string }>('/stock/writeoff', { method: 'POST', body: JSON.stringify(data) }),
+  stockTransfer: (data: { fromLocationId: string; toLocationId: string; items: { productId: number; qty: number }[]; createdBy?: string }) =>
+    request<{ id: string }>('/stock/transfer', { method: 'POST', body: JSON.stringify(data) }),
+  stockInventory: (data: { locationId: string; items: { productId: number; countedStock: number }[]; createdBy?: string }) =>
+    request<StockRevision>('/stock/inventory', { method: 'POST', body: JSON.stringify(data) }),
+  getStockBatches: (expiringSoon?: boolean) =>
+    request<StockBatch[]>(`/stock/batches${expiringSoon ? '?expiring_soon=true' : ''}`),
 
   getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>

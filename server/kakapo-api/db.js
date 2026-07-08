@@ -22,7 +22,6 @@ const DEFAULT = {
   pickups: [],
   couriers: [],
   assemblers: [],
-  cashiers: [],
   clients: [],
   settings: {
     pricing: { base: 10, baseDist: 2.5, perKm: 3, heavyKg: 50, heavyExtra: 10, freeFrom: 0, courierCommissionPercent: 15 },
@@ -60,12 +59,8 @@ const DEFAULT = {
   promos: [],
   payouts: [],
   deletedPhoneKeys: [],
-  suppliers: [],
-  stockReceipts: [],
-  writeOffs: [],
-  expenses: [],
-  supplierPayments: [],
-  posShifts: [],
+  locations: [],
+  stockBatches: [],
   stockRevisions: [],
   _seq: { order: 4832, product: 12, category: 2, review: 0, promo: 7, payout: 0 },
 }
