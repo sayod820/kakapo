@@ -16,6 +16,8 @@ function nextId(db, seqKey, prefix, pad = 5) {
 function ensureArrays(db) {
   if (!Array.isArray(db.locations)) db.locations = []
   if (!Array.isArray(db.stockBatches)) db.stockBatches = []
+  if (!Array.isArray(db.suppliers)) db.suppliers = []
+  if (!Array.isArray(db.expenses)) db.expenses = []
 }
 
 export function listLocations(db) {
@@ -127,11 +129,17 @@ export function createStockIncome(db, payload) {
     batches.push(batch)
   }
 
+  const totalCost = Math.round(planned.reduce((s, p) => s + p.qty * p.costPrice, 0) * 100) / 100
+  if (payload?.supplierId) {
+    registerSupplierDelivery(db, payload.supplierId, totalCost, payload?.paidNow)
+  }
+
   return {
     id: nextId(db, 'stockIncome', 'INC'),
     locationId,
+    supplierId: payload?.supplierId || null,
     items: planned.map(p => ({ productId: p.product.id, name: p.product.name, qty: p.qty, costPrice: p.costPrice })),
-    totalCost: Math.round(planned.reduce((s, p) => s + p.qty * p.costPrice, 0) * 100) / 100,
+    totalCost,
     batches,
     createdAtIso: new Date().toISOString(),
     createdBy: String(payload?.createdBy || ''),
@@ -285,4 +293,97 @@ export function listBatches(db, { expiringSoonDays } = {}) {
     list = list.filter(b => b.expiryDate && b.expiryDate <= cutoff)
   }
   return list
+}
+
+/* ── Поставщики: кредиторская задолженность ── */
+export function listSuppliers(db) {
+  ensureArrays(db)
+  return db.suppliers
+}
+
+export function createSupplier(db, payload) {
+  ensureArrays(db)
+  const name = String(payload?.name || '').trim()
+  if (!name) throw new Error('Укажите название поставщика')
+  const supplier = {
+    id: nextId(db, 'supplier', 'SUP'),
+    name,
+    category: String(payload?.category || '').trim(),
+    phone: String(payload?.phone || '').trim(),
+    address: String(payload?.address || '').trim(),
+    payableAmount: 0,
+    lastDeliveryAtIso: null,
+  }
+  db.suppliers.push(supplier)
+  return supplier
+}
+
+export function updateSupplier(db, id, payload) {
+  ensureArrays(db)
+  const supplier = db.suppliers.find(s => s.id === id)
+  if (!supplier) throw new Error('Поставщик не найден')
+  Object.assign(supplier, payload, { id: supplier.id })
+  return supplier
+}
+
+export function paySupplierDebt(db, id, payload) {
+  ensureArrays(db)
+  const supplier = db.suppliers.find(s => s.id === id)
+  if (!supplier) throw new Error('Поставщик не найден')
+  const amount = Number(payload?.amount)
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Некорректная сумма оплаты')
+  supplier.payableAmount = Math.max(0, Math.round(((Number(supplier.payableAmount) || 0) - amount) * 100) / 100)
+  return supplier
+}
+
+/** Приход с указанием поставщика — увеличивает его задолженность на неоплаченную часть */
+export function registerSupplierDelivery(db, supplierId, totalCost, paidNow) {
+  ensureArrays(db)
+  const supplier = db.suppliers.find(s => s.id === supplierId)
+  if (!supplier) return
+  const unpaid = Math.max(0, Math.round((totalCost - (Number(paidNow) || 0)) * 100) / 100)
+  supplier.payableAmount = Math.round(((Number(supplier.payableAmount) || 0) + unpaid) * 100) / 100
+  supplier.lastDeliveryAtIso = new Date().toISOString()
+}
+
+/* ── Расходы ── */
+export function listExpenses(db) {
+  ensureArrays(db)
+  return db.expenses
+}
+
+export function createExpense(db, payload) {
+  ensureArrays(db)
+  const category = String(payload?.category || '').trim() || 'Другое'
+  const amount = Number(payload?.amount)
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Укажите сумму расхода')
+  const expense = {
+    id: nextId(db, 'expense', 'EXP'),
+    category,
+    amount,
+    note: String(payload?.note || '').trim(),
+    locationId: payload?.locationId || null,
+    createdAtIso: new Date().toISOString(),
+    createdBy: String(payload?.createdBy || ''),
+  }
+  db.expenses.push(expense)
+  return expense
+}
+
+/* ── Массовое изменение розничных цен ── */
+export function applyBulkPriceChange(db, payload) {
+  const catId = payload?.catId && payload.catId !== 'all' ? String(payload.catId) : null
+  const mode = payload?.mode === 'fixed' ? 'fixed' : 'percent'
+  const value = Number(payload?.value)
+  if (!Number.isFinite(value) || value === 0) throw new Error('Укажите значение изменения')
+
+  const targets = (db.products || []).filter(p => !catId || p.catId === catId)
+  if (!targets.length) throw new Error('Нет товаров для изменения')
+
+  for (const p of targets) {
+    const next = mode === 'percent' ? p.price * (1 + value / 100) : p.price + value
+    p.price = Math.max(0, Math.round(next * 100) / 100)
+  }
+
+  return { updated: targets.length, mode, value, catId }
 }

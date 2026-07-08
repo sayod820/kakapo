@@ -122,6 +122,8 @@ export interface Product {
   stockByLocation?: Record<string, number>
   /** Минимальный остаток для алерта в KAKAPO Ритейл */
   minStock?: number
+  /** Цена для VIP-клиентов (KAKAPO Ритейл) */
+  vipPrice?: number | null
 }
 
 export interface BulkPriceTier {

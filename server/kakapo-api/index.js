@@ -21,6 +21,13 @@ import {
   createStockTransfer,
   applyStockInventory,
   listBatches,
+  listSuppliers,
+  createSupplier,
+  updateSupplier,
+  paySupplierDebt,
+  listExpenses,
+  createExpense,
+  applyBulkPriceChange,
 } from './retailLogic.js'
 import { lockOrderDeliveryFee, normalizePricing } from './deliveryFee.js'
 import {
@@ -1052,6 +1059,59 @@ app.post('/stock/inventory', (req, res) => {
 app.get('/stock/batches', (req, res) => {
   const expiringSoonDays = req.query?.expiring_soon === 'true' ? 7 : null
   res.json(listBatches(db, { expiringSoonDays }))
+})
+
+/* ── KAKAPO Ритейл: поставщики ── */
+app.get('/suppliers', (_req, res) => res.json(listSuppliers(db)))
+app.post('/suppliers', (req, res) => {
+  try {
+    const supplier = createSupplier(db, req.body || {})
+    persist()
+    res.json(supplier)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось создать поставщика' })
+  }
+})
+app.patch('/suppliers/:id', (req, res) => {
+  try {
+    const supplier = updateSupplier(db, req.params.id, req.body || {})
+    persist()
+    res.json(supplier)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить поставщика' })
+  }
+})
+app.post('/suppliers/:id/pay', (req, res) => {
+  try {
+    const supplier = paySupplierDebt(db, req.params.id, req.body || {})
+    persist()
+    res.json(supplier)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось погасить долг' })
+  }
+})
+
+/* ── KAKAPO Ритейл: расходы ── */
+app.get('/expenses', (_req, res) => res.json(listExpenses(db)))
+app.post('/expenses', (req, res) => {
+  try {
+    const expense = createExpense(db, req.body || {})
+    persist()
+    res.json(expense)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось добавить расход' })
+  }
+})
+
+/* ── KAKAPO Ритейл: массовое изменение цен ── */
+app.post('/products/bulk-price', (req, res) => {
+  try {
+    const result = applyBulkPriceChange(db, req.body || {})
+    persist()
+    res.json(result)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось изменить цены' })
+  }
 })
 
 function normalizePhoneDigits(phone) {

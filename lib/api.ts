@@ -38,6 +38,24 @@ export interface StockRevision {
   createdAtIso: string
   createdBy: string
 }
+export interface RetailSupplier {
+  id: string
+  name: string
+  category: string
+  phone: string
+  address: string
+  payableAmount: number
+  lastDeliveryAtIso: string | null
+}
+export interface RetailExpense {
+  id: string
+  category: string
+  amount: number
+  note: string
+  locationId: string | null
+  createdAtIso: string
+  createdBy: string
+}
 
 // ── Хранение токена ──
 let _token: string | null = null
@@ -418,6 +436,7 @@ export const api = {
   stockIncome: (data: {
     locationId: string
     supplierId?: string
+    paidNow?: number
     items: { productId: number; qty: number; costPrice?: number; expiryDate?: string | null }[]
     createdBy?: string
   }) => request<{ id: string; totalCost: number; batches: StockBatch[] }>('/stock/income', { method: 'POST', body: JSON.stringify(data) }),
@@ -429,6 +448,24 @@ export const api = {
     request<StockRevision>('/stock/inventory', { method: 'POST', body: JSON.stringify(data) }),
   getStockBatches: (expiringSoon?: boolean) =>
     request<StockBatch[]>(`/stock/batches${expiringSoon ? '?expiring_soon=true' : ''}`),
+
+  // ── KAKAPO Ритейл: поставщики ──
+  getRetailSuppliers: () => request<RetailSupplier[]>('/suppliers'),
+  createRetailSupplier: (data: { name: string; category?: string; phone?: string; address?: string }) =>
+    request<RetailSupplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
+  updateRetailSupplier: (id: string, data: Partial<RetailSupplier>) =>
+    request<RetailSupplier>(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  payRetailSupplier: (id: string, data: { amount: number }) =>
+    request<RetailSupplier>(`/suppliers/${id}/pay`, { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── KAKAPO Ритейл: расходы ──
+  getRetailExpenses: () => request<RetailExpense[]>('/expenses'),
+  createRetailExpense: (data: { category: string; amount: number; note?: string; locationId?: string; createdBy?: string }) =>
+    request<RetailExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── KAKAPO Ритейл: массовое изменение цен ──
+  bulkPriceChange: (data: { catId?: string; mode: 'percent' | 'fixed'; value: number }) =>
+    request<{ updated: number }>('/products/bulk-price', { method: 'POST', body: JSON.stringify(data) }),
 
   getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>
