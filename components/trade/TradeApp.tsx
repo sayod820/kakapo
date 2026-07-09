@@ -107,7 +107,23 @@ const CSS = `
   .k-modal-h b{font-size:16px;font-weight:900}
   .k-modal-h button{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
   .k-modal-b{overflow:auto}
-  @media (max-width:900px){.k-grid2{grid-template-columns:1fr}}
+  .k-subtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
+  .k-subtab:hover{color:var(--text);border-color:#2a4032}
+  .k-subtab.active{background:var(--green-d);border-color:var(--green);color:var(--green)}
+  .k-product-layout{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
+  .k-product-list{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;position:sticky;top:0}
+  .k-product-list-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .k-product-list-body{max-height:62vh;overflow:auto;padding:8px}
+  .k-product-pick{display:flex;align-items:center;gap:10px;width:100%;border:1px solid transparent;background:transparent;color:var(--text);border-radius:10px;padding:9px 10px;cursor:pointer;text-align:left;margin-bottom:4px}
+  .k-product-pick:hover{background:#0e1712;border-color:var(--border)}
+  .k-product-pick.active{background:var(--green-d);border-color:var(--green)}
+  .k-product-pick .pe{font-size:18px;width:24px;text-align:center}
+  .k-product-pick .pi{flex:1;min-width:0}
+  .k-product-pick .pi b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .k-product-pick .pi span{font-size:11px;color:var(--muted)}
+  .k-product-form{min-height:400px}
+  @media (max-width:900px){.k-grid2{grid-template-columns:1fr}.k-product-layout{grid-template-columns:1fr}}
 `
 
 type TradePage =
