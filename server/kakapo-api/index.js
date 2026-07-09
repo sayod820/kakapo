@@ -503,7 +503,7 @@ app.delete('/products/:id', (req, res) => {
   res.json({ ok: true })
 })
 
-function categoryErrorMessage(code: string) {
+function categoryErrorMessage(code) {
   if (code === 'has products') return 'В категории есть товары'
   if (code === 'not found') return 'Категория не найдена'
   return code
