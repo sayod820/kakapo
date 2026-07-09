@@ -60,3 +60,12 @@ export function bulkPricingHintForQty(p: Partial<Product>, qty: number): string 
 export function hasBulkPricing(p: Partial<Product>): boolean {
   return normalizeBulkPricing(p.bulkPricing).length > 0
 }
+
+export function serializeBulkPricing(
+  rows: { minQty: string | number; price: string | number }[] | null | undefined,
+): BulkPriceTier[] | undefined {
+  const normalized = normalizeBulkPricing(
+    (rows || []).map(r => ({ minQty: Number(r.minQty), price: Number(r.price) })),
+  )
+  return normalized.length ? normalized : undefined
+}

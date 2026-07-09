@@ -1,6 +1,8 @@
 import { categorySlug, findCategoryName } from '@/lib/useCategories'
 import { normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
+import { serializeBulkPricing } from '@/lib/productBulkPricing'
 import type { Category, Product, SellType } from '@/lib/types'
+import type { BulkPricingRow } from './BulkPricingFields'
 
 export function money(n: number | undefined | null) {
   return `${(Number(n) || 0).toFixed(2)} сом`
@@ -25,13 +27,14 @@ export type ProductForm = {
   unitGrams: string
   hot: boolean
   organic: boolean
+  bulkPricing: BulkPricingRow[]
 }
 
 export function emptyForm(): ProductForm {
   return {
     name: '', art: '', e: '📦', catId: 'veg', price: '', costPrice: '', stock: '0',
     unit: 'шт', barcodes: [], plu: '', brand: '', desc: '', photo: '', sellType: 'piece',
-    weightStep: '1', unitGrams: '1000', hot: false, organic: false,
+    weightStep: '1', unitGrams: '1000', hot: false, organic: false, bulkPricing: [],
   }
 }
 
@@ -55,6 +58,10 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     unitGrams: String(p.unitGrams || 1000),
     hot: !!p.hot,
     organic: !!p.organic,
+    bulkPricing: (p.bulkPricing || []).map(t => ({
+      minQty: String(t.minQty),
+      price: String(t.price),
+    })),
   }
 }
 
@@ -94,7 +101,7 @@ export function buildProductPayload(
     sellType: data.sellType,
     hot: data.hot,
     organic: data.organic,
-    bulkPricing: existing?.bulkPricing,
+    bulkPricing: serializeBulkPricing(data.bulkPricing),
     ...(data.sellType === 'weight' ? {
       weightStep: 1,
       minWeight: 1,

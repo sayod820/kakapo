@@ -5,6 +5,8 @@ import { categorySlug } from '@/lib/useCategories'
 import type { Category } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'
+import BulkPricingFields from './BulkPricingFields'
+import { formatBulkPricingHint, serializeBulkPricing } from '@/lib/productBulkPricing'
 
 const GRAMS_PER_KG = 1000
 
@@ -32,6 +34,11 @@ export default function ProductFormFields({
   const children = (parentId: number) => categories.filter(c => Number(c.parent_id) === parentId)
   const isWeight = form.sellType === 'weight'
   const hints = isWeight ? weightPriceHints(form.price) : null
+  const bulkHint = formatBulkPricingHint({
+    price: Number(form.price) || 0,
+    sellType: form.sellType,
+    bulkPricing: serializeBulkPricing(form.bulkPricing),
+  })
   const [newBarcode, setNewBarcode] = useState('')
 
   function addBarcode() {
@@ -102,6 +109,18 @@ export default function ProductFormFields({
         {isWeight && (
           <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6, fontWeight: 700 }}>
             В кассе и на весах считается по граммам
+          </div>
+        )}
+      </div>
+      <div className="k-field" style={{ gridColumn: '1 / -1' }}>
+        <BulkPricingFields
+          tiers={form.bulkPricing}
+          onChange={bulkPricing => setForm({ ...form, bulkPricing })}
+          sellType={form.sellType}
+        />
+        {bulkHint && (
+          <div style={{ fontSize: 11, color: '#FF8C00', marginTop: 8, fontWeight: 700 }}>
+            {bulkHint}
           </div>
         )}
       </div>
