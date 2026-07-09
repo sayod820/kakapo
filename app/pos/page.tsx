@@ -1,14 +1,6 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-import dynamic from 'next/dynamic'
-import ClientErrorBoundary from '@/components/shared/ClientErrorBoundary'
-
-const App = dynamic(() => import('@/components/pos/PosApp'), { ssr: false })
-
-export default function Page() {
-  return (
-    <ClientErrorBoundary title="POS временно недоступен">
-      <App />
-    </ClientErrorBoundary>
-  )
+/** Старый маршрут /pos → новое приложение «Торговля» */
+export default function PosRedirectPage() {
+  redirect('/trade')
 }
