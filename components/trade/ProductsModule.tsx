@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useProducts } from '@/lib/store'
 import { useProductPhotos } from '@/lib/productPhotos'
 import { useCategories } from '@/lib/useCategories'
@@ -53,8 +53,15 @@ export default function ProductsModule({
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [isNew, setIsNew] = useState(false)
   const [form, setForm] = useState<ProductForm>(emptyForm())
+  const [formDirty, setFormDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const formLoadedForId = useRef<number | 'new' | null>(null)
+
+  const setFormFromUser = useCallback((f: ProductForm) => {
+    setFormDirty(true)
+    setForm(f)
+  }, [])
 
   useEffect(() => { void hydrate() }, [hydrate])
 
@@ -64,26 +71,53 @@ export default function ProductsModule({
   )
 
   useEffect(() => {
-    if (!selectedProduct || isNew) return
-    setForm(formFromProduct(selectedProduct, getPhoto(selectedProduct.id)))
-  }, [selectedProduct, isNew, getPhoto])
+    if (isNew) {
+      formLoadedForId.current = 'new'
+      return
+    }
+    if (!selectedId) {
+      formLoadedForId.current = null
+      return
+    }
+    if (formLoadedForId.current === selectedId) return
+    const p = products.find(x => x.id === selectedId)
+    if (!p) return
+    setForm(formFromProduct(p, getPhoto(p.id)))
+    setFormDirty(false)
+    formLoadedForId.current = selectedId
+  }, [selectedId, isNew, products, getPhoto])
+
+  function confirmDiscardChanges() {
+    if (!formDirty) return true
+    return confirm('Есть несохранённые изменения. Продолжить без сохранения?')
+  }
 
   function openProduct(id: number) {
+    if (!confirmDiscardChanges()) return
+    formLoadedForId.current = null
     setSelectedId(id)
     setIsNew(false)
+    setFormDirty(false)
     setSub('product')
   }
 
-  function startNewProduct() {
+  function startNewProduct(catId?: string) {
+    if (!confirmDiscardChanges()) return
+    formLoadedForId.current = null
     setSelectedId(null)
     setIsNew(true)
-    setForm(emptyForm())
+    setForm(catId ? { ...emptyForm(), catId } : emptyForm())
+    setFormDirty(false)
     setSub('product')
   }
 
   function selectProduct(id: number) {
+    if (id === selectedId && !isNew) return
+    if (!confirmDiscardChanges()) return
+    formLoadedForId.current = null
     setSelectedId(id)
     setIsNew(false)
+    setFormDirty(false)
   }
 
   async function handleSave() {
@@ -96,7 +130,9 @@ export default function ProductsModule({
       if (isNew && saved) {
         setSelectedId(saved.id)
         setIsNew(false)
+        formLoadedForId.current = saved.id
       }
+      setFormDirty(false)
       setMsg(isNew ? 'Товар добавлен' : 'Товар обновлён')
       setSub('product')
     } catch (e) {
@@ -113,6 +149,8 @@ export default function ProductsModule({
       setSelectedId(null)
       setIsNew(false)
       setForm(emptyForm())
+      setFormDirty(false)
+      formLoadedForId.current = null
     }
     setMsg('Товар удалён')
   }
@@ -147,7 +185,8 @@ export default function ProductsModule({
           categories={categories}
           getPhoto={getPhoto}
           form={form}
-          setForm={setForm}
+          setForm={setFormFromUser}
+          formDirty={formDirty}
           selectedId={selectedId}
           isNew={isNew}
           saving={saving}

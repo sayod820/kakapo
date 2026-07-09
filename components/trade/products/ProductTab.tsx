@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import ProductFormFields from './ProductFormFields'
-import { money, stockStatus, emptyForm } from './productFormShared'
+import { money, stockStatus } from './productFormShared'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
 import { productBarcodeSearchText, productBarcodes } from '@/lib/productBarcodes'
@@ -44,6 +44,7 @@ export default function ProductTab({
   getPhoto,
   form,
   setForm,
+  formDirty,
   selectedId,
   isNew,
   saving,
@@ -61,11 +62,12 @@ export default function ProductTab({
   getPhoto: (id: number) => string | undefined
   form: ProductForm
   setForm: (f: ProductForm) => void
+  formDirty?: boolean
   selectedId: number | null
   isNew: boolean
   saving: boolean
   onSelect: (id: number) => void
-  onNew: () => void
+  onNew: (catId?: string) => void
   onSave: () => void
   onDelete: () => void
   onDeleteProduct: (id: number, name: string) => void
@@ -123,9 +125,13 @@ export default function ProductTab({
   }
 
   function startNew() {
-    onNew()
-    if (catFlt !== 'all') setForm({ ...emptyForm(), catId: catFlt })
+    onNew(catFlt !== 'all' ? catFlt : undefined)
     setView('edit')
+  }
+
+  function backToCatalog() {
+    if (formDirty && !confirm('Есть несохранённые изменения. Вернуться к каталогу без сохранения?')) return
+    setView('catalog')
   }
 
   if (view === 'edit') {
@@ -138,7 +144,7 @@ export default function ProductTab({
     return (
       <div>
         <div className="k-page-h" style={{ marginTop: 0, marginBottom: 12 }}>
-          <button type="button" className="k-btn k-btn-s" onClick={() => setView('catalog')}>← К каталогу</button>
+          <button type="button" className="k-btn k-btn-s" onClick={backToCatalog}>← К каталогу</button>
         </div>
         <div className="k-product-layout">
           <aside className="k-product-list">
@@ -167,7 +173,14 @@ export default function ProductTab({
 
           <section className="k-card k-product-form">
             <div className="k-card-h">
-              <b>{isNew ? 'Новый товар' : selectedId ? `Товар · ${form.name || '…'}` : 'Выберите товар'}</b>
+              <div>
+                <b>{isNew ? 'Новый товар' : selectedId ? `Товар · ${form.name || '…'}` : 'Выберите товар'}</b>
+                {formDirty && (
+                  <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 4, fontWeight: 700 }}>
+                    ● Несохранённые изменения
+                  </div>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 {!isNew && selectedId && (
                   <button type="button" className="k-btn k-btn-s" style={{ color: 'var(--red)' }} onClick={onDelete}>Удалить</button>
