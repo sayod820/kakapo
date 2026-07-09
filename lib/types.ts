@@ -108,6 +108,8 @@ export interface Product {
   brand?: string
   country?: string
   barcode?: string
+  /** PLU-код для весов (1–9999) */
+  plu?: string
   /** piece — поштучно, weight — на развес (граммы в корзине) */
   sellType?: SellType
   /** Цена указана за столько грамм (1000 = за 1 кг) */

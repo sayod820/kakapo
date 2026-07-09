@@ -477,6 +477,7 @@ app.post('/products', (req, res) => {
     name: req.body.name, price: req.body.price || 0, costPrice: req.body.costPrice ?? null, cat: req.body.cat || '', catId: req.body.catId || '',
     unit: req.body.unit || 'шт', stock: req.body.stock || 0, hot: !!req.body.hot,
     desc: req.body.desc, brand: req.body.brand, country: req.body.country, barcode: req.body.barcode,
+    plu: req.body.plu ? String(req.body.plu).trim() : undefined,
     organic: !!req.body.organic, sellType: req.body.sellType || 'piece',
     unitGrams: req.body.unitGrams, weightStep: req.body.weightStep, minWeight: req.body.minWeight,
     old: req.body.old ?? null,

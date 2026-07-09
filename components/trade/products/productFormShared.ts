@@ -15,6 +15,7 @@ export type ProductForm = {
   stock: string
   unit: string
   barcode: string
+  plu: string
   brand: string
   desc: string
   photo: string
@@ -28,7 +29,7 @@ export type ProductForm = {
 export function emptyForm(): ProductForm {
   return {
     name: '', art: '', e: '📦', catId: 'veg', price: '', costPrice: '', stock: '0',
-    unit: 'шт', barcode: '', brand: '', desc: '', photo: '', sellType: 'piece',
+    unit: 'шт', barcode: '', plu: '', brand: '', desc: '', photo: '', sellType: 'piece',
     weightStep: '100', unitGrams: '1000', hot: false, organic: false,
   }
 }
@@ -44,6 +45,7 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     stock: String(p.stock ?? 0),
     unit: p.unit || 'шт',
     barcode: p.barcode || '',
+    plu: p.plu || '',
     brand: p.brand || '',
     desc: p.desc || '',
     photo: p.photo || photo || '',
@@ -82,6 +84,7 @@ export function buildProductPayload(
     unit: data.unit || 'шт',
     stock: Number(data.stock) || 0,
     barcode: data.barcode || undefined,
+    plu: data.plu.trim() || undefined,
     brand: data.brand || undefined,
     desc: data.desc || undefined,
     photo: data.photo || undefined,
@@ -93,7 +96,11 @@ export function buildProductPayload(
       weightStep: Number(data.weightStep) || 100,
       minWeight: Number(data.weightStep) || 100,
       unitGrams: Number(data.unitGrams) || 1000,
-    } : {}),
+    } : {
+      weightStep: undefined,
+      minWeight: undefined,
+      unitGrams: undefined,
+    }),
   }
 }
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { money } from './productFormShared'
+import { formatPriceLabel, isWeighted } from '@/lib/productWeight'
 import type { Product } from '@/lib/types'
 
 const LABEL_CSS = `
@@ -120,11 +121,11 @@ export default function LabelsTab({
                   <div>
                     <div className="brand">KAKAPO</div>
                     <div className="name">{p.name}</div>
-                    <div className="meta">{p.unit} · {p.art}</div>
+                    <div className="meta">{isWeighted(p) ? formatPriceLabel(p) : `${p.unit} · ${p.art}`}</div>
                   </div>
                   <div>
                     <div className="price">{money(p.price)}</div>
-                    <div className="bar">{p.barcode || p.art}</div>
+                    <div className="bar">{p.plu ? `PLU ${p.plu}` : (p.barcode || p.art)}</div>
                   </div>
                 </div>
               ))}
