@@ -1,6 +1,6 @@
 'use client'
 
-import { categorySlug } from '@/lib/useTradeCategories'
+import { categorySlug } from '@/lib/useCategories'
 import type { Category } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'

@@ -1,4 +1,5 @@
 import { loadDb, saveDb } from './db.js'
+import { buildCategoriesFromSeed } from './marketCategoriesSeed.js'
 
 const PRODUCTS = [
   { id: 1, art: 'KAK-0001', e: '🥦', name: 'Брокколи свежая', price: 5.5, cat: 'Овощи', catId: 'veg', unit: '500 гр', stock: 8, hot: true },
@@ -104,10 +105,7 @@ export function seedIfEmpty() {
     { id: 2, email: 'chaihona@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Чайхона' },
     { id: 3, email: 'pizza@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Пицца Яван' },
   ]
-  db.categories = [
-    { id: 1, name: 'Овощи и фрукты', slug: 'veg', parent_id: null },
-    { id: 2, name: 'Мясо', slug: 'meat', parent_id: null },
-  ]
+  db.categories = buildCategoriesFromSeed(db._seq)
   db.promos = DEFAULT_PROMOS.map(p => ({ ...p }))
   db.reviews = []
   db._seq.review = 0

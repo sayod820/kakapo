@@ -5,7 +5,7 @@ import ProductFormFields from './ProductFormFields'
 import { money, stockStatus } from './productFormShared'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
-import { categorySlug } from '@/lib/useTradeCategories'
+import { categorySlug } from '@/lib/useCategories'
 import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 

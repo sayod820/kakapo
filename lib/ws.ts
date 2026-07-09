@@ -8,12 +8,13 @@ import { USE_API, getWsUrl } from './config'
 export type WSRole = 'client' | 'courier' | 'assembler' | 'restaurant' | 'admin' | 'pos'
 
 export interface WSMessage {
-  event: 'new_order' | 'order_update' | 'order_deleted' | 'notification' | 'review_update' | 'loyalty_update' | 'courier_wallet_update' | 'product_update' | 'pos_update'
+  event: 'new_order' | 'order_update' | 'order_deleted' | 'notification' | 'review_update' | 'loyalty_update' | 'courier_wallet_update' | 'product_update' | 'pos_update' | 'category_update'
   order?: any
   notification?: any
   review?: any
   loyalty?: { phone?: string; bonus?: number; card?: string }
   product?: any
+  category?: any
   payload?: any
 }
 

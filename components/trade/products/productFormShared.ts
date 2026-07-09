@@ -1,4 +1,4 @@
-import { findCategoryName } from '@/lib/useTradeCategories'
+import { findCategoryName } from '@/lib/useCategories'
 import type { Category, Product, SellType } from '@/lib/types'
 
 export function money(n: number | undefined | null) {

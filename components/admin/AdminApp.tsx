@@ -7,6 +7,8 @@ import { useApiSync } from '@/lib/useApiSync'
 import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
+import MarketCategoriesPanel from '@/components/shared/MarketCategoriesPanel'
+import { useCategories } from '@/lib/useCategories'
 import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
 import { usePricingStore, usePickupStore, hydrateCourierStores, syncCourierStoresFromApi } from '@/lib/courierStore'
 import { useCourierTeamStore, useCourierTeam, syncCourierTeamFromApi } from '@/lib/courierTeamStore'
@@ -5517,223 +5519,32 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
 
 /* ── КАТЕГОРИИ ──────────────────────────────────── */
 function CategoriesPage() {
-  const [cats, setCats] = useState([
-    {id:'veg',   e:'🥦', name:'Овощи и фрукты',  desc:'Свежие овощи, фрукты',           parentId:null, count:5,  active:true,  order:1},
-    {id:'veg_ov',e:'🥕', name:'Овощи',            desc:'Свежие овощи',                   parentId:'veg',count:3,  active:true,  order:1},
-    {id:'veg_fr',e:'🍊', name:'Фрукты и ягоды',   desc:'Свежие фрукты',                  parentId:'veg',count:2,  active:true,  order:2},
-    {id:'meat',  e:'🥩', name:'Мясо и птица',      desc:'Говядина, курица, баранина',     parentId:null, count:4,  active:true,  order:2},
-    {id:'meat_b',e:'🥩', name:'Говядина и баранина',desc:'Свежее мясо',                  parentId:'meat',count:2, active:true,  order:1},
-    {id:'meat_p',e:'🍗', name:'Птица',             desc:'Курица, индейка',                parentId:'meat',count:1, active:true,  order:2},
-    {id:'meat_k',e:'🌭', name:'Колбасные изделия', desc:'Колбасы, сосиски',              parentId:'meat',count:1, active:true,  order:3},
-    {id:'dairy', e:'🥛', name:'Молочное',           desc:'Молоко, сыр, яйца, масло',      parentId:null, count:4,  active:true,  order:3},
-    {id:'dairy_m',e:'🥛',name:'Молоко',             desc:'Молоко, кефир, ряженка',        parentId:'dairy',count:2,active:true,  order:1},
-    {id:'dairy_s',e:'🧀',name:'Сыры',              desc:'Российский, плавленый',          parentId:'dairy',count:1,active:true,  order:2},
-    {id:'dairy_e',e:'🥚',name:'Яйцо',              desc:'Яйца куриные',                  parentId:'dairy',count:1,active:true,  order:3},
-    {id:'bread', e:'🥐', name:'Выпечка и хлеб',    desc:'Хлеб, булочки, круассаны',      parentId:null, count:3,  active:true,  order:4},
-    {id:'drinks',e:'🧃', name:'Напитки',            desc:'Соки, вода, чай, кофе',          parentId:null, count:2,  active:true,  order:5},
-    {id:'sweets',e:'🍫', name:'Сладости',           desc:'Шоколад, печенье, конфеты',     parentId:null, count:2,  active:true,  order:6},
-    {id:'house', e:'🧴', name:'Бытовая химия',      desc:'Чистящие средства, порошок',    parentId:null, count:2,  active:true,  order:7},
-  ]);
-
-  const [showAdd,   setShowAdd]   = useState(false);
-  const [editCat,   setEditCat]   = useState(null);
-  const [collapsed, setCollapsed] = useState({});
-  const [nEmoji,    setNEmoji]    = useState('📦');
-  const [nName,     setNName]     = useState('');
-  const [nDesc,     setNDesc]     = useState('');
-  const [nParent,   setNParent]   = useState('');
-
-  const roots    = cats.filter(c=>!c.parentId);
-  const children = (parentId) => cats.filter(c=>c.parentId===parentId);
-  const toggleActive = (id) => setCats(cs=>cs.map(c=>c.id===id?{...c,active:!c.active}:c));
-  const deleteCat    = (id) => {
-    // also delete children
-    setCats(cs=>cs.filter(c=>c.id!==id && c.parentId!==id));
-  };
-  const toggleCollapse = (id) => setCollapsed(s=>({...s,[id]:!s[id]}));
-
-  const addCat = () => {
-    if(!nName) return;
-    const newId = nName.toLowerCase().replace(/\s+/g,'_')+Date.now();
-    setCats(cs=>[...cs,{id:newId,e:nEmoji,name:nName,desc:nDesc,parentId:nParent||null,count:0,active:true,order:99}]);
-    setShowAdd(false); setNName(''); setNDesc(''); setNEmoji('📦'); setNParent('');
-  };
-
-  const rootParentOptions = cats.filter(c=>!c.parentId);
-
-  const CatRow = ({cat, depth=0}) => {
-    const kids = children(cat.id);
-    const isOpen = !collapsed[cat.id];
-    return (
-      <>
-        <tr style={{background:depth>0?'rgba(31,215,96,.03)':'transparent'}}>
-          <td>
-            <div style={{display:'flex',alignItems:'center',gap:6,paddingLeft:depth*22}}>
-              {kids.length>0 && (
-                <button onClick={()=>toggleCollapse(cat.id)} className="ab"
-                  style={{width:20,height:20,padding:0,background:'#162B1A',border:'none',color:'#8FB897',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:5,flexShrink:0}}>
-                  {isOpen?'▾':'▸'}
-                </button>
-              )}
-              {kids.length===0 && depth>0 && <div style={{width:20,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#1D3822',fontSize:11}}>└</div>}
-              {kids.length===0 && depth===0 && <div style={{width:20,flexShrink:0}}/>}
-              <div style={{width:32,height:32,borderRadius:9,background:depth>0?'rgba(31,215,96,.08)':'rgba(31,215,96,.12)',border:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{cat.e}</div>
-              <div>
-                <div style={{fontSize:13,fontWeight:depth>0?600:700}}>{cat.name}</div>
-                {cat.desc&&<div style={{fontSize:10,color:'#3D6645'}}>{cat.desc}</div>}
-              </div>
-            </div>
-          </td>
-          <td>
-            {depth===0
-              ? <span style={{padding:'2px 8px',borderRadius:7,fontSize:10,fontWeight:800,background:'rgba(31,215,96,.1)',color:'#1FD760',border:'1px solid rgba(31,215,96,.25)'}}>Родительская</span>
-              : <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  <span style={{fontSize:10,color:'#3D6645'}}>↳</span>
-                  <span style={{padding:'2px 8px',borderRadius:7,fontSize:10,fontWeight:700,background:'rgba(59,142,240,.1)',color:'#3B8EF0',border:'1px solid rgba(59,142,240,.25)'}}>
-                    {cats.find(c=>c.id===cat.parentId)?.name}
-                  </span>
-                </div>
-            }
-          </td>
-          <td>
-            <div style={{display:'flex',alignItems:'center',gap:6}}>
-              <span className="ub" style={{fontSize:13,fontWeight:900,color:cat.count>0?'#FFB800':'#3D6645'}}>{cat.count}</span>
-              {kids.length>0&&<span style={{fontSize:10,color:'#3D6645'}}>(+{kids.reduce((s,k)=>s+k.count,0)} в подкатегориях)</span>}
-            </div>
-          </td>
-          <td>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <Badge v={cat.active?'Активна':'Скрыта'} c={cat.active?'#1FD760':'#3D6645'}/>
-              <Tog on={cat.active} set={()=>toggleActive(cat.id)}/>
-            </div>
-          </td>
-          <td>
-            <div style={{display:'flex',gap:6}}>
-              <button onClick={()=>setEditCat(cat)} className="ab abg" style={{padding:'4px 9px',fontSize:11}}>✏️</button>
-              <button onClick={()=>{setNParent(cat.id);setShowAdd(true);}} className="ab" style={{padding:'4px 9px',fontSize:11,background:'rgba(59,142,240,.1)',border:'1px solid rgba(59,142,240,.3)',color:'#3B8EF0'}} title="Добавить подкатегорию">+ Подкат.</button>
-              {cat.count===0&&kids.length===0&&<button onClick={()=>deleteCat(cat.id)} className="ab abd" style={{padding:'4px 9px',fontSize:11}}>🗑</button>}
-            </div>
-          </td>
-        </tr>
-        {isOpen && kids.map(kid=><CatRow key={kid.id} cat={kid} depth={depth+1}/>)}
-      </>
-    );
-  };
+  const products = useProducts(s => s.products)
+  const {
+    categories,
+    loaded,
+    roots,
+    childrenOf,
+    createCategory,
+    updateCategory,
+    deleteCategory,
+  } = useCategories()
 
   return (
-    <div>
-      {/* Stats */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
-        <StatCard l="Родительских" v={roots.length} c="#1FD760"/>
-        <StatCard l="Подкатегорий" v={cats.filter(c=>c.parentId).length} c="#3B8EF0"/>
-        <StatCard l="Активных" v={cats.filter(c=>c.active).length} c="#FFB800"/>
-        <StatCard l="Товаров всего" v={cats.reduce((s,c)=>s+c.count,0)} c="#EBF5ED"/>
-      </div>
-
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <div style={{fontSize:12,color:'#3D6645'}}>Нажмите <span style={{color:'#3B8EF0',fontWeight:700}}>+ Подкат.</span> рядом с категорией чтобы добавить подкатегорию</div>
-        <button onClick={()=>{setNParent('');setShowAdd(true);}} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>+ Родительская категория</button>
-      </div>
-
-      {/* Tree table */}
-      <div className="ac">
-        <table className="at">
-          <thead><tr><th>Категория</th><th>Тип / Родитель</th><th>Товаров</th><th>Статус</th><th>Действия</th></tr></thead>
-          <tbody>
-            {roots.map(cat=><CatRow key={cat.id} cat={cat}/>)}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Add modal */}
-      {showAdd&&(
-        <div className="amod">
-          <div className="amodbg" onClick={()=>setShowAdd(false)}/>
-          <div className="amodbox" style={{maxWidth:460}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-              <div className="ub" style={{fontSize:15,fontWeight:800}}>{nParent?'Новая подкатегория':'Новая категория'}</div>
-              <button onClick={()=>setShowAdd(false)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
-            </div>
-
-            {/* Parent selector */}
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Родительская категория</div>
-              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                <button onClick={()=>setNParent('')} className="ab"
-                  style={{padding:'7px 14px',fontSize:12,background:!nParent?'rgba(31,215,96,.12)':'#0C1C0F',border:`1.5px solid ${!nParent?'rgba(31,215,96,.35)':'#162B1A'}`,color:!nParent?'#1FD760':'#8FB897'}}>
-                  🏪 Без родителя (главная)
-                </button>
-                {rootParentOptions.map(p=>(
-                  <button key={p.id} onClick={()=>setNParent(p.id)} className="ab"
-                    style={{padding:'7px 14px',fontSize:12,background:nParent===p.id?'rgba(59,142,240,.12)':'#0C1C0F',border:`1.5px solid ${nParent===p.id?'rgba(59,142,240,.35)':'#162B1A'}`,color:nParent===p.id?'#3B8EF0':'#8FB897'}}>
-                    {p.e} {p.name}
-                  </button>
-                ))}
-              </div>
-              {nParent&&(
-                <div style={{marginTop:8,padding:'8px 12px',borderRadius:10,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)',fontSize:12,color:'#3B8EF0'}}>
-                  ↳ Подкатегория для: <span style={{fontWeight:700}}>{cats.find(c=>c.id===nParent)?.e} {cats.find(c=>c.id===nParent)?.name}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Preview */}
-            {nName&&(
-              <div style={{marginBottom:14,padding:'11px 14px',borderRadius:12,background:nParent?'rgba(59,142,240,.06)':'rgba(31,215,96,.06)',border:`1px solid ${nParent?'rgba(59,142,240,.2)':'rgba(31,215,96,.2)'}`,display:'flex',alignItems:'center',gap:10}}>
-                {nParent&&<span style={{fontSize:13,color:'#1D3822'}}>└</span>}
-                <div style={{width:38,height:38,borderRadius:11,background:nParent?'rgba(59,142,240,.15)':'rgba(31,215,96,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>{nEmoji}</div>
-                <div><div style={{fontSize:13,fontWeight:700}}>{nName}</div><div style={{fontSize:10,color:'#3D6645'}}>{nDesc}</div></div>
-              </div>
-            )}
-
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <div style={{display:'grid',gridTemplateColumns:'70px 1fr',gap:12}}>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div><input className="ai" value={nEmoji} onChange={e=>setNEmoji(e.target.value)} style={{textAlign:'center',fontSize:24,height:48}}/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div><input className="ai" value={nName} onChange={e=>setNName(e.target.value)} placeholder={nParent?'Название подкатегории':'Название категории'}/></div>
-              </div>
-              <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div><input className="ai" value={nDesc} onChange={e=>setNDesc(e.target.value)} placeholder="Краткое описание"/></div>
-              <button onClick={addCat} className="ab abp" style={{width:'100%',padding:12,fontSize:14,opacity:nName?1:.5}}>
-                ✓ {nParent?'Создать подкатегорию':'Создать категорию'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit modal */}
-      {editCat&&(
-        <div className="amod">
-          <div className="amodbg" onClick={()=>setEditCat(null)}/>
-          <div className="amodbox" style={{maxWidth:460}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-              <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:26}}>{editCat.e}</span><div className="ub" style={{fontSize:14,fontWeight:800}}>{editCat.name}</div></div>
-              <button onClick={()=>setEditCat(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <div style={{display:'grid',gridTemplateColumns:'70px 1fr',gap:12}}>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div><input className="ai" defaultValue={editCat.e} style={{textAlign:'center',fontSize:24,height:48}}/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название</div><input className="ai" defaultValue={editCat.name}/></div>
-              </div>
-              <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div><input className="ai" defaultValue={editCat.desc}/></div>
-              {/* Change parent */}
-              <div>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Родительская категория</div>
-                <select className="ai" defaultValue={editCat.parentId||''} style={{cursor:'pointer'}}>
-                  <option value="">🏪 Без родителя (главная)</option>
-                  {rootParentOptions.filter(p=>p.id!==editCat.id).map(p=>(
-                    <option key={p.id} value={p.id}>{p.e} {p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <button onClick={()=>setEditCat(null)} className="ab abp" style={{width:'100%',padding:12}}>✓ Сохранить</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+    <MarketCategoriesPanel
+      theme="admin"
+      showStatus
+      categories={categories}
+      loaded={loaded}
+      products={products}
+      roots={roots}
+      childrenOf={childrenOf}
+      onCreate={async data => { await createCategory(data) }}
+      onUpdate={updateCategory}
+      onDelete={deleteCategory}
+    />
+  )
 }
-
 
 function PromosPage() {
   const LOCAL_KEY = 'kakapo_admin_promos'

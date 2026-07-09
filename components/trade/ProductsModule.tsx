@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useProducts } from '@/lib/store'
 import { useProductPhotos } from '@/lib/productPhotos'
-import { useTradeCategories } from '@/lib/useTradeCategories'
+import { useCategories } from '@/lib/useCategories'
 import ProductTab from '@/components/trade/products/ProductTab'
 import CategoryTab from '@/components/trade/products/CategoryTab'
 import LabelsTab from '@/components/trade/products/LabelsTab'
@@ -42,8 +42,9 @@ export default function ProductsModule({
     roots,
     childrenOf,
     createCategory,
+    updateCategory,
     deleteCategory,
-  } = useTradeCategories()
+  } = useCategories()
 
   const [internalSub, setInternalSub] = useState<ProductsSubPage>('product')
   const sub = controlledSub ?? internalSub
@@ -174,6 +175,7 @@ export default function ProductsModule({
           roots={roots}
           childrenOf={childrenOf}
           onCreate={async data => { await createCategory(data) }}
+          onUpdate={updateCategory}
           onDelete={deleteCategory}
         />
       )}

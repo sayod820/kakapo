@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
 import { loadDb, scheduleSaveDb, flushDb, getDbStats } from './db.js'
 import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
+import { ensureMarketCategories } from './marketCategoriesSeed.js'
 import {
   applyStatusPatch,
   inferType,
@@ -497,8 +498,12 @@ app.delete('/products/:id', (req, res) => {
   res.json({ ok: true })
 })
 
-app.get('/categories', (_req, res) => res.json(db.categories))
+app.get('/categories', (_req, res) => {
+  if (ensureMarketCategories(db)) persist()
+  res.json(db.categories)
+})
 app.get('/categories/tree', (_req, res) => {
+  if (ensureMarketCategories(db)) persist()
   const roots = db.categories.filter(c => c.parent_id == null)
   const childrenOf = pid => db.categories.filter(c => c.parent_id === pid)
   const withChildren = cat => ({ ...cat, children: childrenOf(cat.id).map(withChildren) })
@@ -507,26 +512,84 @@ app.get('/categories/tree', (_req, res) => {
 app.post('/categories', (req, res) => {
   const id = ++db._seq.category
   const slug = String(req.body.slug || '').trim() || slugifyCategory(req.body.name)
+  if (db.categories.some(c => c.slug === slug)) {
+    return res.status(400).json({ error: 'slug exists' })
+  }
+  const parent_id = req.body.parent_id ?? null
+  if (parent_id != null && !db.categories.some(c => c.id === Number(parent_id))) {
+    return res.status(400).json({ error: 'parent not found' })
+  }
   const c = {
     id,
     name: String(req.body.name || '').trim(),
     slug,
-    parent_id: req.body.parent_id ?? null,
+    parent_id: parent_id == null ? null : Number(parent_id),
     emoji: req.body.emoji || '📦',
+    desc: String(req.body.desc || '').trim(),
+    order: Number(req.body.order) || 99,
+    active: req.body.active !== false,
   }
   if (!c.name) return res.status(400).json({ error: 'name required' })
   db.categories.push(c)
   persist()
+  broadcastCategory(c)
   res.json(c)
+})
+app.patch('/categories/:id', (req, res) => {
+  const id = Number(req.params.id)
+  const idx = db.categories.findIndex(c => c.id === id)
+  if (idx < 0) return res.status(404).json({ error: 'not found' })
+  const cur = db.categories[idx]
+  const parent_id = req.body.parent_id !== undefined
+    ? (req.body.parent_id == null ? null : Number(req.body.parent_id))
+    : cur.parent_id
+  if (parent_id === id) return res.status(400).json({ error: 'invalid parent' })
+  if (parent_id != null && !db.categories.some(c => c.id === parent_id)) {
+    return res.status(400).json({ error: 'parent not found' })
+  }
+  const next = {
+    ...cur,
+    name: req.body.name != null ? String(req.body.name).trim() : cur.name,
+    emoji: req.body.emoji != null ? req.body.emoji : cur.emoji,
+    desc: req.body.desc != null ? String(req.body.desc).trim() : cur.desc,
+    parent_id,
+    order: req.body.order != null ? Number(req.body.order) : cur.order,
+    active: req.body.active != null ? !!req.body.active : cur.active !== false,
+  }
+  if (!next.name) return res.status(400).json({ error: 'name required' })
+  db.categories[idx] = next
+  persist()
+  broadcastCategory(next)
+  res.json(next)
 })
 app.delete('/categories/:id', (req, res) => {
   const id = Number(req.params.id)
-  const hasChildren = db.categories.some(c => c.parent_id === id)
-  if (hasChildren) return res.status(400).json({ error: 'has children' })
-  db.categories = db.categories.filter(c => c.id !== id)
+  const ids = new Set([id])
+  const queue = [id]
+  while (queue.length) {
+    const pid = queue.pop()
+    for (const child of db.categories.filter(c => c.parent_id === pid)) {
+      if (!ids.has(child.id)) {
+        ids.add(child.id)
+        queue.push(child.id)
+      }
+    }
+  }
+  const slugs = new Set(db.categories.filter(c => ids.has(c.id)).map(c => c.slug))
+  const hasProducts = db.products.some(p => slugs.has(p.catId))
+  if (hasProducts) return res.status(400).json({ error: 'has products' })
+  db.categories = db.categories.filter(c => !ids.has(c.id))
   persist()
+  broadcastCategory({ id, deleted: true })
   res.json({ ok: true })
 })
+
+function broadcastCategory(category) {
+  const msg = JSON.stringify({ event: 'category_update', category })
+  for (const ws of clients) {
+    if (ws.readyState === 1) ws.send(msg)
+  }
+}
 
 function slugifyCategory(name) {
   const map = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' }

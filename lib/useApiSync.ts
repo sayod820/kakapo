@@ -42,6 +42,10 @@ export function useApiSync(mode: SyncMode = 'all') {
       if (mode === 'pos') void syncPosFromApi()
       return
     }
+    if (msg.event === 'category_update') {
+      window.dispatchEvent(new CustomEvent('kakapo:categories'))
+      return
+    }
     if (msg.event === 'pos_update') {
       void useProducts.getState().fetchProducts()
       void syncPosFromApi()

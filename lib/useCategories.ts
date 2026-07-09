@@ -2,18 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
-import { POS_CATEGORIES } from '@/lib/posCategories'
+import { seedToCategories } from '@/lib/marketCategoriesSeed'
 import type { Category } from '@/lib/types'
-
-function staticFallback(): Category[] {
-  return POS_CATEGORIES.map((c, i) => ({
-    id: -(i + 1),
-    name: c.name,
-    slug: c.id,
-    parent_id: null,
-    emoji: c.e,
-  }))
-}
 
 export function categorySlug(cat: Pick<Category, 'slug' | 'id'>) {
   return cat.slug || String(cat.id)
@@ -22,10 +12,10 @@ export function categorySlug(cat: Pick<Category, 'slug' | 'id'>) {
 export function findCategoryName(categories: Category[], catId?: string, fallback = 'Прочее') {
   if (!catId) return fallback
   const hit = categories.find(c => c.slug === catId || String(c.id) === catId)
-  return hit?.name || POS_CATEGORIES.find(c => c.id === catId)?.name || fallback
+  return hit?.name || fallback
 }
 
-export function useTradeCategories() {
+export function useCategories() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
@@ -33,10 +23,10 @@ export function useTradeCategories() {
   const reload = useCallback(async () => {
     try {
       const data = await api.getCategories()
-      setCategories(Array.isArray(data) && data.length ? data : staticFallback())
+      setCategories(Array.isArray(data) && data.length ? data : seedToCategories())
       setError('')
     } catch (e) {
-      setCategories(staticFallback())
+      setCategories(seedToCategories())
       setError(e instanceof Error ? e.message : 'Не удалось загрузить категории')
     } finally {
       setLoaded(true)
@@ -45,9 +35,21 @@ export function useTradeCategories() {
 
   useEffect(() => { void reload() }, [reload])
 
-  const roots = useMemo(() => categories.filter(c => c.parent_id == null), [categories])
+  useEffect(() => {
+    const onSync = () => { void reload() }
+    window.addEventListener('kakapo:categories', onSync)
+    return () => window.removeEventListener('kakapo:categories', onSync)
+  }, [reload])
+
+  const roots = useMemo(
+    () => categories.filter(c => c.parent_id == null).sort((a, b) => (a.order || 0) - (b.order || 0)),
+    [categories],
+  )
+
   const childrenOf = useCallback((parentId: number) => (
-    categories.filter(c => c.parent_id === parentId)
+    categories
+      .filter(c => c.parent_id === parentId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
   ), [categories])
 
   const createCategory = useCallback(async (data: {
@@ -55,15 +57,27 @@ export function useTradeCategories() {
     parent_id?: number | null
     slug?: string
     emoji?: string
+    desc?: string
+    order?: number
+    active?: boolean
   }) => {
     const created = await api.createCategory(data)
     await reload()
+    window.dispatchEvent(new CustomEvent('kakapo:categories'))
     return created as Category
+  }, [reload])
+
+  const updateCategory = useCallback(async (id: number, data: Partial<Category>) => {
+    const updated = await api.updateCategory(id, data)
+    await reload()
+    window.dispatchEvent(new CustomEvent('kakapo:categories'))
+    return updated as Category
   }, [reload])
 
   const deleteCategory = useCallback(async (id: number) => {
     await api.deleteCategory(id)
     await reload()
+    window.dispatchEvent(new CustomEvent('kakapo:categories'))
   }, [reload])
 
   return {
@@ -74,6 +88,10 @@ export function useTradeCategories() {
     childrenOf,
     reload,
     createCategory,
+    updateCategory,
     deleteCategory,
   }
 }
+
+// совместимость со старым импортом
+export const useTradeCategories = useCategories

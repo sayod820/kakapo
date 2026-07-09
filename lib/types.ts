@@ -131,6 +131,9 @@ export interface Category {
   slug: string
   parent_id: number | null
   emoji?: string
+  desc?: string
+  order?: number
+  active?: boolean
 }
 
 export interface PosCashier {
