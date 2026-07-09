@@ -5,6 +5,7 @@ import ProductFormFields from './ProductFormFields'
 import { money, stockStatus, emptyForm } from './productFormShared'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
+import { productBarcodeSearchText, productBarcodes } from '@/lib/productBarcodes'
 import {
   categoryDisplayLabel,
   categorySlug,
@@ -107,7 +108,7 @@ export default function ProductTab({
   const q = search.trim().toLowerCase()
   const filtered = products.filter(p => {
     const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-    const matchQ = !q || `${p.name} ${p.art} ${p.barcode || ''} ${p.cat} ${catLabel}`.toLowerCase().includes(q)
+    const matchQ = !q || `${p.name} ${p.art} ${productBarcodeSearchText(p)} ${p.cat} ${catLabel}`.toLowerCase().includes(q)
     const matchC = productMatchesCategoryFilter(p.catId, catFlt, categories)
     return matchQ && matchC && matchStat(p)
   })
@@ -131,7 +132,7 @@ export default function ProductTab({
     const qList = search.trim().toLowerCase()
     const list = products.filter(p => {
       const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-      return !qList || `${p.name} ${p.art} ${p.barcode || ''} ${catLabel}`.toLowerCase().includes(qList)
+      return !qList || `${p.name} ${p.art} ${productBarcodeSearchText(p)} ${catLabel}`.toLowerCase().includes(qList)
     })
 
     return (
@@ -299,7 +300,15 @@ export default function ProductTab({
                           </div>
                           <div>
                             <div style={{ fontWeight: 800 }}>{p.name}</div>
-                            {p.barcode && <div style={{ fontSize: 11, color: 'var(--muted)' }}>ШК: {p.barcode}</div>}
+                            {(() => {
+                              const codes = productBarcodes(p)
+                              if (!codes.length) return null
+                              return (
+                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                                  ШК: {codes[0]}{codes.length > 1 ? ` +${codes.length - 1}` : ''}
+                                </div>
+                              )
+                            })()}
                             {bulkHint && <div style={{ fontSize: 10, color: '#FF8C00' }}>{bulkHint}</div>}
                           </div>
                         </div>

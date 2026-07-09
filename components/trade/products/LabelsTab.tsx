@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { money } from './productFormShared'
 import { formatPriceLabel, isWeighted } from '@/lib/productWeight'
+import { productBarcodeSearchText, productBarcodes } from '@/lib/productBarcodes'
 import type { Product } from '@/lib/types'
 
 const LABEL_CSS = `
@@ -36,7 +37,7 @@ export default function LabelsTab({
 
   const q = search.trim().toLowerCase()
   const filtered = useMemo(() =>
-    products.filter(p => !q || `${p.name} ${p.art} ${p.barcode || ''}`.toLowerCase().includes(q)),
+    products.filter(p => !q || `${p.name} ${p.art} ${productBarcodeSearchText(p)}`.toLowerCase().includes(q)),
   [products, q])
 
   const chosen = filtered.filter(p => selected.has(p.id))
@@ -125,7 +126,7 @@ export default function LabelsTab({
                   </div>
                   <div>
                     <div className="price">{money(p.price)}</div>
-                    <div className="bar">{p.plu ? `PLU ${p.plu}` : (p.barcode || p.art)}</div>
+                    <div className="bar">{p.plu ? `PLU ${p.plu}` : (productBarcodes(p)[0] || p.art)}</div>
                   </div>
                 </div>
               ))}

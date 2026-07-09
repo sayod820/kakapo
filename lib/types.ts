@@ -108,6 +108,8 @@ export interface Product {
   brand?: string
   country?: string
   barcode?: string
+  /** Все штрихкоды одного товара (включая основной) */
+  barcodes?: string[]
   /** PLU-код для весов (1–9999) */
   plu?: string
   /** piece — поштучно, weight — на развес (граммы в корзине) */

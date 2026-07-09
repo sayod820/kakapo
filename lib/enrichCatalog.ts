@@ -1,4 +1,5 @@
 import type { Product, Restaurant } from './types'
+import { productBarcodes } from './productBarcodes'
 import { USE_API } from './config'
 
 /** Синонимы catId из API/GBS → slug каталога в приложении */
@@ -35,6 +36,7 @@ export function enrichProducts(api: Product[], seed: any[]): any[] {
       brand: p.brand || base.brand || '',
       country: p.country || base.country || '',
       barcode: p.barcode || base.barcode || '',
+      barcodes: productBarcodes({ barcode: p.barcode || base.barcode, barcodes: p.barcodes || base.barcodes }),
       sellType: p.sellType || base.sellType || 'piece',
       unitGrams: p.unitGrams || base.unitGrams,
       weightStep: p.weightStep || base.weightStep,

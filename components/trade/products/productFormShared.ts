@@ -1,4 +1,5 @@
 import { categorySlug, findCategoryName } from '@/lib/useCategories'
+import { normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
 import type { Category, Product, SellType } from '@/lib/types'
 
 export function money(n: number | undefined | null) {
@@ -14,7 +15,7 @@ export type ProductForm = {
   costPrice: string
   stock: string
   unit: string
-  barcode: string
+  barcodes: string[]
   plu: string
   brand: string
   desc: string
@@ -29,7 +30,7 @@ export type ProductForm = {
 export function emptyForm(): ProductForm {
   return {
     name: '', art: '', e: '📦', catId: 'veg', price: '', costPrice: '', stock: '0',
-    unit: 'шт', barcode: '', plu: '', brand: '', desc: '', photo: '', sellType: 'piece',
+    unit: 'шт', barcodes: [], plu: '', brand: '', desc: '', photo: '', sellType: 'piece',
     weightStep: '1', unitGrams: '1000', hot: false, organic: false,
   }
 }
@@ -44,7 +45,7 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     costPrice: p.costPrice != null ? String(p.costPrice) : '',
     stock: String(p.stock ?? 0),
     unit: p.unit || 'шт',
-    barcode: p.barcode || '',
+    barcodes: productBarcodes(p),
     plu: p.plu || '',
     brand: p.brand || '',
     desc: p.desc || '',
@@ -71,6 +72,7 @@ export function buildProductPayload(
 ) {
   const id = existing?.id ?? Math.max(0, ...products.map(p => p.id)) + 1
   const art = data.art.trim() || `KAK-${String(id).padStart(4, '0')}`
+  const { barcode, barcodes } = normalizeBarcodes(data.barcodes)
   return {
     ...(existing || {}),
     id: existing?.id,
@@ -83,7 +85,8 @@ export function buildProductPayload(
     cat: findCategoryName(categories, data.catId, data.catId),
     unit: data.unit || 'шт',
     stock: Number(data.stock) || 0,
-    barcode: data.barcode || undefined,
+    barcode: barcode || undefined,
+    barcodes: barcodes.length ? barcodes : undefined,
     plu: data.plu.trim() || undefined,
     brand: data.brand || undefined,
     desc: data.desc || undefined,

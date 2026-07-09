@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
 import type { Category } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
@@ -31,6 +32,21 @@ export default function ProductFormFields({
   const children = (parentId: number) => categories.filter(c => Number(c.parent_id) === parentId)
   const isWeight = form.sellType === 'weight'
   const hints = isWeight ? weightPriceHints(form.price) : null
+  const [newBarcode, setNewBarcode] = useState('')
+
+  function addBarcode() {
+    const code = newBarcode.trim()
+    if (!code || form.barcodes.includes(code)) {
+      setNewBarcode('')
+      return
+    }
+    setForm({ ...form, barcodes: [...form.barcodes, code] })
+    setNewBarcode('')
+  }
+
+  function removeBarcode(code: string) {
+    setForm({ ...form, barcodes: form.barcodes.filter(b => b !== code) })
+  }
 
   function setSellType(sellType: SellType) {
     if (sellType === 'weight') {
@@ -101,9 +117,51 @@ export default function ProductFormFields({
         <label>Единица (отображение)</label>
         <input className="k-inp" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder={isWeight ? 'кг' : 'шт'} />
       </div>
-      <div className="k-field">
-        <label>Штрихкод</label>
-        <input className="k-inp" value={form.barcode} onChange={e => setForm({ ...form, barcode: e.target.value })} />
+      <div className="k-field" style={{ gridColumn: '1 / -1' }}>
+        <label>Штрихкоды</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            className="k-inp"
+            value={newBarcode}
+            onChange={e => setNewBarcode(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBarcode() } }}
+            placeholder="Сканируйте или введите штрихкод"
+          />
+          <button type="button" className="k-btn" onClick={addBarcode} style={{ whiteSpace: 'nowrap' }}>
+            Добавить
+          </button>
+        </div>
+        {form.barcodes.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {form.barcodes.map(code => (
+              <span
+                key={code}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 10px', borderRadius: 8,
+                  background: 'var(--green-d)', border: '1px solid rgba(31,215,96,.25)',
+                  fontSize: 12, fontFamily: 'monospace',
+                }}
+              >
+                {code}
+                <button
+                  type="button"
+                  onClick={() => removeBarcode(code)}
+                  style={{
+                    border: 'none', background: 'transparent', color: 'var(--muted)',
+                    cursor: 'pointer', padding: 0, lineHeight: 1, fontSize: 14,
+                  }}
+                  title="Удалить"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+          Один товар может иметь несколько штрихкодов (разные упаковки, поставщики)
+        </div>
       </div>
       <div className="k-field">
         <label>PLU-код (весы)</label>
