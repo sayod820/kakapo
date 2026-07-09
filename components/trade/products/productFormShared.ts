@@ -30,7 +30,7 @@ export function emptyForm(): ProductForm {
   return {
     name: '', art: '', e: '📦', catId: 'veg', price: '', costPrice: '', stock: '0',
     unit: 'шт', barcode: '', plu: '', brand: '', desc: '', photo: '', sellType: 'piece',
-    weightStep: '100', unitGrams: '1000', hot: false, organic: false,
+    weightStep: '1', unitGrams: '1000', hot: false, organic: false,
   }
 }
 
@@ -50,7 +50,7 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     desc: p.desc || '',
     photo: p.photo || photo || '',
     sellType: p.sellType || 'piece',
-    weightStep: String(p.weightStep || 100),
+    weightStep: String(p.weightStep || 1),
     unitGrams: String(p.unitGrams || 1000),
     hot: !!p.hot,
     organic: !!p.organic,
@@ -93,9 +93,9 @@ export function buildProductPayload(
     organic: data.organic,
     bulkPricing: existing?.bulkPricing,
     ...(data.sellType === 'weight' ? {
-      weightStep: Number(data.weightStep) || 100,
-      minWeight: Number(data.weightStep) || 100,
-      unitGrams: Number(data.unitGrams) || 1000,
+      weightStep: 1,
+      minWeight: 1,
+      unitGrams: 1000,
     } : {
       weightStep: undefined,
       minWeight: undefined,

@@ -1,20 +1,20 @@
 'use client'
 
 import { categorySlug } from '@/lib/useCategories'
-import { formatPriceLabel } from '@/lib/productWeight'
 import type { Category } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'
 
-function weightPriceHints(price: string, unitGrams: string) {
+const GRAMS_PER_KG = 1000
+
+function weightPriceHints(price: string) {
   const p = Number(price) || 0
-  const ug = Number(unitGrams) || 1000
-  if (!p || !ug) return null
-  const perGram = p / ug
+  if (!p) return null
+  const perGram = p / GRAMS_PER_KG
   return {
-    per100g: (perGram * 100).toFixed(2),
-    perKg: (perGram * 1000).toFixed(2),
+    perKg: p.toFixed(2),
     perGram: perGram.toFixed(4),
+    sample: (grams: number) => (perGram * grams).toFixed(2),
   }
 }
 
@@ -30,30 +30,21 @@ export default function ProductFormFields({
   const roots = categories.filter(c => c.parent_id == null)
   const children = (parentId: number) => categories.filter(c => Number(c.parent_id) === parentId)
   const isWeight = form.sellType === 'weight'
-  const hints = isWeight ? weightPriceHints(form.price, form.unitGrams) : null
+  const hints = isWeight ? weightPriceHints(form.price) : null
 
   function setSellType(sellType: SellType) {
     if (sellType === 'weight') {
       setForm({
         ...form,
         sellType,
-        unitGrams: form.unitGrams || '1000',
-        weightStep: form.weightStep || '100',
+        unitGrams: '1000',
+        weightStep: '1',
         unit: !form.unit || form.unit === 'шт' ? 'кг' : form.unit,
       })
       return
     }
     setForm({ ...form, sellType })
   }
-
-  const previewLabel = isWeight
-    ? formatPriceLabel({
-        sellType: 'weight',
-        price: Number(form.price) || 0,
-        unitGrams: Number(form.unitGrams) || 1000,
-        unit: form.unit,
-      })
-    : null
 
   return (
     <div className="k-grid2">
@@ -90,10 +81,12 @@ export default function ProductFormFields({
         </select>
       </div>
       <div className="k-field">
-        <label>{isWeight ? 'Цена продажи * (за указанный вес)' : 'Цена продажи *'}</label>
+        <label>{isWeight ? 'Цена за 1 кг *' : 'Цена продажи *'}</label>
         <input className="k-inp" type="number" step="0.01" min="0" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
-        {previewLabel && (
-          <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6, fontWeight: 700 }}>{previewLabel}</div>
+        {isWeight && (
+          <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6, fontWeight: 700 }}>
+            В кассе и на весах считается по граммам
+          </div>
         )}
       </div>
       <div className="k-field">
@@ -102,7 +95,7 @@ export default function ProductFormFields({
       </div>
       <div className="k-field">
         <label>{isWeight ? 'Остаток, г' : 'Остаток'}</label>
-        <input className="k-inp" type="number" step={isWeight ? '1' : '0.01'} min="0" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
+        <input className="k-inp" type="number" step="1" min="0" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} />
       </div>
       <div className="k-field">
         <label>Единица (отображение)</label>
@@ -129,50 +122,22 @@ export default function ProductFormFields({
         <label>Бренд</label>
         <input className="k-inp" value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />
       </div>
-      {isWeight && (
-        <>
-          <div className="k-field">
-            <label>Цена указана за, г</label>
-            <input
-              className="k-inp"
-              type="number"
-              min="1"
-              step="1"
-              value={form.unitGrams}
-              onChange={e => setForm({ ...form, unitGrams: e.target.value })}
-            />
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>1000 = цена за 1 кг · 100 = за 100 г</div>
-          </div>
-          <div className="k-field">
-            <label>Шаг на весах / в кассе, г</label>
-            <input
-              className="k-inp"
-              type="number"
-              min="1"
-              step="1"
-              value={form.weightStep}
-              onChange={e => setForm({ ...form, weightStep: e.target.value })}
-            />
-          </div>
-          {hints && (
-            <div className="k-field" style={{ gridColumn: '1 / -1' }}>
-              <div style={{
-                padding: '10px 12px', borderRadius: 10, background: 'var(--green-d)',
-                border: '1px solid rgba(31,215,96,.25)', fontSize: 12,
-              }}>
-                <b style={{ color: 'var(--green)' }}>Расчёт по граммам:</b>
-                <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 8 }}>
-                  <span>{hints.per100g} сом / 100 г</span>
-                  <span>{hints.perKg} сом / кг</span>
-                  <span>{hints.perGram} сом / 1 г</span>
-                </div>
-                <div style={{ marginTop: 6, color: 'var(--muted)', fontSize: 11 }}>
-                  Пример: {form.weightStep || 100} г → {((Number(hints.perGram) || 0) * (Number(form.weightStep) || 100)).toFixed(2)} сом
-                </div>
-              </div>
+      {isWeight && hints && (
+        <div className="k-field" style={{ gridColumn: '1 / -1' }}>
+          <div style={{
+            padding: '10px 12px', borderRadius: 10, background: 'var(--green-d)',
+            border: '1px solid rgba(31,215,96,.25)', fontSize: 12,
+          }}>
+            <b style={{ color: 'var(--green)' }}>Расчёт по граммам:</b>
+            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+              <span>{hints.perKg} сом / кг</span>
+              <span>{hints.perGram} сом / 1 г</span>
             </div>
-          )}
-        </>
+            <div style={{ marginTop: 6, color: 'var(--muted)', fontSize: 11 }}>
+              Примеры: 250 г → {hints.sample(250)} сом · 500 г → {hints.sample(500)} сом · 750 г → {hints.sample(750)} сом
+            </div>
+          </div>
+        </div>
       )}
       <div className="k-field" style={{ gridColumn: '1 / -1' }}>
         <label>Фото (URL)</label>

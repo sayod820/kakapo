@@ -17,7 +17,7 @@ export function productUnitGrams(p: Partial<Product>): number {
 }
 
 export function weightStep(p: Partial<Product>): number {
-  return p.weightStep && p.weightStep > 0 ? p.weightStep : 100
+  return p.weightStep && p.weightStep > 0 ? p.weightStep : 1
 }
 
 export function minWeight(p: Partial<Product>): number {
