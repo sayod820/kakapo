@@ -124,13 +124,6 @@ export default function ProductsModule({
 
   return (
     <div>
-      <div className="k-page-h" style={{ marginBottom: 12 }}>
-        <div>
-          <h1>📦 Товары</h1>
-          <div className="sub">Товары, категории и этикетки — основа для кассы и склада. Общие данные со всеми приложениями KAKAPO.</div>
-        </div>
-      </div>
-
       <div className="k-subtabs">
         {SUB_PAGES.map(item => (
           <button

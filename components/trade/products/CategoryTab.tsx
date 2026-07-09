@@ -39,14 +39,6 @@ export default function CategoryTab({
       onCreate={onCreate}
       onUpdate={onUpdate}
       onDelete={onDelete}
-      headerExtra={(
-        <div className="k-page-h" style={{ marginTop: 0, marginBottom: 12 }}>
-          <div>
-            <h1>📁 Категория</h1>
-            <div className="sub">Те же категории, что в админке. Изменения синхронизируются автоматически.</div>
-          </div>
-        </div>
-      )}
     />
   )
 }

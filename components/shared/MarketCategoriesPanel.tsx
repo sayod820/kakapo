@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
 import type { Category, Product } from '@/lib/types'
@@ -92,6 +93,7 @@ export default function MarketCategoriesPanel({
   const activeCount = categories.filter(c => c.active !== false).length
 
   function openAddRoot() {
+    setEditCat(null)
     setNParent('')
     setNName('')
     setNDesc('')
@@ -100,6 +102,7 @@ export default function MarketCategoriesPanel({
   }
 
   function openAddSub(parent: Category) {
+    setEditCat(null)
     setNParent(parent.id)
     setNName('')
     setNDesc('')
@@ -108,6 +111,7 @@ export default function MarketCategoriesPanel({
   }
 
   function openEdit(cat: Category) {
+    setShowAdd(false)
     setEditCat(cat)
     setEEmoji(cat.emoji || '📦')
     setEName(cat.name)
@@ -163,7 +167,9 @@ export default function MarketCategoriesPanel({
       setMsg('Нельзя удалить: в категории есть товары')
       return
     }
-    const label = kids.length ? `«${cat.name}» и все подкатегории` : `«${cat.name}»`
+    const label = kids.length
+      ? `«${cat.name}» и ${kids.length} подкатегор${kids.length === 1 ? 'ию' : 'ии'}`
+      : `«${cat.name}»`
     if (!confirm(`Удалить ${label}?`)) return
     try {
       await onDelete(cat.id)
@@ -269,6 +275,7 @@ export default function MarketCategoriesPanel({
           onClick={() => openEdit(cat)}
           className={isAdmin ? 'ab abg' : 'k-btn k-btn-s'}
           style={isAdmin ? { padding: '4px 9px', fontSize: 11 } : undefined}
+          title="Редактировать"
         >
           ✏️
         </button>
@@ -291,8 +298,9 @@ export default function MarketCategoriesPanel({
             onClick={() => void handleDelete(cat)}
             className={isAdmin ? 'ab abd' : 'k-btn k-btn-s'}
             style={isAdmin ? { padding: '4px 9px', fontSize: 11 } : { color: 'var(--red)' }}
+            title="Удалить"
           >
-            {isAdmin ? '🗑' : 'Удалить'}
+            🗑
           </button>
         )}
       </div>
@@ -366,9 +374,13 @@ export default function MarketCategoriesPanel({
   )
 
   const addModal = showAdd && (
-    <div className={isAdmin ? 'amod' : undefined} style={!isAdmin ? { marginBottom: 16 } : undefined}>
+    <div className={isAdmin ? 'amod' : 'k-modal-bg'} onClick={!isAdmin ? () => setShowAdd(false) : undefined}>
       {isAdmin && <div className="amodbg" onClick={() => setShowAdd(false)} />}
-      <div className={isAdmin ? 'amodbox' : 'k-card'} style={isAdmin ? { maxWidth: 460 } : undefined}>
+      <div
+        className={isAdmin ? 'amodbox' : 'k-modal'}
+        style={isAdmin ? { maxWidth: 460 } : undefined}
+        onClick={!isAdmin ? e => e.stopPropagation() : undefined}
+      >
         {isAdmin ? (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
@@ -384,16 +396,16 @@ export default function MarketCategoriesPanel({
           </>
         ) : (
           <>
-            <div className="k-card-h">
+            <div className="k-modal-h">
               <b>{nParent !== '' ? 'Новая подкатегория' : 'Новая категория'}</b>
-              <button type="button" className="k-btn k-btn-s" onClick={() => setShowAdd(false)}>Отмена</button>
+              <button type="button" onClick={() => setShowAdd(false)}>✕</button>
             </div>
-            <div className="k-card-b">
-              <ParentPicker isAdmin={false} categories={categories} roots={roots} parentId={nParent} setParentId={setNParent} />
+            <div className="k-modal-b" style={{ padding: 16 }}>
+              <ParentPicker isAdmin={false} categories={categories} roots={roots} parentId={nParent} setParentId={setNParent} locked={nParent !== '' && roots.some(r => r.id === nParent)} />
               {nName && <Preview isAdmin={false} nParent={nParent} categories={categories} emoji={nEmoji} name={nName} desc={nDesc} />}
               <FormFields isAdmin={false} emoji={nEmoji} setEmoji={setNEmoji} name={nName} setName={setNName} desc={nDesc} setDesc={setNDesc} parentId={nParent} />
-              <button type="button" className="k-btn k-btn-g" disabled={saving || !nName.trim()} onClick={() => void handleCreate()} style={{ marginTop: 12 }}>
-                {saving ? 'Сохранение…' : 'Создать'}
+              <button type="button" className="k-btn k-btn-g" disabled={saving || !nName.trim()} onClick={() => void handleCreate()} style={{ marginTop: 12, width: '100%' }}>
+                {saving ? 'Сохранение…' : nParent !== '' ? '✓ Создать подкатегорию' : '✓ Создать категорию'}
               </button>
             </div>
           </>
@@ -403,9 +415,13 @@ export default function MarketCategoriesPanel({
   )
 
   const editModal = editCat && (
-    <div className={isAdmin ? 'amod' : undefined}>
+    <div className={isAdmin ? 'amod' : 'k-modal-bg'} onClick={!isAdmin ? () => setEditCat(null) : undefined}>
       {isAdmin && <div className="amodbg" onClick={() => setEditCat(null)} />}
-      <div className={isAdmin ? 'amodbox' : 'k-card'} style={isAdmin ? { maxWidth: 460 } : { marginTop: 16 }}>
+      <div
+        className={isAdmin ? 'amodbox' : 'k-modal'}
+        style={isAdmin ? { maxWidth: 460 } : undefined}
+        onClick={!isAdmin ? e => e.stopPropagation() : undefined}
+      >
         {isAdmin ? (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
@@ -423,15 +439,15 @@ export default function MarketCategoriesPanel({
           </>
         ) : (
           <>
-            <div className="k-card-h">
-              <b>Редактирование · {editCat.name}</b>
-              <button type="button" className="k-btn k-btn-s" onClick={() => setEditCat(null)}>Отмена</button>
+            <div className="k-modal-h">
+              <b>✏️ {editCat.name}</b>
+              <button type="button" onClick={() => setEditCat(null)}>✕</button>
             </div>
-            <div className="k-card-b">
+            <div className="k-modal-b" style={{ padding: 16 }}>
               <FormFields isAdmin={false} emoji={eEmoji} setEmoji={setEEmoji} name={eName} setName={setEName} desc={eDesc} setDesc={setEDesc} parentId={eParent} />
               <ParentPicker isAdmin={false} categories={categories} roots={roots.filter(r => r.id !== editCat.id)} parentId={eParent} setParentId={setEParent} edit />
-              <button type="button" className="k-btn k-btn-g" disabled={saving || !eName.trim()} onClick={() => void handleSaveEdit()} style={{ marginTop: 12 }}>
-                {saving ? 'Сохранение…' : 'Сохранить'}
+              <button type="button" className="k-btn k-btn-g" disabled={saving || !eName.trim()} onClick={() => void handleSaveEdit()} style={{ marginTop: 12, width: '100%' }}>
+                {saving ? 'Сохранение…' : '✓ Сохранить'}
               </button>
             </div>
           </>
@@ -490,6 +506,7 @@ function ParentPicker({
   parentId,
   setParentId,
   edit,
+  locked,
 }: {
   isAdmin: boolean
   categories: Category[]
@@ -497,49 +514,63 @@ function ParentPicker({
   parentId: number | ''
   setParentId: (v: number | '') => void
   edit?: boolean
+  locked?: boolean
 }) {
-  if (isAdmin) {
+  const label = edit ? 'Родительская категория' : 'Тип категории'
+
+  if (locked && parentId !== '') {
+    const parent = categories.find(c => c.id === parentId)
     return (
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 8, fontWeight: 700 }}>Родительская категория</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => setParentId('')} className="ab" style={{
-            padding: '7px 14px', fontSize: 12,
-            background: parentId === '' ? 'rgba(31,215,96,.12)' : '#0C1C0F',
-            border: `1.5px solid ${parentId === '' ? 'rgba(31,215,96,.35)' : '#162B1A'}`,
-            color: parentId === '' ? '#1FD760' : '#8FB897',
-          }}>
-            🏪 Без родителя (главная)
-          </button>
-          {roots.map(p => (
-            <button key={p.id} type="button" onClick={() => setParentId(p.id)} className="ab" style={{
-              padding: '7px 14px', fontSize: 12,
-              background: parentId === p.id ? 'rgba(59,142,240,.12)' : '#0C1C0F',
-              border: `1.5px solid ${parentId === p.id ? 'rgba(59,142,240,.35)' : '#162B1A'}`,
-              color: parentId === p.id ? '#3B8EF0' : '#8FB897',
-            }}>
-              {p.emoji || '📦'} {p.name}
-            </button>
-          ))}
+        <div style={{ fontSize: 11, color: isAdmin ? '#8FB897' : 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>{label}</div>
+        <div style={{
+          padding: '8px 12px', borderRadius: 10,
+          background: 'rgba(59,142,240,.07)', border: '1px solid rgba(59,142,240,.2)',
+          fontSize: 12, color: '#3B8EF0',
+        }}>
+          ↳ Подкатегория для: <span style={{ fontWeight: 700 }}>{parent?.emoji} {parent?.name}</span>
         </div>
-        {parentId !== '' && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(59,142,240,.07)', border: '1px solid rgba(59,142,240,.2)', fontSize: 12, color: '#3B8EF0' }}>
-            ↳ Подкатегория для: <span style={{ fontWeight: 700 }}>{categories.find(c => c.id === parentId)?.emoji} {categories.find(c => c.id === parentId)?.name}</span>
-          </div>
-        )}
       </div>
     )
   }
 
+  const chipBtn = (active: boolean, green: boolean, onClick: () => void, children: ReactNode) => {
+    if (isAdmin) {
+      return (
+        <button type="button" onClick={onClick} className="ab" style={{
+          padding: '7px 14px', fontSize: 12,
+          background: active ? (green ? 'rgba(31,215,96,.12)' : 'rgba(59,142,240,.12)') : '#0C1C0F',
+          border: `1.5px solid ${active ? (green ? 'rgba(31,215,96,.35)' : 'rgba(59,142,240,.35)') : '#162B1A'}`,
+          color: active ? (green ? '#1FD760' : '#3B8EF0') : '#8FB897',
+        }}>
+          {children}
+        </button>
+      )
+    }
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`k-btn k-btn-s ${active ? 'k-btn-g' : ''}`}
+        style={active && !green ? { borderColor: 'var(--blue)', color: 'var(--blue)' } : undefined}
+      >
+        {children}
+      </button>
+    )
+  }
+
   return (
-    <div className="k-field" style={{ marginBottom: 12 }}>
-      <label>{edit ? 'Родительская категория' : 'Тип'}</label>
-      <select className="k-sel" value={parentId === '' ? '' : String(parentId)} onChange={e => setParentId(e.target.value ? Number(e.target.value) : '')}>
-        <option value="">Родительская категория</option>
-        {roots.map(r => (
-          <option key={r.id} value={r.id}>Подкатегория в «{r.name}»</option>
-        ))}
-      </select>
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, color: isAdmin ? '#8FB897' : 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>{label}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {chipBtn(parentId === '', true, () => setParentId(''), '🏪 Без родителя (главная)')}
+        {roots.map(p => chipBtn(parentId === p.id, false, () => setParentId(p.id), <>{p.emoji || '📦'} {p.name}</>))}
+      </div>
+      {parentId !== '' && (
+        <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(59,142,240,.07)', border: '1px solid rgba(59,142,240,.2)', fontSize: 12, color: '#3B8EF0' }}>
+          ↳ Подкатегория для: <span style={{ fontWeight: 700 }}>{categories.find(c => c.id === parentId)?.emoji} {categories.find(c => c.id === parentId)?.name}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -554,7 +585,7 @@ function Preview({
   name: string
   desc: string
 }) {
-  if (!isAdmin) return null
+  if (!name) return null
   return (
     <div style={{
       marginBottom: 14, padding: '11px 14px', borderRadius: 12,
@@ -562,9 +593,9 @@ function Preview({
       border: `1px solid ${nParent !== '' ? 'rgba(59,142,240,.2)' : 'rgba(31,215,96,.2)'}`,
       display: 'flex', alignItems: 'center', gap: 10,
     }}>
-      {nParent !== '' && <span style={{ fontSize: 13, color: '#1D3822' }}>└</span>}
+      {nParent !== '' && <span style={{ fontSize: 13, color: isAdmin ? '#1D3822' : 'var(--muted)' }}>└</span>}
       <div style={{ width: 38, height: 38, borderRadius: 11, background: nParent !== '' ? 'rgba(59,142,240,.15)' : 'rgba(31,215,96,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>{emoji}</div>
-      <div><div style={{ fontSize: 13, fontWeight: 700 }}>{name}</div><div style={{ fontSize: 10, color: '#3D6645' }}>{desc}</div></div>
+      <div><div style={{ fontSize: 13, fontWeight: 700 }}>{name}</div>{desc && <div style={{ fontSize: 10, color: isAdmin ? '#3D6645' : 'var(--muted)' }}>{desc}</div>}</div>
     </div>
   )
 }
@@ -603,18 +634,18 @@ function FormFields({
   }
 
   return (
-    <div className="k-grid2">
+    <div className="k-grid2" style={{ gridTemplateColumns: '80px 1fr' }}>
       <div className="k-field">
-        <label>Иконка</label>
-        <input className="k-inp" value={emoji} onChange={e => setEmoji(e.target.value)} maxLength={4} />
+        <label>Emoji</label>
+        <input className="k-inp" value={emoji} onChange={e => setEmoji(e.target.value)} style={{ textAlign: 'center', fontSize: 22, height: 48 }} maxLength={4} />
       </div>
       <div className="k-field">
         <label>Название *</label>
-        <input className="k-inp" value={name} onChange={e => setName(e.target.value)} />
+        <input className="k-inp" value={name} onChange={e => setName(e.target.value)} placeholder={parentId !== '' ? 'Название подкатегории' : 'Название категории'} />
       </div>
       <div className="k-field" style={{ gridColumn: '1 / -1' }}>
         <label>Описание</label>
-        <input className="k-inp" value={desc} onChange={e => setDesc(e.target.value)} />
+        <input className="k-inp" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Краткое описание" />
       </div>
     </div>
   )
