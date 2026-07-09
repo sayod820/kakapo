@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useProducts } from '@/lib/store'
 import { useProductPhotos } from '@/lib/productPhotos'
-import CatalogTab from '@/components/trade/products/CatalogTab'
+import { useTradeCategories } from '@/lib/useTradeCategories'
 import ProductTab from '@/components/trade/products/ProductTab'
+import CategoryTab from '@/components/trade/products/CategoryTab'
 import LabelsTab from '@/components/trade/products/LabelsTab'
 import {
   buildProductPayload,
@@ -13,11 +14,11 @@ import {
   type ProductForm,
 } from '@/components/trade/products/productFormShared'
 
-export type ProductsSubPage = 'catalog' | 'product' | 'labels'
+export type ProductsSubPage = 'product' | 'category' | 'labels'
 
 const SUB_PAGES: { id: ProductsSubPage; label: string }[] = [
-  { id: 'catalog', label: 'Каталог' },
   { id: 'product', label: 'Товар' },
+  { id: 'category', label: 'Категория' },
   { id: 'labels', label: 'Этикетки' },
 ]
 
@@ -35,8 +36,16 @@ export default function ProductsModule({
   const saveProduct = useProducts(s => s.saveProduct)
   const removeProduct = useProducts(s => s.removeProduct)
   const { getPhoto, setPhoto, hydrate } = useProductPhotos()
+  const {
+    categories,
+    loaded: catsLoaded,
+    roots,
+    childrenOf,
+    createCategory,
+    deleteCategory,
+  } = useTradeCategories()
 
-  const [internalSub, setInternalSub] = useState<ProductsSubPage>('catalog')
+  const [internalSub, setInternalSub] = useState<ProductsSubPage>('product')
   const sub = controlledSub ?? internalSub
   const setSub = onSubPageChange ?? setInternalSub
 
@@ -80,7 +89,7 @@ export default function ProductsModule({
     setSaving(true)
     setMsg('')
     try {
-      const payload = buildProductPayload(form, products, isNew ? null : selectedProduct)
+      const payload = buildProductPayload(form, products, isNew ? null : selectedProduct, categories)
       const saved = await saveProduct(payload)
       if (saved && form.photo) setPhoto(saved.id, form.photo)
       if (isNew && saved) {
@@ -88,7 +97,7 @@ export default function ProductsModule({
         setIsNew(false)
       }
       setMsg(isNew ? 'Товар добавлен' : 'Товар обновлён')
-      setSub('catalog')
+      setSub('product')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось сохранить')
     } finally {
@@ -117,7 +126,7 @@ export default function ProductsModule({
       <div className="k-page-h" style={{ marginBottom: 12 }}>
         <div>
           <h1>📦 Товары</h1>
-          <div className="sub">Каталог товаров — основа для кассы и склада. Общие данные со всеми приложениями KAKAPO.</div>
+          <div className="sub">Товары, категории и этикетки — основа для кассы и склада. Общие данные со всеми приложениями KAKAPO.</div>
         </div>
       </div>
 
@@ -136,31 +145,36 @@ export default function ProductsModule({
 
       {msg && <div className="k-alert" style={{ marginBottom: 12 }}>{msg}</div>}
 
-      {sub === 'catalog' && (
-        <CatalogTab
-          products={products}
-          loaded={loaded}
-          search={search}
-          getPhoto={getPhoto}
-          onOpenProduct={openProduct}
-          onAddProduct={startNewProduct}
-          onDelete={(id, name) => void handleDelete(id, name)}
-        />
-      )}
-
       {sub === 'product' && (
         <ProductTab
           products={products}
+          loaded={loaded}
           search={search}
+          categories={categories}
+          getPhoto={getPhoto}
           form={form}
           setForm={setForm}
           selectedId={selectedId}
+          isNew={isNew}
+          saving={saving}
           onSelect={selectProduct}
           onNew={startNewProduct}
           onSave={() => void handleSave()}
           onDelete={() => void handleDeleteSelected()}
-          saving={saving}
-          isNew={isNew}
+          onDeleteProduct={(id, name) => void handleDelete(id, name)}
+          onOpenEdit={openProduct}
+        />
+      )}
+
+      {sub === 'category' && (
+        <CategoryTab
+          categories={categories}
+          loaded={catsLoaded}
+          products={products}
+          roots={roots}
+          childrenOf={childrenOf}
+          onCreate={async data => { await createCategory(data) }}
+          onDelete={deleteCategory}
         />
       )}
 

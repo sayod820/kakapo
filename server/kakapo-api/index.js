@@ -498,19 +498,47 @@ app.delete('/products/:id', (req, res) => {
 })
 
 app.get('/categories', (_req, res) => res.json(db.categories))
-app.get('/categories/tree', (_req, res) => res.json(db.categories.map(c => ({ ...c, children: [] }))))
+app.get('/categories/tree', (_req, res) => {
+  const roots = db.categories.filter(c => c.parent_id == null)
+  const childrenOf = pid => db.categories.filter(c => c.parent_id === pid)
+  const withChildren = cat => ({ ...cat, children: childrenOf(cat.id).map(withChildren) })
+  res.json(roots.map(withChildren))
+})
 app.post('/categories', (req, res) => {
   const id = ++db._seq.category
-  const c = { id, name: req.body.name, slug: req.body.slug || '', parent_id: req.body.parent_id ?? null }
+  const slug = String(req.body.slug || '').trim() || slugifyCategory(req.body.name)
+  const c = {
+    id,
+    name: String(req.body.name || '').trim(),
+    slug,
+    parent_id: req.body.parent_id ?? null,
+    emoji: req.body.emoji || '📦',
+  }
+  if (!c.name) return res.status(400).json({ error: 'name required' })
   db.categories.push(c)
   persist()
   res.json(c)
 })
 app.delete('/categories/:id', (req, res) => {
-  db.categories = db.categories.filter(c => c.id !== Number(req.params.id))
+  const id = Number(req.params.id)
+  const hasChildren = db.categories.some(c => c.parent_id === id)
+  if (hasChildren) return res.status(400).json({ error: 'has children' })
+  db.categories = db.categories.filter(c => c.id !== id)
   persist()
   res.json({ ok: true })
 })
+
+function slugifyCategory(name) {
+  const map = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' }
+  const base = String(name || '').toLowerCase().trim()
+    .split('').map(ch => map[ch] ?? ch).join('')
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 40)
+  return base || `cat_${Date.now()}`
+}
 
 app.get('/promos', (_req, res) => {
   if (syncAllPromosLifecycle()) persist()

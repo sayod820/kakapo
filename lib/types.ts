@@ -125,6 +125,14 @@ export interface BulkPriceTier {
   price: number
 }
 
+export interface Category {
+  id: number
+  name: string
+  slug: string
+  parent_id: number | null
+  emoji?: string
+}
+
 export interface PosCashier {
   id: string
   name: string

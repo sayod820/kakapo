@@ -1,16 +1,22 @@
 'use client'
 
-import { POS_CATEGORIES } from './productFormShared'
+import { categorySlug } from '@/lib/useTradeCategories'
+import type { Category } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'
 
 export default function ProductFormFields({
   form,
   setForm,
+  categories,
 }: {
   form: ProductForm
   setForm: (f: ProductForm) => void
+  categories: Category[]
 }) {
+  const roots = categories.filter(c => c.parent_id == null)
+  const children = (parentId: number) => categories.filter(c => c.parent_id === parentId)
+
   return (
     <div className="k-grid2">
       <div className="k-field">
@@ -28,7 +34,14 @@ export default function ProductFormFields({
       <div className="k-field">
         <label>Категория</label>
         <select className="k-sel" value={form.catId} onChange={e => setForm({ ...form, catId: e.target.value })}>
-          {POS_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.e} {c.name}</option>)}
+          {roots.map(c => (
+            <optgroup key={c.id} label={`${c.emoji || '📦'} ${c.name}`}>
+              <option value={categorySlug(c)}>{c.name}</option>
+              {children(c.id).map(sub => (
+                <option key={sub.id} value={categorySlug(sub)}>↳ {sub.name}</option>
+              ))}
+            </optgroup>
+          ))}
         </select>
       </div>
       <div className="k-field">

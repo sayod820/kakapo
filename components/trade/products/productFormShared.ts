@@ -1,5 +1,5 @@
-import { POS_CATEGORIES, posCategoryName } from '@/lib/posCategories'
-import type { Product, SellType } from '@/lib/types'
+import { findCategoryName } from '@/lib/useTradeCategories'
+import type { Category, Product, SellType } from '@/lib/types'
 
 export function money(n: number | undefined | null) {
   return `${(Number(n) || 0).toFixed(2)} сом`
@@ -61,7 +61,12 @@ export function stockStatus(stock: number) {
   return { c: 'var(--green)', l: 'Есть' }
 }
 
-export function buildProductPayload(data: ProductForm, products: Product[], existing?: Product | null) {
+export function buildProductPayload(
+  data: ProductForm,
+  products: Product[],
+  existing?: Product | null,
+  categories: Category[] = [],
+) {
   const id = existing?.id ?? Math.max(0, ...products.map(p => p.id)) + 1
   const art = data.art.trim() || `KAK-${String(id).padStart(4, '0')}`
   return {
@@ -73,7 +78,7 @@ export function buildProductPayload(data: ProductForm, products: Product[], exis
     price: Number(data.price) || 0,
     costPrice: data.costPrice ? Number(data.costPrice) : null,
     catId: data.catId,
-    cat: posCategoryName(data.catId),
+    cat: findCategoryName(categories, data.catId),
     unit: data.unit || 'шт',
     stock: Number(data.stock) || 0,
     barcode: data.barcode || undefined,
@@ -92,4 +97,4 @@ export function buildProductPayload(data: ProductForm, products: Product[], exis
   }
 }
 
-export { POS_CATEGORIES }
+export { POS_CATEGORIES } from '@/lib/posCategories'
