@@ -1,11 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import ProductFormFields from './ProductFormFields'
-import { money, stockStatus } from './productFormShared'
+import { money, stockStatus, emptyForm } from './productFormShared'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
-import { categorySlug } from '@/lib/useCategories'
+import {
+  categoryDisplayLabel,
+  categorySlug,
+  countProductsInCategory,
+  productMatchesCategoryFilter,
+} from '@/lib/useCategories'
 import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 
@@ -69,7 +74,25 @@ export default function ProductTab({
   const [catFlt, setCatFlt] = useState('all')
   const [statFlt, setStatFlt] = useState<StatFilter>('all')
 
-  const roots = categories.filter(c => c.parent_id == null)
+  const roots = useMemo(
+    () => categories.filter(c => c.parent_id == null).sort((a, b) => (a.order || 0) - (b.order || 0)),
+    [categories],
+  )
+
+  const activeRoot = useMemo(() => {
+    if (catFlt === 'all') return null
+    const direct = categories.find(c => categorySlug(c) === catFlt)
+    if (!direct) return null
+    if (direct.parent_id == null) return direct
+    return categories.find(c => c.id === Number(direct.parent_id)) || null
+  }, [catFlt, categories])
+
+  const subcategories = useMemo(() => {
+    if (!activeRoot) return []
+    return categories
+      .filter(c => Number(c.parent_id) === activeRoot.id)
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
+  }, [activeRoot, categories])
 
   const matchStat = (p: Product) => {
     const stock = Number(p.stock) || 0
@@ -83,16 +106,15 @@ export default function ProductTab({
 
   const q = search.trim().toLowerCase()
   const filtered = products.filter(p => {
-    const matchQ = !q || `${p.name} ${p.art} ${p.barcode || ''} ${p.cat}`.toLowerCase().includes(q)
-    const matchC = catFlt === 'all' || p.catId === catFlt
+    const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
+    const matchQ = !q || `${p.name} ${p.art} ${p.barcode || ''} ${p.cat} ${catLabel}`.toLowerCase().includes(q)
+    const matchC = productMatchesCategoryFilter(p.catId, catFlt, categories)
     return matchQ && matchC && matchStat(p)
   })
 
-  const byCat = roots.map(c => ({
-    ...c,
-    slug: categorySlug(c),
-    count: products.filter(p => p.catId === categorySlug(c)).length,
-  }))
+  function pickCategory(slug: string) {
+    setCatFlt(slug)
+  }
 
   function openEdit(id: number) {
     onOpenEdit(id)
@@ -101,14 +123,16 @@ export default function ProductTab({
 
   function startNew() {
     onNew()
+    if (catFlt !== 'all') setForm({ ...emptyForm(), catId: catFlt })
     setView('edit')
   }
 
   if (view === 'edit') {
     const qList = search.trim().toLowerCase()
-    const list = products.filter(p =>
-      !qList || `${p.name} ${p.art} ${p.barcode || ''}`.toLowerCase().includes(qList),
-    )
+    const list = products.filter(p => {
+      const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
+      return !qList || `${p.name} ${p.art} ${p.barcode || ''} ${catLabel}`.toLowerCase().includes(qList)
+    })
 
     return (
       <div>
@@ -118,7 +142,7 @@ export default function ProductTab({
         <div className="k-product-layout">
           <aside className="k-product-list">
             <div className="k-product-list-head">
-              <b>Товары</b>
+              <b>Все товары · {products.length}</b>
               <button type="button" className="k-btn k-btn-g" style={{ padding: '6px 10px', fontSize: 12 }} onClick={startNew}>+ Новый</button>
             </div>
             <div className="k-product-list-body">
@@ -154,7 +178,12 @@ export default function ProductTab({
             </div>
             <div className="k-card-b">
               {(isNew || selectedId) ? (
-                <ProductFormFields form={form} setForm={setForm} categories={categories} />
+                <>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
+                    Общий товар KAKAPO — изменения видны в магазине, админке и кассе.
+                  </div>
+                  <ProductFormFields form={form} setForm={setForm} categories={categories} />
+                </>
               ) : (
                 <div className="k-empty">Выберите товар слева или нажмите «+ Новый»</div>
               )}
@@ -170,13 +199,13 @@ export default function ProductTab({
       <div className="k-page-h" style={{ marginTop: 0 }}>
         <div>
           <h1>📦 Товар</h1>
-          <div className="sub">Каталог товаров: остатки, цены, категории. Клик по строке — редактирование.</div>
+          <div className="sub">Все товары KAKAPO · фильтр по категории и подкатегории · общие данные для всех приложений</div>
         </div>
         <button type="button" className="k-btn k-btn-g" onClick={startNew}>+ Добавить товар</button>
       </div>
 
       <div className="k-kpis">
-        <StatCard label="Всего позиций" value={products.length} active={statFlt === 'all'} onClick={() => setStatFlt('all')} />
+        <StatCard label="Всего позиций" value={products.length} active={statFlt === 'all' && catFlt === 'all'} onClick={() => { setStatFlt('all'); setCatFlt('all') }} />
         <StatCard label="В наличии" value={products.filter(p => Number(p.stock) > 5).length} color="var(--green)" active={statFlt === 'inStock'} onClick={() => setStatFlt(s => s === 'inStock' ? 'all' : 'inStock')} />
         <StatCard label="Мало (≤5)" value={products.filter(p => { const s = Number(p.stock); return s > 0 && s <= 5 }).length} color="var(--gold)" active={statFlt === 'low'} onClick={() => setStatFlt(s => s === 'low' ? 'all' : 'low')} />
         <StatCard label="Нет в наличии" value={products.filter(p => Number(p.stock) <= 0).length} color="var(--red)" active={statFlt === 'out'} onClick={() => setStatFlt(s => s === 'out' ? 'all' : 'out')} />
@@ -184,26 +213,62 @@ export default function ProductTab({
         <StatCard label="С оптом" value={products.filter(p => hasBulkPricing(p)).length} color="#FF8C00" active={statFlt === 'bulk'} onClick={() => setStatFlt(s => s === 'bulk' ? 'all' : 'bulk')} />
       </div>
 
-      <div className="k-cats" style={{ marginBottom: 16 }}>
-        <button type="button" className={`k-cat ${catFlt === 'all' ? 'active' : ''}`} onClick={() => setCatFlt('all')}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>Категории</div>
+      <div className="k-cats" style={{ marginBottom: subcategories.length ? 8 : 16 }}>
+        <button type="button" className={`k-cat ${catFlt === 'all' ? 'active' : ''}`} onClick={() => pickCategory('all')}>
           <span className="ce">🏪</span>Все<div style={{ fontSize: 10, opacity: 0.75 }}>{products.length}</div>
         </button>
-        {byCat.map(c => (
-          <button key={c.id} type="button" className={`k-cat ${catFlt === c.slug ? 'active' : ''}`} onClick={() => setCatFlt(c.slug)}>
-            <span className="ce">{c.emoji || '📦'}</span>{c.name.split(' ')[0]}
-            <div style={{ fontSize: 10, opacity: 0.75 }}>{c.count}</div>
-          </button>
-        ))}
+        {roots.map(c => {
+          const slug = categorySlug(c)
+          const count = countProductsInCategory(products, slug, categories)
+          const active = catFlt === slug || activeRoot?.id === c.id
+          return (
+            <button key={c.id} type="button" className={`k-cat ${active ? 'active' : ''}`} onClick={() => pickCategory(slug)}>
+              <span className="ce">{c.emoji || '📦'}</span>{c.name.split(' ')[0]}
+              <div style={{ fontSize: 10, opacity: 0.75 }}>{count}</div>
+            </button>
+          )
+        })}
       </div>
+
+      {subcategories.length > 0 && activeRoot && (
+        <>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>
+            Подкатегории · {activeRoot.name}
+          </div>
+          <div className="k-cats" style={{ marginBottom: 16 }}>
+            <button
+              type="button"
+              className={`k-cat ${catFlt === categorySlug(activeRoot) ? 'active' : ''}`}
+              onClick={() => pickCategory(categorySlug(activeRoot))}
+              style={{ minWidth: 90 }}
+            >
+              <span className="ce">{activeRoot.emoji || '📦'}</span>Все
+              <div style={{ fontSize: 10, opacity: 0.75 }}>{countProductsInCategory(products, categorySlug(activeRoot), categories)}</div>
+            </button>
+            {subcategories.map(sub => {
+              const slug = categorySlug(sub)
+              const count = countProductsInCategory(products, slug, categories)
+              return (
+                <button key={sub.id} type="button" className={`k-cat ${catFlt === slug ? 'active' : ''}`} onClick={() => pickCategory(slug)} style={{ minWidth: 90 }}>
+                  <span className="ce">{sub.emoji || '📦'}</span>{sub.name.split(' ')[0]}
+                  <div style={{ fontSize: 10, opacity: 0.75 }}>{count}</div>
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
 
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
         Показано {filtered.length} из {products.length}
+        {catFlt !== 'all' && ` · ${categoryDisplayLabel(categories, catFlt, catFlt)}`}
         {!loaded && ' · загрузка…'}
       </div>
 
       <section className="k-card">
         <div className="k-card-b" style={{ padding: 0 }}>
-          <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+          <div style={{ maxHeight: '62vh', overflow: 'auto' }}>
             <table className="k-tbl">
               <thead>
                 <tr>
@@ -223,6 +288,7 @@ export default function ProductTab({
                   const sc = stockStatus(Number(p.stock) || 0)
                   const photo = p.photo || getPhoto(p.id)
                   const bulkHint = formatBulkPricingHint(p)
+                  const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
                   return (
                     <tr key={p.id} className="k-prodrow" onClick={() => openEdit(p.id)}>
                       <td><span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 800 }}>{p.art}</span></td>
@@ -238,7 +304,9 @@ export default function ProductTab({
                           </div>
                         </div>
                       </td>
-                      <td><span className="k-badge" style={{ background: '#1a2430', color: 'var(--blue)' }}>{p.cat}</span></td>
+                      <td>
+                        <span className="k-badge" style={{ background: '#1a2430', color: 'var(--blue)' }}>{catLabel}</span>
+                      </td>
                       <td className="num" style={{ color: 'var(--green)', fontWeight: 900 }}>{money(p.price)}</td>
                       <td className="num">{money(p.costPrice)}</td>
                       <td style={{ color: 'var(--muted)' }}>{p.unit}{isWeighted(p) ? ' ⚖️' : ''}</td>

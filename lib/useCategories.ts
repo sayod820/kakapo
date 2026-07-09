@@ -15,6 +15,49 @@ export function findCategoryName(categories: Category[], catId?: string, fallbac
   return hit?.name || fallback
 }
 
+export function getCategoryBySlug(categories: Category[], slug?: string) {
+  if (!slug) return null
+  return categories.find(c => c.slug === slug || String(c.id) === slug) || null
+}
+
+/** slug категории + все подкатегории */
+export function getDescendantSlugs(categories: Category[], slug: string): string[] {
+  const cat = getCategoryBySlug(categories, slug)
+  if (!cat) return [slug]
+  const slugs = [categorySlug(cat)]
+  for (const child of categories.filter(c => Number(c.parent_id) === cat.id)) {
+    slugs.push(...getDescendantSlugs(categories, categorySlug(child)))
+  }
+  return slugs
+}
+
+export function productMatchesCategoryFilter(
+  catId: string | undefined,
+  filterSlug: string,
+  categories: Category[],
+) {
+  if (filterSlug === 'all') return true
+  return getDescendantSlugs(categories, filterSlug).includes(catId || '')
+}
+
+export function countProductsInCategory(
+  products: { catId?: string }[],
+  slug: string,
+  categories: Category[],
+) {
+  const allowed = getDescendantSlugs(categories, slug)
+  return products.filter(p => allowed.includes(p.catId || '')).length
+}
+
+export function categoryDisplayLabel(categories: Category[], catId?: string, fallback = 'Прочее') {
+  const cat = getCategoryBySlug(categories, catId)
+  if (!cat) return fallback
+  const parent = cat.parent_id != null
+    ? categories.find(c => c.id === Number(cat.parent_id))
+    : null
+  return parent ? `${parent.name} · ${cat.name}` : cat.name
+}
+
 export function useCategories() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loaded, setLoaded] = useState(false)

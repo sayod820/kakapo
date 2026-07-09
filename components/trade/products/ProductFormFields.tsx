@@ -15,7 +15,7 @@ export default function ProductFormFields({
   categories: Category[]
 }) {
   const roots = categories.filter(c => c.parent_id == null)
-  const children = (parentId: number) => categories.filter(c => c.parent_id === parentId)
+  const children = (parentId: number) => categories.filter(c => Number(c.parent_id) === parentId)
 
   return (
     <div className="k-grid2">

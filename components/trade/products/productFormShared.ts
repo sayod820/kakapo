@@ -1,4 +1,4 @@
-import { findCategoryName } from '@/lib/useCategories'
+import { categorySlug, findCategoryName } from '@/lib/useCategories'
 import type { Category, Product, SellType } from '@/lib/types'
 
 export function money(n: number | undefined | null) {
@@ -78,7 +78,7 @@ export function buildProductPayload(
     price: Number(data.price) || 0,
     costPrice: data.costPrice ? Number(data.costPrice) : null,
     catId: data.catId,
-    cat: findCategoryName(categories, data.catId),
+    cat: findCategoryName(categories, data.catId, data.catId),
     unit: data.unit || 'шт',
     stock: Number(data.stock) || 0,
     barcode: data.barcode || undefined,
