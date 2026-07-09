@@ -159,21 +159,33 @@ export default function MarketCategoriesPanel({
     }
   }
 
+  function countInTree(cat: Category): number {
+    let n = countFor(cat)
+    for (const kid of childrenOf(cat.id)) n += countInTree(kid)
+    return n
+  }
+
   async function handleDelete(cat: Category) {
     const kids = childrenOf(cat.id)
-    const selfCount = countFor(cat)
-    const childCount = kids.reduce((s, k) => s + countFor(k), 0)
-    if (selfCount + childCount > 0) {
-      setMsg('Нельзя удалить: в категории есть товары')
-      return
-    }
+    const productTotal = countInTree(cat)
+    const parentCat = cat.parent_id != null
+      ? categories.find(c => c.id === cat.parent_id)
+      : null
+    const moveTo = parentCat?.name || 'Прочее'
+
     const label = kids.length
       ? `«${cat.name}» и ${kids.length} подкатегор${kids.length === 1 ? 'ию' : 'ии'}`
       : `«${cat.name}»`
-    if (!confirm(`Удалить ${label}?`)) return
+    const productHint = productTotal > 0
+      ? `\n\n${productTotal} товар(ов) будут перенесены в «${moveTo}».`
+      : ''
+    if (!confirm(`Удалить ${label}?${productHint}`)) return
     try {
       await onDelete(cat.id)
-      setMsg('Категория удалена')
+      if (editCat?.id === cat.id) setEditCat(null)
+      setMsg(productTotal > 0
+        ? `Категория удалена · ${productTotal} товар(ов) перенесено в «${moveTo}»`
+        : 'Категория удалена')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     }
@@ -292,17 +304,15 @@ export default function MarketCategoriesPanel({
             + Подкат.
           </button>
         )}
-        {selfCount === 0 && childTotal === 0 && (
-          <button
-            type="button"
-            onClick={() => void handleDelete(cat)}
-            className={isAdmin ? 'ab abd' : 'k-btn k-btn-s'}
-            style={isAdmin ? { padding: '4px 9px', fontSize: 11 } : { color: 'var(--red)' }}
-            title="Удалить"
-          >
-            🗑
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => void handleDelete(cat)}
+          className={isAdmin ? 'ab abd' : 'k-btn k-btn-s'}
+          style={isAdmin ? { padding: '4px 9px', fontSize: 11 } : { color: 'var(--red)' }}
+          title="Удалить"
+        >
+          🗑
+        </button>
       </div>
     )
 

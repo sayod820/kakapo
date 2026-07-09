@@ -44,6 +44,7 @@ export function useApiSync(mode: SyncMode = 'all') {
     }
     if (msg.event === 'category_update') {
       window.dispatchEvent(new CustomEvent('kakapo:categories'))
+      if (msg.category?.deleted) void useProducts.getState().fetchProducts()
       return
     }
     if (msg.event === 'pos_update') {

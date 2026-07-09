@@ -52,16 +52,17 @@ export function buildCategoriesFromSeed(seq = { category: 0 }) {
 }
 
 export function ensureMarketCategories(db) {
+  const deleted = new Set(db.deletedCategorySlugs || [])
   const existing = db.categories || []
   const have = new Set(existing.map(c => c.slug))
-  const missing = MARKET_CATEGORIES_SEED.filter(s => !have.has(s.slug))
+  const missing = MARKET_CATEGORIES_SEED.filter(s => !have.has(s.slug) && !deleted.has(s.slug))
   if (!missing.length) return false
 
   if (!db._seq) db._seq = { category: 0 }
   const slugToId = new Map(existing.map(c => [c.slug, c.id]))
 
   for (const item of MARKET_CATEGORIES_SEED) {
-    if (have.has(item.slug)) continue
+    if (have.has(item.slug) || deleted.has(item.slug)) continue
     const parent_id = item.parentSlug ? (slugToId.get(item.parentSlug) ?? null) : null
     if (item.parentSlug && parent_id == null) continue
     const id = ++db._seq.category

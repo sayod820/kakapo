@@ -91,6 +91,11 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
   .filter(Boolean)
 const db = seedIfEmpty()
 ensurePosCollections(db)
+if (!db._categorySeedVersion) {
+  if (ensureMarketCategories(db)) persist()
+  db._categorySeedVersion = 1
+  persist()
+}
 
 function persist() {
   scheduleSaveDb()
@@ -498,14 +503,18 @@ app.delete('/products/:id', (req, res) => {
   res.json({ ok: true })
 })
 
+function categoryErrorMessage(code: string) {
+  if (code === 'has products') return 'В категории есть товары'
+  if (code === 'not found') return 'Категория не найдена'
+  return code
+}
+
 app.get('/categories', (_req, res) => {
-  if (ensureMarketCategories(db)) persist()
-  res.json(db.categories)
+  res.json(db.categories || [])
 })
 app.get('/categories/tree', (_req, res) => {
-  if (ensureMarketCategories(db)) persist()
   const roots = db.categories.filter(c => c.parent_id == null)
-  const childrenOf = pid => db.categories.filter(c => c.parent_id === pid)
+  const childrenOf = pid => db.categories.filter(c => Number(c.parent_id) === pid)
   const withChildren = cat => ({ ...cat, children: childrenOf(cat.id).map(withChildren) })
   res.json(roots.map(withChildren))
 })
@@ -530,6 +539,9 @@ app.post('/categories', (req, res) => {
     active: req.body.active !== false,
   }
   if (!c.name) return res.status(400).json({ error: 'name required' })
+  if (Array.isArray(db.deletedCategorySlugs)) {
+    db.deletedCategorySlugs = db.deletedCategorySlugs.filter(s => s !== slug)
+  }
   db.categories.push(c)
   persist()
   broadcastCategory(c)
@@ -564,24 +576,48 @@ app.patch('/categories/:id', (req, res) => {
 })
 app.delete('/categories/:id', (req, res) => {
   const id = Number(req.params.id)
+  const root = db.categories.find(c => c.id === id)
+  if (!root) return res.status(404).json({ error: 'not found' })
+
   const ids = new Set([id])
   const queue = [id]
   while (queue.length) {
     const pid = queue.pop()
-    for (const child of db.categories.filter(c => c.parent_id === pid)) {
+    for (const child of db.categories.filter(c => Number(c.parent_id) === pid)) {
       if (!ids.has(child.id)) {
         ids.add(child.id)
         queue.push(child.id)
       }
     }
   }
-  const slugs = new Set(db.categories.filter(c => ids.has(c.id)).map(c => c.slug))
-  const hasProducts = db.products.some(p => slugs.has(p.catId))
-  if (hasProducts) return res.status(400).json({ error: 'has products' })
+
+  const catsToDelete = db.categories.filter(c => ids.has(c.id))
+  const slugsToDelete = new Set(catsToDelete.map(c => c.slug))
+  const parentCat = root.parent_id != null
+    ? db.categories.find(c => c.id === Number(root.parent_id))
+    : null
+  const fallbackSlug = parentCat?.slug || ''
+  const fallbackName = parentCat?.name || 'Прочее'
+
+  let movedProducts = 0
+  for (const p of db.products) {
+    if (slugsToDelete.has(p.catId)) {
+      p.catId = fallbackSlug
+      p.cat = fallbackName
+      movedProducts += 1
+    }
+  }
+
+  if (!Array.isArray(db.deletedCategorySlugs)) db.deletedCategorySlugs = []
+  for (const slug of slugsToDelete) {
+    if (!db.deletedCategorySlugs.includes(slug)) db.deletedCategorySlugs.push(slug)
+  }
+
   db.categories = db.categories.filter(c => !ids.has(c.id))
   persist()
-  broadcastCategory({ id, deleted: true })
-  res.json({ ok: true })
+  broadcastCategory({ id, deleted: true, ids: [...ids], slugs: [...slugsToDelete], movedProducts })
+  if (movedProducts) broadcastProduct({ reason: 'category_delete' })
+  res.json({ ok: true, movedProducts, deleted: [...ids] })
 })
 
 function broadcastCategory(category) {

@@ -23,7 +23,7 @@ export function useCategories() {
   const reload = useCallback(async () => {
     try {
       const data = await api.getCategories()
-      setCategories(Array.isArray(data) && data.length ? data : seedToCategories())
+      setCategories(Array.isArray(data) ? data : [])
       setError('')
     } catch (e) {
       setCategories(seedToCategories())
@@ -48,7 +48,7 @@ export function useCategories() {
 
   const childrenOf = useCallback((parentId: number) => (
     categories
-      .filter(c => c.parent_id === parentId)
+      .filter(c => c.parent_id != null && Number(c.parent_id) === parentId)
       .sort((a, b) => (a.order || 0) - (b.order || 0))
   ), [categories])
 
@@ -75,7 +75,11 @@ export function useCategories() {
   }, [reload])
 
   const deleteCategory = useCallback(async (id: number) => {
-    await api.deleteCategory(id)
+    try {
+      await api.deleteCategory(id)
+    } catch (e) {
+      throw e instanceof Error ? e : new Error('Не удалось удалить категорию')
+    }
     await reload()
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
   }, [reload])

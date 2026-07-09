@@ -59,6 +59,7 @@ function formatApiError(detail: unknown, status?: number): string {
       })
       .join(' · ')
   }
+  if (detail && typeof detail === 'object' && 'error' in detail) return String((detail as { error: string }).error)
   if (detail && typeof detail === 'object' && 'msg' in detail) return String((detail as { msg: string }).msg)
   return status ? `Ошибка сервера (${status})` : 'Ошибка сервера'
 }
@@ -86,7 +87,7 @@ async function parseErrorResponse(res: Response): Promise<string> {
   if (!text) return formatApiError(null, res.status)
   try {
     const json = JSON.parse(text)
-    return formatApiError(json.detail ?? json.message ?? json, res.status) || text.slice(0, 160)
+    return formatApiError(json.error ?? json.detail ?? json.message ?? json, res.status) || text.slice(0, 160)
   } catch {
     const plain = stripHtmlError(text)
     return formatApiError(plain, res.status) || plain
