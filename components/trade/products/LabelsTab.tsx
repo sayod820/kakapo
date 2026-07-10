@@ -5,13 +5,20 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { productBarcodeSearchText } from '@/lib/productBarcodes'
 import type { Product, ProductStockLayer } from '@/lib/types'
+import LabelCard from './LabelCard'
+import LabelDesignModal from './LabelDesignModal'
 import LabelEditModal from './LabelEditModal'
 import {
   buildLabelPick,
+  DEFAULT_LABEL_DESIGN,
   defaultLabelEdit,
+  designScale,
   formatLabelMoney,
   labelPickKey,
   layerShortLabel,
+  loadLabelDesign,
+  saveLabelDesign,
+  type LabelDesign,
   type LabelEdit,
   type LabelPick,
 } from './labelShared'
@@ -22,14 +29,9 @@ const LABEL_CSS = `
     #k-label-print, #k-label-print * { visibility: visible !important; }
     #k-label-print { position: absolute; left: 0; top: 0; width: 100%; }
     .k-label-card { break-inside: avoid; page-break-inside: avoid; }
+    .k-label-edit-btn { display: none !important; }
   }
   .k-label-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
-  .k-label-card{background:#fff;color:#111;border:1px dashed #ccc;border-radius:8px;padding:12px 14px;min-height:120px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
-  .k-label-card .brand{font-size:10px;font-weight:800;color:#0a7a3e;letter-spacing:.06em}
-  .k-label-card .name{font-size:14px;font-weight:800;line-height:1.25;margin:6px 0}
-  .k-label-card .price{font-size:22px;font-weight:900;color:#0a7a3e}
-  .k-label-card .meta{font-size:10px;color:#666;margin-top:4px}
-  .k-label-card .bar{font-family:monospace;font-size:11px;letter-spacing:2px;margin-top:8px;padding:4px 0;border-top:1px solid #eee}
   .k-label-pick{border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--card2);overflow:hidden}
   .k-label-pick-head{display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer}
   .k-label-pick-head input{accent-color:var(--green)}
@@ -37,35 +39,11 @@ const LABEL_CSS = `
   .k-label-layer{padding:6px 10px 6px 38px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
   .k-label-layer:hover{background:rgba(31,215,96,.04)}
   .k-label-layer input{accent-color:var(--green)}
-  .k-label-edit-btn{position:absolute;top:6px;right:6px;border:none;background:#f0f0f0;color:#333;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer}
 `
 
-function LabelCard({
-  edit,
-  size,
-  onEdit,
-}: {
-  edit: LabelEdit
-  size: 'small' | 'medium'
-  onEdit: () => void
-}) {
-  return (
-    <div
-      className="k-label-card"
-      style={size === 'small' ? { minHeight: 96, padding: '8px 10px' } : undefined}
-    >
-      <button type="button" className="k-label-edit-btn" onClick={onEdit}>✏️</button>
-      <div>
-        <div className="brand">{edit.brand || 'KAKAPO'}</div>
-        <div className="name">{edit.name}</div>
-        <div className="meta">{edit.meta}</div>
-      </div>
-      <div>
-        <div className="price">{formatLabelMoney(edit.price)}</div>
-        {edit.showBarcode && edit.barcode && <div className="bar">{edit.barcode}</div>}
-      </div>
-    </div>
-  )
+const EMPTY_EDIT: LabelEdit = {
+  brand: 'KAKAPO', name: '', price: '0', meta: '', barcode: '', plu: '',
+  showBarcode: true, showPlu: false,
 }
 
 export default function LabelsTab({
@@ -81,10 +59,19 @@ export default function LabelsTab({
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [layersByProduct, setLayersByProduct] = useState<Record<number, ProductStockLayer[]>>({})
   const [loadingLayers, setLoadingLayers] = useState<Set<number>>(new Set())
-  const [labelSize, setLabelSize] = useState<'small' | 'medium'>('medium')
+  const [labelSize, setLabelSize] = useState<'small' | 'medium' | 'large'>('medium')
+  const [design, setDesign] = useState<LabelDesign>(DEFAULT_LABEL_DESIGN)
+  const [draftDesign, setDraftDesign] = useState<LabelDesign>(DEFAULT_LABEL_DESIGN)
+  const [designOpen, setDesignOpen] = useState(false)
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [draftEdit, setDraftEdit] = useState<LabelEdit | null>(null)
   const loadingRef = useRef<Set<number>>(new Set())
+
+  useEffect(() => {
+    setDesign(loadLabelDesign())
+  }, [])
+
+  const scaledDesign = useMemo(() => designScale(design, labelSize), [design, labelSize])
 
   const q = (labelSearch.trim() || search.trim()).toLowerCase()
   const filtered = useMemo(
@@ -102,8 +89,7 @@ export default function LabelsTab({
           map.set(pick.key, pick)
         }
       } else {
-        const pick = buildLabelPick(p, null)
-        map.set(pick.key, pick)
+        map.set(buildLabelPick(p, null).key, buildLabelPick(p, null))
       }
     }
     return map
@@ -130,10 +116,7 @@ export default function LabelsTab({
     if (!USE_API || loadingRef.current.has(productId)) return
     let skip = false
     setLayersByProduct(prev => {
-      if (prev[productId] !== undefined) {
-        skip = true
-        return prev
-      }
+      if (prev[productId] !== undefined) { skip = true; return prev }
       return prev
     })
     if (skip) return
@@ -146,11 +129,7 @@ export default function LabelsTab({
       setLayersByProduct(prev => ({ ...prev, [productId]: [] }))
     } finally {
       loadingRef.current.delete(productId)
-      setLoadingLayers(prev => {
-        const next = new Set(prev)
-        next.delete(productId)
-        return next
-      })
+      setLoadingLayers(prev => { const n = new Set(prev); n.delete(productId); return n })
     }
   }, [])
 
@@ -164,9 +143,7 @@ export default function LabelsTab({
   }
 
   function ensureEdit(key: string, pick: LabelPick) {
-    if (!edits[key]) {
-      setEdits(prev => ({ ...prev, [key]: defaultLabelEdit(pick.product, pick.layer) }))
-    }
+    if (!edits[key]) setEdits(prev => ({ ...prev, [key]: defaultLabelEdit(pick.product, pick.layer) }))
   }
 
   function toggleKey(key: string, pick: LabelPick, on: boolean) {
@@ -182,9 +159,8 @@ export default function LabelsTab({
   function toggleProduct(product: Product, on: boolean) {
     const layers = layersByProduct[product.id] || []
     const active = layers.find(l => l.isActive) || layers[0]
-    const key = labelPickKey(product.id, active?.receiptId ?? null)
-    const pick = picksByKey.get(key) || buildLabelPick(product, active ?? null)
-    toggleKey(key, pick, on)
+    const pick = picksByKey.get(labelPickKey(product.id, active?.receiptId ?? null)) || buildLabelPick(product, active ?? null)
+    toggleKey(pick.key, pick, on)
   }
 
   function isProductChecked(product: Product) {
@@ -217,22 +193,15 @@ export default function LabelsTab({
     setSelected(next)
   }
 
-  function clearAll() {
-    setSelected(new Set())
+  function openDesign() {
+    setDraftDesign({ ...design })
+    setDesignOpen(true)
   }
 
-  function openEdit(key: string) {
-    const pick = picksByKey.get(key)
-    if (!pick) return
-    setEditingKey(key)
-    setDraftEdit({ ...getEdit(pick) })
-  }
-
-  function saveEdit() {
-    if (!editingKey || !draftEdit) return
-    setEdits(prev => ({ ...prev, [editingKey]: draftEdit }))
-    setEditingKey(null)
-    setDraftEdit(null)
+  function saveDesign() {
+    setDesign(draftDesign)
+    saveLabelDesign(draftDesign)
+    setDesignOpen(false)
   }
 
   function printLabels() {
@@ -246,11 +215,12 @@ export default function LabelsTab({
       <div className="k-page-h" style={{ marginTop: 0 }}>
         <div>
           <h1>🏷️ Этикетки</h1>
-          <div className="sub">Поиск, выбор партии, редактирование и печать ценников</div>
+          <div className="sub">Поиск, партии, дизайн, штрихкод и печать</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="k-btn k-btn-s" onClick={openDesign}>🎨 Дизайн</button>
           <button type="button" className="k-btn k-btn-s" onClick={selectAll}>Выбрать все</button>
-          <button type="button" className="k-btn k-btn-s" onClick={clearAll}>Сбросить</button>
+          <button type="button" className="k-btn k-btn-s" onClick={() => setSelected(new Set())}>Сбросить</button>
           <button type="button" className="k-btn k-btn-g" disabled={!chosenPicks.length} onClick={printLabels}>
             🖨️ Печать ({chosenPicks.length})
           </button>
@@ -279,11 +249,7 @@ export default function LabelsTab({
                 return (
                   <div key={p.id} className="k-label-pick">
                     <div className="k-label-pick-head">
-                      <input
-                        type="checkbox"
-                        checked={isProductChecked(p)}
-                        onChange={e => toggleProduct(p, e.target.checked)}
-                      />
+                      <input type="checkbox" checked={isProductChecked(p)} onChange={e => toggleProduct(p, e.target.checked)} />
                       <span style={{ fontSize: 18 }}>{p.e || '📦'}</span>
                       <span style={{ flex: 1, minWidth: 0 }} onClick={() => toggleExpand(p.id)}>
                         <div style={{ fontWeight: 800, fontSize: 13 }}>{p.name}</div>
@@ -292,12 +258,7 @@ export default function LabelsTab({
                           {layers?.length ? ` · ${layers.length} парт.` : ''}
                         </div>
                       </span>
-                      <button
-                        type="button"
-                        className="k-btn k-btn-s"
-                        style={{ padding: '4px 8px', fontSize: 11 }}
-                        onClick={() => toggleExpand(p.id)}
-                      >
+                      <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => toggleExpand(p.id)}>
                         {loading ? '…' : isOpen ? '▲' : '▼'}
                       </button>
                     </div>
@@ -321,11 +282,7 @@ export default function LabelsTab({
                           const pick = buildLabelPick(p, layer)
                           return (
                             <label key={key} className="k-label-layer">
-                              <input
-                                type="checkbox"
-                                checked={selected.has(key)}
-                                onChange={e => toggleKey(key, pick, e.target.checked)}
-                              />
+                              <input type="checkbox" checked={selected.has(key)} onChange={e => toggleKey(key, pick, e.target.checked)} />
                               <span>{layerShortLabel(layer, p.unit || 'шт')}</span>
                             </label>
                           )
@@ -347,10 +304,11 @@ export default function LabelsTab({
               className="k-sel"
               style={{ width: 'auto', minWidth: 120 }}
               value={labelSize}
-              onChange={e => setLabelSize(e.target.value as 'small' | 'medium')}
+              onChange={e => setLabelSize(e.target.value as 'small' | 'medium' | 'large')}
             >
-              <option value="medium">Средняя</option>
               <option value="small">Маленькая</option>
+              <option value="medium">Средняя</option>
+              <option value="large">Большая</option>
             </select>
           </div>
           <div className="k-card-b">
@@ -359,14 +317,17 @@ export default function LabelsTab({
                 <LabelCard
                   key={pick.key}
                   edit={getEdit(pick)}
-                  size={labelSize}
-                  onEdit={() => openEdit(pick.key)}
+                  design={scaledDesign}
+                  onEdit={() => {
+                    setEditingKey(pick.key)
+                    setDraftEdit({ ...getEdit(pick) })
+                  }}
                 />
               ))}
             </div>
             {!chosenPicks.length && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>
-                Предпросмотр первых товаров. Выберите товар и партию слева, нажмите ✏️ для редактирования.
+                ✏️ — текст этикетки · 🎨 — дизайн всех этикеток
               </div>
             )}
           </div>
@@ -375,10 +336,23 @@ export default function LabelsTab({
 
       <LabelEditModal
         open={!!editingKey && !!draftEdit}
-        edit={draftEdit || { brand: 'KAKAPO', name: '', price: '0', meta: '', barcode: '', showBarcode: true }}
-        onChange={e => setDraftEdit(e)}
+        edit={draftEdit || EMPTY_EDIT}
+        onChange={setDraftEdit}
         onClose={() => { setEditingKey(null); setDraftEdit(null) }}
-        onSave={saveEdit}
+        onSave={() => {
+          if (editingKey && draftEdit) setEdits(prev => ({ ...prev, [editingKey]: draftEdit }))
+          setEditingKey(null)
+          setDraftEdit(null)
+        }}
+      />
+
+      <LabelDesignModal
+        open={designOpen}
+        design={draftDesign}
+        onChange={setDraftDesign}
+        onClose={() => setDesignOpen(false)}
+        onSave={saveDesign}
+        onReset={() => setDraftDesign(DEFAULT_LABEL_DESIGN)}
       />
     </div>
   )

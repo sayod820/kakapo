@@ -21,7 +21,7 @@ export default function LabelEditModal({
     <div className="k-modal-bg" style={{ zIndex: 1300 }} onClick={onClose}>
       <div className="k-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
         <div className="k-modal-h">
-          <b>✏️ Редактирование этикетки</b>
+          <b>✏️ Текст этикетки</b>
           <button type="button" onClick={onClose}>✕</button>
         </div>
         <div className="k-modal-b" style={{ padding: 16 }}>
@@ -42,12 +42,20 @@ export default function LabelEditModal({
             <input className="k-inp" value={edit.meta} onChange={e => onChange({ ...edit, meta: e.target.value })} />
           </div>
           <div className="k-field" style={{ marginBottom: 12 }}>
-            <label>Штрихкод / PLU</label>
-            <input className="k-inp" value={edit.barcode} onChange={e => onChange({ ...edit, barcode: e.target.value })} />
+            <label>Штрихкод (цифры для печати)</label>
+            <input className="k-inp" value={edit.barcode} onChange={e => onChange({ ...edit, barcode: e.target.value })} placeholder="4600123456789" />
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 16 }}>
+          <div className="k-field" style={{ marginBottom: 12 }}>
+            <label>PLU (весы)</label>
+            <input className="k-inp" value={edit.plu} onChange={e => onChange({ ...edit, plu: e.target.value })} placeholder="1–9999" />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
             <input type="checkbox" checked={edit.showBarcode} onChange={e => onChange({ ...edit, showBarcode: e.target.checked })} />
-            <span>Показывать штрихкод на этикетке</span>
+            <span>Показывать штрихкод</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 16 }}>
+            <input type="checkbox" checked={edit.showPlu} onChange={e => onChange({ ...edit, showPlu: e.target.checked })} />
+            <span>Показывать PLU</span>
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} onClick={onSave}>Сохранить</button>
