@@ -35,6 +35,7 @@ export default function ProductsModule({
   const loaded = useProducts(s => s.loaded)
   const saveProduct = useProducts(s => s.saveProduct)
   const removeProduct = useProducts(s => s.removeProduct)
+  const fetchProducts = useProducts(s => s.fetchProducts)
   const { getPhoto, setPhoto, hydrate } = useProductPhotos()
   const {
     categories,
@@ -86,6 +87,17 @@ export default function ProductsModule({
     setFormDirty(false)
     formLoadedForId.current = selectedId
   }, [selectedId, isNew, products, getPhoto])
+
+  async function refreshAfterArrivals() {
+    await fetchProducts()
+    if (!selectedId || isNew) return
+    formLoadedForId.current = null
+    const p = useProducts.getState().products.find(x => x.id === selectedId)
+    if (p) {
+      setForm(formFromProduct(p, getPhoto(p.id)))
+      formLoadedForId.current = selectedId
+    }
+  }
 
   function confirmDiscardChanges() {
     if (!formDirty) return true
@@ -196,6 +208,7 @@ export default function ProductsModule({
           onDelete={() => void handleDeleteSelected()}
           onDeleteProduct={(id, name) => void handleDelete(id, name)}
           onOpenEdit={openProduct}
+          onRefreshProducts={() => void refreshAfterArrivals()}
         />
       )}
 

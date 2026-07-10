@@ -118,6 +118,9 @@ export default function ProductFormFields({
           onChange={bulkPricing => setForm({ ...form, bulkPricing })}
           sellType={form.sellType}
         />
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
+          Для разных закупок используйте «📦 Партии» — у каждого прихода свой опт и цены (FIFO).
+        </div>
         {bulkHint && (
           <div style={{ fontSize: 11, color: '#FF8C00', marginTop: 8, fontWeight: 700 }}>
             {bulkHint}

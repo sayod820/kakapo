@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import ProductFormFields from './ProductFormFields'
+import ProductArrivalsPanel from './ProductArrivalsPanel'
 import { money, stockStatus } from './productFormShared'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
@@ -54,6 +55,7 @@ export default function ProductTab({
   onDelete,
   onDeleteProduct,
   onOpenEdit,
+  onRefreshProducts,
 }: {
   products: Product[]
   loaded: boolean
@@ -72,8 +74,10 @@ export default function ProductTab({
   onDelete: () => void
   onDeleteProduct: (id: number, name: string) => void
   onOpenEdit: (id: number) => void
+  onRefreshProducts?: () => void
 }) {
   const [view, setView] = useState<'catalog' | 'edit'>('catalog')
+  const [arrivalsOpen, setArrivalsOpen] = useState(false)
   const [catFlt, setCatFlt] = useState('all')
   const [statFlt, setStatFlt] = useState<StatFilter>('all')
 
@@ -140,6 +144,7 @@ export default function ProductTab({
       const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
       return !qList || `${p.name} ${p.art} ${productBarcodeSearchText(p)} ${catLabel}`.toLowerCase().includes(qList)
     })
+    const editProduct = selectedId ? products.find(p => p.id === selectedId) || null : null
 
     return (
       <div>
@@ -182,6 +187,11 @@ export default function ProductTab({
                 )}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
+                {!isNew && selectedId && editProduct && (
+                  <button type="button" className="k-btn k-btn-s" onClick={() => setArrivalsOpen(true)}>
+                    📦 Партии
+                  </button>
+                )}
                 {!isNew && selectedId && (
                   <button type="button" className="k-btn k-btn-s" style={{ color: 'var(--red)' }} onClick={onDelete}>Удалить</button>
                 )}
@@ -204,6 +214,14 @@ export default function ProductTab({
             </div>
           </section>
         </div>
+        {editProduct && (
+          <ProductArrivalsPanel
+            product={editProduct}
+            open={arrivalsOpen}
+            onClose={() => setArrivalsOpen(false)}
+            onUpdated={() => onRefreshProducts?.()}
+          />
+        )}
       </div>
     )
   }

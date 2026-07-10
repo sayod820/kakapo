@@ -67,6 +67,9 @@ import {
   createExpense,
   listStockReceipts,
   createStockReceipt,
+  listProductStockLayers,
+  addProductStockLayer,
+  updateProductStockLayer,
   listStockWriteoffs,
   createStockWriteoff,
   listStockRevisions,
@@ -499,6 +502,37 @@ app.patch('/products/:id', (req, res) => {
   persist()
   broadcastProduct(p)
   res.json(p)
+})
+
+app.get('/products/:id/stock-layers', (req, res) => {
+  const id = Number(req.params.id)
+  const p = db.products.find(x => x.id === id)
+  if (!p) return res.status(404).json({ detail: 'Не найдено' })
+  res.json(listProductStockLayers(db, id))
+})
+
+app.post('/products/:id/stock-layers', (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const result = addProductStockLayer(db, id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'receipt', id: result.receipt.id })
+    broadcastProduct({ id, reason: 'stock-layer' })
+    res.json(result)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось добавить приход' })
+  }
+})
+
+app.patch('/stock/layers/:receiptId/:productId', (req, res) => {
+  try {
+    const layers = updateProductStockLayer(db, req.params.receiptId, Number(req.params.productId), req.body || {})
+    persist()
+    broadcastProduct({ id: Number(req.params.productId), reason: 'stock-layer' })
+    res.json(layers)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить партию' })
+  }
 })
 app.delete('/products/:id', (req, res) => {
   const id = Number(req.params.id)

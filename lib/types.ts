@@ -205,7 +205,25 @@ export interface StockReceiptItem {
   qty: number
   remainingQty: number
   costPrice: number
+  retailPrice?: number
+  bulkPricing?: BulkPriceTier[]
   expiryDate?: string | null
+}
+
+export interface ProductStockLayer {
+  receiptId: string
+  productId: number
+  productName: string
+  qty: number
+  remainingQty: number
+  costPrice: number
+  retailPrice: number
+  bulkPricing: BulkPriceTier[]
+  expiryDate?: string | null
+  createdAtIso: string
+  supplierName?: string
+  queueIndex: number
+  isActive: boolean
 }
 
 export interface StockReceipt {

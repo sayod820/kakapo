@@ -49,6 +49,129 @@ function updateSupplierDebt(db, supplierId, receiptTotal, paidNow) {
   return supplier
 }
 
+function normalizeBulkPricing(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map(t => ({
+      minQty: Math.max(1, Math.floor(Number(t.minQty) || 0)),
+      price: round2(t.price),
+    }))
+    .filter(t => t.minQty > 0 && t.price > 0)
+    .sort((a, b) => a.minQty - b.minQty)
+}
+
+function getActiveStockLayer(db, productId) {
+  ensurePosCollections(db)
+  const receipts = [...(db.stockReceipts || [])].sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
+  for (const receipt of receipts) {
+    for (const item of receipt.items || []) {
+      if (Number(item.productId) !== Number(productId)) continue
+      if (!(Number(item.remainingQty) > 0)) continue
+      return { receipt, item }
+    }
+  }
+  return null
+}
+
+function syncProductPricingFromActiveLayer(db, productId) {
+  const product = (db.products || []).find(p => Number(p.id) === Number(productId))
+  if (!product) return
+  const active = getActiveStockLayer(db, productId)
+  if (!active) return
+  const item = active.item
+  const retail = round2(item.retailPrice ?? product.price)
+  if (retail > 0) product.price = retail
+  const cost = round2(item.costPrice)
+  if (cost > 0) product.costPrice = cost
+  const bulk = normalizeBulkPricing(item.bulkPricing)
+  if (bulk.length) product.bulkPricing = bulk
+  else delete product.bulkPricing
+}
+
+export function listProductStockLayers(db, productId) {
+  ensurePosCollections(db)
+  const layers = []
+  const receipts = [...(db.stockReceipts || [])].sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
+  let queueIndex = 0
+  for (const receipt of receipts) {
+    for (const item of receipt.items || []) {
+      if (Number(item.productId) !== Number(productId)) continue
+      const remainingQty = round2(item.remainingQty)
+      if (!(remainingQty > 0)) continue
+      layers.push({
+        receiptId: receipt.id,
+        productId: Number(item.productId),
+        productName: item.productName,
+        qty: round2(item.qty),
+        remainingQty,
+        costPrice: round2(item.costPrice),
+        retailPrice: round2(item.retailPrice),
+        bulkPricing: normalizeBulkPricing(item.bulkPricing),
+        expiryDate: item.expiryDate || null,
+        createdAtIso: receipt.createdAtIso,
+        supplierName: receipt.supplierName || '',
+        queueIndex,
+        isActive: queueIndex === 0,
+      })
+      queueIndex += 1
+    }
+  }
+  return layers
+}
+
+export function addProductStockLayer(db, productId, data = {}) {
+  ensurePosCollections(db)
+  const product = getProduct(db, productId)
+  const qty = round2(data.qty)
+  const costPrice = round2(data.costPrice)
+  const retailPrice = round2(data.retailPrice ?? product.price)
+  const bulkPricing = normalizeBulkPricing(data.bulkPricing)
+  if (!(qty > 0)) throw new Error('Укажите количество прихода')
+  product.stock = round2((Number(product.stock) || 0) + qty)
+  const receipt = {
+    id: nextId('REC'),
+    supplierId: data.supplierId || null,
+    supplierName: data.supplierName || '',
+    createdAtIso: nowIso(),
+    createdBy: String(data.createdBy || '').trim(),
+    totalCost: round2(qty * costPrice),
+    paidNow: round2(data.paidNow),
+    debtAdded: 0,
+    items: [{
+      productId: product.id,
+      productName: product.name,
+      qty,
+      remainingQty: qty,
+      costPrice,
+      retailPrice,
+      bulkPricing: bulkPricing.length ? bulkPricing : undefined,
+      expiryDate: data.expiryDate || null,
+    }],
+  }
+  db.stockReceipts.unshift(receipt)
+  syncProductPricingFromActiveLayer(db, product.id)
+  return { receipt, layers: listProductStockLayers(db, product.id) }
+}
+
+export function updateProductStockLayer(db, receiptId, productId, patch = {}) {
+  ensurePosCollections(db)
+  const receipt = (db.stockReceipts || []).find(r => r.id === receiptId)
+  if (!receipt) throw new Error('Приход не найден')
+  const item = (receipt.items || []).find(i => Number(i.productId) === Number(productId))
+  if (!item) throw new Error('Партия не найдена')
+  if (!(Number(item.remainingQty) > 0)) throw new Error('Партия уже израсходована')
+  if (patch.retailPrice != null) item.retailPrice = round2(patch.retailPrice)
+  if (patch.costPrice != null) item.costPrice = round2(patch.costPrice)
+  if (patch.bulkPricing != null) {
+    const bulk = normalizeBulkPricing(patch.bulkPricing)
+    if (bulk.length) item.bulkPricing = bulk
+    else delete item.bulkPricing
+  }
+  if (patch.expiryDate !== undefined) item.expiryDate = patch.expiryDate || null
+  syncProductPricingFromActiveLayer(db, productId)
+  return listProductStockLayers(db, productId)
+}
+
 function consumeReceiptBalances(db, productId, qty) {
   let left = round2(qty)
   const receipts = (db.stockReceipts || [])
@@ -63,6 +186,7 @@ function consumeReceiptBalances(db, productId, qty) {
       left = round2(left - take)
     }
   }
+  syncProductPricingFromActiveLayer(db, productId)
 }
 
 function consumeStock(db, items) {
@@ -254,6 +378,8 @@ export function createStockReceipt(db, data = {}) {
       product,
       qty,
       costPrice,
+      retailPrice: round2(raw.retailPrice ?? product.price),
+      bulkPricing: normalizeBulkPricing(raw.bulkPricing),
       expiryDate: raw.expiryDate || null,
     }
   })
@@ -280,10 +406,13 @@ export function createStockReceipt(db, data = {}) {
       qty: row.qty,
       remainingQty: row.qty,
       costPrice: row.costPrice,
+      retailPrice: row.retailPrice,
+      bulkPricing: row.bulkPricing.length ? row.bulkPricing : undefined,
       expiryDate: row.expiryDate,
     })),
   }
   db.stockReceipts.unshift(receipt)
+  for (const row of items) syncProductPricingFromActiveLayer(db, row.product.id)
   return receipt
 }
 

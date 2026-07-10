@@ -4,6 +4,7 @@
 import type {
   Order,
   Product,
+  ProductStockLayer,
   Restaurant,
   Category,
   Promo,
@@ -296,6 +297,28 @@ export const api = {
     return request<Product[]>(`/products?${q}`)
   },
   getProduct: (id: number) => request<Product>(`/products/${id}`),
+  getProductStockLayers: (id: number) => request<ProductStockLayer[]>(`/products/${id}/stock-layers`),
+  addProductStockLayer: (id: number, data: {
+    qty: number
+    costPrice?: number
+    retailPrice?: number
+    bulkPricing?: { minQty: number; price: number }[]
+    expiryDate?: string | null
+    supplierName?: string
+    createdBy?: string
+  }) => request<{ receipt: StockReceipt; layers: ProductStockLayer[] }>(`/products/${id}/stock-layers`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  updateProductStockLayer: (receiptId: string, productId: number, data: {
+    costPrice?: number
+    retailPrice?: number
+    bulkPricing?: { minQty: number; price: number }[]
+    expiryDate?: string | null
+  }) => request<ProductStockLayer[]>(`/stock/layers/${receiptId}/${productId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
   createProduct: (data: any) => request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: number, data: any) => request<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProduct: (id: number) => request(`/products/${id}`, { method: 'DELETE' }),
