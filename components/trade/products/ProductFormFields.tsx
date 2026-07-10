@@ -82,14 +82,14 @@ export default function ProductFormFields({
           <option value="weight">На развес (граммы)</option>
         </select>
       </div>
+      <div className="k-field">
+        <label>Единица (отображение)</label>
+        <input className="k-inp" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder={isWeight ? 'кг' : 'шт'} />
+      </div>
       <div className="k-field" style={{ gridColumn: '1 / -1' }}>
         <div style={{ fontSize: 10, color: 'var(--muted)' }}>
           Цена, остаток, себестоимость и опт — в «📦 Партии»
         </div>
-      </div>
-      <div className="k-field">
-        <label>Единица (отображение)</label>
-        <input className="k-inp" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder={isWeight ? 'кг' : 'шт'} />
       </div>
       <div className="k-field" style={{ gridColumn: '1 / -1' }}>
         <label>Штрихкоды</label>
