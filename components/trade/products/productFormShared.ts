@@ -1,8 +1,6 @@
 import { categorySlug, findCategoryName } from '@/lib/useCategories'
 import { normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
-import { serializeBulkPricing } from '@/lib/productBulkPricing'
 import type { Category, Product, SellType } from '@/lib/types'
-import type { BulkPricingRow } from './BulkPricingFields'
 
 export function money(n: number | undefined | null) {
   return `${(Number(n) || 0).toFixed(2)} сом`
@@ -14,8 +12,6 @@ export type ProductForm = {
   e: string
   catId: string
   price: string
-  costPrice: string
-  stock: string
   unit: string
   barcodes: string[]
   plu: string
@@ -27,14 +23,13 @@ export type ProductForm = {
   unitGrams: string
   hot: boolean
   organic: boolean
-  bulkPricing: BulkPricingRow[]
 }
 
 export function emptyForm(): ProductForm {
   return {
-    name: '', art: '', e: '📦', catId: 'veg', price: '', costPrice: '', stock: '0',
+    name: '', art: '', e: '📦', catId: 'veg', price: '',
     unit: 'шт', barcodes: [], plu: '', brand: '', desc: '', photo: '', sellType: 'piece',
-    weightStep: '1', unitGrams: '1000', hot: false, organic: false, bulkPricing: [],
+    weightStep: '1', unitGrams: '1000', hot: false, organic: false,
   }
 }
 
@@ -45,8 +40,6 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     e: p.e || '📦',
     catId: p.catId || 'veg',
     price: String(p.price ?? ''),
-    costPrice: p.costPrice != null ? String(p.costPrice) : '',
-    stock: String(p.stock ?? 0),
     unit: p.unit || 'шт',
     barcodes: productBarcodes(p),
     plu: p.plu || '',
@@ -58,10 +51,6 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     unitGrams: String(p.unitGrams || 1000),
     hot: !!p.hot,
     organic: !!p.organic,
-    bulkPricing: (p.bulkPricing || []).map(t => ({
-      minQty: String(t.minQty),
-      price: String(t.price),
-    })),
   }
 }
 
@@ -87,11 +76,11 @@ export function buildProductPayload(
     e: data.e || '📦',
     name: data.name.trim(),
     price: Number(data.price) || 0,
-    costPrice: data.costPrice ? Number(data.costPrice) : null,
+    costPrice: existing?.costPrice ?? null,
     catId: data.catId,
     cat: findCategoryName(categories, data.catId, data.catId),
     unit: data.unit || 'шт',
-    stock: Number(data.stock) || 0,
+    stock: existing?.stock ?? 0,
     barcode: barcode || undefined,
     barcodes: barcodes.length ? barcodes : undefined,
     plu: data.plu.trim() || undefined,
@@ -101,7 +90,7 @@ export function buildProductPayload(
     sellType: data.sellType,
     hot: data.hot,
     organic: data.organic,
-    bulkPricing: serializeBulkPricing(data.bulkPricing),
+    bulkPricing: existing?.bulkPricing,
     ...(data.sellType === 'weight' ? {
       weightStep: 1,
       minWeight: 1,
