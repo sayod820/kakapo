@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { useProducts } from '@/lib/store'
 import type { Product, StockWriteoff } from '@/lib/types'
+import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import {
   clearWriteoffDraft,
@@ -16,8 +17,7 @@ import {
   type WriteoffDraft,
   type WriteoffDraftLine,
 } from './writeoffDraftStorage'
-import { documentProductMatchesSearch, productMatchesSearch } from '@/lib/productBarcodes'
-import { fmtDateTime, fmtMoney, WRITEOFF_REASONS, writeoffReasonMeta } from './warehouseShared'
+import { fmtDateTime, fmtMoney, matchesDateRange, WRITEOFF_REASONS, writeoffReasonMeta } from './warehouseShared'
 
 function lineCost(line: WriteoffDraftLine, product: Product | undefined) {
   const qty = Number(line.qty) || 0
@@ -177,7 +177,8 @@ export default function WarehouseWriteoffsPanel({
   const [msg, setMsg] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [reasonFilter, setReasonFilter] = useState('all')
   const bodyRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -350,15 +351,11 @@ export default function WarehouseWriteoffsPanel({
   }, [writeoffs])
 
   const filtered = useMemo(() => {
-    const q = search.trim()
     return writeoffs.filter(w => {
       if (reasonFilter !== 'all' && !w.reason.startsWith(reasonFilter)) return false
-      if (!q) return true
-      if (w.reason.toLowerCase().includes(q.toLowerCase())) return true
-      if (w.note?.toLowerCase().includes(q.toLowerCase())) return true
-      return w.items.some(it => documentProductMatchesSearch(it.productId, it.productName, products, q))
+      return matchesDateRange(w.createdAtIso, dateFrom, dateTo)
     })
-  }, [writeoffs, search, reasonFilter, products])
+  }, [writeoffs, reasonFilter, dateFrom, dateTo])
 
   const filledLines = lines.filter(l => l.productId)
   const hasDraft = !editingId && lines.some(l => l.productId || l.qty)
@@ -427,13 +424,18 @@ export default function WarehouseWriteoffsPanel({
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-        <input
-          className="k-inp"
-          style={{ flex: '1 1 200px', maxWidth: 320 }}
-          placeholder="Поиск: штрихкод, название, артикул, причина…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+        <WarehousePeriodFilter
+          from={dateFrom}
+          to={dateTo}
+          onFromChange={setDateFrom}
+          onToChange={setDateTo}
+          onClear={() => { setDateFrom(''); setDateTo('') }}
         />
+        {(dateFrom || dateTo) && (
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            Показано: <b style={{ color: 'var(--text)' }}>{filtered.length}</b> из {writeoffs.length}
+          </span>
+        )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: '1 1 auto' }}>
           <button
             type="button"
@@ -467,7 +469,7 @@ export default function WarehouseWriteoffsPanel({
 
       {!filtered.length ? (
         <div className="k-empty">
-          {writeoffs.length ? 'Ничего не найдено по фильтру' : 'Списаний пока нет — нажмите «Новое списание»'}
+          {writeoffs.length ? 'За выбранный период списаний нет' : 'Списаний пока нет — нажмите «Новое списание»'}
         </div>
       ) : (
         <div className="k-card k-tbl-scroll">

@@ -8,6 +8,7 @@ import { useProducts } from '@/lib/store'
 import type { PosSupplier, Product, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from '@/components/trade/products/BulkPricingFields'
 import WarehouseNewProductModal from './WarehouseNewProductModal'
+import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import {
   clearReceiptDraft,
@@ -26,8 +27,7 @@ import {
   type ReceiptDraft,
   type ReceiptDraftLine,
 } from './receiptDraftStorage'
-import { documentProductMatchesSearch } from '@/lib/productBarcodes'
-import { fmtDateTime, fmtMoney } from './warehouseShared'
+import { fmtDateTime, fmtMoney, matchesDateRange } from './warehouseShared'
 
 const QUICK_MARKUPS = [20, 30, 40, 50]
 
@@ -229,7 +229,8 @@ export default function WarehouseReceiptsPanel({
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [listSearch, setListSearch] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
@@ -509,26 +510,26 @@ export default function WarehouseReceiptsPanel({
   const filledLines = lines.filter(l => l.productId)
 
   const filteredReceipts = useMemo(() => {
-    const q = listSearch.trim()
-    if (!q) return receipts
-    const ql = q.toLowerCase()
-    return receipts.filter(r => {
-      if ((r.supplierName || '').toLowerCase().includes(ql)) return true
-      return r.items.some(it => documentProductMatchesSearch(it.productId, it.productName, products, q))
-    })
-  }, [receipts, listSearch, products])
+    if (!dateFrom && !dateTo) return receipts
+    return receipts.filter(r => matchesDateRange(r.createdAtIso, dateFrom, dateTo))
+  }, [receipts, dateFrom, dateTo])
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <input
-          className="k-inp"
-          style={{ flex: '1 1 220px', maxWidth: 360 }}
-          placeholder="Поиск: штрихкод, название, артикул, поставщик…"
-          value={listSearch}
-          onChange={e => setListSearch(e.target.value)}
+        <WarehousePeriodFilter
+          from={dateFrom}
+          to={dateTo}
+          onFromChange={setDateFrom}
+          onToChange={setDateTo}
+          onClear={() => { setDateFrom(''); setDateTo('') }}
         />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {(dateFrom || dateTo) && (
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            Показано: <b style={{ color: 'var(--text)' }}>{filteredReceipts.length}</b> из {receipts.length}
+          </span>
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
           {hasDraft && !open && (
             <span style={{ fontSize: 12, color: 'var(--gold)', alignSelf: 'center' }}>● Черновик сохранён</span>
           )}
@@ -539,7 +540,7 @@ export default function WarehouseReceiptsPanel({
       </div>
 
       {!filteredReceipts.length ? (
-        <div className="k-empty">{receipts.length ? 'Ничего не найдено' : 'Приходов пока нет'}</div>
+        <div className="k-empty">{receipts.length ? 'За выбранный период приходов нет' : 'Приходов пока нет'}</div>
       ) : (
         <div className="k-card k-tbl-scroll">
           <table className="k-tbl">

@@ -34,6 +34,22 @@ export function fmtDateTime(iso: string) {
   }
 }
 
+/** Фильтр списка приходов/списаний по периоду (поля type=date, YYYY-MM-DD) */
+export function matchesDateRange(iso: string, from: string, to: string) {
+  if (!from && !to) return true
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return false
+  if (from) {
+    const start = new Date(`${from}T00:00:00`).getTime()
+    if (t < start) return false
+  }
+  if (to) {
+    const end = new Date(`${to}T23:59:59.999`).getTime()
+    if (t > end) return false
+  }
+  return true
+}
+
 export function filterProducts(products: Product[], q: string) {
   return filterProductsBySearch(products, q, 30)
 }
