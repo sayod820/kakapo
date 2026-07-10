@@ -104,7 +104,7 @@ const CSS = `
   .k-modal{width:460px;max-width:100%;max-height:88vh;background:var(--panel);border:1px solid var(--border);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
   .k-modal-wide{width:640px}
   .k-receipt-modal-bg{padding:10px;align-items:stretch;justify-content:center}
-  .k-receipt-modal{border-radius:16px}
+  .k-receipt-modal{border-radius:16px;width:min(98vw,900px);max-width:98vw;height:96vh;max-height:96vh}
   .k-modal-h{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
   .k-modal-h b{font-size:16px;font-weight:900}
   .k-modal-h button{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
@@ -125,7 +125,92 @@ const CSS = `
   .k-product-pick .pi b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .k-product-pick .pi span{font-size:11px;color:var(--muted)}
   .k-product-form{min-height:400px}
-  @media (max-width:900px){.k-grid2{grid-template-columns:1fr}.k-product-layout{grid-template-columns:1fr}}
+  .k-tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .k-tbl-scroll .k-tbl{min-width:640px}
+  .k-line-row{display:grid;gap:8px;align-items:end;margin-bottom:8px}
+  .k-line-row--3{grid-template-columns:1fr 100px auto}
+  .k-line-row--5{grid-template-columns:1fr 80px 80px 60px auto}
+  .k-label-layout{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+  .k-receipt-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .k-mob-menu-btn{display:none}
+  .k-side-overlay{display:none}
+  .k-bottom-nav{display:none}
+  .k-hide-mob{display:block}
+  .k-hide-desk{display:none}
+
+  @media (max-width:900px){
+    .k-grid2{grid-template-columns:1fr}
+    .k-product-layout{grid-template-columns:1fr}
+    .k-label-layout{grid-template-columns:1fr}
+    .k-line-row--3,.k-line-row--5{grid-template-columns:1fr 1fr}
+    .k-line-row--3>:last-child,.k-line-row--5>:last-child{grid-column:1/-1;justify-self:start}
+    .k-receipt-summary{grid-template-columns:repeat(2,1fr)}
+    .k-hide-mob{display:none!important}
+    .k-hide-desk{display:block}
+    .k-trade{flex-direction:column}
+    .k-side{
+      position:fixed;left:0;top:0;z-index:200;width:min(280px,88vw);height:100vh;
+      transform:translateX(-105%);transition:transform .25s ease;box-shadow:none
+    }
+    .k-side.open{transform:translateX(0);box-shadow:8px 0 32px rgba(0,0,0,.55)}
+    .k-side-overlay{
+      display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:199;
+      opacity:0;pointer-events:none;transition:opacity .25s
+    }
+    .k-side-overlay.open{opacity:1;pointer-events:auto}
+    .k-mob-menu-btn{
+      display:flex;align-items:center;justify-content:center;width:42px;height:42px;
+      border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);
+      cursor:pointer;font-size:20px;flex-shrink:0
+    }
+    .k-main{width:100%;height:auto;min-height:100vh;padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
+    .k-top{padding:10px 12px;gap:8px;flex-wrap:wrap}
+    .k-search{max-width:none;min-width:0;order:3;flex:1 1 100%}
+    .k-user .who{display:none}
+    .k-body{padding:12px}
+    .k-page-h h1{font-size:18px}
+    .k-page-h .sub{font-size:12px}
+    .k-kpis{grid-template-columns:repeat(2,1fr);gap:8px}
+    .k-kpi{padding:12px}
+    .k-kpi .kv{font-size:20px}
+    .k-card-h{flex-wrap:wrap;padding:12px}
+    .k-card-b{padding:12px}
+    .k-subtabs{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    .k-subtabs::-webkit-scrollbar{display:none}
+    .k-subtab{flex-shrink:0;padding:8px 12px;font-size:12px}
+    .k-btn{min-height:44px;padding:10px 14px}
+    .k-inp,.k-sel,.k-ta{font-size:16px;min-height:44px}
+    .k-modal-bg{padding:0;align-items:flex-end}
+    .k-modal,.k-modal-wide,.k-receipt-modal{
+      width:100%!important;max-width:100%!important;height:92vh!important;max-height:92vh!important;
+      border-radius:16px 16px 0 0;margin:0
+    }
+    .k-receipt-modal-bg{padding:0;align-items:flex-end}
+    .k-product-list{position:static}
+    .k-product-list-body{max-height:50vh}
+    .k-tbl{font-size:12px}
+    .k-tbl th,.k-tbl td{padding:8px 6px}
+    .k-bottom-nav{
+      display:flex;position:fixed;bottom:0;left:0;right:0;z-index:150;
+      background:var(--panel);border-top:1px solid var(--border);
+      padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));gap:4px
+    }
+    .k-bottom-nav button{
+      flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+      border:none;background:transparent;color:var(--muted);border-radius:10px;padding:6px 4px;
+      font-size:10px;font-weight:800;cursor:pointer;min-height:52px
+    }
+    .k-bottom-nav button .ic{font-size:20px;line-height:1}
+    .k-bottom-nav button.active{background:var(--green-d);color:var(--green)}
+    .k-bottom-nav button.menu-btn{color:var(--text)}
+  }
+
+  @media (max-width:480px){
+    .k-kpis{grid-template-columns:1fr 1fr}
+    .k-receipt-summary{grid-template-columns:1fr 1fr}
+    .k-bell{width:38px;height:38px;font-size:15px}
+    .k-mob-menu-btn{width:38px;height:38px}
+  }
 `
 
 type TradePage =
@@ -181,14 +266,38 @@ function TradeAppInner() {
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
   const [search, setSearch] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     void useProducts.getState().fetchProducts()
   }, [])
 
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [page])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [menuOpen])
+
   const current = (NAV.some(p => p.id === page) ? page : 'products') as TradePage
   const lowStock = useMemo(() => products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= 5).length, [products])
   const showSearch = current === 'products' || current === 'sales'
+
+  function goTo(p: TradePage) {
+    setPage(p)
+    setMenuOpen(false)
+  }
+
+  const MOB_QUICK: { id: TradePage | 'menu'; label: string; icon: string }[] = [
+    { id: 'products', label: 'Товары', icon: '📦' },
+    { id: 'warehouse', label: 'Склад', icon: '🏬' },
+    { id: 'sales', label: 'Касса', icon: '🛒' },
+    { id: 'menu', label: 'Меню', icon: '☰' },
+  ]
 
   function renderPage() {
     if (!loaded && current === 'products') return <div className="k-empty">Загрузка товаров…</div>
@@ -204,7 +313,9 @@ function TradeAppInner() {
     <div className="k-trade">
       <style>{CSS}</style>
 
-      <aside className="k-side">
+      <div className={`k-side-overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)} aria-hidden />
+
+      <aside className={`k-side ${menuOpen ? 'open' : ''}`}>
         <div className="k-logo">
           <span className="mark">🦜</span>
           <span>Торговля</span>
@@ -216,7 +327,7 @@ function TradeAppInner() {
               key={item.id}
               type="button"
               className={`k-navitem ${current === item.id ? 'active' : ''}`}
-              onClick={() => setPage(item.id)}
+              onClick={() => goTo(item.id)}
             >
               <span className="ic">{item.icon}</span>
               {item.label}
@@ -235,6 +346,7 @@ function TradeAppInner() {
 
       <div className="k-main">
         <header className="k-top">
+          <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
           {showSearch ? (
             <div className="k-search">
               <span className="mag">🔍</span>
@@ -245,7 +357,7 @@ function TradeAppInner() {
               />
             </div>
           ) : (
-            <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)' }}>
+            <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>
               {NAV.find(n => n.id === current)?.label}
             </div>
           )}
@@ -260,6 +372,20 @@ function TradeAppInner() {
 
         <div className="k-body">{renderPage()}</div>
       </div>
+
+      <nav className="k-bottom-nav k-hide-desk" aria-label="Быстрая навигация">
+        {MOB_QUICK.map(item => (
+          <button
+            key={item.id}
+            type="button"
+            className={`${current === item.id ? 'active' : ''} ${item.id === 'menu' ? 'menu-btn' : ''}`}
+            onClick={() => item.id === 'menu' ? setMenuOpen(true) : goTo(item.id)}
+          >
+            <span className="ic">{item.icon}</span>
+            {item.label}
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }

@@ -50,7 +50,7 @@ export default function WarehouseExpiryPanel({
       {!sorted.length ? (
         <div className="k-empty">Нет партий с истекающим сроком в ближайшие {days} дней</div>
       ) : (
-        <div className="k-card" style={{ overflow: 'hidden' }}>
+        <div className="k-card k-tbl-scroll">
           <table className="k-tbl">
             <thead>
               <tr>

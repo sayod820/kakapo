@@ -300,7 +300,7 @@ export default function ProductTab({
 
       <section className="k-card">
         <div className="k-card-b" style={{ padding: 0 }}>
-          <div style={{ maxHeight: '62vh', overflow: 'auto' }}>
+          <div className="k-tbl-scroll" style={{ maxHeight: '62vh' }}>
             <table className="k-tbl">
               <thead>
                 <tr>

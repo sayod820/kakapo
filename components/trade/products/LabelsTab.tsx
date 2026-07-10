@@ -226,7 +226,7 @@ export default function LabelsTab({
         </div>
       </div>
 
-      <div className="k-grid2" style={{ alignItems: 'start' }}>
+      <div className="k-label-layout">
         <section className="k-card">
           <div className="k-card-h">
             <b>Выбор товаров</b>
@@ -240,7 +240,7 @@ export default function LabelsTab({
               placeholder="Поиск по названию или штрихкоду…"
               style={{ marginBottom: 12 }}
             />
-            <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+            <div className="k-tbl-scroll" style={{ maxHeight: '52vh' }}>
               {filtered.map(p => {
                 const layers = layersByProduct[p.id]
                 const isOpen = expanded.has(p.id)

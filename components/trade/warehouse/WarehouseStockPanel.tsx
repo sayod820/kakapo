@@ -135,7 +135,7 @@ export default function WarehouseStockPanel({ products }: { products: Product[] 
       {!rows.length ? (
         <div className="k-empty">Товары не найдены</div>
       ) : (
-        <div className="k-card" style={{ overflow: 'auto' }}>
+        <div className="k-card k-tbl-scroll">
           <table className="k-tbl">
             <thead>
               <tr>

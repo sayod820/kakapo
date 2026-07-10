@@ -82,7 +82,7 @@ export default function WarehouseWriteoffsPanel({
       {!writeoffs.length ? (
         <div className="k-empty">Списаний пока нет</div>
       ) : (
-        <div className="k-card" style={{ overflow: 'hidden' }}>
+        <div className="k-card k-tbl-scroll">
           <table className="k-tbl">
             <thead>
               <tr>
@@ -154,7 +154,7 @@ export default function WarehouseWriteoffsPanel({
               {lines.map((line, idx) => {
                 const product = products.find(p => p.id === line.productId)
                 return (
-                  <div key={line.key} style={{ display: 'grid', gridTemplateColumns: '1fr 100px auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                  <div key={line.key} className="k-line-row k-line-row--3">
                     <div className="k-field" style={{ marginBottom: 0 }}>
                       {idx === 0 && <label>Товар</label>}
                       <WarehouseProductSelect products={products} value={line.productId} onChange={p => updateLine(line.key, { productId: p?.id ?? null })} />

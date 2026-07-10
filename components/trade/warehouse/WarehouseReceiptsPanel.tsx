@@ -506,7 +506,7 @@ export default function WarehouseReceiptsPanel({
       {!receipts.length ? (
         <div className="k-empty">Приходов пока нет</div>
       ) : (
-        <div className="k-card" style={{ overflow: 'hidden' }}>
+        <div className="k-card k-tbl-scroll">
           <table className="k-tbl">
             <thead>
               <tr>
@@ -577,7 +577,7 @@ export default function WarehouseReceiptsPanel({
           <div
             className="k-modal k-receipt-modal"
             onClick={e => e.stopPropagation()}
-            style={{ width: 'min(98vw, 900px)', maxWidth: '98vw', height: '96vh', maxHeight: '96vh', display: 'flex', flexDirection: 'column' }}
+            style={{ display: 'flex', flexDirection: 'column' }}
           >
             <div className="k-modal-h" style={{ flexShrink: 0 }}>
               <div>
@@ -607,8 +607,8 @@ export default function WarehouseReceiptsPanel({
               </div>
             </div>
 
-            <div style={{
-              flexShrink: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10,
+            <div className="k-receipt-summary" style={{
+              flexShrink: 0,
               padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
             }}>
               <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Товаров</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.withProduct}</div></div>

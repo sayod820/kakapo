@@ -262,7 +262,7 @@ export default function ProductArrivalsPanel({
               Нет партий. Добавьте первый приход — у каждой партии своя закупочная, розничная и оптовая цена.
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+            <div className="k-tbl-scroll">
               <table className="k-tbl">
                 <thead>
                   <tr>
