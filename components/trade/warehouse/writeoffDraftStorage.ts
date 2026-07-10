@@ -61,3 +61,25 @@ export function clearWriteoffDraft() {
   if (typeof window === 'undefined') return
   localStorage.removeItem(WRITEOFF_DRAFT_KEY)
 }
+
+const KNOWN_WRITEOFF_REASONS = ['Порча', 'Брак', 'Просрочка', 'Подарок', 'Внутреннее использование', 'Другое']
+
+export function writeoffToDraft(writeoff: import('@/lib/types').StockWriteoff): WriteoffDraft {
+  const known = KNOWN_WRITEOFF_REASONS.includes(writeoff.reason)
+  return {
+    open: true,
+    reason: known ? writeoff.reason : 'Другое',
+    customReason: known ? '' : writeoff.reason,
+    note: writeoff.note || '',
+    lines: [
+      ...writeoff.items.map(it => ({
+        key: `edit-${it.productId}-${Math.random()}`,
+        productId: it.productId,
+        qty: String(it.qty),
+      })),
+      emptyWriteoffLine(),
+    ],
+    activeLineKey: null,
+    scrollTop: 0,
+  }
+}

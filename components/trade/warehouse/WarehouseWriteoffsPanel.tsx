@@ -12,6 +12,7 @@ import {
   emptyWriteoffLine,
   loadWriteoffDraft,
   saveWriteoffDraft,
+  writeoffToDraft,
   type WriteoffDraft,
   type WriteoffDraftLine,
 } from './writeoffDraftStorage'
@@ -50,6 +51,7 @@ function WriteoffLineCard({
   onActivate,
   onQty,
   onWriteAll,
+  stockLimit,
   cardRef,
   qtyRef,
 }: {
@@ -63,10 +65,11 @@ function WriteoffLineCard({
   onActivate: () => void
   onQty: (v: string) => void
   onWriteAll: () => void
+  stockLimit?: number
   cardRef: (el: HTMLDivElement | null) => void
   qtyRef: (el: HTMLInputElement | null) => void
 }) {
-  const stock = Number(product.stock) || 0
+  const stock = stockLimit ?? (Number(product.stock) || 0)
   const unit = product.unit || 'шт'
   const qty = Number(line.qty) || 0
   const unitCost = Number(product.costPrice) || 0
@@ -173,6 +176,7 @@ export default function WarehouseWriteoffsPanel({
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [reasonFilter, setReasonFilter] = useState('all')
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -209,15 +213,29 @@ export default function WarehouseWriteoffsPanel({
   function resetForm() {
     clearWriteoffDraft()
     setDraft(defaultWriteoffDraft())
+    setEditingId(null)
     setMsg('')
   }
 
   function openForm() {
+    setEditingId(null)
     setDraft(prev => ({ ...prev, open: true }))
     setMsg('')
   }
 
+  function openEditForm(writeoff: StockWriteoff) {
+    setEditingId(writeoff.id)
+    setDraft(writeoffToDraft(writeoff))
+    setMsg('')
+  }
+
   function closeForm() {
+    if (editingId) {
+      setDraft(prev => ({ ...prev, open: false }))
+      setEditingId(null)
+      setMsg('')
+      return
+    }
     setDraft(prev => ({ ...prev, open: false }))
     setMsg('')
   }
@@ -267,8 +285,8 @@ export default function WarehouseWriteoffsPanel({
   function writeAll(key: string) {
     const line = lines.find(l => l.key === key)
     const product = products.find(p => p.id === line?.productId)
-    if (!product) return
-    const stock = Number(product.stock) || 0
+    if (!line?.productId || !product) return
+    const stock = stockLimitFor(line.productId)
     if (stock > 0) updateLine(key, { qty: String(stock) })
   }
 
@@ -281,6 +299,19 @@ export default function WarehouseWriteoffsPanel({
     bodyRef.current.scrollTop = draft.scrollTop
   }, [open, draft.scrollTop])
 
+  const editingWriteoff = editingId ? writeoffs.find(w => w.id === editingId) || null : null
+
+  function stockLimitFor(productId: number) {
+    const product = products.find(p => p.id === productId)
+    let stock = Number(product?.stock) || 0
+    if (editingWriteoff) {
+      for (const it of editingWriteoff.items) {
+        if (it.productId === productId) stock += Number(it.qty) || 0
+      }
+    }
+    return stock
+  }
+
   const totals = useMemo(() => {
     let count = 0
     let qtyTotal = 0
@@ -291,14 +322,14 @@ export default function WarehouseWriteoffsPanel({
       const product = products.find(p => p.id === l.productId)
       if (!product) continue
       const qty = Number(l.qty) || 0
-      const stock = Number(product.stock) || 0
+      const stock = stockLimitFor(l.productId!)
       if (qty > stock) hasOver = true
       count++
       qtyTotal += qty
       costTotal += lineCost(l, product)
     }
     return { count, qtyTotal, costTotal, withProduct: lines.filter(l => l.productId).length, hasOver }
-  }, [lines, products])
+  }, [lines, products, editingWriteoff])
 
   const listStats = useMemo(() => {
     const now = Date.now()
@@ -330,7 +361,7 @@ export default function WarehouseWriteoffsPanel({
   }, [writeoffs, search, reasonFilter, products])
 
   const filledLines = lines.filter(l => l.productId)
-  const hasDraft = lines.some(l => l.productId || l.qty)
+  const hasDraft = !editingId && lines.some(l => l.productId || l.qty)
 
   async function submit() {
     if (!USE_API) return
@@ -353,11 +384,16 @@ export default function WarehouseWriteoffsPanel({
     setSaving(true)
     setMsg('')
     try {
-      await api.createStockWriteoff({
+      const payload = {
         reason: finalReason,
         note: note.trim() || undefined,
         items,
-      })
+      }
+      if (editingId) {
+        await api.updateStockWriteoff(editingId, payload)
+      } else {
+        await api.createStockWriteoff(payload)
+      }
       await Promise.all([onRefresh(), fetchProducts()])
       resetForm()
     } catch (e) {
@@ -466,9 +502,12 @@ export default function WarehouseWriteoffsPanel({
                       <td className="num">{qtySum}</td>
                       <td className="num" style={{ color: 'var(--red)', fontWeight: 800 }}>{fmtMoney(w.totalCost)}</td>
                       <td>
-                        <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : w.id) }}>
-                          {isOpen ? '▲' : '▼'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                          <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={e => { e.stopPropagation(); openEditForm(w) }} title="Редактировать">✎</button>
+                          <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : w.id) }}>
+                            {isOpen ? '▲' : '▼'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {isOpen && (
@@ -533,9 +572,9 @@ export default function WarehouseWriteoffsPanel({
           >
             <div className="k-modal-h" style={{ flexShrink: 0 }}>
               <div>
-                <b>📤 Новое списание</b>
+                <b>{editingId ? '✎ Редактирование списания' : '📤 Новое списание'}</b>
                 <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
-                  Выберите товар → укажите количество → проведите списание
+                  {editingId ? 'Измените товары и причину — остатки пересчитаются' : 'Выберите товар → укажите количество → проведите списание'}
                 </div>
               </div>
               <button type="button" onClick={closeForm}>✕</button>
@@ -609,6 +648,7 @@ export default function WarehouseWriteoffsPanel({
                     onActivate={() => setActiveLine(line.key)}
                     onQty={v => setLineQty(line.key, v)}
                     onWriteAll={() => writeAll(line.key)}
+                    stockLimit={stockLimitFor(line.productId!)}
                     cardRef={el => { lineRefs.current[line.key] = el }}
                     qtyRef={el => { qtyRefs.current[line.key] = el }}
                   />
@@ -657,9 +697,11 @@ export default function WarehouseWriteoffsPanel({
                 disabled={saving || totals.hasOver || totals.count === 0}
                 onClick={() => void submit()}
               >
-                {saving ? 'Сохранение…' : `Списать${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
+                {saving ? 'Сохранение…' : editingId
+                  ? `Сохранить${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`
+                  : `Списать${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
               </button>
-              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm('Очистить черновик?')) resetForm() }}>Очистить</button>
+              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
               <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
             </div>
           </div>

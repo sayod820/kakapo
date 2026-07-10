@@ -67,11 +67,13 @@ import {
   createExpense,
   listStockReceipts,
   createStockReceipt,
+  updateStockReceipt,
   listProductStockLayers,
   addProductStockLayer,
   updateProductStockLayer,
   listStockWriteoffs,
   createStockWriteoff,
+  updateStockWriteoff,
   listStockRevisions,
   createStockRevision,
   listExpiryItems,
@@ -1269,6 +1271,17 @@ app.post('/stock/receipts', (req, res) => {
     res.status(400).json({ detail: e?.message || 'Не удалось провести приход' })
   }
 })
+app.put('/stock/receipts/:id', (req, res) => {
+  try {
+    const row = updateStockReceipt(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'receipt', id: row.id, updated: true })
+    broadcastProduct({ reason: 'receipt-update' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось изменить приход' })
+  }
+})
 app.get('/stock/writeoffs', (_req, res) => {
   res.json(listStockWriteoffs(db))
 })
@@ -1281,6 +1294,17 @@ app.post('/stock/writeoffs', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести списание' })
+  }
+})
+app.put('/stock/writeoffs/:id', (req, res) => {
+  try {
+    const row = updateStockWriteoff(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'writeoff', id: row.id, updated: true })
+    broadcastProduct({ reason: 'writeoff-update' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось изменить списание' })
   }
 })
 app.get('/stock/revisions', (_req, res) => {

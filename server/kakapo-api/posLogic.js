@@ -365,8 +365,72 @@ export function listStockReceipts(db) {
   return [...db.stockReceipts].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
 }
 
-export function createStockReceipt(db, data = {}) {
-  ensurePosCollections(db)
+function reverseSupplierDebt(db, supplierId, receiptTotal, debtAdded) {
+  if (!supplierId) return null
+  const supplier = (db.suppliers || []).find(s => s.id === supplierId)
+  if (!supplier) throw new Error('Поставщик не найден')
+  supplier.payableAmount = round2(Math.max(0, (supplier.payableAmount || 0) - debtAdded))
+  supplier.totalSupplied = round2(Math.max(0, (supplier.totalSupplied || 0) - receiptTotal))
+  return supplier
+}
+
+function restoreReceiptBalances(db, productId, qty) {
+  let left = round2(qty)
+  const receipts = [...(db.stockReceipts || [])]
+    .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+  for (const receipt of receipts) {
+    for (const item of receipt.items || []) {
+      if (Number(item.productId) !== Number(productId)) continue
+      if (left <= 0) break
+      const consumed = round2((Number(item.qty) || 0) - (Number(item.remainingQty) || 0))
+      if (consumed <= 0) continue
+      const add = Math.min(consumed, left)
+      item.remainingQty = round2((Number(item.remainingQty) || 0) + add)
+      left = round2(left - add)
+    }
+  }
+  if (left > 0) {
+    for (const receipt of receipts) {
+      for (const item of receipt.items || []) {
+        if (Number(item.productId) !== Number(productId)) continue
+        item.remainingQty = round2((Number(item.remainingQty) || 0) + left)
+        item.qty = round2((Number(item.qty) || 0) + left)
+        receipt.totalCost = round2((receipt.items || []).reduce((sum, row) => sum + (Number(row.qty) || 0) * (Number(row.costPrice) || 0), 0))
+        left = 0
+        break
+      }
+      if (left <= 0) break
+    }
+  }
+  syncProductPricingFromActiveLayer(db, productId)
+}
+
+function reverseStockReceipt(db, receipt) {
+  for (const item of receipt.items || []) {
+    const product = getProduct(db, item.productId)
+    const remaining = round2(item.remainingQty ?? item.qty)
+    if (remaining > 0) {
+      product.stock = round2(Math.max(0, (Number(product.stock) || 0) - remaining))
+    }
+    syncProductPricingFromActiveLayer(db, item.productId)
+  }
+  if (receipt.supplierId) {
+    reverseSupplierDebt(db, receipt.supplierId, receipt.totalCost, receipt.debtAdded)
+  }
+  const idx = (db.stockReceipts || []).findIndex(r => r.id === receipt.id)
+  if (idx >= 0) db.stockReceipts.splice(idx, 1)
+}
+
+function reverseStockWriteoff(db, writeoff) {
+  for (const item of writeoff.items || []) {
+    const product = getProduct(db, item.productId)
+    const qty = round2(item.qty)
+    product.stock = round2((Number(product.stock) || 0) + qty)
+    restoreReceiptBalances(db, item.productId, qty)
+  }
+}
+
+function buildStockReceipt(db, data = {}, meta = {}) {
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (!rawItems.length) throw new Error('Добавьте товары в приход')
   const items = rawItems.map(raw => {
@@ -392,11 +456,11 @@ export function createStockReceipt(db, data = {}) {
   const paidNow = round2(data.paidNow)
   const supplier = updateSupplierDebt(db, data.supplierId || '', totalCost, paidNow)
   const receipt = {
-    id: nextId('REC'),
+    id: meta.id || nextId('REC'),
     supplierId: supplier?.id || null,
     supplierName: supplier?.name || '',
-    createdAtIso: nowIso(),
-    createdBy: String(data.createdBy || '').trim(),
+    createdAtIso: meta.createdAtIso || nowIso(),
+    createdBy: String(meta.createdBy || data.createdBy || '').trim(),
     totalCost,
     paidNow,
     debtAdded: round2(Math.max(0, totalCost - paidNow)),
@@ -416,18 +480,30 @@ export function createStockReceipt(db, data = {}) {
   return receipt
 }
 
-export function listStockWriteoffs(db) {
+export function createStockReceipt(db, data = {}) {
   ensurePosCollections(db)
-  return [...db.writeOffs].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+  return buildStockReceipt(db, data)
 }
 
-export function createStockWriteoff(db, data = {}) {
+export function updateStockReceipt(db, id, data = {}) {
   ensurePosCollections(db)
+  const receipt = (db.stockReceipts || []).find(r => r.id === id)
+  if (!receipt) throw new Error('Приход не найден')
+  const meta = {
+    id: receipt.id,
+    createdAtIso: receipt.createdAtIso,
+    createdBy: receipt.createdBy,
+  }
+  reverseStockReceipt(db, receipt)
+  return buildStockReceipt(db, data, meta)
+}
+
+function buildStockWriteoff(db, data = {}, meta = {}) {
   const rows = consumeStock(db, Array.isArray(data.items) ? data.items : [])
   const writeoff = {
-    id: nextId('WOF'),
-    createdAtIso: nowIso(),
-    createdBy: String(data.createdBy || '').trim(),
+    id: meta.id || nextId('WOF'),
+    createdAtIso: meta.createdAtIso || nowIso(),
+    createdBy: String(meta.createdBy || data.createdBy || '').trim(),
     reason: String(data.reason || '').trim() || 'Списание',
     note: String(data.note || '').trim(),
     totalCost: round2(rows.reduce((sum, row) => sum + (Number(row.product.costPrice) || 0) * row.qty, 0)),
@@ -444,6 +520,31 @@ export function createStockWriteoff(db, data = {}) {
   }
   db.writeOffs.unshift(writeoff)
   return writeoff
+}
+
+export function listStockWriteoffs(db) {
+  ensurePosCollections(db)
+  return [...db.writeOffs].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+}
+
+export function createStockWriteoff(db, data = {}) {
+  ensurePosCollections(db)
+  return buildStockWriteoff(db, data)
+}
+
+export function updateStockWriteoff(db, id, data = {}) {
+  ensurePosCollections(db)
+  const idx = (db.writeOffs || []).findIndex(w => w.id === id)
+  if (idx < 0) throw new Error('Списание не найдено')
+  const old = db.writeOffs[idx]
+  const meta = {
+    id: old.id,
+    createdAtIso: old.createdAtIso,
+    createdBy: old.createdBy,
+  }
+  reverseStockWriteoff(db, old)
+  db.writeOffs.splice(idx, 1)
+  return buildStockWriteoff(db, data, meta)
 }
 
 export function listStockRevisions(db) {

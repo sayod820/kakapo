@@ -583,6 +583,11 @@ export const api = {
     paidNow?: number
     items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; bulkPricing?: { minQty: number; price: number }[]; expiryDate?: string | null }[]
   }) => request<StockReceipt>('/stock/receipts', { method: 'POST', body: JSON.stringify(data) }),
+  updateStockReceipt: (id: string, data: {
+    supplierId?: string
+    paidNow?: number
+    items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; bulkPricing?: { minQty: number; price: number }[]; expiryDate?: string | null }[]
+  }) => request<StockReceipt>(`/stock/receipts/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
   getStockWriteoffs: () => request<StockWriteoff[]>('/stock/writeoffs'),
   createStockWriteoff: (data: {
     reason: string
@@ -590,6 +595,12 @@ export const api = {
     createdBy?: string
     items: { productId: number; qty: number }[]
   }) => request<StockWriteoff>('/stock/writeoffs', { method: 'POST', body: JSON.stringify(data) }),
+  updateStockWriteoff: (id: string, data: {
+    reason: string
+    note?: string
+    createdBy?: string
+    items: { productId: number; qty: number }[]
+  }) => request<StockWriteoff>(`/stock/writeoffs/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
   getStockRevisions: () => request<StockRevision[]>('/stock/revisions'),
   createStockRevision: (data: {
     createdBy?: string

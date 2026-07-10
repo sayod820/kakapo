@@ -18,6 +18,8 @@ import {
   linePurchaseSum,
   loadReceiptDraft,
   markupFromRetail,
+  receiptHasConsumption,
+  receiptToDraft,
   retailFromMarkup,
   roundMoney,
   saveReceiptDraft,
@@ -228,6 +230,7 @@ export default function WarehouseReceiptsPanel({
   const [msg, setMsg] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [listSearch, setListSearch] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
   const [newProductLineKey, setNewProductLineKey] = useState<string | null>(null)
@@ -277,7 +280,21 @@ export default function WarehouseReceiptsPanel({
   function resetForm() {
     clearReceiptDraft()
     setDraft(defaultReceiptDraft())
+    setEditingId(null)
     setMsg('')
+  }
+
+  function openForm() {
+    setEditingId(null)
+    setDraft(prev => ({ ...prev, open: true }))
+    setMsg('')
+  }
+
+  function openEditForm(receipt: StockReceipt) {
+    setEditingId(receipt.id)
+    setDraft(receiptToDraft(receipt))
+    setMsg('')
+    scrollRestored.current = false
   }
 
   function setActiveLine(key: string | null) {
@@ -295,23 +312,13 @@ export default function WarehouseReceiptsPanel({
     return updatedLines
   }
 
-  function addLine() {
-    const line = emptyReceiptLine()
-    setDraft(prev => ({
-      ...prev,
-      lines: [...prev.lines, line],
-      activeLineKey: line.key,
-    }))
-    requestAnimationFrame(() => lineRefs.current[line.key]?.scrollIntoView({ block: 'center' }))
-  }
-
-  function openForm() {
-    setDraft(prev => ({ ...prev, open: true }))
-    setMsg('')
-  }
-
   function closeForm() {
     if (saving) return
+    if (editingId) {
+      setDraft(prev => ({ ...prev, open: false }))
+      setEditingId(null)
+      return
+    }
     if (lines.some(l => l.productId || l.qty || l.costPrice) && !confirm('Закрыть приход? Черновик сохранится в браузере.')) return
     setDraft(prev => ({ ...prev, open: false }))
   }
@@ -477,11 +484,16 @@ export default function WarehouseReceiptsPanel({
     setSaving(true)
     setMsg('')
     try {
-      await api.createStockReceipt({
+      const payload = {
         supplierId: supplierId || undefined,
         paidNow: Number(paidNow) || 0,
         items,
-      })
+      }
+      if (editingId) {
+        await api.updateStockReceipt(editingId, payload)
+      } else {
+        await api.createStockReceipt(payload)
+      }
       await Promise.all([onRefresh(), fetchProducts()])
       resetForm()
     } catch (e) {
@@ -491,7 +503,9 @@ export default function WarehouseReceiptsPanel({
     }
   }
 
-  const hasDraft = lines.some(l => l.productId || l.qty || l.costPrice)
+  const editingReceipt = editingId ? receipts.find(r => r.id === editingId) || null : null
+
+  const hasDraft = !editingId && lines.some(l => l.productId || l.qty || l.costPrice)
   const filledLines = lines.filter(l => l.productId)
 
   const filteredReceipts = useMemo(() => {
@@ -553,9 +567,12 @@ export default function WarehouseReceiptsPanel({
                       {r.debtAdded > 0 ? fmtMoney(r.debtAdded) : '—'}
                     </td>
                     <td>
-                      <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
-                        {expanded === r.id ? '▲' : '▼'}
-                      </button>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                        <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={() => openEditForm(r)} title="Редактировать">✎</button>
+                        <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
+                          {expanded === r.id ? '▲' : '▼'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {expanded === r.id && (
@@ -602,13 +619,19 @@ export default function WarehouseReceiptsPanel({
           >
             <div className="k-modal-h" style={{ flexShrink: 0 }}>
               <div>
-                <b>📥 Новый приход</b>
+                <b>{editingId ? '✎ Редактирование прихода' : '📥 Новый приход'}</b>
                 <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
-                  Выберите товар → поля заполнятся сами → укажите количество
+                  {editingId ? 'Измените данные и сохраните — остатки пересчитаются' : 'Выберите товар → поля заполнятся сами → укажите количество'}
                 </div>
               </div>
               <button type="button" onClick={closeForm}>✕</button>
             </div>
+
+            {editingReceipt && receiptHasConsumption(editingReceipt) && (
+              <div style={{ flexShrink: 0, padding: '10px 16px', borderBottom: '1px solid var(--border)', background: '#2a2414', color: 'var(--gold)', fontSize: 12, fontWeight: 700 }}>
+                ⚠ Часть товара из этого прихода уже списана. При сохранении остатки будут пересчитаны.
+              </div>
+            )}
 
             <div style={{ flexShrink: 0, padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card2)' }}>
               <div className="k-grid2" style={{ marginBottom: 0 }}>
@@ -711,9 +734,11 @@ export default function WarehouseReceiptsPanel({
 
             <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button type="button" className="k-btn k-btn-g" style={{ flex: 1, minWidth: 180 }} disabled={saving} onClick={() => void submit()}>
-                {saving ? 'Сохранение…' : `Провести приход${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
+                {saving ? 'Сохранение…' : editingId
+                  ? `Сохранить изменения${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`
+                  : `Провести приход${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
               </button>
-              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm('Очистить черновик?')) resetForm() }}>Очистить</button>
+              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
               <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
             </div>
           </div>

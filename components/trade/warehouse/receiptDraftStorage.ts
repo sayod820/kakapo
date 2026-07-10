@@ -131,3 +131,36 @@ export function defaultMarkupPct(product?: { costPrice?: number | null; price?: 
   if (cost > 0 && retail > 0) return String(markupFromRetail(cost, retail))
   return '30'
 }
+
+export function receiptToDraft(receipt: import('@/lib/types').StockReceipt): ReceiptDraft {
+  return {
+    open: true,
+    supplierId: receipt.supplierId || '',
+    paidNow: String(receipt.paidNow ?? ''),
+    lines: [
+      ...receipt.items.map(item => {
+        const cost = Number(item.costPrice) || 0
+        const retail = Number(item.retailPrice) || 0
+        const qty = Number(item.qty) || 0
+        return {
+          key: `edit-${item.productId}-${Math.random()}`,
+          productId: item.productId,
+          qty: String(qty),
+          purchaseTotal: String(roundMoney(qty * cost)),
+          costPrice: String(cost),
+          retailPrice: retail > 0 ? String(retail) : '',
+          markupPct: cost > 0 && retail > 0 ? String(markupFromRetail(cost, retail)) : '',
+          expiryDate: item.expiryDate || '',
+          bulkPricing: (item.bulkPricing || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })),
+        }
+      }),
+      emptyReceiptLine(),
+    ],
+    activeLineKey: null,
+    scrollTop: 0,
+  }
+}
+
+export function receiptHasConsumption(receipt: import('@/lib/types').StockReceipt) {
+  return receipt.items.some(it => Number(it.remainingQty ?? it.qty) < Number(it.qty))
+}
