@@ -581,7 +581,7 @@ export const api = {
     supplierId?: string
     createdBy?: string
     paidNow?: number
-    items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; expiryDate?: string | null }[]
+    items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; bulkPricing?: { minQty: number; price: number }[]; expiryDate?: string | null }[]
   }) => request<StockReceipt>('/stock/receipts', { method: 'POST', body: JSON.stringify(data) }),
   getStockWriteoffs: () => request<StockWriteoff[]>('/stock/writeoffs'),
   createStockWriteoff: (data: {

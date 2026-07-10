@@ -3,18 +3,23 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
+import { serializeBulkPricing } from '@/lib/productBulkPricing'
 import { useProducts } from '@/lib/store'
 import type { PosSupplier, Product, StockReceipt } from '@/lib/types'
+import BulkPricingFields, { type BulkPricingRow } from '@/components/trade/products/BulkPricingFields'
 import WarehouseNewProductModal from './WarehouseNewProductModal'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import {
   clearReceiptDraft,
+  costFromPurchaseTotal,
   defaultMarkupPct,
   defaultReceiptDraft,
   emptyReceiptLine,
+  linePurchaseSum,
   loadReceiptDraft,
   markupFromRetail,
   retailFromMarkup,
+  roundMoney,
   saveReceiptDraft,
   type ReceiptDraft,
   type ReceiptDraftLine,
@@ -50,6 +55,7 @@ function fillLineFromProduct(line: ReceiptDraftLine, product: Product): ReceiptD
     retailPrice,
     markupPct,
     qty: line.qty || '1',
+    bulkPricing: (product.bulkPricing || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })),
   }
 }
 
@@ -63,10 +69,12 @@ function ReceiptLineCard({
   onRemove,
   onActivate,
   onQty,
+  onPurchaseTotal,
   onCost,
   onMarkup,
   onRetail,
   onExpiry,
+  onBulkPricing,
   onQuickMarkup,
   cardRef,
   qtyRef,
@@ -80,16 +88,22 @@ function ReceiptLineCard({
   onRemove: () => void
   onActivate: () => void
   onQty: (v: string) => void
+  onPurchaseTotal: (v: string) => void
   onCost: (v: string) => void
   onMarkup: (v: string) => void
   onRetail: (v: string) => void
   onExpiry: (v: string) => void
+  onBulkPricing: (tiers: BulkPricingRow[]) => void
   onQuickMarkup: (pct: number) => void
   cardRef: (el: HTMLDivElement | null) => void
   qtyRef: (el: HTMLInputElement | null) => void
 }) {
-  const lineCost = (Number(line.qty) || 0) * (Number(line.costPrice) || 0)
+  const lineCost = linePurchaseSum(line)
   const lineRetail = (Number(line.qty) || 0) * (Number(line.retailPrice) || 0)
+  const unit = product.unit || 'шт'
+  const costHint = Number(line.qty) > 0 && Number(line.purchaseTotal) > 0 && Number(line.costPrice) > 0
+    ? `${line.qty} ${unit} за ${Number(line.purchaseTotal).toFixed(2)} сом = ${Number(line.costPrice).toFixed(2)} сом/${unit}`
+    : null
 
   return (
     <div
@@ -120,57 +134,73 @@ function ReceiptLineCard({
         )}
       </div>
 
-      <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10 }}>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>Кол-во</label>
-              <input ref={qtyRef} className="k-inp" type="number" min="0" step="any" value={line.qty} onChange={e => onQty(e.target.value)} onClick={e => e.stopPropagation()} />
-            </div>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>Закуп (сом)</label>
-              <input className="k-inp" type="number" min="0" step="0.01" value={line.costPrice} onChange={e => onCost(e.target.value)} onClick={e => e.stopPropagation()} />
-            </div>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>Наценка %</label>
-              <input className="k-inp" type="number" step="0.1" value={line.markupPct} onChange={e => onMarkup(e.target.value)} onClick={e => e.stopPropagation()} />
-            </div>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>Розница (сом)</label>
-              <input className="k-inp" type="number" min="0" step="0.01" value={line.retailPrice} onChange={e => onRetail(e.target.value)} onClick={e => e.stopPropagation()} />
-            </div>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>Срок годности</label>
-              <input className="k-inp" type="date" value={line.expiryDate} onChange={e => onExpiry(e.target.value)} onClick={e => e.stopPropagation()} />
-            </div>
-          </div>
+      <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Кол-во ({unit})</label>
+          <input ref={qtyRef} className="k-inp" type="number" min="0" step="any" value={line.qty} onChange={e => onQty(e.target.value)} onClick={e => e.stopPropagation()} />
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Общая сумма закуп</label>
+          <input className="k-inp" type="number" min="0" step="0.01" value={line.purchaseTotal} onChange={e => onPurchaseTotal(e.target.value)} onClick={e => e.stopPropagation()} placeholder="230" />
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>За {unit} (себест.)</label>
+          <input className="k-inp" type="number" min="0" step="0.01" value={line.costPrice} onChange={e => onCost(e.target.value)} onClick={e => e.stopPropagation()} />
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Наценка %</label>
+          <input className="k-inp" type="number" step="0.1" value={line.markupPct} onChange={e => onMarkup(e.target.value)} onClick={e => e.stopPropagation()} placeholder="30" />
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Розница (сом)</label>
+          <input className="k-inp" type="number" min="0" step="0.01" value={line.retailPrice} onChange={e => onRetail(e.target.value)} onClick={e => e.stopPropagation()} />
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Срок годности</label>
+          <input className="k-inp" type="date" value={line.expiryDate} onChange={e => onExpiry(e.target.value)} onClick={e => e.stopPropagation()} />
+        </div>
+      </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Быстрая наценка:</span>
-            {QUICK_MARKUPS.map(p => (
-              <button
-                key={p}
-                type="button"
-                onClick={e => { e.stopPropagation(); onQuickMarkup(p) }}
-                style={{
-                  border: `1px solid ${line.markupPct === String(p) ? 'var(--green)' : 'var(--border)'}`,
-                  background: line.markupPct === String(p) ? 'var(--green-d)' : 'var(--card)',
-                  color: line.markupPct === String(p) ? 'var(--green)' : 'var(--muted)',
-                  borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
-                }}
-              >
-                {p}%
-              </button>
-            ))}
-          </div>
+      {costHint && (
+        <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 8, fontWeight: 700 }}>↳ {costHint}</div>
+      )}
 
-          {(lineCost > 0 || lineRetail > 0) && (
-            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <span>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(lineCost)}</b></span>
-              <span>Продажа: <b style={{ color: 'var(--green)' }}>{fmtMoney(lineRetail)}</b></span>
-              {lineCost > 0 && lineRetail > 0 && (
-                <span>Наценка: <b style={{ color: 'var(--green)' }}>+{markupFromRetail(lineCost / (Number(line.qty) || 1), lineRetail / (Number(line.qty) || 1)).toFixed(1)}%</b></span>
-              )}
-            </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Быстрая наценка:</span>
+        {QUICK_MARKUPS.map(p => (
+          <button
+            key={p}
+            type="button"
+            onClick={e => { e.stopPropagation(); onQuickMarkup(p) }}
+            style={{
+              border: `1px solid ${line.markupPct === String(p) ? 'var(--green)' : 'var(--border)'}`,
+              background: line.markupPct === String(p) ? 'var(--green-d)' : 'var(--card)',
+              color: line.markupPct === String(p) ? 'var(--green)' : 'var(--muted)',
+              borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
+            }}
+          >
+            {p}%
+          </button>
+        ))}
+      </div>
+
+      <div onClick={e => e.stopPropagation()} style={{ marginTop: 12 }}>
+        <BulkPricingFields
+          tiers={line.bulkPricing}
+          onChange={onBulkPricing}
+          sellType={product.sellType || 'piece'}
+        />
+      </div>
+
+      {(lineCost > 0 || lineRetail > 0) && (
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <span>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(lineCost)}</b></span>
+          <span>Продажа: <b style={{ color: 'var(--green)' }}>{fmtMoney(lineRetail)}</b></span>
+          {lineCost > 0 && lineRetail > 0 && (
+            <span>Наценка: <b style={{ color: 'var(--green)' }}>+{markupFromRetail(lineCost / (Number(line.qty) || 1), lineRetail / (Number(line.qty) || 1)).toFixed(1)}%</b></span>
           )}
+        </div>
+      )}
     </div>
   )
 }
@@ -291,21 +321,61 @@ export default function WarehouseReceiptsPanel({
     }))
   }
 
-  function setLineCost(key: string, costPrice: string) {
+  function applyCostWithMarkup(line: ReceiptDraftLine, costPrice: string): ReceiptDraftLine {
+    const cost = Number(costPrice) || 0
+    const markup = Number(line.markupPct)
+    let next: ReceiptDraftLine = { ...line, costPrice }
+    const qty = Number(line.qty) || 0
+    if (qty > 0 && cost > 0) {
+      next.purchaseTotal = String(roundMoney(qty * cost))
+    }
+    if (cost > 0 && line.markupPct !== '') {
+      next.retailPrice = String(retailFromMarkup(cost, markup))
+    } else if (cost > 0 && line.retailPrice !== '') {
+      next.markupPct = String(markupFromRetail(cost, Number(line.retailPrice) || 0))
+    }
+    return next
+  }
+
+  function setLineQty(key: string, qty: string) {
     setDraft(prev => ({
       ...prev,
       lines: prev.lines.map(l => {
         if (l.key !== key) return l
-        const cost = Number(costPrice) || 0
-        const markup = Number(l.markupPct)
-        if (cost > 0 && l.markupPct !== '') {
-          return { ...l, costPrice, retailPrice: String(retailFromMarkup(cost, markup)) }
+        let next = { ...l, qty }
+        const q = Number(qty) || 0
+        const purchaseTotal = Number(l.purchaseTotal) || 0
+        if (q > 0 && purchaseTotal > 0) {
+          const cost = costFromPurchaseTotal(q, purchaseTotal)
+          next = applyCostWithMarkup({ ...next, costPrice: String(cost) }, String(cost))
+        } else if (q > 0 && Number(l.costPrice) > 0) {
+          next.purchaseTotal = String(roundMoney(q * Number(l.costPrice)))
         }
-        if (cost > 0 && l.retailPrice !== '') {
-          return { ...l, costPrice, markupPct: String(markupFromRetail(cost, Number(l.retailPrice) || 0)) }
-        }
-        return { ...l, costPrice }
+        return next
       }),
+    }))
+  }
+
+  function setLinePurchaseTotal(key: string, purchaseTotal: string) {
+    setDraft(prev => ({
+      ...prev,
+      lines: prev.lines.map(l => {
+        if (l.key !== key) return l
+        const qty = Number(l.qty) || 0
+        const total = Number(purchaseTotal) || 0
+        if (qty > 0 && total > 0) {
+          const cost = costFromPurchaseTotal(qty, total)
+          return applyCostWithMarkup({ ...l, purchaseTotal, costPrice: String(cost) }, String(cost))
+        }
+        return { ...l, purchaseTotal }
+      }),
+    }))
+  }
+
+  function setLineCost(key: string, costPrice: string) {
+    setDraft(prev => ({
+      ...prev,
+      lines: prev.lines.map(l => (l.key === key ? applyCostWithMarkup(l, costPrice) : l)),
     }))
   }
 
@@ -340,7 +410,7 @@ export default function WarehouseReceiptsPanel({
 
   function selectProduct(key: string, product: Product | null) {
     if (!product) {
-      updateLine(key, { productId: null, qty: '', costPrice: '', retailPrice: '', markupPct: '' })
+      updateLine(key, { productId: null, qty: '', purchaseTotal: '', costPrice: '', retailPrice: '', markupPct: '', bulkPricing: [] })
       setActiveLine(key)
       return
     }
@@ -379,7 +449,7 @@ export default function WarehouseReceiptsPanel({
       const qty = Number(l.qty) || 0
       if (qty <= 0) continue
       count++
-      costTotal += qty * (Number(l.costPrice) || 0)
+      costTotal += linePurchaseSum(l)
       retailTotal += qty * (Number(l.retailPrice) || 0)
     }
     const markup = costTotal > 0 ? ((retailTotal - costTotal) / costTotal) * 100 : 0
@@ -395,6 +465,7 @@ export default function WarehouseReceiptsPanel({
         qty: Number(l.qty),
         costPrice: Number(l.costPrice) || 0,
         retailPrice: Number(l.retailPrice) || undefined,
+        bulkPricing: serializeBulkPricing(l.bulkPricing),
         expiryDate: l.expiryDate || null,
       }))
     if (!items.length) {
@@ -570,11 +641,13 @@ export default function WarehouseReceiptsPanel({
                       activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
                     }))}
                     onActivate={() => setActiveLine(line.key)}
-                    onQty={v => updateLine(line.key, { qty: v })}
+                    onQty={v => setLineQty(line.key, v)}
+                    onPurchaseTotal={v => setLinePurchaseTotal(line.key, v)}
                     onCost={v => setLineCost(line.key, v)}
                     onMarkup={v => setLineMarkup(line.key, v)}
                     onRetail={v => setLineRetail(line.key, v)}
                     onExpiry={v => updateLine(line.key, { expiryDate: v })}
+                    onBulkPricing={tiers => updateLine(line.key, { bulkPricing: tiers })}
                     onQuickMarkup={p => setLineMarkup(line.key, String(p))}
                     cardRef={el => { lineRefs.current[line.key] = el }}
                     qtyRef={el => { qtyRefs.current[line.key] = el }}

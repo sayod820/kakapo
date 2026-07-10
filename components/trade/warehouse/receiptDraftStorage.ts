@@ -5,10 +5,12 @@ export type ReceiptDraftLine = {
   key: string
   productId: number | null
   qty: string
+  purchaseTotal: string
   costPrice: string
   retailPrice: string
   markupPct: string
   expiryDate: string
+  bulkPricing: { minQty: string; price: string }[]
 }
 
 export type ReceiptDraft = {
@@ -25,10 +27,12 @@ export function emptyReceiptLine(): ReceiptDraftLine {
     key: String(Date.now() + Math.random()),
     productId: null,
     qty: '',
+    purchaseTotal: '',
     costPrice: '',
     retailPrice: '',
     markupPct: '',
     expiryDate: '',
+    bulkPricing: [],
   }
 }
 
@@ -55,7 +59,12 @@ export function loadReceiptDraft(): ReceiptDraft {
       activeLineKey: parsed.activeLineKey ?? null,
       scrollTop: Number(parsed.scrollTop) || 0,
       lines: Array.isArray(parsed.lines) && parsed.lines.length
-        ? parsed.lines.map(l => ({ ...emptyReceiptLine(), ...l }))
+        ? parsed.lines.map(l => ({
+          ...emptyReceiptLine(),
+          ...l,
+          purchaseTotal: l.purchaseTotal ?? '',
+          bulkPricing: Array.isArray(l.bulkPricing) ? l.bulkPricing : [],
+        }))
         : [emptyReceiptLine()],
     }
   } catch {
@@ -91,6 +100,19 @@ export function clearReceiptDraft() {
 
 export function roundMoney(n: number) {
   return Math.round(n * 100) / 100
+}
+
+export function linePurchaseSum(line: ReceiptDraftLine) {
+  const total = Number(line.purchaseTotal) || 0
+  if (total > 0) return total
+  const qty = Number(line.qty) || 0
+  const cost = Number(line.costPrice) || 0
+  return roundMoney(qty * cost)
+}
+
+export function costFromPurchaseTotal(qty: number, purchaseTotal: number) {
+  if (!(qty > 0) || !(purchaseTotal > 0)) return 0
+  return roundMoney(purchaseTotal / qty)
 }
 
 export function retailFromMarkup(cost: number, markupPct: number) {
