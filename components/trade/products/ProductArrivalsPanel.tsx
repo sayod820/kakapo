@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { formatBulkPricingHint, serializeBulkPricing } from '@/lib/productBulkPricing'
@@ -50,40 +50,74 @@ export default function ProductArrivalsPanel({
   const [editCost, setEditCost] = useState('')
   const [editRetail, setEditRetail] = useState('')
   const [editBulk, setEditBulk] = useState<BulkPricingRow[]>([])
+  const [addDirty, setAddDirty] = useState(false)
 
-  const loadLayers = useCallback(async () => {
+  const sessionRef = useRef<{ productId: number | null }>({ productId: null })
+
+  const loadLayers = useCallback(async (opts?: { silent?: boolean }) => {
     if (!USE_API || !product.id) {
       setLayers([])
       return
     }
-    setLoading(true)
-    setMsg('')
+    if (!opts?.silent) setLoading(true)
     try {
       const rows = await api.getProductStockLayers(product.id)
       setLayers(rows)
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Не удалось загрузить партии')
+      if (!opts?.silent) {
+        setMsg(e instanceof Error ? e.message : 'Не удалось загрузить партии')
+      }
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
   }, [product.id])
 
-  useEffect(() => {
-    if (!open) return
-    void loadLayers()
-    setShowAdd(false)
-    setEditId(null)
-    setRetailPrice(String(product.price ?? ''))
-    setCostPrice(product.costPrice != null ? String(product.costPrice) : '')
-    setBulkPricing((product.bulkPricing || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })))
-  }, [open, loadLayers, product.price, product.costPrice, product.bulkPricing])
-
-  function resetAddForm() {
+  function initAddForm() {
     setQty('')
     setCostPrice(product.costPrice != null ? String(product.costPrice) : '')
     setRetailPrice(String(product.price ?? ''))
     setBulkPricing([])
     setExpiryDate('')
+    setAddDirty(false)
+  }
+
+  useEffect(() => {
+    if (!open) {
+      sessionRef.current.productId = null
+      return
+    }
+    if (sessionRef.current.productId === product.id) return
+    sessionRef.current.productId = product.id
+    void loadLayers()
+    setShowAdd(false)
+    setEditId(null)
+    setMsg('')
+    initAddForm()
+  }, [open, product.id, loadLayers])
+
+  useEffect(() => {
+    if (!open || showAdd || editId || addDirty) return
+    void loadLayers({ silent: true })
+  }, [open, product.stock, showAdd, editId, addDirty, loadLayers])
+
+  function markAddDirty() {
+    setAddDirty(true)
+  }
+
+  function requestClose() {
+    if (addDirty && !confirm('Есть несохранённый приход. Закрыть без сохранения?')) return
+    onClose()
+  }
+
+  function toggleAddForm() {
+    if (showAdd) {
+      if (addDirty && !confirm('Отменить несохранённый приход?')) return
+      setShowAdd(false)
+      setAddDirty(false)
+      return
+    }
+    initAddForm()
+    setShowAdd(true)
   }
 
   async function handleAdd() {
@@ -104,7 +138,7 @@ export default function ProductArrivalsPanel({
         supplierName: 'Ручной приход',
         createdBy: 'Торговля',
       })
-      resetAddForm()
+      initAddForm()
       setShowAdd(false)
       await loadLayers()
       onUpdated?.()
@@ -153,7 +187,7 @@ export default function ProductArrivalsPanel({
   })
 
   return (
-    <div className="k-modal-bg" onClick={onClose}>
+    <div className="k-modal-bg" onClick={requestClose}>
       <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
         <div className="k-modal-h">
           <div>
@@ -161,8 +195,13 @@ export default function ProductArrivalsPanel({
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, fontWeight: 500 }}>
               FIFO: сначала активная партия, затем следующая в очереди
             </div>
+            {addDirty && (
+              <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 4, fontWeight: 700 }}>
+                ● Несохранённый приход
+              </div>
+            )}
           </div>
-          <button type="button" onClick={onClose}>✕</button>
+          <button type="button" onClick={requestClose}>✕</button>
         </div>
 
         <div className="k-modal-b" style={{ padding: 16 }}>
@@ -177,7 +216,7 @@ export default function ProductArrivalsPanel({
                 </span>
               )}
             </div>
-            <button type="button" className="k-btn k-btn-g" onClick={() => { setShowAdd(v => !v); resetAddForm() }}>
+            <button type="button" className="k-btn k-btn-g" onClick={toggleAddForm}>
               {showAdd ? 'Отмена' : '+ Приход'}
             </button>
           </div>
@@ -191,23 +230,23 @@ export default function ProductArrivalsPanel({
               <div className="k-grid2">
                 <div className="k-field">
                   <label>Количество *</label>
-                  <input className="k-inp" type="number" min="1" step="1" value={qty} onChange={e => setQty(e.target.value)} />
+                  <input className="k-inp" type="number" min="1" step="1" value={qty} onChange={e => { setQty(e.target.value); markAddDirty() }} />
                 </div>
                 <div className="k-field">
                   <label>Закупочная цена</label>
-                  <input className="k-inp" type="number" step="0.01" value={costPrice} onChange={e => setCostPrice(e.target.value)} />
+                  <input className="k-inp" type="number" step="0.01" value={costPrice} onChange={e => { setCostPrice(e.target.value); markAddDirty() }} />
                 </div>
                 <div className="k-field">
                   <label>Розничная цена</label>
-                  <input className="k-inp" type="number" step="0.01" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} />
+                  <input className="k-inp" type="number" step="0.01" value={retailPrice} onChange={e => { setRetailPrice(e.target.value); markAddDirty() }} />
                 </div>
                 <div className="k-field">
                   <label>Срок годности</label>
-                  <input className="k-inp" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
+                  <input className="k-inp" type="date" value={expiryDate} onChange={e => { setExpiryDate(e.target.value); markAddDirty() }} />
                 </div>
               </div>
               <div style={{ marginTop: 10 }}>
-                <BulkPricingFields tiers={bulkPricing} onChange={setBulkPricing} sellType={product.sellType || 'piece'} />
+                <BulkPricingFields tiers={bulkPricing} onChange={v => { setBulkPricing(v); markAddDirty() }} sellType={product.sellType || 'piece'} />
                 {bulkHint && <div style={{ fontSize: 11, color: '#FF8C00', marginTop: 8, fontWeight: 700 }}>{bulkHint}</div>}
               </div>
               <button type="button" className="k-btn k-btn-g" style={{ marginTop: 12 }} disabled={saving} onClick={() => void handleAdd()}>
@@ -216,9 +255,9 @@ export default function ProductArrivalsPanel({
             </div>
           )}
 
-          {loading ? (
+          {loading && !showAdd && !layers.length ? (
             <div className="k-empty">Загрузка партий…</div>
-          ) : !layers.length ? (
+          ) : !layers.length && !showAdd ? (
             <div className="k-empty">
               Нет партий. Добавьте первый приход — у каждой партии своя закупочная, розничная и оптовая цена.
             </div>
