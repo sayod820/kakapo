@@ -8,7 +8,8 @@ import { useCategories } from '@/lib/useCategories'
 import type { Product, StockRevision } from '@/lib/types'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
-import RevisionBulkPicker from './RevisionBulkPicker'
+import RevisionScopePanel from './RevisionScopePanel'
+import RevisionStepBar from './RevisionStepBar'
 import {
   clearRevisionDraft,
   defaultRevisionDraft,
@@ -19,6 +20,7 @@ import {
   type RevisionDraft,
   type RevisionDraftLine,
 } from './revisionDraftStorage'
+import { filterProductsBySearch } from '@/lib/productBarcodes'
 import { fmtDateTime, matchesDateRange } from './warehouseShared'
 
 function diffStyle(diff: number) {
@@ -160,6 +162,9 @@ export default function WarehouseRevisionsPanel({
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [modalStep, setModalStep] = useState<'scope' | 'count'>('scope')
+  const [scopeLabel, setScopeLabel] = useState('Все категории')
+  const [countSearch, setCountSearch] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const countedRefs = useRef<Record<string, HTMLInputElement | null>>({})
@@ -167,7 +172,11 @@ export default function WarehouseRevisionsPanel({
   const { open, note, lines, activeLineKey } = draft
 
   useEffect(() => {
-    setDraft(loadRevisionDraft())
+    const loaded = loadRevisionDraft()
+    setDraft(loaded)
+    if (loaded.open && loaded.lines.some(l => l.productId)) {
+      setModalStep('count')
+    }
     setHydrated(true)
   }, [])
 
@@ -191,29 +200,34 @@ export default function WarehouseRevisionsPanel({
     clearRevisionDraft()
     setDraft(defaultRevisionDraft())
     setEditingId(null)
+    setModalStep('scope')
+    setScopeLabel('Все категории')
     setMsg('')
   }
 
   function openForm() {
     setEditingId(null)
-    setDraft(prev => ({ ...prev, open: true }))
+    setModalStep('scope')
+    setScopeLabel('Все категории')
+    setDraft({ ...defaultRevisionDraft(), open: true })
     setMsg('')
   }
 
   function openEditForm(revision: StockRevision) {
     setEditingId(revision.id)
+    setModalStep('count')
+    setScopeLabel('Редактирование')
     setDraft(revisionToDraft(revision))
     setMsg('')
   }
 
   function closeForm() {
-    if (editingId) {
-      setDraft(prev => ({ ...prev, open: false }))
-      setEditingId(null)
-      setMsg('')
-      return
-    }
     setDraft(prev => ({ ...prev, open: false }))
+    if (editingId) {
+      setEditingId(null)
+      setModalStep('scope')
+      setScopeLabel('Все категории')
+    }
     setMsg('')
   }
 
@@ -225,31 +239,33 @@ export default function WarehouseRevisionsPanel({
     }
   }
 
-  function addProductsBulk(toAdd: Product[]) {
+  function startCountFromScope(toAdd: Product[], label: string) {
     if (!toAdd.length) return
-    setDraft(prev => {
-      const existingIds = new Set(prev.lines.filter(l => l.productId).map(l => l.productId!))
-      const nextLines = prev.lines.filter(l => l.productId)
-      for (const p of toAdd) {
-        if (existingIds.has(p.id)) continue
-        nextLines.push({
-          key: String(Date.now() + Math.random()),
+    setScopeLabel(label)
+    setCountSearch('')
+    setDraft(prev => ({
+      ...prev,
+      lines: [
+        ...toAdd.map(p => ({
+          key: `rev-${p.id}-${Math.random()}`,
           productId: p.id,
           countedStock: String(p.stock ?? 0),
-        })
-        existingIds.add(p.id)
-      }
-      nextLines.push(emptyRevisionLine())
-      return { ...prev, lines: nextLines }
-    })
+        })),
+        emptyRevisionLine(),
+      ],
+      activeLineKey: null,
+    }))
+    setModalStep('count')
+    setMsg('')
   }
 
-  const existingProductIds = useMemo(
-    () => new Set(lines.filter(l => l.productId).map(l => l.productId!)),
-    [lines],
-  )
-
-  const pickerProducts = useMemo(() => products, [products])
+  function backToScope() {
+    if (editingId) return
+    if (filledLines.length && !confirm('Вернуться к выбору категорий? Текущий пересчёт будет сброшен.')) return
+    setModalStep('scope')
+    setDraft(prev => ({ ...prev, lines: [emptyRevisionLine()], activeLineKey: null }))
+    setMsg('')
+  }
 
   function selectProduct(key: string, product: Product | null) {
     if (!product) {
@@ -323,6 +339,14 @@ export default function WarehouseRevisionsPanel({
   }, [revisions, dateFrom, dateTo])
 
   const filledLines = lines.filter(l => l.productId)
+  const visibleFilledLines = useMemo(() => {
+    if (!countSearch.trim()) return filledLines
+    const q = countSearch.trim()
+    return filledLines.filter(l => {
+      const product = products.find(p => p.id === l.productId)
+      return product && filterProductsBySearch([product], q).length > 0
+    })
+  }, [filledLines, countSearch, products])
   const hasDraft = !editingId && lines.some(l => l.productId || l.countedStock)
 
   async function submit() {
@@ -503,113 +527,160 @@ export default function WarehouseRevisionsPanel({
               <div>
                 <b>{editingId ? '✎ Редактирование ревизии' : '📋 Новая ревизия'}</b>
                 <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
-                  {editingId ? 'Измените фактические остатки — склад обновится' : 'Посчитайте товар на полке → укажите факт → проведите ревизию'}
+                  {modalStep === 'scope'
+                    ? 'Шаг 1: выберите категории для пересчёта'
+                    : editingId
+                      ? 'Измените фактические остатки — склад обновится'
+                      : 'Шаг 2: укажите факт по каждому товару и проведите ревизию'}
                 </div>
               </div>
               <button type="button" onClick={closeForm}>✕</button>
             </div>
 
-            <div style={{ flexShrink: 0, padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card2)' }}>
-              <div className="k-field" style={{ marginBottom: 0 }}>
-                <label>Комментарий (необязательно)</label>
-                <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Например: плановая инвентаризация зала" />
-              </div>
-            </div>
+            {!editingId && <RevisionStepBar step={modalStep} />}
 
-            <RevisionBulkPicker
-              products={pickerProducts}
-              categories={categories}
-              existingProductIds={existingProductIds}
-              onAdd={addProductsBulk}
-            />
-
-            <div className="k-receipt-summary" style={{
-              flexShrink: 0,
-              padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
-            }}>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Совпало</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{totals.matched}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Излишек</div><div style={{ fontWeight: 900, fontSize: 18, color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ итого</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.netDiff) }}>{totals.count ? formatDiff(totals.netDiff) : '—'}</div></div>
-            </div>
-
-            <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
-              {filledLines.map((line, idx) => {
-                const product = products.find(p => p.id === line.productId) || null
-                if (!product) return null
-                return (
-                  <RevisionLineCard
-                    key={line.key}
-                    line={line}
-                    idx={idx}
-                    product={product}
-                    active={activeLineKey === line.key}
-                    canRemove={filledLines.length > 0}
-                    onClear={() => selectProduct(line.key, null)}
-                    onRemove={() => setDraft(prev => ({
-                      ...prev,
-                      lines: prev.lines.filter(l => l.key !== line.key),
-                      activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
-                    }))}
-                    onActivate={() => setDraftPatch({ activeLineKey: line.key })}
-                    onCounted={v => updateLine(line.key, { countedStock: v })}
-                    onMatchSystem={() => updateLine(line.key, { countedStock: String(product.stock ?? 0) })}
-                    onZero={() => updateLine(line.key, { countedStock: '0' })}
-                    cardRef={el => { lineRefs.current[line.key] = el }}
-                    countedRef={el => { countedRefs.current[line.key] = el }}
-                  />
-                )
-              })}
-
-              {(() => {
-                const pending = [...lines].reverse().find(l => !l.productId)
-                if (!pending) return null
-                const pendingIdx = lines.filter(l => l.productId).length
-                return (
-                  <div
-                    ref={el => { lineRefs.current[pending.key] = el }}
-                    style={{
-                      padding: 16,
-                      borderRadius: 12,
-                      border: '2px dashed #3B8EF0',
-                      background: 'rgba(59,142,240,.04)',
-                    }}
-                  >
-                    <div style={{ fontSize: 13, fontWeight: 900, color: '#3B8EF0', marginBottom: 10 }}>
-                      {filledLines.length ? `+ Добавить товар ${pendingIdx + 1}` : '1. Найдите товар для пересчёта'}
+            {modalStep === 'scope' && !editingId ? (
+              <>
+                <RevisionScopePanel
+                  products={products}
+                  categories={categories}
+                  onStart={startCountFromScope}
+                />
+                <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)' }}>
+                  <button type="button" className="k-btn k-btn-s" style={{ width: '100%' }} onClick={closeForm}>Отмена</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ flexShrink: 0, padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card2)' }}>
+                  <div className="k-field" style={{ marginBottom: 10 }}>
+                    <label>Комментарий (необязательно)</label>
+                    <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Например: плановая инвентаризация зала" />
+                  </div>
+                  {!editingId && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, padding: '6px 12px', borderRadius: 8, background: 'var(--panel)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+                        📂 {scopeLabel} · {filledLines.length} {filledLines.length === 1 ? 'товар' : filledLines.length < 5 ? 'товара' : 'товаров'}
+                      </span>
+                      <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12 }} onClick={backToScope}>
+                        ← Изменить категории
+                      </button>
                     </div>
-                    <WarehouseProductSelect
-                      products={products}
-                      value={null}
-                      onChange={p => { if (p) selectProduct(pending.key, p) }}
-                      placeholder="Начните вводить название, артикул или штрихкод…"
+                  )}
+                </div>
+
+                <div className="k-receipt-summary" style={{
+                  flexShrink: 0,
+                  padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
+                }}>
+                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
+                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Совпало</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{totals.matched}</div></div>
+                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Излишек</div><div style={{ fontWeight: 900, fontSize: 18, color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</div></div>
+                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ итого</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.netDiff) }}>{totals.count ? formatDiff(totals.netDiff) : '—'}</div></div>
+                </div>
+
+                {filledLines.length > 5 && (
+                  <div style={{ flexShrink: 0, padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+                    <input
+                      className="k-inp"
+                      value={countSearch}
+                      onChange={e => setCountSearch(e.target.value)}
+                      placeholder="Поиск в списке: название, артикул, штрихкод…"
                     />
                   </div>
-                )
-              })()}
+                )}
 
-              {msg && (
-                <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
-                  {msg}
+                <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
+                  {visibleFilledLines.length === 0 && countSearch.trim() && (
+                    <div style={{ textAlign: 'center', padding: 24, color: 'var(--muted)', fontSize: 13 }}>
+                      По запросу «{countSearch}» ничего не найдено
+                    </div>
+                  )}
+                  {visibleFilledLines.map((line, idx) => {
+                    const product = products.find(p => p.id === line.productId) || null
+                    if (!product) return null
+                    const realIdx = filledLines.indexOf(line)
+                    return (
+                      <RevisionLineCard
+                        key={line.key}
+                        line={line}
+                        idx={realIdx >= 0 ? realIdx : idx}
+                        product={product}
+                        active={activeLineKey === line.key}
+                        canRemove={filledLines.length > 0}
+                        onClear={() => selectProduct(line.key, null)}
+                        onRemove={() => setDraft(prev => ({
+                          ...prev,
+                          lines: prev.lines.filter(l => l.key !== line.key),
+                          activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
+                        }))}
+                        onActivate={() => setDraftPatch({ activeLineKey: line.key })}
+                        onCounted={v => updateLine(line.key, { countedStock: v })}
+                        onMatchSystem={() => updateLine(line.key, { countedStock: String(product.stock ?? 0) })}
+                        onZero={() => updateLine(line.key, { countedStock: '0' })}
+                        cardRef={el => { lineRefs.current[line.key] = el }}
+                        countedRef={el => { countedRefs.current[line.key] = el }}
+                      />
+                    )
+                  })}
+
+                  {(() => {
+                    const pending = [...lines].reverse().find(l => !l.productId)
+                    if (!pending) return null
+                    const pendingIdx = lines.filter(l => l.productId).length
+                    return (
+                      <details style={{ marginTop: 8 }}>
+                        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 800, color: '#3B8EF0', padding: '8px 0' }}>
+                          + Добавить ещё один товар вручную
+                        </summary>
+                        <div
+                          ref={el => { lineRefs.current[pending.key] = el }}
+                          style={{
+                            padding: 16,
+                            borderRadius: 12,
+                            border: '2px dashed #3B8EF0',
+                            background: 'rgba(59,142,240,.04)',
+                            marginTop: 8,
+                          }}
+                        >
+                          <WarehouseProductSelect
+                            products={products}
+                            value={null}
+                            onChange={p => { if (p) selectProduct(pending.key, p) }}
+                            placeholder="Название, артикул или штрихкод…"
+                          />
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                            Позиция {pendingIdx + 1} · если товара нет в выбранных категориях
+                          </div>
+                        </div>
+                      </details>
+                    )
+                  })()}
+
+                  {msg && (
+                    <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
+                      {msg}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="k-btn k-btn-g"
-                style={{ flex: 1, minWidth: 180, background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
-                disabled={saving || totals.count === 0}
-                onClick={() => void submit()}
-              >
-                {saving ? 'Сохранение…' : editingId
-                  ? `Сохранить${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`
-                  : `Провести ревизию${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
-              </button>
-              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
-              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
-            </div>
+                <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="k-btn k-btn-g"
+                    style={{ flex: 1, minWidth: 180, background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
+                    disabled={saving || totals.count === 0}
+                    onClick={() => void submit()}
+                  >
+                    {saving ? 'Сохранение…' : editingId
+                      ? `Сохранить${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`
+                      : `Провести ревизию${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
+                  </button>
+                  <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
+                  <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
