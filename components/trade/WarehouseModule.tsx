@@ -11,10 +11,11 @@ import WarehouseExpiryPanel from './warehouse/WarehouseExpiryPanel'
 import WarehouseReceiptsPanel from './warehouse/WarehouseReceiptsPanel'
 import WarehouseRevisionsPanel from './warehouse/WarehouseRevisionsPanel'
 import WarehouseWriteoffsPanel from './warehouse/WarehouseWriteoffsPanel'
+import { loadWarehouseTab, saveWarehouseTab } from './warehouse/receiptDraftStorage'
 import { WAREHOUSE_TABS, type WarehouseTab } from './warehouse/warehouseShared'
 
 export default function WarehouseModule({ products }: { products: Product[] }) {
-  const [tab, setTab] = useState<WarehouseTab>('stock')
+  const [tab, setTab] = useState<WarehouseTab>(() => loadWarehouseTab() || 'stock')
   const [expiryDays, setExpiryDays] = useState(14)
   const [expiry, setExpiry] = useState<ReturnType<typeof usePosStore.getState>['expiry']>([])
   const [expiryLoading, setExpiryLoading] = useState(false)
@@ -26,6 +27,10 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
   const apiSyncing = usePosStore(s => s.apiSyncing)
   const apiError = usePosStore(s => s.apiError)
   const fetchProducts = useProducts(s => s.fetchProducts)
+
+  useEffect(() => {
+    saveWarehouseTab(tab)
+  }, [tab])
 
   const totalStock = useMemo(() => products.reduce((s, p) => s + (Number(p.stock) || 0), 0), [products])
   const low = useMemo(() => products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= 5).length, [products])

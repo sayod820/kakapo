@@ -1,4 +1,5 @@
-export const RECEIPT_DRAFT_KEY = 'kakapo-receipt-draft-v1'
+export const RECEIPT_DRAFT_KEY = 'kakapo-receipt-draft-v2'
+export const WAREHOUSE_TAB_KEY = 'kakapo-warehouse-tab'
 
 export type ReceiptDraftLine = {
   key: string
@@ -15,6 +16,8 @@ export type ReceiptDraft = {
   supplierId: string
   paidNow: string
   lines: ReceiptDraftLine[]
+  activeLineKey: string | null
+  scrollTop: number
 }
 
 export function emptyReceiptLine(): ReceiptDraftLine {
@@ -35,18 +38,22 @@ export function defaultReceiptDraft(): ReceiptDraft {
     supplierId: '',
     paidNow: '',
     lines: [emptyReceiptLine()],
+    activeLineKey: null,
+    scrollTop: 0,
   }
 }
 
 export function loadReceiptDraft(): ReceiptDraft {
   if (typeof window === 'undefined') return defaultReceiptDraft()
   try {
-    const raw = localStorage.getItem(RECEIPT_DRAFT_KEY)
+    const raw = localStorage.getItem(RECEIPT_DRAFT_KEY) || localStorage.getItem('kakapo-receipt-draft-v1')
     if (!raw) return defaultReceiptDraft()
     const parsed = JSON.parse(raw) as Partial<ReceiptDraft>
     return {
       ...defaultReceiptDraft(),
       ...parsed,
+      activeLineKey: parsed.activeLineKey ?? null,
+      scrollTop: Number(parsed.scrollTop) || 0,
       lines: Array.isArray(parsed.lines) && parsed.lines.length
         ? parsed.lines.map(l => ({ ...emptyReceiptLine(), ...l }))
         : [emptyReceiptLine()],
@@ -54,6 +61,22 @@ export function loadReceiptDraft(): ReceiptDraft {
   } catch {
     return defaultReceiptDraft()
   }
+}
+
+export function loadWarehouseTab(): import('./warehouseShared').WarehouseTab | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const v = localStorage.getItem(WAREHOUSE_TAB_KEY)
+    if (!v) return null
+    return v as import('./warehouseShared').WarehouseTab
+  } catch {
+    return null
+  }
+}
+
+export function saveWarehouseTab(tab: string) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(WAREHOUSE_TAB_KEY, tab)
 }
 
 export function saveReceiptDraft(draft: ReceiptDraft) {

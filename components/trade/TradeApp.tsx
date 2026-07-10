@@ -103,6 +103,8 @@ const CSS = `
   .k-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:60;padding:20px}
   .k-modal{width:460px;max-width:100%;max-height:88vh;background:var(--panel);border:1px solid var(--border);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
   .k-modal-wide{width:640px}
+  .k-receipt-modal-bg{padding:10px;align-items:stretch;justify-content:center}
+  .k-receipt-modal{border-radius:16px}
   .k-modal-h{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
   .k-modal-h b{font-size:16px;font-weight:900}
   .k-modal-h button{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
