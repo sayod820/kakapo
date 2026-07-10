@@ -195,7 +195,7 @@ export default function ProductTab({
                 {!isNew && selectedId && (
                   <button type="button" className="k-btn k-btn-s" style={{ color: 'var(--red)' }} onClick={onDelete}>Удалить</button>
                 )}
-                <button type="button" className="k-btn k-btn-g" disabled={saving || !form.name || !form.price} onClick={onSave}>
+                <button type="button" className="k-btn k-btn-g" disabled={saving || !form.name} onClick={onSave}>
                   {saving ? 'Сохранение…' : 'Сохранить'}
                 </button>
               </div>

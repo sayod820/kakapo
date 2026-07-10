@@ -6,19 +6,6 @@ import type { Category } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'
 
-const GRAMS_PER_KG = 1000
-
-function weightPriceHints(price: string) {
-  const p = Number(price) || 0
-  if (!p) return null
-  const perGram = p / GRAMS_PER_KG
-  return {
-    perKg: p.toFixed(2),
-    perGram: perGram.toFixed(4),
-    sample: (grams: number) => (perGram * grams).toFixed(2),
-  }
-}
-
 export default function ProductFormFields({
   form,
   setForm,
@@ -31,7 +18,6 @@ export default function ProductFormFields({
   const roots = categories.filter(c => c.parent_id == null)
   const children = (parentId: number) => categories.filter(c => Number(c.parent_id) === parentId)
   const isWeight = form.sellType === 'weight'
-  const hints = isWeight ? weightPriceHints(form.price) : null
   const [newBarcode, setNewBarcode] = useState('')
 
   function addBarcode() {
@@ -96,16 +82,9 @@ export default function ProductFormFields({
           <option value="weight">На развес (граммы)</option>
         </select>
       </div>
-      <div className="k-field">
-        <label>{isWeight ? 'Цена за 1 кг *' : 'Цена продажи *'}</label>
-        <input className="k-inp" type="number" step="0.01" min="0" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
-        {isWeight && (
-          <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 6, fontWeight: 700 }}>
-            В кассе и на весах считается по граммам
-          </div>
-        )}
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
-          Остаток, себестоимость и опт — в «📦 Партии»
+      <div className="k-field" style={{ gridColumn: '1 / -1' }}>
+        <div style={{ fontSize: 10, color: 'var(--muted)' }}>
+          Цена, остаток, себестоимость и опт — в «📦 Партии»
         </div>
       </div>
       <div className="k-field">
@@ -175,19 +154,15 @@ export default function ProductFormFields({
         <label>Бренд</label>
         <input className="k-inp" value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />
       </div>
-      {isWeight && hints && (
+      {isWeight && (
         <div className="k-field" style={{ gridColumn: '1 / -1' }}>
           <div style={{
             padding: '10px 12px', borderRadius: 10, background: 'var(--green-d)',
             border: '1px solid rgba(31,215,96,.25)', fontSize: 12,
           }}>
-            <b style={{ color: 'var(--green)' }}>Расчёт по граммам:</b>
-            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-              <span>{hints.perKg} сом / кг</span>
-              <span>{hints.perGram} сом / 1 г</span>
-            </div>
+            <b style={{ color: 'var(--green)' }}>Расчёт по граммам</b>
             <div style={{ marginTop: 6, color: 'var(--muted)', fontSize: 11 }}>
-              Примеры: 250 г → {hints.sample(250)} сом · 500 г → {hints.sample(500)} сом · 750 г → {hints.sample(750)} сом
+              В кассе и на весах считается по граммам. Цена за 1 кг — в партии прихода.
             </div>
           </div>
         </div>

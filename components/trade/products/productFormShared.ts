@@ -11,7 +11,6 @@ export type ProductForm = {
   art: string
   e: string
   catId: string
-  price: string
   unit: string
   barcodes: string[]
   plu: string
@@ -27,7 +26,7 @@ export type ProductForm = {
 
 export function emptyForm(): ProductForm {
   return {
-    name: '', art: '', e: '📦', catId: 'veg', price: '',
+    name: '', art: '', e: '📦', catId: 'veg',
     unit: 'шт', barcodes: [], plu: '', brand: '', desc: '', photo: '', sellType: 'piece',
     weightStep: '1', unitGrams: '1000', hot: false, organic: false,
   }
@@ -39,7 +38,6 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     art: p.art,
     e: p.e || '📦',
     catId: p.catId || 'veg',
-    price: String(p.price ?? ''),
     unit: p.unit || 'шт',
     barcodes: productBarcodes(p),
     plu: p.plu || '',
@@ -75,7 +73,7 @@ export function buildProductPayload(
     art,
     e: data.e || '📦',
     name: data.name.trim(),
-    price: Number(data.price) || 0,
+    price: existing?.price ?? 0,
     costPrice: existing?.costPrice ?? null,
     catId: data.catId,
     cat: findCategoryName(categories, data.catId, data.catId),
