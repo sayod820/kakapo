@@ -16,6 +16,7 @@ import {
   type WriteoffDraftLine,
 } from './writeoffDraftStorage'
 import { documentProductMatchesSearch, productMatchesSearch } from '@/lib/productBarcodes'
+import { fmtDateTime, fmtMoney, WRITEOFF_REASONS, writeoffReasonMeta } from './warehouseShared'
 
 function lineCost(line: WriteoffDraftLine, product: Product | undefined) {
   const qty = Number(line.qty) || 0
