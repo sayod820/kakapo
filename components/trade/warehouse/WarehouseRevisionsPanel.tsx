@@ -4,9 +4,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { useProducts } from '@/lib/store'
+import { useCategories } from '@/lib/useCategories'
 import type { Product, StockRevision } from '@/lib/types'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
+import RevisionBulkPicker from './RevisionBulkPicker'
 import {
   clearRevisionDraft,
   defaultRevisionDraft,
@@ -149,6 +151,7 @@ export default function WarehouseRevisionsPanel({
   onRefresh: () => Promise<void>
 }) {
   const fetchProducts = useProducts(s => s.fetchProducts)
+  const { categories } = useCategories()
   const [draft, setDraft] = useState<RevisionDraft>(defaultRevisionDraft)
   const [hydrated, setHydrated] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -221,6 +224,32 @@ export default function WarehouseRevisionsPanel({
       countedStock: line.countedStock !== '' ? line.countedStock : String(product.stock ?? 0),
     }
   }
+
+  function addProductsBulk(toAdd: Product[]) {
+    if (!toAdd.length) return
+    setDraft(prev => {
+      const existingIds = new Set(prev.lines.filter(l => l.productId).map(l => l.productId!))
+      const nextLines = prev.lines.filter(l => l.productId)
+      for (const p of toAdd) {
+        if (existingIds.has(p.id)) continue
+        nextLines.push({
+          key: String(Date.now() + Math.random()),
+          productId: p.id,
+          countedStock: String(p.stock ?? 0),
+        })
+        existingIds.add(p.id)
+      }
+      nextLines.push(emptyRevisionLine())
+      return { ...prev, lines: nextLines }
+    })
+  }
+
+  const existingProductIds = useMemo(
+    () => new Set(lines.filter(l => l.productId).map(l => l.productId!)),
+    [lines],
+  )
+
+  const pickerProducts = useMemo(() => products, [products])
 
   function selectProduct(key: string, product: Product | null) {
     if (!product) {
@@ -486,6 +515,13 @@ export default function WarehouseRevisionsPanel({
                 <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Например: плановая инвентаризация зала" />
               </div>
             </div>
+
+            <RevisionBulkPicker
+              products={pickerProducts}
+              categories={categories}
+              existingProductIds={existingProductIds}
+              onAdd={addProductsBulk}
+            />
 
             <div className="k-receipt-summary" style={{
               flexShrink: 0,
