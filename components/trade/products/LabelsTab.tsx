@@ -10,13 +10,16 @@ import LabelDesignModal from './LabelDesignModal'
 import LabelEditModal from './LabelEditModal'
 import {
   buildLabelPick,
+  buildPrintCss,
   DEFAULT_LABEL_DESIGN,
   defaultLabelEdit,
-  designScale,
   formatLabelMoney,
   labelPickKey,
   layerShortLabel,
   loadLabelDesign,
+  previewCardStyle,
+  previewGridStyle,
+  PAPER_PRESETS,
   saveLabelDesign,
   type LabelDesign,
   type LabelEdit,
@@ -24,14 +27,6 @@ import {
 } from './labelShared'
 
 const LABEL_CSS = `
-  @media print {
-    body * { visibility: hidden !important; }
-    #k-label-print, #k-label-print * { visibility: visible !important; }
-    #k-label-print { position: absolute; left: 0; top: 0; width: 100%; }
-    .k-label-card { break-inside: avoid; page-break-inside: avoid; }
-    .k-label-edit-btn { display: none !important; }
-  }
-  .k-label-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
   .k-label-pick{border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--card2);overflow:hidden}
   .k-label-pick-head{display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer}
   .k-label-pick-head input{accent-color:var(--green)}
@@ -59,7 +54,6 @@ export default function LabelsTab({
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [layersByProduct, setLayersByProduct] = useState<Record<number, ProductStockLayer[]>>({})
   const [loadingLayers, setLoadingLayers] = useState<Set<number>>(new Set())
-  const [labelSize, setLabelSize] = useState<'small' | 'medium' | 'large'>('medium')
   const [design, setDesign] = useState<LabelDesign>(DEFAULT_LABEL_DESIGN)
   const [draftDesign, setDraftDesign] = useState<LabelDesign>(DEFAULT_LABEL_DESIGN)
   const [designOpen, setDesignOpen] = useState(false)
@@ -71,7 +65,12 @@ export default function LabelsTab({
     setDesign(loadLabelDesign())
   }, [])
 
-  const scaledDesign = useMemo(() => designScale(design, labelSize), [design, labelSize])
+  const printCss = useMemo(() => buildPrintCss(design), [design])
+  const previewGrid = useMemo(() => previewGridStyle(design), [design])
+  const previewCard = useMemo(() => previewCardStyle(design), [design])
+  const paperInfo = design.paperPreset === 'custom'
+    ? `${design.paperWidthMm}×${design.paperHeightMm || '∞'} мм`
+    : PAPER_PRESETS[design.paperPreset]?.label || 'Свой'
 
   const q = (labelSearch.trim() || search.trim()).toLowerCase()
   const filtered = useMemo(
@@ -211,7 +210,7 @@ export default function LabelsTab({
 
   return (
     <div>
-      <style>{LABEL_CSS}</style>
+      <style>{LABEL_CSS}{printCss}</style>
       <div className="k-page-h" style={{ marginTop: 0 }}>
         <div>
           <h1>🏷️ Этикетки</h1>
@@ -300,24 +299,18 @@ export default function LabelsTab({
         <section className="k-card">
           <div className="k-card-h">
             <b>Предпросмотр</b>
-            <select
-              className="k-sel"
-              style={{ width: 'auto', minWidth: 120 }}
-              value={labelSize}
-              onChange={e => setLabelSize(e.target.value as 'small' | 'medium' | 'large')}
-            >
-              <option value="small">Маленькая</option>
-              <option value="medium">Средняя</option>
-              <option value="large">Большая</option>
-            </select>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              {design.labelWidthMm}×{design.labelHeightMm} мм · {paperInfo}
+            </span>
           </div>
           <div className="k-card-b">
-            <div id="k-label-print" className="k-label-grid">
+            <div id="k-label-print" style={previewGrid}>
               {previewPicks.map(pick => (
                 <LabelCard
                   key={pick.key}
                   edit={getEdit(pick)}
-                  design={scaledDesign}
+                  design={design}
+                  sizeStyle={previewCard}
                   onEdit={() => {
                     setEditingKey(pick.key)
                     setDraftEdit({ ...getEdit(pick) })
