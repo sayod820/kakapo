@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
-import { productBarcodeSearchText } from '@/lib/productBarcodes'
+import { productMatchesSearch } from '@/lib/productBarcodes'
 import { isWeighted } from '@/lib/productWeight'
 import type { Product } from '@/lib/types'
 import { categoryDisplayLabel, useCategories } from '@/lib/useCategories'
@@ -25,10 +25,10 @@ export default function WarehouseStockPanel({ products }: { products: Product[] 
   const [sortDesc, setSortDesc] = useState(false)
 
   const rows = useMemo(() => {
-    const query = q.trim().toLowerCase()
+    const query = q.trim()
     let list = products.filter(p => {
       const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-      const matchQ = !query || `${p.name} ${p.art} ${productBarcodeSearchText(p)} ${catLabel}`.toLowerCase().includes(query)
+      const matchQ = productMatchesSearch(p, query, catLabel)
       const stock = Number(p.stock) || 0
       const matchF =
         filter === 'all' ? true

@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import type { Product, StockRevision } from '@/lib/types'
+import { documentProductMatchesSearch } from '@/lib/productBarcodes'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import { fmtDateTime } from './warehouseShared'
 
@@ -27,6 +28,7 @@ export default function WarehouseRevisionsPanel({
   const [msg, setMsg] = useState('')
   const [lines, setLines] = useState<Line[]>([emptyLine()])
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [listSearch, setListSearch] = useState('')
 
   const productMap = useMemo(() => new Map(products.map(p => [p.id, p])), [products])
 
@@ -62,10 +64,25 @@ export default function WarehouseRevisionsPanel({
     }
   }
 
+  const filteredRevisions = useMemo(() => {
+    const q = listSearch.trim()
+    if (!q) return revisions
+    return revisions.filter(rev =>
+      rev.items.some(it => documentProductMatchesSearch(it.productId, it.productName, products, q)),
+    )
+  }, [revisions, listSearch, products])
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 420 }}>
+        <input
+          className="k-inp"
+          style={{ flex: '1 1 220px', maxWidth: 360 }}
+          placeholder="Поиск: штрихкод, название, артикул…"
+          value={listSearch}
+          onChange={e => setListSearch(e.target.value)}
+        />
+        <div style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 320 }}>
           Инвентаризация: укажите фактический остаток — система обновит общий остаток товара
         </div>
         <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={() => { resetForm(); setOpen(true) }}>
@@ -73,8 +90,8 @@ export default function WarehouseRevisionsPanel({
         </button>
       </div>
 
-      {!revisions.length ? (
-        <div className="k-empty">Ревизий пока нет</div>
+      {!filteredRevisions.length ? (
+        <div className="k-empty">{revisions.length ? 'Ничего не найдено' : 'Ревизий пока нет'}</div>
       ) : (
         <div className="k-card k-tbl-scroll">
           <table className="k-tbl">
@@ -87,7 +104,7 @@ export default function WarehouseRevisionsPanel({
               </tr>
             </thead>
             <tbody>
-              {revisions.map(rev => {
+              {filteredRevisions.map(rev => {
                 const totalDiff = rev.items.reduce((s, it) => s + it.diff, 0)
                 return (
                   <Fragment key={rev.id}>

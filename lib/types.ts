@@ -242,6 +242,8 @@ export interface StockWriteoffItem {
   productId: number
   productName: string
   qty: number
+  unitCost?: number
+  lineCost?: number
 }
 
 export interface StockWriteoff {
@@ -249,6 +251,7 @@ export interface StockWriteoff {
   createdAtIso: string
   createdBy?: string
   reason: string
+  note?: string
   totalCost: number
   items: StockWriteoffItem[]
 }

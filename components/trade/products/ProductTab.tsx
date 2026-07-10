@@ -6,7 +6,7 @@ import ProductArrivalsPanel from './ProductArrivalsPanel'
 import { money, stockStatus } from './productFormShared'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
-import { productBarcodeSearchText, productBarcodes } from '@/lib/productBarcodes'
+import { productBarcodes, productMatchesSearch } from '@/lib/productBarcodes'
 import {
   categoryDisplayLabel,
   categorySlug,
@@ -111,10 +111,10 @@ export default function ProductTab({
     return true
   }
 
-  const q = search.trim().toLowerCase()
+  const q = search.trim()
   const filtered = products.filter(p => {
     const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-    const matchQ = !q || `${p.name} ${p.art} ${productBarcodeSearchText(p)} ${p.cat} ${catLabel}`.toLowerCase().includes(q)
+    const matchQ = productMatchesSearch(p, q, `${p.cat} ${catLabel}`)
     const matchC = productMatchesCategoryFilter(p.catId, catFlt, categories)
     return matchQ && matchC && matchStat(p)
   })
@@ -139,10 +139,10 @@ export default function ProductTab({
   }
 
   if (view === 'edit') {
-    const qList = search.trim().toLowerCase()
+    const qList = search.trim()
     const list = products.filter(p => {
       const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-      return !qList || `${p.name} ${p.art} ${productBarcodeSearchText(p)} ${catLabel}`.toLowerCase().includes(qList)
+      return productMatchesSearch(p, qList, catLabel)
     })
     const editProduct = selectedId ? products.find(p => p.id === selectedId) || null : null
 

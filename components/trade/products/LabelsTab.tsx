@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
-import { productBarcodeSearchText } from '@/lib/productBarcodes'
+import { productMatchesSearch } from '@/lib/productBarcodes'
 import type { Product, ProductStockLayer } from '@/lib/types'
 import LabelCard from './LabelCard'
 import LabelDesignModal from './LabelDesignModal'
@@ -72,9 +72,9 @@ export default function LabelsTab({
     ? `${design.paperWidthMm}×${design.paperHeightMm || '∞'} мм`
     : PAPER_PRESETS[design.paperPreset]?.label || 'Свой'
 
-  const q = (labelSearch.trim() || search.trim()).toLowerCase()
+  const q = labelSearch.trim() || search.trim()
   const filtered = useMemo(
-    () => products.filter(p => !q || `${p.name} ${p.art} ${productBarcodeSearchText(p)}`.toLowerCase().includes(q)),
+    () => products.filter(p => productMatchesSearch(p, q)),
     [products, q],
   )
 
@@ -237,7 +237,7 @@ export default function LabelsTab({
               className="k-inp"
               value={labelSearch}
               onChange={e => setLabelSearch(e.target.value)}
-              placeholder="Поиск по названию или штрихкоду…"
+              placeholder="Поиск: штрихкод, название, артикул…"
               style={{ marginBottom: 12 }}
             />
             <div className="k-tbl-scroll" style={{ maxHeight: '52vh' }}>

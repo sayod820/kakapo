@@ -586,6 +586,7 @@ export const api = {
   getStockWriteoffs: () => request<StockWriteoff[]>('/stock/writeoffs'),
   createStockWriteoff: (data: {
     reason: string
+    note?: string
     createdBy?: string
     items: { productId: number; qty: number }[]
   }) => request<StockWriteoff>('/stock/writeoffs', { method: 'POST', body: JSON.stringify(data) }),

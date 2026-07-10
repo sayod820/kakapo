@@ -1,3 +1,6 @@
+import type { Product } from '@/lib/types'
+import { filterProductsBySearch } from '@/lib/productBarcodes'
+
 export type WarehouseTab = 'stock' | 'receipts' | 'writeoffs' | 'revisions' | 'expiry'
 
 export const WAREHOUSE_TABS: { id: WarehouseTab; label: string; icon: string }[] = [
@@ -31,8 +34,28 @@ export function fmtDateTime(iso: string) {
   }
 }
 
-export function filterProducts(products: { id: number; name: string; art?: string }[], q: string) {
-  const s = q.trim().toLowerCase()
-  if (!s) return products.slice(0, 30)
-  return products.filter(p => `${p.name} ${p.art || ''}`.toLowerCase().includes(s)).slice(0, 30)
+export function filterProducts(products: Product[], q: string) {
+  return filterProductsBySearch(products, q, 30)
+}
+
+export type WriteoffReason = {
+  id: string
+  label: string
+  icon: string
+  color: string
+  bg: string
+}
+
+export const WRITEOFF_REASONS: WriteoffReason[] = [
+  { id: 'Порча', label: 'Порча', icon: '🗑️', color: '#FF5A5A', bg: 'rgba(255,90,90,.12)' },
+  { id: 'Брак', label: 'Брак', icon: '⚠️', color: '#FFB800', bg: 'rgba(255,184,0,.12)' },
+  { id: 'Просрочка', label: 'Просрочка', icon: '⏰', color: '#FF9F43', bg: 'rgba(255,159,67,.12)' },
+  { id: 'Подарок', label: 'Подарок', icon: '🎁', color: '#9B6DFF', bg: 'rgba(155,109,255,.12)' },
+  { id: 'Внутреннее использование', label: 'Внутр. исп.', icon: '🏠', color: '#3B8EF0', bg: 'rgba(59,142,240,.12)' },
+  { id: 'Другое', label: 'Другое', icon: '📝', color: '#7E9A86', bg: 'rgba(126,154,134,.12)' },
+]
+
+export function writeoffReasonMeta(reason: string): WriteoffReason {
+  return WRITEOFF_REASONS.find(r => r.id === reason || reason.startsWith(r.id))
+    || WRITEOFF_REASONS.find(r => r.id === 'Другое')!
 }

@@ -429,12 +429,18 @@ export function createStockWriteoff(db, data = {}) {
     createdAtIso: nowIso(),
     createdBy: String(data.createdBy || '').trim(),
     reason: String(data.reason || '').trim() || 'Списание',
+    note: String(data.note || '').trim(),
     totalCost: round2(rows.reduce((sum, row) => sum + (Number(row.product.costPrice) || 0) * row.qty, 0)),
-    items: rows.map(row => ({
-      productId: row.product.id,
-      productName: row.product.name,
-      qty: row.qty,
-    })),
+    items: rows.map(row => {
+      const unitCost = round2(Number(row.product.costPrice) || 0)
+      return {
+        productId: row.product.id,
+        productName: row.product.name,
+        qty: row.qty,
+        unitCost,
+        lineCost: round2(unitCost * row.qty),
+      }
+    }),
   }
   db.writeOffs.unshift(writeoff)
   return writeoff

@@ -24,6 +24,7 @@ import {
   type ReceiptDraft,
   type ReceiptDraftLine,
 } from './receiptDraftStorage'
+import { documentProductMatchesSearch } from '@/lib/productBarcodes'
 import { fmtDateTime, fmtMoney } from './warehouseShared'
 
 const QUICK_MARKUPS = [20, 30, 40, 50]
@@ -226,6 +227,7 @@ export default function WarehouseReceiptsPanel({
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [listSearch, setListSearch] = useState('')
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
   const [newProductLineKey, setNewProductLineKey] = useState<string | null>(null)
@@ -492,19 +494,38 @@ export default function WarehouseReceiptsPanel({
   const hasDraft = lines.some(l => l.productId || l.qty || l.costPrice)
   const filledLines = lines.filter(l => l.productId)
 
+  const filteredReceipts = useMemo(() => {
+    const q = listSearch.trim()
+    if (!q) return receipts
+    const ql = q.toLowerCase()
+    return receipts.filter(r => {
+      if ((r.supplierName || '').toLowerCase().includes(ql)) return true
+      return r.items.some(it => documentProductMatchesSearch(it.productId, it.productName, products, q))
+    })
+  }, [receipts, listSearch, products])
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
-        {hasDraft && !open && (
-          <span style={{ fontSize: 12, color: 'var(--gold)', alignSelf: 'center' }}>● Черновик сохранён</span>
-        )}
-        <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
-          + Новый приход
-        </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <input
+          className="k-inp"
+          style={{ flex: '1 1 220px', maxWidth: 360 }}
+          placeholder="Поиск: штрихкод, название, артикул, поставщик…"
+          value={listSearch}
+          onChange={e => setListSearch(e.target.value)}
+        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {hasDraft && !open && (
+            <span style={{ fontSize: 12, color: 'var(--gold)', alignSelf: 'center' }}>● Черновик сохранён</span>
+          )}
+          <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
+            + Новый приход
+          </button>
+        </div>
       </div>
 
-      {!receipts.length ? (
-        <div className="k-empty">Приходов пока нет</div>
+      {!filteredReceipts.length ? (
+        <div className="k-empty">{receipts.length ? 'Ничего не найдено' : 'Приходов пока нет'}</div>
       ) : (
         <div className="k-card k-tbl-scroll">
           <table className="k-tbl">
@@ -520,7 +541,7 @@ export default function WarehouseReceiptsPanel({
               </tr>
             </thead>
             <tbody>
-              {receipts.map(r => (
+              {filteredReceipts.map(r => (
                 <Fragment key={r.id}>
                   <tr>
                     <td>{fmtDateTime(r.createdAtIso)}</td>
@@ -676,7 +697,7 @@ export default function WarehouseReceiptsPanel({
                       value={null}
                       onChange={p => { if (p) selectProduct(pending.key, p) }}
                       onCreateNew={name => openNewProduct(pending.key, name)}
-                      placeholder="Начните вводить название…"
+                      placeholder="Начните вводить название, артикул или штрихкод…"
                     />
                     <button type="button" className="k-btn k-btn-s" style={{ marginTop: 10, fontSize: 12 }} onClick={() => openNewProduct(pending.key, '')}>
                       + Создать новый товар

@@ -139,6 +139,7 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
             <WarehouseExpiryPanel
               expiry={expiry}
               days={expiryDays}
+              products={products}
               onDaysChange={setExpiryDays}
             />
           )
