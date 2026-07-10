@@ -498,6 +498,14 @@ export function updateStockReceipt(db, id, data = {}) {
   return buildStockReceipt(db, data, meta)
 }
 
+export function deleteStockReceipt(db, id) {
+  ensurePosCollections(db)
+  const receipt = (db.stockReceipts || []).find(r => r.id === id)
+  if (!receipt) throw new Error('Приход не найден')
+  reverseStockReceipt(db, receipt)
+  return { id }
+}
+
 function buildStockWriteoff(db, data = {}, meta = {}) {
   const rows = consumeStock(db, Array.isArray(data.items) ? data.items : [])
   const writeoff = {
@@ -545,6 +553,16 @@ export function updateStockWriteoff(db, id, data = {}) {
   reverseStockWriteoff(db, old)
   db.writeOffs.splice(idx, 1)
   return buildStockWriteoff(db, data, meta)
+}
+
+export function deleteStockWriteoff(db, id) {
+  ensurePosCollections(db)
+  const idx = (db.writeOffs || []).findIndex(w => w.id === id)
+  if (idx < 0) throw new Error('Списание не найдено')
+  const old = db.writeOffs[idx]
+  reverseStockWriteoff(db, old)
+  db.writeOffs.splice(idx, 1)
+  return { id }
 }
 
 export function listStockRevisions(db) {
@@ -606,6 +624,16 @@ export function updateStockRevision(db, id, data = {}) {
   reverseStockRevision(db, old)
   db.stockRevisions.splice(idx, 1)
   return buildStockRevision(db, data, meta)
+}
+
+export function deleteStockRevision(db, id) {
+  ensurePosCollections(db)
+  const idx = (db.stockRevisions || []).findIndex(r => r.id === id)
+  if (idx < 0) throw new Error('Ревизия не найдена')
+  const old = db.stockRevisions[idx]
+  reverseStockRevision(db, old)
+  db.stockRevisions.splice(idx, 1)
+  return { id }
 }
 
 export function listExpiryItems(db, days = 14) {

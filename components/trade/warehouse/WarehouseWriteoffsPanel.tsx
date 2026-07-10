@@ -177,6 +177,7 @@ export default function WarehouseWriteoffsPanel({
   const [msg, setMsg] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [reasonFilter, setReasonFilter] = useState('all')
@@ -400,6 +401,24 @@ export default function WarehouseWriteoffsPanel({
     }
   }
 
+  async function removeWriteoff(id: string) {
+    if (!USE_API) return
+    const writeoff = writeoffs.find(w => w.id === id)
+    if (!writeoff) return
+    if (!confirm(`Удалить списание от ${fmtDateTime(writeoff.createdAtIso)}?\n\nТовар вернётся на склад.`)) return
+    setDeletingId(id)
+    try {
+      await api.deleteStockWriteoff(id)
+      if (editingId === id) resetForm()
+      if (expanded === id) setExpanded(null)
+      await Promise.all([onRefresh(), fetchProducts()])
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось удалить списание')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <div>
       <div className="k-kpis" style={{ marginBottom: 14 }}>
@@ -506,6 +525,16 @@ export default function WarehouseWriteoffsPanel({
                       <td>
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                           <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={e => { e.stopPropagation(); openEditForm(w) }} title="Редактировать">✎</button>
+                          <button
+                            type="button"
+                            className="k-btn k-btn-s"
+                            style={{ padding: '4px 10px', color: 'var(--red)' }}
+                            disabled={!USE_API || deletingId === w.id}
+                            onClick={e => { e.stopPropagation(); void removeWriteoff(w.id) }}
+                            title="Удалить"
+                          >
+                            {deletingId === w.id ? '…' : '🗑'}
+                          </button>
                           <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : w.id) }}>
                             {isOpen ? '▲' : '▼'}
                           </button>
@@ -704,6 +733,17 @@ export default function WarehouseWriteoffsPanel({
                   : `Списать${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
               </button>
               <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
+              {editingId && (
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  style={{ color: 'var(--red)' }}
+                  disabled={saving || deletingId === editingId}
+                  onClick={() => void removeWriteoff(editingId)}
+                >
+                  {deletingId === editingId ? 'Удаление…' : 'Удалить'}
+                </button>
+              )}
               <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
             </div>
           </div>

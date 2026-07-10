@@ -162,6 +162,7 @@ export default function WarehouseRevisionsPanel({
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [modalStep, setModalStep] = useState<'scope' | 'count'>('scope')
   const [scopeLabel, setScopeLabel] = useState('Все категории')
   const [countSearch, setCountSearch] = useState('')
@@ -376,6 +377,24 @@ export default function WarehouseRevisionsPanel({
     }
   }
 
+  async function removeRevision(id: string) {
+    if (!USE_API) return
+    const revision = revisions.find(r => r.id === id)
+    if (!revision) return
+    if (!confirm(`Удалить ревизию от ${fmtDateTime(revision.createdAtIso)}?\n\nОстатки вернутся к значениям до ревизии.`)) return
+    setDeletingId(id)
+    try {
+      await api.deleteStockRevision(id)
+      if (editingId === id) resetForm()
+      if (expanded === id) setExpanded(null)
+      await Promise.all([onRefresh(), fetchProducts()])
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось удалить ревизию')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <div>
       <div className="k-kpis" style={{ marginBottom: 14 }}>
@@ -467,6 +486,16 @@ export default function WarehouseRevisionsPanel({
                       <td>
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                           <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={e => { e.stopPropagation(); openEditForm(rev) }} title="Редактировать">✎</button>
+                          <button
+                            type="button"
+                            className="k-btn k-btn-s"
+                            style={{ padding: '4px 10px', color: 'var(--red)' }}
+                            disabled={!USE_API || deletingId === rev.id}
+                            onClick={e => { e.stopPropagation(); void removeRevision(rev.id) }}
+                            title="Удалить"
+                          >
+                            {deletingId === rev.id ? '…' : '🗑'}
+                          </button>
                           <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : rev.id) }}>
                             {isOpen ? '▲' : '▼'}
                           </button>
@@ -677,6 +706,17 @@ export default function WarehouseRevisionsPanel({
                       : `Провести ревизию${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
                   </button>
                   <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
+                  {editingId && (
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      style={{ color: 'var(--red)' }}
+                      disabled={saving || deletingId === editingId}
+                      onClick={() => void removeRevision(editingId)}
+                    >
+                      {deletingId === editingId ? 'Удаление…' : 'Удалить'}
+                    </button>
+                  )}
                   <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
                 </div>
               </>

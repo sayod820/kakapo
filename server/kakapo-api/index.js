@@ -68,15 +68,18 @@ import {
   listStockReceipts,
   createStockReceipt,
   updateStockReceipt,
+  deleteStockReceipt,
   listProductStockLayers,
   addProductStockLayer,
   updateProductStockLayer,
   listStockWriteoffs,
   createStockWriteoff,
   updateStockWriteoff,
+  deleteStockWriteoff,
   listStockRevisions,
   createStockRevision,
   updateStockRevision,
+  deleteStockRevision,
   listExpiryItems,
   listPosSales,
   createPosSale,
@@ -1283,6 +1286,17 @@ app.put('/stock/receipts/:id', (req, res) => {
     res.status(400).json({ detail: e?.message || 'Не удалось изменить приход' })
   }
 })
+app.delete('/stock/receipts/:id', (req, res) => {
+  try {
+    const row = deleteStockReceipt(db, req.params.id)
+    persist()
+    broadcastPosUpdate({ kind: 'receipt', id: row.id, deleted: true })
+    broadcastProduct({ reason: 'receipt-delete' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить приход' })
+  }
+})
 app.get('/stock/writeoffs', (_req, res) => {
   res.json(listStockWriteoffs(db))
 })
@@ -1308,6 +1322,17 @@ app.put('/stock/writeoffs/:id', (req, res) => {
     res.status(400).json({ detail: e?.message || 'Не удалось изменить списание' })
   }
 })
+app.delete('/stock/writeoffs/:id', (req, res) => {
+  try {
+    const row = deleteStockWriteoff(db, req.params.id)
+    persist()
+    broadcastPosUpdate({ kind: 'writeoff', id: row.id, deleted: true })
+    broadcastProduct({ reason: 'writeoff-delete' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить списание' })
+  }
+})
 app.get('/stock/revisions', (_req, res) => {
   res.json(listStockRevisions(db))
 })
@@ -1331,6 +1356,17 @@ app.put('/stock/revisions/:id', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось изменить ревизию' })
+  }
+})
+app.delete('/stock/revisions/:id', (req, res) => {
+  try {
+    const row = deleteStockRevision(db, req.params.id)
+    persist()
+    broadcastPosUpdate({ kind: 'revision', id: row.id, deleted: true })
+    broadcastProduct({ reason: 'revision-delete' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить ревизию' })
   }
 })
 app.get('/stock/expiry', (req, res) => {

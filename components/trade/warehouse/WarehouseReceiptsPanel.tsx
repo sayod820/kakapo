@@ -232,6 +232,7 @@ export default function WarehouseReceiptsPanel({
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
   const [newProductLineKey, setNewProductLineKey] = useState<string | null>(null)
@@ -504,6 +505,24 @@ export default function WarehouseReceiptsPanel({
     }
   }
 
+  async function removeReceipt(id: string) {
+    if (!USE_API) return
+    const receipt = receipts.find(r => r.id === id)
+    if (!receipt) return
+    if (!confirm(`Удалить приход от ${fmtDateTime(receipt.createdAtIso)}?\n\nТовар будет списан со склада, долг поставщику скорректируется.`)) return
+    setDeletingId(id)
+    try {
+      await api.deleteStockReceipt(id)
+      if (editingId === id) resetForm()
+      if (expanded === id) setExpanded(null)
+      await Promise.all([onRefresh(), fetchProducts()])
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось удалить приход')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   const editingReceipt = editingId ? receipts.find(r => r.id === editingId) || null : null
 
   const hasDraft = !editingId && lines.some(l => l.productId || l.qty || l.costPrice)
@@ -570,6 +589,16 @@ export default function WarehouseReceiptsPanel({
                     <td>
                       <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                         <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={() => openEditForm(r)} title="Редактировать">✎</button>
+                        <button
+                          type="button"
+                          className="k-btn k-btn-s"
+                          style={{ padding: '4px 10px', color: 'var(--red)' }}
+                          disabled={!USE_API || deletingId === r.id}
+                          onClick={() => void removeReceipt(r.id)}
+                          title="Удалить"
+                        >
+                          {deletingId === r.id ? '…' : '🗑'}
+                        </button>
                         <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
                           {expanded === r.id ? '▲' : '▼'}
                         </button>
@@ -740,6 +769,17 @@ export default function WarehouseReceiptsPanel({
                   : `Провести приход${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
               </button>
               <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
+              {editingId && (
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  style={{ color: 'var(--red)' }}
+                  disabled={saving || deletingId === editingId}
+                  onClick={() => void removeReceipt(editingId)}
+                >
+                  {deletingId === editingId ? 'Удаление…' : 'Удалить'}
+                </button>
+              )}
               <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
             </div>
           </div>

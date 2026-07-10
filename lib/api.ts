@@ -588,6 +588,8 @@ export const api = {
     paidNow?: number
     items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; bulkPricing?: { minQty: number; price: number }[]; expiryDate?: string | null }[]
   }) => request<StockReceipt>(`/stock/receipts/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteStockReceipt: (id: string) =>
+    request<{ id: string }>(`/stock/receipts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getStockWriteoffs: () => request<StockWriteoff[]>('/stock/writeoffs'),
   createStockWriteoff: (data: {
     reason: string
@@ -601,6 +603,8 @@ export const api = {
     createdBy?: string
     items: { productId: number; qty: number }[]
   }) => request<StockWriteoff>(`/stock/writeoffs/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteStockWriteoff: (id: string) =>
+    request<{ id: string }>(`/stock/writeoffs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getStockRevisions: () => request<StockRevision[]>('/stock/revisions'),
   createStockRevision: (data: {
     createdBy?: string
@@ -612,6 +616,8 @@ export const api = {
     note?: string
     items: { productId: number; countedStock: number }[]
   }) => request<StockRevision>(`/stock/revisions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteStockRevision: (id: string) =>
+    request<{ id: string }>(`/stock/revisions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getStockExpiry: (days = 14) =>
     request<Array<{
       receiptId: string
