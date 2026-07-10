@@ -21,6 +21,8 @@ import {
 } from './receiptDraftStorage'
 import { fmtDateTime, fmtMoney } from './warehouseShared'
 
+const QUICK_MARKUPS = [20, 30, 40, 50]
+
 function fillLineFromProduct(line: ReceiptDraftLine, product: Product): ReceiptDraftLine {
   const cost = product.costPrice != null ? String(product.costPrice) : line.costPrice
   const costNum = Number(cost) || 0
@@ -41,7 +43,136 @@ function fillLineFromProduct(line: ReceiptDraftLine, product: Product): ReceiptD
     retailPrice = String(productRetail)
   }
 
-  return { ...line, productId: product.id, costPrice: cost, retailPrice, markupPct }
+  return {
+    ...line,
+    productId: product.id,
+    costPrice: cost,
+    retailPrice,
+    markupPct,
+    qty: line.qty || '1',
+  }
+}
+
+function ReceiptLineCard({
+  line,
+  idx,
+  product,
+  active,
+  canRemove,
+  onClear,
+  onRemove,
+  onActivate,
+  onQty,
+  onCost,
+  onMarkup,
+  onRetail,
+  onExpiry,
+  onQuickMarkup,
+  cardRef,
+  qtyRef,
+}: {
+  line: ReceiptDraftLine
+  idx: number
+  product: Product
+  active: boolean
+  canRemove: boolean
+  onClear: () => void
+  onRemove: () => void
+  onActivate: () => void
+  onQty: (v: string) => void
+  onCost: (v: string) => void
+  onMarkup: (v: string) => void
+  onRetail: (v: string) => void
+  onExpiry: (v: string) => void
+  onQuickMarkup: (pct: number) => void
+  cardRef: (el: HTMLDivElement | null) => void
+  qtyRef: (el: HTMLInputElement | null) => void
+}) {
+  const lineCost = (Number(line.qty) || 0) * (Number(line.costPrice) || 0)
+  const lineRetail = (Number(line.qty) || 0) * (Number(line.retailPrice) || 0)
+
+  return (
+    <div
+      ref={cardRef}
+      onClick={onActivate}
+      style={{
+        padding: 14,
+        borderRadius: 12,
+        border: `1px solid ${active ? 'var(--green)' : 'var(--border)'}`,
+        background: active ? 'rgba(31,215,96,.06)' : 'var(--card2)',
+        marginBottom: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--muted)', minWidth: 22, paddingTop: 4 }}>{idx + 1}</span>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 28 }}>{product.e || '📦'}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 900, fontSize: 16 }}>{product.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              {product.art} · на складе {product.stock ?? 0} {product.unit || 'шт'}
+            </div>
+          </div>
+          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={e => { e.stopPropagation(); onClear() }}>Сменить</button>
+        </div>
+        {canRemove && (
+          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px' }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+        )}
+      </div>
+
+      <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10 }}>
+            <div className="k-field" style={{ marginBottom: 0 }}>
+              <label>Кол-во</label>
+              <input ref={qtyRef} className="k-inp" type="number" min="0" step="any" value={line.qty} onChange={e => onQty(e.target.value)} onClick={e => e.stopPropagation()} />
+            </div>
+            <div className="k-field" style={{ marginBottom: 0 }}>
+              <label>Закуп (сом)</label>
+              <input className="k-inp" type="number" min="0" step="0.01" value={line.costPrice} onChange={e => onCost(e.target.value)} onClick={e => e.stopPropagation()} />
+            </div>
+            <div className="k-field" style={{ marginBottom: 0 }}>
+              <label>Наценка %</label>
+              <input className="k-inp" type="number" step="0.1" value={line.markupPct} onChange={e => onMarkup(e.target.value)} onClick={e => e.stopPropagation()} />
+            </div>
+            <div className="k-field" style={{ marginBottom: 0 }}>
+              <label>Розница (сом)</label>
+              <input className="k-inp" type="number" min="0" step="0.01" value={line.retailPrice} onChange={e => onRetail(e.target.value)} onClick={e => e.stopPropagation()} />
+            </div>
+            <div className="k-field" style={{ marginBottom: 0 }}>
+              <label>Срок годности</label>
+              <input className="k-inp" type="date" value={line.expiryDate} onChange={e => onExpiry(e.target.value)} onClick={e => e.stopPropagation()} />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Быстрая наценка:</span>
+            {QUICK_MARKUPS.map(p => (
+              <button
+                key={p}
+                type="button"
+                onClick={e => { e.stopPropagation(); onQuickMarkup(p) }}
+                style={{
+                  border: `1px solid ${line.markupPct === String(p) ? 'var(--green)' : 'var(--border)'}`,
+                  background: line.markupPct === String(p) ? 'var(--green-d)' : 'var(--card)',
+                  color: line.markupPct === String(p) ? 'var(--green)' : 'var(--muted)',
+                  borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                }}
+              >
+                {p}%
+              </button>
+            ))}
+          </div>
+
+          {(lineCost > 0 || lineRetail > 0) && (
+            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              <span>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(lineCost)}</b></span>
+              <span>Продажа: <b style={{ color: 'var(--green)' }}>{fmtMoney(lineRetail)}</b></span>
+              {lineCost > 0 && lineRetail > 0 && (
+                <span>Наценка: <b style={{ color: 'var(--green)' }}>+{markupFromRetail(lineCost / (Number(line.qty) || 1), lineRetail / (Number(line.qty) || 1)).toFixed(1)}%</b></span>
+              )}
+            </div>
+          )}
+    </div>
+  )
 }
 
 export default function WarehouseReceiptsPanel({
@@ -59,7 +190,8 @@ export default function WarehouseReceiptsPanel({
   const hydrated = useRef(false)
   const scrollRestored = useRef(false)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const lineRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
+  const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const qtyRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [draft, setDraft] = useState<ReceiptDraft>(() => defaultReceiptDraft())
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -73,8 +205,7 @@ export default function WarehouseReceiptsPanel({
   useEffect(() => {
     if (hydrated.current) return
     hydrated.current = true
-    const saved = loadReceiptDraft()
-    setDraft(saved)
+    setDraft(loadReceiptDraft())
   }, [])
 
   useEffect(() => {
@@ -99,6 +230,14 @@ export default function WarehouseReceiptsPanel({
     if (!open) scrollRestored.current = false
   }, [open])
 
+  useEffect(() => {
+    if (!open || !hydrated.current) return
+    setDraft(prev => {
+      if (prev.lines.some(l => !l.productId)) return prev
+      return { ...prev, lines: [...prev.lines, emptyReceiptLine()] }
+    })
+  }, [open])
+
   const setDraftPatch = useCallback((patch: Partial<ReceiptDraft>) => {
     setDraft(prev => ({ ...prev, ...patch }))
   }, [])
@@ -118,6 +257,12 @@ export default function WarehouseReceiptsPanel({
     setDraft(prev => (prev.scrollTop === top ? prev : { ...prev, scrollTop: top }))
   }
 
+  function ensureTrailingEmptyLine(updatedLines: ReceiptDraftLine[]) {
+    const last = updatedLines[updatedLines.length - 1]
+    if (last?.productId) return [...updatedLines, emptyReceiptLine()]
+    return updatedLines
+  }
+
   function addLine() {
     const line = emptyReceiptLine()
     setDraft(prev => ({
@@ -125,19 +270,12 @@ export default function WarehouseReceiptsPanel({
       lines: [...prev.lines, line],
       activeLineKey: line.key,
     }))
-    requestAnimationFrame(() => {
-      lineRefs.current[line.key]?.scrollIntoView({ block: 'center' })
-    })
+    requestAnimationFrame(() => lineRefs.current[line.key]?.scrollIntoView({ block: 'center' }))
   }
 
   function openForm() {
     setDraft(prev => ({ ...prev, open: true }))
     setMsg('')
-  }
-
-  function applyQuickMarkup(key: string, pct: number) {
-    setLineMarkup(key, String(pct))
-    setActiveLine(key)
   }
 
   function closeForm() {
@@ -201,16 +339,23 @@ export default function WarehouseReceiptsPanel({
   }
 
   function selectProduct(key: string, product: Product | null) {
-    setActiveLine(key)
     if (!product) {
-      updateLine(key, { productId: null })
+      updateLine(key, { productId: null, qty: '', costPrice: '', retailPrice: '', markupPct: '' })
+      setActiveLine(key)
       return
     }
-    setDraft(prev => ({
-      ...prev,
-      activeLineKey: key,
-      lines: prev.lines.map(l => (l.key === key ? fillLineFromProduct(l, product) : l)),
-    }))
+    setDraft(prev => {
+      const updated = prev.lines.map(l => (l.key === key ? fillLineFromProduct(l, product) : l))
+      return {
+        ...prev,
+        activeLineKey: key,
+        lines: ensureTrailingEmptyLine(updated),
+      }
+    })
+    requestAnimationFrame(() => {
+      qtyRefs.current[key]?.focus()
+      qtyRefs.current[key]?.select()
+    })
   }
 
   function openNewProduct(key: string, name: string) {
@@ -230,14 +375,15 @@ export default function WarehouseReceiptsPanel({
     let retailTotal = 0
     let count = 0
     for (const l of lines) {
-      if (!l.productId || !(Number(l.qty) > 0)) continue
-      count++
+      if (!l.productId) continue
       const qty = Number(l.qty) || 0
+      if (qty <= 0) continue
+      count++
       costTotal += qty * (Number(l.costPrice) || 0)
       retailTotal += qty * (Number(l.retailPrice) || 0)
     }
     const markup = costTotal > 0 ? ((retailTotal - costTotal) / costTotal) * 100 : 0
-    return { costTotal, retailTotal, markup, count }
+    return { costTotal, retailTotal, markup, count, withProduct: lines.filter(l => l.productId).length }
   }, [lines])
 
   async function submit() {
@@ -252,7 +398,7 @@ export default function WarehouseReceiptsPanel({
         expiryDate: l.expiryDate || null,
       }))
     if (!items.length) {
-      setMsg('Добавьте хотя бы один товар с количеством')
+      setMsg('Добавьте товар и укажите количество')
       return
     }
     setSaving(true)
@@ -273,6 +419,7 @@ export default function WarehouseReceiptsPanel({
   }
 
   const hasDraft = lines.some(l => l.productId || l.qty || l.costPrice)
+  const filledLines = lines.filter(l => l.productId)
 
   return (
     <div>
@@ -359,20 +506,13 @@ export default function WarehouseReceiptsPanel({
           <div
             className="k-modal k-receipt-modal"
             onClick={e => e.stopPropagation()}
-            style={{
-              width: 'min(98vw, 1320px)',
-              maxWidth: '98vw',
-              height: '96vh',
-              maxHeight: '96vh',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
+            style={{ width: 'min(98vw, 900px)', maxWidth: '98vw', height: '96vh', maxHeight: '96vh', display: 'flex', flexDirection: 'column' }}
           >
             <div className="k-modal-h" style={{ flexShrink: 0 }}>
               <div>
                 <b>📥 Новый приход</b>
                 <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
-                  Черновик сохраняется — после обновления страницы всё останется на месте
+                  Выберите товар → поля заполнятся сами → укажите количество
                 </div>
               </div>
               <button type="button" onClick={closeForm}>✕</button>
@@ -396,119 +536,89 @@ export default function WarehouseReceiptsPanel({
               </div>
             </div>
 
-            {totals.count > 0 && (
-              <div style={{
-                flexShrink: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10,
-                padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
-              }}>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма закуп</div><div style={{ fontWeight: 900, fontSize: 18 }}>{fmtMoney(totals.costTotal)}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма продажи</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>Наценка</div>
-                  <div style={{ fontWeight: 900, fontSize: 18, color: totals.markup >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                    {totals.markup >= 0 ? '+' : ''}{totals.markup.toFixed(1)}%
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--muted)' }}>маржа {fmtMoney(totals.retailTotal - totals.costTotal)}</div>
+            <div style={{
+              flexShrink: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10,
+              padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
+            }}>
+              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Товаров</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.withProduct}</div></div>
+              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма закуп</div><div style={{ fontWeight: 900, fontSize: 18 }}>{fmtMoney(totals.costTotal)}</div></div>
+              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма продажи</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)' }}>Наценка</div>
+                <div style={{ fontWeight: 900, fontSize: 18, color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+                  {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
                 </div>
               </div>
-            )}
+            </div>
 
-            <div
-              ref={bodyRef}
-              className="k-modal-b"
-              onScroll={onBodyScroll}
-              style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)' }}>Товары · {lines.length}</div>
-                <button type="button" className="k-btn k-btn-s" onClick={addLine}>+ Строка</button>
-              </div>
+            <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
+              {filledLines.map((line, idx) => {
+                const product = products.find(p => p.id === line.productId) || null
+                if (!product) return null
+                return (
+                  <ReceiptLineCard
+                    key={line.key}
+                    line={line}
+                    idx={idx}
+                    product={product}
+                    active={activeLineKey === line.key}
+                    canRemove={filledLines.length > 0}
+                    onClear={() => selectProduct(line.key, null)}
+                    onRemove={() => setDraft(prev => ({
+                      ...prev,
+                      lines: prev.lines.filter(l => l.key !== line.key),
+                      activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
+                    }))}
+                    onActivate={() => setActiveLine(line.key)}
+                    onQty={v => updateLine(line.key, { qty: v })}
+                    onCost={v => setLineCost(line.key, v)}
+                    onMarkup={v => setLineMarkup(line.key, v)}
+                    onRetail={v => setLineRetail(line.key, v)}
+                    onExpiry={v => updateLine(line.key, { expiryDate: v })}
+                    onQuickMarkup={p => setLineMarkup(line.key, String(p))}
+                    cardRef={el => { lineRefs.current[line.key] = el }}
+                    qtyRef={el => { qtyRefs.current[line.key] = el }}
+                  />
+                )
+              })}
 
-              <div className="k-card" style={{ overflow: 'auto' }}>
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 36 }}>#</th>
-                      <th>Товар</th>
-                      <th className="num" style={{ width: 80 }}>Кол-во</th>
-                      <th className="num" style={{ width: 90 }}>Закуп</th>
-                      <th className="num" style={{ width: 80 }}>Наценка</th>
-                      <th className="num" style={{ width: 90 }}>Розница</th>
-                      <th style={{ width: 130 }}>Срок</th>
-                      <th style={{ width: 100 }} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((line, idx) => {
-                      const product = products.find(p => p.id === line.productId) || null
-                      const active = activeLineKey === line.key
-                      const lineCost = (Number(line.qty) || 0) * (Number(line.costPrice) || 0)
-                      const lineRetail = (Number(line.qty) || 0) * (Number(line.retailPrice) || 0)
-                      return (
-                        <tr
-                          key={line.key}
-                          ref={el => { lineRefs.current[line.key] = el }}
-                          onClick={() => setActiveLine(line.key)}
-                          style={{
-                            background: active ? 'rgba(31,215,96,.08)' : undefined,
-                            outline: active ? '1px solid var(--green)' : undefined,
-                          }}
-                        >
-                          <td style={{ color: 'var(--muted)', fontWeight: 800 }}>{idx + 1}</td>
-                          <td>
-                            <WarehouseProductSelect
-                              products={products}
-                              value={line.productId}
-                              onChange={p => selectProduct(line.key, p)}
-                              onCreateNew={name => openNewProduct(line.key, name)}
-                            />
-                            {product && (
-                              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-                                {product.art} · остаток {product.stock ?? 0} {product.unit || 'шт'}
-                                {lineCost > 0 && <> · {fmtMoney(lineCost)} → {fmtMoney(lineRetail)}</>}
-                              </div>
-                            )}
-                          </td>
-                          <td className="num">
-                            <input className="k-inp" type="number" min="0" step="any" value={line.qty} onChange={e => updateLine(line.key, { qty: e.target.value })} onFocus={() => setActiveLine(line.key)} />
-                          </td>
-                          <td className="num">
-                            <input className="k-inp" type="number" min="0" step="0.01" value={line.costPrice} onChange={e => setLineCost(line.key, e.target.value)} onFocus={() => setActiveLine(line.key)} />
-                          </td>
-                          <td className="num">
-                            <input className="k-inp" type="number" step="0.1" value={line.markupPct} onChange={e => setLineMarkup(line.key, e.target.value)} placeholder="30" onFocus={() => setActiveLine(line.key)} />
-                            <div style={{ display: 'flex', gap: 2, marginTop: 4, flexWrap: 'wrap' }}>
-                              {[20, 30, 40, 50].map(p => (
-                                <button key={p} type="button" onClick={() => applyQuickMarkup(line.key, p)} style={{ border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--muted)', borderRadius: 4, padding: '1px 5px', fontSize: 9, cursor: 'pointer' }}>{p}%</button>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="num">
-                            <input className="k-inp" type="number" min="0" step="0.01" value={line.retailPrice} onChange={e => setLineRetail(line.key, e.target.value)} onFocus={() => setActiveLine(line.key)} />
-                          </td>
-                          <td>
-                            <input className="k-inp" type="date" value={line.expiryDate} onChange={e => updateLine(line.key, { expiryDate: e.target.value })} onFocus={() => setActiveLine(line.key)} />
-                          </td>
-                          <td>
-                            <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11, marginBottom: 4, width: '100%' }} onClick={() => openNewProduct(line.key, '')}>+ Товар</button>
-                            <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11, width: '100%' }} disabled={lines.length <= 1} onClick={() => setDraft(prev => ({ ...prev, lines: prev.lines.filter(l => l.key !== line.key), activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey }))}>✕</button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              {(() => {
+                const pending = [...lines].reverse().find(l => !l.productId)!
+                const pendingIdx = lines.filter(l => l.productId).length
+                return (
+                  <div
+                    ref={el => { if (pending) lineRefs.current[pending.key] = el }}
+                    style={{
+                      padding: 16,
+                      borderRadius: 12,
+                      border: '2px dashed var(--green)',
+                      background: 'rgba(31,215,96,.04)',
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--green)', marginBottom: 10 }}>
+                      {filledLines.length ? `+ Добавить товар ${pendingIdx + 1}` : '1. Найдите или создайте товар'}
+                    </div>
+                    <WarehouseProductSelect
+                      products={products}
+                      value={null}
+                      onChange={p => { if (p) selectProduct(pending.key, p) }}
+                      onCreateNew={name => openNewProduct(pending.key, name)}
+                      placeholder="Начните вводить название…"
+                    />
+                    <button type="button" className="k-btn k-btn-s" style={{ marginTop: 10, fontSize: 12 }} onClick={() => openNewProduct(pending.key, '')}>
+                      + Создать новый товар
+                    </button>
+                  </div>
+                )
+              })()}
 
               {msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{msg}</div>}
             </div>
 
             <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button type="button" className="k-btn k-btn-g" style={{ flex: 1, minWidth: 180 }} disabled={saving} onClick={() => void submit()}>
-                {saving ? 'Сохранение…' : `Провести приход${totals.count ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
+                {saving ? 'Сохранение…' : `Провести приход${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
               </button>
-              <button type="button" className="k-btn k-btn-s" onClick={addLine}>+ Строка</button>
               <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm('Очистить черновик?')) resetForm() }}>Очистить</button>
               <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
             </div>
