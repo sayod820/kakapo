@@ -6,6 +6,7 @@ import { USE_API } from '@/lib/config'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import type { Product } from '@/lib/types'
+import WarehouseStockPanel from './warehouse/WarehouseStockPanel'
 import WarehouseExpiryPanel from './warehouse/WarehouseExpiryPanel'
 import WarehouseReceiptsPanel from './warehouse/WarehouseReceiptsPanel'
 import WarehouseRevisionsPanel from './warehouse/WarehouseRevisionsPanel'
@@ -13,7 +14,7 @@ import WarehouseWriteoffsPanel from './warehouse/WarehouseWriteoffsPanel'
 import { WAREHOUSE_TABS, type WarehouseTab } from './warehouse/warehouseShared'
 
 export default function WarehouseModule({ products }: { products: Product[] }) {
-  const [tab, setTab] = useState<WarehouseTab>('receipts')
+  const [tab, setTab] = useState<WarehouseTab>('stock')
   const [expiryDays, setExpiryDays] = useState(14)
   const [expiry, setExpiry] = useState<ReturnType<typeof usePosStore.getState>['expiry']>([])
   const [expiryLoading, setExpiryLoading] = useState(false)
@@ -59,7 +60,7 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
       <div className="k-page-h">
         <div>
           <h1>🏬 Склад</h1>
-          <div className="sub">Приход, списание, инвентаризация и контроль сроков годности</div>
+          <div className="sub">Остатки, приход, списание, инвентаризация и сроки годности</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
@@ -103,6 +104,7 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
         ))}
       </div>
 
+      {tab === 'stock' && <WarehouseStockPanel products={products} />}
       {tab === 'receipts' && (
         <WarehouseReceiptsPanel
           receipts={receipts}
@@ -137,25 +139,6 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
           )
       )}
 
-      {out > 0 && tab === 'receipts' && (
-        <section className="k-card" style={{ marginTop: 16 }}>
-          <div className="k-card-h"><b>Товары без остатка ({out})</b></div>
-          <div className="k-card-b" style={{ padding: 0 }}>
-            <table className="k-tbl">
-              <thead><tr><th>Товар</th><th className="num">Цена</th><th className="num">Остаток</th></tr></thead>
-              <tbody>
-                {products.filter(p => Number(p.stock) <= 0).slice(0, 12).map(p => (
-                  <tr key={p.id}>
-                    <td>{p.e || '📦'} {p.name}</td>
-                    <td className="num">{(Number(p.price) || 0).toFixed(2)} сом</td>
-                    <td className="num" style={{ color: 'var(--red)' }}>0</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
     </div>
   )
 }

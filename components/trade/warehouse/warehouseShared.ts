@@ -1,6 +1,7 @@
-export type WarehouseTab = 'receipts' | 'writeoffs' | 'revisions' | 'expiry'
+export type WarehouseTab = 'stock' | 'receipts' | 'writeoffs' | 'revisions' | 'expiry'
 
 export const WAREHOUSE_TABS: { id: WarehouseTab; label: string; icon: string }[] = [
+  { id: 'stock', label: 'Остатки', icon: '📦' },
   { id: 'receipts', label: 'Приходы', icon: '📥' },
   { id: 'writeoffs', label: 'Списания', icon: '📤' },
   { id: 'revisions', label: 'Ревизия', icon: '📋' },
