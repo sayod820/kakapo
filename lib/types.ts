@@ -268,6 +268,7 @@ export interface StockRevision {
   id: string
   createdAtIso: string
   createdBy?: string
+  note?: string
   items: StockRevisionItem[]
 }
 

@@ -604,8 +604,14 @@ export const api = {
   getStockRevisions: () => request<StockRevision[]>('/stock/revisions'),
   createStockRevision: (data: {
     createdBy?: string
+    note?: string
     items: { productId: number; countedStock: number }[]
   }) => request<StockRevision>('/stock/revisions', { method: 'POST', body: JSON.stringify(data) }),
+  updateStockRevision: (id: string, data: {
+    createdBy?: string
+    note?: string
+    items: { productId: number; countedStock: number }[]
+  }) => request<StockRevision>(`/stock/revisions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
   getStockExpiry: (days = 14) =>
     request<Array<{
       receiptId: string

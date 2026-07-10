@@ -76,6 +76,7 @@ import {
   updateStockWriteoff,
   listStockRevisions,
   createStockRevision,
+  updateStockRevision,
   listExpiryItems,
   listPosSales,
   createPosSale,
@@ -1319,6 +1320,17 @@ app.post('/stock/revisions', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось сохранить ревизию' })
+  }
+})
+app.put('/stock/revisions/:id', (req, res) => {
+  try {
+    const row = updateStockRevision(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'revision', id: row.id, updated: true })
+    broadcastProduct({ reason: 'revision-update' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось изменить ревизию' })
   }
 })
 app.get('/stock/expiry', (req, res) => {

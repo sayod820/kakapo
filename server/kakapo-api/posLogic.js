@@ -552,8 +552,15 @@ export function listStockRevisions(db) {
   return [...db.stockRevisions].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
 }
 
-export function createStockRevision(db, data = {}) {
-  ensurePosCollections(db)
+function reverseStockRevision(db, revision) {
+  for (const item of revision.items || []) {
+    const product = getProduct(db, item.productId)
+    product.stock = round2(item.systemStock)
+    syncProductPricingFromActiveLayer(db, item.productId)
+  }
+}
+
+function buildStockRevision(db, data = {}, meta = {}) {
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (!rawItems.length) throw new Error('Нет строк для ревизии')
   const items = rawItems.map(raw => {
@@ -561,6 +568,7 @@ export function createStockRevision(db, data = {}) {
     const countedStock = round2(raw.countedStock)
     const systemStock = round2(product.stock)
     product.stock = countedStock
+    syncProductPricingFromActiveLayer(db, product.id)
     return {
       productId: product.id,
       productName: product.name,
@@ -570,13 +578,34 @@ export function createStockRevision(db, data = {}) {
     }
   })
   const row = {
-    id: nextId('REV'),
-    createdAtIso: nowIso(),
-    createdBy: String(data.createdBy || '').trim(),
+    id: meta.id || nextId('REV'),
+    createdAtIso: meta.createdAtIso || nowIso(),
+    createdBy: String(meta.createdBy || data.createdBy || '').trim(),
+    note: String(data.note || '').trim(),
     items,
   }
   db.stockRevisions.unshift(row)
   return row
+}
+
+export function createStockRevision(db, data = {}) {
+  ensurePosCollections(db)
+  return buildStockRevision(db, data)
+}
+
+export function updateStockRevision(db, id, data = {}) {
+  ensurePosCollections(db)
+  const idx = (db.stockRevisions || []).findIndex(r => r.id === id)
+  if (idx < 0) throw new Error('Ревизия не найдена')
+  const old = db.stockRevisions[idx]
+  const meta = {
+    id: old.id,
+    createdAtIso: old.createdAtIso,
+    createdBy: old.createdBy,
+  }
+  reverseStockRevision(db, old)
+  db.stockRevisions.splice(idx, 1)
+  return buildStockRevision(db, data, meta)
 }
 
 export function listExpiryItems(db, days = 14) {
