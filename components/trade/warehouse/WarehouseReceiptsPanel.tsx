@@ -29,7 +29,7 @@ import {
   type ReceiptDraft,
   type ReceiptDraftLine,
 } from './receiptDraftStorage'
-import { fmtDateTime, fmtMoney, matchesDateRange } from './warehouseShared'
+import { fmtDateTime, fmtMoney, formatQty, matchesDateRange, packInputUnitLabel, packRealWorld, parsePackUnit } from './warehouseShared'
 
 const QUICK_MARKUPS = [20, 30, 40, 50]
 
@@ -81,7 +81,12 @@ function ReceiptLineSummary({
 }) {
   const lineCost = linePurchaseSum(line)
   const lineRetail = (Number(line.qty) || 0) * (Number(line.retailPrice) || 0)
-  const unit = product.unit || 'шт'
+  const qty = Number(line.qty) || 0
+  const packInfo = parsePackUnit(product.unit)
+  const inputUnitLabel = packInputUnitLabel(packInfo)
+  const real = packRealWorld(qty, packInfo)
+  const qtyText = real ? `${formatQty(qty)} ${inputUnitLabel} = ${formatQty(real.value)} ${real.label}` : `${formatQty(qty)} ${inputUnitLabel}`
+
   return (
     <div
       ref={cardRef}
@@ -96,16 +101,25 @@ function ReceiptLineSummary({
         alignItems: 'center',
         gap: 10,
         cursor: 'pointer',
+        flexWrap: 'wrap',
       }}
     >
       <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--muted)', minWidth: 20 }}>{idx + 1}</span>
       <span style={{ fontSize: 22, flexShrink: 0 }}>{product.e || '📦'}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: '1 1 160px', minWidth: 0 }}>
         <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.name}</div>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-          {line.qty || 0} {unit} · закуп {fmtMoney(lineCost)}
-          {lineRetail > 0 && <> · продажа <span style={{ color: 'var(--green)' }}>{fmtMoney(lineRetail)}</span></>}
-          {line.expiryDate && <> · срок {line.expiryDate}</>}
+          {qtyText}{line.expiryDate && <> · срок {line.expiryDate}</>}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexShrink: 0 }}>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 10, color: 'var(--muted)' }}>Сумма закуп</div>
+          <div style={{ fontWeight: 800, fontSize: 13 }}>{fmtMoney(lineCost)}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 10, color: 'var(--muted)' }}>Сумма продажи</div>
+          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--green)' }}>{lineRetail > 0 ? fmtMoney(lineRetail) : '—'}</div>
         </div>
       </div>
       <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0 }} onClick={e => { e.stopPropagation(); onActivate() }}>✎</button>
@@ -154,8 +168,12 @@ function ReceiptLineCard({
   const lineCost = linePurchaseSum(line)
   const lineRetail = (Number(line.qty) || 0) * (Number(line.retailPrice) || 0)
   const unit = product.unit || 'шт'
+  const packInfo = parsePackUnit(product.unit)
+  const inputUnitLabel = packInputUnitLabel(packInfo)
+  const qtyNum = Number(line.qty) || 0
+  const realWorld = qtyNum > 0 ? packRealWorld(qtyNum, packInfo) : null
   const costHint = Number(line.qty) > 0 && Number(line.purchaseTotal) > 0 && Number(line.costPrice) > 0
-    ? `${line.qty} ${unit} за ${Number(line.purchaseTotal).toFixed(2)} сом = ${Number(line.costPrice).toFixed(2)} сом/${unit}`
+    ? `${formatQty(qtyNum)} ${inputUnitLabel} за ${Number(line.purchaseTotal).toFixed(2)} сом = ${Number(line.costPrice).toFixed(2)} сом/${inputUnitLabel}`
     : null
 
   return (
@@ -188,8 +206,11 @@ function ReceiptLineCard({
 
       <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
         <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Кол-во ({unit})</label>
+          <label>Кол-во ({inputUnitLabel})</label>
           <input ref={qtyRef} className="k-inp" type="number" min="0" step="any" value={line.qty} onChange={e => onQty(e.target.value)} />
+          {realWorld && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>= {formatQty(realWorld.value)} {realWorld.label}</div>
+          )}
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Общая сумма закуп</label>
@@ -602,6 +623,25 @@ export default function WarehouseReceiptsPanel({
     return receipts.filter(r => matchesDateRange(r.createdAtIso, dateFrom, dateTo))
   }, [receipts, dateFrom, dateTo])
 
+  function receiptRetailTotal(r: StockReceipt) {
+    return r.items.reduce((sum, it) => sum + (Number(it.qty) || 0) * (Number(it.retailPrice) || 0), 0)
+  }
+
+  const listTotals = useMemo(() => {
+    let costTotal = 0
+    let retailTotal = 0
+    let paidTotal = 0
+    let debtTotal = 0
+    for (const r of filteredReceipts) {
+      costTotal += Number(r.totalCost) || 0
+      retailTotal += receiptRetailTotal(r)
+      paidTotal += Number(r.paidNow) || 0
+      debtTotal += Number(r.debtAdded) || 0
+    }
+    const markup = costTotal > 0 ? ((retailTotal - costTotal) / costTotal) * 100 : 0
+    return { costTotal, retailTotal, paidTotal, debtTotal, markup }
+  }, [filteredReceipts])
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -627,6 +667,35 @@ export default function WarehouseReceiptsPanel({
         </div>
       </div>
 
+      {!!filteredReceipts.length && (
+        <div className="k-kpis" style={{ marginBottom: 12 }}>
+          <div className="k-kpi k-statcard">
+            <div className="kl">Приходов</div>
+            <div className="kv">{filteredReceipts.length}</div>
+          </div>
+          <div className="k-kpi k-statcard">
+            <div className="kl">Сумма закуп</div>
+            <div className="kv">{fmtMoney(listTotals.costTotal)}</div>
+          </div>
+          <div className="k-kpi k-statcard">
+            <div className="kl">Сумма продажи</div>
+            <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(listTotals.retailTotal)}</div>
+          </div>
+          <div className="k-kpi k-statcard">
+            <div className="kl">Наценка</div>
+            <div className="kv" style={{ color: listTotals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+              {listTotals.costTotal > 0 ? `${listTotals.markup >= 0 ? '+' : ''}${listTotals.markup.toFixed(1)}%` : '—'}
+            </div>
+          </div>
+          <div className="k-kpi k-statcard">
+            <div className="kl">Долг поставщикам</div>
+            <div className="kv" style={{ color: listTotals.debtTotal > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+              {listTotals.debtTotal > 0 ? fmtMoney(listTotals.debtTotal) : '—'}
+            </div>
+          </div>
+        </div>
+      )}
+
       {!filteredReceipts.length ? (
         <div className="k-empty">{receipts.length ? 'За выбранный период приходов нет' : 'Приходов пока нет'}</div>
       ) : (
@@ -638,6 +707,7 @@ export default function WarehouseReceiptsPanel({
                 <th>Поставщик</th>
                 <th className="num">Позиций</th>
                 <th className="num">Сумма закуп</th>
+                <th className="num">Сумма продажи</th>
                 <th className="num">Оплачено</th>
                 <th className="num">Долг</th>
                 <th />
@@ -651,6 +721,7 @@ export default function WarehouseReceiptsPanel({
                     <td>{r.supplierName || '—'}</td>
                     <td className="num">{r.items.length}</td>
                     <td className="num">{fmtMoney(r.totalCost)}</td>
+                    <td className="num" style={{ color: 'var(--green)' }}>{fmtMoney(receiptRetailTotal(r))}</td>
                     <td className="num">{fmtMoney(r.paidNow)}</td>
                     <td className="num" style={{ color: r.debtAdded > 0 ? 'var(--gold)' : 'var(--muted)' }}>
                       {r.debtAdded > 0 ? fmtMoney(r.debtAdded) : '—'}
@@ -676,27 +747,36 @@ export default function WarehouseReceiptsPanel({
                   </tr>
                   {expanded === r.id && (
                     <tr>
-                      <td colSpan={7} style={{ background: 'var(--card2)', padding: 0 }}>
+                      <td colSpan={8} style={{ background: 'var(--card2)', padding: 0 }}>
                         <table className="k-tbl" style={{ margin: 0 }}>
                           <thead>
                             <tr>
                               <th>Товар</th>
                               <th className="num">Кол-во</th>
-                              <th className="num">Закуп</th>
-                              <th className="num">Розница</th>
+                              <th className="num">Закуп/ед.</th>
+                              <th className="num">Розница/ед.</th>
+                              <th className="num">Сумма закуп</th>
+                              <th className="num">Сумма продажи</th>
                               <th>Срок</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {r.items.map((it, i) => (
-                              <tr key={i}>
-                                <td>{it.productName}</td>
-                                <td className="num">{it.qty}</td>
-                                <td className="num">{fmtMoney(it.costPrice)}</td>
-                                <td className="num">{it.retailPrice != null ? fmtMoney(it.retailPrice) : '—'}</td>
-                                <td>{it.expiryDate || '—'}</td>
-                              </tr>
-                            ))}
+                            {r.items.map((it, i) => {
+                              const qty = Number(it.qty) || 0
+                              const itemCostTotal = qty * (Number(it.costPrice) || 0)
+                              const itemRetailTotal = it.retailPrice != null ? qty * Number(it.retailPrice) : 0
+                              return (
+                                <tr key={i}>
+                                  <td>{it.productName}</td>
+                                  <td className="num">{it.qty}</td>
+                                  <td className="num">{fmtMoney(it.costPrice)}</td>
+                                  <td className="num">{it.retailPrice != null ? fmtMoney(it.retailPrice) : '—'}</td>
+                                  <td className="num">{fmtMoney(itemCostTotal)}</td>
+                                  <td className="num" style={{ color: 'var(--green)' }}>{it.retailPrice != null ? fmtMoney(itemRetailTotal) : '—'}</td>
+                                  <td>{it.expiryDate || '—'}</td>
+                                </tr>
+                              )
+                            })}
                           </tbody>
                         </table>
                       </td>

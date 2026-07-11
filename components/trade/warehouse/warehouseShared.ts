@@ -75,3 +75,39 @@ export function writeoffReasonMeta(reason: string): WriteoffReason {
   return WRITEOFF_REASONS.find(r => r.id === reason || reason.startsWith(r.id))
     || WRITEOFF_REASONS.find(r => r.id === 'Другое')!
 }
+
+/** Разбирает "250 гр" / "10 шт" / "1 kg" на количество-в-упаковке и метку. */
+export function parsePackUnit(unitRaw: string | undefined): { qty: number; label: string } {
+  const unit = (unitRaw || 'шт').trim()
+  const m = /^(\d+(?:[.,]\d+)?)\s*(.+)$/.exec(unit)
+  if (m) {
+    const qty = parseFloat(m[1].replace(',', '.'))
+    if (qty > 0 && m[2].trim()) return { qty, label: m[2].trim() }
+  }
+  return { qty: 1, label: unit || 'шт' }
+}
+
+export function isGramLabel(label: string) {
+  return /^(г|гр|g)\.?$/i.test(label)
+}
+
+export function isKgLabel(label: string) {
+  return /^(кг|kg)\.?$/i.test(label)
+}
+
+export function formatQty(n: number) {
+  return String(Math.round(n * 1000) / 1000)
+}
+
+/** Переводит количество упаковок в реальную величину: граммы → кг, иначе qty × label. */
+export function packRealWorld(count: number, info: { qty: number; label: string }): { value: number; label: string } | null {
+  if (isGramLabel(info.label)) return { value: (count * info.qty) / 1000, label: 'кг' }
+  if (isKgLabel(info.label)) return { value: count * info.qty, label: 'кг' }
+  if (info.qty !== 1) return { value: count * info.qty, label: info.label }
+  return null
+}
+
+export function packInputUnitLabel(info: { qty: number; label: string }) {
+  if (info.qty !== 1) return 'уп.'
+  return isKgLabel(info.label) ? 'кг' : info.label
+}
