@@ -93,7 +93,6 @@ type CashFormState = {
   clientId: string
   clientName: string
   cashAmount: string
-  bonusAmount: string
   note: string
   saving: boolean
   msg: string
@@ -126,7 +125,7 @@ function emptyBonusForm(): BonusFormState {
 }
 
 function emptyCashForm(): CashFormState {
-  return { open: false, clientId: '', clientName: '', cashAmount: '', bonusAmount: '', note: '', saving: false, msg: '' }
+  return { open: false, clientId: '', clientName: '', cashAmount: '', note: '', saving: false, msg: '' }
 }
 
 function emptyLoyaltyForm(): LoyaltyFormState {
@@ -340,6 +339,14 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
     else sorted.sort((a, b) => String(b.lastOrderAt || b.createdAt || '').localeCompare(String(a.lastOrderAt || a.createdAt || '')))
     return sorted
   }, [clients, q, sort, filter])
+
+  const cashBonusPreview = useMemo(() => {
+    if (!cashForm.open) return 0
+    void loyaltyCfgTick
+    const cash = Number(cashForm.cashAmount) || 0
+    if (cash <= 0) return 0
+    return calcCashDepositBonus(cash)
+  }, [cashForm.open, cashForm.cashAmount, loyaltyCfgTick])
 
   function salesFor(client: EnrichedClient): PosSale[] {
     return sales.filter(s =>
@@ -565,7 +572,6 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
       clientId: c.id,
       clientName: c.name,
       cashAmount: '',
-      bonusAmount: '',
       note: '',
       saving: false,
       msg: '',
@@ -574,13 +580,6 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
 
   function closeCashForm() {
     setCashForm(emptyCashForm())
-  }
-
-  function updateCashBonusPreview(cashAmount: string): string {
-    void loyaltyCfgTick
-    const cash = Number(cashAmount) || 0
-    if (cash <= 0) return ''
-    return String(calcCashDepositBonus(cash))
   }
 
   function cashTierHint(cashAmount: string): string {
@@ -594,13 +593,13 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
     const client = clients.find(c => c.id === cashForm.clientId)
     if (!client) return
     const cash = Number(cashForm.cashAmount) || 0
-    const bonus = Math.max(0, Math.floor(Number(cashForm.bonusAmount) || 0))
+    const bonus = cashBonusPreview
     if (!(cash > 0)) {
       setCashForm(prev => ({ ...prev, msg: 'Укажите сумму наличных' }))
       return
     }
     if (!(bonus > 0)) {
-      setCashForm(prev => ({ ...prev, msg: 'Укажите бонусы для начисления' }))
+      setCashForm(prev => ({ ...prev, msg: 'Сумма не достигает порога — бонусы не начисляются. Настройте пороги в админке.' }))
       return
     }
 
@@ -987,23 +986,34 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
                   type="text"
                   inputMode="decimal"
                   value={cashForm.cashAmount}
-                  onChange={e => {
-                    const cashAmount = sanitizeDecimalInput(e.target.value)
-                    setCashForm(prev => ({
-                      ...prev,
-                      cashAmount,
-                      bonusAmount: updateCashBonusPreview(cashAmount),
-                    }))
-                  }}
+                  onChange={e => setCashForm(prev => ({ ...prev, cashAmount: sanitizeDecimalInput(e.target.value), msg: '' }))}
                   placeholder="0.00"
                 />
               </div>
               <div className="k-field">
-                <label>Бонусы к начислению ⭐ *</label>
-                <input className="k-inp" type="text" inputMode="numeric" value={cashForm.bonusAmount} onChange={e => setCashForm(prev => ({ ...prev, bonusAmount: sanitizeDecimalInput(e.target.value) }))} placeholder="0" />
-                {Number(cashForm.cashAmount) > 0 && (
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                    Авто: {cashTierHint(cashForm.cashAmount)} = {updateCashBonusPreview(cashForm.cashAmount) || '0'} ⭐
+                <label>Бонусы к начислению ⭐</label>
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  background: 'var(--card)',
+                  border: `1px solid ${cashBonusPreview > 0 ? 'var(--green)' : 'var(--border)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                }}>
+                  <span style={{ fontWeight: 900, fontSize: 22, color: cashBonusPreview > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+                    {cashBonusPreview > 0 ? `+${cashBonusPreview.toLocaleString()} ⭐` : '—'}
+                  </span>
+                  {Number(cashForm.cashAmount) > 0 && (
+                    <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right' }}>
+                      {cashTierHint(cashForm.cashAmount)}
+                    </span>
+                  )}
+                </div>
+                {Number(cashForm.cashAmount) > 0 && cashBonusPreview <= 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 6 }}>
+                    Сумма ниже минимального порога — бонусы не начисляются
                   </div>
                 )}
               </div>
@@ -1014,8 +1024,8 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
               {cashForm.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{cashForm.msg}</div>}
             </div>
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={cashForm.saving} onClick={() => void submitCash()}>
-                {cashForm.saving ? 'Сохранение…' : 'Начислить бонусы'}
+              <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={cashForm.saving || cashBonusPreview <= 0} onClick={() => void submitCash()}>
+                {cashForm.saving ? 'Сохранение…' : cashBonusPreview > 0 ? `Начислить +${cashBonusPreview} ⭐` : 'Начислить бонусы'}
               </button>
               <button type="button" className="k-btn k-btn-s" disabled={cashForm.saving} onClick={closeCashForm}>Отмена</button>
             </div>
