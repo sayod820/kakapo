@@ -240,6 +240,7 @@ export default function WarehouseReceiptsPanel({
   const [newProductLineKey, setNewProductLineKey] = useState<string | null>(null)
   const [newSupplierOpen, setNewSupplierOpen] = useState(false)
   const [newSupplierName, setNewSupplierName] = useState('')
+  const [editingSupplier, setEditingSupplier] = useState<PosSupplier | null>(null)
 
   const { open, supplierId, paidNow, lines, activeLineKey } = draft
 
@@ -458,6 +459,7 @@ export default function WarehouseReceiptsPanel({
   function onSupplierCreated(supplier: PosSupplier) {
     setDraftPatch({ supplierId: supplier.id })
     setNewSupplierOpen(false)
+    setEditingSupplier(null)
     void onRefresh()
   }
 
@@ -681,7 +683,8 @@ export default function WarehouseReceiptsPanel({
                     suppliers={suppliers}
                     value={supplierId}
                     onChange={id => setDraftPatch({ supplierId: id })}
-                    onCreateNew={name => { setNewSupplierName(name); setNewSupplierOpen(true) }}
+                    onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
+                    onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
                   />
                 </div>
                 <div className="k-field" style={{ marginBottom: 0 }}>
@@ -806,7 +809,8 @@ export default function WarehouseReceiptsPanel({
       <WarehouseNewSupplierModal
         open={newSupplierOpen}
         initialName={newSupplierName}
-        onClose={() => setNewSupplierOpen(false)}
+        editingSupplier={editingSupplier}
+        onClose={() => { setNewSupplierOpen(false); setEditingSupplier(null) }}
         onCreated={onSupplierCreated}
       />
     </div>

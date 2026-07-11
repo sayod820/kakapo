@@ -8,12 +8,14 @@ export default function WarehouseSupplierSelect({
   value,
   onChange,
   onCreateNew,
+  onEdit,
   placeholder = 'Без поставщика — нажмите, чтобы выбрать или найти',
 }: {
   suppliers: PosSupplier[]
   value: string
   onChange: (id: string) => void
   onCreateNew?: (name: string) => void
+  onEdit?: (supplier: PosSupplier) => void
   placeholder?: string
 }) {
   const [q, setQ] = useState('')
@@ -29,9 +31,6 @@ export default function WarehouseSupplierSelect({
       || (s.category || '').toLowerCase().includes(query),
     )
   }, [suppliers, q])
-
-  const canCreate = !!onCreateNew && q.trim().length >= 2
-    && !options.some(s => s.name.toLowerCase() === q.trim().toLowerCase())
 
   function pick(id: string) {
     onChange(id)
@@ -72,56 +71,74 @@ export default function WarehouseSupplierSelect({
           {options.map(s => {
             const debt = Number(s.payableAmount) || 0
             return (
-              <button
+              <div
                 key={s.id}
-                type="button"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  border: 'none', background: value === s.id ? 'var(--green-d)' : 'transparent', color: 'var(--text)',
-                  padding: '8px 10px', cursor: 'pointer', textAlign: 'left', fontSize: 13,
-                }}
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => pick(s.id)}
+                style={{ display: 'flex', alignItems: 'center', background: value === s.id ? 'var(--green-d)' : 'transparent' }}
               >
-                <span>🚚</span>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>
-                    {s.name}
-                  </span>
-                  {(s.category || s.phone) && (
-                    <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {[s.category, s.phone].filter(Boolean).join(' · ')}
+                <button
+                  type="button"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0,
+                    border: 'none', background: 'transparent', color: 'var(--text)',
+                    padding: '8px 10px', cursor: 'pointer', textAlign: 'left', fontSize: 13,
+                  }}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => pick(s.id)}
+                >
+                  <span>🚚</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                      {s.name}
                     </span>
+                    {(s.category || s.phone) && (
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {[s.category, s.phone].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
+                  </span>
+                  {debt > 0 && (
+                    <span style={{ fontSize: 10, color: 'var(--red)', flexShrink: 0, fontWeight: 800, whiteSpace: 'nowrap' }}>долг</span>
                   )}
-                </span>
-                {debt > 0 && (
-                  <span style={{ fontSize: 10, color: 'var(--red)', flexShrink: 0, fontWeight: 800, whiteSpace: 'nowrap' }}>долг</span>
+                </button>
+                {onEdit && (
+                  <button
+                    type="button"
+                    title="Редактировать поставщика"
+                    style={{
+                      border: 'none', background: 'transparent', color: 'var(--muted)',
+                      padding: '8px 10px', cursor: 'pointer', fontSize: 13, flexShrink: 0,
+                    }}
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={e => { e.stopPropagation(); onEdit(s); setOpen(false) }}
+                  >
+                    ✎
+                  </button>
                 )}
-              </button>
+              </div>
             )
           })}
 
-          {!options.length && !canCreate && (
+          {!options.length && (
             <div style={{ padding: '10px 10px', fontSize: 12, color: 'var(--muted)' }}>Ничего не найдено</div>
           )}
 
-          {canCreate && (
+          {onCreateNew && (
             <button
               type="button"
               style={{
                 display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                border: 'none', borderTop: options.length ? '1px solid var(--border)' : 'none',
+                border: 'none', borderTop: '1px solid var(--border)',
                 background: 'var(--green-d)', color: 'var(--green)',
                 padding: '10px 10px', cursor: 'pointer', textAlign: 'left', fontSize: 13, fontWeight: 800,
               }}
               onMouseDown={e => e.preventDefault()}
               onClick={() => {
-                onCreateNew!(q.trim())
+                onCreateNew(q.trim())
                 setQ('')
                 setOpen(false)
               }}
             >
-              + Добавить поставщика «{q.trim()}»
+              {q.trim() ? `+ Добавить поставщика «${q.trim()}»` : '+ Добавить нового поставщика'}
             </button>
           )}
         </div>

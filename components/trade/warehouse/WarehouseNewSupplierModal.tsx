@@ -8,11 +8,13 @@ import type { PosSupplier } from '@/lib/types'
 export default function WarehouseNewSupplierModal({
   open,
   initialName = '',
+  editingSupplier = null,
   onClose,
   onCreated,
 }: {
   open: boolean
   initialName?: string
+  editingSupplier?: PosSupplier | null
   onClose: () => void
   onCreated: (supplier: PosSupplier) => void
 }) {
@@ -26,14 +28,14 @@ export default function WarehouseNewSupplierModal({
 
   useEffect(() => {
     if (open) {
-      setName(initialName)
-      setCategory('')
-      setPhone('')
-      setAddress('')
-      setNote('')
+      setName(editingSupplier ? editingSupplier.name : initialName)
+      setCategory(editingSupplier?.category || '')
+      setPhone(editingSupplier?.phone || '')
+      setAddress(editingSupplier?.address || '')
+      setNote(editingSupplier?.note || '')
       setMsg('')
     }
-  }, [open, initialName])
+  }, [open, initialName, editingSupplier])
 
   if (!open) return null
 
@@ -47,17 +49,20 @@ export default function WarehouseNewSupplierModal({
     setSaving(true)
     setMsg('')
     try {
-      const saved = await api.createSupplier({
+      const payload = {
         name: trimmed,
         category: category.trim() || undefined,
         phone: phone.trim() || undefined,
         address: address.trim() || undefined,
         note: note.trim() || undefined,
-      })
+      }
+      const saved = editingSupplier
+        ? await api.updateSupplier(editingSupplier.id, payload)
+        : await api.createSupplier(payload)
       onCreated(saved)
       onClose()
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Не удалось создать поставщика')
+      setMsg(e instanceof Error ? e.message : 'Не удалось сохранить поставщика')
     } finally {
       setSaving(false)
     }
@@ -67,13 +72,15 @@ export default function WarehouseNewSupplierModal({
     <div className="k-modal-bg" style={{ zIndex: 1400 }} onClick={() => !saving && onClose()}>
       <div className="k-modal" onClick={e => e.stopPropagation()}>
         <div className="k-modal-h">
-          <b>🚚 Новый поставщик</b>
+          <b>{editingSupplier ? '✎ Редактирование поставщика' : '🚚 Новый поставщик'}</b>
           <button type="button" onClick={() => !saving && onClose()}>✕</button>
         </div>
         <div className="k-modal-b" style={{ padding: 16 }}>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-            Поставщик появится в общем списке — можно будет отслеживать долг и платежи в разделе «Поставщики».
-          </div>
+          {!editingSupplier && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+              Поставщик появится в общем списке — можно будет отслеживать долг и платежи в разделе «Поставщики».
+            </div>
+          )}
           <div className="k-field">
             <label>Название *</label>
             <input className="k-inp" value={name} onChange={e => setName(e.target.value)} placeholder="Например: ОсОО «Свежие продукты»" autoFocus />
@@ -101,7 +108,7 @@ export default function WarehouseNewSupplierModal({
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={saving} onClick={() => void handleSave()}>
-              {saving ? 'Сохранение…' : 'Создать и выбрать'}
+              {saving ? 'Сохранение…' : editingSupplier ? 'Сохранить' : 'Создать и выбрать'}
             </button>
             <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={onClose}>Отмена</button>
           </div>
