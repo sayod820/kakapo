@@ -47,7 +47,7 @@ export default function SuppliersModule() {
 
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<SortMode>('debt')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [detailId, setDetailId] = useState<string | null>(null)
   const [payments, setPayments] = useState<Record<string, SupplierPayment[]>>({})
   const [paymentsLoading, setPaymentsLoading] = useState<Record<string, boolean>>({})
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -70,10 +70,13 @@ export default function SuppliersModule() {
     }
   }, [])
 
-  function toggleExpand(id: string) {
-    const next = expandedId === id ? null : id
-    setExpandedId(next)
-    if (next && !payments[next]) void loadPayments(next)
+  function openDetail(id: string) {
+    setDetailId(id)
+    if (!payments[id]) void loadPayments(id)
+  }
+
+  function closeDetail() {
+    setDetailId(null)
   }
 
   const stats = useMemo(() => {
@@ -102,7 +105,22 @@ export default function SuppliersModule() {
   }, [suppliers, q, sort])
 
   function receiptsFor(supplierId: string) {
-    return receipts.filter(r => r.supplierId === supplierId).slice(0, 10)
+    return receipts.filter(r => r.supplierId === supplierId)
+  }
+
+  type HistoryRow =
+    | { kind: 'receipt'; id: string; dateIso: string; totalCost: number; debtAdded: number; itemsCount: number }
+    | { kind: 'payment'; id: string; dateIso: string; amount: number; note?: string }
+
+  function historyFor(supplierId: string): HistoryRow[] {
+    const rows: HistoryRow[] = []
+    for (const r of receiptsFor(supplierId)) {
+      rows.push({ kind: 'receipt', id: r.id, dateIso: r.createdAtIso, totalCost: r.totalCost, debtAdded: r.debtAdded, itemsCount: r.items?.length || 0 })
+    }
+    for (const p of payments[supplierId] || []) {
+      rows.push({ kind: 'payment', id: p.id, dateIso: p.paidAtIso, amount: p.amount, note: p.note })
+    }
+    return rows.sort((a, b) => String(b.dateIso || '').localeCompare(String(a.dateIso || '')))
   }
 
   function openNewForm() {
@@ -165,7 +183,7 @@ export default function SuppliersModule() {
     setDeletingId(s.id)
     try {
       await api.deleteSupplier(s.id)
-      if (expandedId === s.id) setExpandedId(null)
+      if (detailId === s.id) setDetailId(null)
       await refreshAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить поставщика')
@@ -214,6 +232,7 @@ export default function SuppliersModule() {
   }
 
   const payingSupplier = payForm.open ? suppliers.find(s => s.id === payForm.supplierId) : null
+  const detailSupplier = detailId ? suppliers.find(s => s.id === detailId) || null : null
 
   return (
     <div>
@@ -285,9 +304,6 @@ export default function SuppliersModule() {
         <div>
           {filtered.map(s => {
             const debt = Number(s.payableAmount) || 0
-            const isOpen = expandedId === s.id
-            const supReceipts = isOpen ? receiptsFor(s.id) : []
-            const supPayments = isOpen ? (payments[s.id] || []) : []
             return (
               <div
                 key={s.id}
@@ -296,7 +312,8 @@ export default function SuppliersModule() {
               >
                 <div
                   style={{ padding: 14, cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}
-                  onClick={() => toggleExpand(s.id)}
+                  onClick={() => openDetail(s.id)}
+                  title="Открыть карточку поставщика"
                 >
                   <span style={{ fontSize: 26, flexShrink: 0 }}>🚚</span>
 
@@ -345,64 +362,11 @@ export default function SuppliersModule() {
                     >
                       {deletingId === s.id ? '…' : '🗑'}
                     </button>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => toggleExpand(s.id)}>
-                      {isOpen ? '▲' : '▼'}
+                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openDetail(s.id)}>
+                      Открыть →
                     </button>
                   </div>
                 </div>
-
-                {isOpen && (
-                  <div style={{ borderTop: '1px solid var(--border)', padding: 14, background: 'var(--card2)' }}>
-                    <div className="k-grid2" style={{ gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 8 }}>📥 Последние поставки</div>
-                        {!supReceipts.length ? (
-                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Поставок пока не было</div>
-                        ) : (
-                          <div style={{ display: 'grid', gap: 6 }}>
-                            {supReceipts.map(r => (
-                              <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border)', fontSize: 12 }}>
-                                <span style={{ color: 'var(--muted)' }}>{fmtDateTime(r.createdAtIso)}</span>
-                                <span style={{ fontWeight: 800 }}>{fmtMoney(r.totalCost)}</span>
-                                {r.debtAdded > 0 && <span style={{ color: 'var(--gold)' }}>долг +{fmtMoney(r.debtAdded)}</span>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 8 }}>💰 История платежей</div>
-                        {paymentsLoading[s.id] ? (
-                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Загрузка…</div>
-                        ) : !supPayments.length ? (
-                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Платежей пока не было</div>
-                        ) : (
-                          <div style={{ display: 'grid', gap: 6 }}>
-                            {supPayments.map(p => (
-                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border)', fontSize: 12 }}>
-                                <span style={{ color: 'var(--muted)' }}>{fmtDateTime(p.paidAtIso)}{p.note ? ` · ${p.note}` : ''}</span>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ fontWeight: 800, color: 'var(--green)' }}>{fmtMoney(p.amount)}</span>
-                                  <button
-                                    type="button"
-                                    className="k-btn k-btn-s"
-                                    style={{ padding: '2px 8px', fontSize: 11, color: 'var(--red)' }}
-                                    disabled={deletingPaymentId === p.id}
-                                    onClick={() => void removePayment(s.id, p.id)}
-                                    title="Удалить платёж"
-                                  >
-                                    {deletingPaymentId === p.id ? '…' : '✕'}
-                                  </button>
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )
           })}
@@ -506,6 +470,111 @@ export default function SuppliersModule() {
                 {payForm.saving ? 'Сохранение…' : 'Провести оплату'}
               </button>
               <button type="button" className="k-btn k-btn-s" disabled={payForm.saving} onClick={closePayForm}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailSupplier && (
+        <div className="k-modal-bg" onClick={closeDetail}>
+          <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()}>
+            <div className="k-modal-h">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 22 }}>🚚</span>
+                <div>
+                  <b>{detailSupplier.name}</b>
+                  {detailSupplier.category && (
+                    <span className="k-badge" style={{ marginLeft: 8, background: '#1a2430', color: 'var(--blue)' }}>{detailSupplier.category}</span>
+                  )}
+                </div>
+              </div>
+              <button type="button" onClick={closeDetail}>✕</button>
+            </div>
+            <div className="k-modal-b" style={{ padding: 16 }}>
+              {(detailSupplier.phone || detailSupplier.address || detailSupplier.note) && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {detailSupplier.phone && <span>📞 {detailSupplier.phone}</span>}
+                  {detailSupplier.address && <span>📍 {detailSupplier.address}</span>}
+                  {detailSupplier.note && <span>💬 {detailSupplier.note}</span>}
+                </div>
+              )}
+
+              <div className="k-kpis" style={{ marginBottom: 14 }}>
+                <div className="k-kpi k-statcard">
+                  <div className="kl">Поставлено</div>
+                  <div className="kv">{fmtMoney(detailSupplier.totalSupplied)}</div>
+                </div>
+                <div className="k-kpi k-statcard">
+                  <div className="kl">Оплачено</div>
+                  <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(detailSupplier.totalPaid)}</div>
+                </div>
+                <div className="k-kpi k-statcard">
+                  <div className="kl">Долг</div>
+                  <div className="kv" style={{ color: (Number(detailSupplier.payableAmount) || 0) > 0 ? 'var(--red)' : 'var(--muted)' }}>
+                    {(Number(detailSupplier.payableAmount) || 0) > 0 ? fmtMoney(detailSupplier.payableAmount) : '—'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={() => openPayForm(detailSupplier)}>💰 Оплатить долг</button>
+                <button type="button" className="k-btn k-btn-s" disabled={!USE_API} onClick={() => openEditForm(detailSupplier)}>✎ Редактировать</button>
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  style={{ color: (Number(detailSupplier.payableAmount) || 0) > 0 ? 'var(--muted)' : 'var(--red)' }}
+                  disabled={!USE_API || deletingId === detailSupplier.id || (Number(detailSupplier.payableAmount) || 0) > 0}
+                  title={(Number(detailSupplier.payableAmount) || 0) > 0 ? 'Сначала погасите долг' : 'Удалить поставщика'}
+                  onClick={() => void removeSupplier(detailSupplier)}
+                >
+                  {deletingId === detailSupplier.id ? 'Удаление…' : '🗑 Удалить'}
+                </button>
+              </div>
+
+              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 8 }}>📜 История: поставки и платежи</div>
+              {paymentsLoading[detailSupplier.id] ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Загрузка…</div>
+              ) : !historyFor(detailSupplier.id).length ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Пока нет ни поставок, ни платежей</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                  {historyFor(detailSupplier.id).map(row => (
+                    <div
+                      key={`${row.kind}-${row.id}`}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border)', fontSize: 12 }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <span>{row.kind === 'receipt' ? '📥' : '💰'}</span>
+                        <span style={{ color: 'var(--muted)' }}>{fmtDateTime(row.dateIso)}</span>
+                        {row.kind === 'receipt' && <span style={{ color: 'var(--muted)' }}>· приход, {row.itemsCount} поз.</span>}
+                        {row.kind === 'payment' && row.note && <span style={{ color: 'var(--muted)' }}>· {row.note}</span>}
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        {row.kind === 'receipt' ? (
+                          <>
+                            <span style={{ fontWeight: 800 }}>{fmtMoney(row.totalCost)}</span>
+                            {row.debtAdded > 0 && <span style={{ color: 'var(--gold)' }}>долг +{fmtMoney(row.debtAdded)}</span>}
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontWeight: 800, color: 'var(--green)' }}>+{fmtMoney(row.amount)}</span>
+                            <button
+                              type="button"
+                              className="k-btn k-btn-s"
+                              style={{ padding: '2px 8px', fontSize: 11, color: 'var(--red)' }}
+                              disabled={deletingPaymentId === row.id}
+                              onClick={() => void removePayment(detailSupplier.id, row.id)}
+                              title="Удалить платёж"
+                            >
+                              {deletingPaymentId === row.id ? '…' : '✕'}
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
