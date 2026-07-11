@@ -7,7 +7,7 @@ import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import type { Product } from '@/lib/types'
 import WarehouseStockPanel from './warehouse/WarehouseStockPanel'
-import WarehouseExpiryPanel from './warehouse/WarehouseExpiryPanel'
+import WarehouseExpiryPanel, { type ExpiryRow } from './warehouse/WarehouseExpiryPanel'
 import WarehouseReceiptsPanel from './warehouse/WarehouseReceiptsPanel'
 import WarehouseRevisionsPanel from './warehouse/WarehouseRevisionsPanel'
 import WarehouseWriteoffsPanel from './warehouse/WarehouseWriteoffsPanel'
@@ -17,7 +17,7 @@ import { WAREHOUSE_TABS, type WarehouseTab } from './warehouse/warehouseShared'
 export default function WarehouseModule({ products }: { products: Product[] }) {
   const [tab, setTab] = useState<WarehouseTab>(() => loadWarehouseTab() || 'stock')
   const [expiryDays, setExpiryDays] = useState(14)
-  const [expiry, setExpiry] = useState<ReturnType<typeof usePosStore.getState>['expiry']>([])
+  const [expiry, setExpiry] = useState<ExpiryRow[]>([])
   const [expiryLoading, setExpiryLoading] = useState(false)
 
   const receipts = usePosStore(s => s.receipts)
@@ -59,6 +59,16 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
   useEffect(() => {
     if (tab === 'expiry') void loadExpiry(expiryDays)
   }, [tab, expiryDays, loadExpiry])
+
+  const writeOffExpiredBatch = useCallback(async (row: ExpiryRow) => {
+    if (!USE_API) return
+    await api.createStockWriteoff({
+      reason: 'Просрочка',
+      note: `Партия из прихода ${row.receiptId}, срок ${row.expiryDate}`,
+      items: [{ productId: row.productId, qty: row.qty }],
+    })
+    await Promise.all([refreshAll(), loadExpiry(expiryDays)])
+  }, [refreshAll, loadExpiry, expiryDays])
 
   return (
     <div>
@@ -141,6 +151,7 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
               days={expiryDays}
               products={products}
               onDaysChange={setExpiryDays}
+              onWriteOff={writeOffExpiredBatch}
             />
           )
       )}

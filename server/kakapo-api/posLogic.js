@@ -650,9 +650,12 @@ export function listExpiryItems(db, days = 14) {
       if (diff > ms) continue
       out.push({
         receiptId: receipt.id,
+        receiptCreatedAtIso: receipt.createdAtIso,
         productId: item.productId,
         productName: item.productName,
         qty: item.remainingQty,
+        costPrice: Number(item.costPrice) || 0,
+        retailPrice: Number(item.retailPrice) || 0,
         expiryDate: item.expiryDate,
         daysLeft: Math.ceil(diff / (24 * 60 * 60 * 1000)),
       })

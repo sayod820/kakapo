@@ -25,9 +25,12 @@ interface PosStore {
   expenses: PosExpense[]
   expiry: Array<{
     receiptId: string
+    receiptCreatedAtIso?: string
     productId: number
     productName: string
     qty: number
+    costPrice?: number
+    retailPrice?: number
     expiryDate: string
     daysLeft: number
   }>

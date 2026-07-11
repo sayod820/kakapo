@@ -621,9 +621,12 @@ export const api = {
   getStockExpiry: (days = 14) =>
     request<Array<{
       receiptId: string
+      receiptCreatedAtIso?: string
       productId: number
       productName: string
       qty: number
+      costPrice?: number
+      retailPrice?: number
       expiryDate: string
       daysLeft: number
     }>>(`/stock/expiry?days=${days}`),
