@@ -374,7 +374,7 @@ export default function SuppliersModule() {
       )}
 
       {form.open && (
-        <div className="k-modal-bg" onClick={closeForm}>
+        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeForm}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>{form.editingId ? '✎ Редактирование поставщика' : '🚚 Новый поставщик'}</b>
@@ -418,7 +418,7 @@ export default function SuppliersModule() {
       )}
 
       {payForm.open && (
-        <div className="k-modal-bg" onClick={closePayForm}>
+        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closePayForm}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>💰 Оплата поставщику</b>
