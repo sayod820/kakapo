@@ -8,8 +8,10 @@ import { useProducts } from '@/lib/store'
 import type { PosSupplier, Product, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from '@/components/trade/products/BulkPricingFields'
 import WarehouseNewProductModal from './WarehouseNewProductModal'
+import WarehouseNewSupplierModal from './WarehouseNewSupplierModal'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
+import WarehouseSupplierSelect from './WarehouseSupplierSelect'
 import {
   clearReceiptDraft,
   costFromPurchaseTotal,
@@ -236,6 +238,8 @@ export default function WarehouseReceiptsPanel({
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
   const [newProductLineKey, setNewProductLineKey] = useState<string | null>(null)
+  const [newSupplierOpen, setNewSupplierOpen] = useState(false)
+  const [newSupplierName, setNewSupplierName] = useState('')
 
   const { open, supplierId, paidNow, lines, activeLineKey } = draft
 
@@ -449,6 +453,12 @@ export default function WarehouseReceiptsPanel({
     if (newProductLineKey) selectProduct(newProductLineKey, product)
     setNewProductOpen(false)
     setNewProductLineKey(null)
+  }
+
+  function onSupplierCreated(supplier: PosSupplier) {
+    setDraftPatch({ supplierId: supplier.id })
+    setNewSupplierOpen(false)
+    void onRefresh()
   }
 
   const totals = useMemo(() => {
@@ -667,12 +677,12 @@ export default function WarehouseReceiptsPanel({
               <div className="k-grid2" style={{ marginBottom: 0 }}>
                 <div className="k-field" style={{ marginBottom: 0 }}>
                   <label>Поставщик</label>
-                  <select className="k-sel" value={supplierId} onChange={e => setDraftPatch({ supplierId: e.target.value })}>
-                    <option value="">Без поставщика</option>
-                    {suppliers.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
+                  <WarehouseSupplierSelect
+                    suppliers={suppliers}
+                    value={supplierId}
+                    onChange={id => setDraftPatch({ supplierId: id })}
+                    onCreateNew={name => { setNewSupplierName(name); setNewSupplierOpen(true) }}
+                  />
                 </div>
                 <div className="k-field" style={{ marginBottom: 0 }}>
                   <label>Оплачено сейчас (сом)</label>
@@ -791,6 +801,13 @@ export default function WarehouseReceiptsPanel({
         initialName={newProductName}
         onClose={() => setNewProductOpen(false)}
         onCreated={onProductCreated}
+      />
+
+      <WarehouseNewSupplierModal
+        open={newSupplierOpen}
+        initialName={newSupplierName}
+        onClose={() => setNewSupplierOpen(false)}
+        onCreated={onSupplierCreated}
       />
     </div>
   )
