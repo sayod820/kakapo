@@ -8,6 +8,7 @@ import { useProducts } from '@/lib/store'
 import ProductsModule from '@/components/trade/ProductsModule'
 import WarehouseModule from '@/components/trade/WarehouseModule'
 import SuppliersModule from '@/components/trade/SuppliersModule'
+import ClientsModule from '@/components/trade/ClientsModule'
 import CashierModule from '@/components/trade/CashierModule'
 import ComingSoonModule from '@/components/trade/ComingSoonModule'
 
@@ -231,8 +232,8 @@ type NavItem = {
 const NAV: NavItem[] = [
   { id: 'sales', label: 'Касса', icon: '🛒', tag: 'скоро' },
   { id: 'products', label: 'Товары', icon: '📦' },
-  { id: 'clients', label: 'Клиенты', icon: '👥', tag: 'скоро' },
-  { id: 'debts', label: 'Долги', icon: '💳', tag: 'скоро' },
+  { id: 'clients', label: 'Клиенты', icon: '👥' },
+  { id: 'debts', label: 'Долги', icon: '💳' },
   { id: 'warehouse', label: 'Склад', icon: '🏬' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚' },
   { id: 'finance', label: 'Финансы', icon: '💰', tag: 'скоро' },
@@ -240,8 +241,6 @@ const NAV: NavItem[] = [
 ]
 
 const SOON_PAGES: Record<string, { title: string; icon: string; desc: string }> = {
-  clients: { icon: '👥', title: 'Клиенты', desc: 'Список клиентов магазина. Данные общие с магазином и админкой.' },
-  debts: { icon: '💳', title: 'Долги', desc: 'Клиентские долги и продажи в кредит.' },
   finance: { icon: '💰', title: 'Финансы', desc: 'Выручка, расходы и движение денег.' },
   reports: { icon: '📊', title: 'Отчёты', desc: 'Сводные отчёты по продажам и складу.' },
 }
@@ -307,6 +306,8 @@ function TradeAppInner() {
     if (current === 'products') return <ProductsModule search={search} />
     if (current === 'warehouse') return <WarehouseModule products={products} />
     if (current === 'suppliers') return <SuppliersModule />
+    if (current === 'clients') return <ClientsModule />
+    if (current === 'debts') return <ClientsModule variant="debts" />
     if (current === 'sales') return <CashierModule />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
