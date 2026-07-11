@@ -30,8 +30,9 @@ function diffStyle(diff: number) {
 }
 
 function formatDiff(diff: number) {
-  if (diff === 0) return '0'
-  return diff > 0 ? `+${diff}` : String(diff)
+  const rounded = Math.round(diff * 1000) / 1000
+  if (rounded === 0) return '0'
+  return rounded > 0 ? `+${rounded}` : String(rounded)
 }
 
 function formatMoneyDiff(n: number) {
@@ -68,7 +69,8 @@ function RevisionLineCard({
   cardRef: (el: HTMLDivElement | null) => void
   countedRef: (el: HTMLInputElement | null) => void
 }) {
-  const unit = product.unit || 'шт'
+  const isWeight = product.sellType === 'weight'
+  const unit = product.unit || (isWeight ? 'кг' : 'шт')
   const system = Number(product.stock) || 0
   const counted = line.countedStock !== '' ? Number(line.countedStock) : null
   const diff = counted != null ? counted - system : null
@@ -76,6 +78,7 @@ function RevisionLineCard({
   const retailPrice = Number(product.price) || 0
   const costDiff = diff != null ? diff * costPrice : null
   const barcode = product.barcode || product.barcodes?.[0] || ''
+  const step = isWeight ? '0.001' : '1'
 
   return (
     <div
@@ -105,13 +108,14 @@ function RevisionLineCard({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: 100 }}>
-          <label style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>Факт ({unit})</label>
+          <label style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>Факт ({unit}){isWeight && <span> · вес</span>}</label>
           <input
             ref={countedRef}
             className="k-inp"
             type="number"
-            step="any"
+            step={step}
             min="0"
+            inputMode={isWeight ? 'decimal' : 'numeric'}
             value={line.countedStock}
             onChange={e => onCounted(e.target.value)}
             onClick={e => e.stopPropagation()}

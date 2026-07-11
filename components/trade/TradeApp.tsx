@@ -180,12 +180,14 @@ const CSS = `
     .k-subtab{flex-shrink:0;padding:8px 12px;font-size:12px}
     .k-btn{min-height:44px;padding:10px 14px}
     .k-inp,.k-sel,.k-ta{font-size:16px;min-height:44px}
-    .k-modal-bg{padding:0;align-items:flex-end}
+    .k-modal-bg{padding:0;align-items:stretch;justify-content:stretch}
     .k-modal,.k-modal-wide,.k-receipt-modal{
-      width:100%!important;max-width:100%!important;height:92vh!important;max-height:92vh!important;
-      border-radius:16px 16px 0 0;margin:0
+      width:100%!important;max-width:100%!important;
+      height:100vh!important;max-height:100vh!important;
+      height:100dvh!important;max-height:100dvh!important;
+      border-radius:0;margin:0
     }
-    .k-receipt-modal-bg{padding:0;align-items:flex-end}
+    .k-receipt-modal-bg{padding:0;align-items:stretch;justify-content:stretch}
     .k-product-list{position:static}
     .k-product-list-body{max-height:50vh}
     .k-tbl{font-size:12px}
