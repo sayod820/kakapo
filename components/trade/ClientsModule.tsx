@@ -66,17 +66,6 @@ type ClientFormState = ClientProfileForm & {
   msg: string
 }
 
-type DebtFormState = {
-  open: boolean
-  clientId: string
-  clientName: string
-  action: 'repay' | 'add'
-  amount: string
-  note: string
-  saving: boolean
-  msg: string
-}
-
 type CashFormState = {
   open: boolean
   clientId: string
@@ -103,10 +92,6 @@ type LoyaltyFormState = {
 
 function emptyClientForm(): ClientFormState {
   return { ...emptyClientProfileForm(), open: false, editingId: null, withCard: true, saving: false, msg: '' }
-}
-
-function emptyDebtForm(): DebtFormState {
-  return { open: false, clientId: '', clientName: '', action: 'repay', amount: '', note: '', saving: false, msg: '' }
 }
 
 function emptyCashForm(): CashFormState {
@@ -260,7 +245,6 @@ export default function ClientsModule() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [provisioningId, setProvisioningId] = useState<string | null>(null)
   const [form, setForm] = useState<ClientFormState>(emptyClientForm)
-  const [debtForm, setDebtForm] = useState<DebtFormState>(emptyDebtForm)
   const [cashForm, setCashForm] = useState<CashFormState>(emptyCashForm)
   const [loyaltyForm, setLoyaltyForm] = useState<LoyaltyFormState>(emptyLoyaltyForm)
   const [histTick, setHistTick] = useState(0)
@@ -470,45 +454,6 @@ export default function ClientsModule() {
     }
   }
 
-  function openDebtForm(c: EnrichedClient, action: 'repay' | 'add' = 'repay') {
-    setDebtForm({
-      open: true,
-      clientId: c.id,
-      clientName: c.name,
-      action,
-      amount: action === 'repay' && (Number(c.debt) || 0) > 0 ? String(c.debt) : '',
-      note: '',
-      saving: false,
-      msg: '',
-    })
-  }
-
-  function closeDebtForm() {
-    setDebtForm(emptyDebtForm())
-  }
-
-  async function submitDebt() {
-    const client = clients.find(c => c.id === debtForm.clientId)
-    if (!client) return
-    const amount = Number(debtForm.amount) || 0
-    if (!(amount > 0)) {
-      setDebtForm(prev => ({ ...prev, msg: 'Укажите сумму' }))
-      return
-    }
-    const prevDebt = Number(client.debt) || 0
-    const nextDebt = debtForm.action === 'repay'
-      ? Math.max(0, prevDebt - amount)
-      : prevDebt + amount
-
-    setDebtForm(prev => ({ ...prev, saving: true, msg: '' }))
-    try {
-      await saveLoyaltyForClient(client, { debt: nextDebt })
-      closeDebtForm()
-    } catch (e) {
-      setDebtForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
-    }
-  }
-
   function openCashForm(c: EnrichedClient) {
     setCashForm({
       open: true,
@@ -597,7 +542,6 @@ export default function ClientsModule() {
     }
   }
 
-  const debtClient = debtForm.open ? clients.find(c => c.id === debtForm.clientId) : null
   const cashClient = cashForm.open ? clients.find(c => c.id === cashForm.clientId) : null
   const loyaltyClient = loyaltyForm.open ? clients.find(c => c.id === loyaltyForm.clientId) : null
   const detailClient = detailId ? clients.find(c => c.id === detailId) || null : null
@@ -750,9 +694,6 @@ export default function ClientsModule() {
 
                   <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignSelf: 'center', flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
                     <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openCashForm(c)} title="Наличные в магазин">💵 Наличные</button>
-                    {debt > 0 && (
-                      <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openDebtForm(c, 'repay')}>💰 Погасить</button>
-                    )}
                     {!c.card && (
                       <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} disabled={provisioningId === c.id} onClick={() => void provisionCard(c)}>
                         {provisioningId === c.id ? '…' : '💳 Карта'}
@@ -911,55 +852,6 @@ export default function ClientsModule() {
         </div>
       )}
 
-      {/* ── Долг ── */}
-      {debtForm.open && debtClient && (
-        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeDebtForm}>
-          <div className="k-modal" onClick={e => e.stopPropagation()}>
-            <div className="k-modal-h">
-              <b>{debtForm.action === 'repay' ? '💰 Погашение долга' : '➕ Начисление долга'}</b>
-              <button type="button" onClick={closeDebtForm}>✕</button>
-            </div>
-            <div className="k-modal-b" style={{ padding: 16 }}>
-              <div style={{ fontSize: 13, marginBottom: 12 }}>
-                <b>{debtForm.clientName}</b>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  Долг: <b style={{ color: debtClient.debt > 0 ? 'var(--red)' : 'var(--text)' }}>{fmtMoney(debtClient.debt)}</b>
-                  {resolveEffectiveDebtLimit(debtClient) > 0 && (
-                    <span> · лимит {fmtMoney(resolveEffectiveDebtLimit(debtClient))}</span>
-                  )}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                <button type="button" className={`k-subtab ${debtForm.action === 'repay' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setDebtForm(prev => ({ ...prev, action: 'repay', msg: '' }))}>Погасить</button>
-                <button type="button" className={`k-subtab ${debtForm.action === 'add' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setDebtForm(prev => ({ ...prev, action: 'add', msg: '' }))}>Начислить</button>
-              </div>
-              <div className="k-field">
-                <label>Сумма *</label>
-                <input className="k-inp" type="text" inputMode="decimal" value={debtForm.amount} onChange={e => setDebtForm(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value) }))} placeholder="0.00" />
-                {debtForm.action === 'repay' && debtClient.debt > 0 && (
-                  <button type="button" className="k-btn k-btn-s" style={{ marginTop: 8, fontSize: 12 }} onClick={() => setDebtForm(prev => ({ ...prev, amount: String(debtClient.debt) }))}>
-                    Погасить весь долг ({fmtMoney(debtClient.debt)})
-                  </button>
-                )}
-              </div>
-              {debtForm.action === 'add' && (
-                <div className="k-field" style={{ marginBottom: 0 }}>
-                  <label>Комментарий</label>
-                  <input className="k-inp" value={debtForm.note} onChange={e => setDebtForm(prev => ({ ...prev, note: e.target.value }))} />
-                </div>
-              )}
-              {debtForm.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{debtForm.msg}</div>}
-            </div>
-            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={debtForm.saving} onClick={() => void submitDebt()}>
-                {debtForm.saving ? 'Сохранение…' : debtForm.action === 'repay' ? 'Провести погашение' : 'Начислить долг'}
-              </button>
-              <button type="button" className="k-btn k-btn-s" disabled={debtForm.saving} onClick={closeDebtForm}>Отмена</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Лояльность ── */}
       {loyaltyForm.open && loyaltyClient && (
         <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeLoyaltyForm}>
@@ -1067,7 +959,6 @@ export default function ClientsModule() {
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button type="button" className="k-btn k-btn-g" onClick={() => openCashForm(detailClient)}>💵 Наличные</button>
-                    {detailClient.debt > 0 && <button type="button" className="k-btn k-btn-s" onClick={() => openDebtForm(detailClient, 'repay')}>💰 Погасить</button>}
                     <button type="button" className="k-btn k-btn-s" onClick={() => openLoyaltyForm(detailClient)}>🏅 Статус</button>
                     {!detailClient.card && <button type="button" className="k-btn k-btn-s" disabled={provisioningId === detailClient.id} onClick={() => void provisionCard(detailClient)}>💳 Создать карту</button>}
                     <button type="button" className="k-btn k-btn-s" onClick={() => openEditForm(detailClient)}>✎ Профиль</button>
