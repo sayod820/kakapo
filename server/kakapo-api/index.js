@@ -1902,6 +1902,7 @@ app.patch('/settings/loyalty', (req, res) => {
     ...body,
     tierMinSpent: { ...current.tierMinSpent, ...body.tierMinSpent },
     vipRules: { ...current.vipRules, ...body.vipRules },
+    cashDepositTiers: Array.isArray(body.cashDepositTiers) ? body.cashDepositTiers : current.cashDepositTiers,
     basic: { ...current.basic, ...body.basic },
     bronze: { ...current.bronze, ...body.bronze },
     silver: { ...current.silver, ...body.silver },

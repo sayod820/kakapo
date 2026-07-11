@@ -7,6 +7,16 @@ import { qualifiesForDebtSection } from './clientCrm'
 
 export type LoyaltyTierId = ClientLevel | 'vip'
 
+/** Порог наличных в магазине → % бонусов (настраивается в админке «Статус карты») */
+export type CashDepositTier = {
+  /** Минимальная сумма наличных (сом) для этого порога */
+  minAmount: number
+  /** Процент бонусов от суммы */
+  bonusPercent: number
+  /** Подпись в админке (необязательно) */
+  label?: string
+}
+
 export type LoyaltyTierConfig = {
   id: LoyaltyTierId
   label: string
@@ -33,6 +43,8 @@ export type LoyaltyStatusConfig = {
   vip: LoyaltyTierConfig
   /** Бонусы при регистрации нового клиента */
   welcomeBonus: number
+  /** Пороги бонусов за наличные в магазине (Торговля → Клиенты) */
+  cashDepositTiers: CashDepositTier[]
   vipRules: {
     minOrders: number
     minReviews: number
@@ -50,6 +62,12 @@ let memoryLoyaltyConfig: LoyaltyStatusConfig | null = null
 export const DEFAULT_LOYALTY_STATUS_CONFIG: LoyaltyStatusConfig = {
   bronzeMinSpent: 500,
   welcomeBonus: 10,
+  cashDepositTiers: [
+    { minAmount: 100, bonusPercent: 1, label: 'от 100 сом' },
+    { minAmount: 500, bonusPercent: 3, label: 'от 500 сом' },
+    { minAmount: 1000, bonusPercent: 5, label: 'от 1000 сом' },
+    { minAmount: 5000, bonusPercent: 10, label: 'от 5000 сом' },
+  ],
   basic: {
     id: 'basic',
     label: 'Базовый',
@@ -186,6 +204,19 @@ function mergeTier(base: LoyaltyTierConfig, patch?: Partial<LoyaltyTierConfig>):
   return merged
 }
 
+function normalizeCashDepositTiers(raw?: CashDepositTier[] | null): CashDepositTier[] {
+  const d = DEFAULT_LOYALTY_STATUS_CONFIG.cashDepositTiers
+  if (!Array.isArray(raw) || !raw.length) return d
+  const normalized = raw
+    .map(t => ({
+      minAmount: Math.max(0, Number(t.minAmount) || 0),
+      bonusPercent: Math.max(0, Number(t.bonusPercent) || 0),
+      label: (t.label || '').trim() || undefined,
+    }))
+    .sort((a, b) => a.minAmount - b.minAmount)
+  return normalized.length ? normalized : d
+}
+
 function normalizeConfig(raw: Partial<LoyaltyStatusConfig> | null | undefined): LoyaltyStatusConfig {
   const d = DEFAULT_LOYALTY_STATUS_CONFIG
   if (!raw) return d
@@ -196,6 +227,7 @@ function normalizeConfig(raw: Partial<LoyaltyStatusConfig> | null | undefined): 
   return {
     bronzeMinSpent,
     welcomeBonus: Number(raw.welcomeBonus) >= 0 ? Number(raw.welcomeBonus) : d.welcomeBonus,
+    cashDepositTiers: normalizeCashDepositTiers(raw.cashDepositTiers),
     basic: mergeTier(d.basic, raw.basic),
     vip: mergeTier(d.vip, raw.vip),
     vipRules: {
@@ -215,6 +247,7 @@ function normalizeConfig(raw: Partial<LoyaltyStatusConfig> | null | undefined): 
 export type ApiLoyaltySettings = {
   welcomeBonus?: number
   bronzeMinSpent?: number
+  cashDepositTiers?: CashDepositTier[]
   tierMinSpent?: { bronze?: number; silver?: number; gold?: number; platinum?: number }
   basic?: { bonusPercent?: number }
   bronze?: { bonusPercent?: number }
@@ -244,6 +277,7 @@ export function apiLoyaltyToStatusConfig(
   }
   return normalizeConfig({
     welcomeBonus: api.welcomeBonus ?? base.welcomeBonus,
+    cashDepositTiers: api.cashDepositTiers ?? base.cashDepositTiers,
     bronzeMinSpent: bronzeMin,
     vipRules: api.vipRules ? { ...base.vipRules, ...api.vipRules } : base.vipRules,
     basic: { bonusPercent: api.basic?.bonusPercent ?? base.basic.bonusPercent },
@@ -276,6 +310,7 @@ export function statusConfigToApiPayload(cfg: LoyaltyStatusConfig): ApiLoyaltySe
   const platinum = next.tiers.find(t => t.id === 'platinum')
   return {
     welcomeBonus: next.welcomeBonus,
+    cashDepositTiers: next.cashDepositTiers,
     bronzeMinSpent: next.bronzeMinSpent,
     tierMinSpent: {
       bronze: next.bronzeMinSpent,
@@ -378,6 +413,31 @@ export function tierThresholdsFromConfig(cfg: LoyaltyStatusConfig = DEFAULT_LOYA
 
 export function getRegistrationWelcomeBonus(cfg = loadLoyaltyStatusConfig()): number {
   return Math.max(0, Number(cfg.welcomeBonus) || 0)
+}
+
+export function cashDepositTierLabel(tier: CashDepositTier): string {
+  return tier.label || `от ${tier.minAmount.toLocaleString('ru-RU')} сом`
+}
+
+/** Активный порог бонуса для суммы наличных (наибольший minAmount ≤ cash). */
+export function cashDepositTierForAmount(cashAmount: number, cfg = loadLoyaltyStatusConfig()): CashDepositTier | null {
+  const cash = Math.max(0, Number(cashAmount) || 0)
+  if (cash <= 0) return null
+  const tiers = normalizeCashDepositTiers(cfg.cashDepositTiers)
+  let matched: CashDepositTier | null = null
+  for (const tier of tiers) {
+    if (cash >= tier.minAmount) matched = tier
+    else break
+  }
+  return matched
+}
+
+/** Бонусы ⭐ за внесённые наличные по порогам из админки. */
+export function calcCashDepositBonus(cashAmount: number, cfg = loadLoyaltyStatusConfig()): number {
+  const tier = cashDepositTierForAmount(cashAmount, cfg)
+  if (!tier) return 0
+  const cash = Math.max(0, Number(cashAmount) || 0)
+  return Math.floor(cash * tier.bonusPercent / 100)
 }
 
 export function getLoyaltyTierById(id: LoyaltyTierId, cfg = loadLoyaltyStatusConfig()): LoyaltyTierConfig | undefined {

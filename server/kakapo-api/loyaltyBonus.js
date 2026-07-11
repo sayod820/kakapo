@@ -9,6 +9,12 @@ import {
 export const DEFAULT_LOYALTY = {
   welcomeBonus: 10,
   bronzeMinSpent: 500,
+  cashDepositTiers: [
+    { minAmount: 100, bonusPercent: 1, label: 'от 100 сом' },
+    { minAmount: 500, bonusPercent: 3, label: 'от 500 сом' },
+    { minAmount: 1000, bonusPercent: 5, label: 'от 1000 сом' },
+    { minAmount: 5000, bonusPercent: 10, label: 'от 5000 сом' },
+  ],
   tierMinSpent: { bronze: 500, silver: 1000, gold: 2000, platinum: 3000 },
   basic: { bonusPercent: 0 },
   bronze: { bonusPercent: 1 },
@@ -33,6 +39,9 @@ export function ensureLoyaltySettings(db) {
   }
   if (l.vip && l.vip.defaultDebtLimit == null) {
     l.vip.defaultDebtLimit = DEFAULT_LOYALTY.vip.defaultDebtLimit
+  }
+  if (!Array.isArray(l.cashDepositTiers) || !l.cashDepositTiers.length) {
+    l.cashDepositTiers = structuredClone(DEFAULT_LOYALTY.cashDepositTiers)
   }
   return l
 }

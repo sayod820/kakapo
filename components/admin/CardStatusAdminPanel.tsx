@@ -10,6 +10,8 @@ import {
   type LoyaltyStatusConfig,
   type LoyaltyTierConfig,
   type LoyaltyTierId,
+  type CashDepositTier,
+  cashDepositTierLabel,
 } from '@/lib/loyaltyStatusConfig'
 import { USE_API } from '@/lib/config'
 import { refreshLoyaltyTiersFromConfig } from '@/lib/clientLoyalty'
@@ -107,6 +109,83 @@ function TierEditor({
       <div style={{ gridColumn: '1 / -1' }}>
         <NI lbl="Привилегия (текст для клиента)" val={tier.perk} set={v => onChange({ perk: v })} ph="Бонусы за покупки" />
       </div>
+    </div>
+  )
+}
+
+function CashDepositTiersEditor({
+  tiers,
+  onChange,
+}: {
+  tiers: CashDepositTier[]
+  onChange: (next: CashDepositTier[]) => void
+}) {
+  const sorted = [...tiers].sort((a, b) => a.minAmount - b.minAmount)
+
+  function patchRow(idx: number, patch: Partial<CashDepositTier>) {
+    onChange(sorted.map((t, i) => (i === idx ? { ...t, ...patch } : t)))
+  }
+
+  function removeRow(idx: number) {
+    onChange(sorted.filter((_, i) => i !== idx))
+  }
+
+  function addRow() {
+    const last = sorted[sorted.length - 1]
+    const nextMin = last ? last.minAmount + 500 : 100
+    onChange([...sorted, { minAmount: nextMin, bonusPercent: Math.min(20, (last?.bonusPercent || 0) + 1), label: `от ${nextMin} сом` }])
+  }
+
+  return (
+    <div style={{ background: '#0A140C', border: '1px solid #162B1A', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 6 }}>💵 Наличные в магазин (Торговля)</div>
+      <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 12, lineHeight: 1.45 }}>
+        Пороги бонусов при внесении наличных: чем больше сумма — тем выше процент. Используется в разделе «Клиенты → Наличные».
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {sorted.map((tier, idx) => (
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 1fr auto', gap: 8, alignItems: 'end' }}>
+            <NI
+              lbl="От суммы, сом"
+              val={String(tier.minAmount)}
+              set={v => patchRow(idx, { minAmount: Math.max(0, parseFloat(v) || 0) })}
+              type="number"
+            />
+            <NI
+              lbl="Бонус, %"
+              val={String(tier.bonusPercent)}
+              set={v => patchRow(idx, { bonusPercent: Math.max(0, parseFloat(v) || 0) })}
+              type="number"
+            />
+            <NI
+              lbl="Подпись (необяз.)"
+              val={tier.label || ''}
+              set={v => patchRow(idx, { label: v })}
+              ph={cashDepositTierLabel({ ...tier, label: undefined })}
+            />
+            <button
+              type="button"
+              className="ab"
+              style={{ padding: '8px 10px', fontSize: 12, color: '#FF4545', marginBottom: 2 }}
+              onClick={() => removeRow(idx)}
+              title="Удалить порог"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+      <button type="button" className="ab" style={{ marginTop: 10, padding: '8px 14px', fontSize: 12 }} onClick={addRow}>
+        + Добавить порог
+      </button>
+      {sorted.length > 0 && (
+        <div style={{ marginTop: 12, fontSize: 11, color: '#3D6645' }}>
+          Пример: при 1000 сом с порогом «{cashDepositTierLabel(sorted.find(t => t.minAmount <= 1000) || sorted[0])}» →{' '}
+          <strong style={{ color: '#FFB800' }}>
+            {Math.floor(1000 * (sorted.filter(t => t.minAmount <= 1000).pop()?.bonusPercent || 0) / 100)} ⭐
+          </strong>
+        </div>
+      )}
     </div>
   )
 }
@@ -352,6 +431,15 @@ export default function CardStatusAdminPanel() {
               <NI lbl="VIP: мин. отзывов" val={String(draft.vipRules.minReviews)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minReviews: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
               <NI lbl="VIP: мин. траты, ЅМ" val={String(draft.vipRules.minSpent)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minSpent: Math.max(0, parseFloat(v) || 0) } })); setSaved(false) }} type="number" />
             </div>
+
+            <CashDepositTiersEditor
+              tiers={draft.cashDepositTiers}
+              onChange={next => {
+                draftDirtyRef.current = true
+                setDraft(p => ({ ...p, cashDepositTiers: next }))
+                setSaved(false)
+              }}
+            />
 
             <div style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>Уровни</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 14 }}>

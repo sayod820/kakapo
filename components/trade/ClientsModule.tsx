@@ -39,11 +39,13 @@ import {
 } from '@/lib/clientVipCredit'
 import { inferLevelAssignMode, VIP_PERMANENT_DAYS } from '@/lib/loyaltyAdminLock'
 import {
-  getLoyaltyTierById,
+  calcCashDepositBonus,
+  cashDepositTierForAmount,
+  cashDepositTierLabel,
   getRegistrationWelcomeBonus,
   loadLoyaltyStatusConfig,
   resolveEffectiveDebtLimit,
-  type LoyaltyTierId,
+  subscribeLoyaltyStatusConfig,
 } from '@/lib/loyaltyStatusConfig'
 import { usePosStore } from '@/lib/posStore'
 import { useOrders } from '@/lib/store'
@@ -143,7 +145,8 @@ function levelLabel(level: ClientLevel): string {
 function bonusPercentForLevel(level: ClientLevel, vip: boolean): number {
   const cfg = loadLoyaltyStatusConfig()
   if (vip) return cfg.vip.bonusPercent
-  const tier = getLoyaltyTierById(level as LoyaltyTierId, cfg)
+  if (level === 'basic') return cfg.basic.bonusPercent
+  const tier = cfg.tiers.find(t => t.id === level)
   return tier?.bonusPercent ?? cfg.basic.bonusPercent
 }
 
@@ -283,6 +286,8 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
   const [loyaltyForm, setLoyaltyForm] = useState<LoyaltyFormState>(emptyLoyaltyForm)
   const [histTick, setHistTick] = useState(0)
 
+  const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0)
+
   const welcomeBonus = useMemo(() => getRegistrationWelcomeBonus(), [])
   const unlinkedCards = useMemo(() => cards.filter(c => c.status === 'unlinked'), [cards])
 
@@ -291,6 +296,7 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
   }, [])
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
+  useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), [])
 
   const stats = useMemo(() => {
     const totalDebt = clients.reduce((s, c) => s + (Number(c.debt) || 0), 0)
@@ -570,11 +576,18 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
     setCashForm(emptyCashForm())
   }
 
-  function updateCashBonusPreview(cashAmount: string, client?: EnrichedClient) {
+  function updateCashBonusPreview(cashAmount: string): string {
+    void loyaltyCfgTick
     const cash = Number(cashAmount) || 0
-    if (!client || cash <= 0) return ''
-    const pct = bonusPercentForLevel(client.level, !!client.vip)
-    return String(Math.floor(cash * pct / 100))
+    if (cash <= 0) return ''
+    return String(calcCashDepositBonus(cash))
+  }
+
+  function cashTierHint(cashAmount: string): string {
+    void loyaltyCfgTick
+    const tier = cashDepositTierForAmount(Number(cashAmount) || 0)
+    if (!tier) return 'Порог не достигнут — настройте в админке «Статус карты»'
+    return `${cashDepositTierLabel(tier)} → ${tier.bonusPercent}%`
   }
 
   async function submitCash() {
@@ -956,7 +969,10 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
             </div>
             <div className="k-modal-b" style={{ padding: 16 }}>
               <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 12, background: '#1a2a1a', border: '1px solid #2a4032', fontSize: 12 }}>
-                Клиент внёс наличные — начислите бонусы по кэшбэку уровня <b>{bonusPercentForLevel(cashClient.level, !!cashClient.vip)}%</b>
+                Клиент внёс наличные — бонусы считаются по порогам из админки «Статус карты»
+                {Number(cashForm.cashAmount) > 0 && (
+                  <span> · <b>{cashTierHint(cashForm.cashAmount)}</b></span>
+                )}
               </div>
               <div style={{ fontSize: 13, marginBottom: 12 }}>
                 <b>{cashForm.clientName}</b>
@@ -976,7 +992,7 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
                     setCashForm(prev => ({
                       ...prev,
                       cashAmount,
-                      bonusAmount: updateCashBonusPreview(cashAmount, cashClient),
+                      bonusAmount: updateCashBonusPreview(cashAmount),
                     }))
                   }}
                   placeholder="0.00"
@@ -987,7 +1003,7 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
                 <input className="k-inp" type="text" inputMode="numeric" value={cashForm.bonusAmount} onChange={e => setCashForm(prev => ({ ...prev, bonusAmount: sanitizeDecimalInput(e.target.value) }))} placeholder="0" />
                 {Number(cashForm.cashAmount) > 0 && (
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                    Авто: {bonusPercentForLevel(cashClient.level, !!cashClient.vip)}% от {fmtMoney(Number(cashForm.cashAmount))} = {updateCashBonusPreview(cashForm.cashAmount, cashClient) || '0'} ⭐
+                    Авто: {cashTierHint(cashForm.cashAmount)} = {updateCashBonusPreview(cashForm.cashAmount) || '0'} ⭐
                   </div>
                 )}
               </div>
