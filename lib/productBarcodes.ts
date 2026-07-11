@@ -64,6 +64,7 @@ export function productSearchScore(p: Partial<Product>, query: string, extra = '
 }
 
 export function productMatchesSearch(p: Partial<Product>, query: string, extra = ''): boolean {
+  if (!query.trim()) return true
   return productSearchScore(p, query, extra) > 0
 }
 
