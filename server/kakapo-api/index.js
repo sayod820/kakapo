@@ -108,6 +108,18 @@ if (!db._categorySeedVersion) {
   db._categorySeedVersion = 1
   persist()
 }
+if (!db._supplierPayableSyncVersion) {
+  let changed = false
+  for (const supplier of db.suppliers || []) {
+    const fixed = Math.round(Math.max(0, (Number(supplier.totalSupplied) || 0) - (Number(supplier.totalPaid) || 0)) * 100) / 100
+    if (Number(supplier.payableAmount) !== fixed) {
+      supplier.payableAmount = fixed
+      changed = true
+    }
+  }
+  db._supplierPayableSyncVersion = 1
+  if (changed) persist()
+}
 
 function persist() {
   scheduleSaveDb()

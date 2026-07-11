@@ -38,13 +38,19 @@ function getCardByNum(db, cardNum) {
   return (db.cards || []).find(c => String(c.num || '').trim().toUpperCase() === key) || null
 }
 
+function syncSupplierPayable(supplier) {
+  if (!supplier) return supplier
+  supplier.payableAmount = round2(Math.max(0, (supplier.totalSupplied || 0) - (supplier.totalPaid || 0)))
+  return supplier
+}
+
 function updateSupplierDebt(db, supplierId, receiptTotal, paidNow) {
   if (!supplierId) return null
   const supplier = (db.suppliers || []).find(s => s.id === supplierId)
   if (!supplier) throw new Error('Поставщик не найден')
-  const added = Math.max(0, round2(receiptTotal - paidNow))
-  supplier.payableAmount = round2((supplier.payableAmount || 0) + added)
   supplier.totalSupplied = round2((supplier.totalSupplied || 0) + receiptTotal)
+  supplier.totalPaid = round2((supplier.totalPaid || 0) + Math.max(0, round2(paidNow)))
+  syncSupplierPayable(supplier)
   supplier.lastDeliveryAtIso = nowIso()
   return supplier
 }
@@ -320,8 +326,8 @@ export function createSupplierPayment(db, supplierId, data = {}) {
   if (!supplier) throw new Error('Поставщик не найден')
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму оплаты')
-  supplier.payableAmount = round2(Math.max(0, (supplier.payableAmount || 0) - amount))
   supplier.totalPaid = round2((supplier.totalPaid || 0) + amount)
+  syncSupplierPayable(supplier)
   const payment = {
     id: nextId('SPAY'),
     supplierId: supplier.id,
@@ -348,8 +354,8 @@ export function deleteSupplierPayment(db, supplierId, paymentId) {
   const payment = db.supplierPayments[idx]
   const supplier = db.suppliers.find(s => s.id === supplierId)
   if (supplier) {
-    supplier.payableAmount = round2((supplier.payableAmount || 0) + payment.amount)
     supplier.totalPaid = round2(Math.max(0, (supplier.totalPaid || 0) - payment.amount))
+    syncSupplierPayable(supplier)
   }
   db.supplierPayments.splice(idx, 1)
   return { id: paymentId }
@@ -403,8 +409,10 @@ function reverseSupplierDebt(db, supplierId, receiptTotal, debtAdded) {
   if (!supplierId) return null
   const supplier = (db.suppliers || []).find(s => s.id === supplierId)
   if (!supplier) throw new Error('Поставщик не найден')
-  supplier.payableAmount = round2(Math.max(0, (supplier.payableAmount || 0) - debtAdded))
+  const paidNow = Math.max(0, round2(receiptTotal - debtAdded))
   supplier.totalSupplied = round2(Math.max(0, (supplier.totalSupplied || 0) - receiptTotal))
+  supplier.totalPaid = round2(Math.max(0, (supplier.totalPaid || 0) - paidNow))
+  syncSupplierPayable(supplier)
   return supplier
 }
 
