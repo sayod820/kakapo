@@ -64,15 +64,64 @@ function fillLineFromProduct(line: ReceiptDraftLine, product: Product): ReceiptD
   }
 }
 
+function ReceiptLineSummary({
+  line,
+  idx,
+  product,
+  onActivate,
+  onRemove,
+  cardRef,
+}: {
+  line: ReceiptDraftLine
+  idx: number
+  product: Product
+  onActivate: () => void
+  onRemove: () => void
+  cardRef: (el: HTMLDivElement | null) => void
+}) {
+  const lineCost = linePurchaseSum(line)
+  const lineRetail = (Number(line.qty) || 0) * (Number(line.retailPrice) || 0)
+  const unit = product.unit || 'шт'
+  return (
+    <div
+      ref={cardRef}
+      onClick={onActivate}
+      style={{
+        padding: '10px 14px',
+        borderRadius: 12,
+        border: '1px solid var(--border)',
+        background: 'var(--card2)',
+        marginBottom: 8,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        cursor: 'pointer',
+      }}
+    >
+      <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--muted)', minWidth: 20 }}>{idx + 1}</span>
+      <span style={{ fontSize: 22, flexShrink: 0 }}>{product.e || '📦'}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.name}</div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+          {line.qty || 0} {unit} · закуп {fmtMoney(lineCost)}
+          {lineRetail > 0 && <> · продажа <span style={{ color: 'var(--green)' }}>{fmtMoney(lineRetail)}</span></>}
+          {line.expiryDate && <> · срок {line.expiryDate}</>}
+        </div>
+      </div>
+      <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0 }} onClick={e => { e.stopPropagation(); onActivate() }}>✎</button>
+      <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', flexShrink: 0 }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+    </div>
+  )
+}
+
 function ReceiptLineCard({
   line,
   idx,
   product,
-  active,
   canRemove,
   onClear,
   onRemove,
-  onActivate,
+  onDone,
   onQty,
   onPurchaseTotal,
   onCost,
@@ -87,11 +136,10 @@ function ReceiptLineCard({
   line: ReceiptDraftLine
   idx: number
   product: Product
-  active: boolean
   canRemove: boolean
   onClear: () => void
   onRemove: () => void
-  onActivate: () => void
+  onDone: () => void
   onQty: (v: string) => void
   onPurchaseTotal: (v: string) => void
   onCost: (v: string) => void
@@ -113,12 +161,11 @@ function ReceiptLineCard({
   return (
     <div
       ref={cardRef}
-      onClick={onActivate}
       style={{
         padding: 14,
         borderRadius: 12,
-        border: `1px solid ${active ? 'var(--green)' : 'var(--border)'}`,
-        background: active ? 'rgba(31,215,96,.06)' : 'var(--card2)',
+        border: '1px solid var(--green)',
+        background: 'rgba(31,215,96,.06)',
         marginBottom: 10,
       }}
     >
@@ -132,37 +179,37 @@ function ReceiptLineCard({
               {product.art} · на складе {product.stock ?? 0} {product.unit || 'шт'}
             </div>
           </div>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={e => { e.stopPropagation(); onClear() }}>Сменить</button>
+          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={onClear}>Сменить</button>
         </div>
         {canRemove && (
-          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px' }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px' }} onClick={onRemove}>✕</button>
         )}
       </div>
 
       <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Кол-во ({unit})</label>
-          <input ref={qtyRef} className="k-inp" type="number" min="0" step="any" value={line.qty} onChange={e => onQty(e.target.value)} onClick={e => e.stopPropagation()} />
+          <input ref={qtyRef} className="k-inp" type="number" min="0" step="any" value={line.qty} onChange={e => onQty(e.target.value)} />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Общая сумма закуп</label>
-          <input className="k-inp" type="number" min="0" step="0.01" value={line.purchaseTotal} onChange={e => onPurchaseTotal(e.target.value)} onClick={e => e.stopPropagation()} placeholder="230" />
+          <input className="k-inp" type="number" min="0" step="0.01" value={line.purchaseTotal} onChange={e => onPurchaseTotal(e.target.value)} placeholder="230" />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>За {unit} (себест.)</label>
-          <input className="k-inp" type="number" min="0" step="0.01" value={line.costPrice} onChange={e => onCost(e.target.value)} onClick={e => e.stopPropagation()} />
+          <input className="k-inp" type="number" min="0" step="0.01" value={line.costPrice} onChange={e => onCost(e.target.value)} />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Наценка %</label>
-          <input className="k-inp" type="number" step="0.1" value={line.markupPct} onChange={e => onMarkup(e.target.value)} onClick={e => e.stopPropagation()} placeholder="30" />
+          <input className="k-inp" type="number" step="0.1" value={line.markupPct} onChange={e => onMarkup(e.target.value)} placeholder="30" />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Розница (сом)</label>
-          <input className="k-inp" type="number" min="0" step="0.01" value={line.retailPrice} onChange={e => onRetail(e.target.value)} onClick={e => e.stopPropagation()} />
+          <input className="k-inp" type="number" min="0" step="0.01" value={line.retailPrice} onChange={e => onRetail(e.target.value)} />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Срок годности</label>
-          <input className="k-inp" type="date" value={line.expiryDate} onChange={e => onExpiry(e.target.value)} onClick={e => e.stopPropagation()} />
+          <input className="k-inp" type="date" value={line.expiryDate} onChange={e => onExpiry(e.target.value)} />
         </div>
       </div>
 
@@ -176,7 +223,7 @@ function ReceiptLineCard({
           <button
             key={p}
             type="button"
-            onClick={e => { e.stopPropagation(); onQuickMarkup(p) }}
+            onClick={() => onQuickMarkup(p)}
             style={{
               border: `1px solid ${line.markupPct === String(p) ? 'var(--green)' : 'var(--border)'}`,
               background: line.markupPct === String(p) ? 'var(--green-d)' : 'var(--card)',
@@ -189,7 +236,7 @@ function ReceiptLineCard({
         ))}
       </div>
 
-      <div onClick={e => e.stopPropagation()} style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12 }}>
         <BulkPricingFields
           tiers={line.bulkPricing}
           onChange={onBulkPricing}
@@ -206,6 +253,16 @@ function ReceiptLineCard({
           )}
         </div>
       )}
+
+      <button
+        type="button"
+        className="k-btn k-btn-g"
+        style={{ marginTop: 14, width: '100%' }}
+        disabled={!(Number(line.qty) > 0)}
+        onClick={onDone}
+      >
+        ✓ Готово — добавить в приход
+      </button>
     </div>
   )
 }
@@ -713,13 +770,30 @@ export default function WarehouseReceiptsPanel({
               {filledLines.map((line, idx) => {
                 const product = products.find(p => p.id === line.productId) || null
                 if (!product) return null
+                const isActive = activeLineKey === line.key
+                if (!isActive) {
+                  return (
+                    <ReceiptLineSummary
+                      key={line.key}
+                      line={line}
+                      idx={idx}
+                      product={product}
+                      onActivate={() => setActiveLine(line.key)}
+                      onRemove={() => setDraft(prev => ({
+                        ...prev,
+                        lines: prev.lines.filter(l => l.key !== line.key),
+                        activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
+                      }))}
+                      cardRef={el => { lineRefs.current[line.key] = el }}
+                    />
+                  )
+                }
                 return (
                   <ReceiptLineCard
                     key={line.key}
                     line={line}
                     idx={idx}
                     product={product}
-                    active={activeLineKey === line.key}
                     canRemove={filledLines.length > 0}
                     onClear={() => selectProduct(line.key, null)}
                     onRemove={() => setDraft(prev => ({
@@ -727,7 +801,7 @@ export default function WarehouseReceiptsPanel({
                       lines: prev.lines.filter(l => l.key !== line.key),
                       activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
                     }))}
-                    onActivate={() => setActiveLine(line.key)}
+                    onDone={() => setActiveLine(null)}
                     onQty={v => setLineQty(line.key, v)}
                     onPurchaseTotal={v => setLinePurchaseTotal(line.key, v)}
                     onCost={v => setLineCost(line.key, v)}
