@@ -75,7 +75,6 @@ function RevisionLineCard({
   const costPrice = Number(product.costPrice) || 0
   const retailPrice = Number(product.price) || 0
   const costDiff = diff != null ? diff * costPrice : null
-  const retailDiff = diff != null ? diff * retailPrice : null
   const barcode = product.barcode || product.barcodes?.[0] || ''
 
   return (
@@ -83,87 +82,65 @@ function RevisionLineCard({
       ref={cardRef}
       onClick={onActivate}
       style={{
-        padding: 14,
+        padding: '10px 12px',
         borderRadius: 12,
         border: `1px solid ${active ? '#3B8EF0' : diff != null && diff !== 0 ? (diff > 0 ? 'var(--green)' : 'var(--red)') : 'var(--border)'}`,
         background: active ? 'rgba(59,142,240,.06)' : 'var(--card2)',
-        marginBottom: 10,
+        marginBottom: 8,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
-        <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--muted)', minWidth: 22, paddingTop: 4 }}>{idx + 1}</span>
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 28 }}>{product.e || '📦'}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 16 }}>{product.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <span>{product.art || '—'}</span>
-              {barcode && <span>· 🏷 {barcode}</span>}
-              <span>· в системе <b style={{ color: 'var(--text)' }}>{system} {unit}</b></span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              <span>Розница: <b style={{ color: 'var(--text)' }}>{fmtMoney(retailPrice)}</b></span>
-              <span>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(costPrice)}</b></span>
-            </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, fontWeight: 900, color: 'var(--muted)', minWidth: 18 }}>{idx + 1}</span>
+        <span style={{ fontSize: 24, flexShrink: 0 }}>{product.e || '📦'}</span>
+
+        <div style={{ flex: '1 1 180px', minWidth: 140 }}>
+          <div style={{ fontWeight: 900, fontSize: 14, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            <span>{product.art || '—'}</span>
+            {barcode && <span>· 🏷 {barcode}</span>}
+            <span>· было <b style={{ color: 'var(--text)' }}>{system}</b></span>
+            {retailPrice > 0 && <span>· Розн {fmtMoney(retailPrice)}</span>}
+            {costPrice > 0 && <span>· Закуп {fmtMoney(costPrice)}</span>}
           </div>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={e => { e.stopPropagation(); onClear() }}>Сменить</button>
         </div>
-        {canRemove && (
-          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px' }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
-        )}
-      </div>
 
-      <div className="k-field" style={{ marginBottom: 0 }}>
-        <label>Фактический остаток ({unit}) · было {system}</label>
-        <input
-          ref={countedRef}
-          className="k-inp"
-          type="number"
-          step="any"
-          min="0"
-          value={line.countedStock}
-          onChange={e => onCounted(e.target.value)}
-          onClick={e => e.stopPropagation()}
-          style={{ fontSize: 18, fontWeight: 800 }}
-        />
-      </div>
+        <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: 100 }}>
+          <label style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>Факт ({unit})</label>
+          <input
+            ref={countedRef}
+            className="k-inp"
+            type="number"
+            step="any"
+            min="0"
+            value={line.countedStock}
+            onChange={e => onCounted(e.target.value)}
+            onClick={e => e.stopPropagation()}
+            style={{ fontSize: 15, fontWeight: 800, padding: '6px 8px' }}
+          />
+        </div>
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12, padding: '6px 12px' }} onClick={e => { e.stopPropagation(); onMatchSystem() }}>
-          Как в системе ({system})
-        </button>
-        <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12, padding: '6px 12px' }} onClick={e => { e.stopPropagation(); onZero() }}>
-          Факт = 0
-        </button>
-        {diff != null && diff !== 0 && (
-          <span style={{ fontSize: 12, fontWeight: 700, ...diffStyle(diff) }}>
-            {diff > 0 ? '↑ Излишек' : '↓ Недостача'} {formatDiff(diff)} {unit}
-          </span>
-        )}
-        {diff === 0 && (
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>✓ Совпадает</span>
-        )}
-      </div>
-
-      {diff != null && diff !== 0 && (costPrice > 0 || retailPrice > 0) && (
-        <div style={{
-          display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, paddingTop: 10,
-          borderTop: '1px dashed var(--border)',
-        }}>
-          {costPrice > 0 && (
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{diff < 0 ? 'Убыток по закупке' : 'Излишек по закупке'}</div>
-              <div style={{ fontWeight: 900, fontSize: 14, ...diffStyle(costDiff ?? 0) }}>{formatMoneyDiff(costDiff ?? 0)}</div>
-            </div>
-          )}
-          {retailPrice > 0 && (
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{diff < 0 ? 'Убыток по рознице' : 'Излишек по рознице'}</div>
-              <div style={{ fontWeight: 900, fontSize: 14, ...diffStyle(retailDiff ?? 0) }}>{formatMoneyDiff(retailDiff ?? 0)}</div>
-            </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, minWidth: 74 }}>
+          {diff != null && diff !== 0 ? (
+            <>
+              <span style={{ fontSize: 13, fontWeight: 900, ...diffStyle(diff) }}>{formatDiff(diff)} {unit}</span>
+              {costPrice > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, ...diffStyle(costDiff ?? 0) }}>{formatMoneyDiff(costDiff ?? 0)}</span>
+              )}
+            </>
+          ) : (
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>✓ ОК</span>
           )}
         </div>
-      )}
+
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '5px 8px' }} title={`Как в системе (${system})`} onClick={e => { e.stopPropagation(); onMatchSystem() }}>⟲</button>
+          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '5px 8px' }} title="Факт = 0" onClick={e => { e.stopPropagation(); onZero() }}>0</button>
+          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '5px 8px' }} title="Сменить товар" onClick={e => { e.stopPropagation(); onClear() }}>⇄</button>
+          {canRemove && (
+            <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 8px' }} title="Удалить позицию" onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -370,6 +347,8 @@ export default function WarehouseRevisionsPanel({
   const filtered = useMemo(() => {
     return revisions.filter(rev => matchesDateRange(rev.createdAtIso, dateFrom, dateTo))
   }, [revisions, dateFrom, dateTo])
+
+  const editingRevision = editingId ? revisions.find(r => r.id === editingId) || null : null
 
   const filledLines = lines.filter(l => l.productId)
   const visibleFilledLines = useMemo(() => {
@@ -612,7 +591,12 @@ export default function WarehouseRevisionsPanel({
           <div className="k-modal k-receipt-modal" onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="k-modal-h" style={{ flexShrink: 0 }}>
               <div>
-                <b>{editingId ? '✎ Редактирование ревизии' : '📋 Новая ревизия'}</b>
+                <b>
+                  {editingId ? '✎ Редактирование ревизии' : '📋 Новая ревизия'}
+                  {editingRevision && (
+                    <span style={{ fontWeight: 700, color: 'var(--muted)', fontSize: 13 }}> · {fmtDateTime(editingRevision.createdAtIso)}</span>
+                  )}
+                </b>
                 <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
                   {modalStep === 'scope'
                     ? 'Шаг 1: выберите категории для пересчёта'
