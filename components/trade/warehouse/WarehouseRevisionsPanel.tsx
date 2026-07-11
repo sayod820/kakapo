@@ -40,6 +40,14 @@ function formatMoneyDiff(n: number) {
   return `${n > 0 ? '+' : '−'}${fmtMoney(Math.abs(n))}`
 }
 
+/** Закупочная цена, а если её нет — розничная (чтобы сумма расхождения считалась всегда). */
+function moneyBasisPrice(product: Product | undefined | null): number {
+  if (!product) return 0
+  const cost = Number(product.costPrice) || 0
+  if (cost > 0) return cost
+  return Number(product.price) || 0
+}
+
 /** Разбирает "250 гр" / "10 шт" / "1 kg" на количество-в-упаковке и метку. */
 function parsePackUnit(unitRaw: string | undefined): { qty: number; label: string } {
   const unit = (unitRaw || 'шт').trim()
@@ -113,7 +121,8 @@ function RevisionLineCard({
   const diff = counted != null ? counted - system : null
   const costPrice = Number(product.costPrice) || 0
   const retailPrice = Number(product.price) || 0
-  const costDiff = diff != null ? diff * costPrice : null
+  const basisPrice = moneyBasisPrice(product)
+  const costDiff = diff != null && basisPrice > 0 ? diff * basisPrice : null
   const barcode = product.barcode || product.barcodes?.[0] || ''
   const step = isWeightUnit ? '0.001' : '1'
   const systemReal = packRealWorld(system, packInfo)
@@ -173,8 +182,11 @@ function RevisionLineCard({
               {diffReal && (
                 <span style={{ fontSize: 11, fontWeight: 700, ...diffStyle(diffReal.value) }}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
               )}
-              {costPrice > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 700, ...diffStyle(costDiff ?? 0) }}>{formatMoneyDiff(costDiff ?? 0)}</span>
+              {basisPrice > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, ...diffStyle(costDiff ?? 0) }}>
+                  {formatMoneyDiff(costDiff ?? 0)}
+                  {costPrice <= 0 && <span style={{ fontWeight: 500, opacity: 0.7 }}> (по рознице)</span>}
+                </span>
               )}
             </>
           ) : (
@@ -368,7 +380,7 @@ export default function WarehouseRevisionsPanel({
       const diff = counted - system
       count++
       netDiff += diff
-      costMoneyDiff += diff * (Number(product.costPrice) || 0)
+      costMoneyDiff += diff * moneyBasisPrice(product)
       if (diff === 0) matched++
       else if (diff > 0) surplus += diff
       else shortage += Math.abs(diff)
@@ -388,7 +400,7 @@ export default function WarehouseRevisionsPanel({
       else matchedDocs++
       for (const it of rev.items) {
         const product = products.find(p => p.id === it.productId)
-        totalMoneyDiff += it.diff * (Number(product?.costPrice) || 0)
+        totalMoneyDiff += it.diff * moneyBasisPrice(product)
       }
     }
     return { surplusDocs, shortageDocs, matchedDocs, totalMoneyDiff }
@@ -531,7 +543,7 @@ export default function WarehouseRevisionsPanel({
                 const totalDiff = rev.items.reduce((s, it) => s + it.diff, 0)
                 const costMoneyDiff = rev.items.reduce((s, it) => {
                   const product = products.find(p => p.id === it.productId)
-                  return s + it.diff * (Number(product?.costPrice) || 0)
+                  return s + it.diff * moneyBasisPrice(product)
                 }, 0)
                 const isOpen = expanded === rev.id
                 return (
@@ -585,7 +597,8 @@ export default function WarehouseRevisionsPanel({
                               const product = products.find(p => p.id === it.productId)
                               const barcode = product?.barcode || product?.barcodes?.[0] || ''
                               const costPrice = Number(product?.costPrice) || 0
-                              const costDiff = it.diff * costPrice
+                              const basisPrice = moneyBasisPrice(product)
+                              const costDiff = it.diff * basisPrice
                               const packInfo = parsePackUnit(product?.unit)
                               const inputUnitLabel = packInputUnitLabel(packInfo)
                               const diffReal = packRealWorld(it.diff, packInfo)
@@ -621,9 +634,11 @@ export default function WarehouseRevisionsPanel({
                                       <div style={{ fontSize: 11, fontWeight: 700, ...diffStyle(diffReal.value) }}>= {formatDiff(diffReal.value)} {diffReal.label}</div>
                                     )}
                                   </div>
-                                  {costPrice > 0 && it.diff !== 0 && (
+                                  {basisPrice > 0 && it.diff !== 0 && (
                                     <div style={{ textAlign: 'right' }}>
-                                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{it.diff < 0 ? 'Убыток' : 'Излишек'} (закуп)</div>
+                                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                                        {it.diff < 0 ? 'Убыток' : 'Излишек'}{costPrice > 0 ? ' (закуп)' : ' (по рознице)'}
+                                      </div>
                                       <div style={{ fontWeight: 900, ...diffStyle(costDiff) }}>{formatMoneyDiff(costDiff)}</div>
                                     </div>
                                   )}

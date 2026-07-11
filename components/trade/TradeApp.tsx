@@ -108,7 +108,7 @@ const CSS = `
   .k-modal-h{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
   .k-modal-h b{font-size:16px;font-weight:900}
   .k-modal-h button{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
-  .k-modal-b{overflow:auto}
+  .k-modal-b{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
   .k-subtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
   .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
   .k-subtab:hover{color:var(--text);border-color:#2a4032}
@@ -188,6 +188,7 @@ const CSS = `
       border-radius:0;margin:0
     }
     .k-receipt-modal-bg{padding:0;align-items:stretch;justify-content:stretch}
+    .k-modal-b{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     .k-product-list{position:static}
     .k-product-list-body{max-height:50vh}
     .k-tbl{font-size:12px}
