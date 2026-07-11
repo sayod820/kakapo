@@ -231,7 +231,7 @@ type NavItem = {
 }
 
 const NAV: NavItem[] = [
-  { id: 'sales', label: 'Касса', icon: '🛒', tag: 'скоро' },
+  { id: 'sales', label: 'Касса', icon: '🛒' },
   { id: 'products', label: 'Товары', icon: '📦' },
   { id: 'clients', label: 'Клиенты', icon: '👥' },
   { id: 'debts', label: 'Долги', icon: '💳' },
@@ -309,7 +309,7 @@ function TradeAppInner() {
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
-    if (current === 'sales') return <CashierModule />
+    if (current === 'sales') return <CashierModule search={search} />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
     return <ProductsModule search={search} />
