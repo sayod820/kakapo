@@ -353,14 +353,19 @@ export default function WarehouseRevisionsPanel({
     let surplusDocs = 0
     let shortageDocs = 0
     let matchedDocs = 0
+    let totalMoneyDiff = 0
     for (const rev of revisions) {
       const totalDiff = rev.items.reduce((s, it) => s + it.diff, 0)
       if (totalDiff > 0) surplusDocs++
       else if (totalDiff < 0) shortageDocs++
       else matchedDocs++
+      for (const it of rev.items) {
+        const product = products.find(p => p.id === it.productId)
+        totalMoneyDiff += it.diff * (Number(product?.costPrice) || 0)
+      }
     }
-    return { surplusDocs, shortageDocs, matchedDocs }
-  }, [revisions])
+    return { surplusDocs, shortageDocs, matchedDocs, totalMoneyDiff }
+  }, [revisions, products])
 
   const filtered = useMemo(() => {
     return revisions.filter(rev => matchesDateRange(rev.createdAtIso, dateFrom, dateTo))
@@ -441,6 +446,12 @@ export default function WarehouseRevisionsPanel({
           <div className="kl">Без расхождений</div>
           <div className="kv" style={{ color: 'var(--muted)' }}>{listStats.matchedDocs}</div>
         </div>
+        <div className="k-kpi k-statcard">
+          <div className="kl">{listStats.totalMoneyDiff < 0 ? 'Убыток (закуп)' : 'Итого по закупу'}</div>
+          <div className="kv" style={{ ...diffStyle(listStats.totalMoneyDiff) }}>
+            {listStats.totalMoneyDiff !== 0 ? formatMoneyDiff(listStats.totalMoneyDiff) : '—'}
+          </div>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
@@ -472,7 +483,7 @@ export default function WarehouseRevisionsPanel({
         </div>
       ) : (
         <div className="k-card k-tbl-scroll">
-          <table className="k-tbl">
+          <table className="k-tbl" style={{ minWidth: 780 }}>
             <thead>
               <tr>
                 <th>Дата</th>
@@ -480,6 +491,7 @@ export default function WarehouseRevisionsPanel({
                 <th className="num">Излишек</th>
                 <th className="num">Недостача</th>
                 <th className="num">Δ итого</th>
+                <th className="num">Сумма (закуп)</th>
                 <th />
               </tr>
             </thead>
@@ -488,11 +500,15 @@ export default function WarehouseRevisionsPanel({
                 const surplus = rev.items.reduce((s, it) => s + (it.diff > 0 ? it.diff : 0), 0)
                 const shortage = rev.items.reduce((s, it) => s + (it.diff < 0 ? Math.abs(it.diff) : 0), 0)
                 const totalDiff = rev.items.reduce((s, it) => s + it.diff, 0)
+                const costMoneyDiff = rev.items.reduce((s, it) => {
+                  const product = products.find(p => p.id === it.productId)
+                  return s + it.diff * (Number(product?.costPrice) || 0)
+                }, 0)
                 const isOpen = expanded === rev.id
                 return (
                   <Fragment key={rev.id}>
                     <tr style={{ cursor: 'pointer' }} onClick={() => setExpanded(isOpen ? null : rev.id)}>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         {fmtDateTime(rev.createdAtIso)}
                         {rev.note && (
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -501,16 +517,19 @@ export default function WarehouseRevisionsPanel({
                         )}
                       </td>
                       <td className="num">{rev.items.length}</td>
-                      <td className="num" style={{ color: surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>
+                      <td className="num" style={{ color: surplus > 0 ? 'var(--green)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
                         {surplus > 0 ? `+${surplus}` : '—'}
                       </td>
-                      <td className="num" style={{ color: shortage > 0 ? 'var(--red)' : 'var(--muted)' }}>
+                      <td className="num" style={{ color: shortage > 0 ? 'var(--red)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
                         {shortage > 0 ? shortage : '—'}
                       </td>
-                      <td className="num" style={{ fontWeight: 800, ...diffStyle(totalDiff) }}>
+                      <td className="num" style={{ fontWeight: 800, whiteSpace: 'nowrap', ...diffStyle(totalDiff) }}>
                         {formatDiff(totalDiff)}
                       </td>
-                      <td>
+                      <td className="num" style={{ fontWeight: 900, whiteSpace: 'nowrap', ...diffStyle(costMoneyDiff) }}>
+                        {costMoneyDiff !== 0 ? formatMoneyDiff(costMoneyDiff) : '—'}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                           <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={e => { e.stopPropagation(); openEditForm(rev) }} title="Редактировать">✎</button>
                           <button
@@ -531,7 +550,7 @@ export default function WarehouseRevisionsPanel({
                     </tr>
                     {isOpen && (
                       <tr>
-                        <td colSpan={6} style={{ background: 'var(--card2)', padding: '12px 14px' }}>
+                        <td colSpan={7} style={{ background: 'var(--card2)', padding: '12px 14px' }}>
                           <div style={{ display: 'grid', gap: 8 }}>
                             {rev.items.map((it, i) => {
                               const product = products.find(p => p.id === it.productId)
