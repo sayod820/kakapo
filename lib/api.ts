@@ -635,8 +635,14 @@ export const api = {
     request<PosSupplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
   updateSupplier: (id: string, data: Partial<PosSupplier>) =>
     request<PosSupplier>(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSupplier: (id: string) =>
+    request<{ id: string }>(`/suppliers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getSupplierPayments: (id: string) =>
+    request<SupplierPayment[]>(`/suppliers/${encodeURIComponent(id)}/payments`),
   createSupplierPayment: (id: string, data: { amount: number; note?: string }) =>
     request<SupplierPayment>(`/suppliers/${id}/payments`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteSupplierPayment: (id: string, paymentId: string) =>
+    request<{ id: string }>(`/suppliers/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`, { method: 'DELETE' }),
   getExpenses: () => request<PosExpense[]>('/expenses'),
   createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string; shiftId?: string }) =>
     request<PosExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),

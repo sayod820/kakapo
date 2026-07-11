@@ -334,6 +334,40 @@ export function createSupplierPayment(db, supplierId, data = {}) {
   return payment
 }
 
+export function listSupplierPayments(db, supplierId) {
+  ensurePosCollections(db)
+  return (db.supplierPayments || [])
+    .filter(p => !supplierId || p.supplierId === supplierId)
+    .sort((a, b) => String(b.paidAtIso || '').localeCompare(String(a.paidAtIso || '')))
+}
+
+export function deleteSupplierPayment(db, supplierId, paymentId) {
+  ensurePosCollections(db)
+  const idx = (db.supplierPayments || []).findIndex(p => p.id === paymentId && p.supplierId === supplierId)
+  if (idx < 0) throw new Error('Платёж не найден')
+  const payment = db.supplierPayments[idx]
+  const supplier = db.suppliers.find(s => s.id === supplierId)
+  if (supplier) {
+    supplier.payableAmount = round2((supplier.payableAmount || 0) + payment.amount)
+    supplier.totalPaid = round2(Math.max(0, (supplier.totalPaid || 0) - payment.amount))
+  }
+  db.supplierPayments.splice(idx, 1)
+  return { id: paymentId }
+}
+
+export function deleteSupplier(db, id) {
+  ensurePosCollections(db)
+  const idx = (db.suppliers || []).findIndex(s => s.id === id)
+  if (idx < 0) throw new Error('Поставщик не найден')
+  const supplier = db.suppliers[idx]
+  if (Number(supplier.payableAmount) > 0) {
+    throw new Error('Нельзя удалить поставщика с непогашенным долгом — сначала погасите задолженность')
+  }
+  db.suppliers.splice(idx, 1)
+  db.supplierPayments = (db.supplierPayments || []).filter(p => p.supplierId !== id)
+  return { id }
+}
+
 export function listExpenses(db) {
   ensurePosCollections(db)
   return [...db.expenses].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))

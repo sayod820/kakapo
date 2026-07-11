@@ -62,7 +62,10 @@ import {
   listSuppliers,
   createSupplier,
   updateSupplier,
+  deleteSupplier,
   createSupplierPayment,
+  listSupplierPayments,
+  deleteSupplierPayment,
   listExpenses,
   createExpense,
   listStockReceipts,
@@ -1396,6 +1399,23 @@ app.patch('/suppliers/:id', (req, res) => {
     res.status(400).json({ detail: e?.message || 'Не удалось обновить поставщика' })
   }
 })
+app.delete('/suppliers/:id', (req, res) => {
+  try {
+    const row = deleteSupplier(db, req.params.id)
+    persist()
+    broadcastPosUpdate({ kind: 'supplier', id: row.id, deleted: true })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить поставщика' })
+  }
+})
+app.get('/suppliers/:id/payments', (req, res) => {
+  try {
+    res.json(listSupplierPayments(db, req.params.id))
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось получить историю платежей' })
+  }
+})
 app.post('/suppliers/:id/payments', (req, res) => {
   try {
     const row = createSupplierPayment(db, req.params.id, req.body || {})
@@ -1404,6 +1424,16 @@ app.post('/suppliers/:id/payments', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести оплату поставщику' })
+  }
+})
+app.delete('/suppliers/:id/payments/:paymentId', (req, res) => {
+  try {
+    const row = deleteSupplierPayment(db, req.params.id, req.params.paymentId)
+    persist()
+    broadcastPosUpdate({ kind: 'supplier_payment', id: row.id, deleted: true })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить платёж' })
   }
 })
 
