@@ -679,46 +679,46 @@ export default function WarehouseRevisionsPanel({
               </>
             ) : (
               <>
-                <div style={{ flexShrink: 0, padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card2)' }}>
-                  <div className="k-field" style={{ marginBottom: 10 }}>
-                    <label>Комментарий (необязательно)</label>
-                    <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Например: плановая инвентаризация зала" />
+                <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card2)' }}>
+                    <div className="k-field" style={{ marginBottom: 10 }}>
+                      <label>Комментарий (необязательно)</label>
+                      <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Например: плановая инвентаризация зала" />
+                    </div>
+                    {!editingId && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, padding: '6px 12px', borderRadius: 8, background: 'var(--panel)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+                          📂 {scopeLabel} · {filledLines.length} {filledLines.length === 1 ? 'товар' : filledLines.length < 5 ? 'товара' : 'товаров'}
+                        </span>
+                        <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12 }} onClick={backToScope}>
+                          ← Изменить категории
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  {!editingId && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, padding: '6px 12px', borderRadius: 8, background: 'var(--panel)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
-                        📂 {scopeLabel} · {filledLines.length} {filledLines.length === 1 ? 'товар' : filledLines.length < 5 ? 'товара' : 'товаров'}
-                      </span>
-                      <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12 }} onClick={backToScope}>
-                        ← Изменить категории
-                      </button>
+
+                  <div className="k-receipt-summary" style={{
+                    padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
+                  }}>
+                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
+                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Совпало</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{totals.matched}</div></div>
+                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Излишек</div><div style={{ fontWeight: 900, fontSize: 18, color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</div></div>
+                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ итого</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.netDiff) }}>{totals.count ? formatDiff(totals.netDiff) : '—'}</div></div>
+                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{totals.costMoneyDiff < 0 ? 'Убыток (закуп)' : 'Сумма (закуп)'}</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.costMoneyDiff) }}>{totals.count ? formatMoneyDiff(totals.costMoneyDiff) : '—'}</div></div>
+                  </div>
+
+                  {filledLines.length > 5 && (
+                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+                      <input
+                        className="k-inp"
+                        value={countSearch}
+                        onChange={e => setCountSearch(e.target.value)}
+                        placeholder="Поиск в списке: название, артикул, штрихкод…"
+                      />
                     </div>
                   )}
-                </div>
 
-                <div className="k-receipt-summary" style={{
-                  flexShrink: 0,
-                  padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
-                }}>
-                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
-                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Совпало</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{totals.matched}</div></div>
-                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Излишек</div><div style={{ fontWeight: 900, fontSize: 18, color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</div></div>
-                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ итого</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.netDiff) }}>{totals.count ? formatDiff(totals.netDiff) : '—'}</div></div>
-                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{totals.costMoneyDiff < 0 ? 'Убыток (закуп)' : 'Сумма (закуп)'}</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.costMoneyDiff) }}>{totals.count ? formatMoneyDiff(totals.costMoneyDiff) : '—'}</div></div>
-                </div>
-
-                {filledLines.length > 5 && (
-                  <div style={{ flexShrink: 0, padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
-                    <input
-                      className="k-inp"
-                      value={countSearch}
-                      onChange={e => setCountSearch(e.target.value)}
-                      placeholder="Поиск в списке: название, артикул, штрихкод…"
-                    />
-                  </div>
-                )}
-
-                <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
+                  <div style={{ padding: '12px 16px' }}>
                   {visibleFilledLines.length === 0 && countSearch.trim() && (
                     <div style={{ textAlign: 'center', padding: 24, color: 'var(--muted)', fontSize: 13 }}>
                       По запросу «{countSearch}» ничего не найдено
@@ -790,6 +790,7 @@ export default function WarehouseRevisionsPanel({
                       {msg}
                     </div>
                   )}
+                  </div>
                 </div>
 
                 <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
