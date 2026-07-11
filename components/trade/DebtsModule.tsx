@@ -40,17 +40,17 @@ import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehou
 type EnrichedClient = AdminClient & { lastLabel?: string }
 type FilterMode = 'with_debt' | 'over_limit' | 'debt_section' | 'all'
 type SortMode = 'debt' | 'name' | 'recent' | 'unpaid'
-type DetailTab = 'summary' | 'unpaid' | 'history' | 'orders' | 'pos'
+type DetailTab = 'history' | 'unpaid' | 'orders' | 'pos'
 
 type DebtFormState = {
-  open: boolean
-  clientId: string
-  clientName: string
   action: 'repay' | 'add'
   amount: string
-  note: string
   saving: boolean
   msg: string
+}
+
+function emptyInlineDebt(): DebtFormState {
+  return { action: 'repay', amount: '', saving: false, msg: '' }
 }
 
 type PosDebtSale = {
@@ -74,10 +74,6 @@ type DebtClientRow = EnrichedClient & {
   partialCount: number
   borrowed: number
   repaid: number
-}
-
-function emptyDebtForm(): DebtFormState {
-  return { open: false, clientId: '', clientName: '', action: 'repay', amount: '', note: '', saving: false, msg: '' }
 }
 
 function levelLabel(level: ClientLevel): string {
@@ -191,8 +187,8 @@ export default function DebtsModule() {
   const [sort, setSort] = useState<SortMode>('debt')
   const [filter, setFilter] = useState<FilterMode>('with_debt')
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [detailTab, setDetailTab] = useState<DetailTab>('unpaid')
-  const [debtForm, setDebtForm] = useState<DebtFormState>(emptyDebtForm)
+  const [detailTab, setDetailTab] = useState<DetailTab>('history')
+  const [inlineDebt, setInlineDebt] = useState<DebtFormState>(emptyInlineDebt)
   const [histTick, setHistTick] = useState(0)
   const [orderDetail, setOrderDetail] = useState<DebtOrderBalance | DebtHistoryEntry | null>(null)
 
@@ -241,18 +237,6 @@ export default function DebtsModule() {
     return sorted
   }, [debtClients, cards, q, sort, filter])
 
-  const recentActivity = useMemo(() => {
-    void histTick
-    const rows: (DebtHistoryEntry & { clientName: string; clientId: string })[] = []
-    for (const c of debtClients) {
-      if (!c.phone) continue
-      for (const h of loadDebtHistory(c.phone)) {
-        rows.push({ ...h, clientName: c.name, clientId: c.id })
-      }
-    }
-    return rows.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 10)
-  }, [debtClients, histTick])
-
   const detailClient = detailId ? debtClients.find(c => c.id === detailId) || null : null
 
   const detailData = useMemo(() => {
@@ -280,57 +264,39 @@ export default function DebtsModule() {
     await refreshAll()
   }
 
-  function openDetail(id: string, tab: DetailTab = 'unpaid') {
+  function openDetail(id: string) {
     setDetailId(id)
-    setDetailTab(tab)
+    setDetailTab('history')
     setOrderDetail(null)
+    setInlineDebt(emptyInlineDebt())
   }
 
   function closeDetail() {
     setDetailId(null)
     setOrderDetail(null)
+    setInlineDebt(emptyInlineDebt())
   }
 
-  function openDebtForm(c: DebtClientRow, action: 'repay' | 'add' = 'repay') {
-    setDebtForm({
-      open: true,
-      clientId: c.id,
-      clientName: c.name,
-      action,
-      amount: action === 'repay' && (Number(c.debt) || 0) > 0 ? String(c.debt) : '',
-      note: '',
-      saving: false,
-      msg: '',
-    })
-  }
-
-  function closeDebtForm() {
-    setDebtForm(emptyDebtForm())
-  }
-
-  async function submitDebt() {
-    const client = debtClients.find(c => c.id === debtForm.clientId)
-    if (!client) return
-    const amount = Number(debtForm.amount) || 0
+  async function submitInlineDebt() {
+    if (!detailClient) return
+    const amount = Number(inlineDebt.amount) || 0
     if (!(amount > 0)) {
-      setDebtForm(prev => ({ ...prev, msg: 'Укажите сумму' }))
+      setInlineDebt(prev => ({ ...prev, msg: 'Укажите сумму' }))
       return
     }
-    const prevDebt = Number(client.debt) || 0
-    const nextDebt = debtForm.action === 'repay'
+    const prevDebt = Number(detailClient.debt) || 0
+    const nextDebt = inlineDebt.action === 'repay'
       ? Math.max(0, prevDebt - amount)
       : prevDebt + amount
 
-    setDebtForm(prev => ({ ...prev, saving: true, msg: '' }))
+    setInlineDebt(prev => ({ ...prev, saving: true, msg: '' }))
     try {
-      await saveLoyaltyForClient(client, { debt: nextDebt })
-      closeDebtForm()
+      await saveLoyaltyForClient(detailClient, { debt: nextDebt })
+      setInlineDebt(emptyInlineDebt())
     } catch (e) {
-      setDebtForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
+      setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
     }
   }
-
-  const debtClient = debtForm.open ? debtClients.find(c => c.id === debtForm.clientId) : null
 
   return (
     <div>
@@ -338,7 +304,7 @@ export default function DebtsModule() {
         <div>
           <h1>💳 Долги клиентов</h1>
           <div className="sub">
-            История заказов в долг, частичные оплаты, погашения и лимиты — синхронизация с магазином и админкой
+            Нажмите на клиента — откроется история долгов, погашения и управление задолженностью
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -363,20 +329,6 @@ export default function DebtsModule() {
             {stats.totalDebt > 0 ? fmtMoney(stats.totalDebt) : '—'}
           </div>
         </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Неоплаченных заказов</div>
-          <div className="kv" style={{ color: stats.unpaidOrders > 0 ? 'var(--gold)' : 'var(--muted)' }}>{stats.unpaidOrders}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Начислено всего</div>
-          <div className="kv">{stats.totalBorrowed > 0 ? fmtMoney(stats.totalBorrowed) : '—'}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Погашено</div>
-          <div className="kv" style={{ color: stats.totalRepaid > 0 ? 'var(--green)' : 'var(--muted)' }}>
-            {stats.totalRepaid > 0 ? fmtMoney(stats.totalRepaid) : '—'}
-          </div>
-        </div>
         {stats.overLimit > 0 && (
           <div className="k-kpi k-statcard" style={{ borderColor: '#5a2030' }}>
             <div className="kl">Превышен лимит</div>
@@ -384,37 +336,6 @@ export default function DebtsModule() {
           </div>
         )}
       </div>
-
-      {recentActivity.length > 0 && (
-        <div className="k-card" style={{ marginBottom: 14, padding: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 10, letterSpacing: 0.5 }}>ПОСЛЕДНИЕ ОПЕРАЦИИ</div>
-          <div style={{ display: 'grid', gap: 6 }}>
-            {recentActivity.map(row => (
-              <button
-                key={`${row.clientId}-${row.id}`}
-                type="button"
-                onClick={() => openDetail(row.clientId, row.type === 'pay' ? 'history' : 'unpaid')}
-                style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
-                  padding: '9px 12px', borderRadius: 10, background: 'var(--card2)', border: '1px solid var(--border)',
-                  cursor: 'pointer', textAlign: 'left', color: 'inherit', fontFamily: 'inherit', width: '100%',
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <span>{row.type === 'pay' ? '💰' : '🛒'}</span>
-                  <span style={{ fontWeight: 800, fontSize: 13 }}>{row.clientName}</span>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {row.desc || (row.type === 'pay' ? 'Погашение' : 'Заказ в долг')}
-                  </span>
-                </span>
-                <span style={{ fontWeight: 900, flexShrink: 0, fontSize: 13, color: row.type === 'pay' ? 'var(--green)' : 'var(--red)' }}>
-                  {row.type === 'pay' ? '+' : '−'}{fmtMoney(Math.abs(row.amount))}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14, alignItems: 'center' }}>
         <input
@@ -480,34 +401,14 @@ export default function DebtsModule() {
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', flex: '0 0 auto' }}>
-                    <div style={{ textAlign: 'right' }}>
+                  <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div>
                       <div style={{ fontSize: 11, color: 'var(--muted)' }}>Долг</div>
-                      <div style={{ fontWeight: 900, fontSize: 16, color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
+                      <div style={{ fontWeight: 900, fontSize: 17, color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
                         {debt > 0 ? fmtMoney(debt) : '—'}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Заказов в долг</div>
-                      <div style={{ fontWeight: 800, color: c.unpaidCount > 0 ? 'var(--gold)' : 'var(--muted)' }}>
-                        {c.unpaidCount > 0 ? c.unpaidCount : '—'}
-                        {c.partialCount > 0 && <span style={{ fontSize: 10, color: 'var(--muted)' }}> ({c.partialCount} частич.)</span>}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Погашено</div>
-                      <div style={{ fontWeight: 800, color: c.repaid > 0 ? 'var(--green)' : 'var(--muted)' }}>
-                        {c.repaid > 0 ? fmtMoney(c.repaid) : '—'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignSelf: 'center', flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
-                    {debt > 0 && (
-                      <button type="button" className="k-btn k-btn-g" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openDebtForm(c, 'repay')}>💰 Погасить</button>
-                    )}
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openDebtForm(c, 'add')}>➕ Начислить</button>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openDetail(c.id)}>→</button>
+                    <span style={{ fontSize: 18, color: 'var(--muted)' }}>→</span>
                   </div>
                 </div>
               </div>
@@ -516,48 +417,7 @@ export default function DebtsModule() {
         </div>
       )}
 
-      {/* ── Погашение / начисление ── */}
-      {debtForm.open && debtClient && (
-        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeDebtForm}>
-          <div className="k-modal" onClick={e => e.stopPropagation()}>
-            <div className="k-modal-h">
-              <b>{debtForm.action === 'repay' ? '💰 Погашение долга' : '➕ Начисление долга'}</b>
-              <button type="button" onClick={closeDebtForm}>✕</button>
-            </div>
-            <div className="k-modal-b" style={{ padding: 16 }}>
-              <div style={{ marginBottom: 14 }}>
-                <b>{debtForm.clientName}</b>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                  Долг: <b style={{ color: debtClient.debt > 0 ? 'var(--red)' : 'var(--text)' }}>{fmtMoney(debtClient.debt)}</b>
-                  {debtClient.debtLimit > 0 && (
-                    <span> · лимит {fmtMoney(debtClient.debtLimit)} · доступно {fmtMoney(debtClient.available)}</span>
-                  )}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-                <button type="button" className={`k-subtab ${debtForm.action === 'repay' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setDebtForm(prev => ({ ...prev, action: 'repay', msg: '' }))}>Погасить</button>
-                <button type="button" className={`k-subtab ${debtForm.action === 'add' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setDebtForm(prev => ({ ...prev, action: 'add', msg: '' }))}>Начислить</button>
-              </div>
-              <label>Сумма *</label>
-              <input className="k-inp" type="text" inputMode="decimal" value={debtForm.amount} onChange={e => setDebtForm(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value) }))} placeholder="0.00" />
-              {debtForm.action === 'repay' && debtClient.debt > 0 && (
-                <button type="button" className="k-btn k-btn-s" style={{ marginTop: 8, fontSize: 12 }} onClick={() => setDebtForm(prev => ({ ...prev, amount: String(debtClient.debt) }))}>
-                  Погасить весь долг ({fmtMoney(debtClient.debt)})
-                </button>
-              )}
-              {debtForm.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{debtForm.msg}</div>}
-            </div>
-            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={debtForm.saving} onClick={() => void submitDebt()}>
-                {debtForm.saving ? 'Сохранение…' : debtForm.action === 'repay' ? 'Провести погашение' : 'Начислить долг'}
-              </button>
-              <button type="button" className="k-btn k-btn-s" disabled={debtForm.saving} onClick={closeDebtForm}>Отмена</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Детальная карточка долга ── */}
+      {/* ── Окно клиента: история и управление долгом ── */}
       {detailClient && detailData && (
         <div className="k-modal-bg" onClick={closeDetail}>
           <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()}>
@@ -611,26 +471,85 @@ export default function DebtsModule() {
                 )}
               </div>
 
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-                {detailClient.debt > 0 && (
-                  <button type="button" className="k-btn k-btn-g" onClick={() => openDebtForm(detailClient, 'repay')}>💰 Погасить долг</button>
-                )}
-                <button type="button" className="k-btn k-btn-s" onClick={() => openDebtForm(detailClient, 'add')}>➕ Начислить</button>
+              <div style={{
+                padding: '14px 16px', borderRadius: 14, marginBottom: 14,
+                background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gold)', marginBottom: 10 }}>Изменить долг</div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                  <button type="button" className={`k-subtab ${inlineDebt.action === 'repay' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, action: 'repay', msg: '' }))}>Погасить</button>
+                  <button type="button" className={`k-subtab ${inlineDebt.action === 'add' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, action: 'add', msg: '' }))}>Начислить</button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ flex: '1 1 140px' }}>
+                    <label style={{ fontSize: 11 }}>Сумма</label>
+                    <input className="k-inp" type="text" inputMode="decimal" value={inlineDebt.amount} onChange={e => setInlineDebt(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value), msg: '' }))} placeholder="0.00" />
+                  </div>
+                  {inlineDebt.action === 'repay' && detailClient.debt > 0 && (
+                    <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, amount: String(detailClient.debt), msg: '' }))}>
+                      Весь долг
+                    </button>
+                  )}
+                  <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12 }} disabled={inlineDebt.saving} onClick={() => void submitInlineDebt()}>
+                    {inlineDebt.saving ? '…' : inlineDebt.action === 'repay' ? 'Провести' : 'Начислить'}
+                  </button>
+                </div>
+                {inlineDebt.msg && <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{inlineDebt.msg}</div>}
               </div>
 
               <div className="k-subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
                 {([
+                  ['history', 'Вся история'],
                   ['unpaid', `Неоплаченные (${detailData.settlement.unpaid.length})`],
-                  ['history', 'История'],
                   ['orders', `Заказы (${detailData.creditOrders.length})`],
                   ['pos', `Касса (${detailData.posSales.length})`],
-                  ['summary', 'Сводка'],
                 ] as [DetailTab, string][]).map(([tab, label]) => (
                   <button key={tab} type="button" className={`k-subtab ${detailTab === tab ? 'active' : ''}`} onClick={() => { setDetailTab(tab); setOrderDetail(null) }}>
                     {label}
                   </button>
                 ))}
               </div>
+
+              {detailTab === 'history' && (
+                <>
+                  {!detailData.history.length ? (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>История пуста</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 6, maxHeight: 420, overflowY: 'auto' }}>
+                      {detailData.history.map(row => {
+                        const isPay = row.type === 'pay'
+                        return (
+                          <button
+                            key={row.id}
+                            type="button"
+                            onClick={() => row.orderId && setOrderDetail(row)}
+                            style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                              padding: '10px 12px', borderRadius: 10,
+                              background: isPay ? '#122018' : 'var(--card)',
+                              border: `1px solid ${isPay ? '#1e3a28' : 'var(--border)'}`,
+                              cursor: row.orderId ? 'pointer' : 'default',
+                              textAlign: 'left', color: 'inherit', fontFamily: 'inherit', width: '100%',
+                            }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                              <span>{isPay ? '💰' : '🛒'}</span>
+                              <span>
+                                <div style={{ fontWeight: 800, fontSize: 13 }}>{row.desc || (isPay ? 'Погашение' : 'Заказ в долг')}</div>
+                                {row.itemsSummary && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{row.itemsSummary}</div>}
+                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{row.date} · {row.time || '—'}</div>
+                              </span>
+                            </span>
+                            <span style={{ fontWeight: 900, flexShrink: 0, color: isPay ? 'var(--green)' : 'var(--red)' }}>
+                              {isPay ? '+' : '−'}{fmtMoney(Math.abs(row.amount))}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
 
               {detailTab === 'unpaid' && (
                 <>
@@ -683,47 +602,6 @@ export default function DebtsModule() {
                           </div>
                         </button>
                       ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {detailTab === 'history' && (
-                <>
-                  {!detailData.history.length ? (
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>История пуста</div>
-                  ) : (
-                    <div style={{ display: 'grid', gap: 6, maxHeight: 420, overflowY: 'auto' }}>
-                      {detailData.history.map(row => {
-                        const isPay = row.type === 'pay'
-                        return (
-                          <button
-                            key={row.id}
-                            type="button"
-                            onClick={() => row.orderId && setOrderDetail(row)}
-                            style={{
-                              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
-                              padding: '10px 12px', borderRadius: 10,
-                              background: isPay ? '#122018' : 'var(--card)',
-                              border: `1px solid ${isPay ? '#1e3a28' : 'var(--border)'}`,
-                              cursor: row.orderId ? 'pointer' : 'default',
-                              textAlign: 'left', color: 'inherit', fontFamily: 'inherit', width: '100%',
-                            }}
-                          >
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                              <span>{isPay ? '💰' : '🛒'}</span>
-                              <span>
-                                <div style={{ fontWeight: 800, fontSize: 13 }}>{row.desc || (isPay ? 'Погашение' : 'Заказ в долг')}</div>
-                                {row.itemsSummary && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{row.itemsSummary}</div>}
-                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{row.date} · {row.time || '—'}</div>
-                              </span>
-                            </span>
-                            <span style={{ fontWeight: 900, flexShrink: 0, color: isPay ? 'var(--green)' : 'var(--red)' }}>
-                              {isPay ? '+' : '−'}{fmtMoney(Math.abs(row.amount))}
-                            </span>
-                          </button>
-                        )
-                      })}
                     </div>
                   )}
                 </>
@@ -816,25 +694,6 @@ export default function DebtsModule() {
                 </>
               )}
 
-              {detailTab === 'summary' && (
-                <div style={{ display: 'grid', gap: 10 }}>
-                  {[
-                    { l: 'Раздел долга', v: cardHasDebtSection(cardForClient(detailClient, cards) || {}, detailClient) ? 'Включён' : 'Выключен' },
-                    { l: 'Неоплаченных заказов', v: String(detailData.settlement.unpaid.length) },
-                    { l: 'Частично оплаченных', v: String(detailData.settlement.unpaid.filter(u => u.partial).length) },
-                    { l: 'Полностью погашенных заказов', v: String(detailData.settlement.paid.length) },
-                    { l: 'Заказов из магазина (кредит)', v: String(detailData.creditOrders.length) },
-                    { l: 'Продаж через кассу в долг', v: String(detailData.posSales.length) },
-                    { l: 'Уровень', v: levelLabel(detailClient.level) },
-                    { l: 'VIP', v: detailClient.vip ? 'Да' : 'Нет' },
-                  ].map(row => (
-                    <div key={row.l} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 8, background: 'var(--card)', border: '1px solid var(--border)', fontSize: 13 }}>
-                      <span style={{ color: 'var(--muted)' }}>{row.l}</span>
-                      <span style={{ fontWeight: 800 }}>{row.v}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -886,7 +745,10 @@ export default function DebtsModule() {
                 )}
               </div>
               {detailClient.debt > 0 && (
-                <button type="button" className="k-btn k-btn-g" style={{ width: '100%', marginTop: 16 }} onClick={() => { setOrderDetail(null); openDebtForm(detailClient, 'repay') }}>
+                <button type="button" className="k-btn k-btn-g" style={{ width: '100%', marginTop: 16 }} onClick={() => {
+                  setOrderDetail(null)
+                  setInlineDebt({ action: 'repay', amount: String(detailClient.debt), saving: false, msg: '' })
+                }}>
                   💰 Погасить долг клиента
                 </button>
               )}
