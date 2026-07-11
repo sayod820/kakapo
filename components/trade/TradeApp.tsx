@@ -9,6 +9,7 @@ import ProductsModule from '@/components/trade/ProductsModule'
 import WarehouseModule from '@/components/trade/WarehouseModule'
 import SuppliersModule from '@/components/trade/SuppliersModule'
 import ClientsModule from '@/components/trade/ClientsModule'
+import DebtsModule from '@/components/trade/DebtsModule'
 import CashierModule from '@/components/trade/CashierModule'
 import ComingSoonModule from '@/components/trade/ComingSoonModule'
 
@@ -307,7 +308,7 @@ function TradeAppInner() {
     if (current === 'warehouse') return <WarehouseModule products={products} />
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
-    if (current === 'debts') return <ClientsModule variant="debts" />
+    if (current === 'debts') return <DebtsModule />
     if (current === 'sales') return <CashierModule />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />

@@ -242,11 +242,7 @@ function LoyaltyMiniCard({ client, cards }: { client: EnrichedClient; cards: Adm
   )
 }
 
-type ClientsModuleProps = {
-  variant?: 'clients' | 'debts'
-}
-
-export default function ClientsModule({ variant = 'clients' }: ClientsModuleProps) {
+export default function ClientsModule() {
   const storedClients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
   const sales = usePosStore(s => s.sales)
@@ -257,8 +253,8 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
   const clients = useMemo(() => mergeClientsWithOrders(storedClients, orders), [storedClients, orders])
 
   const [q, setQ] = useState('')
-  const [sort, setSort] = useState<SortMode>(variant === 'debts' ? 'debt' : 'name')
-  const [filter, setFilter] = useState<FilterMode>(variant === 'debts' ? 'debt' : 'all')
+  const [sort, setSort] = useState<SortMode>('name')
+  const [filter, setFilter] = useState<FilterMode>('all')
   const [detailId, setDetailId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<DetailTab>('overview')
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -617,24 +613,18 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
     return earnedAutoLevelForClient(loyaltyClient.phone, loyaltyClient, orders)
   }, [loyaltyClient, loyaltyForm.levelAssignMode, orders])
 
-  const isDebtsView = variant === 'debts'
-
   return (
     <div>
       <div className="k-page-h">
         <div>
-          <h1>{isDebtsView ? '💳 Долги клиентов' : '👥 Клиенты'}</h1>
+          <h1>👥 Клиенты</h1>
           <div className="sub">
-            {isDebtsView
-              ? 'Задолженности, погашения и лимиты — синхронизация с магазином и админкой'
-              : 'Клиенты, бонусы, карты лояльности и VIP-кредит — общие данные со всеми приложениями KAKAPO'}
+            Клиенты, бонусы, карты лояльности и VIP-кредит — общие данные со всеми приложениями KAKAPO
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
-          {!isDebtsView && (
-            <button type="button" className="k-btn k-btn-g" onClick={openNewForm}>+ Новый клиент</button>
-          )}
+          <button type="button" className="k-btn k-btn-g" onClick={openNewForm}>+ Новый клиент</button>
         </div>
       </div>
 
@@ -684,20 +674,11 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
           onChange={e => setQ(e.target.value)}
         />
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {!isDebtsView ? (
-            <>
-              <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('all')}>Все</button>
-              <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('debt')}>С долгом</button>
-              <button type="button" className={`k-subtab ${filter === 'vip' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('vip')}>VIP</button>
-              <button type="button" className={`k-subtab ${filter === 'no_card' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('no_card')}>Без карты</button>
-              <button type="button" className={`k-subtab ${filter === 'blocked' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('blocked')}>Блок</button>
-            </>
-          ) : (
-            <>
-              <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('debt')}>С долгом</button>
-              <button type="button" className={`k-subtab ${filter === 'over_limit' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('over_limit')}>Превышен лимит</button>
-            </>
-          )}
+          <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('all')}>Все</button>
+          <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('debt')}>С долгом</button>
+          <button type="button" className={`k-subtab ${filter === 'vip' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('vip')}>VIP</button>
+          <button type="button" className={`k-subtab ${filter === 'no_card' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('no_card')}>Без карты</button>
+          <button type="button" className={`k-subtab ${filter === 'blocked' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('blocked')}>Блок</button>
           <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('debt')}>По долгу</button>
           <button type="button" className={`k-subtab ${sort === 'bonus' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('bonus')}>По бонусам</button>
           <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('name')}>По имени</button>
@@ -777,14 +758,10 @@ export default function ClientsModule({ variant = 'clients' }: ClientsModuleProp
                         {provisioningId === c.id ? '…' : '💳 Карта'}
                       </button>
                     )}
-                    {!isDebtsView && (
-                      <>
-                        <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openEditForm(c)}>✎</button>
-                        <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => void toggleBlockClient(c)} title={c.blocked ? 'Разблокировать' : 'Заблокировать'}>
-                          {c.blocked ? '🔓' : '🔒'}
-                        </button>
-                      </>
-                    )}
+                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openEditForm(c)}>✎</button>
+                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => void toggleBlockClient(c)} title={c.blocked ? 'Разблокировать' : 'Заблокировать'}>
+                      {c.blocked ? '🔓' : '🔒'}
+                    </button>
                     <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openDetail(c.id)}>→</button>
                   </div>
                 </div>
