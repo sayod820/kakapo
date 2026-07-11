@@ -431,6 +431,8 @@ export default function WarehouseReceiptsPanel({
     }))
   }
 
+  /** Пересчёт наценки/розницы от себестоимости. Также пересчитывает «Общую сумму закуп» —
+   *  используется только когда пользователь редактирует именно себестоимость за единицу. */
   function applyCostWithMarkup(line: ReceiptDraftLine, costPrice: string): ReceiptDraftLine {
     const cost = Number(costPrice) || 0
     const markup = Number(line.markupPct)
@@ -439,6 +441,20 @@ export default function WarehouseReceiptsPanel({
     if (qty > 0 && cost > 0) {
       next.purchaseTotal = String(roundMoney(qty * cost))
     }
+    if (cost > 0 && line.markupPct !== '') {
+      next.retailPrice = String(retailFromMarkup(cost, markup))
+    } else if (cost > 0 && line.retailPrice !== '') {
+      next.markupPct = String(markupFromRetail(cost, Number(line.retailPrice) || 0))
+    }
+    return next
+  }
+
+  /** То же самое, но НЕ трогает «Общую сумму закуп» — она уже введена пользователем
+   *  (или его количество) и является первичным источником, из которого выводится себестоимость. */
+  function applyCostKeepingTotal(line: ReceiptDraftLine, costPrice: string): ReceiptDraftLine {
+    const cost = Number(costPrice) || 0
+    const markup = Number(line.markupPct)
+    const next: ReceiptDraftLine = { ...line, costPrice }
     if (cost > 0 && line.markupPct !== '') {
       next.retailPrice = String(retailFromMarkup(cost, markup))
     } else if (cost > 0 && line.retailPrice !== '') {
@@ -456,10 +472,10 @@ export default function WarehouseReceiptsPanel({
         const q = Number(qty) || 0
         const purchaseTotal = Number(l.purchaseTotal) || 0
         // Пересчитываем себестоимость из уже введённой общей суммы закупа — но не наоборот:
-        // поле «Общая сумма закуп» не должно само заполняться, иначе туда не впишешь новую сумму.
+        // поле «Общая сумма закуп» не должно само меняться, иначе введённую сумму не удержать.
         if (q > 0 && purchaseTotal > 0) {
           const cost = costFromPurchaseTotal(q, purchaseTotal)
-          return applyCostWithMarkup({ ...next, costPrice: String(cost) }, String(cost))
+          return applyCostKeepingTotal(next, String(cost))
         }
         return next
       }),
@@ -475,7 +491,7 @@ export default function WarehouseReceiptsPanel({
         const total = Number(purchaseTotal) || 0
         if (qty > 0 && total > 0) {
           const cost = costFromPurchaseTotal(qty, total)
-          return applyCostWithMarkup({ ...l, purchaseTotal, costPrice: String(cost) }, String(cost))
+          return applyCostKeepingTotal({ ...l, purchaseTotal }, String(cost))
         }
         return { ...l, purchaseTotal }
       }),
