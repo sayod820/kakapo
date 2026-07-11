@@ -29,7 +29,16 @@ import {
   type ReceiptDraft,
   type ReceiptDraftLine,
 } from './receiptDraftStorage'
-import { fmtDateTime, fmtMoney, formatQty, matchesDateRange, packInputUnitLabel, packRealWorld, parsePackUnit } from './warehouseShared'
+import {
+  fmtDateTime,
+  fmtMoney,
+  formatQty,
+  matchesDateRange,
+  packInputUnitLabel,
+  packRealWorld,
+  parsePackUnit,
+  sanitizeDecimalInput,
+} from './warehouseShared'
 
 const QUICK_MARKUPS = [20, 30, 40, 50]
 
@@ -207,26 +216,26 @@ function ReceiptLineCard({
       <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Кол-во ({inputUnitLabel})</label>
-          <input ref={qtyRef} className="k-inp" type="number" min="0" step="any" value={line.qty} onChange={e => onQty(e.target.value)} />
+          <input ref={qtyRef} className="k-inp" type="text" inputMode="decimal" value={line.qty} onChange={e => onQty(sanitizeDecimalInput(e.target.value))} />
           {realWorld && (
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>= {formatQty(realWorld.value)} {realWorld.label}</div>
           )}
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Общая сумма закуп</label>
-          <input className="k-inp" type="number" min="0" step="0.01" value={line.purchaseTotal} onChange={e => onPurchaseTotal(e.target.value)} placeholder="230" />
+          <input className="k-inp" type="text" inputMode="decimal" value={line.purchaseTotal} onChange={e => onPurchaseTotal(sanitizeDecimalInput(e.target.value))} placeholder="230" />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>За {unit} (себест.)</label>
-          <input className="k-inp" type="number" min="0" step="0.01" value={line.costPrice} onChange={e => onCost(e.target.value)} />
+          <input className="k-inp" type="text" inputMode="decimal" value={line.costPrice} onChange={e => onCost(sanitizeDecimalInput(e.target.value))} />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Наценка %</label>
-          <input className="k-inp" type="number" step="0.1" value={line.markupPct} onChange={e => onMarkup(e.target.value)} placeholder="30" />
+          <input className="k-inp" type="text" inputMode="decimal" value={line.markupPct} onChange={e => onMarkup(sanitizeDecimalInput(e.target.value))} placeholder="30" />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Розница (сом)</label>
-          <input className="k-inp" type="number" min="0" step="0.01" value={line.retailPrice} onChange={e => onRetail(e.target.value)} />
+          <input className="k-inp" type="text" inputMode="decimal" value={line.retailPrice} onChange={e => onRetail(sanitizeDecimalInput(e.target.value))} />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Срок годности</label>
@@ -826,7 +835,7 @@ export default function WarehouseReceiptsPanel({
                 </div>
                 <div className="k-field" style={{ marginBottom: 0 }}>
                   <label>Оплачено сейчас (сом)</label>
-                  <input className="k-inp" type="number" min="0" step="0.01" value={paidNow} onChange={e => setDraftPatch({ paidNow: e.target.value })} />
+                  <input className="k-inp" type="text" inputMode="decimal" value={paidNow} onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })} />
                 </div>
               </div>
             </div>

@@ -6,6 +6,14 @@ export function money(n: number | undefined | null) {
   return `${(Number(n) || 0).toFixed(2)} сом`
 }
 
+/** Заменяет запятую на точку и убирает всё, что не цифра/точка — number-инпуты в RU-локали ломают ввод. */
+export function sanitizeDecimal(raw: string): string {
+  let v = raw.replace(',', '.').replace(/[^0-9.]/g, '')
+  const firstDot = v.indexOf('.')
+  if (firstDot !== -1) v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '')
+  return v
+}
+
 export type ProductForm = {
   name: string
   art: string

@@ -111,3 +111,18 @@ export function packInputUnitLabel(info: { qty: number; label: string }) {
   if (info.qty !== 1) return 'уп.'
   return isKgLabel(info.label) ? 'кг' : info.label
 }
+
+/**
+ * Приводит ввод в числовых полях (кол-во/сумма/цена) к безопасной строке:
+ * заменяет запятую на точку, убирает всё лишнее, не даёт вставить вторую точку.
+ * Используется вместо type="number", у которого в RU-локали браузера ломается
+ * ввод через запятую и колесо мыши меняет значение при скролле страницы.
+ */
+export function sanitizeDecimalInput(raw: string): string {
+  let v = raw.replace(',', '.').replace(/[^0-9.]/g, '')
+  const firstDot = v.indexOf('.')
+  if (firstDot !== -1) {
+    v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '')
+  }
+  return v
+}

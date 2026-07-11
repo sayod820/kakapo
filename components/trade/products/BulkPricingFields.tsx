@@ -4,6 +4,14 @@ import type { SellType } from '@/lib/types'
 
 export type BulkPricingRow = { minQty: string; price: string }
 
+/** Заменяет запятую на точку и убирает всё, что не цифра/точка — number-инпуты в RU-локали ломают ввод. */
+function sanitizeDecimal(raw: string): string {
+  let v = raw.replace(',', '.').replace(/[^0-9.]/g, '')
+  const firstDot = v.indexOf('.')
+  if (firstDot !== -1) v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '')
+  return v
+}
+
 export default function BulkPricingFields({
   tiers,
   onChange,
@@ -50,11 +58,10 @@ export default function BulkPricingFields({
             <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>От ({unit})</div>
             <input
               className="k-inp"
-              type="number"
-              min="1"
-              step="1"
+              type="text"
+              inputMode="decimal"
               value={row.minQty}
-              onChange={e => setRow(i, { minQty: e.target.value })}
+              onChange={e => setRow(i, { minQty: sanitizeDecimal(e.target.value) })}
               placeholder={sellType === 'weight' ? '500' : '24'}
             />
           </div>
@@ -62,11 +69,10 @@ export default function BulkPricingFields({
             <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>Цена (сом)</div>
             <input
               className="k-inp"
-              type="number"
-              step="0.01"
-              min="0"
+              type="text"
+              inputMode="decimal"
               value={row.price}
-              onChange={e => setRow(i, { price: e.target.value })}
+              onChange={e => setRow(i, { price: sanitizeDecimal(e.target.value) })}
               placeholder="1.80"
             />
           </div>

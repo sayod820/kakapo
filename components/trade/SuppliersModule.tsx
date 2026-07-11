@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import type { PosSupplier, SupplierPayment } from '@/lib/types'
-import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
+import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
 
 type SortMode = 'debt' | 'name' | 'recent'
 
@@ -437,11 +437,10 @@ export default function SuppliersModule() {
                 <label>Сумма оплаты *</label>
                 <input
                   className="k-inp"
-                  type="number"
-                  min="0"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   value={payForm.amount}
-                  onChange={e => setPayForm(prev => ({ ...prev, amount: e.target.value }))}
+                  onChange={e => setPayForm(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value) }))}
                   placeholder="0.00"
                 />
                 {payingSupplier && (Number(payingSupplier.payableAmount) || 0) > 0 && (

@@ -17,7 +17,7 @@ import {
   type WriteoffDraft,
   type WriteoffDraftLine,
 } from './writeoffDraftStorage'
-import { fmtDateTime, fmtMoney, matchesDateRange, WRITEOFF_REASONS, writeoffReasonMeta } from './warehouseShared'
+import { fmtDateTime, fmtMoney, matchesDateRange, sanitizeDecimalInput, WRITEOFF_REASONS, writeoffReasonMeta } from './warehouseShared'
 
 function lineCost(line: WriteoffDraftLine, product: Product | undefined) {
   const qty = Number(line.qty) || 0
@@ -113,12 +113,10 @@ function WriteoffLineCard({
           <input
             ref={qtyRef}
             className="k-inp"
-            type="number"
-            min="0"
-            step="any"
-            max={stock > 0 ? stock : undefined}
+            type="text"
+            inputMode="decimal"
             value={line.qty}
-            onChange={e => onQty(e.target.value)}
+            onChange={e => onQty(sanitizeDecimalInput(e.target.value))}
             onClick={e => e.stopPropagation()}
             style={overStock ? { borderColor: 'var(--red)' } : undefined}
           />

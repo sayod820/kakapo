@@ -31,6 +31,7 @@ import {
   packInputUnitLabel,
   packRealWorld,
   parsePackUnit,
+  sanitizeDecimalInput,
 } from './warehouseShared'
 
 function diffStyle(diff: number) {
@@ -105,7 +106,6 @@ function RevisionLineCard({
   const basisPrice = moneyBasisPrice(product)
   const costDiff = diff != null && basisPrice > 0 ? diff * basisPrice : null
   const barcode = product.barcode || product.barcodes?.[0] || ''
-  const step = isWeightUnit ? '0.001' : '1'
   const systemReal = packRealWorld(system, packInfo)
   const diffReal = diff != null ? packRealWorld(diff, packInfo) : null
 
@@ -145,12 +145,10 @@ function RevisionLineCard({
           <input
             ref={countedRef}
             className="k-inp"
-            type="number"
-            step={step}
-            min="0"
+            type="text"
             inputMode={isWeightUnit ? 'decimal' : 'numeric'}
             value={line.countedStock}
-            onChange={e => onCounted(e.target.value)}
+            onChange={e => onCounted(sanitizeDecimalInput(e.target.value))}
             onClick={e => e.stopPropagation()}
             style={{ fontSize: 15, fontWeight: 800, padding: '6px 8px' }}
           />

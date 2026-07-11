@@ -6,7 +6,7 @@ import { USE_API } from '@/lib/config'
 import { formatBulkPricingHint, serializeBulkPricing } from '@/lib/productBulkPricing'
 import type { Product, ProductStockLayer } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from './BulkPricingFields'
-import { money } from './productFormShared'
+import { money, sanitizeDecimal } from './productFormShared'
 
 function formatDate(iso: string) {
   try {
@@ -230,15 +230,15 @@ export default function ProductArrivalsPanel({
               <div className="k-grid2">
                 <div className="k-field">
                   <label>Количество *</label>
-                  <input className="k-inp" type="number" min="1" step="1" value={qty} onChange={e => { setQty(e.target.value); markAddDirty() }} />
+                  <input className="k-inp" type="text" inputMode="decimal" value={qty} onChange={e => { setQty(sanitizeDecimal(e.target.value)); markAddDirty() }} />
                 </div>
                 <div className="k-field">
                   <label>Закупочная цена</label>
-                  <input className="k-inp" type="number" step="0.01" value={costPrice} onChange={e => { setCostPrice(e.target.value); markAddDirty() }} />
+                  <input className="k-inp" type="text" inputMode="decimal" value={costPrice} onChange={e => { setCostPrice(sanitizeDecimal(e.target.value)); markAddDirty() }} />
                 </div>
                 <div className="k-field">
                   <label>Розничная цена</label>
-                  <input className="k-inp" type="number" step="0.01" value={retailPrice} onChange={e => { setRetailPrice(e.target.value); markAddDirty() }} />
+                  <input className="k-inp" type="text" inputMode="decimal" value={retailPrice} onChange={e => { setRetailPrice(sanitizeDecimal(e.target.value)); markAddDirty() }} />
                 </div>
                 <div className="k-field">
                   <label>Срок годности</label>
@@ -306,11 +306,11 @@ export default function ProductArrivalsPanel({
                             <div className="k-grid2" style={{ marginBottom: 10 }}>
                               <div className="k-field">
                                 <label>Закупочная</label>
-                                <input className="k-inp" type="number" step="0.01" value={editCost} onChange={e => setEditCost(e.target.value)} />
+                                <input className="k-inp" type="text" inputMode="decimal" value={editCost} onChange={e => setEditCost(sanitizeDecimal(e.target.value))} />
                               </div>
                               <div className="k-field">
                                 <label>Розничная</label>
-                                <input className="k-inp" type="number" step="0.01" value={editRetail} onChange={e => setEditRetail(e.target.value)} />
+                                <input className="k-inp" type="text" inputMode="decimal" value={editRetail} onChange={e => setEditRetail(sanitizeDecimal(e.target.value))} />
                               </div>
                             </div>
                             <BulkPricingFields tiers={editBulk} onChange={setEditBulk} sellType={product.sellType || 'piece'} />
