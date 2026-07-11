@@ -4,6 +4,9 @@ export type RevisionDraftLine = {
   key: string
   productId: number | null
   countedStock: string
+  /** Остаток «в системе» на момент создания ревизии (для редактирования — иначе после
+   *  сохранения товар уже получил новый остаток, и расхождение всегда показывало бы 0). */
+  systemStock?: number
 }
 
 export type RevisionDraft = {
@@ -67,6 +70,7 @@ export function revisionToDraft(revision: import('@/lib/types').StockRevision): 
         key: `edit-${it.productId}-${Math.random()}`,
         productId: it.productId,
         countedStock: String(it.countedStock),
+        systemStock: it.systemStock,
       })),
       emptyRevisionLine(),
     ],

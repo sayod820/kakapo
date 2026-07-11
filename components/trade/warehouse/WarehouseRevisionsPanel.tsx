@@ -84,6 +84,13 @@ function packInputUnitLabel(info: { qty: number; label: string }) {
   return isKgLabel(info.label) ? 'кг' : info.label
 }
 
+/** Остаток «в системе» для строки: при редактировании — сохранённый на момент ревизии,
+ *  иначе (новая ревизия) — текущий живой остаток товара. */
+function lineSystemStock(line: RevisionDraftLine, product: Product | null | undefined): number {
+  if (line.systemStock != null) return line.systemStock
+  return Number(product?.stock) || 0
+}
+
 function RevisionLineCard({
   line,
   idx,
@@ -116,7 +123,7 @@ function RevisionLineCard({
   const packInfo = parsePackUnit(product.unit)
   const isWeightUnit = product.sellType === 'weight' || isGramLabel(packInfo.label) || isKgLabel(packInfo.label)
   const inputUnitLabel = packInputUnitLabel(packInfo)
-  const system = Number(product.stock) || 0
+  const system = lineSystemStock(line, product)
   const counted = line.countedStock !== '' ? Number(line.countedStock) : null
   const diff = counted != null ? counted - system : null
   const costPrice = Number(product.costPrice) || 0
@@ -297,10 +304,13 @@ export default function WarehouseRevisionsPanel({
   }
 
   function fillLineFromProduct(line: RevisionDraftLine, product: Product): RevisionDraftLine {
+    const sameProduct = line.productId === product.id
     return {
       ...line,
       productId: product.id,
       countedStock: line.countedStock !== '' ? line.countedStock : String(product.stock ?? 0),
+      // Смена товара в строке — исходный «системный» остаток относился к другому товару.
+      systemStock: sameProduct ? line.systemStock : undefined,
     }
   }
 
@@ -334,7 +344,7 @@ export default function WarehouseRevisionsPanel({
 
   function selectProduct(key: string, product: Product | null) {
     if (!product) {
-      updateLine(key, { productId: null, countedStock: '' })
+      updateLine(key, { productId: null, countedStock: '', systemStock: undefined })
       return
     }
     const existing = lines.find(l => l.productId === product.id && l.key !== key)
@@ -375,7 +385,7 @@ export default function WarehouseRevisionsPanel({
       if (!l.productId || l.countedStock === '') continue
       const product = products.find(p => p.id === l.productId)
       if (!product) continue
-      const system = Number(product.stock) || 0
+      const system = lineSystemStock(l, product)
       const counted = Number(l.countedStock) || 0
       const diff = counted - system
       count++
@@ -759,7 +769,7 @@ export default function WarehouseRevisionsPanel({
                         }))}
                         onActivate={() => setDraftPatch({ activeLineKey: line.key })}
                         onCounted={v => updateLine(line.key, { countedStock: v })}
-                        onMatchSystem={() => updateLine(line.key, { countedStock: String(product.stock ?? 0) })}
+                        onMatchSystem={() => updateLine(line.key, { countedStock: String(lineSystemStock(line, product)) })}
                         onZero={() => updateLine(line.key, { countedStock: '0' })}
                         cardRef={el => { lineRefs.current[line.key] = el }}
                         countedRef={el => { countedRefs.current[line.key] = el }}
