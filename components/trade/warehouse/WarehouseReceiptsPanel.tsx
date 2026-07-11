@@ -223,7 +223,14 @@ function ReceiptLineCard({
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Общая сумма закуп</label>
-          <input className="k-inp" type="text" inputMode="decimal" value={line.purchaseTotal} onChange={e => onPurchaseTotal(sanitizeDecimalInput(e.target.value))} placeholder="230" />
+          <input
+            className="k-inp"
+            type="text"
+            inputMode="decimal"
+            value={line.purchaseTotal}
+            onChange={e => onPurchaseTotal(sanitizeDecimalInput(e.target.value))}
+            placeholder={qtyNum > 0 && Number(line.costPrice) > 0 ? String(roundMoney(qtyNum * Number(line.costPrice))) : '230'}
+          />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>За {unit} (себест.)</label>
@@ -445,14 +452,14 @@ export default function WarehouseReceiptsPanel({
       ...prev,
       lines: prev.lines.map(l => {
         if (l.key !== key) return l
-        let next = { ...l, qty }
+        const next = { ...l, qty }
         const q = Number(qty) || 0
         const purchaseTotal = Number(l.purchaseTotal) || 0
+        // Пересчитываем себестоимость из уже введённой общей суммы закупа — но не наоборот:
+        // поле «Общая сумма закуп» не должно само заполняться, иначе туда не впишешь новую сумму.
         if (q > 0 && purchaseTotal > 0) {
           const cost = costFromPurchaseTotal(q, purchaseTotal)
-          next = applyCostWithMarkup({ ...next, costPrice: String(cost) }, String(cost))
-        } else if (q > 0 && Number(l.costPrice) > 0) {
-          next.purchaseTotal = String(roundMoney(q * Number(l.costPrice)))
+          return applyCostWithMarkup({ ...next, costPrice: String(cost) }, String(cost))
         }
         return next
       }),
