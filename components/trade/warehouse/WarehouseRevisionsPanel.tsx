@@ -21,7 +21,7 @@ import {
   type RevisionDraftLine,
 } from './revisionDraftStorage'
 import { filterProductsBySearch } from '@/lib/productBarcodes'
-import { fmtDateTime, matchesDateRange } from './warehouseShared'
+import { fmtDateTime, fmtMoney, matchesDateRange } from './warehouseShared'
 
 function diffStyle(diff: number) {
   if (diff === 0) return { color: 'var(--muted)' }
@@ -32,6 +32,11 @@ function diffStyle(diff: number) {
 function formatDiff(diff: number) {
   if (diff === 0) return '0'
   return diff > 0 ? `+${diff}` : String(diff)
+}
+
+function formatMoneyDiff(n: number) {
+  if (n === 0) return fmtMoney(0)
+  return `${n > 0 ? '+' : '−'}${fmtMoney(Math.abs(n))}`
 }
 
 function RevisionLineCard({
@@ -67,6 +72,11 @@ function RevisionLineCard({
   const system = Number(product.stock) || 0
   const counted = line.countedStock !== '' ? Number(line.countedStock) : null
   const diff = counted != null ? counted - system : null
+  const costPrice = Number(product.costPrice) || 0
+  const retailPrice = Number(product.price) || 0
+  const costDiff = diff != null ? diff * costPrice : null
+  const retailDiff = diff != null ? diff * retailPrice : null
+  const barcode = product.barcode || product.barcodes?.[0] || ''
 
   return (
     <div
@@ -86,8 +96,14 @@ function RevisionLineCard({
           <span style={{ fontSize: 28 }}>{product.e || '📦'}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 900, fontSize: 16 }}>{product.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {product.art || '—'} · в системе <b>{system} {unit}</b>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <span>{product.art || '—'}</span>
+              {barcode && <span>· 🏷 {barcode}</span>}
+              <span>· в системе <b style={{ color: 'var(--text)' }}>{system} {unit}</b></span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              <span>Розница: <b style={{ color: 'var(--text)' }}>{fmtMoney(retailPrice)}</b></span>
+              <span>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(costPrice)}</b></span>
             </div>
           </div>
           <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={e => { e.stopPropagation(); onClear() }}>Сменить</button>
@@ -97,33 +113,22 @@ function RevisionLineCard({
         )}
       </div>
 
-      <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>В системе ({unit})</label>
-          <div className="k-inp" style={{ display: 'flex', alignItems: 'center', opacity: 0.85, cursor: 'default' }}>{system}</div>
-        </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Факт ({unit})</label>
-          <input
-            ref={countedRef}
-            className="k-inp"
-            type="number"
-            step="any"
-            min="0"
-            value={line.countedStock}
-            onChange={e => onCounted(e.target.value)}
-            onClick={e => e.stopPropagation()}
-          />
-        </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Расхождение Δ</label>
-          <div className="k-inp" style={{ display: 'flex', alignItems: 'center', fontWeight: 900, cursor: 'default', ...diffStyle(diff ?? 0) }}>
-            {diff != null ? formatDiff(diff) : '—'}
-          </div>
-        </div>
+      <div className="k-field" style={{ marginBottom: 0 }}>
+        <label>Фактический остаток ({unit}) · было {system}</label>
+        <input
+          ref={countedRef}
+          className="k-inp"
+          type="number"
+          step="any"
+          min="0"
+          value={line.countedStock}
+          onChange={e => onCounted(e.target.value)}
+          onClick={e => e.stopPropagation()}
+          style={{ fontSize: 18, fontWeight: 800 }}
+        />
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12, padding: '6px 12px' }} onClick={e => { e.stopPropagation(); onMatchSystem() }}>
           Как в системе ({system})
         </button>
@@ -131,14 +136,34 @@ function RevisionLineCard({
           Факт = 0
         </button>
         {diff != null && diff !== 0 && (
-          <span style={{ fontSize: 12, fontWeight: 700, alignSelf: 'center', ...diffStyle(diff) }}>
-            {diff > 0 ? '↑ Излишек' : '↓ Недостача'}
+          <span style={{ fontSize: 12, fontWeight: 700, ...diffStyle(diff) }}>
+            {diff > 0 ? '↑ Излишек' : '↓ Недостача'} {formatDiff(diff)} {unit}
           </span>
         )}
         {diff === 0 && (
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', alignSelf: 'center' }}>✓ Совпадает</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>✓ Совпадает</span>
         )}
       </div>
+
+      {diff != null && diff !== 0 && (costPrice > 0 || retailPrice > 0) && (
+        <div style={{
+          display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, paddingTop: 10,
+          borderTop: '1px dashed var(--border)',
+        }}>
+          {costPrice > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{diff < 0 ? 'Убыток по закупке' : 'Излишек по закупке'}</div>
+              <div style={{ fontWeight: 900, fontSize: 14, ...diffStyle(costDiff ?? 0) }}>{formatMoneyDiff(costDiff ?? 0)}</div>
+            </div>
+          )}
+          {retailPrice > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{diff < 0 ? 'Убыток по рознице' : 'Излишек по рознице'}</div>
+              <div style={{ fontWeight: 900, fontSize: 14, ...diffStyle(retailDiff ?? 0) }}>{formatMoneyDiff(retailDiff ?? 0)}</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -306,6 +331,7 @@ export default function WarehouseRevisionsPanel({
     let surplus = 0
     let shortage = 0
     let netDiff = 0
+    let costMoneyDiff = 0
     for (const l of lines) {
       if (!l.productId || l.countedStock === '') continue
       const product = products.find(p => p.id === l.productId)
@@ -315,11 +341,12 @@ export default function WarehouseRevisionsPanel({
       const diff = counted - system
       count++
       netDiff += diff
+      costMoneyDiff += diff * (Number(product.costPrice) || 0)
       if (diff === 0) matched++
       else if (diff > 0) surplus += diff
       else shortage += Math.abs(diff)
     }
-    return { count, matched, surplus, shortage, netDiff, withProduct: lines.filter(l => l.productId).length }
+    return { count, matched, surplus, shortage, netDiff, costMoneyDiff, withProduct: lines.filter(l => l.productId).length }
   }, [lines, products])
 
   const listStats = useMemo(() => {
@@ -508,6 +535,9 @@ export default function WarehouseRevisionsPanel({
                           <div style={{ display: 'grid', gap: 8 }}>
                             {rev.items.map((it, i) => {
                               const product = products.find(p => p.id === it.productId)
+                              const barcode = product?.barcode || product?.barcodes?.[0] || ''
+                              const costPrice = Number(product?.costPrice) || 0
+                              const costDiff = it.diff * costPrice
                               return (
                                 <div
                                   key={i}
@@ -518,9 +548,12 @@ export default function WarehouseRevisionsPanel({
                                   }}
                                 >
                                   <span style={{ fontSize: 22 }}>{product?.e || '📦'}</span>
-                                  <div style={{ flex: 1, minWidth: 120 }}>
+                                  <div style={{ flex: 1, minWidth: 140 }}>
                                     <div style={{ fontWeight: 800 }}>{it.productName}</div>
-                                    {product?.art && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{product.art}</div>}
+                                    <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                      {product?.art && <span>{product.art}</span>}
+                                      {barcode && <span>· 🏷 {barcode}</span>}
+                                    </div>
                                   </div>
                                   <div style={{ textAlign: 'right' }}>
                                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>Было</div>
@@ -534,6 +567,12 @@ export default function WarehouseRevisionsPanel({
                                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ</div>
                                     <div style={{ fontWeight: 900, ...diffStyle(it.diff) }}>{formatDiff(it.diff)}</div>
                                   </div>
+                                  {costPrice > 0 && it.diff !== 0 && (
+                                    <div style={{ textAlign: 'right' }}>
+                                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{it.diff < 0 ? 'Убыток' : 'Излишек'} (закуп)</div>
+                                      <div style={{ fontWeight: 900, ...diffStyle(costDiff) }}>{formatMoneyDiff(costDiff)}</div>
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })}
@@ -606,6 +645,7 @@ export default function WarehouseRevisionsPanel({
                   <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Совпало</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{totals.matched}</div></div>
                   <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Излишек</div><div style={{ fontWeight: 900, fontSize: 18, color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</div></div>
                   <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ итого</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.netDiff) }}>{totals.count ? formatDiff(totals.netDiff) : '—'}</div></div>
+                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{totals.costMoneyDiff < 0 ? 'Убыток (закуп)' : 'Сумма (закуп)'}</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.costMoneyDiff) }}>{totals.count ? formatMoneyDiff(totals.costMoneyDiff) : '—'}</div></div>
                 </div>
 
                 {filledLines.length > 5 && (
