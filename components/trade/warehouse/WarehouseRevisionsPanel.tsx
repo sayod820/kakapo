@@ -40,6 +40,42 @@ function formatMoneyDiff(n: number) {
   return `${n > 0 ? '+' : '−'}${fmtMoney(Math.abs(n))}`
 }
 
+/** Разбирает "250 гр" / "10 шт" / "1 kg" на количество-в-упаковке и метку. */
+function parsePackUnit(unitRaw: string | undefined): { qty: number; label: string } {
+  const unit = (unitRaw || 'шт').trim()
+  const m = /^(\d+(?:[.,]\d+)?)\s*(.+)$/.exec(unit)
+  if (m) {
+    const qty = parseFloat(m[1].replace(',', '.'))
+    if (qty > 0 && m[2].trim()) return { qty, label: m[2].trim() }
+  }
+  return { qty: 1, label: unit || 'шт' }
+}
+
+function isGramLabel(label: string) {
+  return /^(г|гр|g)\.?$/i.test(label)
+}
+
+function isKgLabel(label: string) {
+  return /^(кг|kg)\.?$/i.test(label)
+}
+
+function formatQty(n: number) {
+  return String(Math.round(n * 1000) / 1000)
+}
+
+/** Переводит количество упаковок в реальную величину: граммы → кг, иначе qty × label. */
+function packRealWorld(count: number, info: { qty: number; label: string }): { value: number; label: string } | null {
+  if (isGramLabel(info.label)) return { value: (count * info.qty) / 1000, label: 'кг' }
+  if (isKgLabel(info.label)) return { value: count * info.qty, label: 'кг' }
+  if (info.qty !== 1) return { value: count * info.qty, label: info.label }
+  return null
+}
+
+function packInputUnitLabel(info: { qty: number; label: string }) {
+  if (info.qty !== 1) return 'уп.'
+  return isKgLabel(info.label) ? 'кг' : info.label
+}
+
 function RevisionLineCard({
   line,
   idx,
@@ -69,8 +105,9 @@ function RevisionLineCard({
   cardRef: (el: HTMLDivElement | null) => void
   countedRef: (el: HTMLInputElement | null) => void
 }) {
-  const isWeight = product.sellType === 'weight'
-  const unit = product.unit || (isWeight ? 'кг' : 'шт')
+  const packInfo = parsePackUnit(product.unit)
+  const isWeightUnit = product.sellType === 'weight' || isGramLabel(packInfo.label) || isKgLabel(packInfo.label)
+  const inputUnitLabel = packInputUnitLabel(packInfo)
   const system = Number(product.stock) || 0
   const counted = line.countedStock !== '' ? Number(line.countedStock) : null
   const diff = counted != null ? counted - system : null
@@ -78,7 +115,9 @@ function RevisionLineCard({
   const retailPrice = Number(product.price) || 0
   const costDiff = diff != null ? diff * costPrice : null
   const barcode = product.barcode || product.barcodes?.[0] || ''
-  const step = isWeight ? '0.001' : '1'
+  const step = isWeightUnit ? '0.001' : '1'
+  const systemReal = packRealWorld(system, packInfo)
+  const diffReal = diff != null ? packRealWorld(diff, packInfo) : null
 
   return (
     <div
@@ -101,21 +140,25 @@ function RevisionLineCard({
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             <span>{product.art || '—'}</span>
             {barcode && <span>· 🏷 {barcode}</span>}
-            <span>· было <b style={{ color: 'var(--text)' }}>{system}</b></span>
+            <span>
+              · было <b style={{ color: 'var(--text)' }}>{system}</b>{packInfo.qty !== 1 && ' уп.'}
+              {systemReal && <span style={{ color: 'var(--muted)' }}> ({formatQty(systemReal.value)} {systemReal.label})</span>}
+            </span>
+            {packInfo.qty !== 1 && <span>· уп. по {packInfo.qty} {packInfo.label}</span>}
             {retailPrice > 0 && <span>· Розн {fmtMoney(retailPrice)}</span>}
             {costPrice > 0 && <span>· Закуп {fmtMoney(costPrice)}</span>}
           </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: 100 }}>
-          <label style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>Факт ({unit}){isWeight && <span> · вес</span>}</label>
+          <label style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>Факт ({inputUnitLabel})</label>
           <input
             ref={countedRef}
             className="k-inp"
             type="number"
             step={step}
             min="0"
-            inputMode={isWeight ? 'decimal' : 'numeric'}
+            inputMode={isWeightUnit ? 'decimal' : 'numeric'}
             value={line.countedStock}
             onChange={e => onCounted(e.target.value)}
             onClick={e => e.stopPropagation()}
@@ -126,7 +169,10 @@ function RevisionLineCard({
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, minWidth: 74 }}>
           {diff != null && diff !== 0 ? (
             <>
-              <span style={{ fontSize: 13, fontWeight: 900, ...diffStyle(diff) }}>{formatDiff(diff)} {unit}</span>
+              <span style={{ fontSize: 13, fontWeight: 900, ...diffStyle(diff) }}>{formatDiff(diff)} {inputUnitLabel}</span>
+              {diffReal && (
+                <span style={{ fontSize: 11, fontWeight: 700, ...diffStyle(diffReal.value) }}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
+              )}
               {costPrice > 0 && (
                 <span style={{ fontSize: 11, fontWeight: 700, ...diffStyle(costDiff ?? 0) }}>{formatMoneyDiff(costDiff ?? 0)}</span>
               )}
@@ -540,6 +586,9 @@ export default function WarehouseRevisionsPanel({
                               const barcode = product?.barcode || product?.barcodes?.[0] || ''
                               const costPrice = Number(product?.costPrice) || 0
                               const costDiff = it.diff * costPrice
+                              const packInfo = parsePackUnit(product?.unit)
+                              const inputUnitLabel = packInputUnitLabel(packInfo)
+                              const diffReal = packRealWorld(it.diff, packInfo)
                               return (
                                 <div
                                   key={i}
@@ -559,15 +608,18 @@ export default function WarehouseRevisionsPanel({
                                   </div>
                                   <div style={{ textAlign: 'right' }}>
                                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>Было</div>
-                                    <div>{it.systemStock} {product?.unit || 'шт'}</div>
+                                    <div>{it.systemStock} {inputUnitLabel}</div>
                                   </div>
                                   <div style={{ textAlign: 'right' }}>
                                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>Стало</div>
-                                    <div style={{ fontWeight: 900 }}>{it.countedStock} {product?.unit || 'шт'}</div>
+                                    <div style={{ fontWeight: 900 }}>{it.countedStock} {inputUnitLabel}</div>
                                   </div>
                                   <div style={{ textAlign: 'right' }}>
                                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ</div>
-                                    <div style={{ fontWeight: 900, ...diffStyle(it.diff) }}>{formatDiff(it.diff)}</div>
+                                    <div style={{ fontWeight: 900, ...diffStyle(it.diff) }}>{formatDiff(it.diff)} {inputUnitLabel}</div>
+                                    {diffReal && (
+                                      <div style={{ fontSize: 11, fontWeight: 700, ...diffStyle(diffReal.value) }}>= {formatDiff(diffReal.value)} {diffReal.label}</div>
+                                    )}
                                   </div>
                                   {costPrice > 0 && it.diff !== 0 && (
                                     <div style={{ textAlign: 'right' }}>
