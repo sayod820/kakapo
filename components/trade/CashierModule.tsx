@@ -12,6 +12,7 @@ import {
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
+import { cardNumsMatch } from '@/lib/cardCrm'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   loadBalanceTopups,
@@ -204,6 +205,9 @@ export default function CashierModule({
   const [clientOpen, setClientOpen] = useState(false)
   const [clientQ, setClientQ] = useState('')
   const [clientPick, setClientPick] = useState<AdminClient | null>(null)
+  const [clientScanOpen, setClientScanOpen] = useState(false)
+  const [clientScanBuf, setClientScanBuf] = useState('')
+  const clientScanRef = useRef<HTMLInputElement>(null)
   const [discOpen, setDiscOpen] = useState(false)
   const [discBuf, setDiscBuf] = useState('')
   const [discMode, setDiscMode] = useState<'all' | 'line'>('all')
@@ -258,6 +262,15 @@ export default function CashierModule({
     }, 40)
     return () => window.clearTimeout(t)
   }, [qtyEditOpen, qtyEditMode, qtyEditPad])
+
+  useEffect(() => {
+    if (!clientScanOpen) return
+    const t = window.setTimeout(() => {
+      clientScanRef.current?.focus()
+      clientScanRef.current?.select()
+    }, 40)
+    return () => window.clearTimeout(t)
+  }, [clientScanOpen])
 
   const activeShift = useMemo(() => {
     if (!settings.cashierId) return shifts.find(s => s.status === 'open') || null
@@ -411,6 +424,40 @@ export default function CashierModule({
 
   function showToast(title: string, sub: string) {
     setToast({ title, sub })
+  }
+
+  function findClientByScan(raw: string): AdminClient | null {
+    const q = raw.trim().replace(/\s+/g, '')
+    if (!q) return null
+    const exact = clients.find(c => c.card && cardNumsMatch(c.card, q))
+    if (exact) return exact
+    const lower = q.toLowerCase()
+    const byCard = clients.find(c => (c.card || '').replace(/\s+/g, '').toLowerCase() === lower)
+    if (byCard) return byCard
+    const byPhone = clients.find(c => phonesMatch(c.phone, q))
+    if (byPhone) return byPhone
+    if (q.length >= 4) {
+      const partial = clients.find(c => (c.card || '').replace(/\s+/g, '').toLowerCase().includes(lower))
+      if (partial) return partial
+    }
+    return null
+  }
+
+  function applyClientScan(raw: string): boolean {
+    const found = findClientByScan(raw)
+    if (!found) {
+      showToast('Клиент не найден', 'Проверьте QR-код или номер карты')
+      return false
+    }
+    setClient(found)
+    setBonusUsed(0)
+    setClientOpen(false)
+    setClientScanOpen(false)
+    setClientScanBuf('')
+    setClientQ('')
+    setClientPick(null)
+    showToast('Клиент выбран', `${found.name}${found.card ? ` · ${found.card}` : ''}`)
+    return true
   }
 
   function appendDigit(buf: string, k: string, maxLen = 8) {
@@ -883,8 +930,15 @@ export default function CashierModule({
               autoFocus
               onKeyDown={e => {
                 if (e.key !== 'Enter' || !q.trim()) return
-                const found = filterProductsBySearch(products, q.trim())[0]
-                if (found) { addProduct(found); setQ('') }
+                const raw = q.trim()
+                const clientHit = findClientByScan(raw)
+                const productHit = filterProductsBySearch(products, raw)[0]
+                if (clientHit && (/какапо/i.test(raw) || !productHit)) {
+                  applyClientScan(raw)
+                  setQ('')
+                  return
+                }
+                if (productHit) { addProduct(productHit); setQ('') }
               }}
             />
             <span className="scan-tag">📷 Сканер</span>
@@ -996,6 +1050,18 @@ export default function CashierModule({
                 </div>
               )}
             </div>
+            <button
+              type="button"
+              className="client-qr-btn"
+              title="Сканировать QR клиента"
+              onClick={e => {
+                e.stopPropagation()
+                setClientScanBuf('')
+                setClientScanOpen(true)
+              }}
+            >
+              ⌗ QR
+            </button>
             {client && loyalty && (
               <span className="client-tier" style={{ background: `${CLIENT_LEVEL_COLORS[loyalty.level]}22`, color: CLIENT_LEVEL_COLORS[loyalty.level] }}>
                 {levelLabel(loyalty.level)}
@@ -1304,11 +1370,78 @@ export default function CashierModule({
         </div>
       )}
 
+      {clientScanOpen && (
+        <div className="overlay" onClick={() => setClientScanOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <h3>QR клиента</h3>
+            <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12, lineHeight: 1.4 }}>
+              Наведите сканер на QR из профиля клиента — карта подставится автоматически
+            </div>
+            <input
+              ref={clientScanRef}
+              className="modal-card-input"
+              value={clientScanBuf}
+              autoFocus
+              placeholder="Сканируйте QR или введите номер карты…"
+              onChange={e => setClientScanBuf(e.target.value)}
+              onKeyDown={e => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                const raw = clientScanBuf.trim()
+                if (!raw) return
+                if (!applyClientScan(raw)) setClientScanBuf('')
+              }}
+            />
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setClientScanOpen(false)}>Отмена</button>
+              <button
+                type="button"
+                className="btn-confirm"
+                disabled={!clientScanBuf.trim()}
+                onClick={() => applyClientScan(clientScanBuf)}
+              >
+                Найти
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {clientOpen && (
         <div className="overlay" onClick={() => setClientOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>👤 Выбор клиента</h3>
-            <input className="modal-card-input" value={clientQ} onChange={e => setClientQ(e.target.value)} placeholder="Телефон, карта или имя…" autoFocus />
+            <input
+              className="modal-card-input"
+              value={clientQ}
+              onChange={e => setClientQ(e.target.value)}
+              placeholder="Телефон, карта, QR или имя…"
+              autoFocus
+              onKeyDown={e => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                const raw = clientQ.trim()
+                if (!raw) return
+                if (applyClientScan(raw)) return
+                if (clientHits.length === 1) {
+                  setClient(clientHits[0])
+                  setBonusUsed(0)
+                  setClientOpen(false)
+                  showToast('Клиент выбран', clientHits[0].name)
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="client-scan-link"
+              onClick={() => {
+                setClientOpen(false)
+                setClientScanBuf('')
+                setClientScanOpen(true)
+              }}
+            >
+              ⌗ Сканировать QR клиента
+            </button>
             <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
               {clientHits.map(c => {
                 const sum = loyaltySummaryForClient(c, cards)

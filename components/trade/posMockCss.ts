@@ -120,6 +120,10 @@ export const POS_MOCK_CSS = `
   .pos-root button.client-hist-link,.client-hist-link{flex-shrink:0;font-size:10px;font-weight:800;color:var(--blue);padding:2px 0;background:transparent;border:none;}
   .client-card:hover .client-hist-link{color:var(--accent);text-decoration:underline;}
   .client-info .ph{font-size:10px;color:var(--t2);}
+  .pos-root button.client-qr-btn{flex-shrink:0;height:34px;padding:0 10px;border-radius:10px;font-size:11px;font-weight:800;color:var(--accent);background:rgba(31,215,96,.1);border:1.5px solid rgba(31,215,96,.28);white-space:nowrap;}
+  .pos-root button.client-qr-btn:hover{border-color:var(--accent);background:rgba(31,215,96,.16);}
+  .pos-root button.client-scan-link{width:100%;margin:0 0 12px;padding:10px;border-radius:12px;font-size:12px;font-weight:800;color:var(--accent);background:rgba(31,215,96,.08);border:1.5px dashed rgba(31,215,96,.3);}
+  .pos-root button.client-scan-link:hover{border-style:solid;background:rgba(31,215,96,.12);}
   .client-tier{padding:3px 9px;border-radius:8px;font-size:9.5px;font-weight:800;flex-shrink:0;}
   .client-bonus{font-size:9.5px;color:var(--gd);font-weight:700;margin-top:2px;}
   .pos-root button.client-x{width:22px;height:22px;border-radius:7px;color:var(--t3);font-size:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
