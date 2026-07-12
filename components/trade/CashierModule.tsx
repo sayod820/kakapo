@@ -897,27 +897,6 @@ export default function CashierModule({
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
 
-          <div className="ops-block ops-check">
-            <div className="ops-lbl">Этот чек</div>
-            <div className="action-row">
-              <button type="button" className={`action-chip ac-discount ${discountPct > 0 ? 'on' : ''}`} onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>
-                <span className="ic-wrap">🏷</span><span>Скидка{discountPct > 0 ? ` ${discountPct}%` : ''}</span>
-              </button>
-              <button
-                type="button"
-                className={`action-chip ac-bonus ${usedBonus > 0 ? 'on' : ''}`}
-                onClick={() => needClient(() => {
-                  if (!maxBonus) { showToast('Нет бонусов', 'У клиента нет бонусов'); return }
-                  if (pay === 'credit') { showToast('В долг', 'С бонусами нельзя оплатить в долг'); return }
-                  setBonusUsed(v => v > 0 ? 0 : maxBonus)
-                  if (pay === 'balance') setPay('cash')
-                })}
-              >
-                <span className="ic-wrap">🎁</span><span>{usedBonus > 0 ? `Бонусы −${usedBonus.toFixed(0)}` : 'Бонусы'}</span>
-              </button>
-            </div>
-          </div>
-
           <div className="link-row">
             <button type="button" onClick={clearCart}>Очистить чек</button>
           </div>
