@@ -41,7 +41,7 @@ import { POS_MOCK_CSS } from './posMockCss'
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
 const THEME_KEY = 'kakapo_trade_pos_theme'
 
-type ThemeName = 'green' | 'purple' | 'gold'
+type ThemeName = 'dark' | 'light'
 type PayMethod = 'cash' | 'card' | 'credit' | 'qr' | 'balance'
 type PosSettings = { cashierId: string; cashierName: string; initials: string }
 
@@ -121,9 +121,10 @@ function saveSettings(s: PosSettings) {
 }
 
 function loadTheme(): ThemeName {
-  if (typeof window === 'undefined') return 'green'
+  if (typeof window === 'undefined') return 'dark'
   const t = localStorage.getItem(THEME_KEY)
-  return t === 'purple' || t === 'gold' ? t : 'green'
+  if (t === 'light') return 'light'
+  return 'dark'
 }
 
 function levelLabel(level: ClientLevel) {
@@ -973,20 +974,28 @@ export default function CashierModule({
             </button>
           </div>
 
-          <div className="theme-dots">
-            {([
-              ['green', '#1FD760'],
-              ['purple', '#9B6DFF'],
-              ['gold', '#FFB800'],
-            ] as [ThemeName, string][]).map(([name, color]) => (
-              <button
-                key={name}
-                type="button"
-                className={`theme-dot ${theme === name ? 'on' : ''}`}
-                style={{ background: color }}
-                onClick={() => { setTheme(name); localStorage.setItem(THEME_KEY, name) }}
-              />
-            ))}
+          <div className="theme-toggle" role="group" aria-label="Тема">
+            <button
+              type="button"
+              className={`theme-mode ${theme === 'dark' ? 'on' : ''}`}
+              title="Тёмная тема"
+              onClick={() => { setTheme('dark'); localStorage.setItem(THEME_KEY, 'dark') }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={`theme-mode ${theme === 'light' ? 'on' : ''}`}
+              title="Светлая тема"
+              onClick={() => { setTheme('light'); localStorage.setItem(THEME_KEY, 'light') }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
           <button type="button" className="bell-btn" title="Уведомления" onClick={() => showToast('Уведомления', 'Нет новых уведомлений')}>
             🔔<span className="bell-badge" />
