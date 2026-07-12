@@ -288,7 +288,7 @@ function TradeAppInner() {
 
   const current = (NAV.some(p => p.id === page) ? page : 'products') as TradePage
   const lowStock = useMemo(() => products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= 5).length, [products])
-  const showSearch = current === 'products' || current === 'sales'
+  const showSearch = current === 'products'
 
   function goTo(p: TradePage) {
     setPage(p)
@@ -309,7 +309,7 @@ function TradeAppInner() {
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
-    if (current === 'sales') return <CashierModule search={search} />
+    if (current === 'sales') return <CashierModule />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
     return <ProductsModule search={search} />
