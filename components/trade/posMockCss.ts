@@ -99,8 +99,9 @@ export const POS_MOCK_CSS = `
   .p-photo img{width:100%;height:100%;object-fit:cover;}
   .p-weight-tag{position:absolute;top:6px;right:6px;font-size:9px;font-weight:800;background:rgba(3,11,5,.75);color:var(--t1);padding:2px 7px;border-radius:7px;}
   .p-name{font-size:12px;font-weight:800;line-height:1.25;margin-bottom:3px;min-height:30px;}
-  .p-codes{display:flex;flex-direction:column;gap:1px;margin-bottom:5px;min-height:22px;}
-  .p-codes span{font-size:9.5px;font-weight:700;color:var(--t3);font-family:'JetBrains Mono',monospace;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .p-codes{display:flex;flex-wrap:nowrap;align-items:center;gap:0;margin-bottom:5px;min-height:16px;overflow:hidden;white-space:nowrap;}
+  .p-codes span{font-size:9.5px;font-weight:700;color:var(--t3);font-family:'JetBrains Mono',monospace;line-height:1.25;overflow:hidden;text-overflow:ellipsis;}
+  .p-codes span + span::before{content:'·';margin:0 6px;color:var(--border2);font-weight:800;}
   .p-codes .muted{font-family:'Nunito',sans-serif;font-weight:600;opacity:.7;}
   .p-price{font-family:'JetBrains Mono';font-size:15px;font-weight:900;color:var(--gd);}
   .p-unit{font-size:9.5px;color:var(--t3);font-weight:600;}

@@ -29,7 +29,7 @@ import {
 } from '@/lib/loyaltyStatusConfig'
 import { filterProductsBySearch, productBarcodes } from '@/lib/productBarcodes'
 import { useProductPhotos } from '@/lib/productPhotos'
-import { isWeighted } from '@/lib/productWeight'
+import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import type { Product } from '@/lib/types'
@@ -67,6 +67,32 @@ function lineNet(line: CartLine) {
   const g = lineGross(line)
   const pct = Math.min(90, Math.max(0, Number(line.discPct) || 0))
   return Math.max(0, g * (1 - pct / 100))
+}
+
+function displaySellUnit(p: Product): string {
+  if (isWeighted(p)) return unitPriceSuffix(p)
+  let u = String(p.unit || 'шт').trim() || 'шт'
+  u = u
+    .replace(/\bkilograms?\b/gi, 'кг')
+    .replace(/\bkg\b/gi, 'кг')
+    .replace(/\bliters?\b/gi, 'л')
+    .replace(/\blitres?\b/gi, 'л')
+    .replace(/\bgrams?\b/gi, 'гр')
+    .replace(/\bgr\b/gi, 'гр')
+    .replace(/\bpcs?\b/gi, 'шт')
+    .replace(/\bpieces?\b/gi, 'шт')
+    .replace(/(\d)\s*g\b/gi, '$1 гр')
+    .replace(/(^|[^а-яa-z])l\b/gi, '$1л')
+  return u
+}
+
+function stockUnitLabel(p: Product): string {
+  if (isWeighted(p)) return 'кг'
+  const u = displaySellUnit(p).toLowerCase().replace(/\s+/g, '')
+  if (u === 'л' || u === 'мл') return displaySellUnit(p)
+  if (u === 'кг' || u.endsWith('кг')) return 'кг'
+  if (u === 'гр' || u === 'г' || /^\d+гр$/.test(u) || /^\d+г$/.test(u)) return 'шт'
+  return 'шт'
 }
 
 function initialsOf(name: string) {
@@ -918,15 +944,15 @@ export default function CashierModule({
                 const stock = Number(p.stock) || 0
                 const photo = p.photo || getPhoto(p.id)
                 const weighted = isWeighted(p)
-                const unit = weighted ? 'кг' : (p.unit || 'шт')
-                const unitShort = unit.replace(/^[\d.,\s]+/, '') || unit
+                const sellUnit = displaySellUnit(p)
+                const stockUnit = stockUnitLabel(p)
                 const barcode = productBarcodes(p)[0] || ''
                 const art = String(p.art || '').trim()
                 return (
                   <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
                     <div className="p-photo">
                       {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
-                      {weighted && <span className="p-weight-tag">⚖ {unitShort}</span>}
+                      {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
                     </div>
                     <div className="p-name">{p.name}</div>
                     <div className="p-codes">
@@ -934,8 +960,8 @@ export default function CashierModule({
                       {barcode ? <span>ш/к {barcode}</span> : null}
                       {!art && !barcode ? <span className="muted">без кода</span> : null}
                     </div>
-                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{unitShort}</span></div>
-                    <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock}{weighted ? ' кг' : ' шт'}</div>
+                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
+                    <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
                   </button>
                 )
               })}
