@@ -12,6 +12,7 @@ import {
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
+import { recordStoreDebtRepayment } from '@/lib/clientVipCredit'
 import {
   calcCashDepositBonus,
   resolveEffectiveDebtLimit,
@@ -163,6 +164,8 @@ export default function CashierModule({
   const [closingCash, setClosingCash] = useState('')
   const [topupOpen, setTopupOpen] = useState(false)
   const [topupBuf, setTopupBuf] = useState('')
+  const [repayOpen, setRepayOpen] = useState(false)
+  const [repayBuf, setRepayBuf] = useState('')
   const [scaleProduct, setScaleProduct] = useState<Product | null>(null)
   const [scaleWeight, setScaleWeight] = useState(0)
 
@@ -468,12 +471,49 @@ export default function CashierModule({
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
-      showToast('Баланс пополнен', `${client.name}: +${bonus} ⭐ за ${fmtMoney(cash)}`)
+      showToast('Наличка внесена', `${client.name}: +${bonus} ⭐ за ${fmtMoney(cash)}`)
     } catch (e) {
-      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
+      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось внести')
     } finally {
       setBusy(false)
     }
+  }
+
+  async function submitDebtRepay() {
+    if (!client) return
+    const amount = Number(repayBuf) || 0
+    const prevDebt = Number(loyalty?.debt) || 0
+    if (amount <= 0) return
+    if (amount > prevDebt + 0.001) {
+      showToast('Слишком много', `Долг клиента ${fmtMoney(prevDebt)}`)
+      return
+    }
+    setBusy(true)
+    try {
+      if (!client.card) throw new Error('У клиента нет карты')
+      const nextDebt = Math.max(0, prevDebt - amount)
+      await api.updateCard(client.card, { debt: nextDebt })
+      if (client.phone) recordStoreDebtRepayment(client.phone, amount)
+      await refresh()
+      const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
+      if (fresh) setClient(fresh)
+      setRepayOpen(false)
+      setRepayBuf('')
+      showToast('Долг списан', `${client.name}: −${fmtMoney(amount)} · остаток ${fmtMoney(nextDebt)}`)
+    } catch (e) {
+      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось списать долг')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function needClient(then: () => void) {
+    if (!client) {
+      setClientOpen(true)
+      showToast('Выберите клиента', 'Сначала выберите клиента вверху чека')
+      return
+    }
+    then()
   }
 
   // ─── Gate ───
@@ -654,10 +694,14 @@ export default function CashierModule({
             )}
           </div>
 
-          {loyalty && (Number(loyalty.bonus) || 0) > 0 && (
+          {loyalty && (
             <div className="tier-strip">
-              <span className="lbl">🎁 Бонусов: <b>{loyalty.bonus}</b> · доступно {maxBonus.toFixed(0)}</span>
-              <b>{usedBonus > 0 ? `списано ${usedBonus.toFixed(0)}` : 'не списаны'}</b>
+              <span className="lbl">
+                🎁 <b>{loyalty.bonus}</b>
+                {(Number(loyalty.debt) || 0) > 0 ? <> · долг <b style={{ color: 'var(--org)' }}>{fmtMoney(Number(loyalty.debt))}</b></> : null}
+                {debtLimit > 0 ? <> · лимит {fmtMoney(availableDebt)}</> : null}
+              </span>
+              <b>{usedBonus > 0 ? `−${usedBonus.toFixed(0)} бон.` : 'бонусы'}</b>
             </div>
           )}
 
@@ -709,70 +753,89 @@ export default function CashierModule({
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
 
-          <div className="action-row">
-            <button type="button" className="action-chip ac-discount" onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>
-              <span className="ic-wrap">🏷</span><span>Скидка</span>
-            </button>
-            <button type="button" className="action-chip ac-bonus" onClick={() => {
-              if (!client) { setClientOpen(true); return }
-              if (!maxBonus) { showToast('Нет бонусов', 'У клиента нет бонусов'); return }
-              setBonusUsed(v => v > 0 ? 0 : maxBonus)
-            }}>
-              <span className="ic-wrap">🎁</span><span>Бонусы</span>
-            </button>
-            <button
-              type="button"
-              className={`action-chip ac-debt ${pay === 'credit' ? 'on' : ''}`}
-              onClick={() => {
-                if (pay === 'credit') { setPay('cash'); return }
-                setPay('credit')
-                if (!client) setClientOpen(true)
-              }}
-            >
-              <span className="ic-wrap">📝</span><span>В долг</span>
-            </button>
-            <button type="button" className="action-chip ac-topup" onClick={() => {
-              if (!client) setClientOpen(true)
-              else { setTopupBuf(''); setTopupOpen(true) }
-            }}>
-              <span className="ic-wrap">💰</span><span>Пополнить</span>
-            </button>
+          <div className="ops-block">
+            <div className="ops-lbl">Клиент</div>
+            <div className="action-row">
+              <button
+                type="button"
+                className="action-chip ac-repay"
+                onClick={() => needClient(() => {
+                  const d = Number(loyalty?.debt) || 0
+                  if (d <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
+                  setRepayBuf(String(d))
+                  setRepayOpen(true)
+                })}
+              >
+                <span className="ic-wrap">📉</span><span>Списать долг</span>
+              </button>
+              <button
+                type="button"
+                className="action-chip ac-topup"
+                onClick={() => needClient(() => { setTopupBuf(''); setTopupOpen(true) })}
+              >
+                <span className="ic-wrap">💰</span><span>Внести наличку</span>
+              </button>
+            </div>
           </div>
+
+          <div className="ops-block">
+            <div className="ops-lbl">Этот чек</div>
+            <div className="action-row">
+              <button type="button" className={`action-chip ac-discount ${discountPct > 0 ? 'on' : ''}`} onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>
+                <span className="ic-wrap">🏷</span><span>Скидка{discountPct > 0 ? ` ${discountPct}%` : ''}</span>
+              </button>
+              <button
+                type="button"
+                className={`action-chip ac-bonus ${usedBonus > 0 ? 'on' : ''}`}
+                onClick={() => needClient(() => {
+                  if (!maxBonus) { showToast('Нет бонусов', 'У клиента нет бонусов'); return }
+                  if (pay === 'credit') { showToast('В долг', 'С бонусами нельзя оплатить в долг'); return }
+                  setBonusUsed(v => v > 0 ? 0 : maxBonus)
+                  if (pay === 'balance') setPay('cash')
+                })}
+              >
+                <span className="ic-wrap">🎁</span><span>{usedBonus > 0 ? `Бонусы −${usedBonus.toFixed(0)}` : 'Бонусы'}</span>
+              </button>
+            </div>
+          </div>
+
           <div className="link-row">
             <button type="button" onClick={clearCart}>Очистить чек</button>
             <span style={{ color: 'var(--border2)' }}>·</span>
             <button type="button" onClick={() => showToast('История', 'История чеков смены — скоро')}>История</button>
           </div>
 
-          <div className="pay-grid">
-            <button type="button" className={`pay-btn pay-cash ${pay === 'cash' ? 'on' : ''}`} onClick={() => setPay('cash')}>
-              <span className="ic">💵</span>Наличные
-            </button>
-            <button type="button" className={`pay-btn pay-card ${pay === 'card' ? 'on' : ''}`} onClick={() => setPay('card')}>
-              <span className="ic">💳</span>Карта
-            </button>
-            <button
-              type="button"
-              className={`pay-btn pay-balance ${pay === 'balance' ? 'on' : ''} ${!client ? 'disabled' : ''}`}
-              onClick={() => {
-                if (!client) { setClientOpen(true); return }
-                setPay('balance')
-                if (maxBonus > 0) setBonusUsed(maxBonus)
-              }}
-            >
-              <span className="ic">👛</span>Баланс
-            </button>
-            <button type="button" className={`pay-btn pay-qr ${pay === 'qr' ? 'on' : ''}`} onClick={() => setPay('qr')}>
-              <span className="ic">📱</span>QR
-            </button>
+          <div className="ops-block pay-block">
+            <div className="ops-lbl">Оплата</div>
+            <div className="pay-grid">
+              <button type="button" className={`pay-btn pay-cash ${pay === 'cash' ? 'on' : ''}`} onClick={() => setPay('cash')}>
+                <span className="ic">💵</span>Наличные
+              </button>
+              <button type="button" className={`pay-btn pay-card ${pay === 'card' ? 'on' : ''}`} onClick={() => setPay('card')}>
+                <span className="ic">💳</span>Карта
+              </button>
+              <button
+                type="button"
+                className={`pay-btn pay-credit ${pay === 'credit' ? 'on' : ''}`}
+                onClick={() => needClient(() => {
+                  setBonusUsed(0)
+                  setPay('credit')
+                })}
+              >
+                <span className="ic">📝</span>В долг
+              </button>
+              <button type="button" className={`pay-btn pay-qr ${pay === 'qr' ? 'on' : ''}`} onClick={() => setPay('qr')}>
+                <span className="ic">📱</span>QR
+              </button>
+            </div>
           </div>
           <button
             type="button"
             className="btn-checkout"
-            disabled={!cart.length || busy || ((pay === 'credit' || pay === 'balance') && !client)}
+            disabled={!cart.length || busy || (pay === 'credit' && !client)}
             onClick={startPay}
           >
-            <span>🖨</span><span>Оплатить</span>
+            <span>🖨</span><span>{pay === 'credit' ? 'В долг' : 'Оплатить'}</span>
           </button>
         </div>
       </div>
@@ -871,17 +934,47 @@ export default function CashierModule({
       {topupOpen && client && (
         <div className="overlay" onClick={() => !busy && setTopupOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>💰 Наличные → бонусы</h3>
+            <h3>💰 Внести наличку</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b></div>
             <div className="kp-display"><div className="lbl">СУММА НАЛИЧНЫХ</div><div className="val">{topupCash.toFixed(2)} сом</div></div>
             <Keypad onDigit={k => setTopupBuf(b => appendDigit(b, k))} onBack={() => setTopupBuf(b => b.slice(0, -1))} />
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено</span><b className="mono">{topupCash.toFixed(2)}</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус</span><b className="mono">+{topupBonus}</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус на карту</span><b className="mono">+{topupBonus}</b></div>
             </div>
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setTopupOpen(false)}>Отмена</button>
-              <button type="button" className="btn-confirm" disabled={busy || topupCash <= 0 || topupBonus <= 0} onClick={() => void submitTopup()}>Начислить</button>
+              <button type="button" className="btn-confirm" disabled={busy || topupCash <= 0 || topupBonus <= 0} onClick={() => void submitTopup()}>Внести</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {repayOpen && client && loyalty && (
+        <div className="overlay" onClick={() => !busy && setRepayOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <h3>📉 Списать долг</h3>
+            <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>
+              Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
+              <span style={{ color: 'var(--t3)' }}> · долг {fmtMoney(Number(loyalty.debt) || 0)}</span>
+            </div>
+            <div className="kp-display"><div className="lbl">СУММА ПОГАШЕНИЯ</div><div className="val">{(Number(repayBuf) || 0).toFixed(2)} сом</div></div>
+            <div className="kp-quick">
+              {[Number(loyalty.debt) || 0].filter(v => v > 0).map(v => (
+                <button key={v} type="button" onClick={() => setRepayBuf(String(v))}>Весь долг</button>
+              ))}
+            </div>
+            <Keypad onDigit={k => setRepayBuf(b => appendDigit(b, k))} onBack={() => setRepayBuf(b => b.slice(0, -1))} />
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setRepayOpen(false)}>Отмена</button>
+              <button
+                type="button"
+                className="btn-confirm"
+                disabled={busy || (Number(repayBuf) || 0) <= 0 || (Number(repayBuf) || 0) > (Number(loyalty.debt) || 0) + 0.001}
+                onClick={() => void submitDebtRepay()}
+              >
+                Списать
+              </button>
             </div>
           </div>
         </div>

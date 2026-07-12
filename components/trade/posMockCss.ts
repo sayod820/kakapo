@@ -154,29 +154,33 @@ export const POS_MOCK_CSS = `
   .tot-final b{font-family:'Unbounded';font-size:12px;}
   .tot-final .sum{font-family:'JetBrains Mono';font-size:22px;font-weight:900;color:var(--accent);}
 
-  .action-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 14px 8px;flex-shrink:0;}
+  .ops-block{padding:0 14px 6px;flex-shrink:0;}
+  .ops-block.pay-block{padding-bottom:0;}
+  .ops-lbl{font-size:9.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--t3);margin:2px 0 6px;}
+  .action-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0;flex-shrink:0;}
   .pos-root button.action-chip{padding:9px 6px;border-radius:12px;text-align:center;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;min-height:42px;transition:border-color .12s,background .12s;}
   .action-chip .ic-wrap{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
   .action-chip span{font-size:11px;font-weight:700;color:var(--t2);}
   .pos-root button.ac-discount{background:rgba(155,109,255,.08);border:1.5px solid rgba(155,109,255,.28);}
   .ac-discount .ic-wrap{background:rgba(155,109,255,.18);}
-  .pos-root button.ac-discount:hover{border-color:var(--pur);}
+  .pos-root button.ac-discount:hover,.pos-root button.ac-discount.on{border-color:var(--pur);background:rgba(155,109,255,.14);}
+  .pos-root button.ac-discount.on span{color:var(--pur);}
   .pos-root button.ac-bonus{background:rgba(255,184,0,.08);border:1.5px solid rgba(255,184,0,.28);}
   .ac-bonus .ic-wrap{background:rgba(255,184,0,.18);}
-  .pos-root button.ac-bonus:hover{border-color:var(--gd);}
-  .pos-root button.ac-debt{background:rgba(255,140,0,.08);border:1.5px solid rgba(255,140,0,.28);}
-  .ac-debt .ic-wrap{background:rgba(255,140,0,.18);}
-  .pos-root button.ac-debt:hover,.pos-root button.ac-debt.on{border-color:var(--org);background:rgba(255,140,0,.14);}
-  .pos-root button.ac-debt.on span{color:var(--org);}
+  .pos-root button.ac-bonus:hover,.pos-root button.ac-bonus.on{border-color:var(--gd);background:rgba(255,184,0,.14);}
+  .pos-root button.ac-bonus.on span{color:var(--gd);}
+  .pos-root button.ac-repay{background:rgba(255,140,0,.08);border:1.5px solid rgba(255,140,0,.28);}
+  .ac-repay .ic-wrap{background:rgba(255,140,0,.18);}
+  .pos-root button.ac-repay:hover{border-color:var(--org);}
   .pos-root button.ac-topup{background:rgba(31,215,96,.08);border:1.5px solid rgba(31,215,96,.28);}
   .ac-topup .ic-wrap{background:rgba(31,215,96,.18);}
   .pos-root button.ac-topup:hover{border-color:var(--accent);}
 
-  .link-row{display:flex;gap:4px;padding:0 14px 6px;flex-shrink:0;justify-content:center;align-items:center;}
+  .link-row{display:flex;gap:4px;padding:4px 14px 8px;flex-shrink:0;justify-content:center;align-items:center;}
   .link-row button{font-size:11px;color:#6B8F76;font-weight:700;padding:4px 10px;}
   .link-row button:hover{color:var(--t1);}
 
-  .pay-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;padding:0 14px 8px;flex-shrink:0;}
+  .pay-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;padding:0 0 8px;flex-shrink:0;}
   .pos-root button.pay-btn{padding:10px 4px;border-radius:14px;text-align:center;font-size:10.5px;font-weight:800;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:56px;border:2px solid transparent;opacity:1;transition:transform .12s,box-shadow .12s,border-color .12s;}
   .pay-btn .ic{font-size:18px;line-height:1;}
   .pos-root button.pay-btn.on{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.3);border-color:rgba(255,255,255,.22);}
@@ -185,6 +189,8 @@ export const POS_MOCK_CSS = `
   .pos-root button.pay-cash.on{background:#16A34A;border-color:#86EFAC;box-shadow:0 4px 12px rgba(34,197,94,.3);}
   .pos-root button.pay-card{background:#3B82F6;border-color:#2563EB;}
   .pos-root button.pay-card.on{background:#2563EB;border-color:#93C5FD;box-shadow:0 4px 12px rgba(59,130,246,.3);}
+  .pos-root button.pay-credit{background:#EA580C;border-color:#C2410C;}
+  .pos-root button.pay-credit.on{background:#C2410C;border-color:#FDBA74;box-shadow:0 4px 12px rgba(234,88,12,.3);}
   .pos-root button.pay-balance{background:#2A2A3D;border-color:#3A3A52;color:#7A7A96;}
   .pos-root button.pay-balance.on{background:#3B2F66;border-color:#9B6DFF;color:#fff;box-shadow:0 4px 12px rgba(155,109,255,.28);}
   .pos-root button.pay-balance.disabled{background:#232334;border-color:#2E2E42;color:#5C5C78;}
