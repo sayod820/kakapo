@@ -56,6 +56,17 @@ type CartLine = {
   art?: string
   barcode?: string
   weightKg?: number
+  discPct?: number
+}
+
+function lineGross(line: CartLine) {
+  return line.weightKg != null ? line.price * line.weightKg : line.price * line.qty
+}
+
+function lineNet(line: CartLine) {
+  const g = lineGross(line)
+  const pct = Math.min(90, Math.max(0, Number(line.discPct) || 0))
+  return Math.max(0, g * (1 - pct / 100))
 }
 
 function initialsOf(name: string) {
@@ -169,6 +180,10 @@ export default function CashierModule({
   const [clientPick, setClientPick] = useState<AdminClient | null>(null)
   const [discOpen, setDiscOpen] = useState(false)
   const [discBuf, setDiscBuf] = useState('')
+  const [discMode, setDiscMode] = useState<'all' | 'line'>('all')
+  const [discLineKey, setDiscLineKey] = useState<string | null>(null)
+  const [discPickOpen, setDiscPickOpen] = useState(false)
+  const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null)
   const [cashOpen, setCashOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
   const [zOpen, setZOpen] = useState(false)
@@ -336,17 +351,21 @@ export default function CashierModule({
     return { bonus, topupCash, topupBonus, repaid, charged, creditSales }
   }, [client, loyalty, histTick, clientHistory])
 
-  const subtotal = useMemo(() => cart.reduce((s, l) => s + (l.weightKg != null ? l.price * l.weightKg : l.price * l.qty), 0), [cart])
+  const subtotalGross = useMemo(() => cart.reduce((s, l) => s + lineGross(l), 0), [cart])
+  const itemDiscAmount = useMemo(() => cart.reduce((s, l) => s + (lineGross(l) - lineNet(l)), 0), [cart])
+  const subtotal = useMemo(() => cart.reduce((s, l) => s + lineNet(l), 0), [cart])
   const levelDiscPct = useMemo(() => {
     if (!loyalty || pay === 'credit') return 0
     const map: Record<string, number> = { bronze: 0, silver: 3, gold: 5, platinum: 8, basic: 0 }
     return map[loyalty.level] || 0
   }, [loyalty, pay])
-  const discAmount = subtotal * ((discountPct + levelDiscPct) / 100)
+  const checkDiscPct = discountPct + levelDiscPct
+  const discAmount = subtotal * (checkDiscPct / 100)
   const afterDisc = Math.max(0, subtotal - discAmount)
   const maxBonus = loyalty ? Math.min(Number(loyalty.bonus) || 0, afterDisc) : 0
   const usedBonus = Math.min(bonusUsed, maxBonus)
   const total = Math.max(0, afterDisc - usedBonus)
+  const totalDiscAmount = itemDiscAmount + discAmount + usedBonus
 
   function showToast(title: string, sub: string) {
     setToast({ title, sub })
@@ -497,6 +516,53 @@ export default function CashierModule({
     setDiscountPct(0)
     setBonusUsed(0)
     setPay('cash')
+    setSelectedLineKey(null)
+    setDiscLineKey(null)
+  }
+
+  function openAllDiscount() {
+    if (!cart.length) {
+      showToast('Чек пуст', 'Сначала добавьте товары')
+      return
+    }
+    setDiscMode('all')
+    setDiscLineKey(null)
+    setDiscBuf(String(discountPct || ''))
+    setDiscOpen(true)
+  }
+
+  function openLineDiscount(key?: string) {
+    if (!cart.length) {
+      showToast('Чек пуст', 'Сначала добавьте товары')
+      return
+    }
+    const targetKey = key || selectedLineKey
+    if (targetKey && cart.some(l => l.key === targetKey)) {
+      const line = cart.find(l => l.key === targetKey)!
+      setDiscMode('line')
+      setDiscLineKey(targetKey)
+      setDiscBuf(String(line.discPct || ''))
+      setDiscPickOpen(false)
+      setDiscOpen(true)
+      return
+    }
+    if (cart.length === 1) {
+      openLineDiscount(cart[0].key)
+      return
+    }
+    setDiscPickOpen(true)
+  }
+
+  function applyDiscount() {
+    const pct = Math.min(90, Math.max(0, Number(discBuf) || 0))
+    if (discMode === 'line' && discLineKey) {
+      setCart(prev => prev.map(l => l.key === discLineKey ? { ...l, discPct: pct || undefined } : l))
+      setSelectedLineKey(discLineKey)
+    } else {
+      setDiscountPct(pct)
+    }
+    setDiscOpen(false)
+    setDiscLineKey(null)
   }
 
   async function submitSale(paidCash = 0, payOverride?: PayMethod) {
@@ -854,18 +920,19 @@ export default function CashierModule({
             </div>
           )}
 
-          <div className="discount-strip">
-            <span className="lbl">Скидка кассира: <b>{discountPct}%</b>{levelDiscPct > 0 ? ` + ${levelDiscPct}% статус` : ''}</span>
-            <button type="button" className="set-btn" onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>Задать</button>
-          </div>
-
           <div className="cart-items">
             {!cart.length ? (
               <div className="cart-empty"><div className="ic">🛒</div>Чек пуст.<br />Отсканируйте или выберите товар.</div>
             ) : cart.map(line => {
-              const lt = line.weightKg != null ? line.price * line.weightKg : line.price * line.qty
+              const gross = lineGross(line)
+              const net = lineNet(line)
+              const lineDisc = Number(line.discPct) || 0
               return (
-                <div key={line.key} className="cart-row">
+                <div
+                  key={line.key}
+                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''}`}
+                  onClick={() => setSelectedLineKey(line.key)}
+                >
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
                     <div className="name">{line.name}</div>
@@ -879,35 +946,54 @@ export default function CashierModule({
                       {line.weightKg != null
                         ? <><span className="w">{line.weightKg.toFixed(3)} кг</span> · {line.price.toFixed(2)} ЅМ/{line.unit}</>
                         : `${line.price.toFixed(2)} ЅМ × ${line.qty}`}
+                      {lineDisc > 0 ? <> · <span className="line-disc">−{lineDisc}%</span></> : null}
                     </div>
                   </div>
                   {line.weightKg == null && (
-                    <div className="qtyctrl">
+                    <div className="qtyctrl" onClick={e => e.stopPropagation()}>
                       <button type="button" onClick={() => setQty(line.key, line.qty - 1)}>−</button>
                       <span>{line.qty}</span>
                       <button type="button" onClick={() => setQty(line.key, line.qty + 1)}>+</button>
                     </div>
                   )}
-                  <div className="price">{lt.toFixed(2)}</div>
-                  <button type="button" className="rm" onClick={() => removeLine(line.key)}>✕</button>
+                  <div className="price">
+                    {lineDisc > 0 ? <span className="old">{gross.toFixed(2)}</span> : null}
+                    {net.toFixed(2)}
+                  </div>
+                  <button type="button" className="rm" onClick={e => { e.stopPropagation(); removeLine(line.key); if (selectedLineKey === line.key) setSelectedLineKey(null) }}>✕</button>
                 </div>
               )
             })}
           </div>
 
+          <div className="check-actions">
+            <button type="button" className="action-chip ac-clear" onClick={clearCart} disabled={!cart.length && discountPct <= 0}>
+              <span className="ic-wrap">🗑</span><span>Очистить</span>
+            </button>
+            <button type="button" className="action-chip ac-discount" onClick={() => openLineDiscount()} disabled={!cart.length}>
+              <span className="ic-wrap">🏷</span><span>Скидка на товар</span>
+            </button>
+            <button type="button" className={`action-chip ac-discount-all ${discountPct > 0 ? 'on' : ''}`} onClick={openAllDiscount} disabled={!cart.length}>
+              <span className="ic-wrap">%</span><span>Скидка на всё</span>
+            </button>
+          </div>
+
           <div className="cart-totals">
             <div className="tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
-            <div className="tot-row"><span>Сумма</span><span>{subtotal.toFixed(2)}</span></div>
+            <div className="tot-row"><span>Сумма</span><span>{subtotalGross.toFixed(2)}</span></div>
+            <div className={`tot-row disc ${itemDiscAmount > 0 ? '' : 'muted'}`}>
+              <span>Скидка по товарам</span>
+              <span>−{itemDiscAmount.toFixed(2)}</span>
+            </div>
             <div className={`tot-row disc ${discAmount > 0 ? '' : 'muted'}`}>
-              <span>Скидка{(discountPct + levelDiscPct) > 0 ? ` ${discountPct + levelDiscPct}%` : ''}</span>
+              <span>Скидка на всё{checkDiscPct > 0 ? ` ${checkDiscPct}%` : ''}</span>
               <span>−{discAmount.toFixed(2)}</span>
             </div>
             {usedBonus > 0 && <div className="tot-row disc"><span>Списано бонусами</span><span>−{usedBonus.toFixed(2)}</span></div>}
+            {totalDiscAmount > 0 && (
+              <div className="tot-row disc"><span>Всего скидка</span><span>−{totalDiscAmount.toFixed(2)}</span></div>
+            )}
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
-          </div>
-
-          <div className="link-row">
-            <button type="button" onClick={clearCart}>Очистить чек</button>
           </div>
 
           <button
@@ -1000,18 +1086,59 @@ export default function CashierModule({
         </div>
       )}
 
+      {discPickOpen && (
+        <div className="overlay" onClick={() => setDiscPickOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <h3>🏷 Скидка на товар</h3>
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>Выберите позицию в чеке</div>
+            <div style={{ maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
+              {cart.map(line => (
+                <button
+                  key={line.key}
+                  type="button"
+                  className="client-result"
+                  onClick={() => openLineDiscount(line.key)}
+                >
+                  <div className="av">{line.emoji}</div>
+                  <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                    <b style={{ fontSize: 12.5, display: 'block' }}>{line.name}</b>
+                    <span style={{ fontSize: 10, color: 'var(--t2)' }}>
+                      {lineNet(line).toFixed(2)} ЅМ
+                      {(Number(line.discPct) || 0) > 0 ? ` · уже −${line.discPct}%` : ''}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setDiscPickOpen(false)}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {discOpen && (
         <div className="overlay" onClick={() => setDiscOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>🏷 Скидка на чек</h3>
+            <h3>{discMode === 'line' ? '🏷 Скидка на товар' : '🏷 Скидка на всё'}</h3>
+            {discMode === 'line' && discLineKey && (
+              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>
+                {cart.find(l => l.key === discLineKey)?.name || 'Товар'}
+              </div>
+            )}
+            {discMode === 'all' && (
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>
+                На весь чек{levelDiscPct > 0 ? ` · уже +${levelDiscPct}% статус` : ''}
+              </div>
+            )}
             <div className="kp-display"><div className="lbl">СКИДКА, %</div><div className="val">{discBuf || '0'}</div></div>
             <div className="kp-quick">
-              {[0, 5, 10, 15].map(v => <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>)}
+              {[0, 5, 10, 15, 20].map(v => <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>)}
             </div>
             <Keypad onDigit={k => setDiscBuf(b => appendDigit(b, k, 3))} onBack={() => setDiscBuf(b => b.slice(0, -1))} />
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setDiscOpen(false)}>Отмена</button>
-              <button type="button" className="btn-confirm" onClick={() => { setDiscountPct(Math.min(90, Number(discBuf) || 0)); setDiscOpen(false) }}>Применить</button>
+              <button type="button" className="btn-confirm" onClick={applyDiscount}>Применить</button>
             </div>
           </div>
         </div>
