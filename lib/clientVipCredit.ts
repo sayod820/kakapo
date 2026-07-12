@@ -244,11 +244,18 @@ export async function chargeCredit(
   return newDebt
 }
 
-export function recordStoreDebtRepayment(phone: string, amount: number): void {
+export function recordStoreDebtRepayment(
+  phone: string,
+  amount: number,
+  meta?: { desc?: string; method?: 'cash' | 'card' },
+): void {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || pay <= 0) return
+  const methodLabel = meta?.method === 'card' ? 'карта' : meta?.method === 'cash' ? 'наличные' : ''
+  const desc = meta?.desc
+    || (methodLabel ? `Погашение долга · ${methodLabel}` : 'Погашение долга')
   pushDebtHistory(phone, {
-    desc: 'Погашение через поддержку',
+    desc,
     amount: pay,
     type: 'pay',
   })
@@ -290,4 +297,58 @@ export async function spendBonus(phone: string, amount: number, orderId: string)
 
 export async function refreshStoreUserAfterCredit(phone: string, cardNum?: string): Promise<StoreUser | null> {
   return fetchCrmStoreUser(phone, cardNum)
+}
+
+const TOPUP_HIST = ACCOUNT_NS.balanceTopups
+export const BALANCE_TOPUP_EVT = 'kakapo_balance_topup'
+
+export type BalanceTopupEntry = {
+  id: string
+  date: string
+  time: string
+  ts: number
+  cash: number
+  bonus: number
+  desc: string
+}
+
+export function emitBalanceTopupChange() {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(BALANCE_TOPUP_EVT))
+}
+
+export function subscribeBalanceTopup(cb: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  const h = () => cb()
+  window.addEventListener(BALANCE_TOPUP_EVT, h)
+  return () => window.removeEventListener(BALANCE_TOPUP_EVT, h)
+}
+
+export function loadBalanceTopups(phone: string): BalanceTopupEntry[] {
+  const list = loadAccountJson<BalanceTopupEntry[]>(TOPUP_HIST, [], phone)
+  if (!Array.isArray(list)) return []
+  return list.map((row, i) => ({
+    ...row,
+    time: row.time || '',
+    ts: row.ts || Date.now() - i,
+  }))
+}
+
+export function recordBalanceTopup(phone: string, cash: number, bonus: number): void {
+  const cashAmt = Math.max(0, Math.round(cash * 100) / 100)
+  const bonusAmt = Math.max(0, Math.floor(bonus))
+  if (!phone.trim() || cashAmt <= 0) return
+  const prev = loadBalanceTopups(phone)
+  const now = new Date()
+  const row: BalanceTopupEntry = {
+    id: `T-${now.getTime()}`,
+    date: now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }),
+    time: now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+    ts: now.getTime(),
+    cash: cashAmt,
+    bonus: bonusAmt,
+    desc: 'Пополнение баланса',
+  }
+  saveAccountJson(TOPUP_HIST, [row, ...prev].slice(0, 100), phone)
+  emitBalanceTopupChange()
 }
