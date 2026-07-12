@@ -550,9 +550,9 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
           </div>
           <div className="theme-dots">
             {([
-              ['green', '#1FD760'],
+              ['green', '#00E676'],
               ['purple', '#9B6DFF'],
-              ['gold', '#FFB800'],
+              ['gold', '#FFB300'],
             ] as [ThemeName, string][]).map(([name, color]) => (
               <button
                 key={name}
@@ -590,18 +590,21 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
           <div className="grid-wrap">
             <div className="p-grid">
               <button type="button" className="p-tile p-manual" onClick={() => { setManualBuf(''); setManualOpen(true) }}>
-                <span className="ic">🔢</span>
+                <span className="manual-ic">🔢</span>
                 <b>Ручная цена</b>
               </button>
               {visibleProducts.map(p => {
                 const stock = Number(p.stock) || 0
                 const photo = p.photo || getPhoto(p.id)
-                const unit = p.unit || (isWeighted(p) ? 'кг' : 'шт')
+                const weighted = isWeighted(p)
+                const unit = p.unit || (weighted ? 'кг' : 'шт')
                 return (
                   <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
                     <div className="p-photo">
-                      {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
-                      <span className="p-weight-tag">{unit}</span>
+                      {photo
+                        ? <img src={photo} alt="" />
+                        : <span className="emoji">{p.e || '📦'}</span>}
+                      {weighted && <span className="p-weight-tag">⚖ {unit}</span>}
                     </div>
                     <div className="p-name">{p.name}</div>
                     <div className="p-price">{(Number(p.price) || 0).toFixed(2)} <span className="p-unit">SM/{unit}</span></div>
