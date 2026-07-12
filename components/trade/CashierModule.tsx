@@ -1145,26 +1145,52 @@ export default function CashierModule({
 
               <div className={`kp-display qty-edit-input ${qtyEditMode}`}>
                 <div className="lbl">{qtyEditMode === 'sum' ? 'ВВОД СУММЫ' : (isWeight ? 'ВВОД ВЕСА' : 'ВВОД КОЛИЧЕСТВА')}</div>
-                <input
-                  ref={qtyEditInputRef}
-                  className="qty-edit-field"
-                  value={qtyEditBuf}
-                  inputMode="decimal"
-                  autoFocus
-                  onChange={e => setQtyEditBuf(sanitizeDecimalInput(e.target.value))}
-                  onFocus={e => e.currentTarget.select()}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      if (previewQty > 0 && !overStock) applyQtyEdit()
-                    }
-                    if (e.key === 'Escape') {
-                      e.preventDefault()
-                      setQtyEditOpen(false)
-                    }
-                  }}
-                  placeholder="0"
-                />
+                <div className="qty-edit-stepper">
+                  <button
+                    type="button"
+                    className="qty-step"
+                    onClick={() => {
+                      const step = qtyEditMode === 'sum' ? 1 : (isWeight ? 0.1 : 1)
+                      const cur = Number(qtyEditBuf) || 0
+                      const next = Math.max(0, Math.round((cur - step) * 1000) / 1000)
+                      setQtyEditBuf(next > 0 ? (Number.isInteger(next) ? String(next) : String(next)) : '')
+                    }}
+                  >
+                    −
+                  </button>
+                  <input
+                    ref={qtyEditInputRef}
+                    className="qty-edit-field"
+                    value={qtyEditBuf}
+                    inputMode="decimal"
+                    autoFocus
+                    onChange={e => setQtyEditBuf(sanitizeDecimalInput(e.target.value))}
+                    onFocus={e => e.currentTarget.select()}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        if (previewQty > 0 && !overStock) applyQtyEdit()
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setQtyEditOpen(false)
+                      }
+                    }}
+                    placeholder="0"
+                  />
+                  <button
+                    type="button"
+                    className="qty-step"
+                    onClick={() => {
+                      const step = qtyEditMode === 'sum' ? 1 : (isWeight ? 0.1 : 1)
+                      const cur = Number(qtyEditBuf) || 0
+                      const next = Math.round((cur + step) * 1000) / 1000
+                      setQtyEditBuf(Number.isInteger(next) ? String(next) : String(next))
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
                 {qtyEditMode === 'sum' && price > 0 && (Number(qtyEditBuf) || 0) > 0 && (
                   <div className="qty-edit-formula">
                     {Number(qtyEditBuf || 0).toFixed(2)} ÷ {price.toFixed(2)} = <b>{fmtQty(previewQty)} {unit}</b>
