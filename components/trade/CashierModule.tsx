@@ -706,28 +706,23 @@ export default function CashierModule({
             }}>
               <span className="ic-wrap">🎁</span><span>Бонусы</span>
             </button>
-            <button type="button" className="action-chip ac-hold" onClick={() => {
-              if (!cart.length) { showToast('Чек пуст', 'Добавьте товары'); return }
-              showToast('Отложено', 'Чек сохранён локально — скоро')
-            }}>
-              <span className="ic-wrap">📥</span><span>Отложить</span>
-            </button>
-          </div>
-          <div className="action-row2">
             <button
               type="button"
-              className={`action-out ${pay === 'credit' ? 'on' : ''}`}
+              className={`action-chip ac-debt ${pay === 'credit' ? 'on' : ''}`}
               onClick={() => {
                 if (pay === 'credit') { setPay('cash'); return }
                 setPay('credit')
                 if (!client) setClientOpen(true)
               }}
-            >📝 В долг</button>
-            <button type="button" className="action-out" onClick={() => showToast('Обмен', 'Функция обмена скоро')}>🔄 Обмен</button>
-            <button type="button" className="action-out" onClick={() => {
+            >
+              <span className="ic-wrap">📝</span><span>В долг</span>
+            </button>
+            <button type="button" className="action-chip ac-topup" onClick={() => {
               if (!client) setClientOpen(true)
               else { setTopupBuf(''); setTopupOpen(true) }
-            }}>💰 Пополнить</button>
+            }}>
+              <span className="ic-wrap">💰</span><span>Пополнить</span>
+            </button>
           </div>
           <div className="link-row">
             <button type="button" onClick={clearCart}>Очистить чек</button>

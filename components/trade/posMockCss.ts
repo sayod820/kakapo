@@ -152,21 +152,23 @@ export const POS_MOCK_CSS = `
   .tot-final b{font-family:'Unbounded';font-size:12.5px;}
   .tot-final .sum{font-family:'JetBrains Mono';font-size:27px;font-weight:900;color:var(--accent);}
 
-  .action-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 14px 9px;flex-shrink:0;}
-  .pos-root button.action-chip{padding:11px 6px;border-radius:14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:5px;}
-  .action-chip .ic-wrap{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;}
-  .action-chip span{font-size:10px;font-weight:700;color:var(--t2);}
-  .pos-root button.ac-discount{background:rgba(155,109,255,.06);border:1px solid rgba(155,109,255,.2);}
-  .ac-discount .ic-wrap{background:rgba(155,109,255,.15);}
-  .pos-root button.ac-bonus{background:rgba(255,184,0,.06);border:1px solid rgba(255,184,0,.2);}
-  .ac-bonus .ic-wrap{background:rgba(255,184,0,.15);}
-  .pos-root button.ac-hold{background:rgba(59,142,240,.06);border:1px solid rgba(59,142,240,.2);}
-  .ac-hold .ic-wrap{background:rgba(59,142,240,.15);}
-  .action-row2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 14px 10px;flex-shrink:0;}
-  .pos-root button.action-out{padding:10px 5px;border-radius:13px;text-align:center;font-size:10.5px;font-weight:700;background:var(--surface2);border:1px solid var(--border);color:var(--t2);}
-  .pos-root button.action-out:hover{border-color:var(--border2);color:var(--t1);}
-  .pos-root button.action-out.on{border-color:var(--gd);color:var(--gd);background:rgba(255,184,0,.08);}
-  .pos-root button.action-out.danger{color:var(--red);border-color:rgba(255,69,69,.25);}
+  .action-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 10px;flex-shrink:0;}
+  .pos-root button.action-chip{padding:12px 8px;border-radius:14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;min-height:64px;justify-content:center;transition:border-color .12s,background .12s;}
+  .action-chip .ic-wrap{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;}
+  .action-chip span{font-size:11px;font-weight:700;color:var(--t2);}
+  .pos-root button.ac-discount{background:rgba(155,109,255,.08);border:1.5px solid rgba(155,109,255,.28);}
+  .ac-discount .ic-wrap{background:rgba(155,109,255,.18);}
+  .pos-root button.ac-discount:hover{border-color:var(--pur);}
+  .pos-root button.ac-bonus{background:rgba(255,184,0,.08);border:1.5px solid rgba(255,184,0,.28);}
+  .ac-bonus .ic-wrap{background:rgba(255,184,0,.18);}
+  .pos-root button.ac-bonus:hover{border-color:var(--gd);}
+  .pos-root button.ac-debt{background:rgba(255,140,0,.08);border:1.5px solid rgba(255,140,0,.28);}
+  .ac-debt .ic-wrap{background:rgba(255,140,0,.18);}
+  .pos-root button.ac-debt:hover,.pos-root button.ac-debt.on{border-color:var(--org);background:rgba(255,140,0,.14);}
+  .pos-root button.ac-debt.on span{color:var(--org);}
+  .pos-root button.ac-topup{background:rgba(31,215,96,.08);border:1.5px solid rgba(31,215,96,.28);}
+  .ac-topup .ic-wrap{background:rgba(31,215,96,.18);}
+  .pos-root button.ac-topup:hover{border-color:var(--accent);}
 
   .link-row{display:flex;gap:4px;padding:0 14px 8px;flex-shrink:0;justify-content:center;align-items:center;}
   .link-row button{font-size:11px;color:#6B8F76;font-weight:700;padding:6px 10px;}
