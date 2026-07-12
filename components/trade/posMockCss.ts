@@ -156,6 +156,11 @@ export const POS_MOCK_CSS = `
   .qtyctrl button{width:24px;height:24px;border-radius:8px;font-size:14px;font-weight:800;color:var(--t2);}
   .qtyctrl button:hover{background:var(--border2);color:var(--t1);}
   .qtyctrl span{font-size:13px;font-weight:800;min-width:18px;text-align:center;font-family:'JetBrains Mono';}
+  .pos-root button.qty-btn{flex-shrink:0;min-width:48px;padding:8px 10px;border-radius:10px;background:var(--surface2);border:1.5px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:800;color:var(--t1);}
+  .pos-root button.qty-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .qty-edit-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+  .pos-root button.qty-edit-tabs button,.qty-edit-tabs button{padding:10px;border-radius:12px;font-size:12px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);}
+  .pos-root .qty-edit-tabs button.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--gd);}
   .cart-row .price{font-family:'JetBrains Mono';font-size:15px;font-weight:900;color:var(--gd);flex-shrink:0;min-width:68px;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
   .cart-row .price .old{font-size:10px;font-weight:700;color:var(--t3);text-decoration:line-through;}
   .pos-root button.rm{width:24px;height:24px;border-radius:8px;color:var(--t3);font-size:13px;flex-shrink:0;}
