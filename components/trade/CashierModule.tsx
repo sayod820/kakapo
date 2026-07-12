@@ -92,51 +92,34 @@ function Keypad({ onDigit, onBack }: { onDigit: (k: string) => void; onBack: () 
   )
 }
 
-function PosClock({ variant = 'inline' }: { variant?: 'inline' | 'sidebar' }) {
+function TopMetaClock() {
   const [now, setNow] = useState<Date | null>(null)
   useEffect(() => {
     setNow(new Date())
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
-  if (variant === 'sidebar') {
-    if (!now) return <><div className="sb-clock">--:--:--</div><div className="sb-date">—</div></>
-    return (
-      <>
-        <div className="sb-clock">
-          {now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-        </div>
-        <div className="sb-date">
-          {now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
-        </div>
-      </>
-    )
-  }
-  if (!now) return <span className="clock">--:--:--</span>
   return (
-    <span className="clock">
-      {now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-    </span>
+    <div className="top-clock">
+      <div className="tm">
+        {now
+          ? now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          : '--:--:--'}
+      </div>
+      <div className="dt">
+        {now
+          ? now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
+          : '—'}
+      </div>
+    </div>
   )
 }
 
 type NavTarget = 'products' | 'clients' | 'debts' | 'warehouse' | 'reports' | 'suppliers' | 'finance'
 
-const SIDE_NAV: { id: NavTarget | 'sales' | 'bonuses' | 'staff' | 'settings'; icon: string; label: string }[] = [
-  { id: 'sales', icon: '🧾', label: 'Касса' },
-  { id: 'products', icon: '📦', label: 'Товары' },
-  { id: 'clients', icon: '👥', label: 'Клиенты' },
-  { id: 'bonuses', icon: '🎁', label: 'Бонусы' },
-  { id: 'debts', icon: '💳', label: 'Долги' },
-  { id: 'warehouse', icon: '🏬', label: 'Склад' },
-  { id: 'reports', icon: '📈', label: 'Отчёты' },
-  { id: 'staff', icon: '👤', label: 'Сотрудники' },
-  { id: 'settings', icon: '⚙️', label: 'Настройки' },
-]
-
 export default function CashierModule({
   onExit,
-  onNavigate,
+  onNavigate: _onNavigate,
 }: {
   onExit?: () => void
   onNavigate?: (page: NavTarget) => void
@@ -548,47 +531,10 @@ export default function CashierModule({
   const topupCash = Number(topupBuf) || 0
   const topupBonus = calcCashDepositBonus(topupCash)
 
-  const goNav = (id: (typeof SIDE_NAV)[number]['id']) => {
-    if (id === 'sales') return
-    if (id === 'bonuses' || id === 'staff' || id === 'settings') {
-      showToast(SIDE_NAV.find(n => n.id === id)?.label || 'Раздел', 'Раздел откроется в следующих этапах')
-      return
-    }
-    onNavigate?.(id)
-  }
-
   return (
     <div className="pos-root" data-theme={theme}>
       <style>{POS_MOCK_CSS}</style>
       <div className="app">
-        <aside className="sidebar">
-          <div className="sb-brand"><div className="sb-logo">K</div><b>KAKAPO</b></div>
-          <div className="sb-nav">
-            {SIDE_NAV.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                className={`sb-item ${item.id === 'sales' ? 'on' : ''}`}
-                onClick={() => goNav(item.id)}
-              >
-                <span className="ic">{item.icon}</span>{item.label}
-              </button>
-            ))}
-          </div>
-          <div className="sb-foot">
-            <div className="sb-loc">
-              <div>
-                <b>Магазин · Ленина 42</b>
-                <div className="dot-row"><span className="d" /><span>Онлайн</span></div>
-              </div>
-            </div>
-            <PosClock variant="sidebar" />
-            <button type="button" className="btn-switch-till" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
-              🔁 Сменить кассу
-            </button>
-          </div>
-        </aside>
-
         <div className="topbar">
           <div className="searchpill">
             <span className="ic">🔍</span>
@@ -605,6 +551,19 @@ export default function CashierModule({
             />
             <span className="scan-tag">📷 Сканер</span>
           </div>
+
+          <div className="top-meta">
+            <div className="top-loc">
+              <b>Магазин · Ленина 42</b>
+              <div className="dot-row"><span className="d" />Онлайн</div>
+            </div>
+            <TopMetaClock />
+            <button type="button" className="btn-switch-till" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
+              <span className="sw-ic">🔁</span>
+              Сменить кассу
+            </button>
+          </div>
+
           <div className="theme-dots">
             {([
               ['green', '#1FD760'],
