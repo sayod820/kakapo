@@ -328,8 +328,18 @@ export const POS_MOCK_CSS = `
   .pos-root button.repay-m.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--gd);}
 
   .modal-card.hist-card{width:520px;max-height:min(90vh,820px);display:flex;flex-direction:column;}
+  .hist-scroll{flex:1;overflow-y:auto;min-height:280px;max-height:min(52vh,440px);margin:0 -4px;padding:0 4px 4px;}
+  .hist-section{margin-bottom:14px;}
+  .hist-section:last-child{margin-bottom:0;}
+  .hist-section-h{
+    font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);
+    margin:0 0 8px;padding:0 2px;display:flex;align-items:center;gap:8px;
+  }
+  .hist-section-h::after{content:'';flex:1;height:1px;background:var(--border);}
   .hist-list{flex:1;overflow-y:auto;min-height:280px;max-height:min(52vh,440px);margin:0 -4px;padding:0 4px 4px;}
+  .hist-list.compact{flex:none;overflow:visible;min-height:0;max-height:none;margin:0;padding:0;}
   .hist-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);margin-bottom:8px;}
+  .hist-row:last-child{margin-bottom:0;}
   .hist-row.tone-credit,.hist-row.tone-debt{border-color:rgba(234,88,12,.35);background:rgba(234,88,12,.08);}
   .hist-row.tone-credit.partial,.hist-row.tone-debt.partial{border-color:rgba(255,184,0,.45);background:rgba(255,184,0,.1);}
   .hist-row.tone-credit.settled,.hist-row.tone-debt.settled{border-color:rgba(31,215,96,.35);background:rgba(31,215,96,.08);}

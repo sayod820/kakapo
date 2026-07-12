@@ -661,6 +661,19 @@ export default function CashierModule({
     return rows.sort((a, b) => b.ts - a.ts).slice(0, 120)
   }, [client, sales, histTick, products])
 
+  const histChecks = useMemo(
+    () => clientHistory.filter(r => r.tone === 'sale' || r.tone === 'credit' || r.tone === 'debt'),
+    [clientHistory],
+  )
+  const histRepays = useMemo(
+    () => clientHistory.filter(r => r.tone === 'repay'),
+    [clientHistory],
+  )
+  const histTopups = useMemo(
+    () => clientHistory.filter(r => r.tone === 'topup'),
+    [clientHistory],
+  )
+
   const clientProfileStats = useMemo(() => {
     void histTick
     const bonus = Number(loyalty?.bonus) || 0
@@ -2108,37 +2121,84 @@ export default function CashierModule({
               </button>
             </div>
 
-            <div className="ops-lbl" style={{ margin: '4px 0 8px' }}>История: чеки · покупки · долги</div>
-            <div className="hist-list">
+            <div className="hist-scroll">
               {!clientHistory.length && (
                 <div style={{ fontSize: 12, color: 'var(--t3)', padding: '20px 8px', textAlign: 'center' }}>Пока нет операций</div>
               )}
-              {clientHistory.map(row => (
-                <div
-                  key={row.id}
-                  className={`hist-row tone-${row.tone}${row.debtStatus === 'partial' ? ' partial' : ''}${row.debtStatus === 'paid' ? ' settled' : ''}`}
-                >
-                  <div className="hist-main">
-                    <div className="hist-title-row">
-                      <b>{row.title}</b>
-                      {row.debtStatus === 'paid' && <span className="hist-badge paid">Полностью</span>}
-                      {row.debtStatus === 'partial' && <span className="hist-badge partial">Частично</span>}
-                      {row.debtStatus === 'open' && (row.tone === 'credit' || row.tone === 'debt') && (
-                        <span className="hist-badge open">Открыт</span>
-                      )}
-                    </div>
-                    <span className="hist-when">{row.when}</span>
-                    <span className="hist-sub">{row.sub}</span>
-                    {row.items ? <span className="hist-items">{row.items}</span> : null}
-                  </div>
-                  <div className="hist-amt-col">
-                    <div className="hist-amt">{fmtMoney(row.amount)}</div>
-                    {row.debtStatus === 'partial' && row.debtRemain != null && (
-                      <div className="hist-remain">остаток {fmtMoney(row.debtRemain)}</div>
-                    )}
+
+              {histChecks.length > 0 && (
+                <div className="hist-section">
+                  <div className="hist-section-h">Чеки и покупки</div>
+                  <div className="hist-list compact">
+                    {histChecks.map(row => (
+                      <div
+                        key={row.id}
+                        className={`hist-row tone-${row.tone}${row.debtStatus === 'partial' ? ' partial' : ''}${row.debtStatus === 'paid' ? ' settled' : ''}`}
+                      >
+                        <div className="hist-main">
+                          <div className="hist-title-row">
+                            <b>{row.title}</b>
+                            {row.debtStatus === 'paid' && <span className="hist-badge paid">Полностью</span>}
+                            {row.debtStatus === 'partial' && <span className="hist-badge partial">Частично</span>}
+                            {row.debtStatus === 'open' && (row.tone === 'credit' || row.tone === 'debt') && (
+                              <span className="hist-badge open">Открыт</span>
+                            )}
+                          </div>
+                          <span className="hist-when">{row.when}</span>
+                          <span className="hist-sub">{row.sub}</span>
+                          {row.items ? <span className="hist-items">{row.items}</span> : null}
+                        </div>
+                        <div className="hist-amt-col">
+                          <div className="hist-amt">{fmtMoney(row.amount)}</div>
+                          {row.debtStatus === 'partial' && row.debtRemain != null && (
+                            <div className="hist-remain">остаток {fmtMoney(row.debtRemain)}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {histRepays.length > 0 && (
+                <div className="hist-section">
+                  <div className="hist-section-h">Погашения долга</div>
+                  <div className="hist-list compact">
+                    {histRepays.map(row => (
+                      <div key={row.id} className={`hist-row tone-${row.tone}`}>
+                        <div className="hist-main">
+                          <div className="hist-title-row"><b>{row.title}</b></div>
+                          <span className="hist-when">{row.when}</span>
+                          <span className="hist-sub">{row.sub}</span>
+                        </div>
+                        <div className="hist-amt-col">
+                          <div className="hist-amt">{fmtMoney(row.amount)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {histTopups.length > 0 && (
+                <div className="hist-section">
+                  <div className="hist-section-h">Пополнения</div>
+                  <div className="hist-list compact">
+                    {histTopups.map(row => (
+                      <div key={row.id} className={`hist-row tone-${row.tone}`}>
+                        <div className="hist-main">
+                          <div className="hist-title-row"><b>{row.title}</b></div>
+                          <span className="hist-when">{row.when}</span>
+                          <span className="hist-sub">{row.sub}</span>
+                        </div>
+                        <div className="hist-amt-col">
+                          <div className="hist-amt">{fmtMoney(row.amount)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="modal-card-actions" style={{ marginTop: 12 }}>
               <button
