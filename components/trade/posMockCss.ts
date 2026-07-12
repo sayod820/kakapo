@@ -368,6 +368,12 @@ export const POS_MOCK_CSS = `
   .hist-detail-sum{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:900;color:var(--org);margin:4px 0 8px;}
   .hist-detail-items{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);}
   .hist-detail-items .hist-items{font-size:12.5px;line-height:1.45;}
+  .hist-lines{display:flex;flex-direction:column;gap:8px;}
+  .hist-line{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);}
+  .hist-line-main{min-width:0;display:flex;flex-direction:column;gap:3px;}
+  .hist-line-main b{font-size:12.5px;font-weight:800;color:var(--t1);line-height:1.3;}
+  .hist-line-qty{font-size:11px;font-weight:800;color:var(--t2);font-family:'JetBrains Mono',monospace;}
+  .hist-line-sum{flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:900;color:var(--gd);}
   .hist-row.tone-sale .hist-amt{color:var(--gd);}
   .hist-row.tone-credit,.hist-row.tone-debt{border-color:rgba(234,88,12,.35);background:rgba(234,88,12,.08);}
   .hist-row.tone-credit.partial,.hist-row.tone-debt.partial{border-color:rgba(255,184,0,.45);background:rgba(255,184,0,.1);}

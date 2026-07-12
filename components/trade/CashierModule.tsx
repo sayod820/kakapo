@@ -73,6 +73,13 @@ type CartLine = {
   discPct?: number
 }
 
+type ClientHistLine = {
+  name: string
+  qty: number
+  price: number
+  sum: number
+}
+
 type ClientHistRow = {
   id: string
   ts: number
@@ -80,11 +87,47 @@ type ClientHistRow = {
   title: string
   sub: string
   items?: string
+  lines?: ClientHistLine[]
   amount: number
   tone: 'sale' | 'credit' | 'repay' | 'topup' | 'debt'
   debtStatus?: 'open' | 'partial' | 'paid'
   debtPaid?: number
   debtRemain?: number
+}
+
+function mapSaleLines(
+  items: { productName?: string; productId?: number; qty?: number; price?: number; lineTotal?: number }[] | undefined,
+  products: { id: number; name: string; price?: number }[],
+): ClientHistLine[] {
+  if (!items?.length) return []
+  return items.map(i => {
+    const fromCatalog = i.productId ? products.find(p => p.id === i.productId) : undefined
+    const name = String(i.productName || fromCatalog?.name || '').trim() || (i.productId ? `#${i.productId}` : 'товар')
+    const qty = Number(i.qty) || 0
+    const price = Number(i.price) || Number(fromCatalog?.price) || 0
+    const sum = Number(i.lineTotal) || Math.round(price * qty * 100) / 100
+    return { name, qty, price, sum }
+  })
+}
+
+function linesLabel(lines: ClientHistLine[]): string {
+  if (!lines.length) return ''
+  const parts = lines.slice(0, 5).map(l => {
+    const q = Number.isInteger(l.qty) ? String(l.qty) : String(Math.round(l.qty * 1000) / 1000)
+    return `${l.name} ×${q}`
+  })
+  if (lines.length > 5) parts.push(`+${lines.length - 5}`)
+  return parts.join(', ')
+}
+
+function parseItemsSummary(raw?: string): ClientHistLine[] {
+  if (!raw?.trim()) return []
+  return raw.split(',').map(part => part.trim()).filter(Boolean).map(part => {
+    const m = part.match(/^(.*?)(?:\s*[×xX]\s*([\d.,]+))?$/)
+    const name = (m?.[1] || part).trim()
+    const qty = m?.[2] ? Number(String(m[2]).replace(',', '.')) || 0 : 0
+    return { name, qty, price: 0, sum: 0 }
+  }).filter(l => l.name && !l.name.startsWith('+'))
 }
 
 function lineGross(line: CartLine) {
@@ -496,19 +539,6 @@ export default function CashierModule({
     const unpaidById = new Map(unpaid.map(d => [d.id, d]))
     const paidById = new Map(paid.map(d => [d.id, d]))
 
-    const fmtItems = (items: { productName?: string; productId?: number; qty?: number }[] | undefined) => {
-      if (!items?.length) return ''
-      const parts = items.slice(0, 5).map(i => {
-        const fromCatalog = i.productId ? products.find(p => p.id === i.productId)?.name : ''
-        const name = String(i.productName || fromCatalog || '').trim() || (i.productId ? `#${i.productId}` : 'товар')
-        const q = Number(i.qty) || 0
-        const qLabel = Number.isInteger(q) ? String(q) : String(Math.round(q * 1000) / 1000)
-        return `${name} ×${qLabel}`
-      })
-      if (items.length > 5) parts.push(`+${items.length - 5}`)
-      return parts.join(', ')
-    }
-
     const debtStatusFor = (saleId: string, total: number, ts: number) => {
       const byOrder = unpaid.find(d => d.orderId && d.orderId === saleId)
         || paid.find(d => d.orderId && d.orderId === saleId)
@@ -564,7 +594,7 @@ export default function CashierModule({
       const when = new Date(s.createdAtIso)
       const ts = when.getTime() || 0
       const total = Number(s.total) || 0
-      const items = fmtItems(s.items)
+      const mappedLines = mapSaleLines(s.items, products)
       const debtMeta = isCredit ? debtStatusFor(s.id, Number(s.debtAdded) || total, ts) : null
       if (debtMeta?.debtId) linkedDebtIds.add(debtMeta.debtId)
 
@@ -591,7 +621,8 @@ export default function CashierModule({
           : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`,
         title,
         sub,
-        items: items || undefined,
+        items: linesLabel(mappedLines) || undefined,
+        lines: mappedLines.length ? mappedLines : undefined,
         amount: total,
         tone: isCredit ? 'credit' : 'sale',
         debtStatus: debtMeta?.debtStatus,
@@ -646,6 +677,7 @@ export default function CashierModule({
           title,
           sub,
           items: h.itemsSummary || undefined,
+          lines: parseItemsSummary(h.itemsSummary),
           amount: amt,
           tone: 'debt',
           debtStatus,
@@ -691,19 +723,6 @@ export default function CashierModule({
     void histTick
     if (!client) return [] as ClientHistRow[]
 
-    const fmtItems = (items: { productName?: string; productId?: number; qty?: number }[] | undefined) => {
-      if (!items?.length) return ''
-      const parts = items.slice(0, 5).map(i => {
-        const fromCatalog = i.productId ? products.find(p => p.id === i.productId)?.name : ''
-        const name = String(i.productName || fromCatalog || '').trim() || (i.productId ? `#${i.productId}` : 'товар')
-        const q = Number(i.qty) || 0
-        const qLabel = Number.isInteger(q) ? String(q) : String(Math.round(q * 1000) / 1000)
-        return `${name} ×${qLabel}`
-      })
-      if (items.length > 5) parts.push(`+${items.length - 5}`)
-      return parts.join(', ')
-    }
-
     const fmtWhen = (ts: number, fallback = '') => {
       if (!ts) return fallback
       const d = new Date(ts)
@@ -711,7 +730,7 @@ export default function CashierModule({
       return `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
     }
 
-    const toRow = (u: DebtOrderBalance, items?: string): ClientHistRow => ({
+    const toRow = (u: DebtOrderBalance, lines: ClientHistLine[]): ClientHistRow => ({
       id: `active-${u.id}`,
       ts: u.ts || 0,
       when: `${u.date}${u.time ? ` · ${u.time}` : ''}` || fmtWhen(u.ts || 0),
@@ -719,7 +738,8 @@ export default function CashierModule({
       sub: u.partial
         ? `Остаток ${fmtMoney(u.remainingAmount)} из ${fmtMoney(u.originalAmount)} · погашение со старых`
         : `Не оплачен · ${fmtMoney(u.remainingAmount)}`,
-      items: items || u.itemsSummary || undefined,
+      items: linesLabel(lines) || u.itemsSummary || undefined,
+      lines: lines.length ? lines : parseItemsSummary(u.itemsSummary),
       amount: u.remainingAmount,
       tone: 'debt',
       debtStatus: u.partial ? 'partial' : 'open',
@@ -727,10 +747,10 @@ export default function CashierModule({
       debtRemain: u.remainingAmount,
     })
 
-    const findSaleItems = (u: DebtOrderBalance) => {
+    const findSaleLines = (u: DebtOrderBalance): ClientHistLine[] => {
       if (u.orderId) {
         const sale = sales.find(s => s.id === u.orderId)
-        if (sale) return fmtItems(sale.items)
+        if (sale) return mapSaleLines(sale.items, products)
       }
       const amt = Math.abs(Number(u.amount) || 0)
       const sale = sales.find(s => {
@@ -742,7 +762,7 @@ export default function CashierModule({
         return Math.abs((Number(s.debtAdded) || Number(s.total) || 0) - amt) < 0.02
           && Math.abs(st - (u.ts || 0)) < 15 * 60 * 1000
       })
-      return sale ? fmtItems(sale.items) : undefined
+      return sale ? mapSaleLines(sale.items, products) : parseItemsSummary(u.itemsSummary)
     }
 
     if (client.phone) {
@@ -751,18 +771,16 @@ export default function CashierModule({
       if (hasDebtEntries) {
         const { unpaid } = buildDebtOrderBalances(debtList)
         const unpaidSum = unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0)
-        // Если FIFO по истории совпадает с долгом на карте — берём его
         if (Math.abs(unpaidSum - clientDebt) < 0.51 || clientDebt <= 0.001) {
           return unpaid
             .filter(u => (Number(u.remainingAmount) || 0) > 0.001)
             .slice()
             .sort((a, b) => (a.ts || 0) - (b.ts || 0))
-            .map(u => toRow(u, findSaleItems(u)))
+            .map(u => toRow(u, findSaleLines(u)))
         }
       }
     }
 
-    // Fallback: FIFO по чекам в долг относительно текущего долга на карте
     const creditSales = sales
       .filter(s => {
         const matchId = client.id && s.clientId === client.id
@@ -791,6 +809,7 @@ export default function CashierModule({
       payLeft = 0
       if (remainingAmount <= 0.001) continue
       const partial = paidAmount > 0.001
+      const lines = mapSaleLines(x.sale.items, products)
       active.push({
         id: `active-sale-${x.sale.id}`,
         ts: x.ts,
@@ -799,7 +818,8 @@ export default function CashierModule({
         sub: partial
           ? `Остаток ${fmtMoney(remainingAmount)} из ${fmtMoney(x.amt)} · погашение со старых`
           : `Не оплачен · ${fmtMoney(remainingAmount)}`,
-        items: fmtItems(x.sale.items) || undefined,
+        items: linesLabel(lines) || undefined,
+        lines: lines.length ? lines : undefined,
         amount: remainingAmount,
         tone: 'credit',
         debtStatus: partial ? 'partial' : 'open',
@@ -2491,12 +2511,35 @@ export default function CashierModule({
               {histDetail.debtPaid != null && histDetail.debtPaid > 0 && (
                 <div className="hist-sub" style={{ marginTop: 4 }}>Уже оплачено: {fmtMoney(histDetail.debtPaid)}</div>
               )}
-              {histDetail.items && (
-                <div className="hist-detail-items">
-                  <div className="hist-section-h">Состав</div>
-                  <div className="hist-items">{histDetail.items}</div>
-                </div>
-              )}
+              {(() => {
+                const detailLines = (histDetail.lines && histDetail.lines.length)
+                  ? histDetail.lines
+                  : parseItemsSummary(histDetail.items)
+                if (!detailLines.length) return null
+                return (
+                  <div className="hist-detail-items">
+                    <div className="hist-section-h">Состав</div>
+                    <div className="hist-lines">
+                      {detailLines.map((line, i) => {
+                        const q = Number.isInteger(line.qty)
+                          ? String(line.qty)
+                          : String(Math.round(line.qty * 1000) / 1000)
+                        return (
+                          <div key={`${line.name}-${i}`} className="hist-line">
+                            <div className="hist-line-main">
+                              <b>{line.name}</b>
+                              <span className="hist-line-qty">× {q}</span>
+                            </div>
+                            <div className="hist-line-sum">
+                              {line.sum > 0 ? fmtMoney(line.sum) : (line.price > 0 ? fmtMoney(line.price * line.qty) : '—')}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
               {(histDetail.tone === 'credit' || histDetail.tone === 'debt') && histDetail.debtStatus !== 'paid' && (
                 <button
                   type="button"
