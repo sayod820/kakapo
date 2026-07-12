@@ -680,7 +680,10 @@ export default function CashierModule({
     [clientHistory],
   )
   const histDebtsCount = histDebtOrders.length + histRepays.length
-  const histGeneral = useMemo(() => clientHistory.slice(0, 8), [clientHistory])
+  const histOpenDebts = useMemo(
+    () => histDebtOrders.filter(r => r.debtStatus === 'open' || r.debtStatus === 'partial').slice(0, 12),
+    [histDebtOrders],
+  )
 
   function renderHistRow(row: {
     id: string
@@ -2183,15 +2186,15 @@ export default function CashierModule({
                 </div>
 
                 <div className="hist-section">
-                  <div className="hist-section-h">Общая история</div>
+                  <div className="hist-section-h">Чеки с долгом</div>
                   <div className="hist-scroll profile">
-                    {!histGeneral.length && <div className="hist-empty">Пока нет операций</div>}
+                    {!histOpenDebts.length && <div className="hist-empty">Нет открытых долгов по чекам</div>}
                     <div className="hist-list compact">
-                      {histGeneral.map(row => renderHistRow(row, { compact: true }))}
+                      {histOpenDebts.map(row => renderHistRow(row, { compact: true }))}
                     </div>
-                    {clientHistory.length > histGeneral.length && (
-                      <button type="button" className="hist-more" onClick={() => setHistView('history')}>
-                        Смотреть всю историю ({clientHistory.length}) →
+                    {histDebtsCount > 0 && (
+                      <button type="button" className="hist-more" onClick={() => { setHistTab('debts'); setHistView('history') }}>
+                        Вся история долгов ({histDebtsCount}) →
                       </button>
                     )}
                   </div>
