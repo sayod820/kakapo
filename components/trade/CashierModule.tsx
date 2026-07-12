@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { loyaltySummaryForClient } from '@/lib/clientCardSync'
@@ -188,6 +188,8 @@ export default function CashierModule({
   const [qtyEditKey, setQtyEditKey] = useState<string | null>(null)
   const [qtyEditMode, setQtyEditMode] = useState<'qty' | 'sum'>('qty')
   const [qtyEditBuf, setQtyEditBuf] = useState('')
+  const [qtyEditPad, setQtyEditPad] = useState(false)
+  const qtyEditInputRef = useRef<HTMLInputElement>(null)
   const [cashOpen, setCashOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
   const [zOpen, setZOpen] = useState(false)
@@ -220,6 +222,16 @@ export default function CashierModule({
     const offTopup = subscribeBalanceTopup(bump)
     return () => { offDebt(); offTopup() }
   }, [])
+  useEffect(() => {
+    if (!qtyEditOpen) return
+    const t = window.setTimeout(() => {
+      const el = qtyEditInputRef.current
+      if (!el) return
+      el.focus()
+      el.select()
+    }, 40)
+    return () => window.clearTimeout(t)
+  }, [qtyEditOpen, qtyEditMode, qtyEditPad])
 
   const activeShift = useMemo(() => {
     if (!settings.cashierId) return shifts.find(s => s.status === 'open') || null
@@ -525,6 +537,7 @@ export default function CashierModule({
     setQtyEditKey(line.key)
     setQtyEditMode('qty')
     setQtyEditBuf(line.weightKg != null ? String(line.weightKg) : String(line.qty))
+    setQtyEditPad(false)
     setQtyEditOpen(true)
   }
 
@@ -1127,12 +1140,31 @@ export default function CashierModule({
               <div className="qty-edit-hint">
                 {qtyEditMode === 'sum'
                   ? 'Количество = сумма ÷ цена (например 3 ÷ 6 = 0.5)'
-                  : `Введите ${isWeight ? 'вес' : 'количество'} — сумма посчитается сама`}
+                  : `Введите ${isWeight ? 'вес' : 'количество'} с клавиатуры — сумма посчитается сама`}
               </div>
 
               <div className={`kp-display qty-edit-input ${qtyEditMode}`}>
                 <div className="lbl">{qtyEditMode === 'sum' ? 'ВВОД СУММЫ' : (isWeight ? 'ВВОД ВЕСА' : 'ВВОД КОЛИЧЕСТВА')}</div>
-                <div className="val">{qtyEditBuf || '0'}</div>
+                <input
+                  ref={qtyEditInputRef}
+                  className="qty-edit-field"
+                  value={qtyEditBuf}
+                  inputMode="decimal"
+                  autoFocus
+                  onChange={e => setQtyEditBuf(sanitizeDecimalInput(e.target.value))}
+                  onFocus={e => e.currentTarget.select()}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      if (previewQty > 0 && !overStock) applyQtyEdit()
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setQtyEditOpen(false)
+                    }
+                  }}
+                  placeholder="0"
+                />
                 {qtyEditMode === 'sum' && price > 0 && (Number(qtyEditBuf) || 0) > 0 && (
                   <div className="qty-edit-formula">
                     {Number(qtyEditBuf || 0).toFixed(2)} ÷ {price.toFixed(2)} = <b>{fmtQty(previewQty)} {unit}</b>
@@ -1141,18 +1173,32 @@ export default function CashierModule({
                 {overStock && <div className="qty-edit-warn">Больше остатка на складе ({line.stock})</div>}
               </div>
 
-              <div className="kp-quick">
-                {qtyEditMode === 'qty'
-                  ? (isWeight ? [0.25, 0.5, 1, 2].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>)
-                    : [1, 2, 3, 5, 10].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>))
-                  : [1, 3, 5, 10, 20, 50].map(v => (
-                    <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>
-                  ))}
+              <div className="qty-edit-toolbar">
+                <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
+                  {qtyEditMode === 'qty'
+                    ? (isWeight ? [0.25, 0.5, 1, 2].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>)
+                      : [1, 2, 3, 5, 10].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>))
+                    : [1, 3, 5, 10, 20, 50].map(v => (
+                      <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>
+                    ))}
+                </div>
+                <button
+                  type="button"
+                  className={`qty-pad-toggle ${qtyEditPad ? 'on' : ''}`}
+                  onClick={() => setQtyEditPad(v => !v)}
+                  title={qtyEditPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
+                >
+                  ⌨ {qtyEditPad ? 'Скрыть' : 'Клавиатура'}
+                </button>
               </div>
-              <Keypad
-                onDigit={k => setQtyEditBuf(b => appendDigit(b, k, 8))}
-                onBack={() => setQtyEditBuf(b => b.slice(0, -1))}
-              />
+
+              {qtyEditPad && (
+                <Keypad
+                  onDigit={k => setQtyEditBuf(b => appendDigit(b, k, 8))}
+                  onBack={() => setQtyEditBuf(b => b.slice(0, -1))}
+                />
+              )}
+
               <div className="modal-card-actions">
                 <button type="button" className="btn-cancel" onClick={() => setQtyEditOpen(false)}>Отмена</button>
                 <button type="button" className="btn-confirm" disabled={previewQty <= 0 || overStock} onClick={applyQtyEdit}>Применить</button>

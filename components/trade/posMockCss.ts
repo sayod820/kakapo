@@ -177,12 +177,16 @@ export const POS_MOCK_CSS = `
   .kp-display.qty-edit-input{margin-bottom:10px;}
   .kp-display.qty-edit-input.sum{border-color:rgba(234,179,8,.35);background:rgba(234,179,8,.06);}
   .kp-display.qty-edit-input.qty{border-color:rgba(31,215,96,.28);background:rgba(31,215,96,.05);}
+  .qty-edit-field{width:100%;background:transparent;border:none;outline:none;text-align:center;font-family:'JetBrains Mono',monospace;font-size:34px;font-weight:800;color:var(--t1);padding:4px 0;caret-color:var(--accent);}
+  .qty-edit-field::placeholder{color:var(--t3);}
+  .qty-edit-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+  .qty-edit-toolbar .kp-quick{display:flex;flex-wrap:wrap;gap:6px;}
+  .pos-root button.qty-pad-toggle{flex-shrink:0;padding:10px 12px;border-radius:12px;font-size:11.5px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);white-space:nowrap;}
+  .pos-root button.qty-pad-toggle:hover{border-color:var(--accent);color:var(--t1);}
+  .pos-root button.qty-pad-toggle.on{border-color:var(--accent);background:rgba(31,215,96,.12);color:var(--gd);}
   .qty-edit-formula{margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);font-size:12px;color:var(--t2);}
   .qty-edit-formula b{color:var(--gd);font-family:'JetBrains Mono',monospace;}
   .qty-edit-warn{margin-top:8px;font-size:11px;font-weight:800;color:var(--red);}
-  .qty-edit-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
-  .pos-root .qty-edit-tabs button{padding:10px;border-radius:12px;font-size:12px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);}
-  .pos-root .qty-edit-tabs button.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--gd);}
   .cart-row .price{font-family:'JetBrains Mono';font-size:15px;font-weight:900;color:var(--gd);flex-shrink:0;min-width:68px;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
   .cart-row .price .old{font-size:10px;font-weight:700;color:var(--t3);text-decoration:line-through;}
   .pos-root button.rm{width:24px;height:24px;border-radius:8px;color:var(--t3);font-size:13px;flex-shrink:0;}
