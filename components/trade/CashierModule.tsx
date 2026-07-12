@@ -29,7 +29,7 @@ const SETTINGS_KEY = 'kakapo_trade_pos_settings'
 const THEME_KEY = 'kakapo_trade_pos_theme'
 
 type ThemeName = 'green' | 'purple' | 'gold'
-type PayMethod = 'cash' | 'card' | 'credit' | 'qr'
+type PayMethod = 'cash' | 'card' | 'credit' | 'qr' | 'balance'
 type PosSettings = { cashierId: string; cashierName: string; initials: string }
 
 type CartLine = {
@@ -75,38 +75,43 @@ const POS_CSS = `
 .pos-gate-input{width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:13px;padding:13px 15px;font-size:14px;font-weight:700;outline:none;margin-bottom:12px;font-family:'JetBrains Mono'}
 .pos-gate-input:focus{border-color:var(--accent)}
 .pos-btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14px}
-.pos-app{display:grid;grid-template-columns:1fr minmax(300px,380px);grid-template-rows:64px 1fr;height:100%}
-.pos-topbar{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 18px;background:var(--surface);border-bottom:1px solid var(--border)}
-.pos-search{flex:1;max-width:520px;display:flex;align-items:center;gap:10px;background:var(--surface2);border:1.5px solid var(--border);border-radius:14px;padding:11px 16px}
+.pos-app{display:grid;grid-template-columns:1fr minmax(320px,400px);grid-template-rows:64px 1fr;height:100%}
+.pos-topbar{grid-column:1/3;display:flex;align-items:center;gap:12px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
+.pos-search{flex:1;max-width:560px;display:flex;align-items:center;gap:10px;background:var(--surface2);border:1.5px solid var(--border);border-radius:14px;padding:11px 16px;transition:border-color .2s}
 .pos-search:focus-within{border-color:var(--accent)}
 .pos-search input{flex:1;background:none;border:none;outline:none;font-size:13.5px;color:var(--t1)}
 .pos-search input::placeholder{color:var(--t3)}
-.pos-theme{display:flex;gap:6px;margin-left:auto}
-.pos-theme-dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--border);cursor:pointer}
+.pos-theme{display:flex;gap:6px;flex-shrink:0}
+.pos-theme-dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--border);cursor:pointer;transition:transform .12s}
+.pos-theme-dot:hover{transform:scale(1.12)}
 .pos-theme-dot.on{border-color:var(--t1)}
+.pos-bell{position:relative;width:38px;height:38px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.pos-bell:hover{background:var(--border2)}
+.pos-bell .badge{position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--red)}
 .pos-account{display:flex;align-items:center;gap:9px;padding:6px 10px 6px 6px;border-radius:13px;flex-shrink:0}
 .pos-account:hover{background:var(--surface2)}
 .pos-av{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#1E5BB5,var(--blue));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;font-family:'Unbounded'}
 .pos-products{background:var(--bg);overflow:hidden;display:flex;flex-direction:column}
-.pos-cats{display:flex;gap:9px;padding:14px 18px 6px;overflow-x:auto;flex-shrink:0}
+.pos-cats{display:flex;gap:9px;padding:14px 20px 6px;overflow-x:auto;flex-shrink:0}
 .pos-cat{padding:9px 16px;border-radius:13px;font-size:12px;font-weight:700;background:var(--surface);border:1.5px solid var(--border);color:var(--t2);white-space:nowrap;display:flex;align-items:center;gap:7px;flex-shrink:0}
 .pos-cat.on{background:var(--accent);border-color:var(--accent);color:var(--bg)}
-.pos-grid-wrap{flex:1;overflow-y:auto;padding:8px 18px 18px}
-.pos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.pos-grid-wrap{flex:1;overflow-y:auto;padding:8px 20px 20px}
+.pos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:13px}
 .pos-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:16px;padding:12px;text-align:left;animation:posTile .25s ease both;transition:border-color .15s,transform .1s}
 .pos-tile:hover{border-color:var(--accent);transform:translateY(-2px)}
-.pos-tile:active{transform:scale(.97)}
-.pos-photo{width:100%;height:78px;border-radius:12px;background:linear-gradient(145deg,var(--surface2),var(--surface3));display:flex;align-items:center;justify-content:center;font-size:38px;margin-bottom:10px;overflow:hidden;position:relative}
+.pos-tile:active{transform:translateY(0) scale(.97)}
+.pos-photo{width:100%;height:88px;border-radius:12px;background:linear-gradient(145deg,var(--surface2),var(--surface3));display:flex;align-items:center;justify-content:center;font-size:42px;margin-bottom:10px;overflow:hidden;position:relative}
 .pos-photo img{width:100%;height:100%;object-fit:cover}
 .pos-weight-tag{position:absolute;top:6px;right:6px;font-size:9px;font-weight:800;background:rgba(3,11,5,.75);color:var(--t1);padding:2px 7px;border-radius:7px}
-.pos-name{font-size:12px;font-weight:800;line-height:1.25;margin-bottom:4px;min-height:30px}
-.pos-price{font-family:'JetBrains Mono';font-size:15px;font-weight:900;color:var(--gd)}
+.pos-name{font-size:12px;font-weight:800;line-height:1.25;margin-bottom:6px;min-height:30px}
+.pos-price{font-family:'JetBrains Mono';font-size:16px;font-weight:900;color:var(--gd)}
 .pos-unit{font-size:9.5px;color:var(--t3);font-weight:600}
-.pos-stock{font-size:10px;color:var(--accent);margin-top:4px;font-weight:700}
+.pos-stock{font-size:10px;color:var(--accent);margin-top:5px;font-weight:700}
 .pos-stock.low{color:var(--red)}
-.pos-manual{border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--t2);min-height:172px}
+.pos-manual{border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--t2);min-height:188px}
 .pos-cart{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
 .pos-client{margin:14px 14px 0;padding:12px 14px;border-radius:16px;background:var(--surface2);border:1.5px solid var(--border);display:flex;align-items:center;gap:11px;cursor:pointer;flex-shrink:0}
+.pos-client:hover{border-color:var(--border2)}
 .pos-client.set{border-color:rgba(255,184,0,.3);background:rgba(255,184,0,.05)}
 .pos-client .av{width:38px;height:38px;border-radius:12px;background:var(--border2);display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:13px;color:var(--t2);flex-shrink:0}
 .pos-client.set .av{background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg)}
@@ -114,28 +119,32 @@ const POS_CSS = `
 .pos-client .nm{font-size:12.5px;font-weight:800}
 .pos-client .ph{font-size:10px;color:var(--t2)}
 .pos-client .tier{padding:3px 9px;border-radius:8px;font-size:9.5px;font-weight:800;flex-shrink:0}
-.pos-client .x{width:22px;height:22px;border-radius:7px;color:var(--t3);font-size:12px;flex-shrink:0}
+.pos-client .x{width:22px;height:22px;border-radius:7px;color:var(--t3);font-size:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 .pos-client .x:hover{background:rgba(255,69,69,.12);color:var(--red)}
 .pos-strip{margin:8px 14px 0;padding:9px 12px;border-radius:13px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-size:11px}
 .pos-strip .set-btn{font-size:10.5px;color:var(--blue);font-weight:800}
 .pos-items{flex:1;overflow-y:auto;padding:10px 14px}
-.pos-empty{text-align:center;color:var(--t3);padding:50px 10px}
+.pos-empty{text-align:center;color:var(--t3);padding:50px 10px;line-height:1.5}
+.pos-empty .ic{font-size:38px;opacity:.5;margin-bottom:8px}
 .pos-row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:14px}
 .pos-row:hover{background:var(--surface2)}
 .pos-row .ic{width:38px;height:38px;border-radius:11px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
 .pos-row .info{flex:1;min-width:0}
 .pos-row .name{font-size:12px;font-weight:700}
 .pos-row .sub{font-size:10px;color:var(--t3);margin-top:1px}
+.pos-row .sub .w{color:var(--pur);font-weight:700}
 .pos-qty{display:flex;align-items:center;gap:7px;background:var(--surface2);border-radius:10px;padding:4px;flex-shrink:0}
 .pos-qty button{width:20px;height:20px;border-radius:7px;font-size:13px;font-weight:800;color:var(--t2)}
+.pos-qty button:hover{background:var(--border2);color:var(--t1)}
 .pos-qty span{font-size:12px;font-weight:800;min-width:16px;text-align:center;font-family:'JetBrains Mono'}
 .pos-row .price{font-family:'JetBrains Mono';font-size:14px;font-weight:900;color:var(--gd);flex-shrink:0;min-width:64px;text-align:right}
 .pos-row .rm{width:22px;height:22px;border-radius:8px;color:var(--t3);font-size:12px;flex-shrink:0}
+.pos-row .rm:hover{background:rgba(255,69,69,.12);color:var(--red)}
 .pos-totals{padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0}
 .pos-tot-row{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);margin-bottom:6px}
 .pos-tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:9px;margin-top:3px;border-top:1px dashed var(--border)}
 .pos-tot-final b{font-family:'Unbounded';font-size:12.5px}
-.pos-tot-final .sum{font-family:'JetBrains Mono';font-size:24px;font-weight:900;color:var(--accent)}
+.pos-tot-final .sum{font-family:'JetBrains Mono';font-size:27px;font-weight:900;color:var(--accent)}
 .pos-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 14px 9px;flex-shrink:0}
 .pos-chip{padding:11px 6px;border-radius:14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:5px;border:1px solid}
 .pos-chip span{font-size:10px;font-weight:700;color:var(--t2)}
@@ -146,14 +155,23 @@ const POS_CSS = `
 .pos-chip.bonus .iw{background:rgba(255,184,0,.15)}
 .pos-chip.hold{background:rgba(59,142,240,.06);border-color:rgba(59,142,240,.2)}
 .pos-chip.hold .iw{background:rgba(59,142,240,.15)}
+.pos-actions2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 14px 10px;flex-shrink:0}
+.pos-out{padding:10px 5px;border-radius:13px;text-align:center;font-size:10.5px;font-weight:700;background:var(--surface2);border:1px solid var(--border);color:var(--t2)}
+.pos-out:hover{border-color:var(--border2);color:var(--t1)}
+.pos-out.on{border-color:var(--gd);color:var(--gd);background:rgba(255,184,0,.08)}
+.pos-links{display:flex;gap:4px;padding:0 14px 6px;flex-shrink:0;justify-content:center;align-items:center}
+.pos-links button{font-size:10.5px;color:var(--t3);font-weight:700;padding:6px 10px}
+.pos-links button:hover{color:var(--t1)}
+.pos-links .sep{color:var(--border2)}
 .pos-pay{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:7px;padding:0 14px 10px;flex-shrink:0}
-.pos-pay-btn{padding:12px 4px;border-radius:13px;text-align:center;font-size:10px;font-weight:800;color:#fff;display:flex;flex-direction:column;align-items:center;gap:4px;opacity:.85}
+.pos-pay-btn{padding:12px 4px;border-radius:13px;text-align:center;font-size:10px;font-weight:800;color:#fff;display:flex;flex-direction:column;align-items:center;gap:4px;opacity:.9}
+.pos-pay-btn .ic{font-size:16px}
 .pos-pay-btn.on{opacity:1;box-shadow:0 4px 14px rgba(0,0,0,.3);transform:translateY(-1px)}
 .pos-pay-btn.disabled{opacity:.25;pointer-events:none}
 .pos-pay-cash{background:linear-gradient(135deg,var(--accent2),var(--accent))}
 .pos-pay-card{background:linear-gradient(135deg,#1E5BB5,var(--blue))}
-.pos-pay-credit{background:linear-gradient(135deg,#B57F00,var(--gd));color:#241900}
-.pos-pay-qr{background:linear-gradient(135deg,#7C4FE0,var(--pur))}
+.pos-pay-balance{background:linear-gradient(135deg,#7C4FE0,var(--pur))}
+.pos-pay-qr{background:linear-gradient(135deg,#B57F00,var(--gd));color:#241900}
 .pos-checkout{margin:0 14px 16px;padding:16px;border-radius:16px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:9px;box-shadow:0 10px 26px rgba(31,215,96,.28)}
 .pos-checkout:disabled{opacity:.3;box-shadow:none}
 .pos-overlay{position:absolute;inset:0;background:rgba(3,11,5,.75);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:50;animation:posFade .2s ease}
@@ -188,7 +206,7 @@ const POS_CSS = `
 .pos-status .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(31,215,96,.18);animation:posPulse 2s infinite}
 .pos-status .meta{font-size:11px;font-weight:700;color:var(--t2);line-height:1.25}
 .pos-status .meta b{display:block;color:var(--t1);font-size:12px}
-.pos-status .clock{font-family:'JetBrains Mono';font-size:14px;font-weight:800;color:var(--gd);margin-left:4px}
+.pos-status .clock{font-family:'JetBrains Mono';font-size:15px;font-weight:800;color:var(--gd);margin-left:4px;min-width:72px}
 .pos-exit{padding:8px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:700;flex-shrink:0}
 .pos-exit:hover{border-color:var(--red);color:var(--red)}
 @media(max-width:900px){
@@ -253,10 +271,10 @@ function PosClock() {
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
-  if (!now) return <span className="clock">--:--</span>
+  if (!now) return <span className="clock">--:--:--</span>
   return (
     <span className="clock">
-      {now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+      {now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
     </span>
   )
 }
@@ -507,12 +525,16 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
 
   async function submitSale(paidCash = 0) {
     if (!activeShift || !cart.length) return
-    if (pay === 'credit' && !client) {
+    if ((pay === 'credit' || pay === 'balance') && !client) {
       setClientOpen(true)
       return
     }
     if (pay === 'credit' && total > availableDebt + 0.001) {
       showToast('Лимит долга', `Доступно ${fmtMoney(availableDebt)}`)
+      return
+    }
+    if (pay === 'balance' && total > 0.001) {
+      showToast('Недостаточно баланса', 'Спишите бонусы или выберите другой способ')
       return
     }
     setBusy(true)
@@ -521,7 +543,7 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
       if (cart.some(l => !l.productId)) {
         throw new Error('Ручная цена пока не проводится через склад — уберите позицию из чека')
       }
-      const method = pay === 'qr' ? 'card' : pay
+      const method = pay === 'qr' || pay === 'balance' ? 'card' : pay
       await api.createPosSale({
         cashierId: activeShift.cashierId,
         shiftId: activeShift.id,
@@ -539,7 +561,6 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
           price: l.price,
         })),
       })
-      // apply bonus spend locally via note - bonus decrease if used
       if (client && usedBonus > 0 && USE_API && client.card) {
         try {
           const nextBonus = Math.max(0, (Number(loyalty?.bonus) || 0) - Math.floor(usedBonus))
@@ -548,7 +569,16 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
       }
       await refresh()
       const change = method === 'cash' ? Math.max(0, paidCash - total) : 0
-      showToast('Чек проведён', method === 'cash' ? `Наличные · сдача ${fmtMoney(change)}` : method === 'credit' ? `В долг · ${client?.name || ''}` : 'Оплачено')
+      const toastSub = method === 'cash'
+        ? `Наличные · сдача ${fmtMoney(change)}`
+        : pay === 'credit'
+          ? `В долг · ${client?.name || ''}`
+          : pay === 'balance'
+            ? 'Баланс / бонусы'
+            : pay === 'qr'
+              ? 'QR'
+              : 'Карта'
+      showToast('Чек проведён', toastSub)
       clearCart()
       setClient(null)
       setCashOpen(false)
@@ -562,7 +592,7 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
 
   function startPay() {
     if (!cart.length) return
-    if (pay === 'credit' && !client) {
+    if ((pay === 'credit' || pay === 'balance') && !client) {
       setClientOpen(true)
       return
     }
@@ -667,11 +697,6 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
       <style>{POS_CSS}</style>
       <div className="pos-app">
         <div className="pos-topbar">
-          <div className="pos-status">
-            <span className="dot" />
-            <div className="meta"><b>Магазин KAKAPO</b>Онлайн</div>
-            <PosClock />
-          </div>
           <div className="pos-search">
             <span>🔍</span>
             <input
@@ -685,7 +710,12 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
                 if (found) { addProduct(found); setQ('') }
               }}
             />
-            <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 700, borderLeft: '1px solid var(--border)', paddingLeft: 10 }}>📷 Сканер</span>
+            <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 700, borderLeft: '1px solid var(--border)', paddingLeft: 10 }}>📷</span>
+          </div>
+          <div className="pos-status">
+            <span className="dot" />
+            <div className="meta"><b>Онлайн</b>Магазин KAKAPO</div>
+            <PosClock />
           </div>
           <div className="pos-theme">
             {([
@@ -702,11 +732,15 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
               />
             ))}
           </div>
+          <button type="button" className="pos-bell" title="Уведомления" onClick={() => showToast('Уведомления', 'Нет новых уведомлений')}>
+            🔔
+            <span className="badge" />
+          </button>
           <button type="button" className="pos-account" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
             <div className="pos-av">{settings.initials}</div>
             <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
               <b style={{ fontSize: 12, display: 'block' }}>{settings.cashierName}</b>
-              <span style={{ fontSize: 9.5, color: 'var(--t3)' }}>Смена · закрыть ▾</span>
+              <span style={{ fontSize: 9.5, color: 'var(--t3)' }}>Администратор</span>
             </div>
           </button>
           {onExit && (
@@ -741,7 +775,7 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
                       {isWeighted(p) && <span className="pos-weight-tag">⚖ {p.unit || 'кг'}</span>}
                     </div>
                     <div className="pos-name">{p.name}</div>
-                    <div className="pos-price">{(Number(p.price) || 0).toFixed(2)}<span className="pos-unit"> сом/{p.unit || 'шт'}</span></div>
+                    <div className="pos-price">{(Number(p.price) || 0).toFixed(2)} <span className="pos-unit">SM/{p.unit || 'шт'}</span></div>
                     <div className={`pos-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {p.unit || 'шт'}</div>
                   </button>
                 )
@@ -763,7 +797,7 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
               </span>
             )}
             {client && (
-              <button type="button" className="x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); if (pay === 'credit') setPay('cash') }}>✕</button>
+              <button type="button" className="x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); if (pay === 'credit' || pay === 'balance') setPay('cash') }}>✕</button>
             )}
           </div>
 
@@ -813,31 +847,78 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
             <div className="pos-tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
             {discAmount > 0 && <div className="pos-tot-row" style={{ color: 'var(--red)' }}><span>Скидка</span><span>−{discAmount.toFixed(2)}</span></div>}
             {usedBonus > 0 && <div className="pos-tot-row" style={{ color: 'var(--red)' }}><span>Бонусы</span><span>−{usedBonus.toFixed(2)}</span></div>}
-            <div className="pos-tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} сом</span></div>
+            <div className="pos-tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} SM</span></div>
           </div>
 
           <div className="pos-actions">
-            <button type="button" className="pos-chip disc" onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}><span className="iw">🏷</span><span>Скидка</span></button>
+            <button type="button" className="pos-chip disc" onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>
+              <span className="iw">🏷</span><span>Скидка</span>
+            </button>
             <button type="button" className="pos-chip bonus" onClick={() => {
               if (!client) { setClientOpen(true); return }
               if (!maxBonus) { showToast('Нет бонусов', 'У клиента нет бонусов'); return }
               setBonusUsed(v => v > 0 ? 0 : maxBonus)
-            }}><span className="iw">🎁</span><span>Бонусы</span></button>
-            <button type="button" className="pos-chip hold" onClick={() => { if (!client) setClientOpen(true); else { setTopupBuf(''); setTopupOpen(true) } }}><span className="iw">💰</span><span>Пополнить</span></button>
+            }}>
+              <span className="iw">🎁</span><span>Бонусы</span>
+            </button>
+            <button type="button" className="pos-chip hold" onClick={() => {
+              if (!cart.length) { showToast('Чек пуст', 'Добавьте товары'); return }
+              showToast('Отложено', 'Чек сохранён локально — скоро')
+            }}>
+              <span className="iw">⏸</span><span>Отложить</span>
+            </button>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, padding: '0 14px 8px' }}>
-            <button type="button" style={{ fontSize: 10.5, color: 'var(--t3)', fontWeight: 700 }} onClick={clearCart}>Очистить чек</button>
+          <div className="pos-actions2">
+            <button
+              type="button"
+              className={`pos-out ${pay === 'credit' ? 'on' : ''}`}
+              onClick={() => {
+                if (pay === 'credit') { setPay('cash'); return }
+                setPay('credit')
+                if (!client) setClientOpen(true)
+              }}
+            >📝 В долг</button>
+            <button type="button" className="pos-out" onClick={() => showToast('Обмен', 'Функция обмена скоро')}>🔄 Обмен</button>
+            <button type="button" className="pos-out" onClick={() => {
+              if (!client) setClientOpen(true)
+              else { setTopupBuf(''); setTopupOpen(true) }
+            }}>💰 Пополнить</button>
+          </div>
+
+          <div className="pos-links">
+            <button type="button" onClick={clearCart}>Очистить чек</button>
           </div>
 
           <div className="pos-pay">
-            <button type="button" className={`pos-pay-btn pos-pay-cash ${pay === 'cash' ? 'on' : ''}`} onClick={() => setPay('cash')}><span>💵</span>Наличные</button>
-            <button type="button" className={`pos-pay-btn pos-pay-card ${pay === 'card' ? 'on' : ''}`} onClick={() => setPay('card')}><span>💳</span>Карта</button>
-            <button type="button" className={`pos-pay-btn pos-pay-credit ${pay === 'credit' ? 'on' : ''}`} onClick={() => { setPay('credit'); if (!client) setClientOpen(true) }}><span>📝</span>В долг</button>
-            <button type="button" className={`pos-pay-btn pos-pay-qr ${pay === 'qr' ? 'on' : ''}`} onClick={() => setPay('qr')}><span>📱</span>QR</button>
+            <button type="button" className={`pos-pay-btn pos-pay-cash ${pay === 'cash' ? 'on' : ''}`} onClick={() => setPay('cash')}>
+              <span className="ic">💵</span>Наличные
+            </button>
+            <button type="button" className={`pos-pay-btn pos-pay-card ${pay === 'card' ? 'on' : ''}`} onClick={() => setPay('card')}>
+              <span className="ic">💳</span>Карта
+            </button>
+            <button
+              type="button"
+              className={`pos-pay-btn pos-pay-balance ${pay === 'balance' ? 'on' : ''} ${!client ? 'disabled' : ''}`}
+              onClick={() => {
+                if (!client) { setClientOpen(true); return }
+                setPay('balance')
+                if (maxBonus > 0) setBonusUsed(maxBonus)
+              }}
+            >
+              <span className="ic">👛</span>Баланс
+            </button>
+            <button type="button" className={`pos-pay-btn pos-pay-qr ${pay === 'qr' ? 'on' : ''}`} onClick={() => setPay('qr')}>
+              <span className="ic">📱</span>QR
+            </button>
           </div>
 
-          <button type="button" className="pos-checkout" disabled={!cart.length || busy || (pay === 'credit' && !client)} onClick={startPay}>
+          <button
+            type="button"
+            className="pos-checkout"
+            disabled={!cart.length || busy || ((pay === 'credit' || pay === 'balance') && !client)}
+            onClick={startPay}
+          >
             <span>🖨</span><span>Оплатить</span>
           </button>
         </div>
