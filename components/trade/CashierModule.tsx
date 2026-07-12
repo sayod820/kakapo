@@ -15,13 +15,16 @@ import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { cardNumsMatch } from '@/lib/cardCrm'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
+  allocateRepaymentFifo,
   buildDebtOrderBalances,
   loadBalanceTopups,
   loadDebtHistory,
   recordBalanceTopup,
+  recordStoreDebtCharge,
   recordStoreDebtRepayment,
   subscribeBalanceTopup,
   subscribeDebtHistory,
+  type DebtOrderBalance,
 } from '@/lib/clientVipCredit'
 import {
   calcCashDepositBonus,
@@ -68,6 +71,20 @@ type CartLine = {
   barcode?: string
   weightKg?: number
   discPct?: number
+}
+
+type ClientHistRow = {
+  id: string
+  ts: number
+  when: string
+  title: string
+  sub: string
+  items?: string
+  amount: number
+  tone: 'sale' | 'credit' | 'repay' | 'topup' | 'debt'
+  debtStatus?: 'open' | 'partial' | 'paid'
+  debtPaid?: number
+  debtRemain?: number
 }
 
 function lineGross(line: CartLine) {
@@ -300,6 +317,7 @@ export default function CashierModule({
   const [histOpen, setHistOpen] = useState(false)
   const [histView, setHistView] = useState<'profile' | 'history'>('profile')
   const [histTab, setHistTab] = useState<'checks' | 'debts'>('checks')
+  const [histDetail, setHistDetail] = useState<ClientHistRow | null>(null)
   const [histTick, setHistTick] = useState(0)
   const [payPickOpen, setPayPickOpen] = useState(false)
   const [scaleProduct, setScaleProduct] = useState<Product | null>(null)
@@ -469,20 +487,6 @@ export default function CashierModule({
   const availableDebt = loyalty ? Math.max(0, debtLimit - (Number(loyalty.debt) || 0)) : 0
   const clientDebt = Number(loyalty?.debt) || 0
 
-  type ClientHistRow = {
-    id: string
-    ts: number
-    when: string
-    title: string
-    sub: string
-    items?: string
-    amount: number
-    tone: 'sale' | 'credit' | 'repay' | 'topup' | 'debt'
-    debtStatus?: 'open' | 'partial' | 'paid'
-    debtPaid?: number
-    debtRemain?: number
-  }
-
   const clientHistory = useMemo(() => {
     void histTick
     if (!client) return [] as ClientHistRow[]
@@ -537,7 +541,8 @@ export default function CashierModule({
       if (nearPaid) {
         return { debtStatus: 'paid' as const, debtPaid: Math.abs(Number(nearPaid.amount) || total), debtRemain: 0, debtId: nearPaid.id }
       }
-      return { debtStatus: 'open' as const, debtPaid: 0, debtRemain: total, debtId: '' }
+      // Нет записи в истории долгов — не считаем «открытым» (иначе все старые чеки висят)
+      return { debtStatus: 'paid' as const, debtPaid: total, debtRemain: 0, debtId: '' }
     }
 
     const linkedDebtIds = new Set<string>()
@@ -680,13 +685,131 @@ export default function CashierModule({
     [clientHistory],
   )
   const histDebtsCount = histDebtOrders.length + histRepays.length
-  const histActiveDebts = useMemo(
-    () => histDebtOrders.filter(r =>
-      (r.debtStatus === 'open' || r.debtStatus === 'partial')
-      && (r.debtRemain == null || r.debtRemain > 0.001),
-    ),
-    [histDebtOrders],
-  )
+
+  /** Активные долги только по FIFO-остатку (со старых чеков); сумма ≈ «Долг сейчас» */
+  const histActiveDebts = useMemo(() => {
+    void histTick
+    if (!client) return [] as ClientHistRow[]
+
+    const fmtItems = (items: { productName?: string; productId?: number; qty?: number }[] | undefined) => {
+      if (!items?.length) return ''
+      const parts = items.slice(0, 5).map(i => {
+        const fromCatalog = i.productId ? products.find(p => p.id === i.productId)?.name : ''
+        const name = String(i.productName || fromCatalog || '').trim() || (i.productId ? `#${i.productId}` : 'товар')
+        const q = Number(i.qty) || 0
+        const qLabel = Number.isInteger(q) ? String(q) : String(Math.round(q * 1000) / 1000)
+        return `${name} ×${qLabel}`
+      })
+      if (items.length > 5) parts.push(`+${items.length - 5}`)
+      return parts.join(', ')
+    }
+
+    const fmtWhen = (ts: number, fallback = '') => {
+      if (!ts) return fallback
+      const d = new Date(ts)
+      if (Number.isNaN(d.getTime())) return fallback
+      return `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+    }
+
+    const toRow = (u: DebtOrderBalance, items?: string): ClientHistRow => ({
+      id: `active-${u.id}`,
+      ts: u.ts || 0,
+      when: `${u.date}${u.time ? ` · ${u.time}` : ''}` || fmtWhen(u.ts || 0),
+      title: u.partial ? 'Чек · долг частично' : 'Чек · долг открыт',
+      sub: u.partial
+        ? `Остаток ${fmtMoney(u.remainingAmount)} из ${fmtMoney(u.originalAmount)} · погашение со старых`
+        : `Не оплачен · ${fmtMoney(u.remainingAmount)}`,
+      items: items || u.itemsSummary || undefined,
+      amount: u.remainingAmount,
+      tone: 'debt',
+      debtStatus: u.partial ? 'partial' : 'open',
+      debtPaid: u.paidAmount,
+      debtRemain: u.remainingAmount,
+    })
+
+    const findSaleItems = (u: DebtOrderBalance) => {
+      if (u.orderId) {
+        const sale = sales.find(s => s.id === u.orderId)
+        if (sale) return fmtItems(sale.items)
+      }
+      const amt = Math.abs(Number(u.amount) || 0)
+      const sale = sales.find(s => {
+        const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
+        const matchId = client.id && s.clientId === client.id
+        if (!matchPhone && !matchId) return false
+        if (!(s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0)) return false
+        const st = new Date(s.createdAtIso).getTime() || 0
+        return Math.abs((Number(s.debtAdded) || Number(s.total) || 0) - amt) < 0.02
+          && Math.abs(st - (u.ts || 0)) < 15 * 60 * 1000
+      })
+      return sale ? fmtItems(sale.items) : undefined
+    }
+
+    if (client.phone) {
+      const debtList = loadDebtHistory(client.phone)
+      const hasDebtEntries = debtList.some(h => h.type === 'debt')
+      if (hasDebtEntries) {
+        const { unpaid } = buildDebtOrderBalances(debtList)
+        const unpaidSum = unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0)
+        // Если FIFO по истории совпадает с долгом на карте — берём его
+        if (Math.abs(unpaidSum - clientDebt) < 0.51 || clientDebt <= 0.001) {
+          return unpaid
+            .filter(u => (Number(u.remainingAmount) || 0) > 0.001)
+            .slice()
+            .sort((a, b) => (a.ts || 0) - (b.ts || 0))
+            .map(u => toRow(u, findSaleItems(u)))
+        }
+      }
+    }
+
+    // Fallback: FIFO по чекам в долг относительно текущего долга на карте
+    const creditSales = sales
+      .filter(s => {
+        const matchId = client.id && s.clientId === client.id
+        const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
+        if (!matchId && !matchPhone) return false
+        return s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
+      })
+      .map(s => ({
+        sale: s,
+        ts: new Date(s.createdAtIso).getTime() || 0,
+        amt: Number(s.debtAdded) || Number(s.total) || 0,
+      }))
+      .filter(x => x.amt > 0)
+      .sort((a, b) => a.ts - b.ts)
+
+    const charged = creditSales.reduce((s, x) => s + x.amt, 0)
+    let payLeft = Math.max(0, Math.round((charged - clientDebt) * 100) / 100)
+    const active: ClientHistRow[] = []
+    for (const x of creditSales) {
+      if (payLeft >= x.amt - 0.001) {
+        payLeft = Math.round((payLeft - x.amt) * 100) / 100
+        continue
+      }
+      const paidAmount = payLeft > 0.001 ? payLeft : 0
+      const remainingAmount = Math.round((x.amt - paidAmount) * 100) / 100
+      payLeft = 0
+      if (remainingAmount <= 0.001) continue
+      const partial = paidAmount > 0.001
+      active.push({
+        id: `active-sale-${x.sale.id}`,
+        ts: x.ts,
+        when: fmtWhen(x.ts, x.sale.createdAtIso),
+        title: partial ? 'Чек · долг частично' : 'Чек · долг открыт',
+        sub: partial
+          ? `Остаток ${fmtMoney(remainingAmount)} из ${fmtMoney(x.amt)} · погашение со старых`
+          : `Не оплачен · ${fmtMoney(remainingAmount)}`,
+        items: fmtItems(x.sale.items) || undefined,
+        amount: remainingAmount,
+        tone: 'credit',
+        debtStatus: partial ? 'partial' : 'open',
+        debtPaid: paidAmount,
+        debtRemain: remainingAmount,
+      })
+    }
+    return active
+  }, [client, sales, clientDebt, histTick, products])
+
   const histPaidDebts = useMemo(
     () => histDebtOrders.filter(r => r.debtStatus === 'paid'),
     [histDebtOrders],
@@ -696,21 +819,13 @@ export default function CashierModule({
     [histActiveDebts],
   )
 
-  function renderHistRow(row: {
-    id: string
-    title: string
-    when: string
-    sub: string
-    items?: string
-    amount: number
-    tone: string
-    debtStatus?: 'open' | 'partial' | 'paid'
-    debtRemain?: number
-  }, opts?: { compact?: boolean }) {
+  function renderHistRow(row: ClientHistRow, opts?: { compact?: boolean }) {
     return (
-      <div
+      <button
         key={row.id}
+        type="button"
         className={`hist-row tone-${row.tone}${row.debtStatus === 'partial' ? ' partial' : ''}${row.debtStatus === 'paid' ? ' settled' : ''}${opts?.compact ? ' sm' : ''}`}
+        onClick={() => setHistDetail(row)}
       >
         <div className="hist-main">
           <div className="hist-title-row">
@@ -731,7 +846,7 @@ export default function CashierModule({
             <div className="hist-remain">остаток {fmtMoney(row.debtRemain)}</div>
           )}
         </div>
-      </div>
+      </button>
     )
   }
 
@@ -1077,7 +1192,7 @@ export default function CashierModule({
     setMsg('')
     try {
       const method = methodPay === 'qr' || methodPay === 'balance' ? 'card' : methodPay
-      await api.createPosSale({
+      const created = await api.createPosSale({
         cashierId: activeShift.cashierId,
         shiftId: activeShift.id,
         clientId: client?.id,
@@ -1095,6 +1210,13 @@ export default function CashierModule({
           price: l.price,
         })),
       })
+      if (method === 'credit' && client?.phone) {
+        const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
+        recordStoreDebtCharge(client.phone, total, `Чек в долг`, {
+          orderId: created?.id || undefined,
+          itemsSummary,
+        })
+      }
       if (client && usedBonus > 0 && USE_API && client.card) {
         try {
           const nextBonus = Math.max(0, (Number(loyalty?.bonus) || 0) - Math.floor(usedBonus))
@@ -1189,6 +1311,23 @@ export default function CashierModule({
     try {
       if (!client.card) throw new Error('У клиента нет карты')
       const nextDebt = Math.max(0, prevDebt - amount)
+      const oldestActive = histActiveDebts
+        .slice()
+        .sort((a, b) => a.ts - b.ts)
+        .map(r => ({
+          id: r.id,
+          remainingAmount: Number(r.debtRemain ?? r.amount) || 0,
+          originalAmount: Number(r.amount) || 0,
+          paidAmount: Number(r.debtPaid) || 0,
+          partial: r.debtStatus === 'partial',
+          date: '',
+          time: '',
+          ts: r.ts,
+          desc: r.title,
+          amount: -(Number(r.debtRemain ?? r.amount) || 0),
+          type: 'debt' as const,
+        }))
+      const fifoPreview = allocateRepaymentFifo(oldestActive, amount)
       await api.updateCard(client.card, { debt: nextDebt })
       if (client.phone) recordStoreDebtRepayment(client.phone, amount, { method: repayMethod })
       await refresh()
@@ -1197,7 +1336,10 @@ export default function CashierModule({
       setRepayOpen(false)
       setRepayBuf('')
       setRepayMethod('cash')
-      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}`)
+      const fifoNote = fifoPreview.length
+        ? ` · списано с ${fifoPreview.length} чек${fifoPreview.length === 1 ? 'а' : 'ов'} (со старых)`
+        : ''
+      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${fifoNote}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
     } finally {
@@ -2188,8 +2330,9 @@ export default function CashierModule({
                     type="button"
                     className="action-chip ac-hist"
                     onClick={() => {
-                      setHistTab('checks')
+                      setHistTab(histActiveDebts.length ? 'debts' : 'checks')
                       setHistView('history')
+                      setHistDetail(null)
                     }}
                   >
                     <span className="ic-wrap">📋</span><span>История</span>
@@ -2321,6 +2464,61 @@ export default function CashierModule({
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {histDetail && (
+        <div className="overlay hist-detail-overlay" onClick={() => setHistDetail(null)}>
+          <div className="modal-card hist-detail-card" onClick={e => e.stopPropagation()}>
+            <div className="hist-detail-head">
+              <button type="button" className="hist-back" onClick={() => setHistDetail(null)}>← Назад</button>
+              <h3>Детали</h3>
+            </div>
+            <div className="hist-detail-body">
+              <div className="hist-title-row" style={{ marginBottom: 8 }}>
+                <b style={{ fontSize: 14 }}>{histDetail.title}</b>
+                {histDetail.debtStatus === 'paid' && <span className="hist-badge paid">Полностью</span>}
+                {histDetail.debtStatus === 'partial' && <span className="hist-badge partial">Частично</span>}
+                {histDetail.debtStatus === 'open' && <span className="hist-badge open">Открыт</span>}
+              </div>
+              <div className="hist-when" style={{ marginBottom: 6 }}>{histDetail.when}</div>
+              <div className="hist-sub" style={{ marginBottom: 12 }}>{histDetail.sub}</div>
+              <div className="hist-detail-sum">{fmtMoney(histDetail.amount)}</div>
+              {histDetail.debtStatus === 'partial' && histDetail.debtRemain != null && (
+                <div className="hist-remain" style={{ marginTop: 6 }}>К погашению: {fmtMoney(histDetail.debtRemain)}</div>
+              )}
+              {histDetail.debtPaid != null && histDetail.debtPaid > 0 && (
+                <div className="hist-sub" style={{ marginTop: 4 }}>Уже оплачено: {fmtMoney(histDetail.debtPaid)}</div>
+              )}
+              {histDetail.items && (
+                <div className="hist-detail-items">
+                  <div className="hist-section-h">Состав</div>
+                  <div className="hist-items">{histDetail.items}</div>
+                </div>
+              )}
+              {(histDetail.tone === 'credit' || histDetail.tone === 'debt') && histDetail.debtStatus !== 'paid' && (
+                <button
+                  type="button"
+                  className="action-chip ac-repay"
+                  style={{ width: '100%', marginTop: 16 }}
+                  onClick={() => {
+                    const remain = histDetail.debtRemain ?? histDetail.amount
+                    setHistDetail(null)
+                    setHistOpen(false)
+                    if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
+                    setRepayBuf(String(Math.min(remain, clientDebt)))
+                    setRepayMethod('cash')
+                    setRepayOpen(true)
+                  }}
+                >
+                  <span className="ic-wrap">💳</span><span>Погасить этот долг</span>
+                </button>
+              )}
+            </div>
+            <div className="modal-card-actions" style={{ marginTop: 14 }}>
+              <button type="button" className="btn-confirm" onClick={() => setHistDetail(null)}>Закрыть</button>
+            </div>
           </div>
         </div>
       )}

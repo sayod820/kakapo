@@ -360,7 +360,14 @@ export const POS_MOCK_CSS = `
   .hist-list{flex:1;overflow-y:auto;min-height:280px;max-height:min(52vh,440px);margin:0 -4px;padding:0 4px 4px;}
   .hist-list.compact{flex:none;overflow:visible;min-height:0;max-height:none;margin:0;padding:0;}
   .hist-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);margin-bottom:8px;}
+  .pos-root button.hist-row{width:100%;text-align:left;cursor:pointer;color:inherit;font:inherit;}
+  .pos-root button.hist-row:hover{border-color:var(--accent);}
   .hist-row:last-child{margin-bottom:0;}
+  .hist-detail-overlay{z-index:220;}
+  .modal-card.hist-detail-card{width:420px;}
+  .hist-detail-sum{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:900;color:var(--org);margin:4px 0 8px;}
+  .hist-detail-items{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);}
+  .hist-detail-items .hist-items{font-size:12.5px;line-height:1.45;}
   .hist-row.tone-sale .hist-amt{color:var(--gd);}
   .hist-row.tone-credit,.hist-row.tone-debt{border-color:rgba(234,88,12,.35);background:rgba(234,88,12,.08);}
   .hist-row.tone-credit.partial,.hist-row.tone-debt.partial{border-color:rgba(255,184,0,.45);background:rgba(255,184,0,.1);}

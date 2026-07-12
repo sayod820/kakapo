@@ -261,14 +261,43 @@ export function recordStoreDebtRepayment(
   })
 }
 
-export function recordStoreDebtCharge(phone: string, amount: number, desc = 'Начисление через поддержку'): void {
+export function recordStoreDebtCharge(
+  phone: string,
+  amount: number,
+  desc = 'Начисление через поддержку',
+  meta?: { orderId?: string; itemsSummary?: string },
+): void {
   const debt = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || debt <= 0) return
   pushDebtHistory(phone, {
     desc,
     amount: -debt,
     type: 'debt',
+    orderId: meta?.orderId,
+    itemsSummary: meta?.itemsSummary,
   })
+}
+
+/** FIFO: сколько погашений покрывает каждый долг (от старых к новым) */
+export function allocateRepaymentFifo(
+  unpaidOldestFirst: DebtOrderBalance[],
+  repayAmount: number,
+): { id: string; apply: number; remainAfter: number }[] {
+  let left = Math.max(0, Math.round(repayAmount * 100) / 100)
+  const out: { id: string; apply: number; remainAfter: number }[] = []
+  for (const d of unpaidOldestFirst) {
+    if (left <= 0.001) break
+    const need = Math.max(0, Number(d.remainingAmount) || 0)
+    if (need <= 0.001) continue
+    const apply = Math.min(need, left)
+    left = Math.round((left - apply) * 100) / 100
+    out.push({
+      id: d.id,
+      apply,
+      remainAfter: Math.round((need - apply) * 100) / 100,
+    })
+  }
+  return out
 }
 
 /** Клиент не погашает долг сам — только через магазин (админ → Карты). */
