@@ -597,16 +597,17 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
                 const stock = Number(p.stock) || 0
                 const photo = p.photo || getPhoto(p.id)
                 const weighted = isWeighted(p)
-                const unit = p.unit || (weighted ? 'кг' : 'шт')
+                const unit = weighted ? 'кг' : (p.unit || 'шт')
+                const unitShort = unit.replace(/^[\d.,\s]+/, '') || unit
                 return (
                   <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
                     <div className="p-photo">
                       {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
-                      {weighted && <span className="p-weight-tag">⚖ {unit}</span>}
+                      {weighted && <span className="p-weight-tag">⚖ кг</span>}
                     </div>
                     <div className="p-name">{p.name}</div>
-                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> SM/{unit}</span></div>
-                    <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {unit}</div>
+                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> SM/{unitShort}</span></div>
+                    <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {unitShort}</div>
                   </button>
                 )
               })}
