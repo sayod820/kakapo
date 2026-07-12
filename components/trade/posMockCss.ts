@@ -51,7 +51,7 @@ export const POS_MOCK_CSS = `
   .gate-input:focus{border-color:var(--accent);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14px;}
 
-  .app{display:grid;grid-template-columns:1fr minmax(420px,480px);grid-template-rows:64px 1fr;height:100%;}
+  .app{display:grid;grid-template-columns:1fr minmax(720px,780px);grid-template-rows:64px 1fr;height:100%;}
 
   .topbar{grid-column:1/3;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border);}
   .top-meta{display:flex;align-items:center;gap:12px;flex-shrink:0;padding:4px 0;}
