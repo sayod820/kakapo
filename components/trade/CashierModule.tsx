@@ -1429,13 +1429,15 @@ export default function CashierModule({
         <div className="overlay" onClick={() => setCatModalOpen(false)}>
           <div className="modal-card cat-browse-card" onClick={e => e.stopPropagation()}>
             <h3>Категории</h3>
-            <input
-              className="modal-card-input"
-              value={catModalQ}
-              onChange={e => setCatModalQ(e.target.value)}
-              placeholder="Поиск категории…"
-              autoFocus
-            />
+            <div className="pos-search">
+              <span className="ic">🔍</span>
+              <input
+                value={catModalQ}
+                onChange={e => setCatModalQ(e.target.value)}
+                placeholder="Поиск категории…"
+                autoFocus
+              />
+            </div>
             <div className="cat-browse-grid">
               {modalCategories.map(c => {
                 const slug = categorySlug(c)
@@ -1667,21 +1669,23 @@ export default function CashierModule({
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12, lineHeight: 1.4 }}>
               Наведите сканер на QR из профиля клиента — карта подставится автоматически
             </div>
-            <input
-              ref={clientScanRef}
-              className="modal-card-input"
-              value={clientScanBuf}
-              autoFocus
-              placeholder="Сканируйте QR или введите номер карты…"
-              onChange={e => setClientScanBuf(e.target.value)}
-              onKeyDown={e => {
-                if (e.key !== 'Enter') return
-                e.preventDefault()
-                const raw = clientScanBuf.trim()
-                if (!raw) return
-                if (!applyClientScan(raw)) setClientScanBuf('')
-              }}
-            />
+            <div className="pos-search">
+              <span className="ic"><QrIcon size={15} /></span>
+              <input
+                ref={clientScanRef}
+                value={clientScanBuf}
+                autoFocus
+                placeholder="Сканируйте QR или введите номер карты…"
+                onChange={e => setClientScanBuf(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key !== 'Enter') return
+                  e.preventDefault()
+                  const raw = clientScanBuf.trim()
+                  if (!raw) return
+                  if (!applyClientScan(raw)) setClientScanBuf('')
+                }}
+              />
+            </div>
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setClientScanOpen(false)}>Отмена</button>
               <button
@@ -1701,26 +1705,28 @@ export default function CashierModule({
         <div className="overlay" onClick={() => setClientOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>👤 Выбор клиента</h3>
-            <input
-              className="modal-card-input"
-              value={clientQ}
-              onChange={e => setClientQ(e.target.value)}
-              placeholder="Телефон, карта, QR или имя…"
-              autoFocus
-              onKeyDown={e => {
-                if (e.key !== 'Enter') return
-                e.preventDefault()
-                const raw = clientQ.trim()
-                if (!raw) return
-                if (applyClientScan(raw)) return
-                if (clientHits.length === 1) {
-                  setClient(clientHits[0])
-                  setBonusUsed(0)
-                  setClientOpen(false)
-                  showToast('Клиент выбран', clientHits[0].name)
-                }
-              }}
-            />
+            <div className="pos-search">
+              <span className="ic">🔍</span>
+              <input
+                value={clientQ}
+                onChange={e => setClientQ(e.target.value)}
+                placeholder="Телефон, карта, QR или имя…"
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key !== 'Enter') return
+                  e.preventDefault()
+                  const raw = clientQ.trim()
+                  if (!raw) return
+                  if (applyClientScan(raw)) return
+                  if (clientHits.length === 1) {
+                    setClient(clientHits[0])
+                    setBonusUsed(0)
+                    setClientOpen(false)
+                    showToast('Клиент выбран', clientHits[0].name)
+                  }
+                }}
+              />
+            </div>
             <button
               type="button"
               className="client-scan-link"
