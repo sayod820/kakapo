@@ -33,13 +33,22 @@ import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
-import type { Product } from '@/lib/types'
-import { useCategories } from '@/lib/useCategories'
+import type { Category, Product } from '@/lib/types'
+import {
+  categorySlug,
+  countProductsInCategory,
+  getCategoryBySlug,
+  productMatchesCategoryFilter,
+  useCategories,
+} from '@/lib/useCategories'
 import { fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
 import { POS_MOCK_CSS } from './posMockCss'
 
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
 const THEME_KEY = 'kakapo_trade_pos_theme'
+const FAV_KEY = 'kakapo_pos_favorites'
+const RECENT_CAT_KEY = 'kakapo_pos_recent_cats'
+const RECENT_CAT_MAX = 4
 
 type ThemeName = 'dark' | 'light'
 type PayMethod = 'cash' | 'card' | 'credit' | 'qr' | 'balance'
@@ -127,6 +136,40 @@ function loadTheme(): ThemeName {
   return 'dark'
 }
 
+function loadFavIds(): number[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(FAV_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw) as unknown
+    if (!Array.isArray(arr)) return []
+    return arr.map(n => Number(n)).filter(n => Number.isFinite(n) && n > 0)
+  } catch {
+    return []
+  }
+}
+
+function saveFavIds(ids: number[]) {
+  localStorage.setItem(FAV_KEY, JSON.stringify(ids))
+}
+
+function loadRecentCats(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(RECENT_CAT_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw) as unknown
+    if (!Array.isArray(arr)) return []
+    return arr.map(s => String(s || '').trim()).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+function saveRecentCats(slugs: string[]) {
+  localStorage.setItem(RECENT_CAT_KEY, JSON.stringify(slugs.slice(0, RECENT_CAT_MAX)))
+}
+
 function levelLabel(level: ClientLevel) {
   return CLIENT_LEVEL_OPTIONS.find(o => o.id === level)?.label || level
 }
@@ -200,13 +243,19 @@ export default function CashierModule({
   const shifts = usePosStore(s => s.shifts)
   const cashiers = usePosStore(s => s.cashiers)
   const sales = usePosStore(s => s.sales)
-  const { roots } = useCategories()
+  const { categories, roots, childrenOf } = useCategories()
   const { getPhoto, hydrate } = useProductPhotos()
 
   const [settings, setSettings] = useState<PosSettings>(loadSettings)
   const [theme, setTheme] = useState<ThemeName>(loadTheme)
   const [q, setQ] = useState('')
-  const [catFilter, setCatFilter] = useState<string | null>(null)
+  const [showFav, setShowFav] = useState(false)
+  const [rootCatSlug, setRootCatSlug] = useState<string | null>(null)
+  const [subCatSlug, setSubCatSlug] = useState<string | null>(null)
+  const [favIds, setFavIds] = useState<number[]>(loadFavIds)
+  const [recentCats, setRecentCats] = useState<string[]>(loadRecentCats)
+  const [catModalOpen, setCatModalOpen] = useState(false)
+  const [catModalQ, setCatModalQ] = useState('')
   const [cart, setCart] = useState<CartLine[]>([])
   const [client, setClient] = useState<AdminClient | null>(null)
   const [pay, setPay] = useState<PayMethod>('cash')
@@ -301,12 +350,106 @@ export default function CashierModule({
   }, [cashiers, settings.cashierName])
 
   const search = q
+  const favSet = useMemo(() => new Set(favIds), [favIds])
+  const inStockProducts = useMemo(
+    () => products.filter(p => (Number(p.stock) || 0) > 0),
+    [products],
+  )
+  const activeCatSlug = subCatSlug || rootCatSlug
+  const activeRootCat = useMemo(
+    () => (rootCatSlug ? getCategoryBySlug(categories, rootCatSlug) : null),
+    [categories, rootCatSlug],
+  )
+  const subCats = useMemo(
+    () => (activeRootCat ? childrenOf(activeRootCat.id) : []),
+    [activeRootCat, childrenOf],
+  )
+  const quickCatSlugs = useMemo(() => {
+    const list: string[] = []
+    for (const slug of recentCats) {
+      if (!getCategoryBySlug(categories, slug)) continue
+      if (!list.includes(slug)) list.push(slug)
+      if (list.length >= RECENT_CAT_MAX) break
+    }
+    if (rootCatSlug && !list.includes(rootCatSlug) && getCategoryBySlug(categories, rootCatSlug)) {
+      list.unshift(rootCatSlug)
+      if (list.length > RECENT_CAT_MAX + 1) list.length = RECENT_CAT_MAX + 1
+    }
+    return list
+  }, [recentCats, categories, rootCatSlug])
+
+  const modalCategories = useMemo(() => {
+    const qLower = catModalQ.trim().toLowerCase()
+    if (!qLower) return roots
+    const hits: Category[] = []
+    for (const c of categories) {
+      if (!(c.name || '').toLowerCase().includes(qLower)) continue
+      hits.push(c)
+    }
+    return hits.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'))
+  }, [categories, roots, catModalQ])
+
   const visibleProducts = useMemo(() => {
-    let list = products.filter(p => (Number(p.stock) || 0) > 0)
-    if (catFilter) list = list.filter(p => p.catId === catFilter || p.cat === catFilter)
+    let list = inStockProducts
+    if (showFav) list = list.filter(p => favSet.has(p.id))
+    else if (activeCatSlug) {
+      list = list.filter(p => productMatchesCategoryFilter(p.catId, activeCatSlug, categories)
+        || productMatchesCategoryFilter(p.cat, activeCatSlug, categories))
+    }
     if (search.trim()) list = filterProductsBySearch(list, search.trim())
     return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-  }, [products, catFilter, search])
+  }, [inStockProducts, showFav, favSet, activeCatSlug, categories, search])
+
+  function toggleFavorite(productId: number) {
+    setFavIds(prev => {
+      const next = prev.includes(productId)
+        ? prev.filter(id => id !== productId)
+        : [...prev, productId]
+      saveFavIds(next)
+      return next
+    })
+  }
+
+  function selectAllProducts() {
+    setShowFav(false)
+    setRootCatSlug(null)
+    setSubCatSlug(null)
+  }
+
+  function selectFavorites() {
+    setShowFav(true)
+    setRootCatSlug(null)
+    setSubCatSlug(null)
+  }
+
+  function selectCategory(slug: string, asSub = false) {
+    const cat = getCategoryBySlug(categories, slug)
+    if (!cat) return
+    setShowFav(false)
+    if (asSub || cat.parent_id != null) {
+      const parent = cat.parent_id != null
+        ? categories.find(c => c.id === Number(cat.parent_id))
+        : null
+      const rootSlug = parent ? categorySlug(parent) : categorySlug(cat)
+      setRootCatSlug(rootSlug)
+      setSubCatSlug(parent ? categorySlug(cat) : null)
+      setRecentCats(prev => {
+        const next = [rootSlug, ...prev.filter(s => s !== rootSlug)].slice(0, RECENT_CAT_MAX)
+        saveRecentCats(next)
+        return next
+      })
+    } else {
+      setRootCatSlug(categorySlug(cat))
+      setSubCatSlug(null)
+      setRecentCats(prev => {
+        const next = [categorySlug(cat), ...prev.filter(s => s !== categorySlug(cat))].slice(0, RECENT_CAT_MAX)
+        saveRecentCats(next)
+        return next
+      })
+    }
+    setCatModalOpen(false)
+    setCatModalQ('')
+  }
 
   const clientHits = useMemo(() => {
     const query = clientQ.trim().toLowerCase()
@@ -1009,42 +1152,127 @@ export default function CashierModule({
         </div>
 
         <div className="products">
-          <div className="cat-row">
-            <button type="button" className={`cat-pill ${!catFilter ? 'on' : ''}`} onClick={() => setCatFilter(null)}>🗂 Все товары</button>
-            {roots.map(c => (
-              <button key={c.id} type="button" className={`cat-pill ${catFilter === c.id ? 'on' : ''}`} onClick={() => setCatFilter(c.id)}>
-                {c.emoji || '📦'} {c.name}
+          <div className="cat-nav">
+            <div className="cat-quick">
+              <button
+                type="button"
+                className={`cat-pill cat-fav ${showFav ? 'on' : ''}`}
+                onClick={selectFavorites}
+              >
+                ★ Избранное
               </button>
-            ))}
-          </div>
-          <div className="grid-wrap">
-            <div className="p-grid">
-              {visibleProducts.map(p => {
-                const stock = Number(p.stock) || 0
-                const photo = p.photo || getPhoto(p.id)
-                const weighted = isWeighted(p)
-                const sellUnit = displaySellUnit(p)
-                const stockUnit = stockUnitLabel(p)
-                const barcode = productBarcodes(p)[0] || ''
-                const art = String(p.art || '').trim()
+              <button
+                type="button"
+                className={`cat-pill ${!showFav && !rootCatSlug ? 'on' : ''}`}
+                onClick={selectAllProducts}
+              >
+                🗂 Все
+              </button>
+              {quickCatSlugs.map(slug => {
+                const c = getCategoryBySlug(categories, slug)
+                if (!c) return null
+                const on = !showFav && rootCatSlug === slug
                 return (
-                  <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
-                    <div className="p-photo">
-                      {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
-                      {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
-                    </div>
-                    <div className="p-name">{p.name}</div>
-                    <div className="p-codes">
-                      {art ? <span>арт. {art}</span> : null}
-                      {barcode ? <span>ш/к {barcode}</span> : null}
-                      {!art && !barcode ? <span className="muted">без кода</span> : null}
-                    </div>
-                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
-                    <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
+                  <button
+                    key={slug}
+                    type="button"
+                    className={`cat-pill ${on ? 'on' : ''}`}
+                    onClick={() => selectCategory(slug)}
+                  >
+                    {c.emoji || '📦'} {c.name}
                   </button>
                 )
               })}
+              <button
+                type="button"
+                className="cat-browse-btn"
+                onClick={() => { setCatModalQ(''); setCatModalOpen(true) }}
+              >
+                Категории ▾
+              </button>
             </div>
+            {!showFav && subCats.length > 0 && (
+              <div className="cat-sub">
+                <button
+                  type="button"
+                  className={`cat-pill sm ${!subCatSlug ? 'on' : ''}`}
+                  onClick={() => setSubCatSlug(null)}
+                >
+                  Все в категории
+                </button>
+                {subCats.map(c => {
+                  const slug = categorySlug(c)
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={`cat-pill sm ${subCatSlug === slug ? 'on' : ''}`}
+                      onClick={() => setSubCatSlug(slug)}
+                    >
+                      {c.emoji || '📦'} {c.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          <div className="grid-wrap">
+            {showFav && visibleProducts.length === 0 ? (
+              <div className="cat-empty">
+                <div className="cat-empty-ic">★</div>
+                <b>Избранное пусто</b>
+                <span>Добавьте товары звёздочкой на плитке</span>
+              </div>
+            ) : (
+              <div className="p-grid">
+                {visibleProducts.map(p => {
+                  const stock = Number(p.stock) || 0
+                  const photo = p.photo || getPhoto(p.id)
+                  const weighted = isWeighted(p)
+                  const sellUnit = displaySellUnit(p)
+                  const stockUnit = stockUnitLabel(p)
+                  const barcode = productBarcodes(p)[0] || ''
+                  const art = String(p.art || '').trim()
+                  const isFav = favSet.has(p.id)
+                  return (
+                    <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
+                      <span
+                        className={`p-fav ${isFav ? 'on' : ''}`}
+                        title={isFav ? 'Убрать из избранного' : 'В избранное'}
+                        role="button"
+                        tabIndex={0}
+                        onClick={e => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          toggleFavorite(p.id)
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            toggleFavorite(p.id)
+                          }
+                        }}
+                      >
+                        {isFav ? '★' : '☆'}
+                      </span>
+                      <div className="p-photo">
+                        {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
+                        {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
+                      </div>
+                      <div className="p-name">{p.name}</div>
+                      <div className="p-codes">
+                        {art ? <span>арт. {art}</span> : null}
+                        {barcode ? <span>ш/к {barcode}</span> : null}
+                        {!art && !barcode ? <span className="muted">без кода</span> : null}
+                      </div>
+                      <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
+                      <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1196,6 +1424,49 @@ export default function CashierModule({
           </button>
         </div>
       </div>
+
+      {catModalOpen && (
+        <div className="overlay" onClick={() => setCatModalOpen(false)}>
+          <div className="modal-card cat-browse-card" onClick={e => e.stopPropagation()}>
+            <h3>Категории</h3>
+            <input
+              className="modal-card-input"
+              value={catModalQ}
+              onChange={e => setCatModalQ(e.target.value)}
+              placeholder="Поиск категории…"
+              autoFocus
+            />
+            <div className="cat-browse-grid">
+              {modalCategories.map(c => {
+                const slug = categorySlug(c)
+                const count = countProductsInCategory(inStockProducts, slug, categories)
+                const parent = c.parent_id != null
+                  ? categories.find(x => x.id === Number(c.parent_id))
+                  : null
+                return (
+                  <button
+                    key={`${c.id}-${slug}`}
+                    type="button"
+                    className={`cat-browse-item ${!showFav && activeCatSlug === slug ? 'on' : ''}`}
+                    onClick={() => selectCategory(slug, c.parent_id != null)}
+                  >
+                    <span className="cat-browse-emoji">{c.emoji || '📦'}</span>
+                    <span className="cat-browse-name">{c.name}</span>
+                    {parent ? <span className="cat-browse-parent">{parent.name}</span> : null}
+                    <span className="cat-browse-count">{count}</span>
+                  </button>
+                )
+              })}
+              {modalCategories.length === 0 && (
+                <div className="cat-browse-empty">Ничего не найдено</div>
+              )}
+            </div>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setCatModalOpen(false)}>Закрыть</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {qtyEditOpen && qtyEditKey && (() => {
         const line = cart.find(l => l.key === qtyEditKey)
