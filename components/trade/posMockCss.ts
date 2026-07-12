@@ -176,19 +176,24 @@ export const POS_MOCK_CSS = `
   .pos-root button.action-out.on{border-color:var(--gd);color:var(--gd);background:rgba(255,184,0,.08);}
   .pos-root button.action-out.danger{color:var(--red);border-color:rgba(255,69,69,.25);}
 
-  .link-row{display:flex;gap:4px;padding:0 14px 6px;flex-shrink:0;justify-content:center;align-items:center;}
-  .link-row button{font-size:10.5px;color:var(--t3);font-weight:700;padding:6px 10px;}
+  .link-row{display:flex;gap:4px;padding:0 14px 8px;flex-shrink:0;justify-content:center;align-items:center;}
+  .link-row button{font-size:11px;color:#6B8F76;font-weight:700;padding:6px 10px;}
   .link-row button:hover{color:var(--t1);}
 
-  .pay-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:7px;padding:0 14px 10px;flex-shrink:0;}
-  .pos-root button.pay-btn{padding:12px 4px;border-radius:13px;text-align:center;font-size:10px;font-weight:800;color:white;display:flex;flex-direction:column;align-items:center;gap:4px;opacity:.9;}
-  .pay-btn .ic{font-size:16px;}
-  .pay-btn.on{opacity:1;box-shadow:0 4px 14px rgba(0,0,0,.3);transform:translateY(-1px);}
-  .pay-btn.disabled{opacity:.25;pointer-events:none;}
-  .pay-cash{background:linear-gradient(135deg,var(--accent2),var(--accent));}
-  .pay-card{background:linear-gradient(135deg,#1E5BB5,var(--blue));}
-  .pay-balance{background:linear-gradient(135deg,#7C4FE0,var(--pur));}
-  .pay-qr{background:linear-gradient(135deg,#B57F00,var(--gd));color:#241900;}
+  .pay-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;padding:0 14px 10px;flex-shrink:0;}
+  .pos-root button.pay-btn{padding:14px 6px 12px;border-radius:18px;text-align:center;font-size:11px;font-weight:800;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:78px;border:2px solid transparent;opacity:1;transition:transform .12s,box-shadow .12s,border-color .12s;}
+  .pay-btn .ic{font-size:22px;line-height:1;}
+  .pos-root button.pay-btn.on{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.35);border-color:rgba(255,255,255,.22);}
+  .pos-root button.pay-btn.disabled{opacity:1;pointer-events:none;filter:none;}
+  .pos-root button.pay-cash{background:#22C55E;border-color:#1AA34A;}
+  .pos-root button.pay-cash.on{background:#16A34A;border-color:#86EFAC;box-shadow:0 6px 18px rgba(34,197,94,.35);}
+  .pos-root button.pay-card{background:#3B82F6;border-color:#2563EB;}
+  .pos-root button.pay-card.on{background:#2563EB;border-color:#93C5FD;box-shadow:0 6px 18px rgba(59,130,246,.35);}
+  .pos-root button.pay-balance{background:#2A2A3D;border-color:#3A3A52;color:#7A7A96;}
+  .pos-root button.pay-balance.on{background:#3B2F66;border-color:#9B6DFF;color:#fff;box-shadow:0 6px 18px rgba(155,109,255,.3);}
+  .pos-root button.pay-balance.disabled{background:#232334;border-color:#2E2E42;color:#5C5C78;}
+  .pos-root button.pay-qr{background:#EAB308;border-color:#CA8A04;color:#1C1400;}
+  .pos-root button.pay-qr.on{background:#F59E0B;border-color:#FDE68A;color:#1C1400;box-shadow:0 6px 18px rgba(234,179,8,.35);}
 
   .pos-root button.btn-checkout{margin:0 14px 16px;padding:16px;border-radius:16px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:9px;box-shadow:0 10px 26px rgba(31,215,96,.28);}
   .pos-root button.btn-checkout:disabled{opacity:.3;box-shadow:none;}
