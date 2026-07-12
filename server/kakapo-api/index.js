@@ -86,6 +86,7 @@ import {
   listExpiryItems,
   listPosSales,
   createPosSale,
+  returnPosSale,
   getPosFinanceSummary,
   getPosReport,
 } from './posLogic.js'
@@ -1273,6 +1274,17 @@ app.post('/pos/sales', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
+  }
+})
+app.post('/pos/sales/:id/return', (req, res) => {
+  try {
+    const row = returnPosSale(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'sale-return', id: row.id })
+    broadcastProduct({ reason: 'sale-return' })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось оформить возврат' })
   }
 })
 

@@ -351,8 +351,11 @@ export default function CashierModule({
   const [cashOpen, setCashOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
   const [cashierMenuOpen, setCashierMenuOpen] = useState(false)
-  const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch'>(null)
+  const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
   const [switchCashierId, setSwitchCashierId] = useState('')
+  const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
+  const [receiptQ, setReceiptQ] = useState('')
+  const [receiptFilter, setReceiptFilter] = useState<'all' | 'cash' | 'card' | 'credit' | 'returned'>('all')
   const [closingCash, setClosingCash] = useState('')
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [topupOpen, setTopupOpen] = useState(false)
@@ -1060,13 +1063,109 @@ export default function CashierModule({
     }
   }
 
-  function openCashierScreen(kind: 'close' | 'switch') {
+  function openCashierScreen(kind: 'close' | 'switch' | 'receipts') {
     setCashierMenuOpen(false)
     setMsg('')
+    if (kind === 'receipts') {
+      setReceiptQ('')
+      setReceiptFilter('all')
+      setReceiptSaleId(null)
+      setCashierScreen('receipts')
+      void refresh()
+      return
+    }
     const expected = activeShift ? activeShift.openingCash + activeShift.salesCash : 0
     setClosingCash(expected > 0 ? expected.toFixed(2) : '0.00')
     setSwitchCashierId(settings.cashierId || pickedCashierId || cashierOptions[0]?.id || '')
     setCashierScreen(kind)
+  }
+
+  const receiptList = useMemo(() => {
+    const q = receiptQ.trim().toLowerCase()
+    return [...sales]
+      .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+      .filter(s => {
+        const returned = s.status === 'returned' || !!s.returnedAtIso
+        if (receiptFilter === 'returned') return returned
+        if (receiptFilter === 'cash') return !returned && s.paymentMethod === 'cash'
+        if (receiptFilter === 'card') return !returned && (s.paymentMethod === 'card' || s.paymentMethod === 'mixed')
+        if (receiptFilter === 'credit') return !returned && (s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0)
+        return true
+      })
+      .filter(s => {
+        if (!q) return true
+        const hay = [
+          s.id,
+          s.clientName,
+          s.clientPhone,
+          s.cardNum,
+          s.cashierName,
+          ...(s.items || []).map(i => i.productName),
+        ].join(' ').toLowerCase()
+        return hay.includes(q)
+      })
+  }, [sales, receiptQ, receiptFilter])
+
+  const receiptDetail = useMemo(
+    () => (receiptSaleId ? sales.find(s => s.id === receiptSaleId) || null : null),
+    [sales, receiptSaleId],
+  )
+
+  async function returnReceipt(saleId: string) {
+    const sale = sales.find(s => s.id === saleId)
+    if (!sale) return
+    if (sale.status === 'returned' || sale.returnedAtIso) {
+      showToast('Уже возвращён', 'Этот чек уже оформлен как возврат')
+      return
+    }
+    if (!window.confirm(`Вернуть чек на ${fmtMoney(sale.total)}?\nТовары вернутся на склад.`)) return
+    setBusy(true)
+    setMsg('')
+    try {
+      await api.returnPosSale(sale.id, {
+        note: 'Возврат с кассы',
+        cashierId: settings.cashierId || activeShift?.cashierId,
+      })
+      if (sale.clientPhone && (Number(sale.debtAdded) || 0) > 0) {
+        recordStoreDebtRepayment(sale.clientPhone, Number(sale.debtAdded) || 0, {
+          desc: `Возврат чека ${sale.id}`,
+          method: 'cash',
+        })
+      }
+      await refresh()
+      await fetchProducts()
+      showToast('Возврат оформлен', `${fmtMoney(sale.total)} · товары на складе`)
+      setReceiptSaleId(sale.id)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось оформить возврат')
+      showToast('Ошибка возврата', e instanceof Error ? e.message : 'Не удалось')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function refillCartFromSale(sale: typeof sales[number]) {
+    const lines = (sale.items || []).map((it, idx) => {
+      const p = products.find(x => x.id === it.productId)
+      return {
+        key: `ret-${sale.id}-${it.productId}-${idx}`,
+        productId: it.productId,
+        name: it.productName || p?.name || `#${it.productId}`,
+        emoji: p?.e || '📦',
+        price: Number(it.price) || Number(p?.price) || 0,
+        qty: Number(it.qty) || 1,
+        stock: Number(p?.stock) || 9999,
+        unit: p ? displaySellUnit(p) : 'шт',
+      } as CartLine
+    })
+    if (!lines.length) {
+      showToast('Пустой чек', 'В чеке нет товаров')
+      return
+    }
+    setCart(lines)
+    setCashierScreen(null)
+    setReceiptSaleId(null)
+    showToast('Товары в чеке', `${lines.length} поз. из истории`)
   }
 
   function addProduct(p: Product, weightKg?: number) {
@@ -1574,6 +1673,17 @@ export default function CashierModule({
                   <b>{settings.cashierName}</b>
                   <span>Смена открыта</span>
                 </div>
+                <button
+                  type="button"
+                  className="account-menu-item"
+                  onClick={() => openCashierScreen('receipts')}
+                >
+                  <span className="ami-ic">🧾</span>
+                  <span>
+                    <b>История чеков</b>
+                    <i>Все продажи, возврат, повтор в чек</i>
+                  </span>
+                </button>
                 <button
                   type="button"
                   className="account-menu-item"
@@ -2658,7 +2768,159 @@ export default function CashierModule({
         </div>
       )}
 
-      {cashierScreen && activeShift && (
+      {cashierScreen === 'receipts' && activeShift && (
+        <div className="cashier-screen">
+          <div className="cashier-screen-inner wide">
+            <div className="cashier-screen-top">
+              <button
+                type="button"
+                className="hist-back"
+                disabled={busy}
+                onClick={() => {
+                  if (receiptDetail) { setReceiptSaleId(null); return }
+                  setCashierScreen(null)
+                }}
+              >
+                ← Назад
+              </button>
+              <div>
+                <h2>{receiptDetail ? 'Чек' : 'История чеков'}</h2>
+                <p>{receiptDetail ? receiptDetail.id : `${receiptList.length} чеков`}</p>
+              </div>
+            </div>
+
+            {!receiptDetail ? (
+              <>
+                <div className="pos-search" style={{ marginBottom: 12 }}>
+                  <span className="ic">🔍</span>
+                  <input
+                    value={receiptQ}
+                    onChange={e => setReceiptQ(e.target.value)}
+                    placeholder="Поиск: клиент, товар, номер чека…"
+                    autoFocus
+                  />
+                </div>
+                <div className="receipt-filters">
+                  {([
+                    ['all', 'Все'],
+                    ['cash', 'Нал'],
+                    ['card', 'Карта'],
+                    ['credit', 'Долг'],
+                    ['returned', 'Возврат'],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`receipt-filter ${receiptFilter === id ? 'on' : ''}`}
+                      onClick={() => setReceiptFilter(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="receipt-list">
+                  {!receiptList.length && <div className="hist-empty">Чеков не найдено</div>}
+                  {receiptList.map(s => {
+                    const returned = s.status === 'returned' || !!s.returnedAtIso
+                    const when = new Date(s.createdAtIso)
+                    const payLabel = returned
+                      ? 'Возврат'
+                      : s.paymentMethod === 'cash'
+                        ? 'Наличные'
+                        : s.paymentMethod === 'card'
+                          ? 'Карта'
+                          : s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
+                            ? 'В долг'
+                            : 'Смешанная'
+                    const itemsPreview = (s.items || []).slice(0, 3).map(i => i.productName).filter(Boolean).join(', ')
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className={`receipt-row ${returned ? 'returned' : ''}`}
+                        onClick={() => setReceiptSaleId(s.id)}
+                      >
+                        <div className="receipt-row-main">
+                          <div className="hist-title-row">
+                            <b>{payLabel}</b>
+                            {returned && <span className="hist-badge open">Возвращён</span>}
+                          </div>
+                          <span className="hist-when">
+                            {Number.isNaN(when.getTime())
+                              ? s.createdAtIso
+                              : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
+                            {s.clientName ? ` · ${s.clientName}` : ''}
+                          </span>
+                          {itemsPreview ? <span className="hist-items">{itemsPreview}{(s.items || []).length > 3 ? '…' : ''}</span> : null}
+                        </div>
+                        <div className="hist-amt-col">
+                          <div className="hist-amt">{fmtMoney(s.total)}</div>
+                          <div className="hist-when">{s.id}</div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="receipt-detail">
+                <div className="receipt-detail-meta">
+                  <div><span>Оплата</span><b>
+                    {receiptDetail.status === 'returned' || receiptDetail.returnedAtIso
+                      ? 'Возврат'
+                      : receiptDetail.paymentMethod === 'cash'
+                        ? 'Наличные'
+                        : receiptDetail.paymentMethod === 'card'
+                          ? 'Карта'
+                          : receiptDetail.paymentMethod === 'credit' || (Number(receiptDetail.debtAdded) || 0) > 0
+                            ? 'В долг'
+                            : 'Смешанная'}
+                  </b></div>
+                  <div><span>Сумма</span><b className="sum">{fmtMoney(receiptDetail.total)}</b></div>
+                  <div><span>Клиент</span><b>{receiptDetail.clientName || 'Без клиента'}</b></div>
+                  <div><span>Кассир</span><b>{receiptDetail.cashierName || settings.cashierName}</b></div>
+                </div>
+                <div className="hist-section-h">Состав</div>
+                <div className="hist-lines">
+                  {(receiptDetail.items || []).map((line, i) => (
+                    <div key={`${line.productId}-${i}`} className="hist-line">
+                      <div className="hist-line-main">
+                        <b>{line.productName || `#${line.productId}`}</b>
+                        <span className="hist-line-qty">× {line.qty}</span>
+                      </div>
+                      <div className="hist-line-sum">{fmtMoney(Number(line.lineTotal) || (Number(line.price) || 0) * (Number(line.qty) || 0))}</div>
+                    </div>
+                  ))}
+                  {!(receiptDetail.items || []).length && <div className="hist-empty">Нет позиций</div>}
+                </div>
+                {msg && <div className="pos-err" style={{ marginTop: 12 }}>{msg}</div>}
+                <div className="receipt-actions">
+                  <button
+                    type="button"
+                    className="action-chip ac-topup"
+                    disabled={busy}
+                    onClick={() => refillCartFromSale(receiptDetail)}
+                  >
+                    <span className="ic-wrap">🛒</span><span>В текущий чек</span>
+                  </button>
+                  {!(receiptDetail.status === 'returned' || receiptDetail.returnedAtIso) && (
+                    <button
+                      type="button"
+                      className="action-chip ac-repay"
+                      disabled={busy}
+                      onClick={() => void returnReceipt(receiptDetail.id)}
+                    >
+                      <span className="ic-wrap">↩️</span><span>Возврат</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {cashierScreen && cashierScreen !== 'receipts' && activeShift && (
         <div className="cashier-screen">
           <div className="cashier-screen-inner">
             <div className="cashier-screen-top">

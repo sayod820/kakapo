@@ -297,6 +297,10 @@ export interface PosSale {
   debtAdded: number
   note?: string
   items: PosSaleItem[]
+  status?: 'sold' | 'returned'
+  returnedAtIso?: string
+  returnNote?: string
+  returnedByCashierId?: string
 }
 
 export interface Restaurant {

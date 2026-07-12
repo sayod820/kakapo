@@ -772,6 +772,47 @@ export function createPosSale(db, data = {}) {
   return sale
 }
 
+export function returnPosSale(db, saleId, meta = {}) {
+  ensurePosCollections(db)
+  const sale = (db.posSales || []).find(s => String(s.id) === String(saleId))
+  if (!sale) throw new Error('Чек не найден')
+  if (sale.status === 'returned' || sale.returnedAtIso) throw new Error('Чек уже возвращён')
+
+  for (const item of sale.items || []) {
+    const product = getProduct(db, item.productId)
+    const qty = round2(item.qty)
+    if (!(qty > 0)) continue
+    product.stock = round2((Number(product.stock) || 0) + qty)
+  }
+
+  const debtAdded = round2(sale.debtAdded || 0)
+  if (debtAdded > 0) {
+    const client = getClientById(db, sale.clientId) || null
+    if (client) client.debt = Math.max(0, round2((Number(client.debt) || 0) - debtAdded))
+    const card = getCardByNum(db, sale.cardNum)
+    if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - debtAdded))
+  }
+
+  const cashier = sale.cashierId ? db.cashiers.find(c => c.id === sale.cashierId) : null
+  if (cashier) {
+    cashier.salesCount = Math.max(0, Number(cashier.salesCount || 0) - 1)
+    cashier.salesTotal = Math.max(0, round2((Number(cashier.salesTotal) || 0) - (Number(sale.total) || 0)))
+  }
+  const shift = sale.shiftId ? db.posShifts.find(s => s.id === sale.shiftId) : null
+  if (shift && shift.status === 'open') {
+    shift.salesCount = Math.max(0, Number(shift.salesCount || 0) - 1)
+    shift.salesCash = Math.max(0, round2((Number(shift.salesCash) || 0) - (Number(sale.paidCash) || 0)))
+    shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - (Number(sale.paidCard) || 0)))
+    shift.salesCredit = Math.max(0, round2((Number(shift.salesCredit) || 0) - debtAdded))
+  }
+
+  sale.status = 'returned'
+  sale.returnedAtIso = nowIso()
+  sale.returnNote = String(meta.note || '').trim()
+  sale.returnedByCashierId = String(meta.cashierId || '').trim()
+  return sale
+}
+
 export function getPosFinanceSummary(db) {
   ensurePosCollections(db)
   const sales = db.posSales || []

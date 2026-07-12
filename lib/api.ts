@@ -576,6 +576,11 @@ export const api = {
     note?: string
     items: { productId: number; productName?: string; qty: number; price?: number }[]
   }) => request<PosSale>('/pos/sales', { method: 'POST', body: JSON.stringify(data) }),
+  returnPosSale: (id: string, data?: { note?: string; cashierId?: string }) =>
+    request<PosSale>(`/pos/sales/${encodeURIComponent(id)}/return`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
   getStockReceipts: () => request<StockReceipt[]>('/stock/receipts'),
   createStockReceipt: (data: {
     supplierId?: string

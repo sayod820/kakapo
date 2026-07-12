@@ -142,6 +142,28 @@ export const POS_MOCK_CSS = `
   .cashier-screen-inner{
     width:min(720px,100%);margin:0 auto;padding:28px 24px 40px;display:flex;flex-direction:column;min-height:100%;
   }
+  .cashier-screen-inner.wide{width:min(860px,100%);}
+  .receipt-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .pos-root button.receipt-filter{padding:8px 12px;border-radius:11px;font-size:11.5px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);}
+  .pos-root button.receipt-filter.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--accent);}
+  .receipt-list{display:flex;flex-direction:column;gap:8px;flex:1;overflow-y:auto;padding-bottom:12px;}
+  .pos-root button.receipt-row{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:12px;width:100%;text-align:left;
+    padding:12px 14px;border-radius:14px;background:var(--surface);border:1.5px solid var(--border);color:inherit;font:inherit;
+  }
+  .pos-root button.receipt-row:hover{border-color:var(--accent);}
+  .pos-root button.receipt-row.returned{opacity:.72;border-color:rgba(255,69,69,.28);background:rgba(255,69,69,.06);}
+  .receipt-row-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px;}
+  .receipt-detail-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+  .receipt-detail-meta > div{padding:12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);}
+  .receipt-detail-meta span{display:block;font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;}
+  .receipt-detail-meta b{font-size:13px;font-weight:800;}
+  .receipt-detail-meta b.sum{font-family:'JetBrains Mono',monospace;font-size:18px;color:var(--accent);}
+  .receipt-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;}
+  .receipt-actions .action-chip{width:100%;justify-content:center;}
+  @media(max-width:640px){
+    .receipt-detail-meta,.receipt-actions{grid-template-columns:1fr;}
+  }
   .cashier-screen-top{display:flex;align-items:flex-start;gap:14px;margin-bottom:22px;}
   .cashier-screen-top h2{font-family:'Unbounded',sans-serif;font-size:20px;font-weight:800;margin:0 0 4px;}
   .cashier-screen-top p{font-size:12px;color:var(--t2);margin:0;font-weight:700;}
