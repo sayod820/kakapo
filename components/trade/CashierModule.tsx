@@ -7,14 +7,24 @@ import { loyaltySummaryForClient } from '@/lib/clientCardSync'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
+  phonesMatch,
   type AdminClient,
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
-import { recordStoreDebtRepayment } from '@/lib/clientVipCredit'
+import {
+  loadBalanceTopups,
+  loadDebtHistory,
+  recordBalanceTopup,
+  recordStoreDebtRepayment,
+  subscribeBalanceTopup,
+  subscribeDebtHistory,
+} from '@/lib/clientVipCredit'
 import {
   calcCashDepositBonus,
+  cashDepositTierForAmount,
+  cashDepositTierLabel,
   resolveEffectiveDebtLimit,
 } from '@/lib/loyaltyStatusConfig'
 import { filterProductsBySearch, productBarcodes } from '@/lib/productBarcodes'
@@ -133,6 +143,7 @@ export default function CashierModule({
   const cards = useCardStore(s => s.cards)
   const shifts = usePosStore(s => s.shifts)
   const cashiers = usePosStore(s => s.cashiers)
+  const sales = usePosStore(s => s.sales)
   const { roots } = useCategories()
   const { getPhoto, hydrate } = useProductPhotos()
 
@@ -166,6 +177,9 @@ export default function CashierModule({
   const [topupBuf, setTopupBuf] = useState('')
   const [repayOpen, setRepayOpen] = useState(false)
   const [repayBuf, setRepayBuf] = useState('')
+  const [repayMethod, setRepayMethod] = useState<'cash' | 'card'>('cash')
+  const [histOpen, setHistOpen] = useState(false)
+  const [histTick, setHistTick] = useState(0)
   const [scaleProduct, setScaleProduct] = useState<Product | null>(null)
   const [scaleWeight, setScaleWeight] = useState(0)
 
@@ -180,6 +194,12 @@ export default function CashierModule({
     const t = setTimeout(() => setToast(null), 2500)
     return () => clearTimeout(t)
   }, [toast])
+  useEffect(() => {
+    const bump = () => setHistTick(n => n + 1)
+    const offDebt = subscribeDebtHistory(bump)
+    const offTopup = subscribeBalanceTopup(bump)
+    return () => { offDebt(); offTopup() }
+  }, [])
 
   const activeShift = useMemo(() => {
     if (!settings.cashierId) return shifts.find(s => s.status === 'open') || null
@@ -212,6 +232,76 @@ export default function CashierModule({
   const loyalty = useMemo(() => (client ? loyaltySummaryForClient(client, cards) : null), [client, cards])
   const debtLimit = loyalty ? resolveEffectiveDebtLimit(loyalty) : 0
   const availableDebt = loyalty ? Math.max(0, debtLimit - (Number(loyalty.debt) || 0)) : 0
+  const clientDebt = Number(loyalty?.debt) || 0
+
+  type ClientHistRow = {
+    id: string
+    ts: number
+    when: string
+    title: string
+    sub: string
+    amount: number
+    tone: 'sale' | 'credit' | 'repay' | 'topup'
+  }
+
+  const clientHistory = useMemo(() => {
+    void histTick
+    if (!client) return [] as ClientHistRow[]
+    const rows: ClientHistRow[] = []
+    for (const s of sales) {
+      const matchId = client.id && s.clientId === client.id
+      const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
+      if (!matchId && !matchPhone) continue
+      const isCredit = s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
+      const methodLabel = isCredit
+        ? 'В долг'
+        : s.paymentMethod === 'cash'
+          ? 'Наличные'
+          : s.paymentMethod === 'card'
+            ? 'Карта'
+            : s.paymentMethod === 'mixed'
+              ? 'Смешанная'
+              : String(s.paymentMethod)
+      const when = new Date(s.createdAtIso)
+      rows.push({
+        id: `sale-${s.id}`,
+        ts: when.getTime() || 0,
+        when: Number.isNaN(when.getTime())
+          ? s.createdAtIso
+          : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`,
+        title: isCredit ? 'Чек в долг' : 'Чек',
+        sub: methodLabel,
+        amount: Number(s.total) || 0,
+        tone: isCredit ? 'credit' : 'sale',
+      })
+    }
+    if (client.phone) {
+      for (const h of loadDebtHistory(client.phone)) {
+        if (h.type !== 'pay') continue
+        rows.push({
+          id: `repay-${h.id}`,
+          ts: h.ts || 0,
+          when: `${h.date}${h.time ? ` · ${h.time}` : ''}`,
+          title: 'Погашение долга',
+          sub: h.desc || 'Погашение',
+          amount: Number(h.amount) || 0,
+          tone: 'repay',
+        })
+      }
+      for (const t of loadBalanceTopups(client.phone)) {
+        rows.push({
+          id: `topup-${t.id}`,
+          ts: t.ts || 0,
+          when: `${t.date}${t.time ? ` · ${t.time}` : ''}`,
+          title: 'Пополнение баланса',
+          sub: t.bonus > 0 ? `+${t.bonus} ⭐ бонус` : 'Без бонуса',
+          amount: Number(t.cash) || 0,
+          tone: 'topup',
+        })
+      }
+    }
+    return rows.sort((a, b) => b.ts - a.ts).slice(0, 80)
+  }, [client, sales, histTick])
 
   const subtotal = useMemo(() => cart.reduce((s, l) => s + (l.weightKg != null ? l.price * l.weightKg : l.price * l.qty), 0), [cart])
   const levelDiscPct = useMemo(() => {
@@ -466,14 +556,15 @@ export default function CashierModule({
       await api.updateCard(client.card, {
         bonus: (Number(summary.bonus) || 0) + bonus,
       })
+      if (client.phone) recordBalanceTopup(client.phone, cash, bonus)
       await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
-      showToast('Наличка внесена', `${client.name}: +${bonus} ⭐ за ${fmtMoney(cash)}`)
+      showToast('Баланс пополнен', `${client.name}: +${bonus} ⭐ за ${fmtMoney(cash)}`)
     } catch (e) {
-      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось внести')
+      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
     } finally {
       setBusy(false)
     }
@@ -482,7 +573,7 @@ export default function CashierModule({
   async function submitDebtRepay() {
     if (!client) return
     const amount = Number(repayBuf) || 0
-    const prevDebt = Number(loyalty?.debt) || 0
+    const prevDebt = clientDebt
     if (amount <= 0) return
     if (amount > prevDebt + 0.001) {
       showToast('Слишком много', `Долг клиента ${fmtMoney(prevDebt)}`)
@@ -493,15 +584,16 @@ export default function CashierModule({
       if (!client.card) throw new Error('У клиента нет карты')
       const nextDebt = Math.max(0, prevDebt - amount)
       await api.updateCard(client.card, { debt: nextDebt })
-      if (client.phone) recordStoreDebtRepayment(client.phone, amount)
+      if (client.phone) recordStoreDebtRepayment(client.phone, amount, { method: repayMethod })
       await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setRepayOpen(false)
       setRepayBuf('')
-      showToast('Долг списан', `${client.name}: −${fmtMoney(amount)} · остаток ${fmtMoney(nextDebt)}`)
+      setRepayMethod('cash')
+      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}`)
     } catch (e) {
-      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось списать долг')
+      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
     } finally {
       setBusy(false)
     }
@@ -573,6 +665,9 @@ export default function CashierModule({
   const cashChange = cashReceived - total
   const topupCash = Number(topupBuf) || 0
   const topupBonus = calcCashDepositBonus(topupCash)
+  const topupTier = cashDepositTierForAmount(topupCash)
+  const repayAmount = Number(repayBuf) || 0
+  const repayRemain = Math.max(0, clientDebt - repayAmount)
 
   return (
     <div className="pos-root" data-theme={theme}>
@@ -678,10 +773,24 @@ export default function CashierModule({
           <div className={`client-card ${client ? 'set' : ''}`} onClick={() => { setClientQ(''); setClientPick(client); setClientOpen(true) }}>
             <div className="client-av">{client ? initialsOf(client.name) : '👤'}</div>
             <div className="client-info">
-              <div className="nm">{client?.name || 'Гость'}</div>
+              <div className="nm-row">
+                <div className="nm">{client?.name || 'Гость'}</div>
+                {client && (
+                  <button
+                    type="button"
+                    className="client-hist-link"
+                    onClick={e => { e.stopPropagation(); setHistOpen(true) }}
+                  >
+                    История
+                  </button>
+                )}
+              </div>
               <div className="ph">{client ? client.phone : 'Нажмите чтобы выбрать клиента'}</div>
-              {client && loyalty && (Number(loyalty.bonus) || 0) > 0 && (
-                <div className="client-bonus">⭐ {loyalty.bonus} бонусов</div>
+              {client && loyalty && (
+                <div className="client-bonus">
+                  ⭐ {loyalty.bonus} бон.
+                  {clientDebt > 0 ? <> · долг {fmtMoney(clientDebt)}</> : null}
+                </div>
               )}
             </div>
             {client && loyalty && (
@@ -753,32 +862,32 @@ export default function CashierModule({
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
 
-          <div className="ops-block">
-            <div className="ops-lbl">Клиент</div>
+          <div className="ops-block ops-client">
+            <div className="ops-lbl">Операции с клиентом · не трогают чек</div>
             <div className="action-row">
               <button
                 type="button"
                 className="action-chip ac-repay"
                 onClick={() => needClient(() => {
-                  const d = Number(loyalty?.debt) || 0
-                  if (d <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
-                  setRepayBuf(String(d))
+                  if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
+                  setRepayBuf('')
+                  setRepayMethod('cash')
                   setRepayOpen(true)
                 })}
               >
-                <span className="ic-wrap">📉</span><span>Списать долг</span>
+                <span className="ic-wrap">💳</span><span>Погасить долг</span>
               </button>
               <button
                 type="button"
                 className="action-chip ac-topup"
                 onClick={() => needClient(() => { setTopupBuf(''); setTopupOpen(true) })}
               >
-                <span className="ic-wrap">💰</span><span>Внести наличку</span>
+                <span className="ic-wrap">💰</span><span>Пополнить баланс</span>
               </button>
             </div>
           </div>
 
-          <div className="ops-block">
+          <div className="ops-block ops-check">
             <div className="ops-lbl">Этот чек</div>
             <div className="action-row">
               <button type="button" className={`action-chip ac-discount ${discountPct > 0 ? 'on' : ''}`} onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>
@@ -801,12 +910,10 @@ export default function CashierModule({
 
           <div className="link-row">
             <button type="button" onClick={clearCart}>Очистить чек</button>
-            <span style={{ color: 'var(--border2)' }}>·</span>
-            <button type="button" onClick={() => showToast('История', 'История чеков смены — скоро')}>История</button>
           </div>
 
           <div className="ops-block pay-block">
-            <div className="ops-lbl">Оплата</div>
+            <div className="ops-lbl">Оплата текущего чека</div>
             <div className="pay-grid">
               <button type="button" className={`pay-btn pay-cash ${pay === 'cash' ? 'on' : ''}`} onClick={() => setPay('cash')}>
                 <span className="ic">💵</span>Наличные
@@ -934,35 +1041,54 @@ export default function CashierModule({
       {topupOpen && client && (
         <div className="overlay" onClick={() => !busy && setTopupOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>💰 Внести наличку</h3>
-            <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b></div>
-            <div className="kp-display"><div className="lbl">СУММА НАЛИЧНЫХ</div><div className="val">{topupCash.toFixed(2)} сом</div></div>
+            <h3>💰 Пополнить баланс</h3>
+            <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
+              Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Не связано с текущим чеком · бонусы по порогам</div>
+            </div>
+            <div className="kp-display"><div className="lbl">СУММА ПОПОЛНЕНИЯ</div><div className="val">{topupCash.toFixed(2)} сом</div></div>
             <Keypad onDigit={k => setTopupBuf(b => appendDigit(b, k))} onBack={() => setTopupBuf(b => b.slice(0, -1))} />
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено</span><b className="mono">{topupCash.toFixed(2)}</b></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус на карту</span><b className="mono">+{topupBonus}</b></div>
+              <div style={{ fontSize: 10.5, color: 'var(--t3)' }}>
+                {topupTier ? cashDepositTierLabel(topupTier) : 'Порог не достигнут — настройте в админке «Статус карты»'}
+              </div>
             </div>
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setTopupOpen(false)}>Отмена</button>
-              <button type="button" className="btn-confirm" disabled={busy || topupCash <= 0 || topupBonus <= 0} onClick={() => void submitTopup()}>Внести</button>
+              <button type="button" className="btn-confirm" disabled={busy || topupCash <= 0 || topupBonus <= 0} onClick={() => void submitTopup()}>Пополнить</button>
             </div>
           </div>
         </div>
       )}
 
-      {repayOpen && client && loyalty && (
+      {repayOpen && client && (
         <div className="overlay" onClick={() => !busy && setRepayOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>📉 Списать долг</h3>
-            <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>
+            <h3>💳 Погасить долг</h3>
+            <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
               Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
-              <span style={{ color: 'var(--t3)' }}> · долг {fmtMoney(Number(loyalty.debt) || 0)}</span>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Старый долг · текущий чек не затрагивается</div>
             </div>
-            <div className="kp-display"><div className="lbl">СУММА ПОГАШЕНИЯ</div><div className="val">{(Number(repayBuf) || 0).toFixed(2)} сом</div></div>
+            <div className="kp-display">
+              <div className="lbl">ТЕКУЩИЙ ДОЛГ</div>
+              <div className="val" style={{ color: 'var(--org)' }}>{clientDebt.toFixed(2)} сом</div>
+            </div>
+            <div className="kp-display" style={{ marginTop: -6 }}>
+              <div className="lbl">СУММА ОПЛАТЫ</div>
+              <div className="val">{repayAmount.toFixed(2)} сом</div>
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span>Останется долг</span>
+                <b className="mono" style={{ color: repayRemain > 0 ? 'var(--org)' : 'var(--gd)' }}>{repayRemain.toFixed(2)}</b>
+              </div>
+            </div>
             <div className="kp-quick">
-              {[Number(loyalty.debt) || 0].filter(v => v > 0).map(v => (
-                <button key={v} type="button" onClick={() => setRepayBuf(String(v))}>Весь долг</button>
-              ))}
+              {clientDebt > 0 && <button type="button" onClick={() => setRepayBuf(String(clientDebt))}>Весь долг</button>}
+            </div>
+            <div className="repay-methods">
+              <button type="button" className={`repay-m ${repayMethod === 'cash' ? 'on' : ''}`} onClick={() => setRepayMethod('cash')}>💵 Наличные</button>
+              <button type="button" className={`repay-m ${repayMethod === 'card' ? 'on' : ''}`} onClick={() => setRepayMethod('card')}>💳 Карта</button>
             </div>
             <Keypad onDigit={k => setRepayBuf(b => appendDigit(b, k))} onBack={() => setRepayBuf(b => b.slice(0, -1))} />
             <div className="modal-card-actions">
@@ -970,11 +1096,38 @@ export default function CashierModule({
               <button
                 type="button"
                 className="btn-confirm"
-                disabled={busy || (Number(repayBuf) || 0) <= 0 || (Number(repayBuf) || 0) > (Number(loyalty.debt) || 0) + 0.001}
+                disabled={busy || repayAmount <= 0 || repayAmount > clientDebt + 0.001}
                 onClick={() => void submitDebtRepay()}
               >
-                Списать
+                Погасить
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {histOpen && client && (
+        <div className="overlay" onClick={() => setHistOpen(false)}>
+          <div className="modal-card hist-card" onClick={e => e.stopPropagation()}>
+            <h3>История · {client.name}</h3>
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>Чеки, погашения долга и пополнения баланса</div>
+            <div className="hist-list">
+              {!clientHistory.length && (
+                <div style={{ fontSize: 12, color: 'var(--t3)', padding: '20px 8px', textAlign: 'center' }}>Пока нет операций</div>
+              )}
+              {clientHistory.map(row => (
+                <div key={row.id} className={`hist-row tone-${row.tone}`}>
+                  <div className="hist-main">
+                    <b>{row.title}</b>
+                    <span className="hist-when">{row.when}</span>
+                    <span className="hist-sub">{row.sub}</span>
+                  </div>
+                  <div className="hist-amt">{fmtMoney(row.amount)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="modal-card-actions" style={{ marginTop: 12 }}>
+              <button type="button" className="btn-cancel" onClick={() => setHistOpen(false)}>Закрыть</button>
             </div>
           </div>
         </div>

@@ -14,6 +14,7 @@ export const ACCOUNT_NS = {
   wishedUpdatedAt: 'wished_updated_at',
   reviewsLocal: 'reviews_local',
   debtHistory: 'debt_history',
+  balanceTopups: 'balance_topups',
 } as const
 
 export type AccountNs = (typeof ACCOUNT_NS)[keyof typeof ACCOUNT_NS]

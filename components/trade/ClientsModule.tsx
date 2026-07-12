@@ -34,6 +34,7 @@ import {
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import {
   loadDebtHistory,
+  recordBalanceTopup,
   subscribeDebtHistory,
   type DebtHistoryEntry,
 } from '@/lib/clientVipCredit'
@@ -495,6 +496,7 @@ export default function ClientsModule() {
     try {
       const prevBonus = Number(client.bonus) || 0
       await saveLoyaltyForClient(client, { bonus: prevBonus + bonus })
+      if (client.phone) recordBalanceTopup(client.phone, cash, bonus)
       closeCashForm()
     } catch (e) {
       setCashForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка пополнения' }))
