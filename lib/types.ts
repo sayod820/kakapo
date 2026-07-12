@@ -303,6 +303,8 @@ export interface PosSaleReturn {
 
 export interface PosSale {
   id: string
+  /** Сквозной номер чека (№1, №2…) */
+  number?: number
   createdAtIso: string
   cashierId?: string
   cashierName?: string

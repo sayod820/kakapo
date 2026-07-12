@@ -157,6 +157,16 @@ function displaySellUnit(p: Product): string {
   return u
 }
 
+function saleNumber(s: { number?: number }) {
+  const n = Number(s.number)
+  return n > 0 ? n : 0
+}
+
+function saleNumberLabel(s: { number?: number; id?: string }) {
+  const n = saleNumber(s)
+  return n > 0 ? `№${n}` : (s.id || '—')
+}
+
 function stockUnitLabel(p: Product): string {
   if (isWeighted(p)) return 'кг'
   const u = displaySellUnit(p).toLowerCase().replace(/\s+/g, '')
@@ -1100,9 +1110,16 @@ export default function CashierModule({
   }
 
   const receiptList = useMemo(() => {
-    const q = receiptQ.trim().toLowerCase()
+    const qRaw = receiptQ.trim()
+    const q = qRaw.toLowerCase()
+    const qDigits = qRaw.replace(/[^\d]/g, '')
     return [...sales]
-      .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+      .sort((a, b) => {
+        const nb = saleNumber(b)
+        const na = saleNumber(a)
+        if (nb !== na) return nb - na
+        return String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || ''))
+      })
       .filter(s => {
         const fully = isSaleFullyReturned(s)
         const partial = isSalePartiallyReturned(s)
@@ -1114,7 +1131,14 @@ export default function CashierModule({
       })
       .filter(s => {
         if (!q) return true
+        const num = saleNumber(s)
+        // Поиск только по номеру: "7", "№7", "#7"
+        if (/^[#№]?\s*\d+$/i.test(qRaw) && qDigits && num > 0) {
+          return String(num) === qDigits
+        }
         const hay = [
+          saleNumberLabel(s),
+          num > 0 ? String(num) : '',
           s.id,
           s.clientName,
           s.clientPhone,
@@ -1229,7 +1253,7 @@ export default function CashierModule({
       const debtCut = Math.max(0, debtBefore - (Number(updated.debtAdded) || 0))
       if (sale.clientPhone && debtCut > 0) {
         recordStoreDebtRepayment(sale.clientPhone, debtCut, {
-          desc: `Возврат чека ${sale.id}`,
+          desc: `Возврат чека ${saleNumberLabel(sale)}`,
           method: 'cash',
         })
       }
@@ -2900,7 +2924,7 @@ export default function CashierModule({
               </button>
               <div>
                 <h2>{receiptDetail ? 'Чек' : 'История чеков'}</h2>
-                <p>{receiptDetail ? receiptDetail.id : `${receiptList.length} чеков`}</p>
+                <p>{receiptDetail ? saleNumberLabel(receiptDetail) : `${receiptList.length} чеков`}</p>
               </div>
             </div>
 
@@ -2911,7 +2935,7 @@ export default function CashierModule({
                   <input
                     value={receiptQ}
                     onChange={e => setReceiptQ(e.target.value)}
-                    placeholder="Поиск: клиент, товар, номер чека…"
+                    placeholder="Поиск: № чека, клиент, товар…"
                     autoFocus
                   />
                 </div>
@@ -2960,6 +2984,7 @@ export default function CashierModule({
                       >
                         <div className="receipt-row-main">
                           <div className="hist-title-row">
+                            <span className="receipt-num">{saleNumberLabel(s)}</span>
                             <b>{payLabel}</b>
                             {fully && <span className="hist-badge open">Возвращён</span>}
                             {partial && <span className="hist-badge">Часть</span>}
@@ -2974,7 +2999,6 @@ export default function CashierModule({
                         </div>
                         <div className="hist-amt-col">
                           <div className="hist-amt">{fmtMoney(s.total)}</div>
-                          <div className="hist-when">{s.id}</div>
                         </div>
                       </button>
                     )

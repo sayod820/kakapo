@@ -661,7 +661,7 @@ export default function DebtsModule() {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                             <div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: 900 }}>Продажа {s.id.slice(-6)}</span>
+                                <span style={{ fontWeight: 900 }}>Чек {s.number ? `№${s.number}` : s.id.slice(-6)}</span>
                                 <span className="k-badge" style={{ background: s.partial ? '#3a2a10' : '#1a241c', color: s.partial ? 'var(--gold)' : 'var(--muted)' }}>
                                   {paymentMethodLabel(s.paymentMethod, s.partial)}
                                 </span>

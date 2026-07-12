@@ -154,6 +154,11 @@ export const POS_MOCK_CSS = `
   .pos-root button.receipt-row:hover{border-color:var(--accent);}
   .pos-root button.receipt-row.returned{opacity:.72;border-color:rgba(255,69,69,.28);background:rgba(255,69,69,.06);}
   .pos-root button.receipt-row.partial{border-color:rgba(255,170,40,.35);background:rgba(255,170,40,.07);}
+  .receipt-num{
+    flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:900;
+    color:var(--accent);background:rgba(31,215,96,.12);border:1px solid rgba(31,215,96,.28);
+    border-radius:8px;padding:2px 7px;letter-spacing:.02em;
+  }
   .receipt-row-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px;}
   .receipt-detail-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
   .receipt-detail-meta > div{padding:12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);}

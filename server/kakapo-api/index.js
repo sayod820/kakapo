@@ -53,6 +53,7 @@ import {
 } from './courierWallet.js'
 import {
   ensurePosCollections,
+  ensurePosSaleNumbers,
   listCashiers,
   createCashier,
   updateCashier,
@@ -104,6 +105,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
   .filter(Boolean)
 const db = seedIfEmpty()
 ensurePosCollections(db)
+if (ensurePosSaleNumbers(db)) persist()
 if (!db._categorySeedVersion) {
   if (ensureMarketCategories(db)) persist()
   db._categorySeedVersion = 1
@@ -1263,6 +1265,7 @@ app.patch('/pos/shifts/:id/close', (req, res) => {
 })
 
 app.get('/pos/sales', (_req, res) => {
+  if (ensurePosSaleNumbers(db)) persist()
   res.json(listPosSales(db))
 })
 app.post('/pos/sales', (req, res) => {

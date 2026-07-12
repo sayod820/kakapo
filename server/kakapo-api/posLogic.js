@@ -20,6 +20,38 @@ export function ensurePosCollections(db) {
   if (!Array.isArray(db.suppliers)) db.suppliers = []
   if (!Array.isArray(db.supplierPayments)) db.supplierPayments = []
   if (!Array.isArray(db.expenses)) db.expenses = []
+  if (!db._seq || typeof db._seq !== 'object') db._seq = {}
+}
+
+/** Присвоить сквозные номера старым чекам. true = были изменения. */
+export function ensurePosSaleNumbers(db) {
+  ensurePosCollections(db)
+  const sales = db.posSales || []
+  let max = Math.max(0, Number(db._seq.posSale) || 0)
+  for (const s of sales) {
+    const n = Number(s.number)
+    if (n > max) max = n
+  }
+  const need = sales
+    .filter(s => !(Number(s.number) > 0))
+    .sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
+  if (!need.length) {
+    db._seq.posSale = max
+    return false
+  }
+  for (const s of need) {
+    max += 1
+    s.number = max
+  }
+  db._seq.posSale = max
+  return true
+}
+
+function nextPosSaleNumber(db) {
+  ensurePosSaleNumbers(db)
+  const n = (Number(db._seq.posSale) || 0) + 1
+  db._seq.posSale = n
+  return n
 }
 
 function getProduct(db, productId) {
@@ -708,7 +740,13 @@ export function listExpiryItems(db, days = 14) {
 
 export function listPosSales(db) {
   ensurePosCollections(db)
-  return [...db.posSales].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+  ensurePosSaleNumbers(db)
+  return [...db.posSales].sort((a, b) => {
+    const nb = Number(b.number) || 0
+    const na = Number(a.number) || 0
+    if (nb !== na) return nb - na
+    return String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || ''))
+  })
 }
 
 export function createPosSale(db, data = {}) {
@@ -736,6 +774,7 @@ export function createPosSale(db, data = {}) {
   if (data.shiftId && !shift) throw new Error('Смена не найдена')
   const sale = {
     id: nextId('SALE'),
+    number: nextPosSaleNumber(db),
     createdAtIso: nowIso(),
     cashierId: cashier?.id || '',
     cashierName: cashier?.name || '',
