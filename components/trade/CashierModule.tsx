@@ -16,7 +16,7 @@ import {
   calcCashDepositBonus,
   resolveEffectiveDebtLimit,
 } from '@/lib/loyaltyStatusConfig'
-import { filterProductsBySearch } from '@/lib/productBarcodes'
+import { filterProductsBySearch, productBarcodes } from '@/lib/productBarcodes'
 import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
@@ -157,8 +157,6 @@ export default function CashierModule({
   const [discBuf, setDiscBuf] = useState('')
   const [cashOpen, setCashOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
-  const [manualOpen, setManualOpen] = useState(false)
-  const [manualBuf, setManualBuf] = useState('')
   const [zOpen, setZOpen] = useState(false)
   const [closingCash, setClosingCash] = useState('')
   const [topupOpen, setTopupOpen] = useState(false)
@@ -384,9 +382,6 @@ export default function CashierModule({
     setBusy(true)
     setMsg('')
     try {
-      if (cart.some(l => !l.productId)) {
-        throw new Error('Ручная цена пока не проводится через склад — уберите позицию из чека')
-      }
       const method = pay === 'qr' || pay === 'balance' ? 'card' : pay
       await api.createPosSale({
         cashierId: activeShift.cashierId,
@@ -602,16 +597,14 @@ export default function CashierModule({
           </div>
           <div className="grid-wrap">
             <div className="p-grid">
-              <button type="button" className="p-tile p-manual" onClick={() => { setManualBuf(''); setManualOpen(true) }}>
-                <span className="ic">🔢</span>
-                <b>Ручная цена</b>
-              </button>
               {visibleProducts.map(p => {
                 const stock = Number(p.stock) || 0
                 const photo = p.photo || getPhoto(p.id)
                 const weighted = isWeighted(p)
                 const unit = weighted ? 'кг' : (p.unit || 'шт')
                 const unitShort = unit.replace(/^[\d.,\s]+/, '') || unit
+                const barcode = productBarcodes(p)[0] || ''
+                const art = String(p.art || '').trim()
                 return (
                   <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
                     <div className="p-photo">
@@ -619,6 +612,11 @@ export default function CashierModule({
                       {weighted && <span className="p-weight-tag">⚖ {unitShort}</span>}
                     </div>
                     <div className="p-name">{p.name}</div>
+                    <div className="p-codes">
+                      {art ? <span>арт. {art}</span> : null}
+                      {barcode ? <span>ш/к {barcode}</span> : null}
+                      {!art && !barcode ? <span className="muted">без кода</span> : null}
+                    </div>
                     <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{unitShort}</span></div>
                     <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock}{weighted ? ' кг' : ' шт'}</div>
                   </button>
@@ -829,31 +827,6 @@ export default function CashierModule({
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setDiscOpen(false)}>Отмена</button>
               <button type="button" className="btn-confirm" onClick={() => { setDiscountPct(Math.min(90, Number(discBuf) || 0)); setDiscOpen(false) }}>Применить</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {manualOpen && (
-        <div className="overlay" onClick={() => setManualOpen(false)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>🔢 Товар без штрихкода</h3>
-            <div className="kp-display"><div className="lbl">СУММА</div><div className="val">{(Number(manualBuf) || 0).toFixed(2)} сом</div></div>
-            <Keypad onDigit={k => setManualBuf(b => appendDigit(b, k))} onBack={() => setManualBuf(b => b.slice(0, -1))} />
-            <div className="modal-card-actions">
-              <button type="button" className="btn-cancel" onClick={() => setManualOpen(false)}>Отмена</button>
-              <button
-                type="button"
-                className="btn-confirm"
-                disabled={!(Number(manualBuf) > 0)}
-                onClick={() => {
-                  const price = Number(manualBuf) || 0
-                  setCart(prev => [...prev, { key: `manual-${Date.now()}`, productId: 0, name: 'Товар без штрихкода', emoji: '🔢', price, qty: 1, stock: 999, unit: 'шт' }])
-                  setManualOpen(false)
-                }}
-              >
-                Добавить
-              </button>
             </div>
           </div>
         </div>
