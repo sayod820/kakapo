@@ -42,6 +42,8 @@ type CartLine = {
   qty: number
   stock: number
   unit: string
+  art?: string
+  barcode?: string
   weightKg?: number
 }
 
@@ -314,6 +316,8 @@ export default function CashierModule({
       return
     }
     setCart(prev => {
+      const art = String(p.art || '').trim()
+      const barcode = productBarcodes(p)[0] || ''
       if (weightKg != null) {
         return [...prev, {
           key: `${p.id}-w-${Date.now()}`,
@@ -324,6 +328,8 @@ export default function CashierModule({
           qty: 1,
           stock,
           unit: p.unit || 'кг',
+          art,
+          barcode,
           weightKg,
         }]
       }
@@ -343,6 +349,8 @@ export default function CashierModule({
         qty: 1,
         stock,
         unit: p.unit || 'шт',
+        art,
+        barcode,
       }]
     })
   }
@@ -668,6 +676,12 @@ export default function CashierModule({
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
                     <div className="name">{line.name}</div>
+                    {(line.art || line.barcode) && (
+                      <div className="codes">
+                        {line.art ? <span>арт. {line.art}</span> : null}
+                        {line.barcode ? <span>ш/к {line.barcode}</span> : null}
+                      </div>
+                    )}
                     <div className="sub">
                       {line.weightKg != null
                         ? <><span className="w">{line.weightKg.toFixed(3)} кг</span> · {line.price.toFixed(2)} ЅМ/{line.unit}</>
