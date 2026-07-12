@@ -15,6 +15,7 @@ import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { cardNumsMatch } from '@/lib/cardCrm'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
+  buildDebtOrderBalances,
   loadBalanceTopups,
   loadDebtHistory,
   recordBalanceTopup,
@@ -472,14 +473,73 @@ export default function CashierModule({
     when: string
     title: string
     sub: string
+    items?: string
     amount: number
     tone: 'sale' | 'credit' | 'repay' | 'topup' | 'debt'
+    debtStatus?: 'open' | 'partial' | 'paid'
+    debtPaid?: number
+    debtRemain?: number
   }
 
   const clientHistory = useMemo(() => {
     void histTick
     if (!client) return [] as ClientHistRow[]
     const rows: ClientHistRow[] = []
+    const debtList = client.phone ? loadDebtHistory(client.phone) : []
+    const { unpaid, paid } = buildDebtOrderBalances(debtList)
+    const unpaidById = new Map(unpaid.map(d => [d.id, d]))
+    const paidById = new Map(paid.map(d => [d.id, d]))
+
+    const fmtItems = (items: { productName?: string; productId?: number; qty?: number }[] | undefined) => {
+      if (!items?.length) return ''
+      const parts = items.slice(0, 5).map(i => {
+        const fromCatalog = i.productId ? products.find(p => p.id === i.productId)?.name : ''
+        const name = String(i.productName || fromCatalog || '').trim() || (i.productId ? `#${i.productId}` : 'товар')
+        const q = Number(i.qty) || 0
+        const qLabel = Number.isInteger(q) ? String(q) : String(Math.round(q * 1000) / 1000)
+        return `${name} ×${qLabel}`
+      })
+      if (items.length > 5) parts.push(`+${items.length - 5}`)
+      return parts.join(', ')
+    }
+
+    const debtStatusFor = (saleId: string, total: number, ts: number) => {
+      const byOrder = unpaid.find(d => d.orderId && d.orderId === saleId)
+        || paid.find(d => d.orderId && d.orderId === saleId)
+      if (byOrder) {
+        if (paidById.has(byOrder.id)) {
+          return { debtStatus: 'paid' as const, debtPaid: Math.abs(Number(byOrder.amount) || total), debtRemain: 0, debtId: byOrder.id }
+        }
+        const u = unpaidById.get(byOrder.id)
+        if (u?.partial) {
+          return { debtStatus: 'partial' as const, debtPaid: u.paidAmount, debtRemain: u.remainingAmount, debtId: byOrder.id }
+        }
+        if (u) {
+          return { debtStatus: 'open' as const, debtPaid: 0, debtRemain: u.remainingAmount, debtId: byOrder.id }
+        }
+      }
+      const nearUnpaid = unpaid.find(d =>
+        Math.abs(Math.abs(Number(d.amount) || 0) - total) < 0.02
+        && Math.abs((d.ts || 0) - ts) < 10 * 60 * 1000,
+      )
+      if (nearUnpaid) {
+        if (nearUnpaid.partial) {
+          return { debtStatus: 'partial' as const, debtPaid: nearUnpaid.paidAmount, debtRemain: nearUnpaid.remainingAmount, debtId: nearUnpaid.id }
+        }
+        return { debtStatus: 'open' as const, debtPaid: 0, debtRemain: nearUnpaid.remainingAmount, debtId: nearUnpaid.id }
+      }
+      const nearPaid = paid.find(d =>
+        Math.abs(Math.abs(Number(d.amount) || 0) - total) < 0.02
+        && Math.abs((d.ts || 0) - ts) < 10 * 60 * 1000,
+      )
+      if (nearPaid) {
+        return { debtStatus: 'paid' as const, debtPaid: Math.abs(Number(nearPaid.amount) || total), debtRemain: 0, debtId: nearPaid.id }
+      }
+      return { debtStatus: 'open' as const, debtPaid: 0, debtRemain: total, debtId: '' }
+    }
+
+    const linkedDebtIds = new Set<string>()
+
     for (const s of sales) {
       const matchId = client.id && s.clientId === client.id
       const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
@@ -495,20 +555,46 @@ export default function CashierModule({
               ? 'Смешанная'
               : String(s.paymentMethod)
       const when = new Date(s.createdAtIso)
+      const ts = when.getTime() || 0
+      const total = Number(s.total) || 0
+      const items = fmtItems(s.items)
+      const debtMeta = isCredit ? debtStatusFor(s.id, Number(s.debtAdded) || total, ts) : null
+      if (debtMeta?.debtId) linkedDebtIds.add(debtMeta.debtId)
+
+      let title = isCredit ? 'Чек в долг' : 'Чек'
+      let sub = methodLabel
+      if (isCredit && debtMeta) {
+        if (debtMeta.debtStatus === 'paid') {
+          title = 'Чек · долг погашен'
+          sub = `${methodLabel} · оплачен полностью`
+        } else if (debtMeta.debtStatus === 'partial') {
+          title = 'Чек · долг частично'
+          sub = `${methodLabel} · оплачено ${fmtMoney(debtMeta.debtPaid || 0)} · остаток ${fmtMoney(debtMeta.debtRemain || 0)}`
+        } else {
+          title = 'Чек · долг открыт'
+          sub = `${methodLabel} · не оплачен`
+        }
+      }
+
       rows.push({
         id: `sale-${s.id}`,
-        ts: when.getTime() || 0,
+        ts,
         when: Number.isNaN(when.getTime())
           ? s.createdAtIso
           : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`,
-        title: isCredit ? 'Чек в долг' : 'Чек',
-        sub: methodLabel,
-        amount: Number(s.total) || 0,
+        title,
+        sub,
+        items: items || undefined,
+        amount: total,
         tone: isCredit ? 'credit' : 'sale',
+        debtStatus: debtMeta?.debtStatus,
+        debtPaid: debtMeta?.debtPaid,
+        debtRemain: debtMeta?.debtRemain,
       })
     }
+
     if (client.phone) {
-      for (const h of loadDebtHistory(client.phone)) {
+      for (const h of debtList) {
         if (h.type === 'pay') {
           rows.push({
             id: `repay-${h.id}`,
@@ -519,17 +605,46 @@ export default function CashierModule({
             amount: Number(h.amount) || 0,
             tone: 'repay',
           })
-        } else {
-          rows.push({
-            id: `debt-${h.id}`,
-            ts: h.ts || 0,
-            when: `${h.date}${h.time ? ` · ${h.time}` : ''}`,
-            title: 'Начисление долга',
-            sub: h.desc || h.itemsSummary || 'Долг',
-            amount: Math.abs(Number(h.amount) || 0),
-            tone: 'debt',
-          })
+          continue
         }
+        if (linkedDebtIds.has(h.id)) continue
+        const u = unpaidById.get(h.id)
+        const isPaid = paidById.has(h.id)
+        const amt = Math.abs(Number(h.amount) || 0)
+        let title = 'Долг по заказу'
+        let sub = h.desc || h.itemsSummary || 'Долг'
+        let debtStatus: ClientHistRow['debtStatus'] = 'open'
+        let debtPaid = 0
+        let debtRemain = amt
+        if (isPaid) {
+          title = 'Долг · погашен'
+          sub = `${sub} · оплачен полностью`
+          debtStatus = 'paid'
+          debtPaid = amt
+          debtRemain = 0
+        } else if (u?.partial) {
+          title = 'Долг · частично'
+          sub = `${sub} · оплачено ${fmtMoney(u.paidAmount)} · остаток ${fmtMoney(u.remainingAmount)}`
+          debtStatus = 'partial'
+          debtPaid = u.paidAmount
+          debtRemain = u.remainingAmount
+        } else {
+          title = 'Долг · открыт'
+          sub = `${sub} · не оплачен`
+        }
+        rows.push({
+          id: `debt-${h.id}`,
+          ts: h.ts || 0,
+          when: `${h.date}${h.time ? ` · ${h.time}` : ''}`,
+          title,
+          sub,
+          items: h.itemsSummary || undefined,
+          amount: amt,
+          tone: 'debt',
+          debtStatus,
+          debtPaid,
+          debtRemain,
+        })
       }
       for (const t of loadBalanceTopups(client.phone)) {
         rows.push({
@@ -543,8 +658,8 @@ export default function CashierModule({
         })
       }
     }
-    return rows.sort((a, b) => b.ts - a.ts).slice(0, 80)
-  }, [client, sales, histTick])
+    return rows.sort((a, b) => b.ts - a.ts).slice(0, 120)
+  }, [client, sales, histTick, products])
 
   const clientProfileStats = useMemo(() => {
     void histTick
@@ -901,6 +1016,7 @@ export default function CashierModule({
         debtAdded: method === 'credit' ? total : 0,
         items: cart.map(l => ({
           productId: l.productId,
+          productName: l.name,
           qty: l.weightKg != null ? Math.round(l.weightKg * 1000) / 1000 : l.qty,
           price: l.price,
         })),
@@ -1992,19 +2108,35 @@ export default function CashierModule({
               </button>
             </div>
 
-            <div className="ops-lbl" style={{ margin: '4px 0 8px' }}>История: долги · бонусы · наличные</div>
+            <div className="ops-lbl" style={{ margin: '4px 0 8px' }}>История: чеки · покупки · долги</div>
             <div className="hist-list">
               {!clientHistory.length && (
                 <div style={{ fontSize: 12, color: 'var(--t3)', padding: '20px 8px', textAlign: 'center' }}>Пока нет операций</div>
               )}
               {clientHistory.map(row => (
-                <div key={row.id} className={`hist-row tone-${row.tone}`}>
+                <div
+                  key={row.id}
+                  className={`hist-row tone-${row.tone}${row.debtStatus === 'partial' ? ' partial' : ''}${row.debtStatus === 'paid' ? ' settled' : ''}`}
+                >
                   <div className="hist-main">
-                    <b>{row.title}</b>
+                    <div className="hist-title-row">
+                      <b>{row.title}</b>
+                      {row.debtStatus === 'paid' && <span className="hist-badge paid">Полностью</span>}
+                      {row.debtStatus === 'partial' && <span className="hist-badge partial">Частично</span>}
+                      {row.debtStatus === 'open' && (row.tone === 'credit' || row.tone === 'debt') && (
+                        <span className="hist-badge open">Открыт</span>
+                      )}
+                    </div>
                     <span className="hist-when">{row.when}</span>
                     <span className="hist-sub">{row.sub}</span>
+                    {row.items ? <span className="hist-items">{row.items}</span> : null}
                   </div>
-                  <div className="hist-amt">{fmtMoney(row.amount)}</div>
+                  <div className="hist-amt-col">
+                    <div className="hist-amt">{fmtMoney(row.amount)}</div>
+                    {row.debtStatus === 'partial' && row.debtRemain != null && (
+                      <div className="hist-remain">остаток {fmtMoney(row.debtRemain)}</div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

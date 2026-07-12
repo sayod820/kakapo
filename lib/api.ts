@@ -574,7 +574,7 @@ export const api = {
     paidCard?: number
     debtAdded?: number
     note?: string
-    items: { productId: number; qty: number; price?: number }[]
+    items: { productId: number; productName?: string; qty: number; price?: number }[]
   }) => request<PosSale>('/pos/sales', { method: 'POST', body: JSON.stringify(data) }),
   getStockReceipts: () => request<StockReceipt[]>('/stock/receipts'),
   createStockReceipt: (data: {
