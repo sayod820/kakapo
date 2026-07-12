@@ -1081,12 +1081,22 @@ export default function CashierModule({
       <style>{POS_MOCK_CSS}</style>
       <div className="app">
         <div className="topbar">
+          <div className="top-loc">
+            <b>Магазин · Ленина 42</b>
+            <div className="dot-row"><span className="d" />Онлайн</div>
+          </div>
+
           <div className="searchpill">
-            <span className="ic">🔍</span>
+            <span className="ic" aria-hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M16.5 16.5 21 21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
             <input
               value={q}
               onChange={e => setQ(e.target.value)}
-              placeholder="Поиск товара по названию, штрихкоду…"
+              placeholder="Товар, штрихкод…"
               autoFocus
               onKeyDown={e => {
                 if (e.key !== 'Enter' || !q.trim()) return
@@ -1101,14 +1111,10 @@ export default function CashierModule({
                 if (productHit) { addProduct(productHit); setQ('') }
               }}
             />
-            <span className="scan-tag">📷 Сканер</span>
+            <span className="scan-tag" title="Сканер">📷</span>
           </div>
 
           <div className="top-meta">
-            <div className="top-loc">
-              <b>Магазин · Ленина 42</b>
-              <div className="dot-row"><span className="d" />Онлайн</div>
-            </div>
             <TopMetaClock />
             <button type="button" className="btn-switch-till" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
               <span className="sw-ic">🔁</span>
