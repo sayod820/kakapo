@@ -113,7 +113,7 @@ export const POS_MOCK_CSS = `
   .p-tile{position:relative;background:var(--surface);border:1px solid transparent;border-radius:18px;padding:14px 12px 12px;text-align:left;transition:border-color .15s,transform .1s,box-shadow .15s;animation:tileIn .25s ease both;min-height:198px;display:flex;flex-direction:column;}
   .p-tile:hover{border-color:rgba(0,230,118,.35);transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.28);}
   .p-tile:active{transform:translateY(0) scale(.97);}
-  .p-photo{width:100%;height:92px;border-radius:14px;background:linear-gradient(160deg,var(--surface2),var(--surface3));display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:12px;position:relative;overflow:hidden;line-height:1;}
+  .p-photo{width:100%;height:96px;border-radius:14px;background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.05),transparent 70%),#0E1512;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:12px;position:relative;overflow:hidden;line-height:1;}
   .p-photo img{width:100%;height:100%;object-fit:cover;border-radius:14px;}
   .p-photo .emoji{display:block;filter:drop-shadow(0 4px 8px rgba(0,0,0,.35));}
   .p-weight-tag{position:absolute;top:8px;right:8px;font-size:9px;font-weight:800;background:rgba(8,12,10,.82);color:var(--t1);padding:3px 8px;border-radius:8px;display:flex;align-items:center;gap:3px;}
