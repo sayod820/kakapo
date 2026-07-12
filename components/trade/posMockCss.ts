@@ -328,6 +328,12 @@ export const POS_MOCK_CSS = `
   .pos-root button.repay-m.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--gd);}
 
   .modal-card.hist-card{width:520px;max-height:min(90vh,820px);display:flex;flex-direction:column;}
+  .hist-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:3px;margin:2px 0 12px;border-radius:14px;background:var(--surface2);border:1.5px solid var(--border);flex-shrink:0;}
+  .pos-root button.hist-tab{padding:10px 8px;border-radius:11px;font-size:12px;font-weight:800;color:var(--t3);display:flex;align-items:center;justify-content:center;gap:7px;}
+  .pos-root button.hist-tab .n{font-size:10px;font-weight:900;font-family:'JetBrains Mono',monospace;padding:2px 7px;border-radius:8px;background:var(--surface);color:var(--t2);border:1px solid var(--border);}
+  .pos-root button.hist-tab.on{background:var(--surface);color:var(--t1);box-shadow:0 1px 4px var(--shade);}
+  .pos-root button.hist-tab.on .n{background:rgba(31,215,96,.14);border-color:rgba(31,215,96,.28);color:var(--accent);}
+  .hist-empty{font-size:12px;color:var(--t3);padding:28px 8px;text-align:center;font-weight:700;}
   .hist-scroll{flex:1;overflow-y:auto;min-height:280px;max-height:min(52vh,440px);margin:0 -4px;padding:0 4px 4px;}
   .hist-section{margin-bottom:14px;}
   .hist-section:last-child{margin-bottom:0;}
@@ -340,6 +346,7 @@ export const POS_MOCK_CSS = `
   .hist-list.compact{flex:none;overflow:visible;min-height:0;max-height:none;margin:0;padding:0;}
   .hist-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);margin-bottom:8px;}
   .hist-row:last-child{margin-bottom:0;}
+  .hist-row.tone-sale .hist-amt{color:var(--gd);}
   .hist-row.tone-credit,.hist-row.tone-debt{border-color:rgba(234,88,12,.35);background:rgba(234,88,12,.08);}
   .hist-row.tone-credit.partial,.hist-row.tone-debt.partial{border-color:rgba(255,184,0,.45);background:rgba(255,184,0,.1);}
   .hist-row.tone-credit.settled,.hist-row.tone-debt.settled{border-color:rgba(31,215,96,.35);background:rgba(31,215,96,.08);}
