@@ -120,7 +120,27 @@ function PosClock({ variant = 'inline' }: { variant?: 'inline' | 'sidebar' }) {
   )
 }
 
-export default function CashierModule({ onExit }: { onExit?: () => void }) {
+type NavTarget = 'products' | 'clients' | 'debts' | 'warehouse' | 'reports' | 'suppliers' | 'finance'
+
+const SIDE_NAV: { id: NavTarget | 'sales' | 'bonuses' | 'staff' | 'settings'; icon: string; label: string }[] = [
+  { id: 'sales', icon: '🧾', label: 'Касса' },
+  { id: 'products', icon: '📦', label: 'Товары' },
+  { id: 'clients', icon: '👥', label: 'Клиенты' },
+  { id: 'bonuses', icon: '🎁', label: 'Бонусы' },
+  { id: 'debts', icon: '💳', label: 'Долги' },
+  { id: 'warehouse', icon: '🏬', label: 'Склад' },
+  { id: 'reports', icon: '📈', label: 'Отчёты' },
+  { id: 'staff', icon: '👤', label: 'Сотрудники' },
+  { id: 'settings', icon: '⚙️', label: 'Настройки' },
+]
+
+export default function CashierModule({
+  onExit,
+  onNavigate,
+}: {
+  onExit?: () => void
+  onNavigate?: (page: NavTarget) => void
+}) {
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const clients = useClientStore(s => s.clients)
@@ -528,10 +548,47 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
   const topupCash = Number(topupBuf) || 0
   const topupBonus = calcCashDepositBonus(topupCash)
 
+  const goNav = (id: (typeof SIDE_NAV)[number]['id']) => {
+    if (id === 'sales') return
+    if (id === 'bonuses' || id === 'staff' || id === 'settings') {
+      showToast(SIDE_NAV.find(n => n.id === id)?.label || 'Раздел', 'Раздел откроется в следующих этапах')
+      return
+    }
+    onNavigate?.(id)
+  }
+
   return (
     <div className="pos-root" data-theme={theme}>
       <style>{POS_MOCK_CSS}</style>
       <div className="app">
+        <aside className="sidebar">
+          <div className="sb-brand"><div className="sb-logo">K</div><b>KAKAPO</b></div>
+          <div className="sb-nav">
+            {SIDE_NAV.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                className={`sb-item ${item.id === 'sales' ? 'on' : ''}`}
+                onClick={() => goNav(item.id)}
+              >
+                <span className="ic">{item.icon}</span>{item.label}
+              </button>
+            ))}
+          </div>
+          <div className="sb-foot">
+            <div className="sb-loc">
+              <div>
+                <b>Магазин · Ленина 42</b>
+                <div className="dot-row"><span className="d" /><span>Онлайн</span></div>
+              </div>
+            </div>
+            <PosClock variant="sidebar" />
+            <button type="button" className="btn-switch-till" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
+              🔁 Сменить кассу
+            </button>
+          </div>
+        </aside>
+
         <div className="topbar">
           <div className="searchpill">
             <span className="ic">🔍</span>
@@ -573,9 +630,6 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
               <span>Администратор ▾</span>
             </div>
           </button>
-          {onExit && (
-            <button type="button" className="btn-exit" onClick={onExit} title="Выйти в Торговлю">✕</button>
-          )}
         </div>
 
         <div className="products">
@@ -603,11 +657,11 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
                   <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
                     <div className="p-photo">
                       {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
-                      {weighted && <span className="p-weight-tag">⚖ кг</span>}
+                      {weighted && <span className="p-weight-tag">⚖ {unitShort}</span>}
                     </div>
                     <div className="p-name">{p.name}</div>
-                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> SM/{unitShort}</span></div>
-                    <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {unitShort}</div>
+                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{unitShort}</span></div>
+                    <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock}{weighted ? ' кг' : ' шт'}</div>
                   </button>
                 )
               })}
@@ -659,8 +713,8 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
                     <div className="name">{line.name}</div>
                     <div className="sub">
                       {line.weightKg != null
-                        ? <><span className="w">{line.weightKg.toFixed(3)} кг</span> · {line.price.toFixed(2)} SM/{line.unit}</>
-                        : `${line.price.toFixed(2)} SM × ${line.qty}`}
+                        ? <><span className="w">{line.weightKg.toFixed(3)} кг</span> · {line.price.toFixed(2)} ЅМ/{line.unit}</>
+                        : `${line.price.toFixed(2)} ЅМ × ${line.qty}`}
                     </div>
                   </div>
                   {line.weightKg == null && (
@@ -681,7 +735,7 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
             <div className="tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
             {discAmount > 0 && <div className="tot-row disc"><span>Скидка</span><span>−{discAmount.toFixed(2)}</span></div>}
             {usedBonus > 0 && <div className="tot-row disc"><span>Списано бонусами</span><span>−{usedBonus.toFixed(2)}</span></div>}
-            <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} SM</span></div>
+            <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
 
           <div className="action-row">
