@@ -24,6 +24,7 @@ import { useProducts } from '@/lib/store'
 import type { Product } from '@/lib/types'
 import { useCategories } from '@/lib/useCategories'
 import { fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
+import { POS_MOCK_CSS } from './posMockCss'
 
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
 const THEME_KEY = 'kakapo_trade_pos_theme'
@@ -43,179 +44,6 @@ type CartLine = {
   unit: string
   weightKg?: number
 }
-
-const POS_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap');
-.pos-root{--bg:#030B05;--surface:#0A1710;--surface2:#0F2216;--surface3:#132A1A;--border:#1A3322;--border2:#234430;--accent:#1FD760;--accent2:#17B34E;--gd:#FFB800;--org:#FF8C00;--blue:#3B8EF0;--pur:#9B6DFF;--red:#FF4545;--t1:#F1FBF3;--t2:#8FB897;--t3:#3D6645;position:fixed;inset:0;z-index:100;height:100vh;width:100vw;margin:0;background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;overflow:hidden}
-.pos-root[data-theme="purple"]{--accent:#9B6DFF;--accent2:#7C4FE0}
-.pos-root[data-theme="gold"]{--accent:#FFB800;--accent2:#E0A000}
-.pos-root *{box-sizing:border-box}
-.pos-root button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
-.pos-root input,select{font-family:inherit;color:inherit}
-.pos-mono{font-family:'JetBrains Mono',monospace}
-.pos-ub{font-family:'Unbounded',sans-serif}
-@keyframes posPop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}
-@keyframes posFade{from{opacity:0}to{opacity:1}}
-@keyframes posTile{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-@keyframes posPulse{0%,100%{opacity:1}50%{opacity:.4}}
-.pos-gate{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:var(--bg)}
-.pos-gate-bg{position:absolute;inset:0;opacity:.5;background:radial-gradient(circle at 20% 20%,rgba(31,215,96,.09),transparent 45%),radial-gradient(circle at 82% 78%,rgba(255,184,0,.06),transparent 45%)}
-.pos-gate-card{position:relative;width:min(400px,92vw);background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:32px;animation:posPop .3s cubic-bezier(.16,1,.3,1)}
-.pos-gate-logo{width:50px;height:50px;border-radius:16px;background:linear-gradient(135deg,var(--accent2),var(--accent));display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:900;font-size:21px;color:var(--bg);margin:0 auto 14px}
-.pos-gate-title{font-family:'Unbounded';font-size:16px;font-weight:800;text-align:center;margin-bottom:4px}
-.pos-gate-sub{font-size:12px;color:var(--t2);text-align:center;margin-bottom:24px}
-.pos-gate-label{font-size:11px;font-weight:700;color:var(--t2);margin-bottom:8px;display:block}
-.pos-cashier-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px}
-.pos-cashier-opt{padding:12px 5px;border-radius:14px;border:1.5px solid var(--border);background:var(--surface2);text-align:center}
-.pos-cashier-opt.on{border-color:var(--accent);background:rgba(31,215,96,.08)}
-.pos-cashier-opt .av{width:32px;height:32px;border-radius:10px;background:var(--border2);display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:11px;margin:0 auto 6px}
-.pos-cashier-opt.on .av{background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg)}
-.pos-cashier-opt span{font-size:10.5px;font-weight:700;color:var(--t2)}
-.pos-cashier-opt.on span{color:var(--t1)}
-.pos-gate-input{width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:13px;padding:13px 15px;font-size:14px;font-weight:700;outline:none;margin-bottom:12px;font-family:'JetBrains Mono'}
-.pos-gate-input:focus{border-color:var(--accent)}
-.pos-btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14px}
-.pos-app{display:grid;grid-template-columns:1fr minmax(320px,400px);grid-template-rows:64px 1fr;height:100%}
-.pos-topbar{grid-column:1/3;display:flex;align-items:center;gap:12px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
-.pos-search{flex:1;max-width:560px;display:flex;align-items:center;gap:10px;background:var(--surface2);border:1.5px solid var(--border);border-radius:14px;padding:11px 16px;transition:border-color .2s}
-.pos-search:focus-within{border-color:var(--accent)}
-.pos-search input{flex:1;background:none;border:none;outline:none;font-size:13.5px;color:var(--t1)}
-.pos-search input::placeholder{color:var(--t3)}
-.pos-theme{display:flex;gap:6px;flex-shrink:0}
-.pos-theme-dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--border);cursor:pointer;transition:transform .12s}
-.pos-theme-dot:hover{transform:scale(1.12)}
-.pos-theme-dot.on{border-color:var(--t1)}
-.pos-bell{position:relative;width:38px;height:38px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
-.pos-bell:hover{background:var(--border2)}
-.pos-bell .badge{position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--red)}
-.pos-account{display:flex;align-items:center;gap:9px;padding:6px 10px 6px 6px;border-radius:13px;flex-shrink:0}
-.pos-account:hover{background:var(--surface2)}
-.pos-av{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#1E5BB5,var(--blue));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;font-family:'Unbounded'}
-.pos-products{background:var(--bg);overflow:hidden;display:flex;flex-direction:column}
-.pos-cats{display:flex;gap:9px;padding:14px 20px 6px;overflow-x:auto;flex-shrink:0}
-.pos-cat{padding:9px 16px;border-radius:13px;font-size:12px;font-weight:700;background:var(--surface);border:1.5px solid var(--border);color:var(--t2);white-space:nowrap;display:flex;align-items:center;gap:7px;flex-shrink:0}
-.pos-cat.on{background:var(--accent);border-color:var(--accent);color:var(--bg)}
-.pos-grid-wrap{flex:1;overflow-y:auto;padding:8px 20px 20px}
-.pos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:13px}
-.pos-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:16px;padding:12px;text-align:left;animation:posTile .25s ease both;transition:border-color .15s,transform .1s}
-.pos-tile:hover{border-color:var(--accent);transform:translateY(-2px)}
-.pos-tile:active{transform:translateY(0) scale(.97)}
-.pos-photo{width:100%;height:88px;border-radius:12px;background:linear-gradient(145deg,var(--surface2),var(--surface3));display:flex;align-items:center;justify-content:center;font-size:42px;margin-bottom:10px;overflow:hidden;position:relative}
-.pos-photo img{width:100%;height:100%;object-fit:cover}
-.pos-weight-tag{position:absolute;top:6px;right:6px;font-size:9px;font-weight:800;background:rgba(3,11,5,.75);color:var(--t1);padding:2px 7px;border-radius:7px}
-.pos-name{font-size:12px;font-weight:800;line-height:1.25;margin-bottom:6px;min-height:30px}
-.pos-price{font-family:'JetBrains Mono';font-size:16px;font-weight:900;color:var(--gd)}
-.pos-unit{font-size:9.5px;color:var(--t3);font-weight:600}
-.pos-stock{font-size:10px;color:var(--accent);margin-top:5px;font-weight:700}
-.pos-stock.low{color:var(--red)}
-.pos-manual{border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--t2);min-height:188px}
-.pos-cart{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-.pos-client{margin:14px 14px 0;padding:12px 14px;border-radius:16px;background:var(--surface2);border:1.5px solid var(--border);display:flex;align-items:center;gap:11px;cursor:pointer;flex-shrink:0}
-.pos-client:hover{border-color:var(--border2)}
-.pos-client.set{border-color:rgba(255,184,0,.3);background:rgba(255,184,0,.05)}
-.pos-client .av{width:38px;height:38px;border-radius:12px;background:var(--border2);display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:13px;color:var(--t2);flex-shrink:0}
-.pos-client.set .av{background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg)}
-.pos-client .info{flex:1;min-width:0}
-.pos-client .nm{font-size:12.5px;font-weight:800}
-.pos-client .ph{font-size:10px;color:var(--t2)}
-.pos-client .tier{padding:3px 9px;border-radius:8px;font-size:9.5px;font-weight:800;flex-shrink:0}
-.pos-client .x{width:22px;height:22px;border-radius:7px;color:var(--t3);font-size:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
-.pos-client .x:hover{background:rgba(255,69,69,.12);color:var(--red)}
-.pos-strip{margin:8px 14px 0;padding:9px 12px;border-radius:13px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-size:11px}
-.pos-strip .set-btn{font-size:10.5px;color:var(--blue);font-weight:800}
-.pos-items{flex:1;overflow-y:auto;padding:10px 14px}
-.pos-empty{text-align:center;color:var(--t3);padding:50px 10px;line-height:1.5}
-.pos-empty .ic{font-size:38px;opacity:.5;margin-bottom:8px}
-.pos-row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:14px}
-.pos-row:hover{background:var(--surface2)}
-.pos-row .ic{width:38px;height:38px;border-radius:11px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
-.pos-row .info{flex:1;min-width:0}
-.pos-row .name{font-size:12px;font-weight:700}
-.pos-row .sub{font-size:10px;color:var(--t3);margin-top:1px}
-.pos-row .sub .w{color:var(--pur);font-weight:700}
-.pos-qty{display:flex;align-items:center;gap:7px;background:var(--surface2);border-radius:10px;padding:4px;flex-shrink:0}
-.pos-qty button{width:20px;height:20px;border-radius:7px;font-size:13px;font-weight:800;color:var(--t2)}
-.pos-qty button:hover{background:var(--border2);color:var(--t1)}
-.pos-qty span{font-size:12px;font-weight:800;min-width:16px;text-align:center;font-family:'JetBrains Mono'}
-.pos-row .price{font-family:'JetBrains Mono';font-size:14px;font-weight:900;color:var(--gd);flex-shrink:0;min-width:64px;text-align:right}
-.pos-row .rm{width:22px;height:22px;border-radius:8px;color:var(--t3);font-size:12px;flex-shrink:0}
-.pos-row .rm:hover{background:rgba(255,69,69,.12);color:var(--red)}
-.pos-totals{padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0}
-.pos-tot-row{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);margin-bottom:6px}
-.pos-tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:9px;margin-top:3px;border-top:1px dashed var(--border)}
-.pos-tot-final b{font-family:'Unbounded';font-size:12.5px}
-.pos-tot-final .sum{font-family:'JetBrains Mono';font-size:27px;font-weight:900;color:var(--accent)}
-.pos-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 14px 9px;flex-shrink:0}
-.pos-chip{padding:11px 6px;border-radius:14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:5px;border:1px solid}
-.pos-chip span{font-size:10px;font-weight:700;color:var(--t2)}
-.pos-chip .iw{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px}
-.pos-chip.disc{background:rgba(155,109,255,.06);border-color:rgba(155,109,255,.2)}
-.pos-chip.disc .iw{background:rgba(155,109,255,.15)}
-.pos-chip.bonus{background:rgba(255,184,0,.06);border-color:rgba(255,184,0,.2)}
-.pos-chip.bonus .iw{background:rgba(255,184,0,.15)}
-.pos-chip.hold{background:rgba(59,142,240,.06);border-color:rgba(59,142,240,.2)}
-.pos-chip.hold .iw{background:rgba(59,142,240,.15)}
-.pos-actions2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 14px 10px;flex-shrink:0}
-.pos-out{padding:10px 5px;border-radius:13px;text-align:center;font-size:10.5px;font-weight:700;background:var(--surface2);border:1px solid var(--border);color:var(--t2)}
-.pos-out:hover{border-color:var(--border2);color:var(--t1)}
-.pos-out.on{border-color:var(--gd);color:var(--gd);background:rgba(255,184,0,.08)}
-.pos-links{display:flex;gap:4px;padding:0 14px 6px;flex-shrink:0;justify-content:center;align-items:center}
-.pos-links button{font-size:10.5px;color:var(--t3);font-weight:700;padding:6px 10px}
-.pos-links button:hover{color:var(--t1)}
-.pos-links .sep{color:var(--border2)}
-.pos-pay{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:7px;padding:0 14px 10px;flex-shrink:0}
-.pos-pay-btn{padding:12px 4px;border-radius:13px;text-align:center;font-size:10px;font-weight:800;color:#fff;display:flex;flex-direction:column;align-items:center;gap:4px;opacity:.9}
-.pos-pay-btn .ic{font-size:16px}
-.pos-pay-btn.on{opacity:1;box-shadow:0 4px 14px rgba(0,0,0,.3);transform:translateY(-1px)}
-.pos-pay-btn.disabled{opacity:.25;pointer-events:none}
-.pos-pay-cash{background:linear-gradient(135deg,var(--accent2),var(--accent))}
-.pos-pay-card{background:linear-gradient(135deg,#1E5BB5,var(--blue))}
-.pos-pay-balance{background:linear-gradient(135deg,#7C4FE0,var(--pur))}
-.pos-pay-qr{background:linear-gradient(135deg,#B57F00,var(--gd));color:#241900}
-.pos-checkout{margin:0 14px 16px;padding:16px;border-radius:16px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:9px;box-shadow:0 10px 26px rgba(31,215,96,.28)}
-.pos-checkout:disabled{opacity:.3;box-shadow:none}
-.pos-overlay{position:absolute;inset:0;background:rgba(3,11,5,.75);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:50;animation:posFade .2s ease}
-.pos-modal{width:min(360px,92vw);background:var(--surface);border:1.5px solid var(--border);border-radius:22px;padding:22px;animation:posPop .25s cubic-bezier(.16,1,.3,1);max-height:90%;overflow:auto}
-.pos-modal.wide{width:min(420px,94vw)}
-.pos-modal h3{font-family:'Unbounded';font-size:13.5px;font-weight:800;margin-bottom:14px}
-.pos-modal-input{width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:14px;padding:12px 15px;font-size:13.5px;outline:none;margin-bottom:12px}
-.pos-modal-input:focus{border-color:var(--blue)}
-.pos-modal-actions{display:flex;gap:8px;margin-top:4px}
-.pos-modal-actions button{flex:1;padding:12px;border-radius:14px;font-weight:800;font-size:12px}
-.pos-btn-cancel{background:var(--surface2);color:var(--t2);border:1px solid var(--border)}
-.pos-btn-ok{background:var(--accent);color:var(--bg)}
-.pos-btn-ok:disabled{opacity:.3}
-.pos-kp-display{background:var(--surface2);border:1.5px solid var(--border);border-radius:16px;padding:16px;text-align:center;margin-bottom:14px}
-.pos-kp-display .lbl{font-size:10px;color:var(--t3);letter-spacing:.5px;margin-bottom:4px}
-.pos-kp-display .val{font-family:'JetBrains Mono';font-size:28px;font-weight:800}
-.pos-keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:14px}
-.pos-keypad button{padding:14px;border-radius:13px;background:var(--surface2);border:1px solid var(--border);font-family:'JetBrains Mono';font-size:17px;font-weight:700}
-.pos-keypad button:hover{background:var(--border2)}
-.pos-quick{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
-.pos-quick button{padding:8px 4px;border-radius:11px;background:var(--surface2);border:1px solid var(--border);font-size:11px;font-weight:700;color:var(--t2)}
-.pos-client-hit{padding:11px;border-radius:15px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer;width:100%;text-align:left}
-.pos-client-hit:hover,.pos-client-hit.on{border-color:var(--accent)}
-.pos-client-hit .av{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,var(--accent2),var(--accent));display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:12px;color:var(--bg);flex-shrink:0}
-.pos-z-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px}
-.pos-z-stat{background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:13px}
-.pos-z-stat .l{font-size:9.5px;color:var(--t3);text-transform:uppercase;margin-bottom:5px}
-.pos-z-stat .v{font-family:'JetBrains Mono';font-size:17px;font-weight:800}
-.pos-err{margin-top:10px;padding:10px 12px;border-radius:10px;font-size:12px;background:rgba(255,69,69,.1);border:1px solid rgba(255,69,69,.3);color:var(--red)}
-.pos-toast{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1.5px solid var(--accent);border-radius:18px;padding:14px 20px;display:flex;align-items:center;gap:11px;z-index:60;box-shadow:0 14px 32px rgba(0,0,0,.5);animation:posPop .25s ease}
-.pos-status{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:6px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border)}
-.pos-status .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(31,215,96,.18);animation:posPulse 2s infinite}
-.pos-status .meta{font-size:11px;font-weight:700;color:var(--t2);line-height:1.25}
-.pos-status .meta b{display:block;color:var(--t1);font-size:12px}
-.pos-status .clock{font-family:'JetBrains Mono';font-size:15px;font-weight:800;color:var(--gd);margin-left:4px;min-width:72px}
-.pos-exit{padding:8px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:700;flex-shrink:0}
-.pos-exit:hover{border-color:var(--red);color:var(--red)}
-@media(max-width:900px){
-  .pos-root{overflow:auto}
-  .pos-app{grid-template-columns:1fr;grid-template-rows:auto auto auto;min-height:100%}
-  .pos-topbar{grid-column:1;flex-wrap:wrap;height:auto;padding:10px 12px;gap:8px}
-  .pos-cart{border-left:none;border-top:1px solid var(--border);max-height:50vh}
-}
-`
 
 function initialsOf(name: string) {
   return name.split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || 'K'
@@ -254,9 +82,9 @@ function levelLabel(level: ClientLevel) {
 function Keypad({ onDigit, onBack }: { onDigit: (k: string) => void; onBack: () => void }) {
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫']
   return (
-    <div className="pos-keypad">
+    <div className="keypad">
       {keys.map(k => (
-        <button key={k} type="button" onClick={() => (k === '⌫' ? onBack() : onDigit(k))} style={k === '⌫' ? { color: 'var(--red)', fontFamily: 'Nunito', fontSize: 12, fontWeight: 800 } : undefined}>
+        <button key={k} type="button" className={k === '⌫' ? 'kp-clear' : undefined} onClick={() => (k === '⌫' ? onBack() : onDigit(k))}>
           {k}
         </button>
       ))}
@@ -264,13 +92,26 @@ function Keypad({ onDigit, onBack }: { onDigit: (k: string) => void; onBack: () 
   )
 }
 
-function PosClock() {
+function PosClock({ variant = 'inline' }: { variant?: 'inline' | 'sidebar' }) {
   const [now, setNow] = useState<Date | null>(null)
   useEffect(() => {
     setNow(new Date())
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
+  if (variant === 'sidebar') {
+    if (!now) return <><div className="sb-clock">--:--:--</div><div className="sb-date">—</div></>
+    return (
+      <>
+        <div className="sb-clock">
+          {now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        </div>
+        <div className="sb-date">
+          {now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </div>
+      </>
+    )
+  }
   if (!now) return <span className="clock">--:--:--</span>
   return (
     <span className="clock">
@@ -279,7 +120,27 @@ function PosClock() {
   )
 }
 
-export default function CashierModule({ onExit }: { onExit?: () => void }) {
+type NavTarget = 'products' | 'clients' | 'debts' | 'warehouse' | 'reports' | 'suppliers' | 'finance'
+
+const SIDE_NAV: { id: NavTarget | 'sales' | 'bonuses' | 'staff' | 'settings'; icon: string; label: string }[] = [
+  { id: 'sales', icon: '🧾', label: 'Касса' },
+  { id: 'products', icon: '📦', label: 'Товары' },
+  { id: 'clients', icon: '👥', label: 'Клиенты' },
+  { id: 'bonuses', icon: '🎁', label: 'Бонусы' },
+  { id: 'debts', icon: '💳', label: 'Долги' },
+  { id: 'warehouse', icon: '🏬', label: 'Склад' },
+  { id: 'reports', icon: '📈', label: 'Отчёты' },
+  { id: 'staff', icon: '👤', label: 'Сотрудники' },
+  { id: 'settings', icon: '⚙️', label: 'Настройки' },
+]
+
+export default function CashierModule({
+  onExit,
+  onNavigate,
+}: {
+  onExit?: () => void
+  onNavigate?: (page: NavTarget) => void
+}) {
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const clients = useClientStore(s => s.clients)
@@ -629,29 +490,39 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
     }
   }
 
+  function goNav(id: typeof SIDE_NAV[number]['id']) {
+    if (id === 'sales') return
+    if (id === 'bonuses') {
+      if (onNavigate) onNavigate('clients')
+      else showToast('Бонусы', 'Откройте раздел Клиенты')
+      return
+    }
+    if (id === 'staff' || id === 'settings') {
+      showToast(id === 'staff' ? 'Сотрудники' : 'Настройки', 'Раздел скоро')
+      return
+    }
+    if (onNavigate) onNavigate(id)
+    else if (onExit) onExit()
+  }
+
   // ─── Gate ───
   if (!activeShift) {
     return (
       <div className="pos-root" data-theme={theme}>
-        <style>{POS_CSS}</style>
-        <div className="pos-gate">
-          <div className="pos-gate-bg" />
-          <div className="pos-gate-card">
-            <div className="pos-gate-logo">K</div>
-            <div className="pos-gate-title">Открытие смены</div>
-            <div className="pos-gate-sub">KAKAPO Касса · точка продажи</div>
-            <div className="pos-status" style={{ marginBottom: 18, justifyContent: 'center' }}>
-              <span className="dot" />
-              <div className="meta"><b>Магазин KAKAPO</b>Онлайн</div>
-              <PosClock />
-            </div>
-            <span className="pos-gate-label">Кто работает?</span>
-            <div className="pos-cashier-grid">
+        <style>{POS_MOCK_CSS}</style>
+        <div className="gate">
+          <div className="gate-bg" />
+          <div className="gate-card">
+            <div className="gate-logo">K</div>
+            <div className="gate-title">Открытие смены</div>
+            <div className="gate-sub">KAKAPO Касса · г. Яван, РЦ №1</div>
+            <span className="gate-label">Кто работает?</span>
+            <div className="cashier-grid">
               {cashierOptions.slice(0, 6).map(c => (
                 <button
                   key={c.id}
                   type="button"
-                  className={`pos-cashier-opt ${pickedCashierId === c.id ? 'on' : ''}`}
+                  className={`cashier-opt ${pickedCashierId === c.id ? 'on' : ''}`}
                   onClick={() => { setPickedCashierId(c.id); setGateName(c.name) }}
                 >
                   <div className="av">{initialsOf(c.name)}</div>
@@ -661,23 +532,23 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
             </div>
             {!cashiers.length && (
               <>
-                <span className="pos-gate-label">Имя кассира</span>
-                <input className="pos-gate-input" value={gateName} onChange={e => setGateName(e.target.value)} placeholder="Кассир" />
+                <span className="gate-label">Имя кассира</span>
+                <input className="gate-input" value={gateName} onChange={e => setGateName(e.target.value)} placeholder="Кассир" />
               </>
             )}
-            <span className="pos-gate-label">Наличные в кассе на начало смены</span>
-            <input className="pos-gate-input" value={gateCash} onChange={e => setGateCash(sanitizeDecimalInput(e.target.value))} inputMode="decimal" />
-            <div className="pos-quick" style={{ marginBottom: 16 }}>
+            <span className="gate-label">Наличные в кассе на начало смены</span>
+            <input className="gate-input" value={gateCash} onChange={e => setGateCash(sanitizeDecimalInput(e.target.value))} inputMode="decimal" />
+            <div className="kp-quick" style={{ marginBottom: 16 }}>
               {[0, 100, 500, 1000].map(v => (
                 <button key={v} type="button" onClick={() => setGateCash(v === 0 ? '0.00' : String(v))}>{v === 0 ? 'Пустая' : `${v}`}</button>
               ))}
             </div>
             {msg && <div className="pos-err">{msg}</div>}
-            <button type="button" className="pos-btn-gate" disabled={busy} onClick={() => void openShift()}>
+            <button type="button" className="btn-gate" disabled={busy} onClick={() => void openShift()}>
               {busy ? 'Открываем…' : 'Открыть смену'}
             </button>
             {onExit && (
-              <button type="button" className="pos-exit" style={{ width: '100%', marginTop: 10 }} onClick={onExit}>
+              <button type="button" className="btn-switch-till" style={{ marginTop: 10 }} onClick={onExit}>
                 ← Вернуться в Торговлю
               </button>
             )}
@@ -694,11 +565,39 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
 
   return (
     <div className="pos-root" data-theme={theme}>
-      <style>{POS_CSS}</style>
-      <div className="pos-app">
-        <div className="pos-topbar">
-          <div className="pos-search">
-            <span>🔍</span>
+      <style>{POS_MOCK_CSS}</style>
+      <div className="app">
+        <div className="sidebar">
+          <div className="sb-brand"><div className="sb-logo">K</div><b>KAKAPO</b></div>
+          <div className="sb-nav">
+            {SIDE_NAV.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                className={`sb-item ${item.id === 'sales' ? 'on' : ''}`}
+                onClick={() => goNav(item.id)}
+              >
+                <span className="ic">{item.icon}</span>{item.label}
+              </button>
+            ))}
+          </div>
+          <div className="sb-foot">
+            <div className="sb-loc">
+              <div>
+                <b>Магазин · Ленина 42</b>
+                <div className="dot-row"><span className="d" />Онлайн</div>
+              </div>
+            </div>
+            <PosClock variant="sidebar" />
+            <button type="button" className="btn-switch-till" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
+              🔁 Сменить кассу
+            </button>
+          </div>
+        </div>
+
+        <div className="topbar">
+          <div className="searchpill">
+            <span className="ic">🔍</span>
             <input
               value={q}
               onChange={e => setQ(e.target.value)}
@@ -710,14 +609,9 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
                 if (found) { addProduct(found); setQ('') }
               }}
             />
-            <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 700, borderLeft: '1px solid var(--border)', paddingLeft: 10 }}>📷</span>
+            <span className="scan-tag">📷 Сканер</span>
           </div>
-          <div className="pos-status">
-            <span className="dot" />
-            <div className="meta"><b>Онлайн</b>Магазин KAKAPO</div>
-            <PosClock />
-          </div>
-          <div className="pos-theme">
+          <div className="theme-dots">
             {([
               ['green', '#1FD760'],
               ['purple', '#9B6DFF'],
@@ -726,57 +620,52 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
               <button
                 key={name}
                 type="button"
-                className={`pos-theme-dot ${theme === name ? 'on' : ''}`}
+                className={`theme-dot ${theme === name ? 'on' : ''}`}
                 style={{ background: color }}
                 onClick={() => { setTheme(name); localStorage.setItem(THEME_KEY, name) }}
               />
             ))}
           </div>
-          <button type="button" className="pos-bell" title="Уведомления" onClick={() => showToast('Уведомления', 'Нет новых уведомлений')}>
-            🔔
-            <span className="badge" />
+          <button type="button" className="bell-btn" title="Уведомления" onClick={() => showToast('Уведомления', 'Нет новых уведомлений')}>
+            🔔<span className="bell-badge" />
           </button>
-          <button type="button" className="pos-account" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
-            <div className="pos-av">{settings.initials}</div>
-            <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
-              <b style={{ fontSize: 12, display: 'block' }}>{settings.cashierName}</b>
-              <span style={{ fontSize: 9.5, color: 'var(--t3)' }}>Администратор</span>
+          <button type="button" className="account-btn" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
+            <div className="account-av">{settings.initials}</div>
+            <div className="info">
+              <b>{settings.cashierName}</b>
+              <span>Администратор ▾</span>
             </div>
           </button>
-          {onExit && (
-            <button type="button" className="pos-exit" onClick={onExit} title="Выйти в меню Торговли">
-              ✕ Выход
-            </button>
-          )}
         </div>
 
-        <div className="pos-products">
-          <div className="pos-cats">
-            <button type="button" className={`pos-cat ${!catFilter ? 'on' : ''}`} onClick={() => setCatFilter(null)}>🗂 Все товары</button>
+        <div className="products">
+          <div className="cat-row">
+            <button type="button" className={`cat-pill ${!catFilter ? 'on' : ''}`} onClick={() => setCatFilter(null)}>🗂 Все товары</button>
             {roots.map(c => (
-              <button key={c.id} type="button" className={`pos-cat ${catFilter === c.id ? 'on' : ''}`} onClick={() => setCatFilter(c.id)}>
+              <button key={c.id} type="button" className={`cat-pill ${catFilter === c.id ? 'on' : ''}`} onClick={() => setCatFilter(c.id)}>
                 {c.emoji || '📦'} {c.name}
               </button>
             ))}
           </div>
-          <div className="pos-grid-wrap">
-            <div className="pos-grid">
-              <button type="button" className="pos-tile pos-manual" onClick={() => { setManualBuf(''); setManualOpen(true) }}>
-                <span style={{ fontSize: 26, marginBottom: 8 }}>🔢</span>
-                <b style={{ fontSize: 11.5 }}>Ручная цена</b>
+          <div className="grid-wrap">
+            <div className="p-grid">
+              <button type="button" className="p-tile p-manual" onClick={() => { setManualBuf(''); setManualOpen(true) }}>
+                <span className="ic">🔢</span>
+                <b>Ручная цена</b>
               </button>
               {visibleProducts.map(p => {
                 const stock = Number(p.stock) || 0
                 const photo = p.photo || getPhoto(p.id)
+                const unit = p.unit || (isWeighted(p) ? 'кг' : 'шт')
                 return (
-                  <button key={p.id} type="button" className="pos-tile" onClick={() => addProduct(p)}>
-                    <div className="pos-photo">
+                  <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
+                    <div className="p-photo">
                       {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
-                      {isWeighted(p) && <span className="pos-weight-tag">⚖ {p.unit || 'кг'}</span>}
+                      <span className="p-weight-tag">{unit}</span>
                     </div>
-                    <div className="pos-name">{p.name}</div>
-                    <div className="pos-price">{(Number(p.price) || 0).toFixed(2)} <span className="pos-unit">SM/{p.unit || 'шт'}</span></div>
-                    <div className={`pos-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {p.unit || 'шт'}</div>
+                    <div className="p-name">{p.name}</div>
+                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)} <span className="p-unit">SM/{unit}</span></div>
+                    <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {unit}</div>
                   </button>
                 )
               })}
@@ -784,53 +673,56 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
           </div>
         </div>
 
-        <div className="pos-cart">
-          <div className={`pos-client ${client ? 'set' : ''}`} onClick={() => { setClientQ(''); setClientPick(client); setClientOpen(true) }}>
-            <div className="av">{client ? initialsOf(client.name) : '👤'}</div>
-            <div className="info">
+        <div className="cart">
+          <div className={`client-card ${client ? 'set' : ''}`} onClick={() => { setClientQ(''); setClientPick(client); setClientOpen(true) }}>
+            <div className="client-av">{client ? initialsOf(client.name) : '👤'}</div>
+            <div className="client-info">
               <div className="nm">{client?.name || 'Гость'}</div>
               <div className="ph">{client ? client.phone : 'Нажмите чтобы выбрать клиента'}</div>
+              {client && loyalty && (Number(loyalty.bonus) || 0) > 0 && (
+                <div className="client-bonus">⭐ {loyalty.bonus} бонусов</div>
+              )}
             </div>
             {client && loyalty && (
-              <span className="tier" style={{ background: `${CLIENT_LEVEL_COLORS[loyalty.level]}22`, color: CLIENT_LEVEL_COLORS[loyalty.level] }}>
+              <span className="client-tier" style={{ background: `${CLIENT_LEVEL_COLORS[loyalty.level]}22`, color: CLIENT_LEVEL_COLORS[loyalty.level] }}>
                 {levelLabel(loyalty.level)}
               </span>
             )}
             {client && (
-              <button type="button" className="x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); if (pay === 'credit' || pay === 'balance') setPay('cash') }}>✕</button>
+              <button type="button" className="client-x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); if (pay === 'credit' || pay === 'balance') setPay('cash') }}>✕</button>
             )}
           </div>
 
           {loyalty && (Number(loyalty.bonus) || 0) > 0 && (
-            <div className="pos-strip" style={{ background: 'rgba(255,184,0,.06)', borderColor: 'rgba(255,184,0,.2)' }}>
-              <span>🎁 Бонусов: <b style={{ color: 'var(--gd)' }}>{loyalty.bonus}</b> · доступно {maxBonus.toFixed(0)}</span>
-              <b style={{ color: usedBonus > 0 ? 'var(--gd)' : 'var(--t3)' }}>{usedBonus > 0 ? `списано ${usedBonus.toFixed(0)}` : 'не списаны'}</b>
+            <div className="tier-strip">
+              <span className="lbl">🎁 Бонусов: <b>{loyalty.bonus}</b> · доступно {maxBonus.toFixed(0)}</span>
+              <b>{usedBonus > 0 ? `списано ${usedBonus.toFixed(0)}` : 'не списаны'}</b>
             </div>
           )}
 
-          <div className="pos-strip">
-            <span>Скидка кассира: <b>{discountPct}%</b>{levelDiscPct > 0 ? ` + ${levelDiscPct}% статус` : ''}</span>
+          <div className="discount-strip">
+            <span className="lbl">Скидка кассира: <b>{discountPct}%</b>{levelDiscPct > 0 ? ` + ${levelDiscPct}% статус` : ''}</span>
             <button type="button" className="set-btn" onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>Задать</button>
           </div>
 
-          <div className="pos-items">
+          <div className="cart-items">
             {!cart.length ? (
-              <div className="pos-empty"><div style={{ fontSize: 38, opacity: 0.5, marginBottom: 8 }}>🛒</div>Чек пуст.<br />Отсканируйте или выберите товар.</div>
+              <div className="cart-empty"><div className="ic">🛒</div>Чек пуст.<br />Отсканируйте или выберите товар.</div>
             ) : cart.map(line => {
               const lt = line.weightKg != null ? line.price * line.weightKg : line.price * line.qty
               return (
-                <div key={line.key} className="pos-row">
+                <div key={line.key} className="cart-row">
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
                     <div className="name">{line.name}</div>
                     <div className="sub">
                       {line.weightKg != null
-                        ? <><span style={{ color: 'var(--pur)', fontWeight: 700 }}>⚖ {line.weightKg.toFixed(3)} кг</span> · {line.price.toFixed(2)}</>
-                        : `${line.price.toFixed(2)} × ${line.qty}`}
+                        ? <><span className="w">{line.weightKg.toFixed(3)} кг</span> · {line.price.toFixed(2)} SM/{line.unit}</>
+                        : `${line.price.toFixed(2)} SM × ${line.qty}`}
                     </div>
                   </div>
                   {line.weightKg == null && (
-                    <div className="pos-qty">
+                    <div className="qtyctrl">
                       <button type="button" onClick={() => setQty(line.key, line.qty - 1)}>−</button>
                       <span>{line.qty}</span>
                       <button type="button" onClick={() => setQty(line.key, line.qty + 1)}>+</button>
@@ -843,63 +735,63 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
             })}
           </div>
 
-          <div className="pos-totals">
-            <div className="pos-tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
-            {discAmount > 0 && <div className="pos-tot-row" style={{ color: 'var(--red)' }}><span>Скидка</span><span>−{discAmount.toFixed(2)}</span></div>}
-            {usedBonus > 0 && <div className="pos-tot-row" style={{ color: 'var(--red)' }}><span>Бонусы</span><span>−{usedBonus.toFixed(2)}</span></div>}
-            <div className="pos-tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} SM</span></div>
+          <div className="cart-totals">
+            <div className="tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
+            {discAmount > 0 && <div className="tot-row disc"><span>Скидка</span><span>−{discAmount.toFixed(2)}</span></div>}
+            {usedBonus > 0 && <div className="tot-row disc"><span>Списано бонусами</span><span>−{usedBonus.toFixed(2)}</span></div>}
+            <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} SM</span></div>
           </div>
 
-          <div className="pos-actions">
-            <button type="button" className="pos-chip disc" onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>
-              <span className="iw">🏷</span><span>Скидка</span>
+          <div className="action-row">
+            <button type="button" className="action-chip ac-discount" onClick={() => { setDiscBuf(String(discountPct || '')); setDiscOpen(true) }}>
+              <span className="ic-wrap">🏷</span><span>Скидка</span>
             </button>
-            <button type="button" className="pos-chip bonus" onClick={() => {
+            <button type="button" className="action-chip ac-bonus" onClick={() => {
               if (!client) { setClientOpen(true); return }
               if (!maxBonus) { showToast('Нет бонусов', 'У клиента нет бонусов'); return }
               setBonusUsed(v => v > 0 ? 0 : maxBonus)
             }}>
-              <span className="iw">🎁</span><span>Бонусы</span>
+              <span className="ic-wrap">🎁</span><span>Бонусы</span>
             </button>
-            <button type="button" className="pos-chip hold" onClick={() => {
+            <button type="button" className="action-chip ac-hold" onClick={() => {
               if (!cart.length) { showToast('Чек пуст', 'Добавьте товары'); return }
               showToast('Отложено', 'Чек сохранён локально — скоро')
             }}>
-              <span className="iw">⏸</span><span>Отложить</span>
+              <span className="ic-wrap">📥</span><span>Отложить</span>
             </button>
           </div>
-
-          <div className="pos-actions2">
+          <div className="action-row2">
             <button
               type="button"
-              className={`pos-out ${pay === 'credit' ? 'on' : ''}`}
+              className={`action-out ${pay === 'credit' ? 'on' : ''}`}
               onClick={() => {
                 if (pay === 'credit') { setPay('cash'); return }
                 setPay('credit')
                 if (!client) setClientOpen(true)
               }}
             >📝 В долг</button>
-            <button type="button" className="pos-out" onClick={() => showToast('Обмен', 'Функция обмена скоро')}>🔄 Обмен</button>
-            <button type="button" className="pos-out" onClick={() => {
+            <button type="button" className="action-out" onClick={() => showToast('Обмен', 'Функция обмена скоро')}>🔄 Обмен</button>
+            <button type="button" className="action-out" onClick={() => {
               if (!client) setClientOpen(true)
               else { setTopupBuf(''); setTopupOpen(true) }
             }}>💰 Пополнить</button>
           </div>
-
-          <div className="pos-links">
+          <div className="link-row">
             <button type="button" onClick={clearCart}>Очистить чек</button>
+            <span style={{ color: 'var(--border2)' }}>·</span>
+            <button type="button" onClick={() => showToast('История', 'История чеков смены — скоро')}>История</button>
           </div>
 
-          <div className="pos-pay">
-            <button type="button" className={`pos-pay-btn pos-pay-cash ${pay === 'cash' ? 'on' : ''}`} onClick={() => setPay('cash')}>
+          <div className="pay-grid">
+            <button type="button" className={`pay-btn pay-cash ${pay === 'cash' ? 'on' : ''}`} onClick={() => setPay('cash')}>
               <span className="ic">💵</span>Наличные
             </button>
-            <button type="button" className={`pos-pay-btn pos-pay-card ${pay === 'card' ? 'on' : ''}`} onClick={() => setPay('card')}>
+            <button type="button" className={`pay-btn pay-card ${pay === 'card' ? 'on' : ''}`} onClick={() => setPay('card')}>
               <span className="ic">💳</span>Карта
             </button>
             <button
               type="button"
-              className={`pos-pay-btn pos-pay-balance ${pay === 'balance' ? 'on' : ''} ${!client ? 'disabled' : ''}`}
+              className={`pay-btn pay-balance ${pay === 'balance' ? 'on' : ''} ${!client ? 'disabled' : ''}`}
               onClick={() => {
                 if (!client) { setClientOpen(true); return }
                 setPay('balance')
@@ -908,14 +800,13 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
             >
               <span className="ic">👛</span>Баланс
             </button>
-            <button type="button" className={`pos-pay-btn pos-pay-qr ${pay === 'qr' ? 'on' : ''}`} onClick={() => setPay('qr')}>
+            <button type="button" className={`pay-btn pay-qr ${pay === 'qr' ? 'on' : ''}`} onClick={() => setPay('qr')}>
               <span className="ic">📱</span>QR
             </button>
           </div>
-
           <button
             type="button"
-            className="pos-checkout"
+            className="btn-checkout"
             disabled={!cart.length || busy || ((pay === 'credit' || pay === 'balance') && !client)}
             onClick={startPay}
           >
@@ -925,12 +816,12 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
       </div>
 
       {scaleProduct && (
-        <div className="pos-overlay">
-          <div className="pos-modal" style={{ textAlign: 'center' }}>
+        <div className="overlay">
+          <div className="modal-card" style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 40, marginBottom: 8 }}>{scaleProduct.e || '📦'}</div>
             <h3>{scaleProduct.name}</h3>
             <p style={{ fontSize: 11.5, color: 'var(--t2)', marginBottom: 16 }}>Взвешивание на весах…</p>
-            <div className="pos-kp-display">
+            <div className="kp-display">
               <div className="val" style={{ color: 'var(--accent)' }}>{scaleWeight.toFixed(3)}</div>
               <div className="lbl">КГ</div>
               <div style={{ fontFamily: 'JetBrains Mono', fontSize: 20, fontWeight: 900, color: 'var(--gd)', marginTop: 8 }}>
@@ -942,15 +833,15 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
       )}
 
       {clientOpen && (
-        <div className="pos-overlay" onClick={() => setClientOpen(false)}>
-          <div className="pos-modal" onClick={e => e.stopPropagation()}>
+        <div className="overlay" onClick={() => setClientOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>👤 Выбор клиента</h3>
-            <input className="pos-modal-input" value={clientQ} onChange={e => setClientQ(e.target.value)} placeholder="Телефон, карта или имя…" autoFocus />
+            <input className="modal-card-input" value={clientQ} onChange={e => setClientQ(e.target.value)} placeholder="Телефон, карта или имя…" autoFocus />
             <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
               {clientHits.map(c => {
                 const sum = loyaltySummaryForClient(c, cards)
                 return (
-                  <button key={c.id} type="button" className={`pos-client-hit ${clientPick?.id === c.id ? 'on' : ''}`} onClick={() => setClientPick(c)}>
+                  <button key={c.id} type="button" className={`client-result ${clientPick?.id === c.id ? 'on' : ''}`} onClick={() => setClientPick(c)}>
                     <div className="av">{initialsOf(c.name)}</div>
                     <div>
                       <b style={{ fontSize: 12.5, display: 'block' }}>{c.name}</b>
@@ -963,42 +854,42 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
                 <div style={{ fontSize: 11, color: 'var(--t3)', padding: 8 }}>Клиент не найден</div>
               )}
             </div>
-            <div className="pos-modal-actions">
-              <button type="button" className="pos-btn-cancel" onClick={() => setClientOpen(false)}>Отмена</button>
-              <button type="button" className="pos-btn-ok" disabled={!clientPick} onClick={() => { setClient(clientPick); setBonusUsed(0); setClientOpen(false) }}>Выбрать</button>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setClientOpen(false)}>Отмена</button>
+              <button type="button" className="btn-confirm" disabled={!clientPick} onClick={() => { setClient(clientPick); setBonusUsed(0); setClientOpen(false) }}>Выбрать</button>
             </div>
           </div>
         </div>
       )}
 
       {discOpen && (
-        <div className="pos-overlay" onClick={() => setDiscOpen(false)}>
-          <div className="pos-modal" onClick={e => e.stopPropagation()}>
+        <div className="overlay" onClick={() => setDiscOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>🏷 Скидка на чек</h3>
-            <div className="pos-kp-display"><div className="lbl">СКИДКА, %</div><div className="val">{discBuf || '0'}</div></div>
-            <div className="pos-quick">
+            <div className="kp-display"><div className="lbl">СКИДКА, %</div><div className="val">{discBuf || '0'}</div></div>
+            <div className="kp-quick">
               {[0, 5, 10, 15].map(v => <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>)}
             </div>
             <Keypad onDigit={k => setDiscBuf(b => appendDigit(b, k, 3))} onBack={() => setDiscBuf(b => b.slice(0, -1))} />
-            <div className="pos-modal-actions">
-              <button type="button" className="pos-btn-cancel" onClick={() => setDiscOpen(false)}>Отмена</button>
-              <button type="button" className="pos-btn-ok" onClick={() => { setDiscountPct(Math.min(90, Number(discBuf) || 0)); setDiscOpen(false) }}>Применить</button>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setDiscOpen(false)}>Отмена</button>
+              <button type="button" className="btn-confirm" onClick={() => { setDiscountPct(Math.min(90, Number(discBuf) || 0)); setDiscOpen(false) }}>Применить</button>
             </div>
           </div>
         </div>
       )}
 
       {manualOpen && (
-        <div className="pos-overlay" onClick={() => setManualOpen(false)}>
-          <div className="pos-modal" onClick={e => e.stopPropagation()}>
+        <div className="overlay" onClick={() => setManualOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>🔢 Товар без штрихкода</h3>
-            <div className="pos-kp-display"><div className="lbl">СУММА</div><div className="val">{(Number(manualBuf) || 0).toFixed(2)} сом</div></div>
+            <div className="kp-display"><div className="lbl">СУММА</div><div className="val">{(Number(manualBuf) || 0).toFixed(2)} сом</div></div>
             <Keypad onDigit={k => setManualBuf(b => appendDigit(b, k))} onBack={() => setManualBuf(b => b.slice(0, -1))} />
-            <div className="pos-modal-actions">
-              <button type="button" className="pos-btn-cancel" onClick={() => setManualOpen(false)}>Отмена</button>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setManualOpen(false)}>Отмена</button>
               <button
                 type="button"
-                className="pos-btn-ok"
+                className="btn-confirm"
                 disabled={!(Number(manualBuf) > 0)}
                 onClick={() => {
                   const price = Number(manualBuf) || 0
@@ -1014,76 +905,76 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
       )}
 
       {cashOpen && (
-        <div className="pos-overlay" onClick={() => !busy && setCashOpen(false)}>
-          <div className="pos-modal" onClick={e => e.stopPropagation()}>
+        <div className="overlay" onClick={() => !busy && setCashOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>💵 Оплата наличными</h3>
-            <div className="pos-kp-display">
+            <div className="kp-display">
               <div className="lbl">К ОПЛАТЕ: {total.toFixed(2)} сом</div>
               <div className="val">{cashReceived.toFixed(2)}</div>
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                 <span>Сдача</span>
-                <b className="pos-mono" style={{ color: cashChange < 0 ? 'var(--red)' : 'var(--gd)' }}>{cashChange.toFixed(2)} сом</b>
+                <b className="mono" style={{ color: cashChange < 0 ? 'var(--red)' : 'var(--gd)' }}>{cashChange.toFixed(2)} сом</b>
               </div>
             </div>
-            <div className="pos-quick">
+            <div className="kp-quick">
               {[total, Math.ceil(total / 10) * 10, Math.ceil(total / 50) * 50, Math.ceil(total / 100) * 100].map((v, i) => (
                 <button key={i} type="button" onClick={() => setCashBuf(String(Math.round(v)))}>{Math.round(v)}</button>
               ))}
             </div>
             <Keypad onDigit={k => setCashBuf(b => appendDigit(b, k))} onBack={() => setCashBuf(b => b.slice(0, -1))} />
             {msg && <div className="pos-err">{msg}</div>}
-            <div className="pos-modal-actions">
-              <button type="button" className="pos-btn-cancel" disabled={busy} onClick={() => setCashOpen(false)}>Отмена</button>
-              <button type="button" className="pos-btn-ok" disabled={busy || cashReceived < total - 0.001} onClick={() => void submitSale(cashReceived)}>Подтвердить</button>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" disabled={busy} onClick={() => setCashOpen(false)}>Отмена</button>
+              <button type="button" className="btn-confirm" disabled={busy || cashReceived < total - 0.001} onClick={() => void submitSale(cashReceived)}>Подтвердить</button>
             </div>
           </div>
         </div>
       )}
 
       {topupOpen && client && (
-        <div className="pos-overlay" onClick={() => !busy && setTopupOpen(false)}>
-          <div className="pos-modal" onClick={e => e.stopPropagation()}>
+        <div className="overlay" onClick={() => !busy && setTopupOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>💰 Наличные → бонусы</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b></div>
-            <div className="pos-kp-display"><div className="lbl">СУММА НАЛИЧНЫХ</div><div className="val">{topupCash.toFixed(2)} сом</div></div>
+            <div className="kp-display"><div className="lbl">СУММА НАЛИЧНЫХ</div><div className="val">{topupCash.toFixed(2)} сом</div></div>
             <Keypad onDigit={k => setTopupBuf(b => appendDigit(b, k))} onBack={() => setTopupBuf(b => b.slice(0, -1))} />
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено</span><b className="pos-mono">{topupCash.toFixed(2)}</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус</span><b className="pos-mono">+{topupBonus}</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено</span><b className="mono">{topupCash.toFixed(2)}</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус</span><b className="mono">+{topupBonus}</b></div>
             </div>
-            <div className="pos-modal-actions">
-              <button type="button" className="pos-btn-cancel" onClick={() => setTopupOpen(false)}>Отмена</button>
-              <button type="button" className="pos-btn-ok" disabled={busy || topupCash <= 0 || topupBonus <= 0} onClick={() => void submitTopup()}>Начислить</button>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setTopupOpen(false)}>Отмена</button>
+              <button type="button" className="btn-confirm" disabled={busy || topupCash <= 0 || topupBonus <= 0} onClick={() => void submitTopup()}>Начислить</button>
             </div>
           </div>
         </div>
       )}
 
       {zOpen && (
-        <div className="pos-overlay" onClick={() => !busy && setZOpen(false)}>
-          <div className="pos-modal wide" onClick={e => e.stopPropagation()}>
+        <div className="overlay" onClick={() => !busy && setZOpen(false)}>
+          <div className="modal-card wide-card" onClick={e => e.stopPropagation()}>
             <h3>📊 Закрытие смены</h3>
-            <div className="pos-z-grid">
-              <div className="pos-z-stat"><div className="l">Продаж</div><div className="v">{activeShift.salesCount}</div></div>
-              <div className="pos-z-stat"><div className="l">Старт кассы</div><div className="v" style={{ color: 'var(--gd)' }}>{fmtMoney(activeShift.openingCash)}</div></div>
-              <div className="pos-z-stat"><div className="l">Наличные</div><div className="v" style={{ color: 'var(--accent)' }}>{fmtMoney(activeShift.salesCash)}</div></div>
-              <div className="pos-z-stat"><div className="l">Карта</div><div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(activeShift.salesCard)}</div></div>
-              <div className="pos-z-stat"><div className="l">В долг</div><div className="v" style={{ color: 'var(--org)' }}>{fmtMoney(activeShift.salesCredit)}</div></div>
-              <div className="pos-z-stat"><div className="l">Ожид. в кассе</div><div className="v">{fmtMoney(activeShift.openingCash + activeShift.salesCash)}</div></div>
+            <div className="z-grid">
+              <div className="z-stat"><div className="l">Продаж</div><div className="v">{activeShift.salesCount}</div></div>
+              <div className="z-stat"><div className="l">Старт кассы</div><div className="v" style={{ color: 'var(--gd)' }}>{fmtMoney(activeShift.openingCash)}</div></div>
+              <div className="z-stat"><div className="l">Наличные</div><div className="v" style={{ color: 'var(--accent)' }}>{fmtMoney(activeShift.salesCash)}</div></div>
+              <div className="z-stat"><div className="l">Карта</div><div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(activeShift.salesCard)}</div></div>
+              <div className="z-stat"><div className="l">В долг</div><div className="v" style={{ color: 'var(--org)' }}>{fmtMoney(activeShift.salesCredit)}</div></div>
+              <div className="z-stat"><div className="l">Ожид. в кассе</div><div className="v">{fmtMoney(activeShift.openingCash + activeShift.salesCash)}</div></div>
             </div>
             <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: 8 }}>Наличные сейчас в кассе</label>
-            <input className="pos-modal-input" value={closingCash} onChange={e => setClosingCash(sanitizeDecimalInput(e.target.value))} inputMode="decimal" placeholder="0.00" />
+            <input className="modal-card-input" value={closingCash} onChange={e => setClosingCash(sanitizeDecimalInput(e.target.value))} inputMode="decimal" placeholder="0.00" />
             {msg && <div className="pos-err">{msg}</div>}
-            <div className="pos-modal-actions">
-              <button type="button" className="pos-btn-cancel" disabled={busy} onClick={() => setZOpen(false)}>Отмена</button>
-              <button type="button" className="pos-btn-ok" disabled={busy} onClick={() => void closeShift()}>Закрыть смену</button>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" disabled={busy} onClick={() => setZOpen(false)}>Отмена</button>
+              <button type="button" className="btn-confirm" disabled={busy} onClick={() => void closeShift()}>Закрыть смену</button>
             </div>
           </div>
         </div>
       )}
 
       {toast && (
-        <div className="pos-toast">
+        <div className="toast">
           <div style={{ width: 34, height: 34, borderRadius: 11, background: 'rgba(31,215,96,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔔</div>
           <div><b style={{ fontSize: 13, display: 'block' }}>{toast.title}</b><span style={{ fontSize: 10.5, color: 'var(--t2)' }}>{toast.sub}</span></div>
         </div>
