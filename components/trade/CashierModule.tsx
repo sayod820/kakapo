@@ -241,7 +241,7 @@ export default function CashierModule({
     title: string
     sub: string
     amount: number
-    tone: 'sale' | 'credit' | 'repay' | 'topup'
+    tone: 'sale' | 'credit' | 'repay' | 'topup' | 'debt'
   }
 
   const clientHistory = useMemo(() => {
@@ -277,24 +277,35 @@ export default function CashierModule({
     }
     if (client.phone) {
       for (const h of loadDebtHistory(client.phone)) {
-        if (h.type !== 'pay') continue
-        rows.push({
-          id: `repay-${h.id}`,
-          ts: h.ts || 0,
-          when: `${h.date}${h.time ? ` · ${h.time}` : ''}`,
-          title: 'Погашение долга',
-          sub: h.desc || 'Погашение',
-          amount: Number(h.amount) || 0,
-          tone: 'repay',
-        })
+        if (h.type === 'pay') {
+          rows.push({
+            id: `repay-${h.id}`,
+            ts: h.ts || 0,
+            when: `${h.date}${h.time ? ` · ${h.time}` : ''}`,
+            title: 'Погашение долга',
+            sub: h.desc || 'Погашение',
+            amount: Number(h.amount) || 0,
+            tone: 'repay',
+          })
+        } else {
+          rows.push({
+            id: `debt-${h.id}`,
+            ts: h.ts || 0,
+            when: `${h.date}${h.time ? ` · ${h.time}` : ''}`,
+            title: 'Начисление долга',
+            sub: h.desc || h.itemsSummary || 'Долг',
+            amount: Math.abs(Number(h.amount) || 0),
+            tone: 'debt',
+          })
+        }
       }
       for (const t of loadBalanceTopups(client.phone)) {
         rows.push({
           id: `topup-${t.id}`,
           ts: t.ts || 0,
           when: `${t.date}${t.time ? ` · ${t.time}` : ''}`,
-          title: 'Пополнение баланса',
-          sub: t.bonus > 0 ? `+${t.bonus} ⭐ бонус` : 'Без бонуса',
+          title: 'Начисление наличными',
+          sub: t.bonus > 0 ? `+${t.bonus} ⭐ бонус на карту` : 'Без бонуса',
           amount: Number(t.cash) || 0,
           tone: 'topup',
         })
@@ -302,6 +313,27 @@ export default function CashierModule({
     }
     return rows.sort((a, b) => b.ts - a.ts).slice(0, 80)
   }, [client, sales, histTick])
+
+  const clientProfileStats = useMemo(() => {
+    void histTick
+    const bonus = Number(loyalty?.bonus) || 0
+    let topupCash = 0
+    let topupBonus = 0
+    let repaid = 0
+    let charged = 0
+    if (client?.phone) {
+      for (const t of loadBalanceTopups(client.phone)) {
+        topupCash += Number(t.cash) || 0
+        topupBonus += Number(t.bonus) || 0
+      }
+      for (const h of loadDebtHistory(client.phone)) {
+        if (h.type === 'pay') repaid += Number(h.amount) || 0
+        else charged += Math.abs(Number(h.amount) || 0)
+      }
+    }
+    const creditSales = clientHistory.filter(r => r.tone === 'credit').length
+    return { bonus, topupCash, topupBonus, repaid, charged, creditSales }
+  }, [client, loyalty, histTick, clientHistory])
 
   const subtotal = useMemo(() => cart.reduce((s, l) => s + (l.weightKg != null ? l.price * l.weightKg : l.price * l.qty), 0), [cart])
   const levelDiscPct = useMemo(() => {
@@ -770,20 +802,23 @@ export default function CashierModule({
         </div>
 
         <div className="cart">
-          <div className={`client-card ${client ? 'set' : ''}`} onClick={() => { setClientQ(''); setClientPick(client); setClientOpen(true) }}>
+          <div
+            className={`client-card ${client ? 'set' : ''}`}
+            onClick={() => {
+              if (client) {
+                setHistOpen(true)
+                return
+              }
+              setClientQ('')
+              setClientPick(null)
+              setClientOpen(true)
+            }}
+          >
             <div className="client-av">{client ? initialsOf(client.name) : '👤'}</div>
             <div className="client-info">
               <div className="nm-row">
                 <div className="nm">{client?.name || 'Гость'}</div>
-                {client && (
-                  <button
-                    type="button"
-                    className="client-hist-link"
-                    onClick={e => { e.stopPropagation(); setHistOpen(true) }}
-                  >
-                    История
-                  </button>
-                )}
+                {client && <span className="client-hist-link">Подробнее</span>}
               </div>
               <div className="ph">{client ? client.phone : 'Нажмите чтобы выбрать клиента'}</div>
               {client && loyalty && (
@@ -1106,11 +1141,76 @@ export default function CashierModule({
         </div>
       )}
 
-      {histOpen && client && (
+      {histOpen && client && loyalty && (
         <div className="overlay" onClick={() => setHistOpen(false)}>
           <div className="modal-card hist-card" onClick={e => e.stopPropagation()}>
-            <h3>История · {client.name}</h3>
-            <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>Чеки, погашения долга и пополнения баланса</div>
+            <h3>👤 {client.name}</h3>
+            <div className="client-profile-meta">
+              <span>{client.phone || 'без телефона'}</span>
+              <span>·</span>
+              <span>{client.card || 'без карты'}</span>
+              <span>·</span>
+              <span style={{ color: CLIENT_LEVEL_COLORS[loyalty.level] }}>{levelLabel(loyalty.level)}</span>
+            </div>
+
+            <div className="client-kpis">
+              <div className="client-kpi">
+                <div className="l">Бонусы</div>
+                <div className="v" style={{ color: 'var(--gd)' }}>⭐ {clientProfileStats.bonus}</div>
+              </div>
+              <div className="client-kpi">
+                <div className="l">Долг сейчас</div>
+                <div className="v" style={{ color: clientDebt > 0 ? 'var(--org)' : 'var(--t2)' }}>{fmtMoney(clientDebt)}</div>
+              </div>
+              <div className="client-kpi">
+                <div className="l">Лимит / доступно</div>
+                <div className="v">{debtLimit > 0 ? fmtMoney(availableDebt) : '—'}</div>
+              </div>
+              <div className="client-kpi">
+                <div className="l">Наличные → бонусы</div>
+                <div className="v" style={{ color: 'var(--accent)' }}>
+                  {fmtMoney(clientProfileStats.topupCash)}
+                  <span className="sub">+{clientProfileStats.topupBonus} ⭐</span>
+                </div>
+              </div>
+              <div className="client-kpi">
+                <div className="l">Погашено долга</div>
+                <div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(clientProfileStats.repaid)}</div>
+              </div>
+              <div className="client-kpi">
+                <div className="l">Чеков в долг</div>
+                <div className="v">{clientProfileStats.creditSales}</div>
+              </div>
+            </div>
+
+            <div className="client-profile-actions">
+              <button
+                type="button"
+                className="action-chip ac-repay"
+                onClick={() => {
+                  setHistOpen(false)
+                  if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
+                  setRepayBuf('')
+                  setRepayMethod('cash')
+                  setRepayOpen(true)
+                }}
+              >
+                <span className="ic-wrap">💳</span><span>Погасить долг</span>
+              </button>
+              <button
+                type="button"
+                className="action-chip ac-topup"
+                onClick={() => {
+                  setHistOpen(false)
+                  setTopupBuf('')
+                  setTopupOpen(true)
+                }}
+              >
+                <span className="ic-wrap">💰</span><span>Пополнить</span>
+              </button>
+            </div>
+
+            <div className="ops-lbl" style={{ margin: '4px 0 8px' }}>История: долги · бонусы · наличные</div>
             <div className="hist-list">
               {!clientHistory.length && (
                 <div style={{ fontSize: 12, color: 'var(--t3)', padding: '20px 8px', textAlign: 'center' }}>Пока нет операций</div>
@@ -1127,7 +1227,19 @@ export default function CashierModule({
               ))}
             </div>
             <div className="modal-card-actions" style={{ marginTop: 12 }}>
-              <button type="button" className="btn-cancel" onClick={() => setHistOpen(false)}>Закрыть</button>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => {
+                  setHistOpen(false)
+                  setClientQ('')
+                  setClientPick(client)
+                  setClientOpen(true)
+                }}
+              >
+                Сменить
+              </button>
+              <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
             </div>
           </div>
         </div>

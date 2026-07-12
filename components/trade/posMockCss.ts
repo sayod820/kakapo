@@ -116,13 +116,21 @@ export const POS_MOCK_CSS = `
   .client-info{flex:1;min-width:0;}
   .client-info .nm-row{display:flex;align-items:center;gap:8px;min-width:0;}
   .client-info .nm{font-size:12.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .pos-root button.client-hist-link{flex-shrink:0;font-size:10px;font-weight:800;color:var(--blue);padding:2px 0;background:transparent;border:none;}
-  .pos-root button.client-hist-link:hover{color:var(--accent);text-decoration:underline;}
+  .pos-root button.client-hist-link,.client-hist-link{flex-shrink:0;font-size:10px;font-weight:800;color:var(--blue);padding:2px 0;background:transparent;border:none;}
+  .client-card:hover .client-hist-link{color:var(--accent);text-decoration:underline;}
   .client-info .ph{font-size:10px;color:var(--t2);}
   .client-tier{padding:3px 9px;border-radius:8px;font-size:9.5px;font-weight:800;flex-shrink:0;}
   .client-bonus{font-size:9.5px;color:var(--gd);font-weight:700;margin-top:2px;}
   .pos-root button.client-x{width:22px;height:22px;border-radius:7px;color:var(--t3);font-size:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
   .pos-root button.client-x:hover{background:rgba(255,69,69,.12);color:var(--red);}
+
+  .client-profile-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11px;color:var(--t2);margin:-4px 0 12px;}
+  .client-kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+  .client-kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 11px;}
+  .client-kpi .l{font-size:9.5px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;}
+  .client-kpi .v{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:900;color:var(--t1);line-height:1.2;}
+  .client-kpi .v .sub{display:block;font-size:10px;font-weight:700;color:var(--gd);margin-top:2px;font-family:'Nunito',sans-serif;}
+  .client-profile-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
 
   .tier-strip{margin:10px 14px 0;padding:9px 12px;border-radius:13px;background:rgba(255,184,0,.06);border:1px solid rgba(255,184,0,.2);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-size:11px;}
   .tier-strip .lbl{color:var(--t2);}
@@ -209,10 +217,10 @@ export const POS_MOCK_CSS = `
   .pos-root button.repay-m{padding:10px;border-radius:12px;font-size:12px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);}
   .pos-root button.repay-m.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--gd);}
 
-  .modal-card.hist-card{width:400px;max-height:min(78vh,640px);display:flex;flex-direction:column;}
-  .hist-list{flex:1;overflow-y:auto;max-height:420px;margin:0 -4px;padding:0 4px;}
+  .modal-card.hist-card{width:420px;max-height:min(82vh,700px);display:flex;flex-direction:column;}
+  .hist-list{flex:1;overflow-y:auto;max-height:280px;margin:0 -4px;padding:0 4px;}
   .hist-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 10px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);margin-bottom:8px;}
-  .hist-row.tone-credit{border-color:rgba(234,88,12,.35);background:rgba(234,88,12,.08);}
+  .hist-row.tone-credit,.hist-row.tone-debt{border-color:rgba(234,88,12,.35);background:rgba(234,88,12,.08);}
   .hist-row.tone-repay{border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.08);}
   .hist-row.tone-topup{border-color:rgba(31,215,96,.3);background:rgba(31,215,96,.08);}
   .hist-main{min-width:0;display:flex;flex-direction:column;gap:2px;}
@@ -220,7 +228,7 @@ export const POS_MOCK_CSS = `
   .hist-when{font-size:10px;color:var(--t3);}
   .hist-sub{font-size:10.5px;color:var(--t2);}
   .hist-amt{font-family:'JetBrains Mono';font-size:13px;font-weight:900;color:var(--gd);flex-shrink:0;}
-  .hist-row.tone-credit .hist-amt{color:var(--org);}
+  .hist-row.tone-credit .hist-amt,.hist-row.tone-debt .hist-amt{color:var(--org);}
   .hist-row.tone-repay .hist-amt{color:var(--blue);}
 
   .pos-root button.btn-checkout{margin:0 14px 12px;padding:12px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:13.5px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 16px rgba(31,215,96,.22);}
