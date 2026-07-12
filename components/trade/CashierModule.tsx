@@ -438,7 +438,6 @@ export default function CashierModule({
   const maxBonus = loyalty ? Math.min(Number(loyalty.bonus) || 0, afterDisc) : 0
   const usedBonus = Math.min(bonusUsed, maxBonus)
   const total = Math.max(0, afterDisc - usedBonus)
-  const totalDiscAmount = itemDiscAmount + discAmount + usedBonus
 
   function showToast(title: string, sub: string) {
     setToast({ title, sub })
@@ -1179,18 +1178,11 @@ export default function CashierModule({
           <div className="cart-totals">
             <div className="tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
             <div className="tot-row"><span>Сумма</span><span>{subtotalGross.toFixed(2)}</span></div>
-            <div className={`tot-row disc ${itemDiscAmount > 0 ? '' : 'muted'}`}>
-              <span>Скидка по товарам</span>
-              <span>−{itemDiscAmount.toFixed(2)}</span>
-            </div>
-            <div className={`tot-row disc ${discAmount > 0 ? '' : 'muted'}`}>
-              <span>Скидка на всё{checkDiscPct > 0 ? ` ${checkDiscPct}%` : ''}</span>
-              <span>−{discAmount.toFixed(2)}</span>
+            <div className={`tot-row disc ${itemDiscAmount + discAmount > 0 ? '' : 'muted'}`}>
+              <span>Скидки</span>
+              <span>−{(itemDiscAmount + discAmount).toFixed(2)}</span>
             </div>
             {usedBonus > 0 && <div className="tot-row disc"><span>Списано бонусами</span><span>−{usedBonus.toFixed(2)}</span></div>}
-            {totalDiscAmount > 0 && (
-              <div className="tot-row disc"><span>Всего скидка</span><span>−{totalDiscAmount.toFixed(2)}</span></div>
-            )}
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
 

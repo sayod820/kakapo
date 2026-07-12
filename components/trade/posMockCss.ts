@@ -230,9 +230,9 @@ export const POS_MOCK_CSS = `
   .tot-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--t2);margin-bottom:6px;}
   .tot-row.disc span:last-child{color:var(--red);}
   .tot-row.disc.muted{opacity:.55;}
-  .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:10px;margin-top:4px;border-top:1px dashed var(--border);}
-  .tot-final b{font-family:'Unbounded';font-size:14px;}
-  .tot-final .sum{font-family:'JetBrains Mono';font-size:28px;font-weight:900;color:var(--accent);}
+  .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:12px;margin-top:6px;border-top:1px dashed var(--border);gap:12px;}
+  .tot-final b{font-family:'Unbounded';font-size:18px;font-weight:800;}
+  .tot-final .sum{font-family:'JetBrains Mono';font-size:40px;font-weight:900;color:var(--accent);letter-spacing:-.5px;line-height:1;}
 
   .ops-block{padding:0 14px 8px;flex-shrink:0;}
   .ops-block.ops-client{margin:0 14px 8px;padding:10px 10px 8px;border-radius:14px;background:rgba(255,140,0,.05);border:1px solid rgba(255,140,0,.18);}
