@@ -143,6 +143,23 @@ function Keypad({ onDigit, onBack }: { onDigit: (k: string) => void; onBack: () 
   )
 }
 
+function QrIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="3" y="3" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="14" y="3" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="3" y="14" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="5.2" y="5.2" width="2.6" height="2.6" fill="currentColor" rx="0.4" />
+      <rect x="16.2" y="5.2" width="2.6" height="2.6" fill="currentColor" rx="0.4" />
+      <rect x="5.2" y="16.2" width="2.6" height="2.6" fill="currentColor" rx="0.4" />
+      <rect x="14" y="14" width="2.2" height="2.2" fill="currentColor" rx="0.3" />
+      <rect x="18.5" y="14" width="2.5" height="2.5" fill="currentColor" rx="0.3" />
+      <rect x="14" y="18.5" width="2.5" height="2.5" fill="currentColor" rx="0.3" />
+      <rect x="17.2" y="17.2" width="1.6" height="1.6" fill="currentColor" rx="0.2" />
+    </svg>
+  )
+}
+
 function TopMetaClock() {
   const [now, setNow] = useState<Date | null>(null)
   useEffect(() => {
@@ -1060,7 +1077,8 @@ export default function CashierModule({
                 setClientScanOpen(true)
               }}
             >
-              ⌗ QR
+              <QrIcon size={15} />
+              <span>QR</span>
             </button>
             {client && loyalty && (
               <span className="client-tier" style={{ background: `${CLIENT_LEVEL_COLORS[loyalty.level]}22`, color: CLIENT_LEVEL_COLORS[loyalty.level] }}>
@@ -1440,7 +1458,8 @@ export default function CashierModule({
                 setClientScanOpen(true)
               }}
             >
-              ⌗ Сканировать QR клиента
+              <QrIcon size={16} />
+              <span>Сканировать QR клиента</span>
             </button>
             <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
               {clientHits.map(c => {
