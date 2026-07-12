@@ -214,6 +214,7 @@ const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
     bag:     <><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></>,
     repeat:  <><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></>,
     card:    <><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></>,
+    qr:      <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="14" width="3" height="3"/><rect x="14" y="18" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></>,
     shield:  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>,
     camera:  <><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></>,
     percent: <><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></>,
@@ -2687,6 +2688,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [cardQrOpen, setCardQrOpen] = useState(false);
 
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
@@ -2876,10 +2878,27 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
           </div>
               <div style={{ fontSize:12, color:"var(--t2)", marginBottom: user.card ? 2 : 5 }}>{user.phone}</div>
               {user.card && (
-                <div style={{ fontSize:11, color:"var(--t3)", marginBottom:5, display:"flex", alignItems:"center", gap:4 }}>
-                  <Ic n="card" s={11} c="var(--t3)"/>
-                  {user.card}
-        </div>
+                <div style={{ marginBottom:5, display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ fontSize:11, color:"var(--t3)", display:"flex", alignItems:"center", gap:4, minWidth:0, flex:1, overflow:"hidden" }}>
+                    <Ic n="card" s={11} c="var(--t3)"/>
+                    <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.card}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setCardQrOpen(true)}
+                    title="QR-код карты"
+                    style={{
+                      flexShrink:0, height:30, padding:"0 10px", borderRadius:10, gap:5,
+                      background:`${profileTheme.accent}18`, border:`1px solid ${profileTheme.border}`,
+                      display:"inline-flex", alignItems:"center", justifyContent:"center",
+                      fontSize:11, fontWeight:800, color:profileTheme.accent,
+                    }}
+                  >
+                    <Ic n="qr" s={14} c={profileTheme.accent}/>
+                    QR
+                  </button>
+                </div>
               )}
               <span style={{
                 fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20, display:'inline-flex', alignItems:'center', gap:4,
@@ -2913,6 +2932,61 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
             </button>
               </div>
               </div>
+
+        {cardQrOpen && user.card && (
+          <div
+            onClick={() => setCardQrOpen(false)}
+            style={{
+              position:"fixed", inset:0, zIndex:500, background:"rgba(3,11,5,.78)", backdropFilter:"blur(6px)",
+              display:"flex", alignItems:"center", justifyContent:"center", padding:24,
+            }}
+          >
+            <div
+              className="card"
+              onClick={e => e.stopPropagation()}
+              style={{
+                width:"100%", maxWidth:320, padding:22, textAlign:"center",
+                background: profileTheme.bg, border:`1.5px solid ${profileTheme.border}`,
+                boxShadow:`0 16px 48px ${profileTheme.glow}`,
+              }}
+            >
+              <div className="ub" style={{ fontSize:15, fontWeight:900, marginBottom:6, color: profileTheme.accent }}>QR-код карты</div>
+              <div style={{ fontSize:12, color:"var(--t2)", marginBottom:16 }}>Покажите кассиру для быстрого выбора клиента</div>
+              <div style={{
+                width:220, height:220, margin:"0 auto 14px", borderRadius:18, padding:12,
+                background:"#fff", display:"flex", alignItems:"center", justifyContent:"center",
+                boxShadow:"0 8px 28px rgba(0,0,0,.35)",
+              }}>
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=196x196&margin=0&ecc=M&data=${encodeURIComponent(user.card)}`}
+                  alt={`QR ${user.card}`}
+                  width={196}
+                  height={196}
+                  style={{ display:"block", borderRadius:8 }}
+                />
+              </div>
+              <div style={{
+                fontFamily:"JetBrains Mono, monospace", fontSize:14, fontWeight:800, color:profileTheme.accent,
+                letterSpacing:".02em", marginBottom:6, wordBreak:"break-all",
+              }}>
+                {user.card}
+              </div>
+              <div style={{ fontSize:11, color:"var(--t3)", marginBottom:16 }}>{user.name}</div>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setCardQrOpen(false)}
+                style={{
+                  width:"100%", padding:13, borderRadius:14, fontWeight:800, fontSize:13,
+                  background:`linear-gradient(135deg,${profileTheme.accent},${profileTheme.accent}cc)`,
+                  color: loyalty.isVip ? "#1a1000" : "var(--bg)",
+                }}
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        )}
 
         <LoyaltyStatusCard loyalty={profileLoyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
 
