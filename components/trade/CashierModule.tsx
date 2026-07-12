@@ -680,9 +680,20 @@ export default function CashierModule({
     [clientHistory],
   )
   const histDebtsCount = histDebtOrders.length + histRepays.length
-  const histOpenDebts = useMemo(
-    () => histDebtOrders.filter(r => r.debtStatus === 'open' || r.debtStatus === 'partial').slice(0, 12),
+  const histActiveDebts = useMemo(
+    () => histDebtOrders.filter(r =>
+      (r.debtStatus === 'open' || r.debtStatus === 'partial')
+      && (r.debtRemain == null || r.debtRemain > 0.001),
+    ),
     [histDebtOrders],
+  )
+  const histPaidDebts = useMemo(
+    () => histDebtOrders.filter(r => r.debtStatus === 'paid'),
+    [histDebtOrders],
+  )
+  const histOpenDebts = useMemo(
+    () => histActiveDebts.slice(0, 12),
+    [histActiveDebts],
   )
 
   function renderHistRow(row: {
@@ -2186,9 +2197,9 @@ export default function CashierModule({
                 </div>
 
                 <div className="hist-section">
-                  <div className="hist-section-h">Чеки с долгом</div>
+                  <div className="hist-section-h">Активные долги</div>
                   <div className="hist-scroll profile">
-                    {!histOpenDebts.length && <div className="hist-empty">Нет открытых долгов по чекам</div>}
+                    {!histOpenDebts.length && <div className="hist-empty">Нет непогашенных долгов</div>}
                     <div className="hist-list compact">
                       {histOpenDebts.map(row => renderHistRow(row, { compact: true }))}
                     </div>
@@ -2276,17 +2287,25 @@ export default function CashierModule({
                       {!histDebtOrders.length && !histRepays.length && (
                         <div className="hist-empty">Долгов и погашений нет</div>
                       )}
-                      {histDebtOrders.length > 0 && (
+                      {histActiveDebts.length > 0 && (
                         <div className="hist-section">
-                          <div className="hist-section-h">Заказы в долг</div>
+                          <div className="hist-section-h">Активные (не погашены)</div>
                           <div className="hist-list compact">
-                            {histDebtOrders.map(row => renderHistRow(row))}
+                            {histActiveDebts.map(row => renderHistRow(row))}
+                          </div>
+                        </div>
+                      )}
+                      {histPaidDebts.length > 0 && (
+                        <div className="hist-section">
+                          <div className="hist-section-h">Погашенные заказы</div>
+                          <div className="hist-list compact">
+                            {histPaidDebts.map(row => renderHistRow(row))}
                           </div>
                         </div>
                       )}
                       {histRepays.length > 0 && (
                         <div className="hist-section">
-                          <div className="hist-section-h">История погашений</div>
+                          <div className="hist-section-h">Платежи погашения</div>
                           <div className="hist-list compact">
                             {histRepays.map(row => renderHistRow(row))}
                           </div>
