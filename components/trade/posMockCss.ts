@@ -54,7 +54,7 @@ export const POS_MOCK_CSS = `
   .btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14px;}
 
   /* ══════════ APP SHELL ══════════ */
-  .app{display:grid;grid-template-columns:220px 1fr 380px;grid-template-rows:64px 1fr;height:100%}
+  .app{display:grid;grid-template-columns:1fr minmax(340px,400px);grid-template-rows:64px 1fr;height:100%}
   
 
   /* ── SIDEBAR (full nav like reference) ── */
@@ -78,8 +78,10 @@ export const POS_MOCK_CSS = `
   .btn-switch-till:hover{border-color:var(--red);color:var(--red);}
 
   /* ── TOPBAR ── */
-  .topbar{grid-column:2/4;display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border);}
-  .searchpill{flex:1;max-width:520px;display:flex;align-items:center;gap:10px;background:var(--surface2);border:1.5px solid var(--border);border-radius:14px;padding:11px 16px;transition:border-color .2s;}
+  .topbar{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border);}
+  .btn-exit{padding:8px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:700;flex-shrink:0}
+  .btn-exit:hover{border-color:var(--red);color:var(--red)}
+  .searchpill{flex:1;max-width:none;display:flex;align-items:center;gap:10px;background:var(--surface2);border:1.5px solid var(--border);border-radius:14px;padding:11px 16px;transition:border-color .2s;}
   .searchpill.active{border-color:var(--accent);}
   .searchpill .ic{font-size:14px;color:var(--t2);}
   .searchpill input{flex:1;background:none;border:none;outline:none;font-size:13.5px;color:var(--t1);}
@@ -106,7 +108,7 @@ export const POS_MOCK_CSS = `
   .cat-pill.on{background:var(--accent);border-color:var(--accent);color:var(--bg);}
 
   .grid-wrap{flex:1;overflow-y:auto;padding:8px 20px 20px;}
-  .p-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:13px;}
+  .p-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px;}
   .p-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:16px;padding:12px;text-align:left;transition:border-color .15s,transform .1s;animation:tileIn .25s ease both;}
   .p-tile:hover{border-color:var(--accent);transform:translateY(-2px);}
   .p-tile:active{transform:translateY(0) scale(.97);}
@@ -359,11 +361,6 @@ export const POS_MOCK_CSS = `
   .doc-field .v{flex:1;font-weight:700;}
   .doc-field button{font-size:10.5px;color:var(--blue);font-weight:700;}
 
-@media(max-width:1100px){
-  .app{grid-template-columns:1fr 340px;grid-template-rows:64px 1fr}
-  .sidebar{display:none}
-  .topbar{grid-column:1/3}
-}
 @media(max-width:800px){
   .app{grid-template-columns:1fr;grid-template-rows:auto auto auto;min-height:100%;overflow:auto}
   .topbar{grid-column:1;flex-wrap:wrap;height:auto;padding:10px 12px;gap:8px}

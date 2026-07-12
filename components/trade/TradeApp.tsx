@@ -319,10 +319,7 @@ function TradeAppInner() {
     return (
       <div className="k-trade" style={{ display: 'block', minHeight: '100vh' }}>
         <style>{CSS}</style>
-        <CashierModule
-          onExit={() => goTo('products')}
-          onNavigate={p => goTo(p)}
-        />
+        <CashierModule onExit={() => goTo('products')} />
       </div>
     )
   }

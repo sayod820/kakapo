@@ -120,27 +120,7 @@ function PosClock({ variant = 'inline' }: { variant?: 'inline' | 'sidebar' }) {
   )
 }
 
-type NavTarget = 'products' | 'clients' | 'debts' | 'warehouse' | 'reports' | 'suppliers' | 'finance'
-
-const SIDE_NAV: { id: NavTarget | 'sales' | 'bonuses' | 'staff' | 'settings'; icon: string; label: string }[] = [
-  { id: 'sales', icon: '🧾', label: 'Касса' },
-  { id: 'products', icon: '📦', label: 'Товары' },
-  { id: 'clients', icon: '👥', label: 'Клиенты' },
-  { id: 'bonuses', icon: '🎁', label: 'Бонусы' },
-  { id: 'debts', icon: '💳', label: 'Долги' },
-  { id: 'warehouse', icon: '🏬', label: 'Склад' },
-  { id: 'reports', icon: '📈', label: 'Отчёты' },
-  { id: 'staff', icon: '👤', label: 'Сотрудники' },
-  { id: 'settings', icon: '⚙️', label: 'Настройки' },
-]
-
-export default function CashierModule({
-  onExit,
-  onNavigate,
-}: {
-  onExit?: () => void
-  onNavigate?: (page: NavTarget) => void
-}) {
+export default function CashierModule({ onExit }: { onExit?: () => void }) {
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const clients = useClientStore(s => s.clients)
@@ -490,21 +470,6 @@ export default function CashierModule({
     }
   }
 
-  function goNav(id: typeof SIDE_NAV[number]['id']) {
-    if (id === 'sales') return
-    if (id === 'bonuses') {
-      if (onNavigate) onNavigate('clients')
-      else showToast('Бонусы', 'Откройте раздел Клиенты')
-      return
-    }
-    if (id === 'staff' || id === 'settings') {
-      showToast(id === 'staff' ? 'Сотрудники' : 'Настройки', 'Раздел скоро')
-      return
-    }
-    if (onNavigate) onNavigate(id)
-    else if (onExit) onExit()
-  }
-
   // ─── Gate ───
   if (!activeShift) {
     return (
@@ -567,34 +532,6 @@ export default function CashierModule({
     <div className="pos-root" data-theme={theme}>
       <style>{POS_MOCK_CSS}</style>
       <div className="app">
-        <div className="sidebar">
-          <div className="sb-brand"><div className="sb-logo">K</div><b>KAKAPO</b></div>
-          <div className="sb-nav">
-            {SIDE_NAV.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                className={`sb-item ${item.id === 'sales' ? 'on' : ''}`}
-                onClick={() => goNav(item.id)}
-              >
-                <span className="ic">{item.icon}</span>{item.label}
-              </button>
-            ))}
-          </div>
-          <div className="sb-foot">
-            <div className="sb-loc">
-              <div>
-                <b>Магазин · Ленина 42</b>
-                <div className="dot-row"><span className="d" />Онлайн</div>
-              </div>
-            </div>
-            <PosClock variant="sidebar" />
-            <button type="button" className="btn-switch-till" onClick={() => { setClosingCash(''); setMsg(''); setZOpen(true) }}>
-              🔁 Сменить кассу
-            </button>
-          </div>
-        </div>
-
         <div className="topbar">
           <div className="searchpill">
             <span className="ic">🔍</span>
@@ -636,6 +573,9 @@ export default function CashierModule({
               <span>Администратор ▾</span>
             </div>
           </button>
+          {onExit && (
+            <button type="button" className="btn-exit" onClick={onExit} title="Выйти в Торговлю">✕</button>
+          )}
         </div>
 
         <div className="products">
