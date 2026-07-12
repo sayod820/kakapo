@@ -158,12 +158,13 @@ export const POS_MOCK_CSS = `
   .pos-root button.rm{width:24px;height:24px;border-radius:8px;color:var(--t3);font-size:13px;flex-shrink:0;}
   .pos-root button.rm:hover{background:rgba(255,69,69,.12);color:var(--red);}
 
-  .cart-totals{padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0;}
-  .tot-row{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);margin-bottom:5px;}
+  .cart-totals{padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0;}
+  .tot-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--t2);margin-bottom:6px;}
   .tot-row.disc span:last-child{color:var(--red);}
-  .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;margin-top:2px;border-top:1px dashed var(--border);}
-  .tot-final b{font-family:'Unbounded';font-size:12px;}
-  .tot-final .sum{font-family:'JetBrains Mono';font-size:22px;font-weight:900;color:var(--accent);}
+  .tot-row.disc.muted{opacity:.55;}
+  .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:10px;margin-top:4px;border-top:1px dashed var(--border);}
+  .tot-final b{font-family:'Unbounded';font-size:14px;}
+  .tot-final .sum{font-family:'JetBrains Mono';font-size:28px;font-weight:900;color:var(--accent);}
 
   .ops-block{padding:0 14px 8px;flex-shrink:0;}
   .ops-block.ops-client{margin:0 14px 8px;padding:10px 10px 8px;border-radius:14px;background:rgba(255,140,0,.05);border:1px solid rgba(255,140,0,.18);}

@@ -180,6 +180,7 @@ export default function CashierModule({
   const [repayMethod, setRepayMethod] = useState<'cash' | 'card'>('cash')
   const [histOpen, setHistOpen] = useState(false)
   const [histTick, setHistTick] = useState(0)
+  const [payPickOpen, setPayPickOpen] = useState(false)
   const [scaleProduct, setScaleProduct] = useState<Product | null>(null)
   const [scaleWeight, setScaleWeight] = useState(0)
 
@@ -498,24 +499,25 @@ export default function CashierModule({
     setPay('cash')
   }
 
-  async function submitSale(paidCash = 0) {
+  async function submitSale(paidCash = 0, payOverride?: PayMethod) {
     if (!activeShift || !cart.length) return
-    if ((pay === 'credit' || pay === 'balance') && !client) {
+    const methodPay = payOverride ?? pay
+    if ((methodPay === 'credit' || methodPay === 'balance') && !client) {
       setClientOpen(true)
       return
     }
-    if (pay === 'credit' && total > availableDebt + 0.001) {
+    if (methodPay === 'credit' && total > availableDebt + 0.001) {
       showToast('Лимит долга', `Доступно ${fmtMoney(availableDebt)}`)
       return
     }
-    if (pay === 'balance' && total > 0.001) {
+    if (methodPay === 'balance' && total > 0.001) {
       showToast('Недостаточно баланса', 'Спишите бонусы или выберите другой способ')
       return
     }
     setBusy(true)
     setMsg('')
     try {
-      const method = pay === 'qr' || pay === 'balance' ? 'card' : pay
+      const method = methodPay === 'qr' || methodPay === 'balance' ? 'card' : methodPay
       await api.createPosSale({
         cashierId: activeShift.cashierId,
         shiftId: activeShift.id,
@@ -543,17 +545,19 @@ export default function CashierModule({
       const change = method === 'cash' ? Math.max(0, paidCash - total) : 0
       const toastSub = method === 'cash'
         ? `Наличные · сдача ${fmtMoney(change)}`
-        : pay === 'credit'
+        : methodPay === 'credit'
           ? `В долг · ${client?.name || ''}`
-          : pay === 'balance'
+          : methodPay === 'balance'
             ? 'Баланс / бонусы'
-            : pay === 'qr'
+            : methodPay === 'qr'
               ? 'QR'
               : 'Карта'
       showToast('Чек проведён', toastSub)
       clearCart()
       setClient(null)
       setCashOpen(false)
+      setPayPickOpen(false)
+      setPay('cash')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка продажи')
       showToast('Ошибка', e instanceof Error ? e.message : 'Ошибка продажи')
@@ -564,16 +568,26 @@ export default function CashierModule({
 
   function startPay() {
     if (!cart.length) return
-    if ((pay === 'credit' || pay === 'balance') && !client) {
+    setPayPickOpen(true)
+  }
+
+  function choosePayMethod(method: PayMethod) {
+    if ((method === 'credit' || method === 'balance') && !client) {
+      setPayPickOpen(false)
       setClientOpen(true)
+      showToast('Выберите клиента', 'Для оплаты в долг нужен клиент')
       return
     }
-    if (pay === 'cash') {
+    if (method === 'credit') setBonusUsed(0)
+    setPay(method)
+    if (method === 'cash') {
+      setPayPickOpen(false)
       setCashBuf('')
       setCashOpen(true)
       return
     }
-    void submitSale()
+    setPayPickOpen(false)
+    void submitSale(0, method)
   }
 
   async function submitTopup() {
@@ -629,15 +643,6 @@ export default function CashierModule({
     } finally {
       setBusy(false)
     }
-  }
-
-  function needClient(then: () => void) {
-    if (!client) {
-      setClientOpen(true)
-      showToast('Выберите клиента', 'Сначала выберите клиента вверху чека')
-      return
-    }
-    then()
   }
 
   // ─── Gate ───
@@ -892,7 +897,11 @@ export default function CashierModule({
 
           <div className="cart-totals">
             <div className="tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
-            {discAmount > 0 && <div className="tot-row disc"><span>Скидка</span><span>−{discAmount.toFixed(2)}</span></div>}
+            <div className="tot-row"><span>Сумма</span><span>{subtotal.toFixed(2)}</span></div>
+            <div className={`tot-row disc ${discAmount > 0 ? '' : 'muted'}`}>
+              <span>Скидка{(discountPct + levelDiscPct) > 0 ? ` ${discountPct + levelDiscPct}%` : ''}</span>
+              <span>−{discAmount.toFixed(2)}</span>
+            </div>
             {usedBonus > 0 && <div className="tot-row disc"><span>Списано бонусами</span><span>−{usedBonus.toFixed(2)}</span></div>}
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
@@ -901,40 +910,48 @@ export default function CashierModule({
             <button type="button" onClick={clearCart}>Очистить чек</button>
           </div>
 
-          <div className="ops-block pay-block">
-            <div className="ops-lbl">Оплата текущего чека</div>
-            <div className="pay-grid">
-              <button type="button" className={`pay-btn pay-cash ${pay === 'cash' ? 'on' : ''}`} onClick={() => setPay('cash')}>
-                <span className="ic">💵</span>Наличные
-              </button>
-              <button type="button" className={`pay-btn pay-card ${pay === 'card' ? 'on' : ''}`} onClick={() => setPay('card')}>
-                <span className="ic">💳</span>Карта
-              </button>
-              <button
-                type="button"
-                className={`pay-btn pay-credit ${pay === 'credit' ? 'on' : ''}`}
-                onClick={() => needClient(() => {
-                  setBonusUsed(0)
-                  setPay('credit')
-                })}
-              >
-                <span className="ic">📝</span>В долг
-              </button>
-              <button type="button" className={`pay-btn pay-qr ${pay === 'qr' ? 'on' : ''}`} onClick={() => setPay('qr')}>
-                <span className="ic">📱</span>QR
-              </button>
-            </div>
-          </div>
           <button
             type="button"
             className="btn-checkout"
-            disabled={!cart.length || busy || (pay === 'credit' && !client)}
+            disabled={!cart.length || busy}
             onClick={startPay}
           >
-            <span>🖨</span><span>{pay === 'credit' ? 'В долг' : 'Оплатить'}</span>
+            <span>🖨</span><span>Оплатить</span>
           </button>
         </div>
       </div>
+
+      {payPickOpen && (
+        <div className="overlay" onClick={() => !busy && setPayPickOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <h3>Способ оплаты</h3>
+            <div className="kp-display" style={{ marginBottom: 14 }}>
+              <div className="lbl">К ОПЛАТЕ</div>
+              <div className="val" style={{ color: 'var(--accent)' }}>{total.toFixed(2)} сом</div>
+              {discAmount > 0 && (
+                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--red)' }}>Скидка −{discAmount.toFixed(2)}</div>
+              )}
+            </div>
+            <div className="pay-grid" style={{ padding: 0, marginBottom: 12 }}>
+              <button type="button" className="pay-btn pay-cash" onClick={() => choosePayMethod('cash')} disabled={busy}>
+                <span className="ic">💵</span>Наличные
+              </button>
+              <button type="button" className="pay-btn pay-card" onClick={() => choosePayMethod('card')} disabled={busy}>
+                <span className="ic">💳</span>Карта
+              </button>
+              <button type="button" className="pay-btn pay-credit" onClick={() => choosePayMethod('credit')} disabled={busy}>
+                <span className="ic">📝</span>В долг
+              </button>
+              <button type="button" className="pay-btn pay-qr" onClick={() => choosePayMethod('qr')} disabled={busy}>
+                <span className="ic">📱</span>QR
+              </button>
+            </div>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" disabled={busy} onClick={() => setPayPickOpen(false)}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {scaleProduct && (
         <div className="overlay">
