@@ -550,9 +550,9 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
           </div>
           <div className="theme-dots">
             {([
-              ['green', '#00E676'],
+              ['green', '#1FD760'],
               ['purple', '#9B6DFF'],
-              ['gold', '#FFB300'],
+              ['gold', '#FFB800'],
             ] as [ThemeName, string][]).map(([name, color]) => (
               <button
                 key={name}
@@ -590,7 +590,7 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
           <div className="grid-wrap">
             <div className="p-grid">
               <button type="button" className="p-tile p-manual" onClick={() => { setManualBuf(''); setManualOpen(true) }}>
-                <span className="manual-ic">🔢</span>
+                <span className="ic">🔢</span>
                 <b>Ручная цена</b>
               </button>
               {visibleProducts.map(p => {
@@ -601,13 +601,11 @@ export default function CashierModule({ onExit }: { onExit?: () => void }) {
                 return (
                   <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
                     <div className="p-photo">
-                      {photo
-                        ? <img src={photo} alt="" />
-                        : <span className="emoji">{p.e || '📦'}</span>}
+                      {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
                       {weighted && <span className="p-weight-tag">⚖ {unit}</span>}
                     </div>
                     <div className="p-name">{p.name}</div>
-                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)} <span className="p-unit">SM/{unit}</span></div>
+                    <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> SM/{unit}</span></div>
                     <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {unit}</div>
                   </button>
                 )
