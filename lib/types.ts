@@ -278,6 +278,27 @@ export interface PosSaleItem {
   qty: number
   price: number
   lineTotal: number
+  /** Сколько уже возвращено по этой позиции */
+  returnedQty?: number
+}
+
+export interface PosSaleReturnLine {
+  productId: number
+  productName?: string
+  qty: number
+  price: number
+  lineTotal: number
+}
+
+export interface PosSaleReturn {
+  atIso: string
+  total: number
+  cutCash?: number
+  cutCard?: number
+  cutDebt?: number
+  note?: string
+  cashierId?: string
+  items: PosSaleReturnLine[]
 }
 
 export interface PosSale {
@@ -297,7 +318,10 @@ export interface PosSale {
   debtAdded: number
   note?: string
   items: PosSaleItem[]
-  status?: 'sold' | 'returned'
+  status?: 'sold' | 'partial' | 'returned'
+  originalTotal?: number
+  lastReturnTotal?: number
+  returns?: PosSaleReturn[]
   returnedAtIso?: string
   returnNote?: string
   returnedByCashierId?: string

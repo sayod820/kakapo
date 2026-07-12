@@ -356,6 +356,8 @@ export default function CashierModule({
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
   const [receiptQ, setReceiptQ] = useState('')
   const [receiptFilter, setReceiptFilter] = useState<'all' | 'cash' | 'card' | 'credit' | 'returned'>('all')
+  /** index позиции → qty к возврату (0 = не выбрано) */
+  const [returnQtyByIdx, setReturnQtyByIdx] = useState<Record<number, number>>({})
   const [closingCash, setClosingCash] = useState('')
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [topupOpen, setTopupOpen] = useState(false)
@@ -1070,6 +1072,7 @@ export default function CashierModule({
       setReceiptQ('')
       setReceiptFilter('all')
       setReceiptSaleId(null)
+      setReturnQtyByIdx({})
       setCashierScreen('receipts')
       void refresh()
       return
@@ -1080,16 +1083,33 @@ export default function CashierModule({
     setCashierScreen(kind)
   }
 
+  function saleLineLeft(it: { qty?: number; returnedQty?: number }) {
+    return Math.max(0, Math.round(((Number(it.qty) || 0) - (Number(it.returnedQty) || 0)) * 100) / 100)
+  }
+
+  function isSaleFullyReturned(s: typeof sales[number]) {
+    if (s.status === 'returned') return true
+    const items = s.items || []
+    return items.length > 0 && items.every(it => saleLineLeft(it) <= 0)
+  }
+
+  function isSalePartiallyReturned(s: typeof sales[number]) {
+    if (isSaleFullyReturned(s)) return false
+    if (s.status === 'partial') return true
+    return (s.items || []).some(it => (Number(it.returnedQty) || 0) > 0)
+  }
+
   const receiptList = useMemo(() => {
     const q = receiptQ.trim().toLowerCase()
     return [...sales]
       .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
       .filter(s => {
-        const returned = s.status === 'returned' || !!s.returnedAtIso
-        if (receiptFilter === 'returned') return returned
-        if (receiptFilter === 'cash') return !returned && s.paymentMethod === 'cash'
-        if (receiptFilter === 'card') return !returned && (s.paymentMethod === 'card' || s.paymentMethod === 'mixed')
-        if (receiptFilter === 'credit') return !returned && (s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0)
+        const fully = isSaleFullyReturned(s)
+        const partial = isSalePartiallyReturned(s)
+        if (receiptFilter === 'returned') return fully || partial
+        if (receiptFilter === 'cash') return !fully && s.paymentMethod === 'cash'
+        if (receiptFilter === 'card') return !fully && (s.paymentMethod === 'card' || s.paymentMethod === 'mixed')
+        if (receiptFilter === 'credit') return !fully && (s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0)
         return true
       })
       .filter(s => {
@@ -1111,30 +1131,116 @@ export default function CashierModule({
     [sales, receiptSaleId],
   )
 
-  async function returnReceipt(saleId: string) {
+  const receiptReturnPreview = useMemo(() => {
+    if (!receiptDetail) return { count: 0, total: 0, items: [] as { index: number; qty: number }[] }
+    const items: { index: number; qty: number }[] = []
+    let total = 0
+    ;(receiptDetail.items || []).forEach((line, index) => {
+      const qty = Number(returnQtyByIdx[index]) || 0
+      if (!(qty > 0)) return
+      const left = saleLineLeft(line)
+      const take = Math.min(qty, left)
+      if (!(take > 0)) return
+      const unit = Number(line.qty) > 0
+        ? (Number(line.lineTotal) || 0) / Number(line.qty)
+        : Number(line.price) || 0
+      total += unit * take
+      items.push({ index, qty: take })
+    })
+    return { count: items.length, total: Math.round(total * 100) / 100, items }
+  }, [receiptDetail, returnQtyByIdx])
+
+  function toggleReturnLine(index: number, left: number) {
+    if (!(left > 0)) return
+    setReturnQtyByIdx(prev => {
+      const cur = Number(prev[index]) || 0
+      if (cur > 0) {
+        const next = { ...prev }
+        delete next[index]
+        return next
+      }
+      return { ...prev, [index]: left }
+    })
+  }
+
+  function setReturnLineQty(index: number, qty: number, left: number) {
+    const q = Math.max(0, Math.min(left, Math.round(qty * 100) / 100))
+    setReturnQtyByIdx(prev => {
+      if (!(q > 0)) {
+        const next = { ...prev }
+        delete next[index]
+        return next
+      }
+      return { ...prev, [index]: q }
+    })
+  }
+
+  function selectAllReturnLines(sale: typeof sales[number]) {
+    const next: Record<number, number> = {}
+    ;(sale.items || []).forEach((line, index) => {
+      const left = saleLineLeft(line)
+      if (left > 0) next[index] = left
+    })
+    setReturnQtyByIdx(next)
+  }
+
+  async function returnReceipt(saleId: string, mode: 'selected' | 'all') {
     const sale = sales.find(s => s.id === saleId)
     if (!sale) return
-    if (sale.status === 'returned' || sale.returnedAtIso) {
-      showToast('Уже возвращён', 'Этот чек уже оформлен как возврат')
+    if (isSaleFullyReturned(sale)) {
+      showToast('Уже возвращён', 'Этот чек уже полностью возвращён')
       return
     }
-    if (!window.confirm(`Вернуть чек на ${fmtMoney(sale.total)}?\nТовары вернутся на склад.`)) return
+
+    let payloadItems: { index: number; qty: number }[] | undefined
+    let confirmTotal = 0
+    let confirmLabel = ''
+
+    if (mode === 'all') {
+      const all = (sale.items || []).map((line, index) => ({ index, qty: saleLineLeft(line) })).filter(x => x.qty > 0)
+      if (!all.length) {
+        showToast('Нечего возвращать', 'Все позиции уже возвращены')
+        return
+      }
+      payloadItems = undefined
+      confirmTotal = Number(sale.total) || 0
+      confirmLabel = `Вернуть весь чек на ${fmtMoney(confirmTotal)}?\nВсе оставшиеся товары вернутся на склад.`
+    } else {
+      const selected = receiptReturnPreview.items
+      if (!selected.length) {
+        showToast('Выберите товары', 'Отметьте позиции для возврата')
+        return
+      }
+      payloadItems = selected
+      confirmTotal = receiptReturnPreview.total
+      confirmLabel = `Вернуть ${selected.length} позиц. на ${fmtMoney(confirmTotal)}?\nТовары вернутся на склад.`
+    }
+
+    if (!window.confirm(confirmLabel)) return
     setBusy(true)
     setMsg('')
     try {
-      await api.returnPosSale(sale.id, {
-        note: 'Возврат с кассы',
+      const debtBefore = Number(sale.debtAdded) || 0
+      const updated = await api.returnPosSale(sale.id, {
+        note: mode === 'all' ? 'Полный возврат с кассы' : 'Частичный возврат с кассы',
         cashierId: settings.cashierId || activeShift?.cashierId,
+        ...(payloadItems ? { items: payloadItems } : {}),
       })
-      if (sale.clientPhone && (Number(sale.debtAdded) || 0) > 0) {
-        recordStoreDebtRepayment(sale.clientPhone, Number(sale.debtAdded) || 0, {
+      const debtCut = Math.max(0, debtBefore - (Number(updated.debtAdded) || 0))
+      if (sale.clientPhone && debtCut > 0) {
+        recordStoreDebtRepayment(sale.clientPhone, debtCut, {
           desc: `Возврат чека ${sale.id}`,
           method: 'cash',
         })
       }
       await refresh()
       await fetchProducts()
-      showToast('Возврат оформлен', `${fmtMoney(sale.total)} · товары на складе`)
+      setReturnQtyByIdx({})
+      const retTotal = Number(updated.lastReturnTotal) || confirmTotal
+      showToast(
+        updated.status === 'returned' ? 'Чек возвращён' : 'Частичный возврат',
+        `${fmtMoney(retTotal)} · товары на складе`,
+      )
       setReceiptSaleId(sale.id)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось оформить возврат')
@@ -1145,26 +1251,31 @@ export default function CashierModule({
   }
 
   function refillCartFromSale(sale: typeof sales[number]) {
-    const lines = (sale.items || []).map((it, idx) => {
-      const p = products.find(x => x.id === it.productId)
-      return {
-        key: `ret-${sale.id}-${it.productId}-${idx}`,
-        productId: it.productId,
-        name: it.productName || p?.name || `#${it.productId}`,
-        emoji: p?.e || '📦',
-        price: Number(it.price) || Number(p?.price) || 0,
-        qty: Number(it.qty) || 1,
-        stock: Number(p?.stock) || 9999,
-        unit: p ? displaySellUnit(p) : 'шт',
-      } as CartLine
-    })
+    const lines = (sale.items || [])
+      .map((it, idx) => {
+        const left = saleLineLeft(it)
+        if (!(left > 0)) return null
+        const p = products.find(x => x.id === it.productId)
+        return {
+          key: `ret-${sale.id}-${it.productId}-${idx}`,
+          productId: it.productId,
+          name: it.productName || p?.name || `#${it.productId}`,
+          emoji: p?.e || '📦',
+          price: Number(it.price) || Number(p?.price) || 0,
+          qty: left,
+          stock: Number(p?.stock) || 9999,
+          unit: p ? displaySellUnit(p) : 'шт',
+        } as CartLine
+      })
+      .filter((x): x is CartLine => !!x)
     if (!lines.length) {
-      showToast('Пустой чек', 'В чеке нет товаров')
+      showToast('Пустой чек', 'Нет товаров для добавления')
       return
     }
     setCart(lines)
     setCashierScreen(null)
     setReceiptSaleId(null)
+    setReturnQtyByIdx({})
     showToast('Товары в чеке', `${lines.length} поз. из истории`)
   }
 
@@ -2777,7 +2888,11 @@ export default function CashierModule({
                 className="hist-back"
                 disabled={busy}
                 onClick={() => {
-                  if (receiptDetail) { setReceiptSaleId(null); return }
+                  if (receiptDetail) {
+                    setReceiptSaleId(null)
+                    setReturnQtyByIdx({})
+                    return
+                  }
                   setCashierScreen(null)
                 }}
               >
@@ -2821,29 +2936,33 @@ export default function CashierModule({
                 <div className="receipt-list">
                   {!receiptList.length && <div className="hist-empty">Чеков не найдено</div>}
                   {receiptList.map(s => {
-                    const returned = s.status === 'returned' || !!s.returnedAtIso
+                    const fully = isSaleFullyReturned(s)
+                    const partial = isSalePartiallyReturned(s)
                     const when = new Date(s.createdAtIso)
-                    const payLabel = returned
+                    const payLabel = fully
                       ? 'Возврат'
-                      : s.paymentMethod === 'cash'
-                        ? 'Наличные'
-                        : s.paymentMethod === 'card'
-                          ? 'Карта'
-                          : s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
-                            ? 'В долг'
-                            : 'Смешанная'
+                      : partial
+                        ? 'Частичный возврат'
+                        : s.paymentMethod === 'cash'
+                          ? 'Наличные'
+                          : s.paymentMethod === 'card'
+                            ? 'Карта'
+                            : s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
+                              ? 'В долг'
+                              : 'Смешанная'
                     const itemsPreview = (s.items || []).slice(0, 3).map(i => i.productName).filter(Boolean).join(', ')
                     return (
                       <button
                         key={s.id}
                         type="button"
-                        className={`receipt-row ${returned ? 'returned' : ''}`}
-                        onClick={() => setReceiptSaleId(s.id)}
+                        className={`receipt-row ${fully ? 'returned' : partial ? 'partial' : ''}`}
+                        onClick={() => { setReturnQtyByIdx({}); setReceiptSaleId(s.id) }}
                       >
                         <div className="receipt-row-main">
                           <div className="hist-title-row">
                             <b>{payLabel}</b>
-                            {returned && <span className="hist-badge open">Возвращён</span>}
+                            {fully && <span className="hist-badge open">Возвращён</span>}
+                            {partial && <span className="hist-badge">Часть</span>}
                           </div>
                           <span className="hist-when">
                             {Number.isNaN(when.getTime())
@@ -2866,31 +2985,98 @@ export default function CashierModule({
               <div className="receipt-detail">
                 <div className="receipt-detail-meta">
                   <div><span>Оплата</span><b>
-                    {receiptDetail.status === 'returned' || receiptDetail.returnedAtIso
+                    {isSaleFullyReturned(receiptDetail)
                       ? 'Возврат'
-                      : receiptDetail.paymentMethod === 'cash'
-                        ? 'Наличные'
-                        : receiptDetail.paymentMethod === 'card'
-                          ? 'Карта'
-                          : receiptDetail.paymentMethod === 'credit' || (Number(receiptDetail.debtAdded) || 0) > 0
-                            ? 'В долг'
-                            : 'Смешанная'}
+                      : isSalePartiallyReturned(receiptDetail)
+                        ? 'Частичный возврат'
+                        : receiptDetail.paymentMethod === 'cash'
+                          ? 'Наличные'
+                          : receiptDetail.paymentMethod === 'card'
+                            ? 'Карта'
+                            : receiptDetail.paymentMethod === 'credit' || (Number(receiptDetail.debtAdded) || 0) > 0
+                              ? 'В долг'
+                              : 'Смешанная'}
                   </b></div>
                   <div><span>Сумма</span><b className="sum">{fmtMoney(receiptDetail.total)}</b></div>
                   <div><span>Клиент</span><b>{receiptDetail.clientName || 'Без клиента'}</b></div>
                   <div><span>Кассир</span><b>{receiptDetail.cashierName || settings.cashierName}</b></div>
                 </div>
-                <div className="hist-section-h">Состав</div>
+                <div className="hist-section-h" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <span>Состав</span>
+                  {!isSaleFullyReturned(receiptDetail) && (
+                    <button
+                      type="button"
+                      className="receipt-select-all"
+                      disabled={busy}
+                      onClick={() => selectAllReturnLines(receiptDetail)}
+                    >
+                      Выбрать все
+                    </button>
+                  )}
+                </div>
+                {!isSaleFullyReturned(receiptDetail) && (
+                  <div className="receipt-return-hint">Отметьте позиции для возврата (можно часть количества)</div>
+                )}
                 <div className="hist-lines">
-                  {(receiptDetail.items || []).map((line, i) => (
-                    <div key={`${line.productId}-${i}`} className="hist-line">
-                      <div className="hist-line-main">
-                        <b>{line.productName || `#${line.productId}`}</b>
-                        <span className="hist-line-qty">× {line.qty}</span>
+                  {(receiptDetail.items || []).map((line, i) => {
+                    const left = saleLineLeft(line)
+                    const returnedQty = Number(line.returnedQty) || 0
+                    const selectedQty = Number(returnQtyByIdx[i]) || 0
+                    const on = selectedQty > 0
+                    const unit = Number(line.qty) > 0
+                      ? (Number(line.lineTotal) || 0) / Number(line.qty)
+                      : Number(line.price) || 0
+                    const showSum = left > 0 ? unit * left : Number(line.lineTotal) || 0
+                    const canReturn = left > 0 && !isSaleFullyReturned(receiptDetail)
+                    return (
+                      <div
+                        key={`${line.productId}-${i}`}
+                        className={`hist-line receipt-line ${on ? 'on' : ''} ${left <= 0 ? 'returned' : ''}`}
+                        role={canReturn ? 'button' : undefined}
+                        tabIndex={canReturn ? 0 : undefined}
+                        onClick={() => { if (canReturn) toggleReturnLine(i, left) }}
+                        onKeyDown={e => {
+                          if (!canReturn) return
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            toggleReturnLine(i, left)
+                          }
+                        }}
+                      >
+                        {canReturn && (
+                          <span className={`receipt-check ${on ? 'on' : ''}`} aria-hidden>{on ? '✓' : ''}</span>
+                        )}
+                        <div className="hist-line-main">
+                          <b>{line.productName || `#${line.productId}`}</b>
+                          <span className="hist-line-qty">
+                            {left > 0 ? `× ${left}` : 'возвращено'}
+                            {returnedQty > 0 && left > 0 ? ` · уже возврат ${returnedQty}` : ''}
+                            {returnedQty > 0 && left <= 0 ? ` × ${line.qty}` : ''}
+                          </span>
+                          {on && left > 1 && (
+                            <div
+                              className="receipt-qty-ctrl"
+                              onClick={e => e.stopPropagation()}
+                              onKeyDown={e => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                disabled={busy || selectedQty <= 0.01}
+                                onClick={() => setReturnLineQty(i, selectedQty - 1, left)}
+                              >−</button>
+                              <span>{selectedQty}</span>
+                              <button
+                                type="button"
+                                disabled={busy || selectedQty >= left}
+                                onClick={() => setReturnLineQty(i, selectedQty + 1, left)}
+                              >+</button>
+                            </div>
+                          )}
+                        </div>
+                        <div className="hist-line-sum">{fmtMoney(showSum)}</div>
                       </div>
-                      <div className="hist-line-sum">{fmtMoney(Number(line.lineTotal) || (Number(line.price) || 0) * (Number(line.qty) || 0))}</div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   {!(receiptDetail.items || []).length && <div className="hist-empty">Нет позиций</div>}
                 </div>
                 {msg && <div className="pos-err" style={{ marginTop: 12 }}>{msg}</div>}
@@ -2903,15 +3089,30 @@ export default function CashierModule({
                   >
                     <span className="ic-wrap">🛒</span><span>В текущий чек</span>
                   </button>
-                  {!(receiptDetail.status === 'returned' || receiptDetail.returnedAtIso) && (
-                    <button
-                      type="button"
-                      className="action-chip ac-repay"
-                      disabled={busy}
-                      onClick={() => void returnReceipt(receiptDetail.id)}
-                    >
-                      <span className="ic-wrap">↩️</span><span>Возврат</span>
-                    </button>
+                  {!isSaleFullyReturned(receiptDetail) && (
+                    <>
+                      <button
+                        type="button"
+                        className="action-chip ac-repay"
+                        disabled={busy || receiptReturnPreview.count === 0}
+                        onClick={() => void returnReceipt(receiptDetail.id, 'selected')}
+                      >
+                        <span className="ic-wrap">↩️</span>
+                        <span>
+                          {receiptReturnPreview.count > 0
+                            ? `Вернуть выбранное · ${fmtMoney(receiptReturnPreview.total)}`
+                            : 'Вернуть выбранное'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="action-chip ac-repay receipt-return-all"
+                        disabled={busy}
+                        onClick={() => void returnReceipt(receiptDetail.id, 'all')}
+                      >
+                        <span className="ic-wrap">↩️</span><span>Вернуть всё</span>
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

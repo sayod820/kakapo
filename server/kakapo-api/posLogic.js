@@ -776,40 +776,157 @@ export function returnPosSale(db, saleId, meta = {}) {
   ensurePosCollections(db)
   const sale = (db.posSales || []).find(s => String(s.id) === String(saleId))
   if (!sale) throw new Error('Чек не найден')
-  if (sale.status === 'returned' || sale.returnedAtIso) throw new Error('Чек уже возвращён')
+  if (sale.status === 'returned') throw new Error('Чек уже полностью возвращён')
 
-  for (const item of sale.items || []) {
+  const items = Array.isArray(sale.items) ? sale.items : []
+  if (!items.length) throw new Error('В чеке нет позиций')
+
+  /** @type {{ index: number, productId: number, qty: number }[]} */
+  let plan = []
+  const requested = Array.isArray(meta.items) ? meta.items : null
+
+  if (requested && requested.length) {
+    for (const row of requested) {
+      const index = Number.isInteger(Number(row.index)) ? Number(row.index) : -1
+      let item = index >= 0 && index < items.length ? items[index] : null
+      if (!item && row.productId != null) {
+        item = items.find(it => {
+          const left = round2((Number(it.qty) || 0) - (Number(it.returnedQty) || 0))
+          return String(it.productId) === String(row.productId) && left > 0
+        }) || null
+      }
+      if (!item) throw new Error('Позиция для возврата не найдена')
+      const idx = items.indexOf(item)
+      const left = round2((Number(item.qty) || 0) - (Number(item.returnedQty) || 0))
+      const qty = round2(row.qty != null ? Number(row.qty) : left)
+      if (!(qty > 0)) throw new Error('Количество возврата должно быть больше 0')
+      if (qty > left + 1e-9) throw new Error(`Можно вернуть не больше ${left}`)
+      plan.push({ index: idx, productId: Number(item.productId), qty })
+    }
+  } else {
+    items.forEach((item, index) => {
+      const left = round2((Number(item.qty) || 0) - (Number(item.returnedQty) || 0))
+      if (left > 0) plan.push({ index, productId: Number(item.productId), qty: left })
+    })
+  }
+
+  if (!plan.length) throw new Error('Нечего возвращать')
+
+  // merge same index
+  const byIndex = new Map()
+  for (const p of plan) {
+    const prev = byIndex.get(p.index)
+    byIndex.set(p.index, prev ? { ...p, qty: round2(prev.qty + p.qty) } : p)
+  }
+  plan = [...byIndex.values()]
+
+  const returnLines = []
+  let returnTotal = 0
+  for (const p of plan) {
+    const item = items[p.index]
+    const left = round2((Number(item.qty) || 0) - (Number(item.returnedQty) || 0))
+    if (p.qty > left + 1e-9) throw new Error(`Можно вернуть не больше ${left}`)
+    const unit = Number(item.qty) > 0
+      ? round2((Number(item.lineTotal) || 0) / Number(item.qty))
+      : round2(Number(item.price) || 0)
+    const lineReturn = round2(unit * p.qty)
+    item.returnedQty = round2((Number(item.returnedQty) || 0) + p.qty)
     const product = getProduct(db, item.productId)
-    const qty = round2(item.qty)
-    if (!(qty > 0)) continue
-    product.stock = round2((Number(product.stock) || 0) + qty)
+    product.stock = round2((Number(product.stock) || 0) + p.qty)
+    returnLines.push({
+      productId: item.productId,
+      productName: item.productName,
+      qty: p.qty,
+      price: unit,
+      lineTotal: lineReturn,
+    })
+    returnTotal = round2(returnTotal + lineReturn)
   }
 
-  const debtAdded = round2(sale.debtAdded || 0)
-  if (debtAdded > 0) {
-    const client = getClientById(db, sale.clientId) || null
-    if (client) client.debt = Math.max(0, round2((Number(client.debt) || 0) - debtAdded))
-    const card = getCardByNum(db, sale.cardNum)
-    if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - debtAdded))
+  if (!(returnTotal > 0)) throw new Error('Сумма возврата равна 0')
+
+  if (sale.originalTotal == null) sale.originalTotal = round2(Number(sale.total) || 0)
+
+  let remainCashCut = returnTotal
+  let cutDebt = 0
+  let cutCash = 0
+  let cutCard = 0
+  const debtBefore = round2(Number(sale.debtAdded) || 0)
+  if (debtBefore > 0 && remainCashCut > 0) {
+    cutDebt = Math.min(debtBefore, remainCashCut)
+    remainCashCut = round2(remainCashCut - cutDebt)
   }
+  const cashBefore = round2(Number(sale.paidCash) || 0)
+  if (cashBefore > 0 && remainCashCut > 0) {
+    cutCash = Math.min(cashBefore, remainCashCut)
+    remainCashCut = round2(remainCashCut - cutCash)
+  }
+  const cardBefore = round2(Number(sale.paidCard) || 0)
+  if (cardBefore > 0 && remainCashCut > 0) {
+    cutCard = Math.min(cardBefore, remainCashCut)
+    remainCashCut = round2(remainCashCut - cutCard)
+  }
+  // leftover (rounding) → cash then card then debt already applied
+  if (remainCashCut > 0) {
+    if (cashBefore - cutCash > 0) {
+      const extra = Math.min(cashBefore - cutCash, remainCashCut)
+      cutCash = round2(cutCash + extra)
+      remainCashCut = round2(remainCashCut - extra)
+    }
+    if (remainCashCut > 0 && cardBefore - cutCard > 0) {
+      const extra = Math.min(cardBefore - cutCard, remainCashCut)
+      cutCard = round2(cutCard + extra)
+      remainCashCut = round2(remainCashCut - extra)
+    }
+  }
+
+  sale.debtAdded = Math.max(0, round2(debtBefore - cutDebt))
+  sale.paidCash = Math.max(0, round2(cashBefore - cutCash))
+  sale.paidCard = Math.max(0, round2(cardBefore - cutCard))
+  sale.total = Math.max(0, round2((Number(sale.total) || 0) - returnTotal))
+
+  if (cutDebt > 0) {
+    const client = getClientById(db, sale.clientId) || null
+    if (client) client.debt = Math.max(0, round2((Number(client.debt) || 0) - cutDebt))
+    const card = getCardByNum(db, sale.cardNum)
+    if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - cutDebt))
+  }
+
+  const fullyReturned = items.every(it => {
+    const left = round2((Number(it.qty) || 0) - (Number(it.returnedQty) || 0))
+    return left <= 0
+  })
 
   const cashier = sale.cashierId ? db.cashiers.find(c => c.id === sale.cashierId) : null
   if (cashier) {
-    cashier.salesCount = Math.max(0, Number(cashier.salesCount || 0) - 1)
-    cashier.salesTotal = Math.max(0, round2((Number(cashier.salesTotal) || 0) - (Number(sale.total) || 0)))
+    if (fullyReturned) cashier.salesCount = Math.max(0, Number(cashier.salesCount || 0) - 1)
+    cashier.salesTotal = Math.max(0, round2((Number(cashier.salesTotal) || 0) - returnTotal))
   }
   const shift = sale.shiftId ? db.posShifts.find(s => s.id === sale.shiftId) : null
   if (shift && shift.status === 'open') {
-    shift.salesCount = Math.max(0, Number(shift.salesCount || 0) - 1)
-    shift.salesCash = Math.max(0, round2((Number(shift.salesCash) || 0) - (Number(sale.paidCash) || 0)))
-    shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - (Number(sale.paidCard) || 0)))
-    shift.salesCredit = Math.max(0, round2((Number(shift.salesCredit) || 0) - debtAdded))
+    if (fullyReturned) shift.salesCount = Math.max(0, Number(shift.salesCount || 0) - 1)
+    shift.salesCash = Math.max(0, round2((Number(shift.salesCash) || 0) - cutCash))
+    shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - cutCard))
+    shift.salesCredit = Math.max(0, round2((Number(shift.salesCredit) || 0) - cutDebt))
   }
 
-  sale.status = 'returned'
+  if (!Array.isArray(sale.returns)) sale.returns = []
+  sale.returns.push({
+    atIso: nowIso(),
+    total: returnTotal,
+    cutCash,
+    cutCard,
+    cutDebt,
+    note: String(meta.note || '').trim(),
+    cashierId: String(meta.cashierId || '').trim(),
+    items: returnLines,
+  })
+
   sale.returnedAtIso = nowIso()
   sale.returnNote = String(meta.note || '').trim()
   sale.returnedByCashierId = String(meta.cashierId || '').trim()
+  sale.status = fullyReturned ? 'returned' : 'partial'
+  sale.lastReturnTotal = returnTotal
   return sale
 }
 
