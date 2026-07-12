@@ -1021,12 +1021,13 @@ export default function CashierModule({
                     </div>
                   </div>
                   {line.weightKg == null ? (
-                    <div className="qty-inline" onClick={e => e.stopPropagation()}>
-                      <button type="button" className="qi-btn" onClick={() => setQty(line.key, line.qty - 1)} title="−1">−</button>
-                      <button type="button" className="qi-val" onClick={() => openQtyEdit(line)} title="Изменить">×{fmtQty(line.qty)}</button>
-                      <button type="button" className="qi-btn" onClick={() => setQty(line.key, line.qty + 1)} title="+1">+1</button>
-                      <button type="button" className="qi-btn qi-plus2" onClick={() => setQty(line.key, line.qty + 2)} title="+2">+2</button>
-                    </div>
+                    <button
+                      type="button"
+                      className="qty-btn"
+                      onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
+                    >
+                      ×{fmtQty(line.qty)}
+                    </button>
                   ) : (
                     <button
                       type="button"

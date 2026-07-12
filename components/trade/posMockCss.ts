@@ -156,14 +156,9 @@ export const POS_MOCK_CSS = `
   .qtyctrl button{width:24px;height:24px;border-radius:8px;font-size:14px;font-weight:800;color:var(--t2);}
   .qtyctrl button:hover{background:var(--border2);color:var(--t1);}
   .qtyctrl span{font-size:13px;font-weight:800;min-width:18px;text-align:center;font-family:'JetBrains Mono';}
-  .pos-root button.qty-btn{flex-shrink:0;min-width:56px;padding:10px 12px;border-radius:12px;background:var(--surface2);border:1.5px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:800;color:var(--t1);}
-  .pos-root button.qty-btn:hover{border-color:var(--accent);color:var(--accent);}
-  .qty-inline{display:flex;align-items:center;gap:4px;flex-shrink:0;background:var(--surface2);border:1.5px solid var(--border);border-radius:14px;padding:4px;}
-  .pos-root button.qi-btn{width:36px;height:36px;border-radius:10px;font-size:14px;font-weight:900;color:var(--t1);background:rgba(255,255,255,.04);border:1px solid transparent;line-height:1;}
-  .pos-root button.qi-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(31,215,96,.1);}
-  .pos-root button.qi-btn.qi-plus2{width:40px;color:var(--gd);font-size:13px;}
-  .pos-root button.qi-val{min-width:52px;height:36px;padding:0 10px;border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:900;color:var(--t1);background:transparent;border:1px solid transparent;}
-  .pos-root button.qi-val:hover{border-color:var(--pur);color:var(--pur);background:rgba(155,109,255,.1);}
+  .pos-root button.qty-btn{flex-shrink:0;min-width:64px;min-height:42px;padding:10px 14px;border-radius:12px;background:var(--surface2);border:1.5px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:900;color:var(--t1);}
+  .pos-root button.qty-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(31,215,96,.1);}
+  .pos-root button.qty-btn:active{transform:scale(.96);}
   .modal-card.qty-edit-card{width:400px;}
   .qty-edit-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
   .qty-edit-av{width:48px;height:48px;border-radius:14px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;}
