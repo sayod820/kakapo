@@ -46,7 +46,7 @@ type CartLine = {
 
 const POS_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap');
-.pos-root{--bg:#030B05;--surface:#0A1710;--surface2:#0F2216;--surface3:#132A1A;--border:#1A3322;--border2:#234430;--accent:#1FD760;--accent2:#17B34E;--gd:#FFB800;--org:#FF8C00;--blue:#3B8EF0;--pur:#9B6DFF;--red:#FF4545;--t1:#F1FBF3;--t2:#8FB897;--t3:#3D6645;height:calc(100vh - 72px);min-height:560px;margin:-16px -18px;background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;overflow:hidden;position:relative}
+.pos-root{--bg:#030B05;--surface:#0A1710;--surface2:#0F2216;--surface3:#132A1A;--border:#1A3322;--border2:#234430;--accent:#1FD760;--accent2:#17B34E;--gd:#FFB800;--org:#FF8C00;--blue:#3B8EF0;--pur:#9B6DFF;--red:#FF4545;--t1:#F1FBF3;--t2:#8FB897;--t3:#3D6645;position:fixed;inset:0;z-index:100;height:100vh;width:100vw;margin:0;background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;overflow:hidden}
 .pos-root[data-theme="purple"]{--accent:#9B6DFF;--accent2:#7C4FE0}
 .pos-root[data-theme="gold"]{--accent:#FFB800;--accent2:#E0A000}
 .pos-root *{box-sizing:border-box}
@@ -184,10 +184,17 @@ const POS_CSS = `
 .pos-z-stat .v{font-family:'JetBrains Mono';font-size:17px;font-weight:800}
 .pos-err{margin-top:10px;padding:10px 12px;border-radius:10px;font-size:12px;background:rgba(255,69,69,.1);border:1px solid rgba(255,69,69,.3);color:var(--red)}
 .pos-toast{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1.5px solid var(--accent);border-radius:18px;padding:14px 20px;display:flex;align-items:center;gap:11px;z-index:60;box-shadow:0 14px 32px rgba(0,0,0,.5);animation:posPop .25s ease}
+.pos-status{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:6px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border)}
+.pos-status .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(31,215,96,.18);animation:posPulse 2s infinite}
+.pos-status .meta{font-size:11px;font-weight:700;color:var(--t2);line-height:1.25}
+.pos-status .meta b{display:block;color:var(--t1);font-size:12px}
+.pos-status .clock{font-family:'JetBrains Mono';font-size:14px;font-weight:800;color:var(--gd);margin-left:4px}
+.pos-exit{padding:8px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:700;flex-shrink:0}
+.pos-exit:hover{border-color:var(--red);color:var(--red)}
 @media(max-width:900px){
-  .pos-root{height:auto;min-height:calc(100vh - 120px);overflow:auto}
-  .pos-app{grid-template-columns:1fr;grid-template-rows:auto auto auto}
-  .pos-topbar{grid-column:1}
+  .pos-root{overflow:auto}
+  .pos-app{grid-template-columns:1fr;grid-template-rows:auto auto auto;min-height:100%}
+  .pos-topbar{grid-column:1;flex-wrap:wrap;height:auto;padding:10px 12px;gap:8px}
   .pos-cart{border-left:none;border-top:1px solid var(--border);max-height:50vh}
 }
 `
@@ -239,7 +246,22 @@ function Keypad({ onDigit, onBack }: { onDigit: (k: string) => void; onBack: () 
   )
 }
 
-export default function CashierModule() {
+function PosClock() {
+  const [now, setNow] = useState<Date | null>(null)
+  useEffect(() => {
+    setNow(new Date())
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  if (!now) return <span className="clock">--:--</span>
+  return (
+    <span className="clock">
+      {now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+    </span>
+  )
+}
+
+export default function CashierModule({ onExit }: { onExit?: () => void }) {
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const clients = useClientStore(s => s.clients)
@@ -588,6 +610,11 @@ export default function CashierModule() {
             <div className="pos-gate-logo">K</div>
             <div className="pos-gate-title">Открытие смены</div>
             <div className="pos-gate-sub">KAKAPO Касса · точка продажи</div>
+            <div className="pos-status" style={{ marginBottom: 18, justifyContent: 'center' }}>
+              <span className="dot" />
+              <div className="meta"><b>Магазин KAKAPO</b>Онлайн</div>
+              <PosClock />
+            </div>
             <span className="pos-gate-label">Кто работает?</span>
             <div className="pos-cashier-grid">
               {cashierOptions.slice(0, 6).map(c => (
@@ -619,6 +646,11 @@ export default function CashierModule() {
             <button type="button" className="pos-btn-gate" disabled={busy} onClick={() => void openShift()}>
               {busy ? 'Открываем…' : 'Открыть смену'}
             </button>
+            {onExit && (
+              <button type="button" className="pos-exit" style={{ width: '100%', marginTop: 10 }} onClick={onExit}>
+                ← Вернуться в Торговлю
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -635,6 +667,11 @@ export default function CashierModule() {
       <style>{POS_CSS}</style>
       <div className="pos-app">
         <div className="pos-topbar">
+          <div className="pos-status">
+            <span className="dot" />
+            <div className="meta"><b>Магазин KAKAPO</b>Онлайн</div>
+            <PosClock />
+          </div>
           <div className="pos-search">
             <span>🔍</span>
             <input
@@ -672,6 +709,11 @@ export default function CashierModule() {
               <span style={{ fontSize: 9.5, color: 'var(--t3)' }}>Смена · закрыть ▾</span>
             </div>
           </button>
+          {onExit && (
+            <button type="button" className="pos-exit" onClick={onExit} title="Выйти в меню Торговли">
+              ✕ Выход
+            </button>
+          )}
         </div>
 
         <div className="pos-products">

@@ -309,10 +309,19 @@ function TradeAppInner() {
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
-    if (current === 'sales') return <CashierModule />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
     return <ProductsModule search={search} />
+  }
+
+  /** Касса — отдельное полноэкранное окно POS, без меню Торговли */
+  if (current === 'sales') {
+    return (
+      <div className="k-trade" style={{ display: 'block', minHeight: '100vh' }}>
+        <style>{CSS}</style>
+        <CashierModule onExit={() => goTo('products')} />
+      </div>
+    )
   }
 
   return (
