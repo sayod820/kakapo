@@ -51,7 +51,7 @@ export const POS_MOCK_CSS = `
   .gate-input:focus{border-color:var(--accent);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14px;}
 
-  .app{display:grid;grid-template-columns:1fr minmax(280px,300px);grid-template-rows:64px 1fr;height:100%;}
+  .app{display:grid;grid-template-columns:1fr minmax(420px,480px);grid-template-rows:64px 1fr;height:100%;}
 
   .topbar{grid-column:1/3;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border);}
   .top-meta{display:flex;align-items:center;gap:12px;flex-shrink:0;padding:4px 0;}
@@ -91,7 +91,7 @@ export const POS_MOCK_CSS = `
   .pos-root button.cat-pill.on{background:var(--accent);border-color:var(--accent);color:var(--bg);}
 
   .grid-wrap{flex:1;overflow-y:auto;padding:8px 20px 20px;}
-  .p-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;}
+  .p-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:13px;}
   .pos-root button.p-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:16px;padding:12px;text-align:left;transition:border-color .15s,transform .1s;animation:tileIn .25s ease both;}
   .pos-root button.p-tile:hover{border-color:var(--accent);transform:translateY(-2px);}
   .pos-root button.p-tile:active{transform:translateY(0) scale(.97);}
