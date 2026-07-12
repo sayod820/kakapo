@@ -298,6 +298,7 @@ export default function CashierModule({
   const [repayBuf, setRepayBuf] = useState('')
   const [repayMethod, setRepayMethod] = useState<'cash' | 'card'>('cash')
   const [histOpen, setHistOpen] = useState(false)
+  const [histView, setHistView] = useState<'profile' | 'history'>('profile')
   const [histTab, setHistTab] = useState<'checks' | 'debts'>('checks')
   const [histTick, setHistTick] = useState(0)
   const [payPickOpen, setPayPickOpen] = useState(false)
@@ -679,6 +680,46 @@ export default function CashierModule({
     [clientHistory],
   )
   const histDebtsCount = histDebtOrders.length + histRepays.length
+  const histGeneral = useMemo(() => clientHistory.slice(0, 8), [clientHistory])
+
+  function renderHistRow(row: {
+    id: string
+    title: string
+    when: string
+    sub: string
+    items?: string
+    amount: number
+    tone: string
+    debtStatus?: 'open' | 'partial' | 'paid'
+    debtRemain?: number
+  }, opts?: { compact?: boolean }) {
+    return (
+      <div
+        key={row.id}
+        className={`hist-row tone-${row.tone}${row.debtStatus === 'partial' ? ' partial' : ''}${row.debtStatus === 'paid' ? ' settled' : ''}${opts?.compact ? ' sm' : ''}`}
+      >
+        <div className="hist-main">
+          <div className="hist-title-row">
+            <b>{row.title}</b>
+            {row.debtStatus === 'paid' && <span className="hist-badge paid">Полностью</span>}
+            {row.debtStatus === 'partial' && <span className="hist-badge partial">Частично</span>}
+            {row.debtStatus === 'open' && (row.tone === 'credit' || row.tone === 'debt') && (
+              <span className="hist-badge open">Открыт</span>
+            )}
+          </div>
+          <span className="hist-when">{row.when}</span>
+          {!opts?.compact && <span className="hist-sub">{row.sub}</span>}
+          {row.items ? <span className="hist-items">{row.items}</span> : null}
+        </div>
+        <div className="hist-amt-col">
+          <div className="hist-amt">{fmtMoney(row.amount)}</div>
+          {row.debtStatus === 'partial' && row.debtRemain != null && (
+            <div className="hist-remain">остаток {fmtMoney(row.debtRemain)}</div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   const clientProfileStats = useMemo(() => {
     void histTick
@@ -1422,6 +1463,7 @@ export default function CashierModule({
             className={`client-card ${client ? 'set' : ''}`}
             onClick={() => {
               if (client) {
+                setHistView('profile')
                 setHistTab('checks')
                 setHistOpen(true)
                 return
@@ -2062,216 +2104,201 @@ export default function CashierModule({
       {histOpen && client && loyalty && (
         <div className="overlay" onClick={() => setHistOpen(false)}>
           <div className="modal-card hist-card" onClick={e => e.stopPropagation()}>
-            <h3>👤 {client.name}</h3>
-            <div className="client-profile-meta">
-              <span>{client.phone || 'без телефона'}</span>
-              <span>·</span>
-              <span>{client.card || 'без карты'}</span>
-              <span>·</span>
-              <span style={{ color: CLIENT_LEVEL_COLORS[loyalty.level] }}>{levelLabel(loyalty.level)}</span>
-            </div>
-
-            <div className="client-kpis">
-              <div className="client-kpi">
-                <div className="l">Бонусы</div>
-                <div className="v" style={{ color: 'var(--gd)' }}>⭐ {clientProfileStats.bonus}</div>
-              </div>
-              <div className="client-kpi">
-                <div className="l">Долг сейчас</div>
-                <div className="v" style={{ color: clientDebt > 0 ? 'var(--org)' : 'var(--t2)' }}>{fmtMoney(clientDebt)}</div>
-              </div>
-              <div className="client-kpi">
-                <div className="l">Лимит / доступно</div>
-                <div className="v">{debtLimit > 0 ? fmtMoney(availableDebt) : '—'}</div>
-              </div>
-              <div className="client-kpi">
-                <div className="l">Наличные → бонусы</div>
-                <div className="v" style={{ color: 'var(--accent)' }}>
-                  {fmtMoney(clientProfileStats.topupCash)}
-                  <span className="sub">+{clientProfileStats.topupBonus} ⭐</span>
+            {histView === 'profile' ? (
+              <>
+                <h3>👤 {client.name}</h3>
+                <div className="client-profile-meta">
+                  <span>{client.phone || 'без телефона'}</span>
+                  <span>·</span>
+                  <span>{client.card || 'без карты'}</span>
+                  <span>·</span>
+                  <span style={{ color: CLIENT_LEVEL_COLORS[loyalty.level] }}>{levelLabel(loyalty.level)}</span>
                 </div>
-              </div>
-              <div className="client-kpi">
-                <div className="l">Погашено долга</div>
-                <div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(clientProfileStats.repaid)}</div>
-              </div>
-              <div className="client-kpi">
-                <div className="l">Чеков в долг</div>
-                <div className="v">{clientProfileStats.creditSales}</div>
-              </div>
-            </div>
 
-            <div className="client-profile-actions">
-              <button
-                type="button"
-                className="action-chip ac-repay"
-                onClick={() => {
-                  setHistOpen(false)
-                  if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
-                  setRepayBuf('')
-                  setRepayMethod('cash')
-                  setRepayOpen(true)
-                }}
-              >
-                <span className="ic-wrap">💳</span><span>Погасить долг</span>
-              </button>
-              <button
-                type="button"
-                className="action-chip ac-topup"
-                onClick={() => {
-                  setHistOpen(false)
-                  setTopupBuf('')
-                  setTopupOpen(true)
-                }}
-              >
-                <span className="ic-wrap">💰</span><span>Пополнить</span>
-              </button>
-            </div>
+                <div className="client-kpis">
+                  <div className="client-kpi">
+                    <div className="l">Бонусы</div>
+                    <div className="v" style={{ color: 'var(--gd)' }}>⭐ {clientProfileStats.bonus}</div>
+                  </div>
+                  <div className="client-kpi">
+                    <div className="l">Долг сейчас</div>
+                    <div className="v" style={{ color: clientDebt > 0 ? 'var(--org)' : 'var(--t2)' }}>{fmtMoney(clientDebt)}</div>
+                  </div>
+                  <div className="client-kpi">
+                    <div className="l">Лимит / доступно</div>
+                    <div className="v">{debtLimit > 0 ? fmtMoney(availableDebt) : '—'}</div>
+                  </div>
+                  <div className="client-kpi">
+                    <div className="l">Наличные → бонусы</div>
+                    <div className="v" style={{ color: 'var(--accent)' }}>
+                      {fmtMoney(clientProfileStats.topupCash)}
+                      <span className="sub">+{clientProfileStats.topupBonus} ⭐</span>
+                    </div>
+                  </div>
+                  <div className="client-kpi">
+                    <div className="l">Погашено долга</div>
+                    <div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(clientProfileStats.repaid)}</div>
+                  </div>
+                  <div className="client-kpi">
+                    <div className="l">Чеков в долг</div>
+                    <div className="v">{clientProfileStats.creditSales}</div>
+                  </div>
+                </div>
 
-            <div className="hist-tabs" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={histTab === 'checks'}
-                className={`hist-tab ${histTab === 'checks' ? 'on' : ''}`}
-                onClick={() => setHistTab('checks')}
-              >
-                Чеки
-                <span className="n">{histChecks.length + histTopups.length}</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={histTab === 'debts'}
-                className={`hist-tab ${histTab === 'debts' ? 'on' : ''}`}
-                onClick={() => setHistTab('debts')}
-              >
-                Долги
-                <span className="n">{histDebtsCount}</span>
-              </button>
-            </div>
+                <div className="client-profile-actions three">
+                  <button
+                    type="button"
+                    className="action-chip ac-repay"
+                    onClick={() => {
+                      setHistOpen(false)
+                      if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
+                      setRepayBuf('')
+                      setRepayMethod('cash')
+                      setRepayOpen(true)
+                    }}
+                  >
+                    <span className="ic-wrap">💳</span><span>Погасить</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="action-chip ac-topup"
+                    onClick={() => {
+                      setHistOpen(false)
+                      setTopupBuf('')
+                      setTopupOpen(true)
+                    }}
+                  >
+                    <span className="ic-wrap">💰</span><span>Пополнить</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="action-chip ac-hist"
+                    onClick={() => {
+                      setHistTab('checks')
+                      setHistView('history')
+                    }}
+                  >
+                    <span className="ic-wrap">📋</span><span>История</span>
+                  </button>
+                </div>
 
-            <div className="hist-scroll">
-              {histTab === 'checks' && (
-                <>
-                  {!histChecks.length && !histTopups.length && (
-                    <div className="hist-empty">Покупок пока нет</div>
-                  )}
-                  {histChecks.length > 0 && (
-                    <div className="hist-section">
-                      <div className="hist-section-h">Оплаченные чеки</div>
-                      <div className="hist-list compact">
-                        {histChecks.map(row => (
-                          <div key={row.id} className={`hist-row tone-${row.tone}`}>
-                            <div className="hist-main">
-                              <div className="hist-title-row"><b>{row.title}</b></div>
-                              <span className="hist-when">{row.when}</span>
-                              <span className="hist-sub">{row.sub}</span>
-                              {row.items ? <span className="hist-items">{row.items}</span> : null}
-                            </div>
-                            <div className="hist-amt-col">
-                              <div className="hist-amt">{fmtMoney(row.amount)}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                <div className="hist-section">
+                  <div className="hist-section-h">Общая история</div>
+                  <div className="hist-scroll profile">
+                    {!histGeneral.length && <div className="hist-empty">Пока нет операций</div>}
+                    <div className="hist-list compact">
+                      {histGeneral.map(row => renderHistRow(row, { compact: true }))}
                     </div>
-                  )}
-                  {histTopups.length > 0 && (
-                    <div className="hist-section">
-                      <div className="hist-section-h">Пополнения</div>
-                      <div className="hist-list compact">
-                        {histTopups.map(row => (
-                          <div key={row.id} className={`hist-row tone-${row.tone}`}>
-                            <div className="hist-main">
-                              <div className="hist-title-row"><b>{row.title}</b></div>
-                              <span className="hist-when">{row.when}</span>
-                              <span className="hist-sub">{row.sub}</span>
-                            </div>
-                            <div className="hist-amt-col">
-                              <div className="hist-amt">{fmtMoney(row.amount)}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
+                    {clientHistory.length > histGeneral.length && (
+                      <button type="button" className="hist-more" onClick={() => setHistView('history')}>
+                        Смотреть всю историю ({clientHistory.length}) →
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-              {histTab === 'debts' && (
-                <>
-                  {!histDebtOrders.length && !histRepays.length && (
-                    <div className="hist-empty">Долгов и погашений нет</div>
-                  )}
-                  {histDebtOrders.length > 0 && (
-                    <div className="hist-section">
-                      <div className="hist-section-h">Заказы в долг</div>
-                      <div className="hist-list compact">
-                        {histDebtOrders.map(row => (
-                          <div
-                            key={row.id}
-                            className={`hist-row tone-${row.tone}${row.debtStatus === 'partial' ? ' partial' : ''}${row.debtStatus === 'paid' ? ' settled' : ''}`}
-                          >
-                            <div className="hist-main">
-                              <div className="hist-title-row">
-                                <b>{row.title}</b>
-                                {row.debtStatus === 'paid' && <span className="hist-badge paid">Полностью</span>}
-                                {row.debtStatus === 'partial' && <span className="hist-badge partial">Частично</span>}
-                                {row.debtStatus === 'open' && <span className="hist-badge open">Открыт</span>}
-                              </div>
-                              <span className="hist-when">{row.when}</span>
-                              <span className="hist-sub">{row.sub}</span>
-                              {row.items ? <span className="hist-items">{row.items}</span> : null}
-                            </div>
-                            <div className="hist-amt-col">
-                              <div className="hist-amt">{fmtMoney(row.amount)}</div>
-                              {row.debtStatus === 'partial' && row.debtRemain != null && (
-                                <div className="hist-remain">остаток {fmtMoney(row.debtRemain)}</div>
-                              )}
-                            </div>
+                <div className="modal-card-actions" style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className="btn-cancel"
+                    onClick={() => {
+                      setHistOpen(false)
+                      setClientQ('')
+                      setClientPick(client)
+                      setClientOpen(true)
+                    }}
+                  >
+                    Сменить
+                  </button>
+                  <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="hist-detail-head">
+                  <button type="button" className="hist-back" onClick={() => setHistView('profile')}>← Назад</button>
+                  <h3>История</h3>
+                </div>
+
+                <div className="hist-tabs" role="tablist">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={histTab === 'checks'}
+                    className={`hist-tab ${histTab === 'checks' ? 'on' : ''}`}
+                    onClick={() => setHistTab('checks')}
+                  >
+                    Чеки
+                    <span className="n">{histChecks.length + histTopups.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={histTab === 'debts'}
+                    className={`hist-tab ${histTab === 'debts' ? 'on' : ''}`}
+                    onClick={() => setHistTab('debts')}
+                  >
+                    Долги
+                    <span className="n">{histDebtsCount}</span>
+                  </button>
+                </div>
+
+                <div className="hist-scroll">
+                  {histTab === 'checks' && (
+                    <>
+                      {!histChecks.length && !histTopups.length && (
+                        <div className="hist-empty">Покупок пока нет</div>
+                      )}
+                      {histChecks.length > 0 && (
+                        <div className="hist-section">
+                          <div className="hist-section-h">Оплаченные чеки</div>
+                          <div className="hist-list compact">
+                            {histChecks.map(row => renderHistRow(row))}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {histRepays.length > 0 && (
-                    <div className="hist-section">
-                      <div className="hist-section-h">История погашений</div>
-                      <div className="hist-list compact">
-                        {histRepays.map(row => (
-                          <div key={row.id} className={`hist-row tone-${row.tone}`}>
-                            <div className="hist-main">
-                              <div className="hist-title-row"><b>{row.title}</b></div>
-                              <span className="hist-when">{row.when}</span>
-                              <span className="hist-sub">{row.sub}</span>
-                            </div>
-                            <div className="hist-amt-col">
-                              <div className="hist-amt">{fmtMoney(row.amount)}</div>
-                            </div>
+                        </div>
+                      )}
+                      {histTopups.length > 0 && (
+                        <div className="hist-section">
+                          <div className="hist-section-h">Пополнения</div>
+                          <div className="hist-list compact">
+                            {histTopups.map(row => renderHistRow(row))}
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </div>
-            <div className="modal-card-actions" style={{ marginTop: 12 }}>
-              <button
-                type="button"
-                className="btn-cancel"
-                onClick={() => {
-                  setHistOpen(false)
-                  setClientQ('')
-                  setClientPick(client)
-                  setClientOpen(true)
-                }}
-              >
-                Сменить
-              </button>
-              <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
-            </div>
+
+                  {histTab === 'debts' && (
+                    <>
+                      {!histDebtOrders.length && !histRepays.length && (
+                        <div className="hist-empty">Долгов и погашений нет</div>
+                      )}
+                      {histDebtOrders.length > 0 && (
+                        <div className="hist-section">
+                          <div className="hist-section-h">Заказы в долг</div>
+                          <div className="hist-list compact">
+                            {histDebtOrders.map(row => renderHistRow(row))}
+                          </div>
+                        </div>
+                      )}
+                      {histRepays.length > 0 && (
+                        <div className="hist-section">
+                          <div className="hist-section-h">История погашений</div>
+                          <div className="hist-list compact">
+                            {histRepays.map(row => renderHistRow(row))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="modal-card-actions" style={{ marginTop: 12 }}>
+                  <button type="button" className="btn-cancel" onClick={() => setHistView('profile')}>К профилю</button>
+                  <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
