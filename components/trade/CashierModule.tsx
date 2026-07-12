@@ -507,7 +507,8 @@ export default function CashierModule({
   function setQty(key: string, qty: number) {
     setCart(prev => prev.map(l => {
       if (l.key !== key) return l
-      return { ...l, qty: Math.max(0, Math.min(l.stock, Math.floor(qty))) }
+      const q = Math.round(Math.max(0, qty) * 1000) / 1000
+      return { ...l, qty: Math.min(l.stock, q) }
     }).filter(l => l.qty > 0 || (l.weightKg != null && l.weightKg > 0)))
   }
 
@@ -527,48 +528,41 @@ export default function CashierModule({
     setQtyEditOpen(true)
   }
 
+  function resolveQtyEdit(line: CartLine, mode: 'qty' | 'sum', raw: string) {
+    const price = Number(line.price) || 0
+    const val = Number(raw) || 0
+    const isWeight = line.weightKg != null
+    if (mode === 'sum') {
+      const amount = val
+      const qty = price > 0 ? Math.round((amount / price) * 1000) / 1000 : 0
+      return { qty, amount, price, isWeight }
+    }
+    const qty = isWeight ? Math.round(val * 1000) / 1000 : Math.round(val * 1000) / 1000
+    return { qty, amount: Math.round(qty * price * 100) / 100, price, isWeight }
+  }
+
   function applyQtyEdit() {
     if (!qtyEditKey) return
     const line = cart.find(l => l.key === qtyEditKey)
     if (!line) return
-    const val = Number(qtyEditBuf) || 0
-    if (val <= 0) {
+    const { qty, isWeight } = resolveQtyEdit(line, qtyEditMode, qtyEditBuf)
+    if (qty <= 0) {
       showToast('Ошибка', 'Укажите значение больше 0')
       return
     }
-    const price = Number(line.price) || 0
-    if (line.weightKg != null) {
-      let weight = val
-      if (qtyEditMode === 'sum') {
-        if (price <= 0) { showToast('Ошибка', 'Нет цены у товара'); return }
-        weight = Math.round((val / price) * 1000) / 1000
-      }
-      if (weight > line.stock + 0.001) {
-        showToast('Мало на складе', `Доступно ${line.stock} кг`)
-        return
-      }
-      setLineWeight(qtyEditKey, weight)
-    } else {
-      let qty = val
-      if (qtyEditMode === 'sum') {
-        if (price <= 0) { showToast('Ошибка', 'Нет цены у товара'); return }
-        qty = Math.round(val / price)
-        if (qty < 1) qty = 1
-      } else {
-        qty = Math.floor(val)
-      }
-      if (qty > line.stock) {
-        showToast('Мало на складе', `Доступно ${line.stock} шт`)
-        return
-      }
-      if (qty < 1) {
-        showToast('Ошибка', 'Количество должно быть не меньше 1')
-        return
-      }
-      setQty(qtyEditKey, qty)
+    if (qty > line.stock + 0.001) {
+      showToast('Мало на складе', `Доступно ${line.stock}${isWeight ? ' кг' : ' шт'}`)
+      return
     }
+    if (isWeight) setLineWeight(qtyEditKey, qty)
+    else setQty(qtyEditKey, qty)
     setQtyEditOpen(false)
     setQtyEditKey(null)
+  }
+
+  function fmtQty(n: number) {
+    if (Number.isInteger(n)) return String(n)
+    return String(Math.round(n * 1000) / 1000)
   }
 
   function removeLine(key: string) {
@@ -1009,7 +1003,7 @@ export default function CashierModule({
                     <div className="sub">
                       {line.weightKg != null
                         ? <><span className="w">{line.weightKg.toFixed(3)} кг</span> · {line.price.toFixed(2)} ЅМ/{line.unit}</>
-                        : `${line.price.toFixed(2)} ЅМ × ${line.qty}`}
+                        : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
                       {lineDisc > 0 ? <> · <span className="line-disc">−{lineDisc}%</span></> : null}
                     </div>
                   </div>
@@ -1019,7 +1013,7 @@ export default function CashierModule({
                       className="qty-btn"
                       onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
                     >
-                      ×{line.qty}
+                      ×{fmtQty(line.qty)}
                     </button>
                   ) : (
                     <button
@@ -1084,78 +1078,84 @@ export default function CashierModule({
       {qtyEditOpen && qtyEditKey && (() => {
         const line = cart.find(l => l.key === qtyEditKey)
         if (!line) return null
-        const price = Number(line.price) || 0
-        const val = Number(qtyEditBuf) || 0
-        const isWeight = line.weightKg != null
-        let previewQty = 0
-        let previewSum = 0
-        if (qtyEditMode === 'qty') {
-          previewQty = isWeight ? val : Math.floor(val)
-          previewSum = previewQty * price
-        } else {
-          previewSum = val
-          previewQty = price > 0
-            ? (isWeight ? Math.round((val / price) * 1000) / 1000 : Math.max(1, Math.round(val / price)))
-            : 0
-        }
+        const { qty: previewQty, amount: previewSum, price, isWeight } = resolveQtyEdit(line, qtyEditMode, qtyEditBuf)
+        const unit = isWeight ? 'кг' : (line.unit || 'шт')
+        const overStock = previewQty > line.stock + 0.001
         return (
           <div className="overlay" onClick={() => setQtyEditOpen(false)}>
-            <div className="modal-card" onClick={e => e.stopPropagation()}>
-              <h3>{isWeight ? '⚖ Вес / сумма' : '× Количество / сумма'}</h3>
-              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 10 }}>
-                {line.emoji} <b style={{ color: 'var(--t1)' }}>{line.name}</b>
-                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>
-                  Цена {price.toFixed(2)} ЅМ/{isWeight ? 'кг' : (line.unit || 'шт')} · склад {line.stock}{isWeight ? ' кг' : ' шт'}
+            <div className="modal-card qty-edit-card" onClick={e => e.stopPropagation()}>
+              <div className="qty-edit-head">
+                <div className="qty-edit-av">{line.emoji}</div>
+                <div>
+                  <div className="qty-edit-name">{line.name}</div>
+                  <div className="qty-edit-stock">На складе: {line.stock}{isWeight ? ' кг' : ' шт'}</div>
                 </div>
               </div>
-              <div className="qty-edit-tabs">
-                <button type="button" className={qtyEditMode === 'qty' ? 'on' : ''} onClick={() => {
-                  setQtyEditMode('qty')
-                  setQtyEditBuf(isWeight ? String(line.weightKg ?? '') : String(line.qty))
-                }}>
-                  {isWeight ? 'Вес, кг' : 'Количество'}
+
+              <div className="qty-trio">
+                <div className="qty-trio-item">
+                  <span className="l">Цена</span>
+                  <b>{price.toFixed(2)}</b>
+                  <span className="u">ЅМ / {unit}</span>
+                </div>
+                <button
+                  type="button"
+                  className={`qty-trio-item tap ${qtyEditMode === 'qty' ? 'on' : ''}`}
+                  onClick={() => {
+                    setQtyEditMode('qty')
+                    setQtyEditBuf(previewQty > 0 ? fmtQty(previewQty) : '')
+                  }}
+                >
+                  <span className="l">{isWeight ? 'Вес' : 'Кол-во'}</span>
+                  <b className={qtyEditMode === 'qty' ? 'live' : ''}>{previewQty > 0 ? fmtQty(previewQty) : '—'}</b>
+                  <span className="u">{unit}</span>
                 </button>
-                <button type="button" className={qtyEditMode === 'sum' ? 'on' : ''} onClick={() => {
-                  setQtyEditMode('sum')
-                  setQtyEditBuf(String(lineGross(line).toFixed(2)))
-                }}>
-                  На сумму
+                <button
+                  type="button"
+                  className={`qty-trio-item tap ${qtyEditMode === 'sum' ? 'on' : ''}`}
+                  onClick={() => {
+                    setQtyEditMode('sum')
+                    setQtyEditBuf(previewSum > 0 ? String(previewSum) : '')
+                  }}
+                >
+                  <span className="l">Сумма</span>
+                  <b className={qtyEditMode === 'sum' ? 'live' : ''}>{previewSum > 0 ? previewSum.toFixed(2) : '—'}</b>
+                  <span className="u">ЅМ</span>
                 </button>
               </div>
-              <div className="kp-display">
-                <div className="lbl">{qtyEditMode === 'sum' ? 'СУММА, СОМ' : (isWeight ? 'ВЕС, КГ' : 'КОЛИЧЕСТВО')}</div>
+
+              <div className="qty-edit-hint">
+                {qtyEditMode === 'sum'
+                  ? 'Количество = сумма ÷ цена (например 3 ÷ 6 = 0.5)'
+                  : `Введите ${isWeight ? 'вес' : 'количество'} — сумма посчитается сама`}
+              </div>
+
+              <div className={`kp-display qty-edit-input ${qtyEditMode}`}>
+                <div className="lbl">{qtyEditMode === 'sum' ? 'ВВОД СУММЫ' : (isWeight ? 'ВВОД ВЕСА' : 'ВВОД КОЛИЧЕСТВА')}</div>
                 <div className="val">{qtyEditBuf || '0'}</div>
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', fontSize: 12, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  {qtyEditMode === 'sum' ? (
-                    <>
-                      <span>Станет</span>
-                      <b className="mono" style={{ color: 'var(--gd)' }}>
-                        {isWeight ? `${previewQty.toFixed(3)} кг` : `${previewQty} шт`} · {previewSum.toFixed(2)} сом
-                      </b>
-                    </>
-                  ) : (
-                    <>
-                      <span>Сумма</span>
-                      <b className="mono" style={{ color: 'var(--gd)' }}>{previewSum.toFixed(2)} сом</b>
-                    </>
-                  )}
-                </div>
+                {qtyEditMode === 'sum' && price > 0 && (Number(qtyEditBuf) || 0) > 0 && (
+                  <div className="qty-edit-formula">
+                    {Number(qtyEditBuf || 0).toFixed(2)} ÷ {price.toFixed(2)} = <b>{fmtQty(previewQty)} {unit}</b>
+                  </div>
+                )}
+                {overStock && <div className="qty-edit-warn">Больше остатка на складе ({line.stock})</div>}
               </div>
+
               <div className="kp-quick">
                 {qtyEditMode === 'qty'
-                  ? (isWeight ? [0.5, 1, 1.5, 2].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>)
-                    : [1, 2, 5, 10].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>))
-                  : [price, price * 2, Math.ceil(price * 5), Math.ceil(price * 10)].filter(v => v > 0).map((v, i) => (
-                    <button key={i} type="button" onClick={() => setQtyEditBuf(String(Math.round(v * 100) / 100))}>{Math.round(v)}</button>
+                  ? (isWeight ? [0.25, 0.5, 1, 2].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>)
+                    : [1, 2, 3, 5, 10].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>))
+                  : [1, 3, 5, 10, 20, 50].map(v => (
+                    <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>
                   ))}
               </div>
               <Keypad
-                onDigit={k => setQtyEditBuf(b => appendDigit(b, k, qtyEditMode === 'qty' && !isWeight ? 4 : 8))}
+                onDigit={k => setQtyEditBuf(b => appendDigit(b, k, 8))}
                 onBack={() => setQtyEditBuf(b => b.slice(0, -1))}
               />
               <div className="modal-card-actions">
                 <button type="button" className="btn-cancel" onClick={() => setQtyEditOpen(false)}>Отмена</button>
-                <button type="button" className="btn-confirm" disabled={val <= 0} onClick={applyQtyEdit}>Применить</button>
+                <button type="button" className="btn-confirm" disabled={previewQty <= 0 || overStock} onClick={applyQtyEdit}>Применить</button>
               </div>
             </div>
           </div>
