@@ -897,31 +897,6 @@ export default function CashierModule({
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
 
-          <div className="ops-block ops-client">
-            <div className="ops-lbl">Операции с клиентом · не трогают чек</div>
-            <div className="action-row">
-              <button
-                type="button"
-                className="action-chip ac-repay"
-                onClick={() => needClient(() => {
-                  if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
-                  setRepayBuf('')
-                  setRepayMethod('cash')
-                  setRepayOpen(true)
-                })}
-              >
-                <span className="ic-wrap">💳</span><span>Погасить долг</span>
-              </button>
-              <button
-                type="button"
-                className="action-chip ac-topup"
-                onClick={() => needClient(() => { setTopupBuf(''); setTopupOpen(true) })}
-              >
-                <span className="ic-wrap">💰</span><span>Пополнить баланс</span>
-              </button>
-            </div>
-          </div>
-
           <div className="ops-block ops-check">
             <div className="ops-lbl">Этот чек</div>
             <div className="action-row">
