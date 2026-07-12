@@ -1175,12 +1175,9 @@ export default function CashierModule({
 
               <div className="qty-edit-toolbar">
                 <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
-                  {qtyEditMode === 'qty'
-                    ? (isWeight ? [0.25, 0.5, 1, 2].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>)
-                      : [1, 2, 3, 5, 10].map(v => <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>))
-                    : [1, 3, 5, 10, 20, 50].map(v => (
-                      <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>
-                    ))}
+                  {[10, 15, 20, 30].map(v => (
+                    <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>
+                  ))}
                 </div>
                 <button
                   type="button"
