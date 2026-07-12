@@ -106,12 +106,52 @@ export const POS_MOCK_CSS = `
   .pos-root button.bell-btn{position:relative;width:38px;height:38px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
   .pos-root button.bell-btn:hover{background:var(--border2);}
   .bell-badge{position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--red);}
+  .account-wrap{position:relative;flex-shrink:0;}
   .pos-root button.account-btn{display:flex;align-items:center;gap:9px;padding:6px 10px 6px 6px;border-radius:13px;flex-shrink:0;}
-  .pos-root button.account-btn:hover{background:var(--surface2);}
+  .pos-root button.account-btn:hover,.pos-root button.account-btn.on{background:var(--surface2);}
   .account-av{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#1E5BB5,var(--blue));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;font-family:'Unbounded';flex-shrink:0;}
   .account-btn .info{text-align:left;line-height:1.2;}
   .account-btn .info b{font-size:12px;display:block;}
   .account-btn .info span{font-size:9.5px;color:var(--t3);}
+  .account-menu{
+    position:absolute;top:calc(100% + 8px);right:0;width:280px;z-index:80;
+    background:var(--surface);border:1.5px solid var(--border);border-radius:16px;
+    box-shadow:0 16px 40px var(--shade);padding:8px;animation:popIn .2s cubic-bezier(.16,1,.3,1);
+  }
+  .account-menu-head{padding:10px 12px 12px;border-bottom:1px solid var(--border);margin-bottom:6px;}
+  .account-menu-head b{display:block;font-size:13px;font-weight:800;}
+  .account-menu-head span{font-size:10.5px;color:var(--accent);font-weight:700;}
+  .pos-root button.account-menu-item{
+    width:100%;display:flex;align-items:flex-start;gap:10px;text-align:left;
+    padding:11px 12px;border-radius:12px;color:var(--t1);
+  }
+  .pos-root button.account-menu-item:hover{background:var(--surface2);}
+  .pos-root button.account-menu-item .ami-ic{
+    width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--surface2);border:1px solid var(--border);font-size:15px;
+  }
+  .pos-root button.account-menu-item b{display:block;font-size:12.5px;font-weight:800;}
+  .pos-root button.account-menu-item i{display:block;font-style:normal;font-size:10.5px;color:var(--t3);margin-top:2px;font-weight:600;}
+  .pos-root button.account-menu-item.danger .ami-ic{background:rgba(255,69,69,.1);border-color:rgba(255,69,69,.25);}
+  .pos-root button.account-menu-item.danger b{color:var(--red);}
+
+  .cashier-screen{
+    position:fixed;inset:0;z-index:180;background:var(--bg);color:var(--t1);
+    display:flex;align-items:stretch;justify-content:center;overflow:auto;animation:fadeIn .2s ease;
+  }
+  .cashier-screen-inner{
+    width:min(720px,100%);margin:0 auto;padding:28px 24px 40px;display:flex;flex-direction:column;min-height:100%;
+  }
+  .cashier-screen-top{display:flex;align-items:flex-start;gap:14px;margin-bottom:22px;}
+  .cashier-screen-top h2{font-family:'Unbounded',sans-serif;font-size:20px;font-weight:800;margin:0 0 4px;}
+  .cashier-screen-top p{font-size:12px;color:var(--t2);margin:0;font-weight:700;}
+  .cashier-screen-grid{margin-bottom:20px;}
+  .cashier-switch-block{margin-bottom:18px;}
+  .switch-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));}
+  .cashier-screen-actions{display:flex;gap:10px;margin-top:auto;padding-top:18px;}
+  .cashier-screen-actions button{flex:1;padding:14px;border-radius:14px;font-weight:800;font-size:13px;}
+  .cashier-screen .gate-input{margin-bottom:10px;}
+  .cashier-screen .gate-label{margin-bottom:8px;}
 
   .products{background:var(--bg);overflow:hidden;display:flex;flex-direction:column;}
   .cat-nav{flex-shrink:0;padding:12px 20px 4px;display:flex;flex-direction:column;gap:8px;}
