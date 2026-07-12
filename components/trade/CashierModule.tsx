@@ -1007,17 +1007,15 @@ export default function CashierModule({
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
                     <div className="name">{line.name}</div>
-                    {(line.art || line.barcode) && (
-                      <div className="codes">
-                        {line.art ? <span>арт. {line.art}</span> : null}
-                        {line.barcode ? <span>ш/к {line.barcode}</span> : null}
-                      </div>
-                    )}
-                    <div className="sub">
-                      {line.weightKg != null
-                        ? <><span className="w">{line.weightKg.toFixed(3)} кг</span> · {line.price.toFixed(2)} ЅМ/{line.unit}</>
-                        : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
-                      {lineDisc > 0 ? <> · <span className="line-disc">−{lineDisc}%</span></> : null}
+                    <div className="meta">
+                      {line.art ? <span>арт. {line.art}</span> : null}
+                      {line.barcode ? <span>ш/к {line.barcode}</span> : null}
+                      <span>
+                        {line.weightKg != null
+                          ? `${line.weightKg.toFixed(3)} кг · ${line.price.toFixed(2)} ЅМ/${line.unit}`
+                          : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
+                      </span>
+                      {lineDisc > 0 ? <span className="line-disc">−{lineDisc}%</span> : null}
                     </div>
                   </div>
                   {line.weightKg == null ? (
