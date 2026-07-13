@@ -418,9 +418,9 @@ export default function CashierModule({
   const [qtyEditPad, setQtyEditPad] = useState(false)
   const qtyEditInputRef = useRef<HTMLInputElement>(null)
   const [cashOpen, setCashOpen] = useState(false)
-  const [mixOpen, setMixOpen] = useState(false)
+  const [splitCardOpen, setSplitCardOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
-  const [mixCashBuf, setMixCashBuf] = useState('')
+  const [splitCardBuf, setSplitCardBuf] = useState('')
   /** Экранная клавиатура в модалках суммы (скидка / нал / пополнение / долг) */
   const [amountPad, setAmountPad] = useState(false)
   const amountInputRef = useRef<HTMLInputElement>(null)
@@ -485,7 +485,7 @@ export default function CashierModule({
   }, [qtyEditOpen, qtyEditMode, qtyEditPad])
 
   useEffect(() => {
-    const open = discOpen || cashOpen || mixOpen || topupOpen || repayOpen
+    const open = discOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
     if (!open || amountPad) return
     const t = window.setTimeout(() => {
       const el = amountInputRef.current
@@ -494,7 +494,7 @@ export default function CashierModule({
       el.select()
     }, 40)
     return () => window.clearTimeout(t)
-  }, [discOpen, cashOpen, mixOpen, topupOpen, repayOpen, amountPad])
+  }, [discOpen, cashOpen, splitCardOpen, topupOpen, repayOpen, amountPad])
 
   useEffect(() => {
     if (!clientScanOpen) return
@@ -1592,7 +1592,7 @@ export default function CashierModule({
     setQtyEditKey(null)
     setPayPickOpen(false)
     setCashOpen(false)
-    setMixOpen(false)
+    setSplitCardOpen(false)
     setDiscOpen(false)
     setDiscPickOpen(false)
     setActiveTicketId(id)
@@ -1692,7 +1692,7 @@ export default function CashierModule({
     setDiscLineKey(null)
   }
 
-  async function submitSale(paidCash = 0, payOverride?: PayMethod, bonusSpendOverride?: number, paidCardAmt?: number) {
+  async function submitSale(paidCash = 0, payOverride?: PayMethod, bonusSpendOverride?: number, paidCardAmt?: number, debtAmt?: number) {
     if (!activeShift || !cart.length) return
     const methodPay = payOverride ?? pay
     const spend = Math.max(
@@ -1703,12 +1703,10 @@ export default function CashierModule({
       ),
     )
     const payable = Math.max(0, afterDisc - spend)
-    if ((methodPay === 'credit' || methodPay === 'balance') && !client) {
+    const debtHint = Math.max(0, Number(debtAmt) || 0)
+    if ((methodPay === 'credit' || methodPay === 'balance' || (methodPay === 'mixed' && debtHint > 0.001)) && !client) {
       setClientOpen(true)
-      return
-    }
-    if (methodPay === 'credit' && payable > availableDebt + 0.001) {
-      showToast('Лимит долга', `Доступно ${fmtMoney(availableDebt)}`)
+      showToast('Выберите клиента', methodPay === 'balance' ? 'Для списания бонусов нужен клиент' : 'Для долга нужен клиент')
       return
     }
     if (methodPay === 'balance' && payable > 0.001) {
@@ -1725,22 +1723,41 @@ export default function CashierModule({
     if (methodPay === 'credit') {
       apiMethod = 'credit'
       debtAdded = payable
+      if (debtAdded > availableDebt + 0.001) {
+        showToast('Лимит долга', `Доступно ${fmtMoney(availableDebt)}`)
+        return
+      }
     } else if (methodPay === 'balance') {
       apiMethod = 'card'
     } else if (methodPay === 'mixed') {
-      apiMethod = 'mixed'
       cashPaid = Math.round(Math.max(0, Math.min(payable, paidCash)) * 100) / 100
-      cardPaid = paidCardAmt != null
-        ? Math.round(Math.max(0, paidCardAmt) * 100) / 100
-        : Math.round(Math.max(0, payable - cashPaid) * 100) / 100
-      const drift = Math.round((cashPaid + cardPaid - payable) * 100) / 100
-      if (Math.abs(drift) >= 0.01) {
-        cardPaid = Math.round((payable - cashPaid) * 100) / 100
+      cardPaid = Math.round(Math.max(0, paidCardAmt ?? 0) * 100) / 100
+      debtAdded = Math.round(Math.max(0, debtAmt ?? 0) * 100) / 100
+      const covered = Math.round((cashPaid + cardPaid + debtAdded) * 100) / 100
+      if (covered < payable - 0.02) {
+        debtAdded = Math.round((payable - cashPaid - cardPaid) * 100) / 100
+      } else if (covered > payable + 0.02) {
+        cardPaid = Math.round(Math.max(0, payable - cashPaid - debtAdded) * 100) / 100
       }
-      if (cashPaid < 0.01 || cardPaid < 0.01) {
-        showToast('Смешанная оплата', 'Нужны и наличные, и карта (обе суммы > 0)')
+      if (debtAdded > 0.001) {
+        if (!client) {
+          setClientOpen(true)
+          showToast('Выберите клиента', 'Для долга нужен клиент')
+          return
+        }
+        if (debtAdded > availableDebt + 0.001) {
+          showToast('Лимит долга', `Доступно ${fmtMoney(availableDebt)}`)
+          return
+        }
+      }
+      if (cashPaid < 0.01 && cardPaid < 0.01 && debtAdded < 0.01) {
+        showToast('Ошибка', 'Укажите сумму оплаты')
         return
       }
+      if (cashPaid > 0 && cardPaid < 0.01 && debtAdded < 0.01) apiMethod = 'cash'
+      else if (cardPaid > 0 && cashPaid < 0.01 && debtAdded < 0.01) apiMethod = 'card'
+      else if (debtAdded > 0 && cashPaid < 0.01 && cardPaid < 0.01) apiMethod = 'credit'
+      else apiMethod = 'mixed'
     } else if (methodPay === 'cash') {
       apiMethod = 'cash'
       cashPaid = payable
@@ -1771,14 +1788,13 @@ export default function CashierModule({
           price: l.price,
         })),
       })
-      if (apiMethod === 'credit' && client?.phone) {
+      if (debtAdded > 0.001 && client?.phone) {
         const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
-        recordStoreDebtCharge(client.phone, payable, `Чек в долг`, {
+        recordStoreDebtCharge(client.phone, debtAdded, debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг', {
           orderId: created?.id || undefined,
           itemsSummary,
         })
       }
-      // Бонус за наличную часть (в т.ч. в смешанной оплате)
       let earnedBonus = 0
       if (cashPaid > 0 && client?.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
         earnedBonus = calcCashDepositBonus(cashPaid)
@@ -1801,21 +1817,17 @@ export default function CashierModule({
         } catch { /* ignore */ }
       }
       await refresh()
-      const toastSub = apiMethod === 'mixed'
-        ? `Нал ${fmtMoney(cashPaid)} + карта ${fmtMoney(cardPaid)}${earnedBonus > 0 ? ` · +${earnedBonus} ⭐` : ''}${spend > 0 ? ` · −${spend} ⭐` : ''}`
-        : apiMethod === 'cash'
-          ? `Наличные · сдача ${fmtMoney(change)}${earnedBonus > 0 ? ` · +${earnedBonus} ⭐` : ''}${spend > 0 ? ` · −${spend} ⭐` : ''}`
-          : methodPay === 'credit'
-            ? `В долг · ${client?.name || ''}`
-            : methodPay === 'balance' || (spend > 0 && payable <= 0.001)
-              ? `Бонусы −${spend} ⭐`
-              : spend > 0
-                ? `Карта · −${spend} ⭐`
-                : 'Карта'
-      showToast('Чек проведён', toastSub)
+      const parts: string[] = []
+      if (cashPaid > 0.001) parts.push(`нал ${fmtMoney(cashPaid)}`)
+      if (cardPaid > 0.001) parts.push(`карта ${fmtMoney(cardPaid)}`)
+      if (debtAdded > 0.001) parts.push(`долг ${fmtMoney(debtAdded)}`)
+      if (apiMethod === 'cash' && change > 0) parts.push(`сдача ${fmtMoney(change)}`)
+      if (earnedBonus > 0) parts.push(`+${earnedBonus} ⭐`)
+      if (spend > 0) parts.push(`−${spend} ⭐`)
+      showToast('Чек проведён', parts.length ? parts.join(' · ') : (methodPay === 'balance' ? `Бонусы −${spend} ⭐` : 'Карта'))
       afterSaleTicketReset()
       setCashOpen(false)
-      setMixOpen(false)
+      setSplitCardOpen(false)
       setPayPickOpen(false)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка продажи')
@@ -1830,8 +1842,8 @@ export default function CashierModule({
     setBonusUsed(0)
     setAmountPad(false)
     setCashBuf('')
-    setMixCashBuf('')
-    setMixOpen(false)
+    setSplitCardBuf('')
+    setSplitCardOpen(false)
     setPayPickOpen(true)
   }
 
@@ -1869,16 +1881,29 @@ export default function CashierModule({
       setCashOpen(true)
       return
     }
-    if (method === 'mixed') {
-      setPayPickOpen(false)
-      const half = Math.round((total / 2) * 100) / 100
-      setMixCashBuf(half > 0 ? half.toFixed(2) : '')
-      setAmountPad(false)
-      setMixOpen(true)
-      return
-    }
     setPayPickOpen(false)
     void submitSale(0, method)
+  }
+
+  function openCashSplitCard() {
+    const remain = Math.max(0, Math.round((total - (Number(cashBuf) || 0)) * 100) / 100)
+    if (remain < 0.01) return
+    setSplitCardBuf(remain.toFixed(2))
+    setAmountPad(false)
+    setSplitCardOpen(true)
+  }
+
+  function payCashRestAsDebt() {
+    const cash = Number(cashBuf) || 0
+    const remain = Math.max(0, Math.round((total - cash) * 100) / 100)
+    if (remain < 0.01) return
+    if (!client) {
+      setCashOpen(false)
+      setClientOpen(true)
+      showToast('Выберите клиента', 'Чтобы записать остаток в долг')
+      return
+    }
+    void submitSale(cash, 'mixed', undefined, 0, remain)
   }
 
   function applyPayBonus(amount: number) {
@@ -2056,13 +2081,12 @@ export default function CashierModule({
 
   const cashReceived = Number(cashBuf) || 0
   const cashChange = cashReceived - total
-  const mixCashPart = Math.min(total, Math.max(0, Number(mixCashBuf) || 0))
-  const mixCardPart = Math.max(0, Math.round((total - mixCashPart) * 100) / 100)
-  const mixOk = mixCashPart > 0.001 && mixCardPart > 0.001 && Math.abs(mixCashPart + mixCardPart - total) < 0.02
+  const cashShort = cashReceived > 0.001 && cashReceived < total - 0.001
+  const cashRemain = Math.max(0, Math.round((total - cashReceived) * 100) / 100)
+  const splitCardAmt = Math.min(cashRemain, Math.max(0, Number(splitCardBuf) || 0))
+  const splitDebtRemain = Math.max(0, Math.round((cashRemain - splitCardAmt) * 100) / 100)
   const cashSaleBonus = client?.card && total > 0 ? calcCashDepositBonus(total) : 0
   const cashSaleTier = client?.card && total > 0 ? cashDepositTierForAmount(total) : null
-  const mixCashBonus = client?.card && mixCashPart > 0 ? calcCashDepositBonus(mixCashPart) : 0
-  const mixCashTier = client?.card && mixCashPart > 0 ? cashDepositTierForAmount(mixCashPart) : null
   const topupCash = Number(topupBuf) || 0
   const topupPrincipal = Math.max(0, Math.floor(topupCash))
   const topupPercentBonus = calcCashDepositBonus(topupCash)
@@ -2790,15 +2814,12 @@ export default function CashierModule({
               </div>
             )}
 
-            <div className="pay-grid pay-grid-2">
+            <div className="pay-grid pay-grid-3">
               <button type="button" className="pay-btn pay-cash" onClick={() => choosePayMethod('cash')} disabled={busy || total <= 0.001}>
                 <span className="ic">💵</span>Наличные
               </button>
               <button type="button" className="pay-btn pay-card" onClick={() => choosePayMethod('card')} disabled={busy || total <= 0.001}>
                 <span className="ic">💳</span>Карта
-              </button>
-              <button type="button" className="pay-btn pay-mixed" onClick={() => choosePayMethod('mixed')} disabled={busy || total <= 0.001}>
-                <span className="ic">💵💳</span>Нал + карта
               </button>
               <button type="button" className="pay-btn pay-credit" onClick={() => choosePayMethod('credit')} disabled={busy || total <= 0.001}>
                 <span className="ic">📝</span>В долг
@@ -3051,7 +3072,7 @@ export default function CashierModule({
                   <span>сом</span>
                 </div>
                 {cashChange < -0.001 && cashReceived > 0.001 && (
-                  <div className="cash-change-bonus">Можно доплатить картой</div>
+                  <div className="cash-change-bonus">Ниже: Карта или Долг</div>
                 )}
                 {client?.card && cashSaleBonus > 0 && cashChange >= -0.001 && (
                   <div className="cash-change-bonus">На карту +{cashSaleBonus} ⭐{cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}</div>
@@ -3086,6 +3107,16 @@ export default function CashierModule({
                     {v}
                   </button>
                 ))}
+                {cashShort && (
+                  <>
+                    <button type="button" className="cash-bill alt card" onClick={openCashSplitCard}>
+                      Карта
+                    </button>
+                    <button type="button" className="cash-bill alt debt" onClick={payCashRestAsDebt}>
+                      Долг
+                    </button>
+                  </>
+                )}
               </div>
 
               <button
@@ -3106,28 +3137,14 @@ export default function CashierModule({
                 >
                   Назад
                 </button>
-                {cashReceived > 0.001 && cashReceived < total - 0.001 ? (
-                  <button
-                    type="button"
-                    className="btn-confirm cash-accept"
-                    disabled={busy}
-                    onClick={() => {
-                      const cardRest = Math.round((total - cashReceived) * 100) / 100
-                      void submitSale(cashReceived, 'mixed', undefined, cardRest)
-                    }}
-                  >
-                    + карта {Math.abs(cashChange).toFixed(2)}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn-confirm cash-accept"
-                    disabled={busy || cashReceived < total - 0.001}
-                    onClick={() => void submitSale(cashReceived)}
-                  >
-                    Принять
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn-confirm cash-accept"
+                  disabled={busy || cashReceived < total - 0.001}
+                  onClick={() => void submitSale(cashReceived)}
+                >
+                  Принять
+                </button>
               </div>
             </div>
 
@@ -3144,61 +3161,44 @@ export default function CashierModule({
         </div>
       )}
 
-      {mixOpen && (
-        <div className="overlay" onClick={() => !busy && setMixOpen(false)}>
-          <div className="modal-card pay-checkout-card mix-pay-card" onClick={e => e.stopPropagation()}>
-            <h3>Нал + карта</h3>
+      {splitCardOpen && (
+        <div className="overlay" onClick={() => !busy && setSplitCardOpen(false)}>
+          <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
+            <h3>💳 Карта · остаток</h3>
             <div className="pay-breakdown" style={{ marginBottom: 12 }}>
+              <div><span>Наличными</span><b className="bank-fig">{cashReceived.toFixed(2)}</b></div>
               <div className="due">
-                <span>К оплате</span>
-                <b className="bank-fig sum">{total.toFixed(2)} сом</b>
+                <span>Остаток</span>
+                <b className="bank-fig sum">{cashRemain.toFixed(2)} сом</b>
               </div>
             </div>
 
-            <div className="mix-row">
+            <div className="mix-row mix-card-row">
               <div className="mix-row-head">
-                <span>💵 Наличные</span>
-                <div className="mix-quick">
-                  <button type="button" onClick={() => setMixCashBuf((Math.round((total / 2) * 100) / 100).toFixed(2))}>½</button>
-                  <button type="button" onClick={() => setMixCashBuf((Math.round((total / 3) * 100) / 100).toFixed(2))}>⅓</button>
-                  <button type="button" onClick={() => setMixCashBuf((Math.round((total * 0.7) * 100) / 100).toFixed(2))}>70%</button>
-                </div>
+                <span>Списать с карты</span>
+                <button type="button" className="mix-auto" style={{ border: 'none', background: 'transparent', cursor: 'pointer' }} onClick={() => setSplitCardBuf(cashRemain.toFixed(2))}>
+                  всё {cashRemain.toFixed(2)}
+                </button>
               </div>
               <input
                 ref={amountInputRef}
                 className="mix-field"
-                value={mixCashBuf}
+                value={splitCardBuf}
                 inputMode="decimal"
                 autoFocus
-                onChange={e => setMixCashBuf(sanitizeDecimalInput(e.target.value))}
+                onChange={e => setSplitCardBuf(sanitizeDecimalInput(e.target.value))}
                 onFocus={e => e.currentTarget.select()}
                 placeholder="0.00"
               />
             </div>
 
-            <div className="mix-row mix-card-row">
-              <div className="mix-row-head">
-                <span>💳 Карта</span>
-                <span className="mix-auto">остаток</span>
-              </div>
-              <div className="mix-card-val">{mixCardPart.toFixed(2)} сом</div>
-            </div>
-
-            {mixCashBonus > 0 && (
-              <div className="mix-bonus-hint">
-                За нал +{mixCashBonus} ⭐{mixCashTier ? ` · ${cashDepositTierLabel(mixCashTier)}` : ''}
+            {splitDebtRemain > 0.001 && splitCardAmt > 0.001 && (
+              <div className="cash-change-warn" style={{ textAlign: 'left', margin: '8px 0' }}>
+                Ещё останется {splitDebtRemain.toFixed(2)} сом — можно в долг
               </div>
             )}
 
-            {!mixOk && mixCashPart > 0 && (
-              <div className="cash-change-warn" style={{ textAlign: 'left', marginTop: 8 }}>
-                {mixCashPart >= total - 0.001
-                  ? 'Укажите сумму меньше итога — иначе просто «Наличные»'
-                  : 'Введите сумму наличными'}
-              </div>
-            )}
-
-            <div className="qty-edit-toolbar" style={{ marginTop: 12 }}>
+            <div className="qty-edit-toolbar" style={{ marginTop: 10 }}>
               <button
                 type="button"
                 className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
@@ -3209,27 +3209,52 @@ export default function CashierModule({
               </button>
             </div>
             {amountPad && (
-              <Keypad onDigit={k => setMixCashBuf(b => appendDigit(b, k))} onBack={() => setMixCashBuf(b => b.slice(0, -1))} />
+              <Keypad onDigit={k => setSplitCardBuf(b => appendDigit(b, k))} onBack={() => setSplitCardBuf(b => b.slice(0, -1))} />
             )}
 
             {msg && <div className="pos-err">{msg}</div>}
-            <div className="modal-card-actions">
+            <div className="modal-card-actions" style={{ flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className="btn-cancel"
                 disabled={busy}
-                onClick={() => { setMixOpen(false); setPayPickOpen(true) }}
+                onClick={() => { setSplitCardOpen(false); setAmountPad(false) }}
               >
                 Назад
               </button>
-              <button
-                type="button"
-                className="btn-confirm"
-                disabled={busy || !mixOk}
-                onClick={() => void submitSale(mixCashPart, 'mixed', undefined, mixCardPart)}
-              >
-                Принять · {mixCashPart.toFixed(2)} + {mixCardPart.toFixed(2)}
-              </button>
+              {splitCardAmt > 0.001 && splitDebtRemain <= 0.001 ? (
+                <button
+                  type="button"
+                  className="btn-confirm"
+                  disabled={busy}
+                  onClick={() => void submitSale(cashReceived, 'mixed', undefined, splitCardAmt, 0)}
+                >
+                  Подтвердить · карта {splitCardAmt.toFixed(2)}
+                </button>
+              ) : splitCardAmt > 0.001 && splitDebtRemain > 0.001 ? (
+                <button
+                  type="button"
+                  className="btn-confirm"
+                  style={{ background: 'var(--org)' }}
+                  disabled={busy}
+                  onClick={() => {
+                    if (!client) {
+                      setSplitCardOpen(false)
+                      setCashOpen(false)
+                      setClientOpen(true)
+                      showToast('Выберите клиента', 'Чтобы записать остаток в долг')
+                      return
+                    }
+                    void submitSale(cashReceived, 'mixed', undefined, splitCardAmt, splitDebtRemain)
+                  }}
+                >
+                  Долг {splitDebtRemain.toFixed(2)}
+                </button>
+              ) : (
+                <button type="button" className="btn-confirm" disabled>
+                  Укажите сумму карты
+                </button>
+              )}
             </div>
           </div>
         </div>

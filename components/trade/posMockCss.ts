@@ -681,6 +681,17 @@ export const POS_MOCK_CSS = `
     grid-column:1 / -1;font-family:'Nunito',sans-serif;font-size:13px;font-weight:800;color:var(--t2);
   }
   .pos-root .cash-bills button.exact:hover{color:var(--t1);}
+  .pos-root .cash-bills button.alt{
+    font-family:'Nunito',sans-serif;font-size:12px;font-weight:800;letter-spacing:.02em;
+  }
+  .pos-root .cash-bills button.alt.card{
+    border-color:rgba(59,130,246,.45);background:rgba(59,130,246,.12);color:var(--blue);
+  }
+  .pos-root .cash-bills button.alt.card:hover{border-color:var(--blue);background:rgba(59,130,246,.2);}
+  .pos-root .cash-bills button.alt.debt{
+    border-color:rgba(234,88,12,.45);background:rgba(234,88,12,.12);color:var(--org);
+  }
+  .pos-root .cash-bills button.alt.debt:hover{border-color:var(--org);background:rgba(234,88,12,.2);}
   .pos-root button.cash-pad-toggle{
     width:100%;min-height:42px;margin-bottom:12px;padding:10px;border-radius:13px;
     font-size:12px;font-weight:800;color:var(--t2);background:var(--surface2);border:1.5px solid var(--border);
