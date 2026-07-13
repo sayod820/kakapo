@@ -72,6 +72,40 @@ type CartLine = {
   discPct?: number
 }
 
+type PosTicket = {
+  id: string
+  seq: number
+  cart: CartLine[]
+  client: AdminClient | null
+  discountPct: number
+  bonusUsed: number
+  pay: PayMethod
+  selectedLineKey: string | null
+}
+
+const MAX_TICKETS = 8
+
+function makeTicket(seq: number): PosTicket {
+  return {
+    id: `chk-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    seq,
+    cart: [],
+    client: null,
+    discountPct: 0,
+    bonusUsed: 0,
+    pay: 'cash',
+    selectedLineKey: null,
+  }
+}
+
+function ticketLineCount(t: PosTicket) {
+  return t.cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)
+}
+
+function ticketNetSum(t: PosTicket) {
+  return t.cart.reduce((s, l) => s + lineNet(l), 0)
+}
+
 type ClientHistLine = {
   name: string
   qty: number
@@ -309,11 +343,55 @@ export default function CashierModule({
   const [favIds, setFavIds] = useState<number[]>(loadFavIds)
   const [catModalOpen, setCatModalOpen] = useState(false)
   const [catModalQ, setCatModalQ] = useState('')
-  const [cart, setCart] = useState<CartLine[]>([])
-  const [client, setClient] = useState<AdminClient | null>(null)
-  const [pay, setPay] = useState<PayMethod>('cash')
-  const [discountPct, setDiscountPct] = useState(0)
-  const [bonusUsed, setBonusUsed] = useState(0)
+  const bootTicket = useRef(makeTicket(1)).current
+  const [tickets, setTickets] = useState<PosTicket[]>([bootTicket])
+  const [activeTicketId, setActiveTicketId] = useState(bootTicket.id)
+  const [nextTicketSeq, setNextTicketSeq] = useState(2)
+  const activeTicket = tickets.find(t => t.id === activeTicketId) || tickets[0] || bootTicket
+  const cart = activeTicket.cart
+  const client = activeTicket.client
+  const pay = activeTicket.pay
+  const discountPct = activeTicket.discountPct
+  const bonusUsed = activeTicket.bonusUsed
+  const selectedLineKey = activeTicket.selectedLineKey
+
+  function setCart(u: CartLine[] | ((prev: CartLine[]) => CartLine[])) {
+    setTickets(prev => prev.map(t => {
+      if (t.id !== activeTicketId) return t
+      return { ...t, cart: typeof u === 'function' ? u(t.cart) : u }
+    }))
+  }
+  function setClient(u: AdminClient | null | ((prev: AdminClient | null) => AdminClient | null)) {
+    setTickets(prev => prev.map(t => {
+      if (t.id !== activeTicketId) return t
+      return { ...t, client: typeof u === 'function' ? u(t.client) : u }
+    }))
+  }
+  function setPay(u: PayMethod | ((prev: PayMethod) => PayMethod)) {
+    setTickets(prev => prev.map(t => {
+      if (t.id !== activeTicketId) return t
+      return { ...t, pay: typeof u === 'function' ? u(t.pay) : u }
+    }))
+  }
+  function setDiscountPct(u: number | ((prev: number) => number)) {
+    setTickets(prev => prev.map(t => {
+      if (t.id !== activeTicketId) return t
+      return { ...t, discountPct: typeof u === 'function' ? u(t.discountPct) : u }
+    }))
+  }
+  function setBonusUsed(u: number | ((prev: number) => number)) {
+    setTickets(prev => prev.map(t => {
+      if (t.id !== activeTicketId) return t
+      return { ...t, bonusUsed: typeof u === 'function' ? u(t.bonusUsed) : u }
+    }))
+  }
+  function setSelectedLineKey(u: string | null | ((prev: string | null) => string | null)) {
+    setTickets(prev => prev.map(t => {
+      if (t.id !== activeTicketId) return t
+      return { ...t, selectedLineKey: typeof u === 'function' ? u(t.selectedLineKey) : u }
+    }))
+  }
+
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [toast, setToast] = useState<{ title: string; sub: string } | null>(null)
@@ -333,7 +411,6 @@ export default function CashierModule({
   const [discMode, setDiscMode] = useState<'all' | 'line'>('all')
   const [discLineKey, setDiscLineKey] = useState<string | null>(null)
   const [discPickOpen, setDiscPickOpen] = useState(false)
-  const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null)
   const [qtyEditOpen, setQtyEditOpen] = useState(false)
   const [qtyEditKey, setQtyEditKey] = useState<string | null>(null)
   const [qtyEditMode, setQtyEditMode] = useState<'qty' | 'sum'>('qty')
@@ -1475,11 +1552,93 @@ export default function CashierModule({
   }
 
   function clearCart() {
-    setCart([])
-    setDiscountPct(0)
-    setBonusUsed(0)
-    setPay('cash')
-    setSelectedLineKey(null)
+    setTickets(prev => prev.map(t => t.id !== activeTicketId ? t : {
+      ...t,
+      cart: [],
+      client: null,
+      discountPct: 0,
+      bonusUsed: 0,
+      pay: 'cash',
+      selectedLineKey: null,
+    }))
+    setDiscLineKey(null)
+  }
+
+  function addTicket() {
+    if (tickets.length >= MAX_TICKETS) {
+      showToast('Лимит чеков', `Можно открыть не больше ${MAX_TICKETS}`)
+      return
+    }
+    const t = makeTicket(nextTicketSeq)
+    setNextTicketSeq(s => s + 1)
+    setTickets(prev => [...prev, t])
+    setActiveTicketId(t.id)
+    setPayPickOpen(false)
+    setCashOpen(false)
+    setDiscOpen(false)
+    setQtyEditOpen(false)
+    showToast('Новый чек', `Чек ${t.seq}`)
+  }
+
+  function switchTicket(id: string) {
+    if (id === activeTicketId) return
+    if (qtyEditDraftKey) {
+      setCart(prev => prev.filter(l => l.key !== qtyEditDraftKey))
+      setQtyEditDraftKey(null)
+    }
+    setQtyEditOpen(false)
+    setQtyEditKey(null)
+    setPayPickOpen(false)
+    setCashOpen(false)
+    setDiscOpen(false)
+    setDiscPickOpen(false)
+    setActiveTicketId(id)
+  }
+
+  function closeTicket(id: string) {
+    if (qtyEditDraftKey && id === activeTicketId) {
+      setQtyEditDraftKey(null)
+      setQtyEditOpen(false)
+    }
+    setTickets(prev => {
+      if (prev.length <= 1) {
+        return prev.map(t => t.id !== id ? t : {
+          ...t,
+          cart: [],
+          client: null,
+          discountPct: 0,
+          bonusUsed: 0,
+          pay: 'cash',
+          selectedLineKey: null,
+        })
+      }
+      const next = prev.filter(t => t.id !== id)
+      if (id === activeTicketId) {
+        const fallback = next[next.length - 1]
+        if (fallback) setActiveTicketId(fallback.id)
+      }
+      return next
+    })
+  }
+
+  function afterSaleTicketReset() {
+    setTickets(prev => {
+      if (prev.length <= 1) {
+        return prev.map(t => t.id !== activeTicketId ? t : {
+          ...t,
+          cart: [],
+          client: null,
+          discountPct: 0,
+          bonusUsed: 0,
+          pay: 'cash',
+          selectedLineKey: null,
+        })
+      }
+      const next = prev.filter(t => t.id !== activeTicketId)
+      const fallback = next[0]
+      if (fallback) setActiveTicketId(fallback.id)
+      return next
+    })
     setDiscLineKey(null)
   }
 
@@ -1616,12 +1775,9 @@ export default function CashierModule({
               ? `Карта · −${spend} ⭐`
               : 'Карта'
       showToast('Чек проведён', toastSub)
-      clearCart()
-      setClient(null)
-      setBonusUsed(0)
+      afterSaleTicketReset()
       setCashOpen(false)
       setPayPickOpen(false)
-      setPay('cash')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка продажи')
       showToast('Ошибка', e instanceof Error ? e.message : 'Ошибка продажи')
@@ -1899,6 +2055,47 @@ export default function CashierModule({
               }}
             />
             <span className="scan-tag" title="Сканер">📷</span>
+          </div>
+
+          <div className="order-tabs" aria-label="Открытые чеки">
+            {tickets.map(t => {
+              const active = t.id === activeTicketId
+              const n = ticketLineCount(t)
+              const label = t.client?.name?.split(/\s+/)[0] || `Чек ${t.seq}`
+              const sum = ticketNetSum(t)
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`order-tab ${active ? 'on' : ''}`}
+                  title={sum > 0 ? `${label} · ${sum.toFixed(2)} сом` : label}
+                  onClick={() => switchTicket(t.id)}
+                >
+                  <span className="order-tab-label">{label}</span>
+                  {n > 0 && <span className="order-tab-count">{n > 99 ? '99+' : n}</span>}
+                  {(tickets.length > 1 || n > 0 || !!t.client) && (
+                    <span
+                      className="order-tab-x"
+                      role="button"
+                      tabIndex={-1}
+                      title="Закрыть чек"
+                      onClick={e => { e.stopPropagation(); closeTicket(t.id) }}
+                    >
+                      ×
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              className="order-tab-add"
+              title="Новый чек"
+              disabled={tickets.length >= MAX_TICKETS}
+              onClick={addTicket}
+            >
+              +
+            </button>
           </div>
 
           <div className="top-meta">
