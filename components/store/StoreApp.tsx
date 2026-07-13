@@ -94,7 +94,7 @@ import { preloadLeaflet } from "@/lib/leafletLoader";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700;800;900&family=Nunito:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700;800;900&family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@600;700;800&display=swap');
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 :root{
   --gr:#1FD760;--gr2:#17B34E;--gr3:#0F8A3A;--gd:#FFB800;
@@ -105,6 +105,18 @@ const CSS = `
 }
 html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
 .ub{font-family:'Unbounded',sans-serif;}
+.bank-num{
+  font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-variant-numeric:tabular-nums;
+  font-weight:800;
+  letter-spacing:-0.04em;
+  line-height:1.1;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  display:block;
+}
 ::-webkit-scrollbar{width:3px;height:3px;}::-webkit-scrollbar-track{background:var(--l1);}::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
@@ -2684,6 +2696,9 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     () => (user?.phone ? deliveredOrdersNeedingBonusSync(user.phone, apiOrders).length : 0),
     [user?.phone, apiOrders],
   );
+  const bonusBank = Math.floor(Math.max(0, Number(user?.bonus) || 0)).toLocaleString('ru-RU')
+  const bonusDigits = String(Math.floor(Math.max(0, Number(user?.bonus) || 0))).length
+  const bonusFs = bonusDigits >= 9 ? 11 : bonusDigits >= 8 ? 12 : bonusDigits >= 7 ? 13 : bonusDigits >= 6 ? 14 : 16
   const [reviewStats, setReviewStats] = useState({ count: 0, withReplies: 0 });
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -2908,12 +2923,12 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
             </div>
         </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:8 }}>
-            <div style={{ padding:"10px 8px", borderRadius:12, background:`${profileTheme.accent}14`, border:`1px solid ${profileTheme.border}`, textAlign:"center", minWidth:0 }}>
-              <div className="ub" style={{ fontSize:18, fontWeight:900, color:profileTheme.accent, lineHeight:1.1 }}>{(user.bonus || 0).toLocaleString()}</div>
+            <div style={{ padding:"10px 6px", borderRadius:12, background:`${profileTheme.accent}14`, border:`1px solid ${profileTheme.border}`, textAlign:"center", minWidth:0, overflow:"hidden" }}>
+              <div className="bank-num" style={{ fontSize:bonusFs, color:profileTheme.accent }} title={bonusBank}>{bonusBank}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>бонусов</div>
               </div>
-            <div style={{ padding:"10px 8px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center", minWidth:0 }}>
-              <div className="ub" style={{ fontSize:18, fontWeight:900, color:"var(--gr)", lineHeight:1.1 }}>{orderCount}</div>
+            <div style={{ padding:"10px 6px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center", minWidth:0, overflow:"hidden" }}>
+              <div className="bank-num" style={{ fontSize:16, color:"var(--gr)" }}>{orderCount}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>{orderCount === 1 ? "заказ" : orderCount >= 2 && orderCount <= 4 ? "заказа" : "заказов"}</div>
               </div>
             <button
@@ -2921,13 +2936,13 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               onClick={() => go("wishlist")}
               className="btn"
               style={{
-                padding:"10px 8px", borderRadius:12, minWidth:0,
+                padding:"10px 6px", borderRadius:12, minWidth:0, overflow:"hidden",
                 background: wishCount > 0 ? "rgba(255,69,69,.08)" : "var(--l3)",
                 border: `1px solid ${wishCount > 0 ? "rgba(255,69,69,.25)" : "var(--b1)"}`,
                 textAlign:"center", cursor:"pointer",
               }}
             >
-              <div className="ub" style={{ fontSize:18, fontWeight:900, color: wishCount > 0 ? "var(--red)" : "var(--t2)", lineHeight:1.1 }}>{wishCount}</div>
+              <div className="bank-num" style={{ fontSize:16, color: wishCount > 0 ? "var(--red)" : "var(--t2)" }}>{wishCount}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>избранное</div>
             </button>
               </div>
