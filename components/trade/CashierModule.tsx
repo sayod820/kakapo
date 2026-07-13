@@ -364,8 +364,7 @@ export default function CashierModule({
   const [histDetail, setHistDetail] = useState<ClientHistRow | null>(null)
   const [histTick, setHistTick] = useState(0)
   const [payPickOpen, setPayPickOpen] = useState(false)
-  const [scaleProduct, setScaleProduct] = useState<Product | null>(null)
-  const [scaleWeight, setScaleWeight] = useState(0)
+  const [qtyEditDraftKey, setQtyEditDraftKey] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     await Promise.all([syncPosFromApi(), syncClientsFromApi(), syncCardsFromApi(), fetchProducts()])
@@ -1327,24 +1326,29 @@ export default function CashierModule({
     const stock = Number(p.stock) || 0
     if (stock <= 0) return
     if (isWeighted(p) && weightKg == null) {
-      setScaleProduct(p)
-      setScaleWeight(0)
-      // simulate scale
-      let t = 0
-      const final = Math.random() * 1.2 + 0.25
-      const iv = setInterval(() => {
-        t++
-        const cur = Math.min(final, (t / 14) * final)
-        setScaleWeight(cur)
-        if (t >= 14) {
-          clearInterval(iv)
-          setScaleWeight(final)
-          setTimeout(() => {
-            setScaleProduct(null)
-            addProduct(p, final)
-          }, 400)
-        }
-      }, 55)
+      const key = `${p.id}-w-${Date.now()}`
+      const art = String(p.art || '').trim()
+      const barcode = productBarcodes(p)[0] || ''
+      setCart(prev => [...prev, {
+        key,
+        productId: p.id,
+        name: p.name,
+        emoji: p.e || '📦',
+        price: Number(p.price) || 0,
+        qty: 1,
+        stock,
+        unit: p.unit || 'кг',
+        art,
+        barcode,
+        weightKg: 0,
+      }])
+      setSelectedLineKey(key)
+      setQtyEditDraftKey(key)
+      setQtyEditKey(key)
+      setQtyEditMode('qty')
+      setQtyEditBuf('')
+      setQtyEditPad(false)
+      setQtyEditOpen(true)
       return
     }
     setCart(prev => {
@@ -1405,11 +1409,22 @@ export default function CashierModule({
 
   function openQtyEdit(line: CartLine) {
     setSelectedLineKey(line.key)
+    setQtyEditDraftKey(null)
     setQtyEditKey(line.key)
     setQtyEditMode('qty')
     setQtyEditBuf(line.weightKg != null ? String(line.weightKg) : String(line.qty))
     setQtyEditPad(false)
     setQtyEditOpen(true)
+  }
+
+  function closeQtyEdit(discardDraft = true) {
+    if (discardDraft && qtyEditDraftKey) {
+      setCart(prev => prev.filter(l => l.key !== qtyEditDraftKey))
+    }
+    setQtyEditDraftKey(null)
+    setQtyEditOpen(false)
+    setQtyEditKey(null)
+    setQtyEditPad(false)
   }
 
   function resolveQtyEdit(line: CartLine, mode: 'qty' | 'sum', raw: string) {
@@ -1440,8 +1455,10 @@ export default function CashierModule({
     }
     if (isWeight) setLineWeight(qtyEditKey, qty)
     else setQty(qtyEditKey, qty)
+    setQtyEditDraftKey(null)
     setQtyEditOpen(false)
     setQtyEditKey(null)
+    setQtyEditPad(false)
   }
 
   function fmtQty(n: number) {
@@ -2139,9 +2156,9 @@ export default function CashierModule({
           )}
 
           <div className="cart-items">
-            {!cart.length ? (
+            {!cart.filter(l => l.key !== qtyEditDraftKey).length ? (
               <div className="cart-empty"><div className="ic">🛒</div>Чек пуст.<br />Отсканируйте или выберите товар.</div>
-            ) : cart.map(line => {
+            ) : cart.filter(l => l.key !== qtyEditDraftKey).map(line => {
               const gross = lineGross(line)
               const net = lineNet(line)
               const lineDisc = Number(line.discPct) || 0
@@ -2296,7 +2313,7 @@ export default function CashierModule({
         const unit = isWeight ? 'кг' : (line.unit || 'шт')
         const overStock = previewQty > line.stock + 0.001
         return (
-          <div className="overlay" onClick={() => setQtyEditOpen(false)}>
+          <div className="overlay" onClick={() => closeQtyEdit()}>
             <div className="modal-card qty-edit-card" onClick={e => e.stopPropagation()}>
               <div className="qty-edit-head">
                 <div className="qty-edit-av">{line.emoji}</div>
@@ -2354,7 +2371,7 @@ export default function CashierModule({
                       const step = qtyEditMode === 'sum' ? 1 : (isWeight ? 0.1 : 1)
                       const cur = Number(qtyEditBuf) || 0
                       const next = Math.max(0, Math.round((cur - step) * 1000) / 1000)
-                      setQtyEditBuf(next > 0 ? (Number.isInteger(next) ? String(next) : String(next)) : '')
+                      setQtyEditBuf(next > 0 ? String(next) : '')
                     }}
                   >
                     −
@@ -2374,7 +2391,7 @@ export default function CashierModule({
                       }
                       if (e.key === 'Escape') {
                         e.preventDefault()
-                        setQtyEditOpen(false)
+                        closeQtyEdit()
                       }
                     }}
                     placeholder="0"
@@ -2386,7 +2403,7 @@ export default function CashierModule({
                       const step = qtyEditMode === 'sum' ? 1 : (isWeight ? 0.1 : 1)
                       const cur = Number(qtyEditBuf) || 0
                       const next = Math.round((cur + step) * 1000) / 1000
-                      setQtyEditBuf(Number.isInteger(next) ? String(next) : String(next))
+                      setQtyEditBuf(String(next))
                     }}
                   >
                     +
@@ -2402,7 +2419,7 @@ export default function CashierModule({
 
               <div className="qty-edit-toolbar">
                 <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
-                  {[10, 15, 20, 30].map(v => (
+                  {(isWeight ? [0.1, 0.25, 0.5, 1, 2, 5] : [10, 15, 20, 30]).map(v => (
                     <button key={v} type="button" onClick={() => setQtyEditBuf(String(v))}>{v}</button>
                   ))}
                 </div>
@@ -2424,7 +2441,7 @@ export default function CashierModule({
               )}
 
               <div className="modal-card-actions">
-                <button type="button" className="btn-cancel" onClick={() => setQtyEditOpen(false)}>Отмена</button>
+                <button type="button" className="btn-cancel" onClick={() => closeQtyEdit()}>Отмена</button>
                 <button type="button" className="btn-confirm" disabled={previewQty <= 0 || overStock} onClick={applyQtyEdit}>Применить</button>
               </div>
             </div>
@@ -2545,23 +2562,6 @@ export default function CashierModule({
         </div>
       )}
 
-      {scaleProduct && (
-        <div className="overlay">
-          <div className="modal-card" style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 40, marginBottom: 8 }}>{scaleProduct.e || '📦'}</div>
-            <h3>{scaleProduct.name}</h3>
-            <p style={{ fontSize: 11.5, color: 'var(--t2)', marginBottom: 16 }}>Взвешивание на весах…</p>
-            <div className="kp-display">
-              <div className="val" style={{ color: 'var(--accent)' }}>{scaleWeight.toFixed(3)}</div>
-              <div className="lbl">КГ</div>
-              <div style={{ fontFamily: 'JetBrains Mono', fontSize: 20, fontWeight: 900, color: 'var(--gd)', marginTop: 8 }}>
-                {(scaleWeight * (Number(scaleProduct.price) || 0)).toFixed(2)} сом
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {clientScanOpen && (
         <div className="overlay" onClick={() => setClientScanOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -2670,7 +2670,7 @@ export default function CashierModule({
             <h3>🏷 Скидка на товар</h3>
             <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>Выберите позицию в чеке</div>
             <div style={{ maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
-              {cart.map(line => (
+              {cart.filter(l => l.key !== qtyEditDraftKey).map(line => (
                 <button
                   key={line.key}
                   type="button"
