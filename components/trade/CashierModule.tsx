@@ -339,6 +339,9 @@ export default function CashierModule({
   const qtyEditInputRef = useRef<HTMLInputElement>(null)
   const [cashOpen, setCashOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
+  /** Экранная клавиатура в модалках суммы (скидка / нал / пополнение / долг) */
+  const [amountPad, setAmountPad] = useState(false)
+  const amountInputRef = useRef<HTMLInputElement>(null)
   const [cashierMenuOpen, setCashierMenuOpen] = useState(false)
   const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
   const [switchCashierId, setSwitchCashierId] = useState('')
@@ -399,6 +402,18 @@ export default function CashierModule({
     }, 40)
     return () => window.clearTimeout(t)
   }, [qtyEditOpen, qtyEditMode, qtyEditPad])
+
+  useEffect(() => {
+    const open = discOpen || cashOpen || topupOpen || repayOpen
+    if (!open || amountPad) return
+    const t = window.setTimeout(() => {
+      const el = amountInputRef.current
+      if (!el) return
+      el.focus()
+      el.select()
+    }, 40)
+    return () => window.clearTimeout(t)
+  }, [discOpen, cashOpen, topupOpen, repayOpen, amountPad])
 
   useEffect(() => {
     if (!clientScanOpen) return
@@ -1421,6 +1436,7 @@ export default function CashierModule({
     setDiscMode('all')
     setDiscLineKey(null)
     setDiscBuf(String(discountPct || ''))
+    setAmountPad(false)
     setDiscOpen(true)
   }
 
@@ -1436,6 +1452,7 @@ export default function CashierModule({
       setDiscLineKey(targetKey)
       setDiscBuf(String(line.discPct || ''))
       setDiscPickOpen(false)
+      setAmountPad(false)
       setDiscOpen(true)
       return
     }
@@ -1550,6 +1567,7 @@ export default function CashierModule({
     if (method === 'cash') {
       setPayPickOpen(false)
       setCashBuf('')
+      setAmountPad(false)
       setCashOpen(true)
       return
     }
@@ -2495,11 +2513,35 @@ export default function CashierModule({
                 На весь чек{levelDiscPct > 0 ? ` · уже +${levelDiscPct}% статус` : ''}
               </div>
             )}
-            <div className="kp-display"><div className="lbl">СКИДКА, %</div><div className="val">{discBuf || '0'}</div></div>
-            <div className="kp-quick">
-              {[0, 5, 10, 15, 20].map(v => <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>)}
+            <div className="kp-display">
+              <div className="lbl">СКИДКА, %</div>
+              <input
+                ref={amountInputRef}
+                className="kp-field"
+                value={discBuf}
+                inputMode="decimal"
+                autoFocus
+                onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
+                onFocus={e => e.currentTarget.select()}
+                placeholder="0"
+              />
             </div>
-            <Keypad onDigit={k => setDiscBuf(b => appendDigit(b, k, 3))} onBack={() => setDiscBuf(b => b.slice(0, -1))} />
+            <div className="qty-edit-toolbar">
+              <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
+                {[0, 5, 10, 15, 20].map(v => <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>)}
+              </div>
+              <button
+                type="button"
+                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
+                onClick={() => setAmountPad(v => !v)}
+                title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
+              >
+                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+              </button>
+            </div>
+            {amountPad && (
+              <Keypad onDigit={k => setDiscBuf(b => appendDigit(b, k, 3))} onBack={() => setDiscBuf(b => b.slice(0, -1))} />
+            )}
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setDiscOpen(false)}>Отмена</button>
               <button type="button" className="btn-confirm" onClick={applyDiscount}>Применить</button>
@@ -2514,18 +2556,39 @@ export default function CashierModule({
             <h3>💵 Оплата наличными</h3>
             <div className="kp-display">
               <div className="lbl">К ОПЛАТЕ: {total.toFixed(2)} сом</div>
-              <div className="val">{cashReceived.toFixed(2)}</div>
+              <input
+                ref={amountInputRef}
+                className="kp-field"
+                value={cashBuf}
+                inputMode="decimal"
+                autoFocus
+                onChange={e => setCashBuf(sanitizeDecimalInput(e.target.value))}
+                onFocus={e => e.currentTarget.select()}
+                placeholder="0.00"
+              />
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                 <span>Сдача</span>
                 <b className="mono" style={{ color: cashChange < 0 ? 'var(--red)' : 'var(--gd)' }}>{cashChange.toFixed(2)} сом</b>
               </div>
             </div>
-            <div className="kp-quick">
-              {[total, Math.ceil(total / 10) * 10, Math.ceil(total / 50) * 50, Math.ceil(total / 100) * 100].map((v, i) => (
-                <button key={i} type="button" onClick={() => setCashBuf(String(Math.round(v)))}>{Math.round(v)}</button>
-              ))}
+            <div className="qty-edit-toolbar">
+              <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
+                {[total, Math.ceil(total / 10) * 10, Math.ceil(total / 50) * 50, Math.ceil(total / 100) * 100].map((v, i) => (
+                  <button key={i} type="button" onClick={() => setCashBuf(String(Math.round(v)))}>{Math.round(v)}</button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
+                onClick={() => setAmountPad(v => !v)}
+                title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
+              >
+                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+              </button>
             </div>
-            <Keypad onDigit={k => setCashBuf(b => appendDigit(b, k))} onBack={() => setCashBuf(b => b.slice(0, -1))} />
+            {amountPad && (
+              <Keypad onDigit={k => setCashBuf(b => appendDigit(b, k))} onBack={() => setCashBuf(b => b.slice(0, -1))} />
+            )}
             {msg && <div className="pos-err">{msg}</div>}
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" disabled={busy} onClick={() => setCashOpen(false)}>Отмена</button>
@@ -2543,8 +2606,32 @@ export default function CashierModule({
               Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
               <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Не связано с текущим чеком · бонусы по порогам</div>
             </div>
-            <div className="kp-display"><div className="lbl">СУММА ПОПОЛНЕНИЯ</div><div className="val">{topupCash.toFixed(2)} сом</div></div>
-            <Keypad onDigit={k => setTopupBuf(b => appendDigit(b, k))} onBack={() => setTopupBuf(b => b.slice(0, -1))} />
+            <div className="kp-display">
+              <div className="lbl">СУММА ПОПОЛНЕНИЯ</div>
+              <input
+                ref={amountInputRef}
+                className="kp-field"
+                value={topupBuf}
+                inputMode="decimal"
+                autoFocus
+                onChange={e => setTopupBuf(sanitizeDecimalInput(e.target.value))}
+                onFocus={e => e.currentTarget.select()}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="amount-pad-row">
+              <button
+                type="button"
+                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
+                onClick={() => setAmountPad(v => !v)}
+                title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
+              >
+                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+              </button>
+            </div>
+            {amountPad && (
+              <Keypad onDigit={k => setTopupBuf(b => appendDigit(b, k))} onBack={() => setTopupBuf(b => b.slice(0, -1))} />
+            )}
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено</span><b className="mono">{topupCash.toFixed(2)}</b></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус на карту</span><b className="mono">+{topupBonus}</b></div>
@@ -2574,20 +2661,41 @@ export default function CashierModule({
             </div>
             <div className="kp-display" style={{ marginTop: -6 }}>
               <div className="lbl">СУММА ОПЛАТЫ</div>
-              <div className="val">{repayAmount.toFixed(2)} сом</div>
+              <input
+                ref={amountInputRef}
+                className="kp-field"
+                value={repayBuf}
+                inputMode="decimal"
+                autoFocus
+                onChange={e => setRepayBuf(sanitizeDecimalInput(e.target.value))}
+                onFocus={e => e.currentTarget.select()}
+                placeholder="0.00"
+              />
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                 <span>Останется долг</span>
                 <b className="mono" style={{ color: repayRemain > 0 ? 'var(--org)' : 'var(--gd)' }}>{repayRemain.toFixed(2)}</b>
               </div>
             </div>
-            <div className="kp-quick">
-              {clientDebt > 0 && <button type="button" onClick={() => setRepayBuf(String(clientDebt))}>Весь долг</button>}
+            <div className="qty-edit-toolbar">
+              <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
+                {clientDebt > 0 && <button type="button" onClick={() => setRepayBuf(String(clientDebt))}>Весь долг</button>}
+              </div>
+              <button
+                type="button"
+                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
+                onClick={() => setAmountPad(v => !v)}
+                title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
+              >
+                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+              </button>
             </div>
             <div className="repay-methods">
               <button type="button" className={`repay-m ${repayMethod === 'cash' ? 'on' : ''}`} onClick={() => setRepayMethod('cash')}>💵 Наличные</button>
               <button type="button" className={`repay-m ${repayMethod === 'card' ? 'on' : ''}`} onClick={() => setRepayMethod('card')}>💳 Карта</button>
             </div>
-            <Keypad onDigit={k => setRepayBuf(b => appendDigit(b, k))} onBack={() => setRepayBuf(b => b.slice(0, -1))} />
+            {amountPad && (
+              <Keypad onDigit={k => setRepayBuf(b => appendDigit(b, k))} onBack={() => setRepayBuf(b => b.slice(0, -1))} />
+            )}
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setRepayOpen(false)}>Отмена</button>
               <button
@@ -2656,6 +2764,7 @@ export default function CashierModule({
                       if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
                       setRepayBuf('')
                       setRepayMethod('cash')
+                      setAmountPad(false)
                       setRepayOpen(true)
                     }}
                   >
@@ -2667,6 +2776,7 @@ export default function CashierModule({
                     onClick={() => {
                       setHistOpen(false)
                       setTopupBuf('')
+                      setAmountPad(false)
                       setTopupOpen(true)
                     }}
                   >
@@ -2878,6 +2988,7 @@ export default function CashierModule({
                     if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
                     setRepayBuf(String(Math.min(remain, clientDebt)))
                     setRepayMethod('cash')
+                    setAmountPad(false)
                     setRepayOpen(true)
                   }}
                 >

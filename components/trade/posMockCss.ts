@@ -542,6 +542,14 @@ export const POS_MOCK_CSS = `
   .kp-display{background:var(--surface2);border:1.5px solid var(--border);border-radius:16px;padding:16px;text-align:center;margin-bottom:14px;}
   .kp-display .lbl{font-size:10px;color:var(--t3);letter-spacing:.5px;margin-bottom:4px;}
   .kp-display .val{font-family:'JetBrains Mono';font-size:28px;font-weight:800;color:var(--t1);}
+  .kp-field{
+    width:100%;background:transparent;border:none;outline:none;text-align:center;
+    font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:800;color:var(--t1);
+    padding:4px 0;caret-color:var(--accent);min-width:0;
+  }
+  .kp-field::placeholder{color:var(--t3);}
+  .amount-pad-row{display:flex;justify-content:flex-end;margin-bottom:12px;}
+  .amount-pad-row .qty-pad-toggle{min-height:40px;}
   .kp-change{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;font-size:12px;}
   .kp-change b{font-family:'JetBrains Mono';color:var(--gd);}
   .kp-quick{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;}
