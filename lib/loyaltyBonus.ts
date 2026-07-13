@@ -256,12 +256,12 @@ export function resolveOrderStatusLevel(
   return resolveEffectiveClientLevel(spent, including.length, storedLevel) as ClientLevel
 }
 
-/** Ожидаемый баланс: welcome + кэшбэк за доставленные заказы − списанные бонусы. */
+/** Ожидаемый баланс: welcome + кэшбэк за доставленные − списания + кассовые бонусы. */
 export function computeExpectedClientBonus(
   phone: string,
   orders: Order[],
   merged: { level?: ClientLevel | string; vip?: boolean; loyaltyPeriod?: string; bonusEligibleFrom?: string },
-  card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
+  card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string; posCashBonus?: number } | null,
 ): number {
   const delivered = orders
     .filter(o => o.status === 'delivered' && phonesMatch(o.client?.phone || '', phone))
@@ -273,7 +273,8 @@ export function computeExpectedClientBonus(
   }
 
   const bonusSpent = delivered.reduce((s, o) => s + (Number(o.bonusSpent) || 0), 0)
-  return Math.max(0, getRegistrationWelcomeBonus() + earned - bonusSpent)
+  const posCashBonus = Math.max(0, Number(card?.posCashBonus) || 0)
+  return Math.max(0, getRegistrationWelcomeBonus() + earned - bonusSpent + posCashBonus)
 }
 
 /** Локальный пересчёт баланса и уровня (в т.ч. после отмены заказа). */

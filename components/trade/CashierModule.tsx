@@ -883,25 +883,50 @@ export default function CashierModule({
     )
   }
 
+  // Если сверка обнулила бонусы, а в истории кассы есть начисления — восстановить один баланс
+  useEffect(() => {
+    if (!histOpen || !client?.card || !client.phone || !USE_API) return
+    let cancelled = false
+    const histBonus = loadBalanceTopups(client.phone).reduce((s, t) => s + (Math.floor(Number(t.bonus) || 0)), 0)
+    if (histBonus <= 0) return
+    const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
+    const curBonus = Number(loyalty?.bonus ?? cardRow?.bonus) || 0
+    const curPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
+    if (curBonus > 0 && curPos >= histBonus) return
+    if (curBonus >= histBonus && curPos >= histBonus) return
+    void (async () => {
+      try {
+        const nextPos = Math.max(curPos, histBonus)
+        const nextBonus = Math.max(curBonus, nextPos)
+        if (nextPos === curPos && nextBonus === curBonus) return
+        await api.updateCard(client.card!, {
+          bonus: nextBonus,
+          posCashBonus: nextPos,
+        })
+        if (!cancelled) {
+          await refresh()
+          const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
+          if (fresh) setClient(fresh)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- one heal when opening profile
+  }, [histOpen, client?.id, client?.card, client?.phone])
+
   const clientProfileStats = useMemo(() => {
     void histTick
     const bonus = Number(loyalty?.bonus) || 0
-    let topupCash = 0
-    let topupBonus = 0
     let repaid = 0
     let charged = 0
     if (client?.phone) {
-      for (const t of loadBalanceTopups(client.phone)) {
-        topupCash += Number(t.cash) || 0
-        topupBonus += Number(t.bonus) || 0
-      }
       for (const h of loadDebtHistory(client.phone)) {
         if (h.type === 'pay') repaid += Number(h.amount) || 0
         else charged += Math.abs(Number(h.amount) || 0)
       }
     }
     const creditSales = clientHistory.filter(r => r.tone === 'credit').length
-    return { bonus, topupCash, topupBonus, repaid, charged, creditSales }
+    return { bonus, repaid, charged, creditSales }
   }, [client, loyalty, histTick, clientHistory])
 
   const subtotalGross = useMemo(() => cart.reduce((s, l) => s + lineGross(l), 0), [cart])
@@ -1519,7 +1544,7 @@ export default function CashierModule({
           itemsSummary,
         })
       }
-      // Наличные по чеку → бонусы по порогам (как при пополнении)
+      // Единый баланс бонусов: нал на кассе → ⭐ (posCashBonus не затирается сверкой)
       let earnedBonus = 0
       if (method === 'cash' && client?.card && total > 0) {
         earnedBonus = calcCashDepositBonus(total)
@@ -1527,10 +1552,15 @@ export default function CashierModule({
       if (client?.card && USE_API && (usedBonus > 0 || earnedBonus > 0)) {
         try {
           const base = Number(loyalty?.bonus) || 0
-          const nextBonus = Math.max(0, base - Math.floor(usedBonus) + earnedBonus)
+          const spend = Math.floor(usedBonus)
+          const cardRow = cards.find(c => client.card && cardNumsMatch(c.num, client.card))
+          const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
+          const nextPos = Math.max(0, prevPos - spend) + earnedBonus
+          const nextBonus = Math.max(0, base - spend + earnedBonus)
           await api.updateCard(client.card, {
             bonus: nextBonus,
-            ...(usedBonus > 0 ? { allowBonusDecrease: true } : {}),
+            posCashBonus: nextPos,
+            ...(spend > 0 ? { allowBonusDecrease: true } : {}),
           })
           if (client.phone && earnedBonus > 0) {
             recordBalanceTopup(client.phone, total, earnedBonus, 'Оплата наличными (касса)')
@@ -1596,16 +1626,24 @@ export default function CashierModule({
     try {
       const summary = loyaltySummaryForClient(client, cards)
       if (!client.card) throw new Error('У клиента нет карты')
+      const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
+      const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
       await api.updateCard(client.card, {
         bonus: (Number(summary.bonus) || 0) + bonus,
+        posCashBonus: prevPos + bonus,
       })
-      if (client.phone) recordBalanceTopup(client.phone, cash, bonus)
+      if (client.phone) recordBalanceTopup(client.phone, cash, bonus, 'Пополнение баланса')
       await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
-      showToast('Баланс пополнен', `${client.name}: +${bonus} ⭐ за ${fmtMoney(cash)}`)
+      showToast(
+        'Баланс пополнен',
+        bonus > 0
+          ? `${client.name}: +${bonus} ⭐ за ${fmtMoney(cash)}`
+          : `${client.name}: ${fmtMoney(cash)} · бонус по порогу не начислен`,
+      )
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
     } finally {
@@ -1645,9 +1683,14 @@ export default function CashierModule({
       const fifoPreview = allocateRepaymentFifo(oldestActive, amount)
       const repayBonus = repayMethod === 'cash' ? calcCashDepositBonus(amount) : 0
       const summary = loyaltySummaryForClient(client, cards)
+      const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
+      const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
       await api.updateCard(client.card, {
         debt: nextDebt,
-        ...(repayBonus > 0 ? { bonus: (Number(summary.bonus) || 0) + repayBonus } : {}),
+        ...(repayBonus > 0 ? {
+          bonus: (Number(summary.bonus) || 0) + repayBonus,
+          posCashBonus: prevPos + repayBonus,
+        } : {}),
       })
       if (client.phone) {
         recordStoreDebtRepayment(client.phone, amount, { method: repayMethod })
@@ -2778,7 +2821,7 @@ export default function CashierModule({
 
                 <div className="client-kpis">
                   <div className="client-kpi">
-                    <div className="l">Бонусы</div>
+                    <div className="l">Баланс (бонусы)</div>
                     <div className="v" style={{ color: 'var(--gd)' }}>⭐ {clientProfileStats.bonus}</div>
                   </div>
                   <div className="client-kpi">
@@ -2788,13 +2831,6 @@ export default function CashierModule({
                   <div className="client-kpi">
                     <div className="l">Лимит / доступно</div>
                     <div className="v">{debtLimit > 0 ? fmtMoney(availableDebt) : '—'}</div>
-                  </div>
-                  <div className="client-kpi">
-                    <div className="l">Наличные → бонусы</div>
-                    <div className="v" style={{ color: 'var(--accent)' }}>
-                      {fmtMoney(clientProfileStats.topupCash)}
-                      <span className="sub">+{clientProfileStats.topupBonus} ⭐</span>
-                    </div>
                   </div>
                   <div className="client-kpi">
                     <div className="l">Погашено долга</div>

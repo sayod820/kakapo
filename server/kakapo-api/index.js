@@ -2053,6 +2053,7 @@ function normalizeCardRow(raw) {
     status,
     level,
     bonus: Number(raw.bonus) || 0,
+    posCashBonus: Math.max(0, Number(raw.posCashBonus) || 0),
     debtLimit: Number(raw.debtLimit) || 0,
     debt: Number(raw.debt) || 0,
     issued: raw.issued || new Date().toISOString().slice(0, 10),

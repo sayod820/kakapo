@@ -619,7 +619,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
       }
       client.loyaltyPeriod = period
     }
-    const expectedBonus = Math.max(0, welcome)
+    const expectedBonus = Math.max(0, welcome + Math.max(0, Number(card.posCashBonus) || 0))
     const delta = expectedBonus - prevBonus
     if (expectedBonus !== prevBonus) {
       card.bonus = expectedBonus
@@ -642,7 +642,8 @@ export function reconcileClientBonuses(db, phone, hooks) {
   }
 
   const bonusSpent = delivered.reduce((s, o) => s + (Number(o.bonusSpent) || 0), 0)
-  const expectedBonus = Math.max(0, welcome + earned - bonusSpent)
+  const posCashBonus = Math.max(0, Number(card.posCashBonus) || 0)
+  const expectedBonus = Math.max(0, welcome + earned - bonusSpent + posCashBonus)
   const finalBonus = expectedBonus
   const delta = finalBonus - prevBonus
 
