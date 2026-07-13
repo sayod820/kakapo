@@ -2748,69 +2748,78 @@ export default function CashierModule({
 
       {cashOpen && (
         <div className="overlay" onClick={() => !busy && setCashOpen(false)}>
-          <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
-            <h3>💵 Наличные · сдача</h3>
-            {client && (
-              <div className="pay-client-strip" style={{ marginBottom: 12 }}>
-                <div>
-                  <b>{client.name}</b>
-                  <span>{usedBonus > 0 ? `бонусы −${Math.floor(usedBonus)} ⭐` : (client.card || client.phone || '')}</span>
+          <div className="modal-card cash-checkout-card" onClick={e => e.stopPropagation()}>
+            <div className="cash-head">
+              <h3>Наличные</h3>
+              {client && (
+                <div className="cash-head-client">
+                  {client.name}
+                  {usedBonus > 0 ? ` · −${Math.floor(usedBonus)} ⭐` : ''}
                 </div>
-              </div>
-            )}
-            <div className="pay-breakdown" style={{ marginBottom: 12 }}>
-              <div className="due">
-                <span>К оплате</span>
-                <b className="bank-fig sum">{total.toFixed(2)} сом</b>
-              </div>
+              )}
             </div>
-            {client?.card && cashSaleBonus > 0 && (
-              <div style={{ fontSize: 12, color: 'var(--gd)', marginBottom: 10, fontWeight: 700 }}>
-                На карту +{cashSaleBonus} ⭐{cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}
+
+            <div className="cash-due-pill">
+              <span>К оплате</span>
+              <b>{total.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} сом</b>
+            </div>
+
+            <div className={`cash-change-hero ${cashChange < -0.001 ? 'short' : cashReceived > 0.001 ? 'ok' : 'idle'}`}>
+              <div className="cash-change-lbl">
+                {cashChange < -0.001 ? 'Не хватает' : 'Сдача'}
               </div>
-            )}
-            <div className="kp-display">
-              <div className="lbl">ПОЛУЧЕНО ОТ КЛИЕНТА</div>
+              <div className="cash-change-val">
+                {Math.abs(cashChange).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <span>сом</span>
+              </div>
+              {client?.card && cashSaleBonus > 0 && cashChange >= -0.001 && (
+                <div className="cash-change-bonus">На карту +{cashSaleBonus} ⭐{cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}</div>
+              )}
+            </div>
+
+            <div className="cash-recv">
+              <div className="lbl">Получено от клиента</div>
               <input
                 ref={amountInputRef}
-                className="kp-field"
+                className="cash-recv-field"
                 value={cashBuf}
                 inputMode="decimal"
                 autoFocus
                 onChange={e => setCashBuf(sanitizeDecimalInput(e.target.value))}
                 onFocus={e => e.currentTarget.select()}
-                placeholder="0.00"
+                placeholder="0"
               />
             </div>
-            <div className={`cash-change-box ${cashChange < -0.001 ? 'short' : cashReceived > 0 ? 'ok' : ''}`}>
-              <span>Сдача</span>
-              <b className="bank-fig">{cashChange.toFixed(2)} сом</b>
-            </div>
-            {cashChange < -0.001 && (
-              <div className="cash-change-warn">Не хватает {Math.abs(cashChange).toFixed(2)} сом</div>
-            )}
-            <div className="qty-edit-toolbar">
-              <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
-                {[total, Math.ceil(total / 10) * 10, Math.ceil(total / 50) * 50, Math.ceil(total / 100) * 100].map((v, i) => (
-                  <button key={i} type="button" onClick={() => setCashBuf(String(Math.round(v * 100) / 100))}>
-                    {i === 0 ? 'Без сдачи' : Math.round(v)}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
-                onClick={() => setAmountPad(v => !v)}
-                title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
-              >
-                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+
+            <div className="cash-bills">
+              <button type="button" className="cash-bill exact" onClick={() => setCashBuf(String(Math.round(total * 100) / 100))}>
+                Без сдачи
               </button>
+              {[10, 20, 50, 100, 200, 500].map(v => (
+                <button
+                  key={v}
+                  type="button"
+                  className={cashReceived === v ? 'on' : ''}
+                  onClick={() => setCashBuf(String(v))}
+                >
+                  {v}
+                </button>
+              ))}
             </div>
+
+            <button
+              type="button"
+              className={`cash-pad-toggle ${amountPad ? 'on' : ''}`}
+              onClick={() => setAmountPad(v => !v)}
+            >
+              ⌨ {amountPad ? 'Скрыть клавиатуру' : 'Клавиатура'}
+            </button>
             {amountPad && (
               <Keypad onDigit={k => setCashBuf(b => appendDigit(b, k))} onBack={() => setCashBuf(b => b.slice(0, -1))} />
             )}
+
             {msg && <div className="pos-err">{msg}</div>}
-            <div className="modal-card-actions">
+            <div className="modal-card-actions cash-actions">
               <button
                 type="button"
                 className="btn-cancel"
@@ -2821,11 +2830,11 @@ export default function CashierModule({
               </button>
               <button
                 type="button"
-                className="btn-confirm"
+                className="btn-confirm cash-accept"
                 disabled={busy || cashReceived < total - 0.001}
                 onClick={() => void submitSale(cashReceived)}
               >
-                Принять · сдача {Math.max(0, cashChange).toFixed(2)}
+                Принять
               </button>
             </div>
           </div>
