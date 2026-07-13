@@ -24,6 +24,7 @@ import {
   recordStoreDebtRepayment,
   subscribeBalanceTopup,
   subscribeDebtHistory,
+  topupBalanceCredit,
   type DebtOrderBalance,
 } from '@/lib/clientVipCredit'
 import {
@@ -699,12 +700,21 @@ export default function CashierModule({
         })
       }
       for (const t of loadBalanceTopups(client.phone)) {
+        const credited = topupBalanceCredit(t)
+        const isTopup = !t.desc || String(t.desc).includes('Пополнение')
+        const cash = Math.floor(Number(t.cash) || 0)
+        const storedBonus = Math.floor(Number(t.bonus) || 0)
+        const percentPart = isTopup && cash > 0 && storedBonus < cash ? storedBonus : Math.max(0, storedBonus - cash)
         rows.push({
           id: `topup-${t.id}`,
           ts: t.ts || 0,
           when: `${t.date}${t.time ? ` · ${t.time}` : ''}`,
-          title: 'Начисление наличными',
-          sub: t.bonus > 0 ? `+${t.bonus} ⭐ бонус на карту` : 'Без бонуса',
+          title: isTopup ? 'Пополнение баланса' : (t.desc || 'Начисление наличными'),
+          sub: isTopup
+            ? (percentPart > 0
+              ? `+${cash.toLocaleString('ru-RU')} ⭐ сумма · +${percentPart.toLocaleString('ru-RU')} ⭐ бонус %`
+              : `+${credited.toLocaleString('ru-RU')} ⭐ на баланс`)
+            : (credited > 0 ? `+${credited.toLocaleString('ru-RU')} ⭐ на баланс` : 'Без зачисления'),
           amount: Number(t.cash) || 0,
           tone: 'topup',
         })
@@ -883,20 +893,19 @@ export default function CashierModule({
     )
   }
 
-  // Если сверка обнулила бонусы, а в истории кассы есть начисления — восстановить один баланс
+  // Восстановить баланс по истории: пополнение = вся сумма наличными (1:1)
   useEffect(() => {
     if (!histOpen || !client?.card || !client.phone || !USE_API) return
     let cancelled = false
-    const histBonus = loadBalanceTopups(client.phone).reduce((s, t) => s + (Math.floor(Number(t.bonus) || 0)), 0)
-    if (histBonus <= 0) return
+    const histCredit = loadBalanceTopups(client.phone).reduce((s, t) => s + topupBalanceCredit(t), 0)
+    if (histCredit <= 0) return
     const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
     const curBonus = Number(loyalty?.bonus ?? cardRow?.bonus) || 0
     const curPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-    if (curBonus > 0 && curPos >= histBonus) return
-    if (curBonus >= histBonus && curPos >= histBonus) return
+    if (curBonus >= histCredit && curPos >= histCredit) return
     void (async () => {
       try {
-        const nextPos = Math.max(curPos, histBonus)
+        const nextPos = Math.max(curPos, histCredit)
         const nextBonus = Math.max(curBonus, nextPos)
         if (nextPos === curPos && nextBonus === curBonus) return
         await api.updateCard(client.card!, {
@@ -1621,7 +1630,11 @@ export default function CashierModule({
     if (!client) return
     const cash = Number(topupBuf) || 0
     if (cash <= 0) return
-    const bonus = calcCashDepositBonus(cash)
+    // Вся сумма на баланс + % бонус по порогам
+    const principal = Math.max(0, Math.floor(cash))
+    const percentBonus = calcCashDepositBonus(cash)
+    const credit = principal + percentBonus
+    if (credit <= 0) return
     setBusy(true)
     try {
       const summary = loyaltySummaryForClient(client, cards)
@@ -1629,21 +1642,17 @@ export default function CashierModule({
       const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
       const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
       await api.updateCard(client.card, {
-        bonus: (Number(summary.bonus) || 0) + bonus,
-        posCashBonus: prevPos + bonus,
+        bonus: (Number(summary.bonus) || 0) + credit,
+        posCashBonus: prevPos + credit,
       })
-      if (client.phone) recordBalanceTopup(client.phone, cash, bonus, 'Пополнение баланса')
+      if (client.phone) recordBalanceTopup(client.phone, cash, credit, 'Пополнение баланса')
       await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
-      showToast(
-        'Баланс пополнен',
-        bonus > 0
-          ? `${client.name}: +${bonus} ⭐ за ${fmtMoney(cash)}`
-          : `${client.name}: ${fmtMoney(cash)} · бонус по порогу не начислен`,
-      )
+      const extra = percentBonus > 0 ? ` · +${percentBonus.toLocaleString('ru-RU')} ⭐ бонус` : ''
+      showToast('Баланс пополнен', `${client.name}: +${principal.toLocaleString('ru-RU')} ⭐${extra}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
     } finally {
@@ -1774,7 +1783,9 @@ export default function CashierModule({
   const cashSaleBonus = client?.card && total > 0 ? calcCashDepositBonus(total) : 0
   const cashSaleTier = client?.card && total > 0 ? cashDepositTierForAmount(total) : null
   const topupCash = Number(topupBuf) || 0
-  const topupBonus = calcCashDepositBonus(topupCash)
+  const topupPrincipal = Math.max(0, Math.floor(topupCash))
+  const topupPercentBonus = calcCashDepositBonus(topupCash)
+  const topupCredit = topupPrincipal + topupPercentBonus
   const topupTier = cashDepositTierForAmount(topupCash)
   const repayAmount = Number(repayBuf) || 0
   const repayRemain = Math.max(0, clientDebt - repayAmount)
@@ -2688,7 +2699,7 @@ export default function CashierModule({
             <h3>💰 Пополнить баланс</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
               Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
-              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Не связано с текущим чеком · бонусы по порогам</div>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>На баланс: вся сумма + % бонус по порогам</div>
             </div>
             <div className="kp-display">
               <div className="lbl">СУММА ПОПОЛНЕНИЯ</div>
@@ -2718,14 +2729,18 @@ export default function CashierModule({
             )}
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено</span><b className="mono">{topupCash.toFixed(2)}</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус на карту</span><b className="mono">+{topupBonus}</b></div>
-              <div style={{ fontSize: 10.5, color: 'var(--t3)' }}>
-                {topupTier ? cashDepositTierLabel(topupTier) : 'Порог не достигнут — настройте в админке «Статус карты»'}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Сумма на баланс</span><b className="mono">+{topupPrincipal.toLocaleString('ru-RU')} ⭐</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус %</span><b className="mono">+{topupPercentBonus.toLocaleString('ru-RU')} ⭐</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', color: 'var(--gd)' }}>
+                <span>Итого на карту</span><b className="mono">+{topupCredit.toLocaleString('ru-RU')} ⭐</b>
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 8 }}>
+                {topupTier ? cashDepositTierLabel(topupTier) : 'Ниже порога — только сумма без % бонуса'}
               </div>
             </div>
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setTopupOpen(false)}>Отмена</button>
-              <button type="button" className="btn-confirm" disabled={busy || topupCash <= 0 || topupBonus <= 0} onClick={() => void submitTopup()}>Пополнить</button>
+              <button type="button" className="btn-confirm" disabled={busy || topupCredit <= 0} onClick={() => void submitTopup()}>Пополнить</button>
             </div>
           </div>
         </div>

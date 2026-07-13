@@ -381,3 +381,21 @@ export function recordBalanceTopup(phone: string, cash: number, bonus: number, d
   saveAccountJson(TOPUP_HIST, [row, ...prev].slice(0, 100), phone)
   emitBalanceTopupChange()
 }
+
+/** Сколько ⭐ реально должно быть на балансе по записи истории кассы. */
+export function topupBalanceCredit(t: Pick<BalanceTopupEntry, 'cash' | 'bonus' | 'desc'>): number {
+  const cash = Math.max(0, Math.floor(Number(t.cash) || 0))
+  const bonus = Math.max(0, Math.floor(Number(t.bonus) || 0))
+  const desc = String(t.desc || '')
+  // Кэшбэк % за оплату/погашение — только bonus
+  if (desc.includes('Оплата наличными') || desc.includes('Погашение долга')) return bonus
+  // Пополнение: сумма (1:1) + % бонус.
+  // Старые записи: bonus = только %, cash = внесённое → credit = cash + bonus.
+  // Новые записи: bonus уже = cash + % → не суммируем дважды.
+  if (!desc || desc.includes('Пополнение')) {
+    if (cash > 0 && bonus >= cash) return bonus
+    if (cash > 0) return cash + bonus
+    return bonus
+  }
+  return Math.max(cash, bonus)
+}
