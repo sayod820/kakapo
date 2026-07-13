@@ -54,7 +54,7 @@ const THEME_KEY = 'kakapo_trade_pos_theme'
 const FAV_KEY = 'kakapo_pos_favorites'
 
 type ThemeName = 'dark' | 'light'
-type PayMethod = 'cash' | 'card' | 'credit' | 'qr' | 'balance'
+type PayMethod = 'cash' | 'card' | 'credit' | 'balance'
 type PosSettings = { cashierId: string; cashierName: string; initials: string }
 
 type CartLine = {
@@ -1509,25 +1509,33 @@ export default function CashierModule({
     setDiscLineKey(null)
   }
 
-  async function submitSale(paidCash = 0, payOverride?: PayMethod) {
+  async function submitSale(paidCash = 0, payOverride?: PayMethod, bonusSpendOverride?: number) {
     if (!activeShift || !cart.length) return
     const methodPay = payOverride ?? pay
+    const spend = Math.max(
+      0,
+      Math.min(
+        Math.floor(bonusSpendOverride != null ? bonusSpendOverride : usedBonus),
+        Math.floor(maxBonus),
+      ),
+    )
+    const payable = Math.max(0, afterDisc - spend)
     if ((methodPay === 'credit' || methodPay === 'balance') && !client) {
       setClientOpen(true)
       return
     }
-    if (methodPay === 'credit' && total > availableDebt + 0.001) {
+    if (methodPay === 'credit' && payable > availableDebt + 0.001) {
       showToast('Лимит долга', `Доступно ${fmtMoney(availableDebt)}`)
       return
     }
-    if (methodPay === 'balance' && total > 0.001) {
-      showToast('Недостаточно баланса', 'Спишите бонусы или выберите другой способ')
+    if (methodPay === 'balance' && payable > 0.001) {
+      showToast('Недостаточно бонусов', 'Спишите бонусы или выберите другой способ')
       return
     }
     setBusy(true)
     setMsg('')
     try {
-      const method = methodPay === 'qr' || methodPay === 'balance' ? 'card' : methodPay
+      const method = methodPay === 'balance' ? 'card' : methodPay
       const created = await api.createPosSale({
         cashierId: activeShift.cashierId,
         shiftId: activeShift.id,
@@ -1536,9 +1544,9 @@ export default function CashierModule({
         clientPhone: client?.phone,
         cardNum: client?.card,
         paymentMethod: method === 'credit' ? 'credit' : method,
-        paidCash: method === 'cash' ? Math.max(paidCash, total) : 0,
-        paidCard: method === 'card' ? total : 0,
-        debtAdded: method === 'credit' ? total : 0,
+        paidCash: method === 'cash' ? Math.max(paidCash, payable) : 0,
+        paidCard: method === 'card' ? payable : 0,
+        debtAdded: method === 'credit' ? payable : 0,
         items: cart.map(l => ({
           productId: l.productId,
           productName: l.name,
@@ -1548,20 +1556,19 @@ export default function CashierModule({
       })
       if (method === 'credit' && client?.phone) {
         const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
-        recordStoreDebtCharge(client.phone, total, `Чек в долг`, {
+        recordStoreDebtCharge(client.phone, payable, `Чек в долг`, {
           orderId: created?.id || undefined,
           itemsSummary,
         })
       }
       // Единый баланс бонусов: нал на кассе → ⭐ (posCashBonus не затирается сверкой)
       let earnedBonus = 0
-      if (method === 'cash' && client?.card && total > 0) {
-        earnedBonus = calcCashDepositBonus(total)
+      if (method === 'cash' && client?.card && payable > 0) {
+        earnedBonus = calcCashDepositBonus(payable)
       }
-      if (client?.card && USE_API && (usedBonus > 0 || earnedBonus > 0)) {
+      if (client?.card && USE_API && (spend > 0 || earnedBonus > 0)) {
         try {
           const base = Number(loyalty?.bonus) || 0
-          const spend = Math.floor(usedBonus)
           const cardRow = cards.find(c => client.card && cardNumsMatch(c.num, client.card))
           const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
           const nextPos = Math.max(0, prevPos - spend) + earnedBonus
@@ -1572,24 +1579,25 @@ export default function CashierModule({
             ...(spend > 0 ? { allowBonusDecrease: true } : {}),
           })
           if (client.phone && earnedBonus > 0) {
-            recordBalanceTopup(client.phone, total, earnedBonus, 'Оплата наличными (касса)')
+            recordBalanceTopup(client.phone, payable, earnedBonus, 'Оплата наличными (касса)')
           }
         } catch { /* ignore */ }
       }
       await refresh()
-      const change = method === 'cash' ? Math.max(0, paidCash - total) : 0
+      const change = method === 'cash' ? Math.max(0, paidCash - payable) : 0
       const toastSub = method === 'cash'
-        ? `Наличные · сдача ${fmtMoney(change)}${earnedBonus > 0 ? ` · +${earnedBonus} ⭐` : client?.card ? '' : ''}`
+        ? `Наличные · сдача ${fmtMoney(change)}${earnedBonus > 0 ? ` · +${earnedBonus} ⭐` : ''}${spend > 0 ? ` · −${spend} ⭐` : ''}`
         : methodPay === 'credit'
           ? `В долг · ${client?.name || ''}`
-          : methodPay === 'balance'
-            ? 'Баланс / бонусы'
-            : methodPay === 'qr'
-              ? 'QR'
+          : methodPay === 'balance' || spend > 0 && payable <= 0.001
+            ? `Бонусы −${spend} ⭐`
+            : spend > 0
+              ? `Карта · −${spend} ⭐`
               : 'Карта'
       showToast('Чек проведён', toastSub)
       clearCart()
       setClient(null)
+      setBonusUsed(0)
       setCashOpen(false)
       setPayPickOpen(false)
       setPay('cash')
@@ -1603,6 +1611,9 @@ export default function CashierModule({
 
   function startPay() {
     if (!cart.length) return
+    setBonusUsed(0)
+    setAmountPad(false)
+    setCashBuf('')
     setPayPickOpen(true)
   }
 
@@ -1610,20 +1621,43 @@ export default function CashierModule({
     if ((method === 'credit' || method === 'balance') && !client) {
       setPayPickOpen(false)
       setClientOpen(true)
-      showToast('Выберите клиента', 'Для оплаты в долг нужен клиент')
+      showToast('Выберите клиента', method === 'balance' ? 'Для списания бонусов нужен клиент' : 'Для оплаты в долг нужен клиент')
       return
     }
-    if (method === 'credit') setBonusUsed(0)
+    if (method === 'credit') {
+      setBonusUsed(0)
+      setPay(method)
+      setPayPickOpen(false)
+      void submitSale(0, 'credit', 0)
+      return
+    }
+    if (method === 'balance') {
+      const cover = Math.min(Math.floor(maxBonus), Math.floor(afterDisc))
+      if (cover < afterDisc - 0.001) {
+        showToast('Мало бонусов', `Доступно ${cover} ⭐ · к оплате ${afterDisc.toFixed(2)}`)
+        return
+      }
+      setBonusUsed(cover)
+      setPay(method)
+      setPayPickOpen(false)
+      void submitSale(0, 'balance', cover)
+      return
+    }
     setPay(method)
     if (method === 'cash') {
       setPayPickOpen(false)
-      setCashBuf('')
+      setCashBuf(total > 0 ? total.toFixed(2) : '')
       setAmountPad(false)
       setCashOpen(true)
       return
     }
     setPayPickOpen(false)
     void submitSale(0, method)
+  }
+
+  function applyPayBonus(amount: number) {
+    const max = Math.floor(maxBonus)
+    setBonusUsed(Math.max(0, Math.min(max, Math.floor(amount))))
   }
 
   async function submitTopup() {
@@ -2400,31 +2434,112 @@ export default function CashierModule({
 
       {payPickOpen && (
         <div className="overlay" onClick={() => !busy && setPayPickOpen(false)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>Способ оплаты</h3>
-            <div className="kp-display" style={{ marginBottom: 14 }}>
-              <div className="lbl">К ОПЛАТЕ</div>
-              <div className="val" style={{ color: 'var(--accent)' }}>{total.toFixed(2)} сом</div>
-              {discAmount > 0 && (
-                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--red)' }}>Скидка −{discAmount.toFixed(2)}</div>
+          <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
+            <h3>Оплата</h3>
+
+            {client && loyalty ? (
+              <div className="pay-client-strip">
+                <div>
+                  <b>{client.name}</b>
+                  <span>{client.card || client.phone || 'без карты'}</span>
+                </div>
+                <div className="pay-client-bonus">⭐ {(Number(loyalty.bonus) || 0).toLocaleString('ru-RU')}</div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="pay-pick-client"
+                onClick={() => { setPayPickOpen(false); setClientOpen(true) }}
+              >
+                👤 Выбрать клиента — чтобы списать бонусы
+              </button>
+            )}
+
+            <div className="pay-breakdown">
+              <div><span>Сумма со скидкой</span><b className="bank-fig">{afterDisc.toFixed(2)}</b></div>
+              {usedBonus > 0 && (
+                <div className="disc"><span>Бонусы</span><b className="bank-fig">−{usedBonus.toFixed(0)}</b></div>
               )}
+              <div className="due">
+                <span>К оплате</span>
+                <b className="bank-fig sum">{total.toFixed(2)} сом</b>
+              </div>
             </div>
-            <div className="pay-grid" style={{ padding: 0, marginBottom: 12 }}>
-              <button type="button" className="pay-btn pay-cash" onClick={() => choosePayMethod('cash')} disabled={busy}>
+
+            {client && loyalty && maxBonus > 0 && (
+              <div className="pay-bonus-box">
+                <div className="pay-bonus-head">
+                  <span>Списать бонусы</span>
+                  <span className="muted">макс. {Math.floor(maxBonus).toLocaleString('ru-RU')} ⭐</span>
+                </div>
+                <div className="pay-bonus-quick">
+                  <button type="button" className={usedBonus <= 0 ? 'on' : ''} onClick={() => applyPayBonus(0)}>Без</button>
+                  <button
+                    type="button"
+                    className={usedBonus > 0 && usedBonus === Math.floor(maxBonus / 2) ? 'on' : ''}
+                    onClick={() => applyPayBonus(Math.floor(maxBonus / 2))}
+                  >
+                    ½
+                  </button>
+                  <button
+                    type="button"
+                    className={usedBonus > 0 && usedBonus === Math.floor(maxBonus) ? 'on' : ''}
+                    onClick={() => applyPayBonus(Math.floor(maxBonus))}
+                  >
+                    Все
+                  </button>
+                </div>
+                <input
+                  type="range"
+                  className="pay-bonus-range"
+                  min={0}
+                  max={Math.floor(maxBonus)}
+                  step={1}
+                  value={Math.floor(usedBonus)}
+                  onChange={e => applyPayBonus(Number(e.target.value) || 0)}
+                />
+                <div className="pay-bonus-val">Списываем: <b>{Math.floor(usedBonus).toLocaleString('ru-RU')} ⭐</b></div>
+              </div>
+            )}
+
+            <div className="pay-grid pay-grid-3">
+              <button type="button" className="pay-btn pay-cash" onClick={() => choosePayMethod('cash')} disabled={busy || total <= 0.001}>
                 <span className="ic">💵</span>Наличные
               </button>
-              <button type="button" className="pay-btn pay-card" onClick={() => choosePayMethod('card')} disabled={busy}>
+              <button type="button" className="pay-btn pay-card" onClick={() => choosePayMethod('card')} disabled={busy || total <= 0.001}>
                 <span className="ic">💳</span>Карта
               </button>
-              <button type="button" className="pay-btn pay-credit" onClick={() => choosePayMethod('credit')} disabled={busy}>
+              <button type="button" className="pay-btn pay-credit" onClick={() => choosePayMethod('credit')} disabled={busy || total <= 0.001}>
                 <span className="ic">📝</span>В долг
               </button>
-              <button type="button" className="pay-btn pay-qr" onClick={() => choosePayMethod('qr')} disabled={busy}>
-                <span className="ic">📱</span>QR
-              </button>
             </div>
+
+            {client && loyalty && afterDisc > 0 && Math.floor(maxBonus) >= Math.floor(afterDisc) && (
+              <button
+                type="button"
+                className="pay-btn pay-balance pay-balance-full"
+                disabled={busy}
+                onClick={() => choosePayMethod('balance')}
+              >
+                <span className="ic">⭐</span>
+                Оплатить всё бонусами ({Math.floor(afterDisc).toLocaleString('ru-RU')} ⭐)
+              </button>
+            )}
+
+            {total <= 0.001 && usedBonus > 0 && (
+              <button
+                type="button"
+                className="btn-confirm"
+                style={{ width: '100%', marginBottom: 10 }}
+                disabled={busy}
+                onClick={() => { setPayPickOpen(false); void submitSale(0, 'balance') }}
+              >
+                Подтвердить · оплачено бонусами
+              </button>
+            )}
+
             <div className="modal-card-actions">
-              <button type="button" className="btn-cancel" disabled={busy} onClick={() => setPayPickOpen(false)}>Отмена</button>
+              <button type="button" className="btn-cancel" disabled={busy} onClick={() => { setPayPickOpen(false); setBonusUsed(0) }}>Отмена</button>
             </div>
           </div>
         </div>
@@ -2633,24 +2748,29 @@ export default function CashierModule({
 
       {cashOpen && (
         <div className="overlay" onClick={() => !busy && setCashOpen(false)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>💵 Оплата наличными</h3>
-            {client?.card ? (
-              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 10 }}>
-                {cashSaleBonus > 0 ? (
-                  <>На карту <b style={{ color: 'var(--gd)' }}>+{cashSaleBonus} ⭐</b>
-                    {cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}</>
-                ) : (
-                  <>Бонус за чек — по порогам наличных (сейчас ниже порога)</>
-                )}
+          <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
+            <h3>💵 Наличные · сдача</h3>
+            {client && (
+              <div className="pay-client-strip" style={{ marginBottom: 12 }}>
+                <div>
+                  <b>{client.name}</b>
+                  <span>{usedBonus > 0 ? `бонусы −${Math.floor(usedBonus)} ⭐` : (client.card || client.phone || '')}</span>
+                </div>
               </div>
-            ) : (
-              <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
-                Выберите клиента с картой — наличные начислят бонусы
+            )}
+            <div className="pay-breakdown" style={{ marginBottom: 12 }}>
+              <div className="due">
+                <span>К оплате</span>
+                <b className="bank-fig sum">{total.toFixed(2)} сом</b>
+              </div>
+            </div>
+            {client?.card && cashSaleBonus > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--gd)', marginBottom: 10, fontWeight: 700 }}>
+                На карту +{cashSaleBonus} ⭐{cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}
               </div>
             )}
             <div className="kp-display">
-              <div className="lbl">К ОПЛАТЕ: {total.toFixed(2)} сом</div>
+              <div className="lbl">ПОЛУЧЕНО ОТ КЛИЕНТА</div>
               <input
                 ref={amountInputRef}
                 className="kp-field"
@@ -2661,15 +2781,20 @@ export default function CashierModule({
                 onFocus={e => e.currentTarget.select()}
                 placeholder="0.00"
               />
-              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span>Сдача</span>
-                <b className="mono" style={{ color: cashChange < 0 ? 'var(--red)' : 'var(--gd)' }}>{cashChange.toFixed(2)} сом</b>
-              </div>
             </div>
+            <div className={`cash-change-box ${cashChange < -0.001 ? 'short' : cashReceived > 0 ? 'ok' : ''}`}>
+              <span>Сдача</span>
+              <b className="bank-fig">{cashChange.toFixed(2)} сом</b>
+            </div>
+            {cashChange < -0.001 && (
+              <div className="cash-change-warn">Не хватает {Math.abs(cashChange).toFixed(2)} сом</div>
+            )}
             <div className="qty-edit-toolbar">
               <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
                 {[total, Math.ceil(total / 10) * 10, Math.ceil(total / 50) * 50, Math.ceil(total / 100) * 100].map((v, i) => (
-                  <button key={i} type="button" onClick={() => setCashBuf(String(Math.round(v)))}>{Math.round(v)}</button>
+                  <button key={i} type="button" onClick={() => setCashBuf(String(Math.round(v * 100) / 100))}>
+                    {i === 0 ? 'Без сдачи' : Math.round(v)}
+                  </button>
                 ))}
               </div>
               <button
@@ -2686,8 +2811,22 @@ export default function CashierModule({
             )}
             {msg && <div className="pos-err">{msg}</div>}
             <div className="modal-card-actions">
-              <button type="button" className="btn-cancel" disabled={busy} onClick={() => setCashOpen(false)}>Отмена</button>
-              <button type="button" className="btn-confirm" disabled={busy || cashReceived < total - 0.001} onClick={() => void submitSale(cashReceived)}>Подтвердить</button>
+              <button
+                type="button"
+                className="btn-cancel"
+                disabled={busy}
+                onClick={() => { setCashOpen(false); setPayPickOpen(true) }}
+              >
+                Назад
+              </button>
+              <button
+                type="button"
+                className="btn-confirm"
+                disabled={busy || cashReceived < total - 0.001}
+                onClick={() => void submitSale(cashReceived)}
+              >
+                Принять · сдача {Math.max(0, cashChange).toFixed(2)}
+              </button>
             </div>
           </div>
         </div>

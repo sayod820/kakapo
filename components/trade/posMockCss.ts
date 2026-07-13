@@ -420,10 +420,12 @@ export const POS_MOCK_CSS = `
   .link-row button{font-size:11px;color:#6B8F76;font-weight:700;padding:4px 10px;}
   .link-row button:hover{color:var(--t1);}
 
-  .pay-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;padding:0 0 8px;flex-shrink:0;}
+  .pay-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 0 8px;flex-shrink:0;}
+  .pay-grid.pay-grid-3{grid-template-columns:1fr 1fr 1fr;}
   .pos-root button.pay-btn{padding:10px 4px;border-radius:14px;text-align:center;font-size:10.5px;font-weight:800;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:56px;border:2px solid transparent;opacity:1;transition:transform .12s,box-shadow .12s,border-color .12s;}
   .pay-btn .ic{font-size:18px;line-height:1;}
   .pos-root button.pay-btn.on{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.3);border-color:rgba(255,255,255,.22);}
+  .pos-root button.pay-btn:disabled{opacity:.45;pointer-events:none;}
   .pos-root button.pay-btn.disabled{opacity:1;pointer-events:none;filter:none;}
   .pos-root button.pay-cash{background:#22C55E;border-color:#1AA34A;}
   .pos-root button.pay-cash.on{background:#16A34A;border-color:#86EFAC;box-shadow:0 4px 12px rgba(34,197,94,.3);}
@@ -434,8 +436,60 @@ export const POS_MOCK_CSS = `
   .pos-root button.pay-balance{background:#2A2A3D;border-color:#3A3A52;color:#7A7A96;}
   .pos-root button.pay-balance.on{background:#3B2F66;border-color:#9B6DFF;color:#fff;box-shadow:0 4px 12px rgba(155,109,255,.28);}
   .pos-root button.pay-balance.disabled{background:#232334;border-color:#2E2E42;color:#5C5C78;}
-  .pos-root button.pay-qr{background:#EAB308;border-color:#CA8A04;color:#1C1400;}
-  .pos-root button.pay-qr.on{background:#F59E0B;border-color:#FDE68A;color:#1C1400;box-shadow:0 4px 12px rgba(234,179,8,.3);}
+  .pos-root button.pay-balance-full{
+    width:100%;margin:0 0 10px;min-height:48px;flex-direction:row;gap:8px;font-size:12px;
+    background:linear-gradient(135deg,#5B21B6,#7C3AED);border-color:#A78BFA;color:#fff;
+  }
+  .pos-root[data-theme="light"] button.pay-balance-full{background:linear-gradient(135deg,#6D28D9,#8B5CF6);border-color:#7C3AED;}
+
+  .modal-card.pay-checkout-card{width:420px;max-height:min(92vh,720px);overflow-y:auto;}
+  .pay-client-strip{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:10px 12px;border-radius:14px;background:var(--surface2);border:1px solid var(--border);margin-bottom:12px;
+  }
+  .pay-client-strip b{display:block;font-size:13px;font-weight:800;line-height:1.2;}
+  .pay-client-strip span{display:block;font-size:11px;color:var(--t3);font-weight:700;margin-top:2px;}
+  .pay-client-bonus{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:900;color:var(--gd);flex-shrink:0;}
+  .pos-root button.pay-pick-client{
+    width:100%;margin-bottom:12px;padding:11px 12px;border-radius:14px;text-align:left;
+    background:var(--surface2);border:1.5px dashed var(--border2);font-size:12px;font-weight:800;color:var(--t2);
+  }
+  .pos-root button.pay-pick-client:hover{border-color:var(--accent);color:var(--t1);}
+  .pay-breakdown{
+    display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:14px;
+    background:var(--surface2);border:1px solid var(--border);margin-bottom:12px;
+  }
+  .pay-breakdown > div{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12px;font-weight:700;color:var(--t2);}
+  .pay-breakdown .disc{color:var(--pur);}
+  .pay-breakdown .due{padding-top:8px;margin-top:2px;border-top:1px dashed var(--border);color:var(--t1);font-size:13px;}
+  .bank-fig{font-family:'JetBrains Mono',monospace;font-weight:900;font-size:14px;color:var(--t1);letter-spacing:-.02em;tabular-nums;}
+  .bank-fig.sum{font-size:clamp(18px,4.5vw,26px);color:var(--accent);line-height:1.1;text-align:right;min-width:0;overflow-wrap:anywhere;}
+  .pay-bonus-box{
+    padding:12px;border-radius:14px;background:rgba(155,109,255,.08);border:1.5px solid rgba(155,109,255,.28);margin-bottom:12px;
+  }
+  .pos-root[data-theme="light"] .pay-bonus-box{background:rgba(124,58,237,.06);border-color:rgba(124,58,237,.22);}
+  .pay-bonus-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px;font-weight:800;}
+  .pay-bonus-head .muted{font-size:11px;font-weight:700;color:var(--t3);}
+  .pay-bonus-quick{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;}
+  .pos-root .pay-bonus-quick button{
+    padding:8px;border-radius:11px;font-size:12px;font-weight:800;background:var(--surface);border:1.5px solid var(--border);color:var(--t2);
+  }
+  .pos-root .pay-bonus-quick button.on{border-color:var(--pur);background:rgba(155,109,255,.16);color:var(--t1);}
+  .pay-bonus-range{width:100%;accent-color:var(--pur);margin:0 0 8px;}
+  .pay-bonus-val{font-size:12px;font-weight:700;color:var(--t2);}
+  .pay-bonus-val b{font-family:'JetBrains Mono',monospace;color:var(--pur);}
+  .cash-change-box{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    margin:12px 0 8px;padding:14px 16px;border-radius:14px;
+    background:var(--surface2);border:1.5px solid var(--border);
+  }
+  .cash-change-box span{font-size:12px;font-weight:800;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;}
+  .cash-change-box .bank-fig{font-size:clamp(20px,5vw,28px);color:var(--t3);}
+  .cash-change-box.ok{border-color:rgba(31,215,96,.35);background:rgba(31,215,96,.08);}
+  .cash-change-box.ok .bank-fig{color:var(--accent);}
+  .cash-change-box.short{border-color:rgba(255,69,69,.4);background:rgba(255,69,69,.08);}
+  .cash-change-box.short .bank-fig{color:var(--red);}
+  .cash-change-warn{font-size:11px;font-weight:800;color:var(--red);margin:-2px 0 10px;text-align:right;}
 
   .repay-methods{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
   .pos-root button.repay-m{padding:10px;border-radius:12px;font-size:12px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);}
