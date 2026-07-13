@@ -2748,95 +2748,107 @@ export default function CashierModule({
 
       {cashOpen && (
         <div className="overlay" onClick={() => !busy && setCashOpen(false)}>
-          <div className="modal-card cash-checkout-card" onClick={e => e.stopPropagation()}>
-            <div className="cash-head">
-              <h3>Наличные</h3>
-              {client && (
-                <div className="cash-head-client">
-                  {client.name}
-                  {usedBonus > 0 ? ` · −${Math.floor(usedBonus)} ⭐` : ''}
+          <div
+            className={`cash-checkout-shell ${amountPad ? 'with-pad' : ''}`}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="modal-card cash-checkout-card">
+              <div className="cash-head">
+                <h3>Наличные</h3>
+                {client && (
+                  <div className="cash-head-client">
+                    {client.name}
+                    {usedBonus > 0 ? ` · −${Math.floor(usedBonus)} ⭐` : ''}
+                  </div>
+                )}
+              </div>
+
+              <div className="cash-due-pill">
+                <span>К оплате</span>
+                <b>{total.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} сом</b>
+              </div>
+
+              <div className={`cash-change-hero ${cashChange < -0.001 ? 'short' : cashReceived > 0.001 ? 'ok' : 'idle'}`}>
+                <div className="cash-change-lbl">
+                  {cashChange < -0.001 ? 'Не хватает' : 'Сдача'}
                 </div>
-              )}
-            </div>
-
-            <div className="cash-due-pill">
-              <span>К оплате</span>
-              <b>{total.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} сом</b>
-            </div>
-
-            <div className={`cash-change-hero ${cashChange < -0.001 ? 'short' : cashReceived > 0.001 ? 'ok' : 'idle'}`}>
-              <div className="cash-change-lbl">
-                {cashChange < -0.001 ? 'Не хватает' : 'Сдача'}
+                <div className="cash-change-val">
+                  {Math.abs(cashChange).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <span>сом</span>
+                </div>
+                {client?.card && cashSaleBonus > 0 && cashChange >= -0.001 && (
+                  <div className="cash-change-bonus">На карту +{cashSaleBonus} ⭐{cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}</div>
+                )}
               </div>
-              <div className="cash-change-val">
-                {Math.abs(cashChange).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                <span>сом</span>
+
+              <div className="cash-recv">
+                <div className="lbl">Получено от клиента</div>
+                <input
+                  ref={amountInputRef}
+                  className="cash-recv-field"
+                  value={cashBuf}
+                  inputMode="decimal"
+                  autoFocus
+                  onChange={e => setCashBuf(sanitizeDecimalInput(e.target.value))}
+                  onFocus={e => e.currentTarget.select()}
+                  placeholder="0"
+                />
               </div>
-              {client?.card && cashSaleBonus > 0 && cashChange >= -0.001 && (
-                <div className="cash-change-bonus">На карту +{cashSaleBonus} ⭐{cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}</div>
-              )}
-            </div>
 
-            <div className="cash-recv">
-              <div className="lbl">Получено от клиента</div>
-              <input
-                ref={amountInputRef}
-                className="cash-recv-field"
-                value={cashBuf}
-                inputMode="decimal"
-                autoFocus
-                onChange={e => setCashBuf(sanitizeDecimalInput(e.target.value))}
-                onFocus={e => e.currentTarget.select()}
-                placeholder="0"
-              />
-            </div>
-
-            <div className="cash-bills">
-              <button type="button" className="cash-bill exact" onClick={() => setCashBuf(String(Math.round(total * 100) / 100))}>
-                Без сдачи
-              </button>
-              {[10, 20, 50, 100, 200, 500].map(v => (
-                <button
-                  key={v}
-                  type="button"
-                  className={cashReceived === v ? 'on' : ''}
-                  onClick={() => setCashBuf(String(v))}
-                >
-                  {v}
+              <div className="cash-bills">
+                <button type="button" className="cash-bill exact" onClick={() => setCashBuf(String(Math.round(total * 100) / 100))}>
+                  Без сдачи
                 </button>
-              ))}
+                {[10, 20, 50, 100, 200, 500].map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={cashReceived === v ? 'on' : ''}
+                    onClick={() => setCashBuf(String(v))}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className={`cash-pad-toggle ${amountPad ? 'on' : ''}`}
+                onClick={() => setAmountPad(v => !v)}
+              >
+                ⌨ {amountPad ? 'Скрыть клавиатуру' : 'Клавиатура'}
+              </button>
+
+              {msg && <div className="pos-err">{msg}</div>}
+              <div className="modal-card-actions cash-actions">
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  disabled={busy}
+                  onClick={() => { setCashOpen(false); setPayPickOpen(true) }}
+                >
+                  Назад
+                </button>
+                <button
+                  type="button"
+                  className="btn-confirm cash-accept"
+                  disabled={busy || cashReceived < total - 0.001}
+                  onClick={() => void submitSale(cashReceived)}
+                >
+                  Принять
+                </button>
+              </div>
             </div>
 
-            <button
-              type="button"
-              className={`cash-pad-toggle ${amountPad ? 'on' : ''}`}
-              onClick={() => setAmountPad(v => !v)}
-            >
-              ⌨ {amountPad ? 'Скрыть клавиатуру' : 'Клавиатура'}
-            </button>
             {amountPad && (
-              <Keypad onDigit={k => setCashBuf(b => appendDigit(b, k))} onBack={() => setCashBuf(b => b.slice(0, -1))} />
+              <div className="cash-pad-side">
+                <div className="cash-pad-side-title">Клавиатура</div>
+                <Keypad onDigit={k => setCashBuf(b => appendDigit(b, k))} onBack={() => setCashBuf(b => b.slice(0, -1))} />
+                <button type="button" className="cash-pad-side-hide" onClick={() => setAmountPad(false)}>
+                  Скрыть
+                </button>
+              </div>
             )}
-
-            {msg && <div className="pos-err">{msg}</div>}
-            <div className="modal-card-actions cash-actions">
-              <button
-                type="button"
-                className="btn-cancel"
-                disabled={busy}
-                onClick={() => { setCashOpen(false); setPayPickOpen(true) }}
-              >
-                Назад
-              </button>
-              <button
-                type="button"
-                className="btn-confirm cash-accept"
-                disabled={busy || cashReceived < total - 0.001}
-                onClick={() => void submitSale(cashReceived)}
-              >
-                Принять
-              </button>
-            </div>
           </div>
         </div>
       )}

@@ -504,6 +504,37 @@ export const POS_MOCK_CSS = `
       radial-gradient(90% 70% at 0% 100%, rgba(196,138,0,.08), transparent 50%),
       var(--surface);
   }
+  .cash-checkout-shell{
+    display:flex;align-items:stretch;justify-content:center;gap:12px;
+    max-width:min(960px,96vw);max-height:min(94vh,820px);
+  }
+  .cash-checkout-shell .cash-checkout-card{margin:0;flex:0 1 440px;max-height:100%;}
+  .cash-checkout-shell.with-pad .cash-checkout-card{width:min(400px,52vw);}
+  .cash-pad-side{
+    flex:0 0 min(280px,40vw);width:min(280px,40vw);
+    display:flex;flex-direction:column;justify-content:center;
+    padding:18px 16px;border-radius:22px;
+    background:var(--surface);border:1.5px solid var(--border);
+    box-shadow:0 16px 40px var(--shade);
+    animation:popIn .22s cubic-bezier(.16,1,.3,1);
+  }
+  .cash-pad-side-title{
+    font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--t3);margin-bottom:12px;text-align:center;
+  }
+  .cash-pad-side .keypad{margin:0;flex:1;align-content:center;}
+  .cash-pad-side .keypad button{min-height:52px;font-size:18px;}
+  .pos-root button.cash-pad-side-hide{
+    margin-top:12px;padding:10px;border-radius:12px;font-size:12px;font-weight:800;
+    color:var(--t2);background:var(--surface2);border:1.5px solid var(--border);
+  }
+  @media (max-width:720px){
+    .cash-checkout-shell.with-pad{
+      flex-direction:column;align-items:center;overflow-y:auto;padding:8px 0;
+    }
+    .cash-checkout-shell.with-pad .cash-checkout-card{width:min(440px,94vw);}
+    .cash-pad-side{flex:none;width:min(440px,94vw);}
+  }
   .cash-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px;}
   .cash-head h3{margin:0;font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;}
   .cash-head-client{font-size:11px;font-weight:800;color:var(--t3);text-align:right;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
