@@ -212,7 +212,16 @@ export const POS_MOCK_CSS = `
   .pos-root button.cat-pill.cat-fav.on{background:linear-gradient(135deg,#C9A227,var(--gd));border-color:var(--gd);color:#1a1200;}
   .pos-root button.cat-browse-btn{padding:9px 14px;border-radius:13px;font-size:12px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border2);color:var(--t1);white-space:nowrap;flex-shrink:0;margin-left:auto;}
   .pos-root button.cat-browse-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .pos-root button.cat-browse-btn.has-sel{border-color:var(--accent);color:var(--accent);background:rgba(31,215,96,.1);}
   .pos-root button.cat-browse-item.all{border-style:dashed;}
+  .cat-browse-hint{margin:-6px 0 12px;font-size:12px;font-weight:700;color:var(--t3);}
+  .cat-browse-check{
+    position:absolute;top:8px;right:8px;width:18px;height:18px;border-radius:6px;
+    border:1.5px solid var(--border);background:var(--surface);display:grid;place-items:center;
+    font-size:11px;font-weight:900;color:var(--accent);line-height:1;
+  }
+  .pos-root button.cat-browse-item{position:relative;}
+  .pos-root button.cat-browse-item.on .cat-browse-check{border-color:var(--accent);background:rgba(31,215,96,.18);}
   .cat-empty{flex:1;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--t2);text-align:center;padding:40px 20px;}
   .cat-empty-ic{font-size:36px;color:var(--gd);opacity:.85;}
   .cat-empty b{font-size:14px;color:var(--t1);}

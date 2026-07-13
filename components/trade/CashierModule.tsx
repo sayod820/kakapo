@@ -302,8 +302,7 @@ export default function CashierModule({
   const [theme, setTheme] = useState<ThemeName>(loadTheme)
   const [q, setQ] = useState('')
   const [showFav, setShowFav] = useState(false)
-  const [rootCatSlug, setRootCatSlug] = useState<string | null>(null)
-  const [subCatSlug, setSubCatSlug] = useState<string | null>(null)
+  const [selectedCatSlugs, setSelectedCatSlugs] = useState<string[]>([])
   const [favIds, setFavIds] = useState<number[]>(loadFavIds)
   const [catModalOpen, setCatModalOpen] = useState(false)
   const [catModalQ, setCatModalQ] = useState('')
@@ -426,21 +425,25 @@ export default function CashierModule({
     () => products.filter(p => (Number(p.stock) || 0) > 0),
     [products],
   )
-  const activeCatSlug = subCatSlug || rootCatSlug
-  const activeRootCat = useMemo(
-    () => (rootCatSlug ? getCategoryBySlug(categories, rootCatSlug) : null),
-    [categories, rootCatSlug],
-  )
+  const selectedCatSet = useMemo(() => new Set(selectedCatSlugs), [selectedCatSlugs])
+  const quickCatSlugs = useMemo(() => (
+    selectedCatSlugs.filter(slug => !!getCategoryBySlug(categories, slug))
+  ), [selectedCatSlugs, categories])
+
+  /** Подкатегории — если выбрана ровно одна категория (корень или её дочка) */
+  const focusRootCat = useMemo(() => {
+    if (selectedCatSlugs.length !== 1) return null
+    const cat = getCategoryBySlug(categories, selectedCatSlugs[0])
+    if (!cat) return null
+    if (cat.parent_id != null) {
+      return categories.find(c => c.id === Number(cat.parent_id)) || null
+    }
+    return cat
+  }, [selectedCatSlugs, categories])
   const subCats = useMemo(
-    () => (activeRootCat ? childrenOf(activeRootCat.id) : []),
-    [activeRootCat, childrenOf],
+    () => (focusRootCat ? childrenOf(focusRootCat.id) : []),
+    [focusRootCat, childrenOf],
   )
-  const quickCatSlugs = useMemo(() => {
-    // На главной только активная категория — после сброса чип исчезает
-    if (!rootCatSlug) return [] as string[]
-    if (!getCategoryBySlug(categories, rootCatSlug)) return []
-    return [rootCatSlug]
-  }, [categories, rootCatSlug])
 
   const modalCategories = useMemo(() => {
     const qLower = catModalQ.trim().toLowerCase()
@@ -456,13 +459,15 @@ export default function CashierModule({
   const visibleProducts = useMemo(() => {
     let list = inStockProducts
     if (showFav) list = list.filter(p => favSet.has(p.id))
-    else if (activeCatSlug) {
-      list = list.filter(p => productMatchesCategoryFilter(p.catId, activeCatSlug, categories)
-        || productMatchesCategoryFilter(p.cat, activeCatSlug, categories))
+    else if (selectedCatSlugs.length > 0) {
+      list = list.filter(p => selectedCatSlugs.some(slug =>
+        productMatchesCategoryFilter(p.catId, slug, categories)
+        || productMatchesCategoryFilter(p.cat, slug, categories),
+      ))
     }
     if (search.trim()) list = filterProductsBySearch(list, search.trim())
     return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-  }, [inStockProducts, showFav, favSet, activeCatSlug, categories, search])
+  }, [inStockProducts, showFav, favSet, selectedCatSlugs, categories, search])
 
   function toggleFavorite(productId: number) {
     setFavIds(prev => {
@@ -476,8 +481,7 @@ export default function CashierModule({
 
   function selectAllProducts() {
     setShowFav(false)
-    setRootCatSlug(null)
-    setSubCatSlug(null)
+    setSelectedCatSlugs([])
   }
 
   function selectFavorites() {
@@ -486,27 +490,27 @@ export default function CashierModule({
       return
     }
     setShowFav(true)
-    setRootCatSlug(null)
-    setSubCatSlug(null)
+    setSelectedCatSlugs([])
   }
 
-  function selectCategory(slug: string, asSub = false) {
+  function toggleCategory(slug: string) {
     const cat = getCategoryBySlug(categories, slug)
     if (!cat) return
     setShowFav(false)
-    if (asSub || cat.parent_id != null) {
-      const parent = cat.parent_id != null
-        ? categories.find(c => c.id === Number(cat.parent_id))
-        : null
-      const rootSlug = parent ? categorySlug(parent) : categorySlug(cat)
-      setRootCatSlug(rootSlug)
-      setSubCatSlug(parent ? categorySlug(cat) : null)
-    } else {
-      setRootCatSlug(categorySlug(cat))
-      setSubCatSlug(null)
+    setSelectedCatSlugs(prev => {
+      if (prev.includes(slug)) return prev.filter(s => s !== slug)
+      return [...prev, slug]
+    })
+  }
+
+  function pickSubCategory(slug: string | null) {
+    if (!focusRootCat) return
+    const rootSlug = categorySlug(focusRootCat)
+    if (!slug) {
+      setSelectedCatSlugs([rootSlug])
+      return
     }
-    setCatModalOpen(false)
-    setCatModalQ('')
+    setSelectedCatSlugs([slug])
   }
 
   const clientHits = useMemo(() => {
@@ -1825,7 +1829,7 @@ export default function CashierModule({
               </button>
               <button
                 type="button"
-                className={`cat-pill ${!showFav && !rootCatSlug ? 'on' : ''}`}
+                className={`cat-pill ${!showFav && selectedCatSlugs.length === 0 ? 'on' : ''}`}
                 onClick={selectAllProducts}
               >
                 🗂 Все
@@ -1833,13 +1837,13 @@ export default function CashierModule({
               {quickCatSlugs.map(slug => {
                 const c = getCategoryBySlug(categories, slug)
                 if (!c) return null
-                const on = !showFav && rootCatSlug === slug
                 return (
                   <button
                     key={slug}
                     type="button"
-                    className={`cat-pill ${on ? 'on' : ''}`}
-                    onClick={() => selectCategory(slug)}
+                    className="cat-pill on"
+                    onClick={() => toggleCategory(slug)}
+                    title="Снять категорию"
                   >
                     {c.emoji || '📦'} {c.name}
                   </button>
@@ -1847,18 +1851,18 @@ export default function CashierModule({
               })}
               <button
                 type="button"
-                className="cat-browse-btn"
+                className={`cat-browse-btn ${!showFav && selectedCatSlugs.length > 0 ? 'has-sel' : ''}`}
                 onClick={() => { setCatModalQ(''); setCatModalOpen(true) }}
               >
-                Категории ▾
+                Категории{selectedCatSlugs.length > 1 ? ` · ${selectedCatSlugs.length}` : ''} ▾
               </button>
             </div>
-            {!showFav && subCats.length > 0 && (
+            {!showFav && subCats.length > 0 && focusRootCat && (
               <div className="cat-sub">
                 <button
                   type="button"
-                  className={`cat-pill sm ${!subCatSlug ? 'on' : ''}`}
-                  onClick={() => setSubCatSlug(null)}
+                  className={`cat-pill sm ${selectedCatSet.has(categorySlug(focusRootCat)) ? 'on' : ''}`}
+                  onClick={() => pickSubCategory(null)}
                 >
                   Все в категории
                 </button>
@@ -1868,8 +1872,8 @@ export default function CashierModule({
                     <button
                       key={c.id}
                       type="button"
-                      className={`cat-pill sm ${subCatSlug === slug ? 'on' : ''}`}
-                      onClick={() => setSubCatSlug(subCatSlug === slug ? null : slug)}
+                      className={`cat-pill sm ${selectedCatSet.has(slug) ? 'on' : ''}`}
+                      onClick={() => pickSubCategory(selectedCatSet.has(slug) ? null : slug)}
                     >
                       {c.emoji || '📦'} {c.name}
                     </button>
@@ -2093,6 +2097,7 @@ export default function CashierModule({
         <div className="overlay" onClick={() => setCatModalOpen(false)}>
           <div className="modal-card cat-browse-card" onClick={e => e.stopPropagation()}>
             <h3>Категории</h3>
+            <p className="cat-browse-hint">Можно выбрать несколько — товары объединяются</p>
             <div className="pos-search">
               <span className="ic">🔍</span>
               <input
@@ -2105,12 +2110,8 @@ export default function CashierModule({
             <div className="cat-browse-grid">
               <button
                 type="button"
-                className={`cat-browse-item all ${!showFav && !rootCatSlug ? 'on' : ''}`}
-                onClick={() => {
-                  selectAllProducts()
-                  setCatModalOpen(false)
-                  setCatModalQ('')
-                }}
+                className={`cat-browse-item all ${!showFav && selectedCatSlugs.length === 0 ? 'on' : ''}`}
+                onClick={() => selectAllProducts()}
               >
                 <span className="cat-browse-emoji">🗂</span>
                 <span className="cat-browse-name">Все товары</span>
@@ -2122,22 +2123,15 @@ export default function CashierModule({
                 const parent = c.parent_id != null
                   ? categories.find(x => x.id === Number(c.parent_id))
                   : null
-                const on = !showFav && activeCatSlug === slug
+                const on = !showFav && selectedCatSet.has(slug)
                 return (
                   <button
                     key={`${c.id}-${slug}`}
                     type="button"
                     className={`cat-browse-item ${on ? 'on' : ''}`}
-                    onClick={() => {
-                      if (on) {
-                        selectAllProducts()
-                        setCatModalOpen(false)
-                        setCatModalQ('')
-                        return
-                      }
-                      selectCategory(slug, c.parent_id != null)
-                    }}
+                    onClick={() => toggleCategory(slug)}
                   >
+                    <span className="cat-browse-check" aria-hidden>{on ? '✓' : ''}</span>
                     <span className="cat-browse-emoji">{c.emoji || '📦'}</span>
                     <span className="cat-browse-name">{c.name}</span>
                     {parent ? <span className="cat-browse-parent">{parent.name}</span> : null}
@@ -2150,7 +2144,13 @@ export default function CashierModule({
               )}
             </div>
             <div className="modal-card-actions">
-              <button type="button" className="btn-cancel" onClick={() => setCatModalOpen(false)}>Закрыть</button>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => { setCatModalOpen(false); setCatModalQ('') }}
+              >
+                {selectedCatSlugs.length > 0 ? `Готово · ${selectedCatSlugs.length}` : 'Закрыть'}
+              </button>
             </div>
           </div>
         </div>
