@@ -363,7 +363,7 @@ export function loadBalanceTopups(phone: string): BalanceTopupEntry[] {
   }))
 }
 
-export function recordBalanceTopup(phone: string, cash: number, bonus: number): void {
+export function recordBalanceTopup(phone: string, cash: number, bonus: number, desc = 'Пополнение баланса'): void {
   const cashAmt = Math.max(0, Math.round(cash * 100) / 100)
   const bonusAmt = Math.max(0, Math.floor(bonus))
   if (!phone.trim() || cashAmt <= 0) return
@@ -376,7 +376,7 @@ export function recordBalanceTopup(phone: string, cash: number, bonus: number): 
     ts: now.getTime(),
     cash: cashAmt,
     bonus: bonusAmt,
-    desc: 'Пополнение баланса',
+    desc: String(desc || 'Пополнение баланса').trim() || 'Пополнение баланса',
   }
   saveAccountJson(TOPUP_HIST, [row, ...prev].slice(0, 100), phone)
   emitBalanceTopupChange()

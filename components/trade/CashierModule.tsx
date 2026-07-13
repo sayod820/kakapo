@@ -1519,16 +1519,28 @@ export default function CashierModule({
           itemsSummary,
         })
       }
-      if (client && usedBonus > 0 && USE_API && client.card) {
+      // Наличные по чеку → бонусы по порогам (как при пополнении)
+      let earnedBonus = 0
+      if (method === 'cash' && client?.card && total > 0) {
+        earnedBonus = calcCashDepositBonus(total)
+      }
+      if (client?.card && USE_API && (usedBonus > 0 || earnedBonus > 0)) {
         try {
-          const nextBonus = Math.max(0, (Number(loyalty?.bonus) || 0) - Math.floor(usedBonus))
-          await api.updateCard(client.card, { bonus: nextBonus, allowBonusDecrease: true })
+          const base = Number(loyalty?.bonus) || 0
+          const nextBonus = Math.max(0, base - Math.floor(usedBonus) + earnedBonus)
+          await api.updateCard(client.card, {
+            bonus: nextBonus,
+            ...(usedBonus > 0 ? { allowBonusDecrease: true } : {}),
+          })
+          if (client.phone && earnedBonus > 0) {
+            recordBalanceTopup(client.phone, total, earnedBonus, 'Оплата наличными (касса)')
+          }
         } catch { /* ignore */ }
       }
       await refresh()
       const change = method === 'cash' ? Math.max(0, paidCash - total) : 0
       const toastSub = method === 'cash'
-        ? `Наличные · сдача ${fmtMoney(change)}`
+        ? `Наличные · сдача ${fmtMoney(change)}${earnedBonus > 0 ? ` · +${earnedBonus} ⭐` : client?.card ? '' : ''}`
         : methodPay === 'credit'
           ? `В долг · ${client?.name || ''}`
           : methodPay === 'balance'
@@ -1631,8 +1643,18 @@ export default function CashierModule({
           type: 'debt' as const,
         }))
       const fifoPreview = allocateRepaymentFifo(oldestActive, amount)
-      await api.updateCard(client.card, { debt: nextDebt })
-      if (client.phone) recordStoreDebtRepayment(client.phone, amount, { method: repayMethod })
+      const repayBonus = repayMethod === 'cash' ? calcCashDepositBonus(amount) : 0
+      const summary = loyaltySummaryForClient(client, cards)
+      await api.updateCard(client.card, {
+        debt: nextDebt,
+        ...(repayBonus > 0 ? { bonus: (Number(summary.bonus) || 0) + repayBonus } : {}),
+      })
+      if (client.phone) {
+        recordStoreDebtRepayment(client.phone, amount, { method: repayMethod })
+        if (repayBonus > 0) {
+          recordBalanceTopup(client.phone, amount, repayBonus, 'Погашение долга наличными')
+        }
+      }
       await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
@@ -1642,7 +1664,8 @@ export default function CashierModule({
       const fifoNote = fifoPreview.length
         ? ` · списано с ${fifoPreview.length} чек${fifoPreview.length === 1 ? 'а' : 'ов'} (со старых)`
         : ''
-      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${fifoNote}`)
+      const bonusNote = repayBonus > 0 ? ` · +${repayBonus} ⭐` : ''
+      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${bonusNote}${fifoNote}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
     } finally {
@@ -1705,11 +1728,15 @@ export default function CashierModule({
 
   const cashReceived = Number(cashBuf) || 0
   const cashChange = cashReceived - total
+  const cashSaleBonus = client?.card && total > 0 ? calcCashDepositBonus(total) : 0
+  const cashSaleTier = client?.card && total > 0 ? cashDepositTierForAmount(total) : null
   const topupCash = Number(topupBuf) || 0
   const topupBonus = calcCashDepositBonus(topupCash)
   const topupTier = cashDepositTierForAmount(topupCash)
   const repayAmount = Number(repayBuf) || 0
   const repayRemain = Math.max(0, clientDebt - repayAmount)
+  const repayCashBonus = repayMethod === 'cash' && repayAmount > 0 ? calcCashDepositBonus(repayAmount) : 0
+  const repayCashTier = repayMethod === 'cash' && repayAmount > 0 ? cashDepositTierForAmount(repayAmount) : null
 
   return (
     <div className="pos-root" data-theme={theme}>
@@ -2554,6 +2581,20 @@ export default function CashierModule({
         <div className="overlay" onClick={() => !busy && setCashOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>💵 Оплата наличными</h3>
+            {client?.card ? (
+              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 10 }}>
+                {cashSaleBonus > 0 ? (
+                  <>На карту <b style={{ color: 'var(--gd)' }}>+{cashSaleBonus} ⭐</b>
+                    {cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}</>
+                ) : (
+                  <>Бонус за чек — по порогам наличных (сейчас ниже порога)</>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
+                Выберите клиента с картой — наличные начислят бонусы
+              </div>
+            )}
             <div className="kp-display">
               <div className="lbl">К ОПЛАТЕ: {total.toFixed(2)} сом</div>
               <input
@@ -2693,6 +2734,16 @@ export default function CashierModule({
               <button type="button" className={`repay-m ${repayMethod === 'cash' ? 'on' : ''}`} onClick={() => setRepayMethod('cash')}>💵 Наличные</button>
               <button type="button" className={`repay-m ${repayMethod === 'card' ? 'on' : ''}`} onClick={() => setRepayMethod('card')}>💳 Карта</button>
             </div>
+            {repayMethod === 'cash' && (
+              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12, textAlign: 'center' }}>
+                {repayCashBonus > 0 ? (
+                  <>За наличные на карту <b style={{ color: 'var(--gd)' }}>+{repayCashBonus} ⭐</b>
+                    {repayCashTier ? ` · ${cashDepositTierLabel(repayCashTier)}` : ''}</>
+                ) : (
+                  <>Бонус по порогам наличных (если сумма ниже порога — 0)</>
+                )}
+              </div>
+            )}
             {amountPad && (
               <Keypad onDigit={k => setRepayBuf(b => appendDigit(b, k))} onBack={() => setRepayBuf(b => b.slice(0, -1))} />
             )}
