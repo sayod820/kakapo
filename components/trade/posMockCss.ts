@@ -511,29 +511,38 @@ export const POS_MOCK_CSS = `
   .cash-checkout-shell .cash-checkout-card{margin:0;flex:0 1 440px;max-height:100%;}
   .cash-checkout-shell.with-pad .cash-checkout-card{width:min(400px,52vw);}
   .cash-pad-side{
-    flex:0 0 min(280px,40vw);width:min(280px,40vw);
-    display:flex;flex-direction:column;justify-content:center;
-    padding:18px 16px;border-radius:22px;
+    flex:0 0 min(320px,42vw);width:min(320px,42vw);
+    display:flex;flex-direction:column;
+    padding:16px 14px;border-radius:22px;
     background:var(--surface);border:1.5px solid var(--border);
     box-shadow:0 16px 40px var(--shade);
     animation:popIn .22s cubic-bezier(.16,1,.3,1);
+    min-height:0;align-self:stretch;
   }
   .cash-pad-side-title{
     font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
-    color:var(--t3);margin-bottom:12px;text-align:center;
+    color:var(--t3);margin-bottom:10px;text-align:center;flex-shrink:0;
   }
-  .cash-pad-side .keypad{margin:0;flex:1;align-content:center;}
-  .cash-pad-side .keypad button{min-height:52px;font-size:18px;}
+  .cash-pad-side .keypad{
+    margin:0;flex:1;min-height:0;
+    display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(4,1fr);
+    gap:10px;align-content:stretch;
+  }
+  .cash-pad-side .keypad button{
+    min-height:0;height:100%;padding:0;border-radius:16px;
+    font-size:clamp(22px,3.2vw,28px);font-weight:800;
+  }
+  .cash-pad-side .keypad button.kp-clear{font-size:clamp(18px,2.6vw,22px);}
   .pos-root button.cash-pad-side-hide{
-    margin-top:12px;padding:10px;border-radius:12px;font-size:12px;font-weight:800;
-    color:var(--t2);background:var(--surface2);border:1.5px solid var(--border);
+    margin-top:12px;padding:12px;border-radius:14px;font-size:13px;font-weight:800;
+    color:var(--t2);background:var(--surface2);border:1.5px solid var(--border);flex-shrink:0;
   }
   @media (max-width:720px){
     .cash-checkout-shell.with-pad{
       flex-direction:column;align-items:center;overflow-y:auto;padding:8px 0;
     }
     .cash-checkout-shell.with-pad .cash-checkout-card{width:min(440px,94vw);}
-    .cash-pad-side{flex:none;width:min(440px,94vw);}
+    .cash-pad-side{flex:none;width:min(440px,94vw);min-height:340px;}
   }
   .cash-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px;}
   .cash-head h3{margin:0;font-family:'Unbounded',sans-serif;font-size:15px;font-weight:800;}
