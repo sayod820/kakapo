@@ -296,6 +296,8 @@ export default function CashierModule({
   const shifts = usePosStore(s => s.shifts)
   const cashiers = usePosStore(s => s.cashiers)
   const sales = usePosStore(s => s.sales)
+  const apiReady = usePosStore(s => s.apiReady)
+  const apiSyncing = usePosStore(s => s.apiSyncing)
   const { categories, roots, childrenOf } = useCategories()
   const { getPhoto, hydrate } = useProductPhotos()
 
@@ -425,8 +427,10 @@ export default function CashierModule({
   }, [clientScanOpen])
 
   const activeShift = useMemo(() => {
-    if (!settings.cashierId) return shifts.find(s => s.status === 'open') || null
-    return shifts.find(s => s.status === 'open' && s.cashierId === settings.cashierId) || null
+    const open = shifts.filter(s => s.status === 'open')
+    if (!open.length) return null
+    if (!settings.cashierId) return open[0]
+    return open.find(s => s.cashierId === settings.cashierId) || open[0]
   }, [shifts, settings.cashierId])
 
   const cashierOptions = useMemo(() => {
@@ -1777,6 +1781,22 @@ export default function CashierModule({
   }
 
   // ─── Gate ───
+  if (!apiReady || (apiSyncing && !activeShift && !shifts.some(s => s.status === 'open'))) {
+    return (
+      <div className="pos-root" data-theme={theme}>
+        <style>{POS_MOCK_CSS}</style>
+        <div className="gate">
+          <div className="gate-bg" />
+          <div className="gate-card" style={{ textAlign: 'center' }}>
+            <div className="gate-logo">K</div>
+            <div className="gate-title">Касса</div>
+            <div className="gate-sub">Загрузка смены…</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (!activeShift) {
     return (
       <div className="pos-root" data-theme={theme}>
