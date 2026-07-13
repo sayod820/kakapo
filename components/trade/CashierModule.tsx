@@ -520,19 +520,6 @@ export default function CashierModule({
   function selectCategory(slug: string, asSub = false) {
     const cat = getCategoryBySlug(categories, slug)
     if (!cat) return
-    // Повторный клик по активной категории — сброс на «Все»
-    if (!showFav && !asSub && rootCatSlug === slug && !subCatSlug) {
-      selectAllProducts()
-      return
-    }
-    if (!showFav && asSub && (subCatSlug || rootCatSlug) === slug) {
-      if (subCatSlug === slug) {
-        setSubCatSlug(null)
-        return
-      }
-      selectAllProducts()
-      return
-    }
     setShowFav(false)
     if (asSub || cat.parent_id != null) {
       const parent = cat.parent_id != null
@@ -557,15 +544,6 @@ export default function CashierModule({
     }
     setCatModalOpen(false)
     setCatModalQ('')
-  }
-
-  function removeQuickCat(slug: string) {
-    setRecentCats(prev => {
-      const next = prev.filter(s => s !== slug)
-      saveRecentCats(next)
-      return next
-    })
-    if (rootCatSlug === slug) selectAllProducts()
   }
 
   const clientHits = useMemo(() => {
@@ -1894,29 +1872,14 @@ export default function CashierModule({
                 if (!c) return null
                 const on = !showFav && rootCatSlug === slug
                 return (
-                  <div key={slug} className={`cat-pill-wrap ${on ? 'on' : ''}`}>
-                    <button
-                      type="button"
-                      className={`cat-pill ${on ? 'on' : ''}`}
-                      onClick={() => selectCategory(slug)}
-                      title={on ? 'Сбросить фильтр' : c.name}
-                    >
-                      {c.emoji || '📦'} {c.name}
-                    </button>
-                    <button
-                      type="button"
-                      className="cat-pill-x"
-                      title="Убрать с панели"
-                      aria-label={`Убрать ${c.name}`}
-                      onClick={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        removeQuickCat(slug)
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <button
+                    key={slug}
+                    type="button"
+                    className={`cat-pill ${on ? 'on' : ''}`}
+                    onClick={() => selectCategory(slug)}
+                  >
+                    {c.emoji || '📦'} {c.name}
+                  </button>
                 )
               })}
               <button

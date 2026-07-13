@@ -210,19 +210,6 @@ export const POS_MOCK_CSS = `
   .pos-root button.cat-pill.sm{padding:7px 12px;font-size:11px;border-radius:11px;}
   .pos-root button.cat-pill.on{background:var(--accent);border-color:var(--accent);color:var(--bg);}
   .pos-root button.cat-pill.cat-fav.on{background:linear-gradient(135deg,#C9A227,var(--gd));border-color:var(--gd);color:#1a1200;}
-  .cat-pill-wrap{
-    position:relative;display:inline-flex;align-items:center;flex-shrink:0;
-  }
-  .cat-pill-wrap .cat-pill{padding-right:28px;}
-  .pos-root button.cat-pill-x{
-    position:absolute;right:4px;top:50%;transform:translateY(-50%);
-    width:20px;height:20px;border-radius:8px;padding:0;line-height:1;
-    font-size:14px;font-weight:800;display:grid;place-items:center;
-    background:transparent;border:none;color:var(--t3);
-  }
-  .cat-pill-wrap.on .cat-pill-x{color:rgba(0,0,0,.55);}
-  .pos-root button.cat-pill-x:hover{background:rgba(0,0,0,.08);color:var(--red,#e23);}
-  .cat-pill-wrap.on .cat-pill-x:hover{background:rgba(0,0,0,.12);color:#1a1200;}
   .pos-root button.cat-browse-btn{padding:9px 14px;border-radius:13px;font-size:12px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border2);color:var(--t1);white-space:nowrap;flex-shrink:0;margin-left:auto;}
   .pos-root button.cat-browse-btn:hover{border-color:var(--accent);color:var(--accent);}
   .pos-root button.cat-browse-item.all{border-style:dashed;}
