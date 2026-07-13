@@ -51,8 +51,6 @@ import { POS_MOCK_CSS } from './posMockCss'
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
 const THEME_KEY = 'kakapo_trade_pos_theme'
 const FAV_KEY = 'kakapo_pos_favorites'
-const RECENT_CAT_KEY = 'kakapo_pos_recent_cats'
-const RECENT_CAT_MAX = 4
 
 type ThemeName = 'dark' | 'light'
 type PayMethod = 'cash' | 'card' | 'credit' | 'qr' | 'balance'
@@ -224,23 +222,6 @@ function saveFavIds(ids: number[]) {
   localStorage.setItem(FAV_KEY, JSON.stringify(ids))
 }
 
-function loadRecentCats(): string[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(RECENT_CAT_KEY)
-    if (!raw) return []
-    const arr = JSON.parse(raw) as unknown
-    if (!Array.isArray(arr)) return []
-    return arr.map(s => String(s || '').trim()).filter(Boolean)
-  } catch {
-    return []
-  }
-}
-
-function saveRecentCats(slugs: string[]) {
-  localStorage.setItem(RECENT_CAT_KEY, JSON.stringify(slugs.slice(0, RECENT_CAT_MAX)))
-}
-
 function levelLabel(level: ClientLevel) {
   return CLIENT_LEVEL_OPTIONS.find(o => o.id === level)?.label || level
 }
@@ -324,7 +305,6 @@ export default function CashierModule({
   const [rootCatSlug, setRootCatSlug] = useState<string | null>(null)
   const [subCatSlug, setSubCatSlug] = useState<string | null>(null)
   const [favIds, setFavIds] = useState<number[]>(loadFavIds)
-  const [recentCats, setRecentCats] = useState<string[]>(loadRecentCats)
   const [catModalOpen, setCatModalOpen] = useState(false)
   const [catModalQ, setCatModalQ] = useState('')
   const [cart, setCart] = useState<CartLine[]>([])
@@ -456,18 +436,11 @@ export default function CashierModule({
     [activeRootCat, childrenOf],
   )
   const quickCatSlugs = useMemo(() => {
-    const list: string[] = []
-    for (const slug of recentCats) {
-      if (!getCategoryBySlug(categories, slug)) continue
-      if (!list.includes(slug)) list.push(slug)
-      if (list.length >= RECENT_CAT_MAX) break
-    }
-    if (rootCatSlug && !list.includes(rootCatSlug) && getCategoryBySlug(categories, rootCatSlug)) {
-      list.unshift(rootCatSlug)
-      if (list.length > RECENT_CAT_MAX + 1) list.length = RECENT_CAT_MAX + 1
-    }
-    return list
-  }, [recentCats, categories, rootCatSlug])
+    // На главной только активная категория — после сброса чип исчезает
+    if (!rootCatSlug) return [] as string[]
+    if (!getCategoryBySlug(categories, rootCatSlug)) return []
+    return [rootCatSlug]
+  }, [categories, rootCatSlug])
 
   const modalCategories = useMemo(() => {
     const qLower = catModalQ.trim().toLowerCase()
@@ -528,19 +501,9 @@ export default function CashierModule({
       const rootSlug = parent ? categorySlug(parent) : categorySlug(cat)
       setRootCatSlug(rootSlug)
       setSubCatSlug(parent ? categorySlug(cat) : null)
-      setRecentCats(prev => {
-        const next = [rootSlug, ...prev.filter(s => s !== rootSlug)].slice(0, RECENT_CAT_MAX)
-        saveRecentCats(next)
-        return next
-      })
     } else {
       setRootCatSlug(categorySlug(cat))
       setSubCatSlug(null)
-      setRecentCats(prev => {
-        const next = [categorySlug(cat), ...prev.filter(s => s !== categorySlug(cat))].slice(0, RECENT_CAT_MAX)
-        saveRecentCats(next)
-        return next
-      })
     }
     setCatModalOpen(false)
     setCatModalQ('')
