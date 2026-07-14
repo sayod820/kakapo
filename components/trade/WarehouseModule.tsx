@@ -119,7 +119,7 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
         ))}
       </div>
 
-      {tab === 'stock' && <WarehouseStockPanel products={products} />}
+      {tab === 'stock' && <WarehouseStockPanel products={products} onRefresh={refreshAll} />}
       {tab === 'receipts' && (
         <WarehouseReceiptsPanel
           receipts={receipts}

@@ -1,15 +1,30 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { api } from '@/lib/api'
+import { USE_API } from '@/lib/config'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { productMatchesSearch } from '@/lib/productBarcodes'
 import { isWeighted } from '@/lib/productWeight'
-import type { Product } from '@/lib/types'
+import type { Product, ProductStockLayer } from '@/lib/types'
 import { categoryDisplayLabel, useCategories } from '@/lib/useCategories'
+import ProductArrivalsPanel from '../products/ProductArrivalsPanel'
 import { fmtMoney } from './warehouseShared'
 
 type StockFilter = 'all' | 'inStock' | 'low' | 'out'
 type SortKey = 'name' | 'stock' | 'cost' | 'retail' | 'value'
+
+type BatchGroup = { retail: number; cost: number; qty: number }
+
+type ProductStockAgg = {
+  layers: ProductStockLayer[]
+  groups: BatchGroup[]
+  layerQty: number
+  costSum: number
+  retailSum: number
+  multiRetail: boolean
+  multiCost: boolean
+}
 
 function stockBadge(stock: number) {
   if (stock <= 0) return { c: 'var(--red)', bg: '#2a1420', l: 'Нет' }
@@ -17,19 +32,121 @@ function stockBadge(stock: number) {
   return { c: 'var(--green)', bg: 'var(--green-d)', l: 'Есть' }
 }
 
-export default function WarehouseStockPanel({ products }: { products: Product[] }) {
+function round2(n: number) {
+  return Math.round((Number(n) || 0) * 100) / 100
+}
+
+function buildAgg(layers: ProductStockLayer[], product: Product): ProductStockAgg {
+  if (!layers.length) {
+    const stock = Number(product.stock) || 0
+    const cost = Number(product.costPrice) || 0
+    const retail = Number(product.price) || 0
+    return {
+      layers: [],
+      groups: stock > 0 ? [{ retail, cost, qty: stock }] : [],
+      layerQty: stock,
+      costSum: round2(cost * stock),
+      retailSum: round2(retail * stock),
+      multiRetail: false,
+      multiCost: false,
+    }
+  }
+
+  let layerQty = 0
+  let costSum = 0
+  let retailSum = 0
+  const groupMap = new Map<string, BatchGroup>()
+
+  for (const layer of layers) {
+    const qty = Number(layer.remainingQty) || 0
+    if (!(qty > 0)) continue
+    const cost = Number(layer.costPrice) || 0
+    const retail = Number(layer.retailPrice) > 0 ? Number(layer.retailPrice) : (Number(product.price) || 0)
+    layerQty = round2(layerQty + qty)
+    costSum = round2(costSum + cost * qty)
+    retailSum = round2(retailSum + retail * qty)
+    const key = `${retail}|${cost}`
+    const prev = groupMap.get(key)
+    if (prev) prev.qty = round2(prev.qty + qty)
+    else groupMap.set(key, { retail, cost, qty })
+  }
+
+  const groups = [...groupMap.values()].sort((a, b) => a.retail - b.retail || a.cost - b.cost)
+  const retailPrices = new Set(groups.map(g => g.retail))
+  const costPrices = new Set(groups.map(g => g.cost))
+
+  return {
+    layers,
+    groups,
+    layerQty,
+    costSum,
+    retailSum,
+    multiRetail: retailPrices.size > 1,
+    multiCost: costPrices.size > 1,
+  }
+}
+
+export default function WarehouseStockPanel({
+  products,
+  onRefresh,
+}: {
+  products: Product[]
+  onRefresh?: () => void
+}) {
   const { categories } = useCategories()
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<StockFilter>('all')
   const [sort, setSort] = useState<SortKey>('name')
   const [sortDesc, setSortDesc] = useState(false)
+  const [layers, setLayers] = useState<ProductStockLayer[]>([])
+  const [layersLoading, setLayersLoading] = useState(false)
+  const [arrivalsProduct, setArrivalsProduct] = useState<Product | null>(null)
+
+  const loadLayers = useCallback(async () => {
+    if (!USE_API) {
+      setLayers([])
+      return
+    }
+    setLayersLoading(true)
+    try {
+      setLayers(await api.getAllStockLayers())
+    } catch {
+      setLayers([])
+    } finally {
+      setLayersLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadLayers()
+  }, [loadLayers, products])
+
+  const layersByProduct = useMemo(() => {
+    const map = new Map<number, ProductStockLayer[]>()
+    for (const layer of layers) {
+      const pid = Number(layer.productId)
+      const list = map.get(pid) || []
+      list.push(layer)
+      map.set(pid, list)
+    }
+    return map
+  }, [layers])
+
+  const aggByProduct = useMemo(() => {
+    const map = new Map<number, ProductStockAgg>()
+    for (const p of products) {
+      map.set(p.id, buildAgg(layersByProduct.get(p.id) || [], p))
+    }
+    return map
+  }, [products, layersByProduct])
 
   const rows = useMemo(() => {
     const query = q.trim()
     let list = products.filter(p => {
       const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
       const matchQ = productMatchesSearch(p, query, catLabel)
-      const stock = Number(p.stock) || 0
+      const agg = aggByProduct.get(p.id)
+      const stock = agg?.layerQty ?? (Number(p.stock) || 0)
       const matchF =
         filter === 'all' ? true
           : filter === 'inStock' ? stock > 5
@@ -39,33 +156,31 @@ export default function WarehouseStockPanel({ products }: { products: Product[] 
     })
 
     list = [...list].sort((a, b) => {
+      const aa = aggByProduct.get(a.id)!
+      const bb = aggByProduct.get(b.id)!
       let cmp = 0
       if (sort === 'name') cmp = a.name.localeCompare(b.name, 'ru')
-      else if (sort === 'stock') cmp = (Number(a.stock) || 0) - (Number(b.stock) || 0)
-      else if (sort === 'cost') cmp = (Number(a.costPrice) || 0) - (Number(b.costPrice) || 0)
-      else if (sort === 'retail') cmp = (Number(a.price) || 0) - (Number(b.price) || 0)
-      else if (sort === 'value') {
-        const va = (Number(a.costPrice) || 0) * (Number(a.stock) || 0)
-        const vb = (Number(b.costPrice) || 0) * (Number(b.stock) || 0)
-        cmp = va - vb
-      }
+      else if (sort === 'stock') cmp = aa.layerQty - bb.layerQty
+      else if (sort === 'cost') cmp = (aa.groups[0]?.cost || 0) - (bb.groups[0]?.cost || 0)
+      else if (sort === 'retail') cmp = (aa.groups[0]?.retail || 0) - (bb.groups[0]?.retail || 0)
+      else if (sort === 'value') cmp = aa.costSum - bb.costSum
       return sortDesc ? -cmp : cmp
     })
     return list
-  }, [products, categories, q, filter, sort, sortDesc])
+  }, [products, categories, q, filter, sort, sortDesc, aggByProduct])
 
   const totals = useMemo(() => {
     let costSum = 0
     let retailSum = 0
     let qtySum = 0
     for (const p of rows) {
-      const stock = Number(p.stock) || 0
-      qtySum += stock
-      costSum += (Number(p.costPrice) || 0) * stock
-      retailSum += (Number(p.price) || 0) * stock
+      const agg = aggByProduct.get(p.id)!
+      qtySum = round2(qtySum + agg.layerQty)
+      costSum = round2(costSum + agg.costSum)
+      retailSum = round2(retailSum + agg.retailSum)
     }
     return { costSum, retailSum, qtySum, count: rows.length }
-  }, [rows])
+  }, [rows, aggByProduct])
 
   function toggleSort(key: SortKey) {
     if (sort === key) setSortDesc(d => !d)
@@ -79,9 +194,9 @@ export default function WarehouseStockPanel({ products }: { products: Product[] 
 
   const filters: { id: StockFilter; label: string; count: number }[] = [
     { id: 'all', label: 'Все', count: products.length },
-    { id: 'inStock', label: 'В наличии', count: products.filter(p => (Number(p.stock) || 0) > 5).length },
-    { id: 'low', label: 'Мало', count: products.filter(p => { const s = Number(p.stock) || 0; return s > 0 && s <= 5 }).length },
-    { id: 'out', label: 'Нет', count: products.filter(p => (Number(p.stock) || 0) <= 0).length },
+    { id: 'inStock', label: 'В наличии', count: products.filter(p => (aggByProduct.get(p.id)?.layerQty || 0) > 5).length },
+    { id: 'low', label: 'Мало', count: products.filter(p => { const s = aggByProduct.get(p.id)?.layerQty || 0; return s > 0 && s <= 5 }).length },
+    { id: 'out', label: 'Нет', count: products.filter(p => (aggByProduct.get(p.id)?.layerQty || 0) <= 0).length },
   ]
 
   return (
@@ -110,8 +225,16 @@ export default function WarehouseStockPanel({ products }: { products: Product[] 
             onChange={e => setQ(e.target.value)}
           />
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Показано: <b style={{ color: 'var(--text)' }}>{totals.count}</b> · Остаток: <b style={{ color: 'var(--text)' }}>{totals.qtySum}</b>
+            Показано: <b style={{ color: 'var(--text)' }}>{totals.count}</b>
+            {' · '}Остаток: <b style={{ color: 'var(--text)' }}>{totals.qtySum}</b>
+            {layersLoading ? ' · партии…' : ''}
           </div>
+          <button type="button" className="k-btn k-btn-s" disabled={layersLoading} onClick={() => void loadLayers()}>
+            ↻ Партии
+          </button>
+        </div>
+        <div style={{ padding: '0 14px 12px', fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>
+          Суммы считаются по партиям (например 48×12 + 67×13). Нажмите на товар — откроются его приходы.
         </div>
       </div>
 
@@ -153,34 +276,64 @@ export default function WarehouseStockPanel({ products }: { products: Product[] 
             </thead>
             <tbody>
               {rows.map(p => {
-                const stock = Number(p.stock) || 0
-                const cost = Number(p.costPrice) || 0
-                const retail = Number(p.price) || 0
+                const agg = aggByProduct.get(p.id)!
+                const stock = agg.layerQty
                 const badge = stockBadge(stock)
                 const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
                 return (
-                  <tr key={p.id}>
+                  <tr
+                    key={p.id}
+                    className="k-prodrow"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setArrivalsProduct(p)}
+                    title="Открыть партии прихода"
+                  >
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
                         <span style={{ fontSize: 18 }}>{p.e || '📦'}</span>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontWeight: 800 }}>{p.name}</div>
-                          {(p.brand || hasBulkPricing(p) || isWeighted(p)) && (
-                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                              {[p.brand, isWeighted(p) ? 'на развес' : null, hasBulkPricing(p) ? formatBulkPricingHint(p) : null].filter(Boolean).join(' · ')}
-                            </div>
-                          )}
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                            {[
+                              p.brand,
+                              isWeighted(p) ? 'на развес' : null,
+                              hasBulkPricing(p) ? formatBulkPricingHint(p) : null,
+                              agg.layers.length > 1 ? `${agg.layers.length} партии` : null,
+                            ].filter(Boolean).join(' · ')}
+                          </div>
                         </div>
                       </div>
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--muted)' }}>{p.art}</td>
                     <td style={{ fontSize: 12 }}>{catLabel}</td>
                     <td style={{ fontSize: 12 }}>{p.unit || 'шт'}</td>
-                    <td className="num">{cost > 0 ? fmtMoney(cost) : '—'}</td>
-                    <td className="num" style={{ fontWeight: 800, color: 'var(--green)' }}>{fmtMoney(retail)}</td>
+                    <td className="num">
+                      {agg.multiCost ? (
+                        <div style={{ display: 'grid', gap: 2, justifyItems: 'end' }}>
+                          {agg.groups.map(g => (
+                            <span key={`c-${g.cost}-${g.retail}`}>{fmtMoney(g.cost)} × {g.qty}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        agg.groups[0]?.cost ? fmtMoney(agg.groups[0].cost) : '—'
+                      )}
+                    </td>
+                    <td className="num" style={{ fontWeight: 800, color: 'var(--green)' }}>
+                      {agg.multiRetail ? (
+                        <div style={{ display: 'grid', gap: 2, justifyItems: 'end' }}>
+                          {agg.groups.map(g => (
+                            <span key={`r-${g.retail}-${g.cost}`}>
+                              {fmtMoney(g.retail)} × {g.qty}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        fmtMoney(agg.groups[0]?.retail ?? p.price)
+                      )}
+                    </td>
                     <td className="num" style={{ fontWeight: 900, color: badge.c }}>{stock}</td>
-                    <td className="num">{cost > 0 ? fmtMoney(cost * stock) : '—'}</td>
-                    <td className="num">{fmtMoney(retail * stock)}</td>
+                    <td className="num">{agg.costSum > 0 ? fmtMoney(agg.costSum) : '—'}</td>
+                    <td className="num">{fmtMoney(agg.retailSum)}</td>
                     <td>
                       <span className="k-badge" style={{ background: badge.bg, color: badge.c }}>{badge.l}</span>
                     </td>
@@ -199,6 +352,18 @@ export default function WarehouseStockPanel({ products }: { products: Product[] 
             </tfoot>
           </table>
         </div>
+      )}
+
+      {arrivalsProduct && (
+        <ProductArrivalsPanel
+          product={arrivalsProduct}
+          open
+          onClose={() => setArrivalsProduct(null)}
+          onUpdated={() => {
+            void loadLayers()
+            onRefresh?.()
+          }}
+        />
       )}
     </div>
   )

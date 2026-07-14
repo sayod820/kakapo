@@ -300,6 +300,7 @@ export const api = {
   },
   getProduct: (id: number) => request<Product>(`/products/${id}`),
   getProductStockLayers: (id: number) => request<ProductStockLayer[]>(`/products/${id}/stock-layers`),
+  getAllStockLayers: () => request<ProductStockLayer[]>('/stock/layers'),
   addProductStockLayer: (id: number, data: {
     qty: number
     costPrice?: number

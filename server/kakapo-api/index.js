@@ -81,6 +81,7 @@ import {
   updateStockReceipt,
   deleteStockReceipt,
   listProductStockLayers,
+  listAllOpenStockLayers,
   addProductStockLayer,
   updateProductStockLayer,
   listStockWriteoffs,
@@ -559,6 +560,10 @@ app.get('/products/:id/stock-layers', (req, res) => {
   const p = db.products.find(x => x.id === id)
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
   res.json(listProductStockLayers(db, id))
+})
+
+app.get('/stock/layers', (_req, res) => {
+  res.json(listAllOpenStockLayers(db))
 })
 
 app.post('/products/:id/stock-layers', (req, res) => {

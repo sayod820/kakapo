@@ -249,6 +249,18 @@ export function listProductStockLayers(db, productId) {
   return layers
 }
 
+/** Все открытые партии склада (для остатков по партиям) */
+export function listAllOpenStockLayers(db) {
+  ensurePosCollections(db)
+  const out = []
+  for (const product of db.products || []) {
+    for (const layer of listProductStockLayers(db, product.id)) {
+      out.push(layer)
+    }
+  }
+  return out
+}
+
 export function addProductStockLayer(db, productId, data = {}) {
   ensurePosCollections(db)
   const product = getProduct(db, productId)
