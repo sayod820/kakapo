@@ -81,71 +81,80 @@ export const POS_MOCK_CSS = `
     background:linear-gradient(180deg,transparent,rgba(243,247,244,.95) 28%,var(--surface));
   }
 
-  /* ── Дашборд точки продаж (как Odoo Backend) ── */
+  /* ── Дашборд точки продаж (стиль KAKAPO Торговля) ── */
   .odoo-dash{
     height:100%;min-height:0;display:flex;flex-direction:column;
-    background:#f8f9fa;color:#212529;overflow:auto;
+    background:#070C09;color:#E8F3EB;overflow:auto;
     font-family:'Nunito',system-ui,sans-serif;
   }
   .odoo-dash-top{
-    display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;
-    padding:16px 24px 14px;border-bottom:1px solid #dee2e6;background:#ffffff;
+    display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    padding:20px 22px 16px;border-bottom:1px solid #1C2A21;background:#0B120E;
   }
   .odoo-dash-top h1{
-    margin:0;font-size:1.4rem;font-weight:700;letter-spacing:-.01em;color:#212529;
+    margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em;color:#E8F3EB;
     font-family:inherit;
   }
-  .odoo-dash-top p{margin:4px 0 0;font-size:13px;font-weight:500;color:#6c757d;max-width:560px;line-height:1.4;}
-  .odoo-dash-body{padding:20px 24px 28px;flex:1;background:#f8f9fa;}
-  .odoo-kanban{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,300px));gap:16px;align-items:start;}
+  .odoo-dash-top p{margin:6px 0 0;font-size:13px;font-weight:700;color:#7E9A86;max-width:560px;line-height:1.45;}
+  .odoo-dash-body{
+    padding:20px 22px 28px;flex:1;
+    background:radial-gradient(ellipse 70% 50% at 10% 0%, rgba(31,215,96,.07), transparent 55%), #070C09;
+  }
+  .odoo-kanban{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,320px));gap:16px;align-items:start;}
   .odoo-card{
-    background:#ffffff;border:1px solid #dee2e6;border-radius:3px;
-    box-shadow:0 1px 2px rgba(0,0,0,.04);overflow:hidden;display:flex;flex-direction:column;
+    background:#101A13;border:1px solid #1C2A21;border-radius:16px;
+    box-shadow:0 10px 28px rgba(0,0,0,.22);overflow:hidden;display:flex;flex-direction:column;
   }
   .odoo-card-head{
-    padding:14px 14px 8px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;
+    padding:16px 16px 10px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
   }
-  .odoo-card-mark{display:none;}
-  .odoo-card-head .odoo-card-title{font-size:15px;font-weight:700;line-height:1.3;color:#212529;}
-  .odoo-card-head .odoo-card-sub{font-size:12px;font-weight:500;color:#6c757d;margin-top:3px;}
+  .odoo-card-mark{
+    width:40px;height:40px;border-radius:12px;flex-shrink:0;margin-bottom:12px;
+    background:linear-gradient(135deg,#1FD760,#12a548);color:#05210D;
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+    box-shadow:0 6px 16px rgba(31,215,96,.28);
+  }
+  .odoo-card-head .odoo-card-title{font-size:16px;font-weight:900;line-height:1.25;color:#E8F3EB;}
+  .odoo-card-head .odoo-card-sub{font-size:12px;font-weight:700;color:#7E9A86;margin-top:4px;}
   .odoo-card-menu{position:relative;}
   .pos-root button.odoo-card-more{
-    width:28px;height:28px;border-radius:3px;color:#6c757d;font-size:18px;line-height:1;
-    display:flex;align-items:center;justify-content:center;background:transparent;border:none;
+    width:36px;height:36px;border-radius:12px;color:#7E9A86;font-size:18px;line-height:1;
+    display:flex;align-items:center;justify-content:center;background:#0D1610;border:1px solid #1C2A21;
   }
-  .pos-root button.odoo-card-more:hover{background:#f1f3f5;color:#212529;}
+  .pos-root button.odoo-card-more:hover{border-color:#1FD760;color:#E8F3EB;}
   .odoo-card-drop{
-    position:absolute;right:0;top:32px;z-index:20;min-width:180px;
-    background:#ffffff;border:1px solid #dee2e6;border-radius:3px;
-    box-shadow:0 6px 20px rgba(0,0,0,.12);padding:4px;display:flex;flex-direction:column;
+    position:absolute;right:0;top:40px;z-index:20;min-width:190px;
+    background:#101A13;border:1px solid #1C2A21;border-radius:14px;
+    box-shadow:0 14px 32px rgba(0,0,0,.45);padding:6px;display:flex;flex-direction:column;
   }
   .pos-root button.odoo-card-drop-item{
-    text-align:left;padding:8px 12px;border-radius:2px;font-size:13px;font-weight:500;color:#212529;
+    text-align:left;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700;color:#E8F3EB;
   }
-  .pos-root button.odoo-card-drop-item:hover{background:#f1f3f5;}
+  .pos-root button.odoo-card-drop-item:hover{background:#0D1610;color:#1FD760;}
   .odoo-card-status{
-    margin:0 14px 10px;padding:6px 10px;border-radius:3px;font-size:12px;font-weight:600;
-    background:#f1f3f5;color:#6c757d;border:1px solid #e9ecef;
+    margin:0 16px 12px;padding:9px 12px;border-radius:12px;font-size:12px;font-weight:800;
+    background:#0D1610;color:#7E9A86;border:1px solid #1C2A21;
   }
-  .odoo-card-status.open{background:#d1fadb;border-color:#a9ecb8;color:#0b7a2b;}
-  .odoo-card-status.closed{background:#f8d7da;border-color:#f1aeb5;color:#842029;}
-  .odoo-card-meta{padding:0 14px 12px;font-size:12.5px;font-weight:500;color:#6c757d;line-height:1.5;}
-  .odoo-card-meta b{color:#495057;font-weight:700;}
-  .odoo-card-actions{padding:0 14px 14px;display:flex;flex-direction:column;gap:8px;}
+  .odoo-card-status.open{background:rgba(31,215,96,.1);border-color:rgba(31,215,96,.28);color:#1FD760;}
+  .odoo-card-status.closed{background:rgba(255,90,90,.08);border-color:rgba(255,90,90,.22);color:#FF5A5A;}
+  .odoo-card-meta{padding:0 16px 14px;font-size:12.5px;font-weight:700;color:#5E7A67;line-height:1.5;}
+  .odoo-card-meta b{color:#7E9A86;font-weight:800;}
+  .odoo-card-actions{padding:0 16px 16px;display:flex;flex-direction:column;gap:8px;}
   .pos-root button.odoo-btn-primary{
-    width:100%;padding:10px 14px;border-radius:3px;font-weight:700;font-size:13px;
-    background:#714B67;color:#fff;box-shadow:none;
+    width:100%;padding:13px 16px;border-radius:12px;font-weight:900;font-size:14px;
+    background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;
+    box-shadow:0 8px 20px rgba(31,215,96,.25);
   }
-  .pos-root button.odoo-btn-primary:hover{background:#5e3e56;filter:none;}
+  .pos-root button.odoo-btn-primary:hover{filter:brightness(1.06);}
   .pos-root button.odoo-btn-primary.go{
-    background:#017e84;color:#fff;
+    background:linear-gradient(135deg,#1FD760,#12a548);color:#05210D;
   }
-  .pos-root button.odoo-btn-primary.go:hover{background:#01656a;}
+  .pos-root button.odoo-btn-primary.go:hover{filter:brightness(1.06);}
   .pos-root button.odoo-btn-secondary{
-    width:100%;padding:9px 14px;border-radius:3px;font-weight:600;font-size:12.5px;
-    background:#ffffff;border:1px solid #ced4da;color:#212529;
+    width:100%;padding:11px 14px;border-radius:12px;font-weight:800;font-size:13px;
+    background:#0D1610;border:1.5px solid #1C2A21;color:#E8F3EB;
   }
-  .pos-root button.odoo-btn-secondary:hover{background:#f8f9fa;border-color:#adb5bd;color:#212529;}
+  .pos-root button.odoo-btn-secondary:hover{border-color:#1FD760;color:#1FD760;background:#0D1610;}
 
   .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:500;}
   .gate.gate-modal{background:rgba(3,11,5,.72);backdrop-filter:blur(5px);}

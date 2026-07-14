@@ -2455,13 +2455,13 @@ export default function CashierModule({
           <div className="odoo-dash-top">
             <div>
               <h1>Точка продаж</h1>
-              <p>Dashboard · выберите кассу и откройте сессию</p>
+              <p>Выберите кассу и откройте сессию</p>
             </div>
             {onExit && (
               <button
                 type="button"
                 className="odoo-btn-secondary"
-                style={{ width: 'auto', padding: '8px 14px' }}
+                style={{ width: 'auto', padding: '10px 14px' }}
                 onClick={onExit}
               >
                 ← Торговля
@@ -2473,6 +2473,7 @@ export default function CashierModule({
               <div className="odoo-card" onClick={e => e.stopPropagation()}>
                 <div className="odoo-card-head">
                   <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="odoo-card-mark" aria-hidden>🛒</div>
                     <div className="odoo-card-title">Магазин · Ленина 42</div>
                     <div className="odoo-card-sub">Касса №1 · KAKAPO</div>
                   </div>
