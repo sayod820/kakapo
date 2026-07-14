@@ -68,6 +68,7 @@ const DEFAULT = {
   suppliers: [],
   supplierPayments: [],
   expenses: [],
+  financeMoves: [],
   _seq: { order: 4832, product: 12, category: 2, review: 0, promo: 7, payout: 0, posSale: 0 },
 }
 

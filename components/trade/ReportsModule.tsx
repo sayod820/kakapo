@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
@@ -40,12 +40,7 @@ import {
   type SaleStatusFilter,
 } from './reportsHelpers'
 
-type Props = {
-  /** finance — денежный акцент; reports — полный отчёт */
-  mode?: 'finance' | 'reports'
-}
-
-export default function ReportsModule({ mode = 'reports' }: Props) {
+export default function ReportsModule() {
   const sales = usePosStore(s => s.sales)
   const shifts = usePosStore(s => s.shifts)
   const receipts = usePosStore(s => s.receipts)
@@ -72,10 +67,6 @@ export default function ReportsModule({ mode = 'reports' }: Props) {
   const [tab, setTab] = useState<ReportTab>('overview')
   const [showHelp, setShowHelp] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-
-  useEffect(() => {
-    setTab('overview')
-  }, [mode])
 
   const { from, to } = useMemo(
     () => periodRange(period, customFrom, customTo),
@@ -150,10 +141,6 @@ export default function ReportsModule({ mode = 'reports' }: Props) {
 
   const periodLabel = formatPeriodLabel(period, customFrom, customTo)
   const activeTabHint = REPORT_TABS.find(t => t.id === tab)?.hint || ''
-  const title = mode === 'finance' ? 'Финансы' : 'Отчёты'
-  const subtitle = mode === 'finance'
-    ? 'Деньги магазина: выручка, расходы, долги и маржа'
-    : 'Полная отчётность по кассе, складу, поставщикам и клиентам'
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
@@ -210,8 +197,8 @@ export default function ReportsModule({ mode = 'reports' }: Props) {
       <div>
         <div className="k-page-h">
           <div>
-            <h1>{mode === 'finance' ? '💰' : '📊'} {title}</h1>
-            <div className="sub">{subtitle}</div>
+            <h1>📊 Отчёты</h1>
+            <div className="sub">Полная отчётность по кассе, складу, поставщикам и клиентам</div>
           </div>
         </div>
         <div className="k-card" style={{ padding: 28, textAlign: 'center', color: 'var(--muted)' }}>
@@ -225,8 +212,8 @@ export default function ReportsModule({ mode = 'reports' }: Props) {
     <div>
       <div className="k-page-h">
         <div>
-          <h1>{mode === 'finance' ? '💰' : '📊'} {title}</h1>
-          <div className="sub">{subtitle}</div>
+          <h1>📊 Отчёты</h1>
+          <div className="sub">Полная отчётность по кассе, складу, поставщикам и клиентам</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="k-btn k-btn-s" onClick={() => setShowHelp(v => !v)}>

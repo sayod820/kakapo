@@ -32,6 +32,7 @@ export function ensurePosCollections(db) {
   if (!Array.isArray(db.suppliers)) db.suppliers = []
   if (!Array.isArray(db.supplierPayments)) db.supplierPayments = []
   if (!Array.isArray(db.expenses)) db.expenses = []
+  if (!Array.isArray(db.financeMoves)) db.financeMoves = []
   if (!Array.isArray(db.posPoints)) db.posPoints = []
   if (!db._seq || typeof db._seq !== 'object') db._seq = {}
   ensureDefaultPosPoint(db)
@@ -525,6 +526,37 @@ export function createExpense(db, data = {}) {
     if (shift) shift.expenseTotal = round2((shift.expenseTotal || 0) + amount)
   }
   return row
+}
+
+/** Вклады / снятия капитала магазина */
+export function listFinanceMoves(db) {
+  ensurePosCollections(db)
+  return [...db.financeMoves].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+}
+
+export function createFinanceMove(db, data = {}) {
+  ensurePosCollections(db)
+  const type = data.type === 'withdraw' ? 'withdraw' : 'deposit'
+  const amount = round2(data.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму')
+  const row = {
+    id: nextId('FIN'),
+    type,
+    amount,
+    note: String(data.note || '').trim(),
+    createdBy: String(data.createdBy || '').trim(),
+    createdAtIso: nowIso(),
+  }
+  db.financeMoves.unshift(row)
+  return row
+}
+
+export function deleteFinanceMove(db, id) {
+  ensurePosCollections(db)
+  const before = db.financeMoves.length
+  db.financeMoves = db.financeMoves.filter(r => r.id !== id)
+  if (db.financeMoves.length === before) throw new Error('Запись не найдена')
+  return { id }
 }
 
 export function listStockReceipts(db) {

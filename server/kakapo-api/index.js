@@ -73,6 +73,9 @@ import {
   deleteSupplierPayment,
   listExpenses,
   createExpense,
+  listFinanceMoves,
+  createFinanceMove,
+  deleteFinanceMove,
   listStockReceipts,
   createStockReceipt,
   updateStockReceipt,
@@ -1555,6 +1558,30 @@ app.post('/expenses', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось добавить расход' })
+  }
+})
+
+app.get('/finance/moves', (_req, res) => {
+  res.json(listFinanceMoves(db))
+})
+app.post('/finance/moves', (req, res) => {
+  try {
+    const row = createFinanceMove(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'finance-move', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось сохранить движение' })
+  }
+})
+app.delete('/finance/moves/:id', (req, res) => {
+  try {
+    const row = deleteFinanceMove(db, req.params.id)
+    persist()
+    broadcastPosUpdate({ kind: 'finance-move', id: row.id, deleted: true })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить' })
   }
 })
 

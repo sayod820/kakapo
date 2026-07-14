@@ -4,6 +4,7 @@ import { create } from 'zustand'
 import { api } from './api'
 import { USE_API } from './config'
 import type {
+  FinanceMove,
   PosCashier,
   PosExpense,
   PosPoint,
@@ -25,6 +26,7 @@ interface PosStore {
   revisions: StockRevision[]
   suppliers: PosSupplier[]
   expenses: PosExpense[]
+  financeMoves: FinanceMove[]
   expiry: Array<{
     receiptId: string
     receiptCreatedAtIso?: string
@@ -54,6 +56,7 @@ export const usePosStore = create<PosStore>((set) => ({
   revisions: [],
   suppliers: [],
   expenses: [],
+  financeMoves: [],
   expiry: [],
   financeSummary: null,
   report: null,
@@ -66,7 +69,6 @@ export const usePosStore = create<PosStore>((set) => ({
       return
     }
     const alreadyReady = usePosStore.getState().apiReady
-    // Фоновый poll не включает apiSyncing — иначе мигает экран «Касса»
     if (!alreadyReady) set({ apiSyncing: true, apiError: '' })
     else set({ apiError: '' })
     try {
@@ -80,6 +82,7 @@ export const usePosStore = create<PosStore>((set) => ({
         revisions,
         suppliers,
         expenses,
+        financeMoves,
         expiry,
         financeSummary,
         report,
@@ -93,6 +96,7 @@ export const usePosStore = create<PosStore>((set) => ({
         api.getStockRevisions(),
         api.getSuppliers(),
         api.getExpenses(),
+        api.getFinanceMoves(),
         api.getStockExpiry(),
         api.getPosFinanceSummary(),
         api.getPosReport(),
@@ -107,6 +111,7 @@ export const usePosStore = create<PosStore>((set) => ({
         revisions,
         suppliers,
         expenses,
+        financeMoves,
         expiry,
         financeSummary,
         report,

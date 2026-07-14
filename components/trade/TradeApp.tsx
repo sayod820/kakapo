@@ -12,6 +12,7 @@ import ClientsModule from '@/components/trade/ClientsModule'
 import DebtsModule from '@/components/trade/DebtsModule'
 import CashierModule from '@/components/trade/CashierModule'
 import ComingSoonModule from '@/components/trade/ComingSoonModule'
+import FinanceModule from '@/components/trade/FinanceModule'
 import ReportsModule from '@/components/trade/ReportsModule'
 
 /* ══════════════════════════════════════════════════════════════
@@ -318,8 +319,8 @@ function TradeAppInner() {
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
-    if (current === 'reports') return <ReportsModule mode="reports" />
-    if (current === 'finance') return <ReportsModule mode="finance" />
+    if (current === 'reports') return <ReportsModule />
+    if (current === 'finance') return <FinanceModule />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
     return <ProductsModule search={search} />

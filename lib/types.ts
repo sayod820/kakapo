@@ -217,6 +217,16 @@ export interface PosExpense {
   shiftId?: string
 }
 
+/** Вклад в кассу / снятие денег владельцем */
+export interface FinanceMove {
+  id: string
+  type: 'deposit' | 'withdraw'
+  amount: number
+  note?: string
+  createdBy?: string
+  createdAtIso: string
+}
+
 export interface StockReceiptItem {
   productId: number
   productName: string
