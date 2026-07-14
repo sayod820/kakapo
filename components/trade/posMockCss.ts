@@ -81,68 +81,79 @@ export const POS_MOCK_CSS = `
     background:linear-gradient(180deg,transparent,rgba(243,247,244,.95) 28%,var(--surface));
   }
 
-  /* ── Odoo-like Point of Sale dashboard ── */
+  /* ── Дашборд точки продаж (стиль KAKAPO Торговля) ── */
   .odoo-dash{
     height:100%;min-height:0;display:flex;flex-direction:column;
-    background:var(--bg);color:var(--t1);overflow:auto;
+    background:#070C09;color:#E8F3EB;overflow:auto;
+    font-family:'Nunito',system-ui,sans-serif;
   }
   .odoo-dash-top{
-    display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;
-    padding:22px 28px 16px;border-bottom:1px solid var(--border);background:var(--surface);
+    display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    padding:20px 22px 16px;border-bottom:1px solid #1C2A21;background:#0B120E;
   }
   .odoo-dash-top h1{
-    margin:0;font-family:'Unbounded',sans-serif;font-size:22px;font-weight:800;letter-spacing:-.02em;
+    margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em;color:#E8F3EB;
+    font-family:'Nunito',system-ui,sans-serif;
   }
-  .odoo-dash-top p{margin:6px 0 0;font-size:13px;font-weight:700;color:var(--t2);}
-  .odoo-dash-body{padding:28px;flex:1;}
-  .odoo-kanban{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,320px));gap:18px;align-items:start;}
+  .odoo-dash-top p{margin:6px 0 0;font-size:13px;font-weight:700;color:#7E9A86;max-width:520px;line-height:1.45;}
+  .odoo-dash-body{padding:20px 22px 28px;flex:1;background:
+    radial-gradient(ellipse 70% 50% at 12% 0%, rgba(31,215,96,.07), transparent 55%),
+    #070C09;
+  }
+  .odoo-kanban{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,320px));gap:16px;align-items:start;}
   .odoo-card{
-    background:var(--surface);border:1px solid var(--border);border-radius:4px;
-    box-shadow:0 1px 0 rgba(0,0,0,.12);overflow:hidden;display:flex;flex-direction:column;
+    background:#101A13;border:1px solid #1C2A21;border-radius:16px;
+    box-shadow:0 10px 28px rgba(0,0,0,.22);overflow:hidden;display:flex;flex-direction:column;
   }
   .odoo-card-head{
-    padding:18px 18px 12px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+    padding:16px 16px 10px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
   }
-  .odoo-card-head .odoo-card-title{font-size:16px;font-weight:900;line-height:1.25;}
-  .odoo-card-head .odoo-card-sub{font-size:12px;font-weight:700;color:var(--t2);margin-top:4px;}
+  .odoo-card-mark{
+    width:40px;height:40px;border-radius:12px;flex-shrink:0;
+    background:linear-gradient(135deg,#1FD760,#12a548);color:#05210D;
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+    box-shadow:0 6px 16px rgba(31,215,96,.28);margin-bottom:12px;
+  }
+  .odoo-card-head .odoo-card-title{font-size:16px;font-weight:900;line-height:1.25;color:#E8F3EB;}
+  .odoo-card-head .odoo-card-sub{font-size:12px;font-weight:700;color:#7E9A86;margin-top:4px;}
   .odoo-card-menu{position:relative;}
   .pos-root button.odoo-card-more{
-    width:32px;height:32px;border-radius:4px;color:var(--t2);font-size:18px;line-height:1;
-    display:flex;align-items:center;justify-content:center;
+    width:36px;height:36px;border-radius:12px;color:#7E9A86;font-size:18px;line-height:1;
+    display:flex;align-items:center;justify-content:center;background:#0D1610;border:1px solid #1C2A21;
   }
-  .pos-root button.odoo-card-more:hover{background:var(--surface2);color:var(--t1);}
+  .pos-root button.odoo-card-more:hover{border-color:#1FD760;color:#E8F3EB;}
   .odoo-card-drop{
-    position:absolute;right:0;top:36px;z-index:20;min-width:180px;
-    background:var(--surface);border:1px solid var(--border);border-radius:4px;
-    box-shadow:0 8px 24px var(--shade);padding:4px;display:flex;flex-direction:column;
+    position:absolute;right:0;top:40px;z-index:20;min-width:190px;
+    background:#101A13;border:1px solid #1C2A21;border-radius:14px;
+    box-shadow:0 14px 32px rgba(0,0,0,.45);padding:6px;display:flex;flex-direction:column;
   }
   .pos-root button.odoo-card-drop-item{
-    text-align:left;padding:9px 12px;border-radius:3px;font-size:13px;font-weight:700;color:var(--t1);
+    text-align:left;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700;color:#E8F3EB;
   }
-  .pos-root button.odoo-card-drop-item:hover{background:var(--surface2);}
+  .pos-root button.odoo-card-drop-item:hover{background:#0D1610;color:#1FD760;}
   .odoo-card-status{
-    margin:0 18px 14px;padding:8px 10px;border-radius:4px;font-size:12px;font-weight:800;
-    background:var(--surface2);color:var(--t2);border:1px solid var(--border);
+    margin:0 16px 12px;padding:9px 12px;border-radius:12px;font-size:12px;font-weight:800;
+    background:#0D1610;color:#7E9A86;border:1px solid #1C2A21;
   }
-  .odoo-card-status.open{background:rgba(31,215,96,.1);border-color:rgba(31,215,96,.28);color:var(--accent);}
-  .odoo-card-status.closed{background:rgba(255,69,69,.08);border-color:rgba(255,69,69,.2);color:var(--red);}
-  .odoo-card-meta{padding:0 18px 16px;font-size:12px;font-weight:700;color:var(--t3);line-height:1.45;}
-  .odoo-card-meta b{color:var(--t2);font-weight:800;}
-  .odoo-card-actions{padding:0 18px 18px;display:flex;flex-direction:column;gap:8px;}
+  .odoo-card-status.open{background:rgba(31,215,96,.1);border-color:rgba(31,215,96,.28);color:#1FD760;}
+  .odoo-card-status.closed{background:rgba(255,90,90,.08);border-color:rgba(255,90,90,.22);color:#FF5A5A;}
+  .odoo-card-meta{padding:0 16px 14px;font-size:12.5px;font-weight:700;color:#5E7A67;line-height:1.5;}
+  .odoo-card-meta b{color:#7E9A86;font-weight:800;}
+  .odoo-card-actions{padding:0 16px 16px;display:flex;flex-direction:column;gap:8px;}
   .pos-root button.odoo-btn-primary{
-    width:100%;padding:12px 14px;border-radius:4px;font-weight:900;font-size:13px;
-    background:#714B67;color:#fff;
+    width:100%;padding:13px 16px;border-radius:12px;font-weight:900;font-size:14px;
+    background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;
+    box-shadow:0 8px 20px rgba(31,215,96,.25);
   }
-  .pos-root button.odoo-btn-primary:hover{filter:brightness(1.08);}
-  .pos-root button.odoo-btn-primary.go{background:linear-gradient(135deg,#017e84,#0eac99);}
+  .pos-root button.odoo-btn-primary:hover{filter:brightness(1.06);}
+  .pos-root button.odoo-btn-primary.go{
+    background:linear-gradient(135deg,#1FD760,#12a548);color:#05210D;
+  }
   .pos-root button.odoo-btn-secondary{
-    width:100%;padding:10px 14px;border-radius:4px;font-weight:800;font-size:12.5px;
-    background:var(--surface2);border:1px solid var(--border);color:var(--t1);
+    width:100%;padding:11px 14px;border-radius:12px;font-weight:800;font-size:13px;
+    background:#0D1610;border:1.5px solid #1C2A21;color:#E8F3EB;
   }
-  .pos-root button.odoo-btn-secondary:hover{border-color:var(--t2);}
-  .pos-root[data-theme="light"] .odoo-dash{background:#f8f9fa;}
-  .pos-root[data-theme="light"] .odoo-dash-top{background:#fff;}
-  .pos-root[data-theme="light"] .odoo-card{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .pos-root button.odoo-btn-secondary:hover{border-color:#1FD760;color:#1FD760;}
 
   .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:500;}
   .gate.gate-modal{background:rgba(3,11,5,.72);backdrop-filter:blur(5px);}

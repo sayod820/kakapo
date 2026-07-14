@@ -2448,14 +2448,15 @@ export default function CashierModule({
           <div className="odoo-dash-top">
             <div>
               <h1>Точка продаж</h1>
-              <p>Dashboard · выберите кассу и откройте сессию</p>
+              <p>Выберите кассу и откройте сессию, чтобы начать продажи</p>
             </div>
           </div>
           <div className="odoo-dash-body">
             <div className="odoo-kanban">
               <div className="odoo-card" onClick={e => e.stopPropagation()}>
                 <div className="odoo-card-head">
-                  <div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="odoo-card-mark" aria-hidden>🛒</div>
                     <div className="odoo-card-title">Магазин · Ленина 42</div>
                     <div className="odoo-card-sub">Касса №1 · KAKAPO</div>
                   </div>
@@ -2565,8 +2566,8 @@ export default function CashierModule({
             <div className="gate-bg" />
             <div className="gate-card" onClick={e => e.stopPropagation()}>
               <div className="gate-logo">K</div>
-              <div className="gate-title">Opening Control</div>
-              <div className="gate-sub">Открытие сессии · наличные в кассе</div>
+              <div className="gate-title">Открытие сессии</div>
+              <div className="gate-sub">Укажите кассира и наличные в кассе</div>
               <span className="gate-label">Кто работает?</span>
               <div className="cashier-grid">
                 {cashierOptions.slice(0, 6).map(c => (
@@ -2768,8 +2769,8 @@ export default function CashierModule({
                 >
                   <span className="ami-ic">←</span>
                   <span>
-                    <b>Backend</b>
-                    <i>Вернуться на дашборд точки продаж</i>
+                    <b>К дашборду</b>
+                    <i>Вернуться к карточке кассы</i>
                   </span>
                 </button>
                 <button
