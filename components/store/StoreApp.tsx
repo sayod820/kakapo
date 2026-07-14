@@ -224,6 +224,7 @@ const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
     phone:   <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.11 10a19.79 19.79 0 01-3.07-8.67A2 2 0 012.89 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L7 8.09a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>,
     trash:   <><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></>,
     bag:     <><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></>,
+    store:   <><path d="M3 9l1.5-6h15L21 9"/><path d="M3 9v11a1 1 0 001 1h16a1 1 0 001-1V9"/><path d="M3 9h18"/><path d="M9 21V12h6v9"/></>,
     repeat:  <><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></>,
     card:    <><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></>,
     qr:      <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="14" width="3" height="3"/><rect x="14" y="18" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></>,
@@ -580,6 +581,7 @@ const ORDER_STATUS_FILTERS = [
   { id: 'cooking', l: 'Кухня', ic: 'zap', c: 'var(--gd)', activeBg: 'rgba(255,184,0,.1)', activeBd: 'rgba(255,184,0,.28)' },
   { id: 'waiting_courier', l: 'Ждём', ic: 'clock', c: 'var(--gd)', activeBg: 'rgba(255,184,0,.1)', activeBd: 'rgba(255,184,0,.28)' },
   { id: 'delivering', l: 'Путь', ic: 'truck', c: 'var(--blue)', activeBg: 'rgba(59,142,240,.1)', activeBd: 'rgba(59,142,240,.28)' },
+  { id: 'pos_sale', l: 'Магазин', ic: 'store', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
   { id: 'delivered', l: 'Готов', ic: 'check', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
 ];
 
@@ -3337,7 +3339,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   };
   const filtered = filter==="all"
     ? ordersList
-    : ordersList.filter(o => o.status === filter || (filter === 'delivered' && o.status === 'pos_sale'));
+    : ordersList.filter(o => o.status === filter);
   const ST = OSTATUS;
   const selectedContacts = selected ? orderContacts(selected.id) : [];
   const selectedAmounts = selected ? clientOrderBreakdown(selected) : null;
