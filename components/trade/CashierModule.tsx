@@ -494,6 +494,14 @@ export default function CashierModule({
   const [histDetail, setHistDetail] = useState<ClientHistRow | null>(null)
   const [histTick, setHistTick] = useState(0)
   const [payPickOpen, setPayPickOpen] = useState(false)
+  const [creditNoteOpen, setCreditNoteOpen] = useState(false)
+  const [creditNoteBuf, setCreditNoteBuf] = useState('')
+  const [creditPending, setCreditPending] = useState<{
+    paidCash: number
+    method: PayMethod
+    paidCard?: number
+    debtAmt?: number
+  } | null>(null)
   const [qtyEditDraftKey, setQtyEditDraftKey] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -643,7 +651,7 @@ export default function CashierModule({
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
-    || histOpen || payPickOpen
+    || histOpen || payPickOpen || creditNoteOpen
     || !!dashMenuPosId
 
   function focusProductSearch() {
@@ -671,7 +679,7 @@ export default function CashierModule({
     activeTicketId,
     catModalOpen, clientOpen, clientScanOpen, discOpen, discPickOpen,
     qtyEditOpen, cashOpen, splitCardOpen, topupOpen, repayOpen,
-    histOpen, payPickOpen,
+    histOpen, payPickOpen, creditNoteOpen,
   ])
 
   useEffect(() => {
@@ -883,6 +891,8 @@ export default function CashierModule({
           sub = `${methodLabel} · не оплачен`
         }
       }
+      const saleNote = String(s.note || '').trim()
+      if (saleNote) sub = `${sub} · ${saleNote}`
 
       rows.push({
         id: `sale-${s.id}`,
@@ -2259,6 +2269,9 @@ export default function CashierModule({
     setDiscLineKey(null)
     setPayDebtOn(false)
     setPayDebtBuf('')
+    setCreditNoteOpen(false)
+    setCreditNoteBuf('')
+    setCreditPending(null)
   }
 
   function currentPayDebtAmt() {
@@ -2339,7 +2352,31 @@ export default function CashierModule({
     setDiscLineKey(null)
   }
 
-  async function submitSale(paidCash = 0, payOverride?: PayMethod, bonusSpendOverride?: number, paidCardAmt?: number, debtAmt?: number) {
+  function openCreditNote(pending: {
+    paidCash: number
+    method: PayMethod
+    paidCard?: number
+    debtAmt?: number
+  }) {
+    setCreditPending(pending)
+    setCreditNoteBuf('')
+    setPayPickOpen(false)
+    setCashOpen(false)
+    setSplitCardOpen(false)
+    setAmountPad(false)
+    setCreditNoteOpen(true)
+  }
+
+  async function confirmCreditNote() {
+    if (!creditPending) return
+    const note = creditNoteBuf.trim()
+    const { paidCash, method, paidCard, debtAmt } = creditPending
+    setCreditNoteOpen(false)
+    setCreditPending(null)
+    await submitSale(paidCash, method, 0, paidCard, debtAmt, note)
+  }
+
+  async function submitSale(paidCash = 0, payOverride?: PayMethod, bonusSpendOverride?: number, paidCardAmt?: number, debtAmt?: number, saleNote?: string) {
     if (!activeShift || !cart.length) return
     const methodPay = payOverride ?? pay
     const spend = Math.max(
@@ -2425,6 +2462,7 @@ export default function CashierModule({
     setBusy(true)
     setMsg('')
     try {
+      const note = String(saleNote || '').trim()
       const created = await api.createPosSale({
         cashierId: activeShift.cashierId,
         shiftId: activeShift.id,
@@ -2441,6 +2479,7 @@ export default function CashierModule({
         changeGiven: change > 0.001 ? change : undefined,
         bonusSpent: spend > 0 ? spend : undefined,
         orderGoodsTotal: afterDisc,
+        note: note || undefined,
         items: cart.map(l => ({
           productId: l.productId,
           productName: l.name,
@@ -2465,7 +2504,8 @@ export default function CashierModule({
           )
         }
         if (debtAdded > 0.001) {
-          recordStoreDebtCharge(client.phone, debtAdded, debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг', {
+          const baseDesc = debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг'
+          recordStoreDebtCharge(client.phone, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
             orderId: created?.orderId || created?.id || undefined,
             itemsSummary,
           })
@@ -2530,6 +2570,9 @@ export default function CashierModule({
       setCashOpen(false)
       setSplitCardOpen(false)
       setPayPickOpen(false)
+      setCreditNoteOpen(false)
+      setCreditNoteBuf('')
+      setCreditPending(null)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка продажи')
       showToast('Ошибка', e instanceof Error ? e.message : 'Ошибка продажи')
@@ -2566,8 +2609,7 @@ export default function CashierModule({
       setPayDebtOn(false)
       setBonusUsed(0)
       setPay(method)
-      setPayPickOpen(false)
-      void submitSale(0, 'credit', 0)
+      openCreditNote({ paidCash: 0, method: 'credit', debtAmt: 0 })
       return
     }
     if (method === 'balance') {
@@ -2615,7 +2657,7 @@ export default function CashierModule({
       showToast('Выберите клиента', 'Чтобы записать остаток в долг')
       return
     }
-    void submitSale(cash, 'mixed', undefined, 0, remain)
+    openCreditNote({ paidCash: cash, method: 'mixed', paidCard: 0, debtAmt: remain })
   }
 
   function applyPayBonus(amount: number) {
@@ -4030,6 +4072,100 @@ export default function CashierModule({
         </div>
       )}
 
+      {creditNoteOpen && creditPending && (
+        <div
+          className="overlay"
+          onClick={() => {
+            if (busy) return
+            setCreditNoteOpen(false)
+            setCreditPending(null)
+            setCreditNoteBuf('')
+          }}
+        >
+          <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
+            <h3>📝 В долг</h3>
+            {client && (
+              <div className="pay-client-strip">
+                <div>
+                  <b>{client.name}</b>
+                  <span>{client.card || client.phone || 'без карты'}</span>
+                </div>
+              </div>
+            )}
+            <div className="pay-breakdown" style={{ marginBottom: 12 }}>
+              <div className="due">
+                <span>В долг</span>
+                <b className="bank-fig sum">
+                  {(
+                    creditPending.method === 'credit'
+                      ? total
+                      : Math.max(0, Number(creditPending.debtAmt) || 0)
+                  ).toFixed(2)} сом
+                </b>
+              </div>
+              {(Number(creditPending.paidCash) > 0.001 || Number(creditPending.paidCard) > 0.001) && (
+                <div>
+                  <span>Уже оплачено</span>
+                  <b className="bank-fig">
+                    {(Number(creditPending.paidCash) + Number(creditPending.paidCard || 0)).toFixed(2)}
+                  </b>
+                </div>
+              )}
+            </div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--t2)', fontWeight: 700, marginBottom: 6 }}>
+              Заметка
+            </label>
+            <textarea
+              value={creditNoteBuf}
+              onChange={e => setCreditNoteBuf(e.target.value.slice(0, 200))}
+              placeholder="Например: обещал завтра, знакомый, на свадьбу…"
+              rows={3}
+              autoFocus
+              style={{
+                width: '100%',
+                resize: 'vertical',
+                minHeight: 72,
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                color: 'var(--t1)',
+                padding: '10px 12px',
+                fontSize: 14,
+                outline: 'none',
+                marginBottom: 14,
+              }}
+            />
+            {msg && <div className="pos-err">{msg}</div>}
+            <div className="modal-card-actions">
+              <button
+                type="button"
+                className="btn-cancel"
+                disabled={busy}
+                onClick={() => {
+                  const pending = creditPending
+                  setCreditNoteOpen(false)
+                  setCreditPending(null)
+                  setCreditNoteBuf('')
+                  if (pending.method === 'credit') setPayPickOpen(true)
+                  else if (Number(pending.paidCard) > 0.001) setSplitCardOpen(true)
+                  else setCashOpen(true)
+                }}
+              >
+                Назад
+              </button>
+              <button
+                type="button"
+                className="btn-confirm"
+                disabled={busy}
+                onClick={() => void confirmCreditNote()}
+              >
+                {busy ? 'Проводим…' : 'В долг'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {clientScanOpen && (
         <div className="overlay" onClick={() => setClientScanOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -4426,7 +4562,12 @@ export default function CashierModule({
                       showToast('Выберите клиента', 'Чтобы записать остаток в долг')
                       return
                     }
-                    void submitSale(cashReceived, 'mixed', undefined, splitCardAmt, splitDebtRemain)
+                    openCreditNote({
+                      paidCash: cashReceived,
+                      method: 'mixed',
+                      paidCard: splitCardAmt,
+                      debtAmt: splitDebtRemain,
+                    })
                   }}
                 >
                   Долг {splitDebtRemain.toFixed(2)}
