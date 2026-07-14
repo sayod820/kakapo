@@ -80,6 +80,70 @@ export const POS_MOCK_CSS = `
   .pos-root[data-theme="light"] .shift-lock-bar{
     background:linear-gradient(180deg,transparent,rgba(243,247,244,.95) 28%,var(--surface));
   }
+
+  /* ── Odoo-like Point of Sale dashboard ── */
+  .odoo-dash{
+    height:100%;min-height:0;display:flex;flex-direction:column;
+    background:var(--bg);color:var(--t1);overflow:auto;
+  }
+  .odoo-dash-top{
+    display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    padding:22px 28px 16px;border-bottom:1px solid var(--border);background:var(--surface);
+  }
+  .odoo-dash-top h1{
+    margin:0;font-family:'Unbounded',sans-serif;font-size:22px;font-weight:800;letter-spacing:-.02em;
+  }
+  .odoo-dash-top p{margin:6px 0 0;font-size:13px;font-weight:700;color:var(--t2);}
+  .odoo-dash-body{padding:28px;flex:1;}
+  .odoo-kanban{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,320px));gap:18px;align-items:start;}
+  .odoo-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:4px;
+    box-shadow:0 1px 0 rgba(0,0,0,.12);overflow:hidden;display:flex;flex-direction:column;
+  }
+  .odoo-card-head{
+    padding:18px 18px 12px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+  }
+  .odoo-card-head .odoo-card-title{font-size:16px;font-weight:900;line-height:1.25;}
+  .odoo-card-head .odoo-card-sub{font-size:12px;font-weight:700;color:var(--t2);margin-top:4px;}
+  .odoo-card-menu{position:relative;}
+  .pos-root button.odoo-card-more{
+    width:32px;height:32px;border-radius:4px;color:var(--t2);font-size:18px;line-height:1;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .pos-root button.odoo-card-more:hover{background:var(--surface2);color:var(--t1);}
+  .odoo-card-drop{
+    position:absolute;right:0;top:36px;z-index:20;min-width:180px;
+    background:var(--surface);border:1px solid var(--border);border-radius:4px;
+    box-shadow:0 8px 24px var(--shade);padding:4px;display:flex;flex-direction:column;
+  }
+  .pos-root button.odoo-card-drop-item{
+    text-align:left;padding:9px 12px;border-radius:3px;font-size:13px;font-weight:700;color:var(--t1);
+  }
+  .pos-root button.odoo-card-drop-item:hover{background:var(--surface2);}
+  .odoo-card-status{
+    margin:0 18px 14px;padding:8px 10px;border-radius:4px;font-size:12px;font-weight:800;
+    background:var(--surface2);color:var(--t2);border:1px solid var(--border);
+  }
+  .odoo-card-status.open{background:rgba(31,215,96,.1);border-color:rgba(31,215,96,.28);color:var(--accent);}
+  .odoo-card-status.closed{background:rgba(255,69,69,.08);border-color:rgba(255,69,69,.2);color:var(--red);}
+  .odoo-card-meta{padding:0 18px 16px;font-size:12px;font-weight:700;color:var(--t3);line-height:1.45;}
+  .odoo-card-meta b{color:var(--t2);font-weight:800;}
+  .odoo-card-actions{padding:0 18px 18px;display:flex;flex-direction:column;gap:8px;}
+  .pos-root button.odoo-btn-primary{
+    width:100%;padding:12px 14px;border-radius:4px;font-weight:900;font-size:13px;
+    background:#714B67;color:#fff;
+  }
+  .pos-root button.odoo-btn-primary:hover{filter:brightness(1.08);}
+  .pos-root button.odoo-btn-primary.go{background:linear-gradient(135deg,#017e84,#0eac99);}
+  .pos-root button.odoo-btn-secondary{
+    width:100%;padding:10px 14px;border-radius:4px;font-weight:800;font-size:12.5px;
+    background:var(--surface2);border:1px solid var(--border);color:var(--t1);
+  }
+  .pos-root button.odoo-btn-secondary:hover{border-color:var(--t2);}
+  .pos-root[data-theme="light"] .odoo-dash{background:#f8f9fa;}
+  .pos-root[data-theme="light"] .odoo-dash-top{background:#fff;}
+  .pos-root[data-theme="light"] .odoo-card{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+
   .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:500;}
   .gate.gate-modal{background:rgba(3,11,5,.72);backdrop-filter:blur(5px);}
   .pos-root[data-theme="light"] .gate.gate-modal{background:rgba(12,26,16,.45);}
@@ -101,7 +165,11 @@ export const POS_MOCK_CSS = `
   .gate-input:focus{border-color:var(--accent);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14px;}
 
-  .app{display:grid;grid-template-columns:1fr minmax(720px,780px);grid-template-rows:64px 1fr;height:100%;}
+  /* Odoo POS: чек слева, товары справа */
+  .app{display:grid;grid-template-columns:minmax(360px,440px) 1fr;grid-template-rows:64px 1fr;height:100%;}
+  .app > .topbar{order:0;grid-column:1/-1;}
+  .app > .cart{order:1;border-left:none;border-right:1px solid var(--border);}
+  .app > .products{order:2;}
 
   .topbar{grid-column:1/3;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--surface);border-bottom:1px solid var(--border);}
   .top-meta{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:4px 0;margin-left:auto;}
@@ -925,6 +993,9 @@ export const POS_MOCK_CSS = `
 
   @media(max-width:900px){
     .app{grid-template-columns:1fr;grid-template-rows:auto auto auto;min-height:100%;overflow:auto;height:auto;}
+    .app > .topbar{order:0;grid-column:1;}
+    .app > .products{order:1;}
+    .app > .cart{order:2;border-right:none;border-top:1px solid var(--border);max-height:55vh;}
     .topbar{grid-column:1;flex-wrap:wrap;height:auto;padding:10px 12px;gap:8px;}
     .top-loc{order:0;}
     .top-meta{margin-left:0;width:100%;justify-content:space-between;order:2;}

@@ -232,7 +232,7 @@ type NavItem = {
 }
 
 const NAV: NavItem[] = [
-  { id: 'sales', label: 'Касса', icon: '🛒' },
+  { id: 'sales', label: 'Точка продаж', icon: '🛒' },
   { id: 'products', label: 'Товары', icon: '📦' },
   { id: 'clients', label: 'Клиенты', icon: '👥' },
   { id: 'debts', label: 'Долги', icon: '💳' },
@@ -299,7 +299,7 @@ function TradeAppInner() {
   const MOB_QUICK: { id: TradePage | 'menu'; label: string; icon: string }[] = [
     { id: 'products', label: 'Товары', icon: '📦' },
     { id: 'warehouse', label: 'Склад', icon: '🏬' },
-    { id: 'sales', label: 'Касса', icon: '🛒' },
+    { id: 'sales', label: 'Точка продаж', icon: '🛒' },
     { id: 'menu', label: 'Меню', icon: '☰' },
   ]
 
