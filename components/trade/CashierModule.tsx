@@ -427,6 +427,7 @@ export default function CashierModule({
   const [qtyEditBuf, setQtyEditBuf] = useState('')
   const [qtyEditPad, setQtyEditPad] = useState(false)
   const qtyEditInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const [cashOpen, setCashOpen] = useState(false)
   const [splitCardOpen, setSplitCardOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
@@ -524,6 +525,48 @@ export default function CashierModule({
     if (!settings.cashierId) return open[0]
     return open.find(s => s.cashierId === settings.cashierId) || open[0]
   }, [shifts, settings.cashierId])
+
+  const overlayBlocksSearch =
+    !activeShift
+    || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
+    || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
+    || histOpen || payPickOpen
+
+  function focusProductSearch() {
+    const el = searchInputRef.current
+    if (!el) return
+    try {
+      el.focus({ preventScroll: true })
+    } catch {
+      el.focus()
+    }
+  }
+
+  /** Поиск всегда в фокусе на экране кассы (сканер / ввод), пока нет модалок */
+  useEffect(() => {
+    if (overlayBlocksSearch) return
+    const t = window.setTimeout(focusProductSearch, 40)
+    return () => window.clearTimeout(t)
+  }, [
+    overlayBlocksSearch,
+    activeShift?.id,
+    catModalOpen, clientOpen, clientScanOpen, discOpen, discPickOpen,
+    qtyEditOpen, cashOpen, splitCardOpen, topupOpen, repayOpen,
+    histOpen, payPickOpen,
+  ])
+
+  useEffect(() => {
+    if (overlayBlocksSearch) return
+    const onPointer = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (t.closest('input, textarea, select, button, a, [contenteditable="true"]')) return
+      if (t.closest('.modal-card, .overlay, .cash-checkout-shell, .cashier-menu')) return
+      window.setTimeout(focusProductSearch, 0)
+    }
+    document.addEventListener('pointerup', onPointer)
+    return () => document.removeEventListener('pointerup', onPointer)
+  }, [overlayBlocksSearch])
 
   const cashierOptions = useMemo(() => {
     if (cashiers.length) return cashiers.filter(c => c.active !== false)
@@ -1487,6 +1530,7 @@ export default function CashierModule({
         barcode,
       }]
     })
+    window.setTimeout(focusProductSearch, 0)
   }
 
   function setQty(key: string, qty: number) {
@@ -1557,6 +1601,7 @@ export default function CashierModule({
     setQtyEditOpen(false)
     setQtyEditKey(null)
     setQtyEditPad(false)
+    window.setTimeout(focusProductSearch, 40)
   }
 
   function fmtQty(n: number) {
@@ -2213,6 +2258,7 @@ export default function CashierModule({
               </svg>
             </span>
             <input
+              ref={searchInputRef}
               value={q}
               onChange={e => setQ(e.target.value)}
               placeholder="Товар, штрихкод…"
@@ -2225,9 +2271,14 @@ export default function CashierModule({
                 if (clientHit && (/какапо/i.test(raw) || !productHit)) {
                   applyClientScan(raw)
                   setQ('')
+                  window.setTimeout(focusProductSearch, 0)
                   return
                 }
-                if (productHit) { addProduct(productHit); setQ('') }
+                if (productHit) {
+                  addProduct(productHit)
+                  setQ('')
+                  window.setTimeout(focusProductSearch, 0)
+                }
               }}
             />
             <span className="scan-tag" title="Сканер">📷</span>
