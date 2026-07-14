@@ -2507,8 +2507,10 @@ export default function CashierModule({
               <div className="ph">{client ? client.phone : 'Нажмите чтобы выбрать клиента'}</div>
               {client && loyalty && (
                 <div className="client-bonus">
-                  ⭐ {loyalty.bonus} бон.
-                  {clientDebt > 0 ? <> · <span style={{ color: 'var(--red)' }}>долг {fmtMoney(clientDebt)}</span></> : null}
+                  ⭐ {Number(loyalty.bonus || 0).toLocaleString('ru-RU')} бон.
+                  {clientDebt > 0 ? <> · <span className="debt">долг {fmtMoney(clientDebt)}</span></> : null}
+                  {debtLimit > 0 ? <> · лимит {fmtMoney(availableDebt)}</> : null}
+                  {usedBonus > 0 ? <> · <span className="used">−{usedBonus.toFixed(0)} бон.</span></> : null}
                 </div>
               )}
             </div>
@@ -2534,17 +2536,6 @@ export default function CashierModule({
               <button type="button" className="client-x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); setPayDebtBuf(''); if (pay === 'credit' || pay === 'balance') setPay('cash') }}>✕</button>
             )}
           </div>
-
-          {loyalty && (
-            <div className="tier-strip">
-              <span className="lbl">
-                🎁 <b>{loyalty.bonus}</b>
-                {(Number(loyalty.debt) || 0) > 0 ? <> · долг <b style={{ color: 'var(--red)' }}>{fmtMoney(Number(loyalty.debt))}</b></> : null}
-                {debtLimit > 0 ? <> · лимит {fmtMoney(availableDebt)}</> : null}
-              </span>
-              <b>{usedBonus > 0 ? `−${usedBonus.toFixed(0)} бон.` : 'бонусы'}</b>
-            </div>
-          )}
 
           <div className="cart-items">
             {!cart.filter(l => l.key !== qtyEditDraftKey).length ? (

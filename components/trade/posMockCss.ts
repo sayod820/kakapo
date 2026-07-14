@@ -319,7 +319,9 @@ export const POS_MOCK_CSS = `
   .pos-root button.client-scan-link{width:100%;margin:0 0 12px;padding:10px;border-radius:12px;font-size:12px;font-weight:800;color:var(--accent);background:rgba(31,215,96,.08);border:1.5px dashed rgba(31,215,96,.3);display:inline-flex;align-items:center;justify-content:center;gap:8px;}
   .pos-root button.client-scan-link:hover{border-style:solid;background:rgba(31,215,96,.12);}
   .client-tier{padding:3px 9px;border-radius:8px;font-size:9.5px;font-weight:800;flex-shrink:0;}
-  .client-bonus{font-size:9.5px;color:var(--gd);font-weight:700;margin-top:2px;}
+  .client-bonus{font-size:10px;color:var(--gd);font-weight:700;margin-top:3px;line-height:1.35;}
+  .client-bonus .debt{color:var(--red);}
+  .client-bonus .used{color:var(--pur);}
   .pos-root button.client-x{width:22px;height:22px;border-radius:7px;color:var(--t3);font-size:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
   .pos-root button.client-x:hover{background:rgba(255,69,69,.12);color:var(--red);}
 
