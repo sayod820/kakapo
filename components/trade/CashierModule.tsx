@@ -2547,9 +2547,9 @@ export default function CashierModule({
   // ─── Gate (только первая загрузка, не при автообновлении) ───
   if (!apiReady) {
     return (
-      <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
+      <div className="pos-root" data-theme="dark" data-embed={embedded ? '1' : undefined}>
         <style>{POS_MOCK_CSS}</style>
-        <div className="gate">
+        <div className="gate gate-loading">
           <div className="gate-bg" />
           <div className="gate-card" style={{ textAlign: 'center' }}>
             <div className="gate-logo">K</div>
@@ -2566,7 +2566,7 @@ export default function CashierModule({
   if (showDashboard) {
     const myOpenShift = activeShift
     return (
-      <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
+      <div className="pos-root" data-theme="dark" data-embed={embedded ? '1' : undefined}>
         <style>{POS_MOCK_CSS}</style>
         <div className="odoo-dash" onClick={() => dashMenuPosId && setDashMenuPosId(null)}>
           <div className="odoo-dash-top">
