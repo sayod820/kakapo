@@ -310,18 +310,22 @@ function TradeAppInner() {
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
-    if (current === 'sales') {
-      return (
-        <CashierModule
-          embedded
-          onExit={() => goTo('products')}
-          onNavigate={page => goTo(page)}
-        />
-      )
-    }
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
     return <ProductsModule search={search} />
+  }
+
+  /** Касса / POS — полноэкранно, без бокового меню Торговли */
+  if (current === 'sales') {
+    return (
+      <div className="k-trade" style={{ display: 'block', minHeight: '100vh' }}>
+        <style>{CSS}</style>
+        <CashierModule
+          onExit={() => goTo('products')}
+          onNavigate={page => goTo(page)}
+        />
+      </div>
+    )
   }
 
   return (
@@ -360,34 +364,32 @@ function TradeAppInner() {
       </aside>
 
       <div className="k-main">
-        {current !== 'sales' && (
-          <header className="k-top">
-            <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
-            {showSearch ? (
-              <div className="k-search">
-                <span className="mag">🔍</span>
-                <input
-                  placeholder="Поиск по названию, артикулу, штрихкоду…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
-              </div>
-            ) : (
-              <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>
-                {NAV.find(n => n.id === current)?.label}
-              </div>
-            )}
-            <button type="button" className="k-bell" title="Товары с низким остатком">
-              🔔<span className="badge">{lowStock}</span>
-            </button>
-            <div className="k-user">
-              <div className="av">K</div>
-              <div className="who"><b>Сотрудник</b><span>Торговля</span></div>
+        <header className="k-top">
+          <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
+          {showSearch ? (
+            <div className="k-search">
+              <span className="mag">🔍</span>
+              <input
+                placeholder="Поиск по названию, артикулу, штрихкоду…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
             </div>
-          </header>
-        )}
+          ) : (
+            <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>
+              {NAV.find(n => n.id === current)?.label}
+            </div>
+          )}
+          <button type="button" className="k-bell" title="Товары с низким остатком">
+            🔔<span className="badge">{lowStock}</span>
+          </button>
+          <div className="k-user">
+            <div className="av">K</div>
+            <div className="who"><b>Сотрудник</b><span>Торговля</span></div>
+          </div>
+        </header>
 
-        <div className={`k-body ${current === 'sales' ? 'k-body-pos' : ''}`}>{renderPage()}</div>
+        <div className="k-body">{renderPage()}</div>
       </div>
 
       <nav className="k-bottom-nav k-hide-desk" aria-label="Быстрая навигация">

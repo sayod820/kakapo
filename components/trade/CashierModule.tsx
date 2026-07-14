@@ -301,29 +301,6 @@ function QrIcon({ size = 14 }: { size?: number }) {
   )
 }
 
-function TopMetaClock() {
-  const [now, setNow] = useState<Date | null>(null)
-  useEffect(() => {
-    setNow(new Date())
-    const t = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(t)
-  }, [])
-  return (
-    <div className="top-clock">
-      <div className="tm">
-        {now
-          ? now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-          : '--:--:--'}
-      </div>
-      <div className="dt">
-        {now
-          ? now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
-          : '—'}
-      </div>
-    </div>
-  )
-}
-
 type NavTarget = 'products' | 'clients' | 'debts' | 'warehouse' | 'reports' | 'suppliers' | 'finance'
 
 export default function CashierModule({
@@ -2470,6 +2447,16 @@ export default function CashierModule({
               <h1>Точка продаж</h1>
               <p>Dashboard · выберите кассу и откройте сессию</p>
             </div>
+            {onExit && (
+              <button
+                type="button"
+                className="odoo-btn-secondary"
+                style={{ width: 'auto', padding: '8px 14px' }}
+                onClick={onExit}
+              >
+                ← Торговля
+              </button>
+            )}
           </div>
           <div className="odoo-dash-body">
             <div className="odoo-kanban">
@@ -2730,11 +2717,7 @@ export default function CashierModule({
             </button>
           </div>
 
-          <div className="top-meta">
-            <TopMetaClock />
-          </div>
-
-          <div className="theme-toggle" role="group" aria-label="Тема">
+          <div className="theme-toggle" role="group" aria-label="Тема" style={{ marginLeft: 'auto' }}>
             <button
               type="button"
               className={`theme-mode ${theme === 'dark' ? 'on' : ''}`}
@@ -2792,6 +2775,22 @@ export default function CashierModule({
                     <i>Вернуться к карточке кассы</i>
                   </span>
                 </button>
+                {onExit && (
+                  <button
+                    type="button"
+                    className="account-menu-item"
+                    onClick={() => {
+                      setCashierMenuOpen(false)
+                      onExit()
+                    }}
+                  >
+                    <span className="ami-ic">🏠</span>
+                    <span>
+                      <b>В Торговлю</b>
+                      <i>Товары, склад, клиенты</i>
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
                   className="account-menu-item"

@@ -168,11 +168,8 @@ export const POS_MOCK_CSS = `
   .gate-input:focus{border-color:var(--accent);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:14px;}
 
-  /* Odoo POS: чек слева, товары справа */
-  .app{display:grid;grid-template-columns:minmax(360px,440px) 1fr;grid-template-rows:64px 1fr;height:100%;}
-  .app > .topbar{order:0;grid-column:1/-1;}
-  .app > .cart{order:1;border-left:none;border-right:1px solid var(--border);}
-  .app > .products{order:2;}
+  /* Касса: товары слева, чек справа (как было) */
+  .app{display:grid;grid-template-columns:1fr minmax(720px,780px);grid-template-rows:64px 1fr;height:100%;}
 
   .topbar{grid-column:1/3;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--surface);border-bottom:1px solid var(--border);}
   .top-meta{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:4px 0;margin-left:auto;}
@@ -996,9 +993,6 @@ export const POS_MOCK_CSS = `
 
   @media(max-width:900px){
     .app{grid-template-columns:1fr;grid-template-rows:auto auto auto;min-height:100%;overflow:auto;height:auto;}
-    .app > .topbar{order:0;grid-column:1;}
-    .app > .products{order:1;}
-    .app > .cart{order:2;border-right:none;border-top:1px solid var(--border);max-height:55vh;}
     .topbar{grid-column:1;flex-wrap:wrap;height:auto;padding:10px 12px;gap:8px;}
     .top-loc{order:0;}
     .top-meta{margin-left:0;width:100%;justify-content:space-between;order:2;}
