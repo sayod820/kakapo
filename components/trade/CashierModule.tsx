@@ -449,8 +449,6 @@ export default function CashierModule({
   const [repayOpen, setRepayOpen] = useState(false)
   const [repayBuf, setRepayBuf] = useState('')
   const [repayMethod, setRepayMethod] = useState<'cash' | 'card'>('cash')
-  /** Сумма погашения старого долга вместе с чеком (0 = не погашаем) */
-  const [payDebtBuf, setPayDebtBuf] = useState('')
   const [histOpen, setHistOpen] = useState(false)
   const [histView, setHistView] = useState<'profile' | 'history'>('profile')
   const [histTab, setHistTab] = useState<'checks' | 'debts'>('checks')
@@ -1657,39 +1655,6 @@ export default function CashierModule({
       return next
     })
     setDiscLineKey(null)
-    setPayDebtBuf('')
-  }
-
-  /** Сколько погасить старого долга вместе с чеком */
-  function currentPayDebtAmt() {
-    if (clientDebt <= 0) return 0
-    const raw = Math.round(Math.max(0, Number(payDebtBuf) || 0) * 100) / 100
-    return Math.min(clientDebt, raw)
-  }
-
-  async function applyDebtRepayAfterSale(amount: number, method: 'cash' | 'card') {
-    if (!client?.card || !(amount > 0.001)) return
-    const prevDebt = Number(loyalty?.debt) || clientDebt
-    const payAmt = Math.min(prevDebt, Math.round(amount * 100) / 100)
-    if (!(payAmt > 0.001)) return
-    const nextDebt = Math.max(0, Math.round((prevDebt - payAmt) * 100) / 100)
-    const repayBonus = method === 'cash' ? calcCashDepositBonus(payAmt) : 0
-    const summary = loyaltySummaryForClient(client, cards)
-    const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
-    const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-    await api.updateCard(client.card, {
-      debt: nextDebt,
-      ...(repayBonus > 0 ? {
-        bonus: (Number(summary.bonus) || 0) + repayBonus,
-        posCashBonus: prevPos + repayBonus,
-      } : {}),
-    })
-    if (client.phone) {
-      recordStoreDebtRepayment(client.phone, payAmt, { method })
-      if (repayBonus > 0) {
-        recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга с чеком (нал)')
-      }
-    }
   }
 
   function openAllDiscount() {
