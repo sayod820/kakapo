@@ -588,7 +588,7 @@ export const api = {
     bonusSpent?: number
     orderGoodsTotal?: number
     note?: string
-    items: { productId: number; productName?: string; qty: number; price?: number }[]
+    items: { productId: number; productName?: string; qty: number; price?: number; receiptId?: string }[]
   }) => request<PosSale & { orderId?: string }>('/pos/sales', { method: 'POST', body: JSON.stringify(data) }),
   returnPosSale: (id: string, data?: {
     note?: string

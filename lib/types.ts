@@ -409,6 +409,10 @@ export interface PosSaleItem {
   qty: number
   price: number
   lineTotal: number
+  /** Партия прихода, с которой списали (если кассир выбрал вручную) */
+  receiptId?: string
+  unitCost?: number
+  lineCost?: number
   /** Сколько уже возвращено по этой позиции */
   returnedQty?: number
 }

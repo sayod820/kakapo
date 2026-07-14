@@ -39,7 +39,7 @@ import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
-import type { Category, Product } from '@/lib/types'
+import type { Category, Product, ProductStockLayer } from '@/lib/types'
 import {
   categorySlug,
   countProductsInCategory,
@@ -71,6 +71,10 @@ type CartLine = {
   barcode?: string
   weightKg?: number
   discPct?: number
+  /** Партия прихода (если кассир выбрал вручную) */
+  receiptId?: string
+  costPrice?: number
+  supplierName?: string
 }
 
 type PosTicket = {
@@ -470,6 +474,11 @@ export default function CashierModule({
   const [tillAmountBuf, setTillAmountBuf] = useState('')
   const [tillNote, setTillNote] = useState('')
   const [tillSupplierId, setTillSupplierId] = useState('')
+  const [layerPickOpen, setLayerPickOpen] = useState(false)
+  const [layerPickProduct, setLayerPickProduct] = useState<Product | null>(null)
+  const [layerPickLayers, setLayerPickLayers] = useState<ProductStockLayer[]>([])
+  const [layerPickWeightKg, setLayerPickWeightKg] = useState<number | undefined>(undefined)
+  const [layerPickBusy, setLayerPickBusy] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [topupOpen, setTopupOpen] = useState(false)
   const [topupBuf, setTopupBuf] = useState('')
@@ -1930,8 +1939,60 @@ export default function CashierModule({
     }
     const stock = Number(p.stock) || 0
     if (stock <= 0) return
+    void addProductWithLayers(p, weightKg)
+  }
+
+  async function addProductWithLayers(p: Product, weightKg?: number) {
+    if (!USE_API) {
+      pushProductToCart(p, weightKg)
+      return
+    }
+    setLayerPickBusy(true)
+    try {
+      const layers = await api.getProductStockLayers(p.id)
+      const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+      // Несколько партий — кассир сам выбирает, с какой цены продавать
+      if (open.length > 1) {
+        setLayerPickProduct(p)
+        setLayerPickLayers(open)
+        setLayerPickWeightKg(weightKg)
+        setLayerPickOpen(true)
+        return
+      }
+      if (open.length === 1) {
+        pushProductToCart(p, weightKg, open[0])
+        return
+      }
+      pushProductToCart(p, weightKg)
+    } catch {
+      pushProductToCart(p, weightKg)
+    } finally {
+      setLayerPickBusy(false)
+    }
+  }
+
+  function cartLineKey(productId: number, receiptId?: string, weightKg?: number) {
+    if (weightKg != null) return `${productId}-w-${Date.now()}`
+    return receiptId ? `${productId}::${receiptId}` : String(productId)
+  }
+
+  function pushProductToCart(p: Product, weightKg?: number, layer?: ProductStockLayer) {
+    const stockTotal = Number(p.stock) || 0
+    if (stockTotal <= 0) return
+    const layerStock = layer ? Number(layer.remainingQty) || 0 : stockTotal
+    if (layer && !(layerStock > 0)) {
+      showToast('Партия пуста', 'Выберите другую партию')
+      return
+    }
+    const price = layer
+      ? (Number(layer.retailPrice) > 0 ? Number(layer.retailPrice) : Number(p.price) || 0)
+      : Number(p.price) || 0
+    const receiptId = layer?.receiptId
+    const costPrice = layer ? Number(layer.costPrice) || 0 : undefined
+    const supplierName = layer?.supplierName || undefined
+
     if (isWeighted(p) && weightKg == null) {
-      const key = `${p.id}-w-${Date.now()}`
+      const key = cartLineKey(p.id, receiptId, 0)
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
       setCart(prev => [...prev, {
@@ -1939,13 +2000,16 @@ export default function CashierModule({
         productId: p.id,
         name: p.name,
         emoji: p.e || '📦',
-        price: Number(p.price) || 0,
+        price,
         qty: 1,
-        stock,
+        stock: layerStock,
         unit: p.unit || 'кг',
         art,
         barcode,
         weightKg: 0,
+        receiptId,
+        costPrice,
+        supplierName,
       }])
       setSelectedLineKey(key)
       setQtyEditDraftKey(key)
@@ -1954,47 +2018,67 @@ export default function CashierModule({
       setQtyEditBuf('')
       setQtyEditPad(false)
       setQtyEditOpen(true)
+      setLayerPickOpen(false)
+      setLayerPickProduct(null)
       return
     }
+
     setCart(prev => {
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
       if (weightKg != null) {
         return [...prev, {
-          key: `${p.id}-w-${Date.now()}`,
+          key: cartLineKey(p.id, receiptId, weightKg),
           productId: p.id,
           name: p.name,
           emoji: p.e || '📦',
-          price: Number(p.price) || 0,
+          price,
           qty: 1,
-          stock,
+          stock: layerStock,
           unit: p.unit || 'кг',
           art,
           barcode,
           weightKg,
+          receiptId,
+          costPrice,
+          supplierName,
         }]
       }
-      const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
+      const idx = prev.findIndex(l =>
+        l.productId === p.id
+        && l.weightKg == null
+        && (l.receiptId || '') === (receiptId || ''),
+      )
       if (idx >= 0) {
         const next = [...prev]
-        if (next[idx].qty >= stock) return prev
-        next[idx] = { ...next[idx], qty: next[idx].qty + 1 }
+        if (next[idx].qty >= next[idx].stock) return prev
+        next[idx] = { ...next[idx], qty: next[idx].qty + 1, price }
         return next
       }
       return [...prev, {
-        key: String(p.id),
+        key: cartLineKey(p.id, receiptId),
         productId: p.id,
         name: p.name,
         emoji: p.e || '📦',
-        price: Number(p.price) || 0,
+        price,
         qty: 1,
-        stock,
-        unit: p.unit || 'шт',
+        stock: layerStock,
+        unit: displaySellUnit(p),
         art,
         barcode,
+        receiptId,
+        costPrice,
+        supplierName,
       }]
     })
+    setLayerPickOpen(false)
+    setLayerPickProduct(null)
     window.setTimeout(focusProductSearch, 0)
+  }
+
+  function pickStockLayer(layer: ProductStockLayer) {
+    if (!layerPickProduct) return
+    pushProductToCart(layerPickProduct, layerPickWeightKg, layer)
   }
 
   function setQty(key: string, qty: number) {
@@ -2009,7 +2093,8 @@ export default function CashierModule({
     setCart(prev => prev.map(l => {
       if (l.key !== key) return l
       const w = Math.max(0, Math.round(weightKg * 1000) / 1000)
-      return { ...l, weightKg: w, qty: 1 }
+      const maxW = l.stock > 0 ? l.stock : w
+      return { ...l, weightKg: Math.min(w, maxW), qty: 1 }
     }).filter(l => (l.weightKg != null ? l.weightKg > 0 : l.qty > 0)))
   }
 
@@ -2361,6 +2446,7 @@ export default function CashierModule({
           productName: l.name,
           qty: l.weightKg != null ? Math.round(l.weightKg * 1000) / 1000 : l.qty,
           price: l.price,
+          receiptId: l.receiptId || undefined,
         })),
       })
       if (client?.phone) {
@@ -3493,6 +3579,12 @@ export default function CashierModule({
                           ? `${line.weightKg.toFixed(3)} кг · ${line.price.toFixed(2)} ЅМ/${line.unit}`
                           : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
                       </span>
+                      {line.receiptId ? (
+                        <span className="line-batch">
+                          партия {line.costPrice != null ? `зак. ${line.costPrice.toFixed(2)}` : ''}
+                          {line.supplierName ? ` · ${line.supplierName}` : ''}
+                        </span>
+                      ) : null}
                       {lineDisc > 0 ? <span className="line-disc">−{lineDisc}%</span> : null}
                     </div>
                   </div>
@@ -4344,6 +4436,58 @@ export default function CashierModule({
                   Укажите сумму карты
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {layerPickOpen && layerPickProduct && (
+        <div className="overlay" onClick={() => !layerPickBusy && setLayerPickOpen(false)}>
+          <div className="modal-card layer-pick-card" onClick={e => e.stopPropagation()}>
+            <h3>Выберите партию</h3>
+            <div className="layer-pick-hint">
+              <b>{layerPickProduct.name}</b>
+              <span>Несколько приходов с разными ценами — укажите, с какой партии продавать</span>
+            </div>
+            <div className="layer-pick-list">
+              {layerPickLayers.map(layer => {
+                const retail = Number(layer.retailPrice) || Number(layerPickProduct.price) || 0
+                const cost = Number(layer.costPrice) || 0
+                const rem = Number(layer.remainingQty) || 0
+                const when = layer.createdAtIso
+                  ? new Date(layer.createdAtIso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                  : '—'
+                return (
+                  <button
+                    key={layer.receiptId}
+                    type="button"
+                    className={`layer-pick-item ${layer.isActive ? 'active' : ''}`}
+                    disabled={layerPickBusy || rem <= 0}
+                    onClick={() => pickStockLayer(layer)}
+                  >
+                    <div className="lpi-top">
+                      <span className="lpi-price">{retail.toFixed(2)} ЅМ</span>
+                      {layer.isActive ? <span className="lpi-badge">FIFO</span> : null}
+                    </div>
+                    <div className="lpi-row">
+                      <span>Закуп</span>
+                      <b>{cost.toFixed(2)} ЅМ</b>
+                    </div>
+                    <div className="lpi-row">
+                      <span>Остаток партии</span>
+                      <b>{rem} {displaySellUnit(layerPickProduct)}</b>
+                    </div>
+                    <div className="lpi-row muted">
+                      <span>{when}{layer.supplierName ? ` · ${layer.supplierName}` : ''}</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => setLayerPickOpen(false)}>
+                Отмена
+              </button>
             </div>
           </div>
         </div>

@@ -193,7 +193,7 @@ export default function ProductArrivalsPanel({
           <div>
             <b>📦 Партии и приходы · {product.name}</b>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, fontWeight: 500 }}>
-              FIFO: сначала активная партия, затем следующая в очереди
+              На кассе при нескольких партиях кассир выбирает цену вручную. Без выбора списание идёт FIFO (активная партия).
             </div>
             {addDirty && (
               <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 4, fontWeight: 700 }}>
