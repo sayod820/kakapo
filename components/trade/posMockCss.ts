@@ -186,6 +186,13 @@ export const POS_MOCK_CSS = `
   }
   .cashier-screen-inner.wide{width:min(860px,100%);}
   .receipt-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .receipt-product-hint{
+    margin:-4px 0 12px;padding:8px 12px;border-radius:12px;
+    background:rgba(31,215,96,.08);border:1px solid rgba(31,215,96,.22);
+    font-size:12px;font-weight:700;color:var(--t2);
+  }
+  .receipt-product-hint b{color:var(--accent);font-weight:900;}
+  .receipt-product-hint span{color:var(--t3);font-weight:700;}
   .pos-root button.receipt-filter{padding:8px 12px;border-radius:11px;font-size:11.5px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);}
   .pos-root button.receipt-filter.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--accent);}
   .receipt-list{display:flex;flex-direction:column;gap:8px;flex:1;overflow-y:auto;padding-bottom:12px;}

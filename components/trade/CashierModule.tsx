@@ -447,6 +447,7 @@ export default function CashierModule({
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
   const [receiptQ, setReceiptQ] = useState('')
   const [receiptFilter, setReceiptFilter] = useState<'all' | 'cash' | 'card' | 'credit' | 'returned'>('all')
+  const receiptSearchRef = useRef<HTMLInputElement>(null)
   /** index позиции → qty к возврату (0 = не выбрано) */
   const [returnQtyByIdx, setReturnQtyByIdx] = useState<Record<number, number>>({})
   const [closingCash, setClosingCash] = useState('')
@@ -545,6 +546,7 @@ export default function CashierModule({
 
   const overlayBlocksSearch =
     !activeShift
+    || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
     || histOpen || payPickOpen
@@ -1439,6 +1441,25 @@ export default function CashierModule({
     const qRaw = receiptQ.trim()
     const q = qRaw.toLowerCase()
     const qDigits = qRaw.replace(/[^\d]/g, '')
+    const looksOrderNum = /^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(qRaw)
+    const barcodeHit = qRaw ? pickProductBySearch(products, qRaw) : null
+    const barcodeIds = new Set<number>()
+    if (barcodeHit?.id != null) barcodeIds.add(Number(barcodeHit.id))
+    if (qDigits.length >= 4) {
+      for (const p of products) {
+        if (productBarcodes(p).some(c => {
+          const cd = c.replace(/\D/g, '')
+          return c === qRaw || cd === qDigits || (qDigits.length >= 8 && (cd.endsWith(qDigits) || qDigits.endsWith(cd)))
+        })) {
+          barcodeIds.add(Number(p.id))
+        }
+      }
+    }
+    const namedHits = qRaw && !looksOrderNum
+      ? filterProductsBySearch(products, qRaw, 40)
+      : []
+    const namedIds = new Set(namedHits.map(p => Number(p.id)))
+
     return [...sales]
       .sort((a, b) => {
         const nb = saleOrderSeq(b)
@@ -1459,10 +1480,24 @@ export default function CashierModule({
         if (!q) return true
         const seq = saleOrderSeq(s)
         const label = saleNumberLabel(s)
-        // Поиск по номеру: "4863", "K-4863", "№11", "#11"
-        if (/^(?:k-)?[#№]?\s*\d+$/i.test(qRaw) && qDigits) {
-          return String(seq) === qDigits || label.toLowerCase() === q || label.replace(/^k-/i, '') === qDigits
+        const items = s.items || []
+
+        // Штрихкод / артикул товара → чеки с этим productId
+        if (barcodeIds.size > 0 && (qDigits.length >= 4 || barcodeHit)) {
+          if (items.some(i => barcodeIds.has(Number(i.productId)))) return true
+          // длинный штрихкод без совпадения по id — не путать с номером чека
+          if (qDigits.length >= 8 && !looksOrderNum) return false
         }
+
+        // Короткий номер чека: "4863", "K-4863", "№11"
+        if (looksOrderNum && qDigits) {
+          if (String(seq) === qDigits || label.toLowerCase() === q || label.replace(/^k-/i, '') === qDigits) return true
+        }
+
+        // Поиск по названию товара из каталога
+        if (namedIds.size && items.some(i => namedIds.has(Number(i.productId)))) return true
+        if (items.some(i => (i.productName || '').toLowerCase().includes(q))) return true
+
         const hay = [
           label,
           seq > 0 ? String(seq) : '',
@@ -1472,11 +1507,30 @@ export default function CashierModule({
           s.clientPhone,
           s.cardNum,
           s.cashierName,
-          ...(s.items || []).map(i => i.productName),
+          ...items.map(i => i.productName),
         ].join(' ').toLowerCase()
         return hay.includes(q)
       })
-  }, [sales, receiptQ, receiptFilter])
+  }, [sales, receiptQ, receiptFilter, products])
+
+  const receiptProductHint = useMemo(() => {
+    const qRaw = receiptQ.trim()
+    if (!qRaw) return null
+    if (/^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(qRaw)) return null
+    const hit = pickProductBySearch(products, qRaw)
+    if (!hit) return null
+    const n = receiptList.filter(s => (s.items || []).some(i => Number(i.productId) === Number(hit.id))).length
+    return { name: hit.name, count: n }
+  }, [receiptQ, products, receiptList])
+
+  useEffect(() => {
+    if (cashierScreen !== 'receipts' || receiptSaleId) return
+    const t = window.setTimeout(() => {
+      try { receiptSearchRef.current?.focus({ preventScroll: true }) }
+      catch { receiptSearchRef.current?.focus() }
+    }, 40)
+    return () => window.clearTimeout(t)
+  }, [cashierScreen, receiptSaleId])
 
   const receiptDetail = useMemo(
     () => (receiptSaleId ? sales.find(s => s.id === receiptSaleId) || null : null),
@@ -4079,12 +4133,25 @@ export default function CashierModule({
                 <div className="pos-search" style={{ marginBottom: 12 }}>
                   <span className="ic">🔍</span>
                   <input
+                    ref={receiptSearchRef}
                     value={receiptQ}
                     onChange={e => setReceiptQ(e.target.value)}
-                    placeholder="Поиск: K-4863, клиент, товар…"
+                    placeholder="Скан товара, K-4863, клиент…"
                     autoFocus
+                    onKeyDown={e => {
+                      if (e.key !== 'Enter' && e.key !== 'Tab') return
+                      e.preventDefault()
+                      const raw = (e.currentTarget as HTMLInputElement).value.trim()
+                      if (raw) setReceiptQ(raw)
+                    }}
                   />
                 </div>
+                {receiptProductHint && (
+                  <div className="receipt-product-hint">
+                    Товар: <b>{receiptProductHint.name}</b>
+                    <span> · найдено {receiptProductHint.count}</span>
+                  </div>
+                )}
                 <div className="receipt-filters">
                   {([
                     ['all', 'Все'],
