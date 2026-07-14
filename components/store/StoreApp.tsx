@@ -577,11 +577,11 @@ const OSTATUS = {
 
 const ORDER_STATUS_FILTERS = [
   { id: 'all', l: 'Все', ic: null, c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
+  { id: 'pos_sale', l: 'Магазин', ic: 'store', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
   { id: 'assembling', l: 'Сборка', ic: 'bag', c: 'var(--pur)', activeBg: 'rgba(155,109,255,.11)', activeBd: 'rgba(155,109,255,.28)' },
   { id: 'cooking', l: 'Кухня', ic: 'zap', c: 'var(--gd)', activeBg: 'rgba(255,184,0,.1)', activeBd: 'rgba(255,184,0,.28)' },
   { id: 'waiting_courier', l: 'Ждём', ic: 'clock', c: 'var(--gd)', activeBg: 'rgba(255,184,0,.1)', activeBd: 'rgba(255,184,0,.28)' },
   { id: 'delivering', l: 'Путь', ic: 'truck', c: 'var(--blue)', activeBg: 'rgba(59,142,240,.1)', activeBd: 'rgba(59,142,240,.28)' },
-  { id: 'pos_sale', l: 'Магазин', ic: 'store', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
   { id: 'delivered', l: 'Готов', ic: 'check', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
 ];
 
@@ -3499,7 +3499,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
         </div>
           </div>
         </div>
-        <div className="hscroll" style={{ padding:"0 16px 10px", gap:5 }}>
+        <div style={{ padding:"0 16px 10px", display:"flex", flexWrap:"wrap", gap:5 }}>
           {ORDER_STATUS_FILTERS.map(f => {
             const on = filter === f.id;
             return (
