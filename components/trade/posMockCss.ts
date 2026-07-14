@@ -531,9 +531,38 @@ export const POS_MOCK_CSS = `
   }
   .pay-breakdown > div{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12px;font-weight:700;color:var(--t2);}
   .pay-breakdown .disc{color:var(--pur);}
+  .pay-breakdown .debt-line{color:var(--red);}
+  .pay-breakdown .debt-line .bank-fig{color:var(--red);}
   .pay-breakdown .due{padding-top:8px;margin-top:2px;border-top:1px dashed var(--border);color:var(--t1);font-size:13px;}
   .bank-fig{font-family:'JetBrains Mono',monospace;font-weight:900;font-size:14px;color:var(--t1);letter-spacing:-.02em;tabular-nums;}
   .bank-fig.sum{font-size:clamp(18px,4.5vw,26px);color:var(--accent);line-height:1.1;text-align:right;min-width:0;overflow-wrap:anywhere;}
+  .pay-debt-box{
+    margin:0 0 12px;padding:12px;border-radius:14px;
+    background:rgba(255,69,69,.07);border:1px solid rgba(255,69,69,.28);
+  }
+  .pos-root[data-theme="light"] .pay-debt-box{background:rgba(220,38,38,.06);border-color:rgba(220,38,38,.22);}
+  .pos-root .pay-debt-toggle{
+    width:100%;display:flex;align-items:flex-start;gap:10px;text-align:left;
+    padding:0;border:none;background:transparent;cursor:pointer;color:var(--t1);
+  }
+  .pay-debt-toggle .sw{
+    width:36px;height:22px;border-radius:99px;flex-shrink:0;margin-top:1px;
+    background:rgba(255,255,255,.08);border:1px solid var(--border);position:relative;
+    transition:all .18s;
+  }
+  .pay-debt-toggle .sw::after{
+    content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+    background:var(--t3);transition:all .18s;
+  }
+  .pay-debt-toggle.on .sw{background:rgba(255,69,69,.35);border-color:var(--red);}
+  .pay-debt-toggle.on .sw::after{left:16px;background:var(--red);}
+  .pay-debt-toggle span:last-child{display:flex;flex-direction:column;gap:2px;font-size:13px;font-weight:800;}
+  .pay-debt-toggle b{color:var(--red);font-family:'JetBrains Mono',monospace;}
+  .pay-debt-toggle em{font-style:normal;font-size:11px;font-weight:650;color:var(--t3);}
+  .pay-debt-hint{margin-top:8px;font-size:11px;font-weight:700;color:var(--t2);}
+  .pay-debt-hint b{color:var(--red);font-family:'JetBrains Mono',monospace;}
+  .cash-debt-split{margin:-2px 0 10px;font-size:11px;font-weight:700;color:var(--t3);text-align:center;}
+  .cash-debt-split span{color:var(--red);font-weight:800;}
   .pay-bonus-box{
     padding:12px;border-radius:14px;background:rgba(155,109,255,.08);border:1.5px solid rgba(155,109,255,.28);margin-bottom:12px;
   }
