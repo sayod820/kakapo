@@ -138,6 +138,9 @@ export const POS_MOCK_CSS = `
     text-align:left;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700;color:#E8F3EB;
   }
   .pos-root button.odoo-card-drop-item:hover{background:#0D1610;color:#1FD760;}
+  .pos-root button.odoo-card-drop-item.danger{color:#FF7A7A;}
+  .pos-root button.odoo-card-drop-item.danger:hover{background:rgba(255,90,90,.1);color:#FF5A5A;}
+  .odoo-card-drop-sep{height:1px;margin:4px 8px;background:#1C2A21;}
   .odoo-card-status{
     margin:0 16px 12px;padding:9px 12px;border-radius:12px;font-size:12px;font-weight:800;
     background:#0D1610;color:#7E9A86;border:1px solid #1C2A21;

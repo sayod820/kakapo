@@ -562,6 +562,8 @@ export const api = {
     request<PosPoint>('/pos/points', { method: 'POST', body: JSON.stringify(data) }),
   updatePosPoint: (id: string, data: Partial<Pick<PosPoint, 'name' | 'code' | 'note' | 'active'>>) =>
     request<PosPoint>(`/pos/points/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePosPoint: (id: string) =>
+    request<{ id: string }>(`/pos/points/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getPosShifts: () => request<PosShift[]>('/pos/shifts'),
   openPosShift: (data: { cashierId: string; openingCash: number; note?: string; posId?: string }) =>
     request<PosShift>('/pos/shifts/open', { method: 'POST', body: JSON.stringify(data) }),

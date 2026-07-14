@@ -430,6 +430,11 @@ export default function CashierModule({
   const [createPosModal, setCreatePosModal] = useState(false)
   const [newPosName, setNewPosName] = useState('')
   const [newPosCode, setNewPosCode] = useState('')
+  const [editPosId, setEditPosId] = useState<string | null>(null)
+  const [editPosName, setEditPosName] = useState('')
+  const [editPosCode, setEditPosCode] = useState('')
+  const [editPosNote, setEditPosNote] = useState('')
+  const [deletePosId, setDeletePosId] = useState<string | null>(null)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
   const setPosSurface = useCallback((surface: 'dashboard' | 'register') => {
@@ -594,6 +599,8 @@ export default function CashierModule({
     || !activeShift
     || openShiftModal
     || createPosModal
+    || !!editPosId
+    || !!deletePosId
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
@@ -1413,6 +1420,58 @@ export default function CashierModule({
       showToast('Точка создана', name)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось создать точку')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function openPosSettings(posId: string) {
+    const point = posPoints.find(p => p.id === posId)
+    if (!point) return
+    setDashMenuPosId(null)
+    setMsg('')
+    setEditPosId(point.id)
+    setEditPosName(point.name || '')
+    setEditPosCode(point.code || '')
+    setEditPosNote(point.note || '')
+  }
+
+  async function savePosSettings() {
+    if (!editPosId) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const name = editPosName.trim()
+      if (!name) throw new Error('Укажите название')
+      if (!USE_API) throw new Error('Нужен API сервер')
+      await api.updatePosPoint(editPosId, {
+        name,
+        code: editPosCode.trim(),
+        note: editPosNote.trim(),
+      })
+      await refresh()
+      setEditPosId(null)
+      showToast('Сохранено', name)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось сохранить')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmDeletePos() {
+    if (!deletePosId) return
+    setBusy(true)
+    setMsg('')
+    try {
+      if (!USE_API) throw new Error('Нужен API сервер')
+      const name = posPoints.find(p => p.id === deletePosId)?.name || 'Точка'
+      await api.deletePosPoint(deletePosId)
+      await refresh()
+      setDeletePosId(null)
+      showToast('Удалено', name)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     } finally {
       setBusy(false)
     }
@@ -2577,33 +2636,67 @@ export default function CashierModule({
                             <button
                               type="button"
                               className="odoo-card-drop-item"
-                              onClick={() => {
-                                setDashMenuPosId(null)
-                                if (!shift || !isMine) {
-                                  showToast('Сессия закрыта', 'Сначала откройте сессию на этой кассе')
-                                  setOpeningPosId(point.id)
-                                  setOpenShiftModal(true)
-                                  return
-                                }
-                                openCashierScreen('receipts')
-                              }}
+                              onClick={() => openPosSettings(point.id)}
                             >
-                              Заказы
+                              Настройки
                             </button>
+                            {isMine && (
+                              <button
+                                type="button"
+                                className="odoo-card-drop-item"
+                                onClick={() => {
+                                  setDashMenuPosId(null)
+                                  openCashierScreen('receipts')
+                                }}
+                              >
+                                История чеков
+                              </button>
+                            )}
+                            {isMine && (
+                              <button
+                                type="button"
+                                className="odoo-card-drop-item"
+                                onClick={() => {
+                                  setDashMenuPosId(null)
+                                  openCashierScreen('close')
+                                }}
+                              >
+                                Закрыть сессию
+                              </button>
+                            )}
+                            {!shift && (
+                              <button
+                                type="button"
+                                className="odoo-card-drop-item"
+                                onClick={() => {
+                                  setDashMenuPosId(null)
+                                  if (myOpenShift) {
+                                    showToast('Сессия уже открыта', 'Сначала закройте текущую сессию')
+                                    return
+                                  }
+                                  setOpeningPosId(point.id)
+                                  setMsg('')
+                                  setOpenShiftModal(true)
+                                }}
+                              >
+                                Открыть сессию
+                              </button>
+                            )}
+                            <div className="odoo-card-drop-sep" />
                             <button
                               type="button"
-                              className="odoo-card-drop-item"
+                              className="odoo-card-drop-item danger"
                               onClick={() => {
                                 setDashMenuPosId(null)
-                                if (!shift || !isMine) {
-                                  setOpeningPosId(point.id)
-                                  setOpenShiftModal(true)
+                                if (shift) {
+                                  showToast('Нельзя удалить', 'Сначала закройте сессию на этой кассе')
                                   return
                                 }
-                                openCashierScreen('close')
+                                setMsg('')
+                                setDeletePosId(point.id)
                               }}
                             >
-                              Закрыть сессию
+                              Удалить точку
                             </button>
                           </div>
                         )}
@@ -2779,6 +2872,100 @@ export default function CashierModule({
                 style={{ marginTop: 10 }}
                 disabled={busy}
                 onClick={() => { setCreatePosModal(false); setMsg('') }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
+
+        {editPosId && (
+          <div
+            className="gate gate-modal"
+            onClick={() => {
+              if (busy) return
+              setEditPosId(null)
+              setMsg('')
+            }}
+          >
+            <div className="gate-bg" />
+            <div className="gate-card" onClick={e => e.stopPropagation()}>
+              <div className="gate-logo">⚙</div>
+              <div className="gate-title">Настройки точки</div>
+              <div className="gate-sub">Название и подпись кассы</div>
+              <span className="gate-label">Название</span>
+              <input
+                className="gate-input"
+                value={editPosName}
+                onChange={e => setEditPosName(e.target.value)}
+                placeholder="Магазин · Ленина 42"
+                autoFocus
+              />
+              <span className="gate-label">Подпись</span>
+              <input
+                className="gate-input"
+                value={editPosCode}
+                onChange={e => setEditPosCode(e.target.value)}
+                placeholder="Касса №1 · KAKAPO"
+              />
+              <span className="gate-label">Заметка</span>
+              <input
+                className="gate-input"
+                value={editPosNote}
+                onChange={e => setEditPosNote(e.target.value)}
+                placeholder="Адрес, примечание…"
+              />
+              {msg && <div className="pos-err">{msg}</div>}
+              <button type="button" className="btn-gate" disabled={busy} onClick={() => void savePosSettings()}>
+                {busy ? 'Сохраняем…' : 'Сохранить'}
+              </button>
+              <button
+                type="button"
+                className="btn-switch-till"
+                style={{ marginTop: 10 }}
+                disabled={busy}
+                onClick={() => { setEditPosId(null); setMsg('') }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
+
+        {deletePosId && (
+          <div
+            className="gate gate-modal"
+            onClick={() => {
+              if (busy) return
+              setDeletePosId(null)
+              setMsg('')
+            }}
+          >
+            <div className="gate-bg" />
+            <div className="gate-card" onClick={e => e.stopPropagation()}>
+              <div className="gate-logo" style={{ background: 'rgba(255,90,90,.15)', color: '#FF5A5A' }}>✕</div>
+              <div className="gate-title">Удалить точку?</div>
+              <div className="gate-sub">
+                {posPoints.find(p => p.id === deletePosId)?.name || 'Точка продаж'}
+                <br />
+                История чеков сохранится, но касса исчезнет из списка
+              </div>
+              {msg && <div className="pos-err">{msg}</div>}
+              <button
+                type="button"
+                className="btn-gate"
+                style={{ background: 'linear-gradient(135deg,#ff5a5a,#d63c3c)', boxShadow: '0 8px 20px rgba(255,90,90,.28)' }}
+                disabled={busy}
+                onClick={() => void confirmDeletePos()}
+              >
+                {busy ? 'Удаляем…' : 'Удалить'}
+              </button>
+              <button
+                type="button"
+                className="btn-switch-till"
+                style={{ marginTop: 10 }}
+                disabled={busy}
+                onClick={() => { setDeletePosId(null); setMsg('') }}
               >
                 Отмена
               </button>

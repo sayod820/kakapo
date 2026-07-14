@@ -60,6 +60,7 @@ import {
   listPosPoints,
   createPosPoint,
   updatePosPoint,
+  deletePosPoint,
   listPosShifts,
   openPosShift,
   closePosShift,
@@ -1265,6 +1266,16 @@ app.patch('/pos/points/:id', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось обновить точку продаж' })
+  }
+})
+app.delete('/pos/points/:id', (req, res) => {
+  try {
+    const row = deletePosPoint(db, req.params.id)
+    persist()
+    broadcastPosUpdate({ kind: 'pos', id: row.id, deleted: true })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить точку продаж' })
   }
 })
 

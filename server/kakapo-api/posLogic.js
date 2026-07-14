@@ -97,6 +97,21 @@ export function updatePosPoint(db, id, data = {}) {
   return row
 }
 
+export function deletePosPoint(db, id) {
+  ensurePosCollections(db)
+  const idx = db.posPoints.findIndex(p => p.id === id)
+  if (idx < 0) throw new Error('Точка продаж не найдена')
+  const open = db.posShifts.find(s => s.posId === id && s.status === 'open')
+  if (open) throw new Error('Сначала закройте сессию на этой кассе')
+  const activeCount = db.posPoints.filter(p => p.active !== false).length
+  const row = db.posPoints[idx]
+  if (row.active !== false && activeCount <= 1) {
+    throw new Error('Нельзя удалить последнюю точку продаж')
+  }
+  db.posPoints.splice(idx, 1)
+  return { id }
+}
+
 /** Присвоить сквозные номера старым чекам. true = были изменения. */
 export function ensurePosSaleNumbers(db) {
   ensurePosCollections(db)
