@@ -196,7 +196,16 @@ function saleNumber(s: { number?: number }) {
   return n > 0 ? n : 0
 }
 
-function saleNumberLabel(s: { number?: number; id?: string }) {
+/** Цифровая часть K-4863 или №11 — для сортировки/поиска */
+function saleOrderSeq(s: { orderId?: string; number?: number; id?: string }) {
+  const fromOrder = String(s.orderId || '').match(/(\d+)\s*$/)
+  if (fromOrder) return Number(fromOrder[1]) || 0
+  return saleNumber(s)
+}
+
+function saleNumberLabel(s: { orderId?: string; number?: number; id?: string }) {
+  const oid = String(s.orderId || '').trim()
+  if (oid) return oid
   const n = saleNumber(s)
   return n > 0 ? `№${n}` : (s.id || '—')
 }
@@ -1218,8 +1227,8 @@ export default function CashierModule({
     const qDigits = qRaw.replace(/[^\d]/g, '')
     return [...sales]
       .sort((a, b) => {
-        const nb = saleNumber(b)
-        const na = saleNumber(a)
+        const nb = saleOrderSeq(b)
+        const na = saleOrderSeq(a)
         if (nb !== na) return nb - na
         return String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || ''))
       })
@@ -1234,14 +1243,16 @@ export default function CashierModule({
       })
       .filter(s => {
         if (!q) return true
-        const num = saleNumber(s)
-        // Поиск только по номеру: "7", "№7", "#7"
-        if (/^[#№]?\s*\d+$/i.test(qRaw) && qDigits && num > 0) {
-          return String(num) === qDigits
+        const seq = saleOrderSeq(s)
+        const label = saleNumberLabel(s)
+        // Поиск по номеру: "4863", "K-4863", "№11", "#11"
+        if (/^(?:k-)?[#№]?\s*\d+$/i.test(qRaw) && qDigits) {
+          return String(seq) === qDigits || label.toLowerCase() === q || label.replace(/^k-/i, '') === qDigits
         }
         const hay = [
-          saleNumberLabel(s),
-          num > 0 ? String(num) : '',
+          label,
+          seq > 0 ? String(seq) : '',
+          s.orderId,
           s.id,
           s.clientName,
           s.clientPhone,
@@ -3734,7 +3745,7 @@ export default function CashierModule({
                   <input
                     value={receiptQ}
                     onChange={e => setReceiptQ(e.target.value)}
-                    placeholder="Поиск: № чека, клиент, товар…"
+                    placeholder="Поиск: K-4863, клиент, товар…"
                     autoFocus
                   />
                 </div>

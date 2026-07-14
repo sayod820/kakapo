@@ -784,9 +784,12 @@ export function createPosSale(db, data = {}) {
   const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
   const shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
   if (data.shiftId && !shift) throw new Error('Смена не найдена')
+  // Один счётчик с онлайн-заказами: K-4864 …
+  const orderId = nextOrderId(db)
   const sale = {
     id: nextId('SALE'),
     number: nextPosSaleNumber(db),
+    orderId,
     createdAtIso: nowIso(),
     cashierId: cashier?.id || '',
     cashierName: cashier?.name || '',
@@ -824,8 +827,8 @@ export function createPosSale(db, data = {}) {
 }
 
 /**
- * Покупка на кассе с клиентом → заказ в «Мои заказы» (сразу delivered),
- * чтобы обновить счётчики профиля (заказы / SM / VIP).
+ * Покупка на кассе с клиентом → заказ в «Мои заказы» (сразу delivered).
+ * Номер заказа берётся из sale.orderId (общий счётчик онлайн + касса).
  */
 export function createClientOrderFromPosSale(db, sale, extras = {}) {
   if (!sale) return null
@@ -875,8 +878,11 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
           ? 'card'
           : 'cash'
 
+  const orderId = String(sale.orderId || '').trim() || nextOrderId(db)
+  sale.orderId = orderId
+
   const order = {
-    id: nextOrderId(db),
+    id: orderId,
     type: 'market',
     status: 'delivered',
     channel: 'pos',
@@ -909,7 +915,6 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
 
   stampOrderForClient(order, client)
   db.orders.push(order)
-  sale.orderId = order.id
   return order
 }
 
