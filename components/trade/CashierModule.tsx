@@ -449,8 +449,7 @@ export default function CashierModule({
   const [repayOpen, setRepayOpen] = useState(false)
   const [repayBuf, setRepayBuf] = useState('')
   const [repayMethod, setRepayMethod] = useState<'cash' | 'card'>('cash')
-  /** Погасить старый долг вместе с текущим чеком */
-  const [payDebtOn, setPayDebtOn] = useState(false)
+  /** Сумма погашения старого долга вместе с чеком (0 = не погашаем) */
   const [payDebtBuf, setPayDebtBuf] = useState('')
   const [histOpen, setHistOpen] = useState(false)
   const [histView, setHistView] = useState<'profile' | 'history'>('profile')
@@ -1658,13 +1657,12 @@ export default function CashierModule({
       return next
     })
     setDiscLineKey(null)
-    setPayDebtOn(false)
     setPayDebtBuf('')
   }
 
-  /** Сколько доплатить/погасить старого долга вместе с чеком */
+  /** Сколько погасить старого долга вместе с чеком */
   function currentPayDebtAmt() {
-    if (!payDebtOn || clientDebt <= 0) return 0
+    if (clientDebt <= 0) return 0
     const raw = Math.round(Math.max(0, Number(payDebtBuf) || 0) * 100) / 100
     return Math.min(clientDebt, raw)
   }
@@ -1935,8 +1933,7 @@ export default function CashierModule({
     setCashBuf('')
     setSplitCardBuf('')
     setSplitCardOpen(false)
-    setPayDebtOn(false)
-    setPayDebtBuf(clientDebt > 0 ? String(Math.round(clientDebt * 100) / 100) : '')
+    setPayDebtBuf('')
     setPayPickOpen(true)
   }
 
@@ -1948,7 +1945,7 @@ export default function CashierModule({
       return
     }
     if (method === 'credit') {
-      setPayDebtOn(false)
+      setPayDebtBuf('')
       setBonusUsed(0)
       setPay(method)
       setPayPickOpen(false)
@@ -1956,7 +1953,7 @@ export default function CashierModule({
       return
     }
     if (method === 'balance') {
-      setPayDebtOn(false)
+      setPayDebtBuf('')
       const cover = Math.min(Math.floor(maxBonus), Math.floor(afterDisc))
       if (cover < afterDisc - 0.001) {
         showToast('Мало бонусов', `Доступно ${cover} ⭐ · к оплате ${afterDisc.toFixed(2)}`)
@@ -2176,13 +2173,11 @@ export default function CashierModule({
     )
   }
 
-  const payDebtAmt = payDebtOn
-    ? Math.min(clientDebt, Math.max(0, Math.round((Number(payDebtBuf) || 0) * 100) / 100))
-    : 0
+  const payDebtAmt = currentPayDebtAmt()
   const collectTotal = Math.round((total + payDebtAmt) * 100) / 100
   const cashReceived = Number(cashBuf) || 0
   const cashChange = cashReceived - collectTotal
-  const cashShort = !payDebtOn && cashReceived > 0.001 && cashReceived < total - 0.001
+  const cashShort = payDebtAmt < 0.001 && cashReceived > 0.001 && cashReceived < total - 0.001
   const cashRemain = Math.max(0, Math.round((total - cashReceived) * 100) / 100)
   const splitCardAmt = Math.min(cashRemain, Math.max(0, Number(splitCardBuf) || 0))
   const splitDebtRemain = Math.max(0, Math.round((cashRemain - splitCardAmt) * 100) / 100)
@@ -2536,7 +2531,7 @@ export default function CashierModule({
               </span>
             )}
             {client && (
-              <button type="button" className="client-x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); setPayDebtOn(false); setPayDebtBuf(''); if (pay === 'credit' || pay === 'balance') setPay('cash') }}>✕</button>
+              <button type="button" className="client-x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); setPayDebtBuf(''); if (pay === 'credit' || pay === 'balance') setPay('cash') }}>✕</button>
             )}
           </div>
 
@@ -2883,61 +2878,47 @@ export default function CashierModule({
             </div>
 
             {client && clientDebt > 0.001 && (
-              <div className="pay-debt-box">
-                <button
-                  type="button"
-                  className={`pay-debt-toggle ${payDebtOn ? 'on' : ''}`}
-                  onClick={() => {
-                    setPayDebtOn(v => {
-                      const next = !v
-                      if (next && !(Number(payDebtBuf) > 0)) {
-                        setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))
-                      }
-                      return next
-                    })
+              <div className="pay-bonus-box pay-debt-soft">
+                <div className="pay-bonus-head">
+                  <span>Погасить долг</span>
+                  <span className="muted" style={{ color: 'var(--red)' }}>макс. {fmtMoney(clientDebt)}</span>
+                </div>
+                <div className="pay-bonus-quick">
+                  <button type="button" className={payDebtAmt <= 0 ? 'on' : ''} onClick={() => setPayDebtBuf('')}>Без</button>
+                  <button
+                    type="button"
+                    className={payDebtAmt > 0 && Math.abs(payDebtAmt - Math.round(clientDebt / 2 * 100) / 100) < 0.02 ? 'on' : ''}
+                    onClick={() => setPayDebtBuf(String(Math.round(clientDebt / 2 * 100) / 100))}
+                  >
+                    ½
+                  </button>
+                  <button
+                    type="button"
+                    className={payDebtAmt > 0 && Math.abs(payDebtAmt - clientDebt) < 0.02 ? 'on' : ''}
+                    onClick={() => setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))}
+                  >
+                    Весь
+                  </button>
+                </div>
+                <input
+                  className="pay-debt-input"
+                  value={payDebtBuf}
+                  inputMode="decimal"
+                  onChange={e => {
+                    const next = sanitizeDecimalInput(e.target.value)
+                    const n = Number(next)
+                    if (next !== '' && Number.isFinite(n) && n > clientDebt + 0.001) {
+                      setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))
+                      return
+                    }
+                    setPayDebtBuf(next)
                   }}
-                >
-                  <span className="sw" aria-hidden />
-                  <span>
-                    Погасить долг <b>{fmtMoney(clientDebt)}</b>
-                    <em>вместе с этим чеком</em>
-                  </span>
-                </button>
-                {payDebtOn && (
-                  <>
-                    <div className="pay-bonus-quick" style={{ marginTop: 10 }}>
-                      <button
-                        type="button"
-                        className={Math.abs(payDebtAmt - Math.round(clientDebt / 2 * 100) / 100) < 0.02 ? 'on' : ''}
-                        onClick={() => setPayDebtBuf(String(Math.round(clientDebt / 2 * 100) / 100))}
-                      >
-                        ½
-                      </button>
-                      <button
-                        type="button"
-                        className={Math.abs(payDebtAmt - clientDebt) < 0.02 ? 'on' : ''}
-                        onClick={() => setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))}
-                      >
-                        Весь
-                      </button>
-                      <button type="button" onClick={() => setPayDebtBuf('0')}>0</button>
-                    </div>
-                    <div className="kp-display" style={{ marginTop: 8, marginBottom: 0 }}>
-                      <div className="lbl">СУММА ПОГАШЕНИЯ</div>
-                      <input
-                        className="kp-field"
-                        value={payDebtBuf}
-                        inputMode="decimal"
-                        onChange={e => setPayDebtBuf(sanitizeDecimalInput(e.target.value))}
-                        onFocus={e => e.currentTarget.select()}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="pay-debt-hint">
-                      Чек {total.toFixed(2)} + долг {payDebtAmt.toFixed(2)} = <b>{collectTotal.toFixed(2)} сом</b>
-                    </div>
-                  </>
-                )}
+                  onFocus={e => e.currentTarget.select()}
+                  placeholder="0.00"
+                />
+                <div className="pay-bonus-val">
+                  С погашением: <b style={{ color: payDebtAmt > 0 ? 'var(--red)' : undefined }}>{collectTotal.toFixed(2)} сом</b>
+                </div>
               </div>
             )}
 
@@ -3014,7 +2995,7 @@ export default function CashierModule({
             )}
 
             <div className="modal-card-actions">
-              <button type="button" className="btn-cancel" disabled={busy} onClick={() => { setPayPickOpen(false); setBonusUsed(0); setPayDebtOn(false) }}>Отмена</button>
+              <button type="button" className="btn-cancel" disabled={busy} onClick={() => { setPayPickOpen(false); setBonusUsed(0); setPayDebtBuf('') }}>Отмена</button>
             </div>
           </div>
         </div>
