@@ -2457,16 +2457,6 @@ export default function CashierModule({
               <h1>Точка продаж</h1>
               <p>Выберите кассу и откройте сессию</p>
             </div>
-            {onExit && (
-              <button
-                type="button"
-                className="odoo-btn-secondary"
-                style={{ width: 'auto', padding: '10px 14px' }}
-                onClick={onExit}
-              >
-                ← Торговля
-              </button>
-            )}
           </div>
           <div className="odoo-dash-body">
             <div className="odoo-kanban">
