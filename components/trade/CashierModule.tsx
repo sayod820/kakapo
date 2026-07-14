@@ -490,6 +490,27 @@ export default function CashierModule({
 
   useEffect(() => { void hydrate() }, [hydrate])
   useEffect(() => { void refresh() }, [refresh])
+
+  /** Автообновление статуса кассы (смена открыта/закрыта, продажи) */
+  useEffect(() => {
+    if (!USE_API) return
+    let cancelled = false
+    const softSync = () => {
+      if (cancelled || document.visibilityState === 'hidden') return
+      void syncPosFromApi()
+    }
+    const id = window.setInterval(softSync, 4000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') softSync()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 2500)
