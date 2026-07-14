@@ -14,6 +14,18 @@ import CashierModule from '@/components/trade/CashierModule'
 import ComingSoonModule from '@/components/trade/ComingSoonModule'
 import FinanceModule from '@/components/trade/FinanceModule'
 import ReportsModule from '@/components/trade/ReportsModule'
+import TradeLoginPage from '@/components/trade/TradeLoginPage'
+import {
+  clearTradeEmployeeSession,
+  loadTradeEmployeeSession,
+  saveTradeEmployeeSession,
+  type TradeEmployeeSession,
+} from '@/lib/employeeSession'
+import {
+  canAccessTradePage,
+  firstAllowedTradePage,
+  type TradePageId,
+} from '@/lib/tradeAccess'
 
 /* ══════════════════════════════════════════════════════════════
    6-е приложение KAKAPO — «Торговля»
@@ -63,7 +75,7 @@ const CSS = `
   .k-search .mag{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted)}
   .k-bell{position:relative;width:42px;height:42px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:17px}
   .k-bell .badge{position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:11px;font-weight:800;border-radius:999px;padding:1px 6px}
-  .k-user{display:flex;align-items:center;gap:10px;padding:5px 6px 5px 5px;border:1px solid var(--border);background:var(--card);border-radius:14px}
+  .k-user{display:flex;align-items:center;gap:10px;padding:5px 6px 5px 5px;border:1px solid var(--border);background:var(--card);border-radius:14px;cursor:pointer}
   .k-user .av{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#1FD760,#12a548);color:#05210D;display:flex;align-items:center;justify-content:center;font-weight:900}
   .k-user .who b{display:block;font-size:13px;line-height:1.1}
   .k-user .who span{font-size:11px;color:var(--muted)}
@@ -224,9 +236,7 @@ const CSS = `
   }
 `
 
-type TradePage =
-  | 'sales' | 'products' | 'clients' | 'debts'
-  | 'warehouse' | 'suppliers' | 'finance' | 'reports'
+type TradePage = TradePageId
 
 type NavItem = {
   id: TradePage
@@ -248,6 +258,10 @@ const NAV: NavItem[] = [
 
 const SOON_PAGES: Record<string, { title: string; icon: string; desc: string }> = {}
 
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || 'K'
+}
+
 function Clock() {
   const [now, setNow] = useState<Date | null>(null)
   useEffect(() => {
@@ -265,14 +279,24 @@ function Clock() {
   )
 }
 
-function TradeAppInner() {
+function TradeAppInner({
+  session,
+  onLogout,
+}: {
+  session: TradeEmployeeSession
+  onLogout: () => void
+}) {
   useApiSync('pos')
-  const { page, setPage } = useAppNavigation('products')
+  const allowedNav = useMemo(
+    () => NAV.filter(item => canAccessTradePage(session.permissions, item.id)),
+    [session.permissions],
+  )
+  const defaultPage = firstAllowedTradePage(session.permissions)
+  const { page, setPage } = useAppNavigation(defaultPage)
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
   const [search, setSearch] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
-  /** dashboard — с меню; register — полноэкранный POS без меню */
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
 
   useEffect(() => {
@@ -290,12 +314,22 @@ function TradeAppInner() {
     return () => { document.body.style.overflow = prev }
   }, [menuOpen])
 
-  const current = (NAV.some(p => p.id === page) ? page : 'products') as TradePage
+  const current = (
+    allowedNav.some(p => p.id === page) ? page : defaultPage
+  ) as TradePage
+
+  useEffect(() => {
+    if (!canAccessTradePage(session.permissions, page)) {
+      setPage(defaultPage)
+    }
+  }, [session.permissions, page, defaultPage, setPage])
+
   const lowStock = useMemo(() => products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= 5).length, [products])
   const showSearch = current === 'products'
   const posFullscreen = current === 'sales' && posSurface === 'register'
 
   function goTo(p: TradePage) {
+    if (!canAccessTradePage(session.permissions, p)) return
     setPage(p)
     setMenuOpen(false)
     if (p !== 'sales') setPosSurface('dashboard')
@@ -305,14 +339,21 @@ function TradeAppInner() {
     if (current !== 'sales') setPosSurface('dashboard')
   }, [current])
 
-  const MOB_QUICK: { id: TradePage | 'menu'; label: string; icon: string }[] = [
-    { id: 'products', label: 'Товары', icon: '📦' },
-    { id: 'warehouse', label: 'Склад', icon: '🏬' },
-    { id: 'sales', label: 'Точка продаж', icon: '🛒' },
-    { id: 'menu', label: 'Меню', icon: '☰' },
-  ]
+  const MOB_QUICK: { id: TradePage | 'menu'; label: string; icon: string }[] = useMemo(() => {
+    const prefer: TradePage[] = ['sales', 'products', 'warehouse', 'clients']
+    const quick = prefer.filter(id => canAccessTradePage(session.permissions, id)).slice(0, 3)
+    const items: { id: TradePage | 'menu'; label: string; icon: string }[] = quick.map(id => {
+      const n = NAV.find(x => x.id === id)!
+      return { id: n.id, label: n.label.split(' ')[0], icon: n.icon }
+    })
+    items.push({ id: 'menu', label: 'Меню', icon: '☰' })
+    return items
+  }, [session.permissions])
 
   function renderPage() {
+    if (!canAccessTradePage(session.permissions, current)) {
+      return <div className="k-empty">Нет доступа к этому разделу</div>
+    }
     if (!loaded && current === 'products') return <div className="k-empty">Загрузка товаров…</div>
     if (current === 'products') return <ProductsModule search={search} />
     if (current === 'warehouse') return <WarehouseModule products={products} />
@@ -323,8 +364,12 @@ function TradeAppInner() {
     if (current === 'finance') return <FinanceModule />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
-    return <ProductsModule search={search} />
+    return <div className="k-empty">Раздел недоступен</div>
   }
+
+  const homePage = allowedNav.find(n => n.id === 'products')?.id
+    || allowedNav.find(n => n.id === 'sales')?.id
+    || defaultPage
 
   return (
     <div className={`k-trade ${posFullscreen ? 'pos-fs' : ''}`}>
@@ -338,9 +383,9 @@ function TradeAppInner() {
               <span className="mark">🦜</span>
               <span>Торговля</span>
             </div>
-            <div className="k-logo-sub">6-е приложение KAKAPO · касса, склад, товары</div>
+            <div className="k-logo-sub">6-е приложение KAKAPO · {session.name}</div>
             <nav className="k-nav">
-              {NAV.map(item => (
+              {allowedNav.map(item => (
                 <button
                   key={item.id}
                   type="button"
@@ -358,6 +403,14 @@ function TradeAppInner() {
                 <div className="name">Магазин KAKAPO</div>
                 <div className="k-online"><span className="d" />Онлайн</div>
                 <Clock />
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  style={{ width: '100%', marginTop: 10, padding: '8px 10px', fontSize: 12 }}
+                  onClick={onLogout}
+                >
+                  Выйти
+                </button>
               </div>
             </div>
           </aside>
@@ -385,10 +438,10 @@ function TradeAppInner() {
             <button type="button" className="k-bell" title="Товары с низким остатком">
               🔔<span className="badge">{lowStock}</span>
             </button>
-            <div className="k-user">
-              <div className="av">K</div>
-              <div className="who"><b>Сотрудник</b><span>Торговля</span></div>
-            </div>
+            <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
+              <div className="av">{initials(session.name)}</div>
+              <div className="who"><b>{session.name}</b><span>Выйти</span></div>
+            </button>
           </header>
         )}
 
@@ -397,8 +450,8 @@ function TradeAppInner() {
             <CashierModule
               embedded={!posFullscreen}
               onSurfaceChange={setPosSurface}
-              onExit={() => goTo('products')}
-              onNavigate={p => goTo(p)}
+              onExit={() => goTo(homePage)}
+              onNavigate={p => goTo(p as TradePage)}
             />
           ) : (
             renderPage()
@@ -425,10 +478,53 @@ function TradeAppInner() {
   )
 }
 
+function TradeAppGate() {
+  const [session, setSession] = useState<TradeEmployeeSession | null>(null)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    setSession(loadTradeEmployeeSession())
+    setReady(true)
+  }, [])
+
+  if (!ready) {
+    return (
+      <div className="k-trade" style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+        <style>{CSS}</style>
+        <div style={{ color: 'var(--muted)', fontWeight: 700 }}>Загрузка…</div>
+      </div>
+    )
+  }
+
+  if (!session) {
+    return (
+      <>
+        <style>{CSS}</style>
+        <TradeLoginPage
+          onSuccess={s => {
+            saveTradeEmployeeSession(s)
+            setSession(s)
+          }}
+        />
+      </>
+    )
+  }
+
+  return (
+    <TradeAppInner
+      session={session}
+      onLogout={() => {
+        clearTradeEmployeeSession()
+        setSession(null)
+      }}
+    />
+  )
+}
+
 export default function TradeApp() {
   return (
     <AppNavigationBoundary>
-      <TradeAppInner />
+      <TradeAppGate />
     </AppNavigationBoundary>
   )
 }

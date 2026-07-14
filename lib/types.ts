@@ -166,6 +166,18 @@ export interface PosCashier {
   createdAtIso?: string
 }
 
+/** Сотрудник приложения «Торговля» (доступ к разделам) */
+export interface TradeEmployee {
+  id: string
+  name: string
+  role: 'cashier' | 'warehouse' | 'manager' | 'custom' | string
+  roleLabel?: string
+  permissions: string[]
+  active: boolean
+  createdAtIso?: string
+  updatedAtIso?: string
+}
+
 export interface PosShift {
   id: string
   /** К какой точке продаж относится смена */

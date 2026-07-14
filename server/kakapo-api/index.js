@@ -108,6 +108,14 @@ import {
   getFinanceTruthBundle,
   listMoneyLedger,
 } from './financeTruth.js'
+import {
+  listEmployees,
+  createEmployee,
+  updateEmployee,
+  deleteEmployee,
+  loginEmployee,
+  ensureDefaultEmployees,
+} from './employeesLogic.js'
 
 function financeTruthQuery(req) {
   return {
@@ -132,6 +140,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
   .filter(Boolean)
 const db = seedIfEmpty()
 ensurePosCollections(db)
+if (ensureDefaultEmployees(db)) persist()
 if (ensurePosSaleNumbers(db)) persist()
 if (!db._categorySeedVersion) {
   if (ensureMarketCategories(db)) persist()
@@ -1268,6 +1277,55 @@ app.patch('/cashiers/:id', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось обновить кассира' })
+  }
+})
+
+/** Сотрудники «Торговля» — доступ к разделам */
+app.get('/employees', (_req, res) => {
+  res.json(listEmployees(db))
+})
+/** Для экрана входа в Торговлю — без паролей */
+app.get('/employees/directory', (_req, res) => {
+  res.json(listEmployees(db).filter(e => e.active !== false).map(e => ({
+    id: e.id,
+    name: e.name,
+    role: e.role,
+    roleLabel: e.roleLabel,
+  })))
+})
+app.post('/employees', (req, res) => {
+  try {
+    const row = createEmployee(db, req.body || {})
+    persist()
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось создать сотрудника' })
+  }
+})
+app.patch('/employees/:id', (req, res) => {
+  try {
+    const row = updateEmployee(db, req.params.id, req.body || {})
+    persist()
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить' })
+  }
+})
+app.delete('/employees/:id', (req, res) => {
+  try {
+    const row = deleteEmployee(db, req.params.id)
+    persist()
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить' })
+  }
+})
+app.post('/employees/login', (req, res) => {
+  try {
+    const row = loginEmployee(db, req.body || {})
+    res.json(row)
+  } catch (e) {
+    res.status(401).json({ detail: e?.message || 'Ошибка входа' })
   }
 })
 

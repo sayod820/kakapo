@@ -553,6 +553,35 @@ export const api = {
   getDashboard: () => request<any>('/admin/dashboard'),
   getFinanceSummary: () => request<any>('/finance/summary'),
 
+  // ── Сотрудники Торговли ──
+  getEmployees: () => request<import('./types').TradeEmployee[]>('/employees'),
+  getEmployeesDirectory: () =>
+    request<Array<{ id: string; name: string; role: string; roleLabel?: string }>>('/employees/directory'),
+  createEmployee: (data: {
+    name: string
+    password: string
+    role?: string
+    permissions?: string[]
+    active?: boolean
+  }) => request<import('./types').TradeEmployee>('/employees', { method: 'POST', body: JSON.stringify(data) }),
+  updateEmployee: (id: string, data: Partial<{
+    name: string
+    password: string
+    role: string
+    permissions: string[]
+    active: boolean
+  }>) => request<import('./types').TradeEmployee>(`/employees/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  deleteEmployee: (id: string) =>
+    request<{ id: string }>(`/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  loginEmployee: (data: { id?: string; name?: string; password: string }) =>
+    request<import('./types').TradeEmployee & { token: string }>('/employees/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   // ── POS / склад ──
   getCashiers: () => request<PosCashier[]>('/cashiers'),
   createCashier: (data: { name: string; pin: string }) =>
