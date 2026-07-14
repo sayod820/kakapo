@@ -68,6 +68,8 @@ const CSS = `
   .k-body{flex:1;min-height:0;overflow:auto;padding:18px 20px}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
   .k-body-pos > .pos-root{flex:1;min-height:0;}
+  .k-trade.pos-fs{display:block;min-height:100vh;}
+  .k-pos-fs-host{min-height:100vh;width:100%;}
   .k-page-h{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
   .k-page-h h1{font-size:22px;font-weight:900;margin:0}
   .k-page-h .sub{color:var(--muted);font-size:13px;margin-top:4px;max-width:560px;line-height:1.45}
@@ -271,6 +273,8 @@ function TradeAppInner() {
   const loaded = useProducts(s => s.loaded)
   const [search, setSearch] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  /** dashboard — с меню; register — полноэкранный POS без меню */
+  const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
 
   useEffect(() => {
     void useProducts.getState().fetchProducts()
@@ -290,11 +294,17 @@ function TradeAppInner() {
   const current = (NAV.some(p => p.id === page) ? page : 'products') as TradePage
   const lowStock = useMemo(() => products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= 5).length, [products])
   const showSearch = current === 'products'
+  const posFullscreen = current === 'sales' && posSurface === 'register'
 
   function goTo(p: TradePage) {
     setPage(p)
     setMenuOpen(false)
+    if (p !== 'sales') setPosSurface('dashboard')
   }
+
+  useEffect(() => {
+    if (current !== 'sales') setPosSurface('dashboard')
+  }, [current])
 
   const MOB_QUICK: { id: TradePage | 'menu'; label: string; icon: string }[] = [
     { id: 'products', label: 'Товары', icon: '📦' },
@@ -315,96 +325,101 @@ function TradeAppInner() {
     return <ProductsModule search={search} />
   }
 
-  /** Касса / POS — полноэкранно, без бокового меню Торговли */
-  if (current === 'sales') {
-    return (
-      <div className="k-trade" style={{ display: 'block', minHeight: '100vh' }}>
-        <style>{CSS}</style>
-        <CashierModule
-          onExit={() => goTo('products')}
-          onNavigate={page => goTo(page)}
-        />
-      </div>
-    )
-  }
-
   return (
-    <div className="k-trade">
+    <div className={`k-trade ${posFullscreen ? 'pos-fs' : ''}`}>
       <style>{CSS}</style>
 
-      <div className={`k-side-overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)} aria-hidden />
+      {!posFullscreen && (
+        <>
+          <div className={`k-side-overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)} aria-hidden />
+          <aside className={`k-side ${menuOpen ? 'open' : ''}`}>
+            <div className="k-logo">
+              <span className="mark">🦜</span>
+              <span>Торговля</span>
+            </div>
+            <div className="k-logo-sub">6-е приложение KAKAPO · касса, склад, товары</div>
+            <nav className="k-nav">
+              {NAV.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`k-navitem ${current === item.id ? 'active' : ''}`}
+                  onClick={() => goTo(item.id)}
+                >
+                  <span className="ic">{item.icon}</span>
+                  {item.label}
+                  {item.tag && <span className="tag">{item.tag}</span>}
+                </button>
+              ))}
+            </nav>
+            <div className="k-side-foot">
+              <div className="k-store">
+                <div className="name">Магазин KAKAPO</div>
+                <div className="k-online"><span className="d" />Онлайн</div>
+                <Clock />
+              </div>
+            </div>
+          </aside>
+        </>
+      )}
 
-      <aside className={`k-side ${menuOpen ? 'open' : ''}`}>
-        <div className="k-logo">
-          <span className="mark">🦜</span>
-          <span>Торговля</span>
+      <div className={posFullscreen ? 'k-pos-fs-host' : 'k-main'}>
+        {!posFullscreen && current !== 'sales' && (
+          <header className="k-top">
+            <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
+            {showSearch ? (
+              <div className="k-search">
+                <span className="mag">🔍</span>
+                <input
+                  placeholder="Поиск по названию, артикулу, штрихкоду…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+            ) : (
+              <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>
+                {NAV.find(n => n.id === current)?.label}
+              </div>
+            )}
+            <button type="button" className="k-bell" title="Товары с низким остатком">
+              🔔<span className="badge">{lowStock}</span>
+            </button>
+            <div className="k-user">
+              <div className="av">K</div>
+              <div className="who"><b>Сотрудник</b><span>Торговля</span></div>
+            </div>
+          </header>
+        )}
+
+        <div className={current === 'sales' ? 'k-body k-body-pos' : 'k-body'}>
+          {current === 'sales' ? (
+            <CashierModule
+              embedded={!posFullscreen}
+              onSurfaceChange={setPosSurface}
+              onExit={() => goTo('products')}
+              onNavigate={p => goTo(p)}
+            />
+          ) : (
+            renderPage()
+          )}
         </div>
-        <div className="k-logo-sub">6-е приложение KAKAPO · касса, склад, товары</div>
-        <nav className="k-nav">
-          {NAV.map(item => (
+      </div>
+
+      {!posFullscreen && (
+        <nav className="k-bottom-nav k-hide-desk" aria-label="Быстрая навигация">
+          {MOB_QUICK.map(item => (
             <button
               key={item.id}
               type="button"
-              className={`k-navitem ${current === item.id ? 'active' : ''}`}
-              onClick={() => goTo(item.id)}
+              className={`${current === item.id ? 'active' : ''} ${item.id === 'menu' ? 'menu-btn' : ''}`}
+              onClick={() => item.id === 'menu' ? setMenuOpen(true) : goTo(item.id)}
             >
               <span className="ic">{item.icon}</span>
               {item.label}
-              {item.tag && <span className="tag">{item.tag}</span>}
             </button>
           ))}
         </nav>
-        <div className="k-side-foot">
-          <div className="k-store">
-            <div className="name">Магазин KAKAPO</div>
-            <div className="k-online"><span className="d" />Онлайн</div>
-            <Clock />
-          </div>
-        </div>
-      </aside>
-
-      <div className="k-main">
-        <header className="k-top">
-          <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
-          {showSearch ? (
-            <div className="k-search">
-              <span className="mag">🔍</span>
-              <input
-                placeholder="Поиск по названию, артикулу, штрихкоду…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-          ) : (
-            <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>
-              {NAV.find(n => n.id === current)?.label}
-            </div>
-          )}
-          <button type="button" className="k-bell" title="Товары с низким остатком">
-            🔔<span className="badge">{lowStock}</span>
-          </button>
-          <div className="k-user">
-            <div className="av">K</div>
-            <div className="who"><b>Сотрудник</b><span>Торговля</span></div>
-          </div>
-        </header>
-
-        <div className="k-body">{renderPage()}</div>
-      </div>
-
-      <nav className="k-bottom-nav k-hide-desk" aria-label="Быстрая навигация">
-        {MOB_QUICK.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            className={`${current === item.id ? 'active' : ''} ${item.id === 'menu' ? 'menu-btn' : ''}`}
-            onClick={() => item.id === 'menu' ? setMenuOpen(true) : goTo(item.id)}
-          >
-            <span className="ic">{item.icon}</span>
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      )}
     </div>
   )
 }

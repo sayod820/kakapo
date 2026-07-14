@@ -307,11 +307,13 @@ export default function CashierModule({
   onExit,
   onNavigate: _onNavigate,
   embedded = false,
+  onSurfaceChange,
 }: {
   onExit?: () => void
   onNavigate?: (page: NavTarget) => void
   /** Встроена в правую панель «Торговля» (с боковым меню) */
   embedded?: boolean
+  onSurfaceChange?: (surface: 'dashboard' | 'register') => void
 }) {
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
@@ -424,7 +426,11 @@ export default function CashierModule({
   const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
   const [openShiftModal, setOpenShiftModal] = useState(false)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
-  const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
+  const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
+  const setPosSurface = useCallback((surface: 'dashboard' | 'register') => {
+    setPosSurfaceState(surface)
+    onSurfaceChange?.(surface)
+  }, [onSurfaceChange])
   const [dashMenuOpen, setDashMenuOpen] = useState(false)
   const [switchCashierId, setSwitchCashierId] = useState('')
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
@@ -463,6 +469,10 @@ export default function CashierModule({
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [cashierMenuOpen])
+
+  useEffect(() => {
+    onSurfaceChange?.(posSurface)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- sync initial surface to TradeApp once
 
   useEffect(() => { void hydrate() }, [hydrate])
   useEffect(() => { void refresh() }, [refresh])
