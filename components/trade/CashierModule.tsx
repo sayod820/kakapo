@@ -2892,7 +2892,7 @@ export default function CashierModule({
             <div className="gate-card" onClick={e => e.stopPropagation()}>
               <div className="gate-logo">⚙</div>
               <div className="gate-title">Настройки точки</div>
-              <div className="gate-sub">Название и подпись кассы</div>
+              <div className="gate-sub">Касса, название и оборудование</div>
               <span className="gate-label">Название</span>
               <input
                 className="gate-input"
@@ -2915,6 +2915,28 @@ export default function CashierModule({
                 onChange={e => setEditPosNote(e.target.value)}
                 placeholder="Адрес, примечание…"
               />
+
+              <div className="pos-device-block">
+                <div className="pos-device-head">
+                  <b>Оборудование</b>
+                  <span>подключим после полной подготовки</span>
+                </div>
+                <div className="pos-device-row">
+                  <div>
+                    <strong>Принтер чеков</strong>
+                    <em>USB / сеть · печать чека</em>
+                  </div>
+                  <span className="pos-device-soon">Скоро</span>
+                </div>
+                <div className="pos-device-row">
+                  <div>
+                    <strong>Весы</strong>
+                    <em>взвешивание товаров на кассе</em>
+                  </div>
+                  <span className="pos-device-soon">Скоро</span>
+                </div>
+              </div>
+
               {msg && <div className="pos-err">{msg}</div>}
               <button type="button" className="btn-gate" disabled={busy} onClick={() => void savePosSettings()}>
                 {busy ? 'Сохраняем…' : 'Сохранить'}
