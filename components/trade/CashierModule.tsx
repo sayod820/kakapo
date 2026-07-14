@@ -2468,7 +2468,7 @@ export default function CashierModule({
           <div className="odoo-dash-top">
             <div>
               <h1>Точка продаж</h1>
-              <p>Выберите кассу и откройте сессию, чтобы начать продажи</p>
+              <p>Dashboard · выберите кассу и откройте сессию</p>
             </div>
           </div>
           <div className="odoo-dash-body">
@@ -2476,7 +2476,6 @@ export default function CashierModule({
               <div className="odoo-card" onClick={e => e.stopPropagation()}>
                 <div className="odoo-card-head">
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="odoo-card-mark" aria-hidden>🛒</div>
                     <div className="odoo-card-title">Магазин · Ленина 42</div>
                     <div className="odoo-card-sub">Касса №1 · KAKAPO</div>
                   </div>
