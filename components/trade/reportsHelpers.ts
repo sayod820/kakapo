@@ -10,41 +10,84 @@ import type {
   StockWriteoff,
 } from '@/lib/types'
 
-export type ReportPeriod = 'today' | '7d' | '30d' | 'month' | 'all'
+export type ReportPeriod = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
 export type ReportTab =
   | 'overview'
   | 'sales'
+  | 'returns'
+  | 'cashiers'
   | 'shifts'
   | 'warehouse'
   | 'suppliers'
   | 'debts'
   | 'products'
 
+export type SaleStatusFilter = 'all' | 'sold' | 'returned' | 'partial' | 'credit'
+export type PayFilter = 'all' | 'cash' | 'card' | 'credit' | 'mixed'
+
 export const REPORT_PERIODS: { id: ReportPeriod; label: string }[] = [
   { id: 'today', label: 'Сегодня' },
   { id: '7d', label: '7 дней' },
   { id: '30d', label: '30 дней' },
   { id: 'month', label: 'Этот месяц' },
-  { id: 'all', label: 'Всё' },
+  { id: 'all', label: 'Всё время' },
+  { id: 'custom', label: 'Свои даты' },
 ]
 
-export const REPORT_TABS: { id: ReportTab; label: string; icon: string }[] = [
-  { id: 'overview', label: 'Сводка', icon: '📈' },
-  { id: 'sales', label: 'Продажи', icon: '🧾' },
-  { id: 'shifts', label: 'Смены', icon: '⏱' },
-  { id: 'warehouse', label: 'Склад', icon: '🏬' },
-  { id: 'suppliers', label: 'Поставщики', icon: '🚚' },
-  { id: 'debts', label: 'Долги', icon: '💳' },
-  { id: 'products', label: 'Товары', icon: '📦' },
+export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: string }[] = [
+  { id: 'overview', label: 'Сводка', icon: '📈', hint: 'Деньги и итоги за выбранный период' },
+  { id: 'sales', label: 'Продажи', icon: '🧾', hint: 'Все чеки кассы с оплатой и статусом' },
+  { id: 'returns', label: 'Возвраты', icon: '↩️', hint: 'Полные и частичные возвраты' },
+  { id: 'cashiers', label: 'Кассиры', icon: '👤', hint: 'Кто сколько продал' },
+  { id: 'shifts', label: 'Смены', icon: '⏱', hint: 'Открытие/закрытие кассы' },
+  { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии, сроки' },
+  { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и расходы' },
+  { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты и продажи в долг' },
+  { id: 'products', label: 'Товары', icon: '📦', hint: 'Что продаётся лучше всего' },
+]
+
+export const SALE_STATUS_OPTS: { id: SaleStatusFilter; label: string }[] = [
+  { id: 'all', label: 'Все чеки' },
+  { id: 'sold', label: 'Только продажи' },
+  { id: 'returned', label: 'Полный возврат' },
+  { id: 'partial', label: 'Частичный возврат' },
+  { id: 'credit', label: 'С долгом' },
+]
+
+export const PAY_OPTS: { id: PayFilter; label: string }[] = [
+  { id: 'all', label: 'Любая оплата' },
+  { id: 'cash', label: 'Наличные' },
+  { id: 'card', label: 'Карта' },
+  { id: 'credit', label: 'В долг' },
+  { id: 'mixed', label: 'Смешанная' },
 ]
 
 export function round2(n: number) {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
-export function periodRange(period: ReportPeriod): { from: number | null; to: number | null } {
+export function ymdLocal(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+export function periodRange(
+  period: ReportPeriod,
+  customFrom?: string,
+  customTo?: string,
+): { from: number | null; to: number | null } {
   const now = new Date()
   const end = now.getTime()
+  if (period === 'custom') {
+    const from = customFrom ? new Date(`${customFrom}T00:00:00`).getTime() : null
+    const to = customTo ? new Date(`${customTo}T23:59:59.999`).getTime() : end
+    return {
+      from: from != null && !Number.isNaN(from) ? from : null,
+      to: to != null && !Number.isNaN(to) ? to : null,
+    }
+  }
   if (period === 'all') return { from: null, to: null }
   if (period === 'today') {
     return { from: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), to: end }
@@ -69,7 +112,6 @@ export function inPeriod(iso: string | undefined | null, from: number | null, to
   return true
 }
 
-/** Старые записи без posId считаем дефолтной точкой. */
 export function matchesPos(
   entityPosId: string | undefined | null,
   filterPosId: string | null,
@@ -121,16 +163,61 @@ export function paymentLabel(s: PosSale) {
   return String(s.paymentMethod || '—')
 }
 
-export function filterSales(
-  sales: PosSale[],
-  from: number | null,
-  to: number | null,
-  filterPosId: string | null,
-  defPos: string | null,
-) {
+export type SaleFilters = {
+  from: number | null
+  to: number | null
+  posId: string | null
+  defPos: string | null
+  cashierId?: string | null
+  pay?: PayFilter
+  status?: SaleStatusFilter
+  q?: string
+}
+
+export function filterSales(sales: PosSale[], f: SaleFilters) {
+  const q = (f.q || '').trim().toLowerCase()
+  const qDigits = q.replace(/[^\d]/g, '')
   return sales
-    .filter(s => inPeriod(s.createdAtIso, from, to))
-    .filter(s => matchesPos(s.posId, filterPosId, defPos))
+    .filter(s => inPeriod(s.createdAtIso, f.from, f.to))
+    .filter(s => matchesPos(s.posId, f.posId, f.defPos))
+    .filter(s => {
+      if (!f.cashierId) return true
+      return s.cashierId === f.cashierId || s.cashierName === f.cashierId
+    })
+    .filter(s => {
+      const pay = f.pay || 'all'
+      if (pay === 'all') return true
+      if (pay === 'credit') return (Number(s.debtAdded) || 0) > 0 || s.paymentMethod === 'credit'
+      return s.paymentMethod === pay
+    })
+    .filter(s => {
+      const st = f.status || 'all'
+      if (st === 'all') return true
+      const full = isSaleFullyReturned(s)
+      const partial = isSalePartiallyReturned(s)
+      if (st === 'returned') return full
+      if (st === 'partial') return partial
+      if (st === 'credit') return !full && ((Number(s.debtAdded) || 0) > 0 || s.paymentMethod === 'credit')
+      if (st === 'sold') return !full
+      return true
+    })
+    .filter(s => {
+      if (!q) return true
+      const hay = [
+        saleNumberLabel(s),
+        s.orderId,
+        s.id,
+        s.cashierName,
+        s.clientName,
+        s.clientPhone,
+        s.cardNum,
+        paymentLabel(s),
+        ...(s.items || []).map(i => i.productName),
+      ].join(' ').toLowerCase()
+      if (hay.includes(q)) return true
+      if (qDigits && String(s.number || '').includes(qDigits)) return true
+      return false
+    })
     .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
 }
 
@@ -140,10 +227,15 @@ export function filterShifts(
   to: number | null,
   filterPosId: string | null,
   defPos: string | null,
+  cashierId?: string | null,
 ) {
   return shifts
     .filter(s => inPeriod(s.openedAtIso, from, to))
     .filter(s => matchesPos(s.posId, filterPosId, defPos))
+    .filter(s => {
+      if (!cashierId) return true
+      return s.cashierId === cashierId || s.cashierName === cashierId
+    })
     .sort((a, b) => String(b.openedAtIso || '').localeCompare(String(a.openedAtIso || '')))
 }
 
@@ -156,6 +248,7 @@ export type SalesAgg = {
   returnedCount: number
   returnTotal: number
   receiptsCount: number
+  avgCheck: number
 }
 
 export function aggregateSales(sales: PosSale[]): SalesAgg {
@@ -166,7 +259,7 @@ export function aggregateSales(sales: PosSale[]): SalesAgg {
   let salesCount = 0
   let returnedCount = 0
   let returnTotal = 0
-  let receiptsCount = sales.length
+  const receiptsCount = sales.length
 
   for (const s of sales) {
     const full = isSaleFullyReturned(s)
@@ -187,7 +280,17 @@ export function aggregateSales(sales: PosSale[]): SalesAgg {
     }
   }
 
-  return { revenue, cash, card, credit, salesCount, returnedCount, returnTotal, receiptsCount }
+  return {
+    revenue,
+    cash,
+    card,
+    credit,
+    salesCount,
+    returnedCount,
+    returnTotal,
+    receiptsCount,
+    avgCheck: salesCount > 0 ? round2(revenue / salesCount) : 0,
+  }
 }
 
 export type TopProductRow = {
@@ -201,7 +304,7 @@ export type TopProductRow = {
 export function topProducts(
   sales: PosSale[],
   productsById: Map<number, Product>,
-  limit = 50,
+  limit = 100,
 ): TopProductRow[] {
   const acc = new Map<number, TopProductRow>()
   for (const s of sales) {
@@ -234,6 +337,60 @@ export function topProducts(
 
 export function sumCogs(rows: TopProductRow[]) {
   return round2(rows.reduce((s, r) => s + r.cogs, 0))
+}
+
+export type CashierRow = {
+  key: string
+  name: string
+  checks: number
+  revenue: number
+  cash: number
+  card: number
+  credit: number
+  returns: number
+}
+
+export function cashierStats(sales: PosSale[]): CashierRow[] {
+  const acc = new Map<string, CashierRow>()
+  for (const s of sales) {
+    const key = s.cashierId || s.cashierName || 'unknown'
+    const name = s.cashierName || 'Без имени'
+    const row = acc.get(key) || {
+      key, name, checks: 0, revenue: 0, cash: 0, card: 0, credit: 0, returns: 0,
+    }
+    if (isSaleFullyReturned(s)) {
+      row.returns += 1
+    } else {
+      row.checks += 1
+      row.revenue = round2(row.revenue + (Number(s.total) || 0))
+      row.cash = round2(row.cash + (Number(s.paidCash) || 0))
+      row.card = round2(row.card + (Number(s.paidCard) || 0))
+      row.credit = round2(row.credit + (Number(s.debtAdded) || 0))
+      if (isSalePartiallyReturned(s)) row.returns += 1
+    }
+    acc.set(key, row)
+  }
+  return Array.from(acc.values()).sort((a, b) => b.revenue - a.revenue)
+}
+
+export type DayRow = { day: string; checks: number; revenue: number; cash: number; card: number; credit: number }
+
+export function dailyBreakdown(sales: PosSale[]): DayRow[] {
+  const acc = new Map<string, DayRow>()
+  for (const s of sales) {
+    if (isSaleFullyReturned(s)) continue
+    const d = new Date(s.createdAtIso)
+    if (Number.isNaN(d.getTime())) continue
+    const day = ymdLocal(d)
+    const row = acc.get(day) || { day, checks: 0, revenue: 0, cash: 0, card: 0, credit: 0 }
+    row.checks += 1
+    row.revenue = round2(row.revenue + (Number(s.total) || 0))
+    row.cash = round2(row.cash + (Number(s.paidCash) || 0))
+    row.card = round2(row.card + (Number(s.paidCard) || 0))
+    row.credit = round2(row.credit + (Number(s.debtAdded) || 0))
+    acc.set(day, row)
+  }
+  return Array.from(acc.values()).sort((a, b) => b.day.localeCompare(a.day))
 }
 
 export function filterByCreatedAt<T extends { createdAtIso?: string }>(
@@ -273,4 +430,30 @@ export function revisionDiffCount(rows: StockRevision[]) {
     }
   }
   return { plus, minus, count: rows.length }
+}
+
+export function downloadCsv(filename: string, headers: string[], rows: (string | number)[][]) {
+  const esc = (v: string | number) => {
+    const s = String(v ?? '')
+    if (/[;"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+    return s
+  }
+  const body = [headers.map(esc).join(';'), ...rows.map(r => r.map(esc).join(';'))].join('\n')
+  const blob = new Blob(['\uFEFF' + body], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export function formatPeriodLabel(period: ReportPeriod, customFrom?: string, customTo?: string) {
+  if (period === 'custom') {
+    if (customFrom && customTo) return `${customFrom} → ${customTo}`
+    if (customFrom) return `с ${customFrom}`
+    if (customTo) return `до ${customTo}`
+    return 'Свои даты'
+  }
+  return REPORT_PERIODS.find(p => p.id === period)?.label || period
 }

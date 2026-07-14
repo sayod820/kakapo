@@ -318,7 +318,8 @@ function TradeAppInner() {
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
-    if (current === 'reports' || current === 'finance') return <ReportsModule />
+    if (current === 'reports') return <ReportsModule mode="reports" />
+    if (current === 'finance') return <ReportsModule mode="finance" />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
     return <ProductsModule search={search} />
