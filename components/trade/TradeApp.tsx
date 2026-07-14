@@ -73,11 +73,9 @@ const CSS = `
   .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 14px 11px 42px;font-size:14px;outline:none}
   .k-search input:focus{border-color:var(--green)}
   .k-search .mag{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted)}
-  .k-bell{position:relative;width:42px;height:42px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:17px}
-  .k-bell .badge{position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:11px;font-weight:800;border-radius:999px;padding:1px 6px}
-  .k-user{display:flex;align-items:center;gap:10px;padding:5px 6px 5px 5px;border:1px solid var(--border);background:var(--card);border-radius:14px;cursor:pointer}
+  .k-user{display:flex;align-items:center;gap:10px;padding:5px 6px 5px 5px;border:1px solid var(--border);background:var(--card);border-radius:14px;cursor:pointer;color:var(--text)}
   .k-user .av{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#1FD760,#12a548);color:#05210D;display:flex;align-items:center;justify-content:center;font-weight:900}
-  .k-user .who b{display:block;font-size:13px;line-height:1.1}
+  .k-user .who b{display:block;font-size:13px;line-height:1.1;color:var(--text);font-weight:800}
   .k-user .who span{font-size:11px;color:var(--muted)}
   .k-body{flex:1;min-height:0;overflow:auto;padding:18px 20px}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
@@ -231,7 +229,6 @@ const CSS = `
   @media (max-width:480px){
     .k-kpis{grid-template-columns:1fr 1fr}
     .k-receipt-summary{grid-template-columns:1fr 1fr}
-    .k-bell{width:38px;height:38px;font-size:15px}
     .k-mob-menu-btn{width:38px;height:38px}
   }
 `
@@ -324,7 +321,6 @@ function TradeAppInner({
     }
   }, [session.permissions, page, defaultPage, setPage])
 
-  const lowStock = useMemo(() => products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= 5).length, [products])
   const showSearch = current === 'products'
   const posFullscreen = current === 'sales' && posSurface === 'register'
 
@@ -435,9 +431,6 @@ function TradeAppInner({
                 {NAV.find(n => n.id === current)?.label}
               </div>
             )}
-            <button type="button" className="k-bell" title="Товары с низким остатком">
-              🔔<span className="badge">{lowStock}</span>
-            </button>
             <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
               <div className="av">{initials(session.name)}</div>
               <div className="who"><b>{session.name}</b><span>Выйти</span></div>
