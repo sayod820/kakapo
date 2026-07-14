@@ -38,8 +38,9 @@ import { filterProductsBySearch, pickProductBySearch, productBarcodes, productSe
 import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { printPosReceipt } from '@/lib/printPosReceipt'
 import { useProducts } from '@/lib/store'
-import type { Category, Product, ProductStockLayer } from '@/lib/types'
+import type { Category, PosSale, Product, ProductStockLayer } from '@/lib/types'
 import {
   categorySlug,
   countProductsInCategory,
@@ -502,6 +503,7 @@ export default function CashierModule({
     paidCard?: number
     debtAmt?: number
   } | null>(null)
+  const [printAskSale, setPrintAskSale] = useState<PosSale | null>(null)
   const [qtyEditDraftKey, setQtyEditDraftKey] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -651,7 +653,7 @@ export default function CashierModule({
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
-    || histOpen || payPickOpen || creditNoteOpen
+    || histOpen || payPickOpen || creditNoteOpen || !!printAskSale
     || !!dashMenuPosId
 
   function focusProductSearch() {
@@ -679,7 +681,7 @@ export default function CashierModule({
     activeTicketId,
     catModalOpen, clientOpen, clientScanOpen, discOpen, discPickOpen,
     qtyEditOpen, cashOpen, splitCardOpen, topupOpen, repayOpen,
-    histOpen, payPickOpen, creditNoteOpen,
+    histOpen, payPickOpen, creditNoteOpen, printAskSale,
   ])
 
   useEffect(() => {
@@ -2367,6 +2369,14 @@ export default function CashierModule({
     setCreditNoteOpen(true)
   }
 
+  function doPrintSale(sale: PosSale) {
+    printPosReceipt(sale, {
+      storeName: 'KAKAPO',
+      posLabel: activePosPoint?.name || activePosPoint?.code || undefined,
+      cashierName: sale.cashierName || settings.cashierName,
+    })
+  }
+
   async function confirmCreditNote() {
     if (!creditPending) return
     const note = creditNoteBuf.trim()
@@ -2573,6 +2583,7 @@ export default function CashierModule({
       setCreditNoteOpen(false)
       setCreditNoteBuf('')
       setCreditPending(null)
+      setPrintAskSale(created)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка продажи')
       showToast('Ошибка', e instanceof Error ? e.message : 'Ошибка продажи')
@@ -4166,6 +4177,46 @@ export default function CashierModule({
         </div>
       )}
 
+      {printAskSale && (
+        <div className="overlay" onClick={() => setPrintAskSale(null)}>
+          <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
+            <h3>Чек проведён</h3>
+            <div className="pay-breakdown" style={{ marginBottom: 14 }}>
+              <div><span>Номер</span><b className="bank-fig">{saleNumberLabel(printAskSale)}</b></div>
+              <div className="due">
+                <span>Сумма</span>
+                <b className="bank-fig sum">{fmtMoney(Number(printAskSale.total) || 0)}</b>
+              </div>
+              {printAskSale.clientName && (
+                <div><span>Клиент</span><b>{printAskSale.clientName}</b></div>
+              )}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14, textAlign: 'center' }}>
+              Печатать чек?
+            </div>
+            <div className="modal-card-actions" style={{ gap: 8 }}>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setPrintAskSale(null)}
+              >
+                Нет
+              </button>
+              <button
+                type="button"
+                className="btn-confirm"
+                onClick={() => {
+                  doPrintSale(printAskSale)
+                  setPrintAskSale(null)
+                }}
+              >
+                🖨 Печатать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {clientScanOpen && (
         <div className="overlay" onClick={() => setClientScanOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -5387,6 +5438,14 @@ export default function CashierModule({
                 </div>
                 {msg && <div className="pos-err" style={{ marginTop: 12 }}>{msg}</div>}
                 <div className="receipt-actions">
+                  <button
+                    type="button"
+                    className="action-chip ac-topup"
+                    disabled={busy}
+                    onClick={() => doPrintSale(receiptDetail)}
+                  >
+                    <span className="ic-wrap">🖨</span><span>Печать</span>
+                  </button>
                   <button
                     type="button"
                     className="action-chip ac-topup"
