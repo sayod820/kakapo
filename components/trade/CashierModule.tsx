@@ -416,6 +416,7 @@ export default function CashierModule({
   const [clientScanOpen, setClientScanOpen] = useState(false)
   const [clientScanBuf, setClientScanBuf] = useState('')
   const clientScanRef = useRef<HTMLInputElement>(null)
+  const clientSearchRef = useRef<HTMLInputElement>(null)
   const [discOpen, setDiscOpen] = useState(false)
   const [discBuf, setDiscBuf] = useState('')
   const [discMode, setDiscMode] = useState<'all' | 'line'>('all')
@@ -518,6 +519,17 @@ export default function CashierModule({
     }, 40)
     return () => window.clearTimeout(t)
   }, [clientScanOpen])
+
+  useEffect(() => {
+    if (!clientOpen) return
+    const t = window.setTimeout(() => {
+      const el = clientSearchRef.current
+      if (!el) return
+      el.focus()
+      el.select()
+    }, 40)
+    return () => window.clearTimeout(t)
+  }, [clientOpen])
 
   const activeShift = useMemo(() => {
     const open = shifts.filter(s => s.status === 'open')
@@ -3111,6 +3123,7 @@ export default function CashierModule({
             <div className="pos-search">
               <span className="ic">🔍</span>
               <input
+                ref={clientSearchRef}
                 value={clientQ}
                 onChange={e => setClientQ(e.target.value)}
                 placeholder="Телефон, карта, QR или имя…"
