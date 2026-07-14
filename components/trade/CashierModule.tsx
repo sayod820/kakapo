@@ -34,7 +34,7 @@ import {
   cashDepositTierLabel,
   resolveEffectiveDebtLimit,
 } from '@/lib/loyaltyStatusConfig'
-import { filterProductsBySearch, productBarcodes } from '@/lib/productBarcodes'
+import { filterProductsBySearch, pickProductBySearch, productBarcodes, productSearchScore } from '@/lib/productBarcodes'
 import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
@@ -348,6 +348,8 @@ export default function CashierModule({
   const [settings, setSettings] = useState<PosSettings>(loadSettings)
   const [theme, setTheme] = useState<ThemeName>(loadTheme)
   const [q, setQ] = useState('')
+  const qRef = useRef('')
+  const scanCommitTimer = useRef<number | null>(null)
   const [showFav, setShowFav] = useState(false)
   const [selectedCatSlugs, setSelectedCatSlugs] = useState<string[]>([])
   const [favIds, setFavIds] = useState<number[]>(loadFavIds)
@@ -553,6 +555,10 @@ export default function CashierModule({
       el.focus()
     }
   }
+
+  useEffect(() => () => {
+    if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
+  }, [])
 
   /** Поиск всегда в фокусе на экране кассы (сканер / ввод), пока нет модалок */
   useEffect(() => {
@@ -1140,6 +1146,67 @@ export default function CashierModule({
     setClientPick(null)
     showToast('Клиент выбран', `${found.name}${found.card ? ` · ${found.card}` : ''}`)
     return true
+  }
+
+  /** Сканер: брать значение из input (не из устаревшего state) и класть товар в чек */
+  function commitPosSearch(rawIn?: string): boolean {
+    const raw = String(rawIn ?? searchInputRef.current?.value ?? qRef.current ?? '').trim()
+    if (!raw) return false
+
+    const clientHit = findClientByScan(raw)
+    const looksLikeClientCard = /какапо/i.test(raw) || /^k-?\d+/i.test(raw)
+    if (clientHit && (looksLikeClientCard || !pickProductBySearch(products, raw))) {
+      applyClientScan(raw)
+      qRef.current = ''
+      setQ('')
+      window.setTimeout(focusProductSearch, 0)
+      return true
+    }
+
+    const digits = raw.replace(/\D/g, '')
+    let productHit =
+      pickProductBySearch(products, raw)
+      || (digits.length >= 8
+        ? products.find(p => productBarcodes(p).some(c => c.replace(/\D/g, '') === digits)) || null
+        : null)
+    // запасной вариант как раньше: единственный/лучший по фильтру при вводе штрихкода
+    if (!productHit && digits.length >= 8) {
+      const ranked = filterProductsBySearch(products, raw, 5)
+      if (ranked.length === 1) productHit = ranked[0]
+      else if (ranked[0] && productSearchScore(ranked[0], raw) >= 300) productHit = ranked[0]
+    }
+
+    if (!productHit) {
+      // точного нет — не чистим поиск, кассир видит фильтр слева
+      return false
+    }
+    if ((Number(productHit.stock) || 0) <= 0) {
+      showToast('Нет на складе', productHit.name)
+      return false
+    }
+    addProduct(productHit as Product)
+    qRef.current = ''
+    setQ('')
+    window.setTimeout(focusProductSearch, 0)
+    return true
+  }
+
+  function onProductSearchChange(value: string) {
+    qRef.current = value
+    setQ(value)
+    if (scanCommitTimer.current) {
+      window.clearTimeout(scanCommitTimer.current)
+      scanCommitTimer.current = null
+    }
+    const trimmed = value.trim()
+    // USB-сканер часто шлёт только цифры без Enter — авто-Enter после паузы
+    const looksBarcode = /^[\d\- ]{8,32}$/.test(trimmed) && trimmed.replace(/\D/g, '').length >= 8
+    if (!looksBarcode) return
+    scanCommitTimer.current = window.setTimeout(() => {
+      scanCommitTimer.current = null
+      if (qRef.current.trim() !== trimmed) return
+      commitPosSearch(trimmed)
+    }, 90)
   }
 
   function appendDigit(buf: string, k: string, maxLen = 8) {
@@ -2278,25 +2345,14 @@ export default function CashierModule({
             <input
               ref={searchInputRef}
               value={q}
-              onChange={e => setQ(e.target.value)}
+              onChange={e => onProductSearchChange(e.target.value)}
               placeholder="Товар, штрихкод…"
               autoFocus
               onKeyDown={e => {
-                if (e.key !== 'Enter' || !q.trim()) return
-                const raw = q.trim()
-                const clientHit = findClientByScan(raw)
-                const productHit = filterProductsBySearch(products, raw)[0]
-                if (clientHit && (/какапо/i.test(raw) || !productHit)) {
-                  applyClientScan(raw)
-                  setQ('')
-                  window.setTimeout(focusProductSearch, 0)
-                  return
-                }
-                if (productHit) {
-                  addProduct(productHit)
-                  setQ('')
-                  window.setTimeout(focusProductSearch, 0)
-                }
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                const raw = (e.currentTarget as HTMLInputElement).value
+                commitPosSearch(raw)
               }}
             />
             <span className="scan-tag" title="Сканер">📷</span>
