@@ -449,6 +449,9 @@ export default function CashierModule({
   const [repayOpen, setRepayOpen] = useState(false)
   const [repayBuf, setRepayBuf] = useState('')
   const [repayMethod, setRepayMethod] = useState<'cash' | 'card'>('cash')
+  /** Погасить старый долг вместе с текущим чеком */
+  const [payDebtOn, setPayDebtOn] = useState(false)
+  const [payDebtBuf, setPayDebtBuf] = useState('')
   const [histOpen, setHistOpen] = useState(false)
   const [histView, setHistView] = useState<'profile' | 'history'>('profile')
   const [histTab, setHistTab] = useState<'checks' | 'debts'>('checks')
@@ -1655,6 +1658,40 @@ export default function CashierModule({
       return next
     })
     setDiscLineKey(null)
+    setPayDebtOn(false)
+    setPayDebtBuf('')
+  }
+
+  /** Сколько доплатить/погасить старого долга вместе с чеком */
+  function currentPayDebtAmt() {
+    if (!payDebtOn || clientDebt <= 0) return 0
+    const raw = Math.round(Math.max(0, Number(payDebtBuf) || 0) * 100) / 100
+    return Math.min(clientDebt, raw)
+  }
+
+  async function applyDebtRepayAfterSale(amount: number, method: 'cash' | 'card') {
+    if (!client?.card || !(amount > 0.001)) return
+    const prevDebt = Number(loyalty?.debt) || clientDebt
+    const payAmt = Math.min(prevDebt, Math.round(amount * 100) / 100)
+    if (!(payAmt > 0.001)) return
+    const nextDebt = Math.max(0, Math.round((prevDebt - payAmt) * 100) / 100)
+    const repayBonus = method === 'cash' ? calcCashDepositBonus(payAmt) : 0
+    const summary = loyaltySummaryForClient(client, cards)
+    const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
+    const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
+    await api.updateCard(client.card, {
+      debt: nextDebt,
+      ...(repayBonus > 0 ? {
+        bonus: (Number(summary.bonus) || 0) + repayBonus,
+        posCashBonus: prevPos + repayBonus,
+      } : {}),
+    })
+    if (client.phone) {
+      recordStoreDebtRepayment(client.phone, payAmt, { method })
+      if (repayBonus > 0) {
+        recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга с чеком (нал)')
+      }
+    }
   }
 
   function openAllDiscount() {
@@ -1858,6 +1895,16 @@ export default function CashierModule({
         } catch { /* ignore */ }
       }
       await refresh()
+      const debtRepay = currentPayDebtAmt()
+      let debtRepayNote = ''
+      if (debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
+        try {
+          const method: 'cash' | 'card' = cashPaid > 0.001 ? 'cash' : 'card'
+          await applyDebtRepayAfterSale(debtRepay, method)
+          debtRepayNote = ` · погашен долг ${fmtMoney(debtRepay)}`
+          await refresh()
+        } catch { /* чек уже проведён */ }
+      }
       const parts: string[] = []
       if (cashPaid > 0.001) parts.push(`нал ${fmtMoney(cashPaid)}`)
       if (cardPaid > 0.001) parts.push(`карта ${fmtMoney(cardPaid)}`)
@@ -1865,7 +1912,10 @@ export default function CashierModule({
       if (apiMethod === 'cash' && change > 0) parts.push(`сдача ${fmtMoney(change)}`)
       if (earnedBonus > 0) parts.push(`+${earnedBonus} ⭐`)
       if (spend > 0) parts.push(`−${spend} ⭐`)
-      showToast('Чек проведён', parts.length ? parts.join(' · ') : (methodPay === 'balance' ? `Бонусы −${spend} ⭐` : 'Карта'))
+      showToast(
+        'Чек проведён',
+        `${parts.length ? parts.join(' · ') : (methodPay === 'balance' ? `Бонусы −${spend} ⭐` : 'Карта')}${debtRepayNote}`,
+      )
       afterSaleTicketReset()
       setCashOpen(false)
       setSplitCardOpen(false)
@@ -1885,6 +1935,8 @@ export default function CashierModule({
     setCashBuf('')
     setSplitCardBuf('')
     setSplitCardOpen(false)
+    setPayDebtOn(false)
+    setPayDebtBuf(clientDebt > 0 ? String(Math.round(clientDebt * 100) / 100) : '')
     setPayPickOpen(true)
   }
 
@@ -1896,6 +1948,7 @@ export default function CashierModule({
       return
     }
     if (method === 'credit') {
+      setPayDebtOn(false)
       setBonusUsed(0)
       setPay(method)
       setPayPickOpen(false)
@@ -1903,6 +1956,7 @@ export default function CashierModule({
       return
     }
     if (method === 'balance') {
+      setPayDebtOn(false)
       const cover = Math.min(Math.floor(maxBonus), Math.floor(afterDisc))
       if (cover < afterDisc - 0.001) {
         showToast('Мало бонусов', `Доступно ${cover} ⭐ · к оплате ${afterDisc.toFixed(2)}`)
@@ -1914,10 +1968,12 @@ export default function CashierModule({
       void submitSale(0, 'balance', cover)
       return
     }
+    const debtExtra = currentPayDebtAmt()
+    const due = Math.round((total + debtExtra) * 100) / 100
     setPay(method)
     if (method === 'cash') {
       setPayPickOpen(false)
-      setCashBuf(total > 0 ? total.toFixed(2) : '')
+      setCashBuf(due > 0 ? due.toFixed(2) : '')
       setAmountPad(false)
       setCashOpen(true)
       return
@@ -2120,9 +2176,13 @@ export default function CashierModule({
     )
   }
 
+  const payDebtAmt = payDebtOn
+    ? Math.min(clientDebt, Math.max(0, Math.round((Number(payDebtBuf) || 0) * 100) / 100))
+    : 0
+  const collectTotal = Math.round((total + payDebtAmt) * 100) / 100
   const cashReceived = Number(cashBuf) || 0
-  const cashChange = cashReceived - total
-  const cashShort = cashReceived > 0.001 && cashReceived < total - 0.001
+  const cashChange = cashReceived - collectTotal
+  const cashShort = !payDebtOn && cashReceived > 0.001 && cashReceived < total - 0.001
   const cashRemain = Math.max(0, Math.round((total - cashReceived) * 100) / 100)
   const splitCardAmt = Math.min(cashRemain, Math.max(0, Number(splitCardBuf) || 0))
   const splitDebtRemain = Math.max(0, Math.round((cashRemain - splitCardAmt) * 100) / 100)
@@ -2453,7 +2513,7 @@ export default function CashierModule({
               {client && loyalty && (
                 <div className="client-bonus">
                   ⭐ {loyalty.bonus} бон.
-                  {clientDebt > 0 ? <> · долг {fmtMoney(clientDebt)}</> : null}
+                  {clientDebt > 0 ? <> · <span style={{ color: 'var(--red)' }}>долг {fmtMoney(clientDebt)}</span></> : null}
                 </div>
               )}
             </div>
@@ -2476,7 +2536,7 @@ export default function CashierModule({
               </span>
             )}
             {client && (
-              <button type="button" className="client-x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); if (pay === 'credit' || pay === 'balance') setPay('cash') }}>✕</button>
+              <button type="button" className="client-x" onClick={e => { e.stopPropagation(); setClient(null); setBonusUsed(0); setPayDebtOn(false); setPayDebtBuf(''); if (pay === 'credit' || pay === 'balance') setPay('cash') }}>✕</button>
             )}
           </div>
 
@@ -2484,7 +2544,7 @@ export default function CashierModule({
             <div className="tier-strip">
               <span className="lbl">
                 🎁 <b>{loyalty.bonus}</b>
-                {(Number(loyalty.debt) || 0) > 0 ? <> · долг <b style={{ color: 'var(--org)' }}>{fmtMoney(Number(loyalty.debt))}</b></> : null}
+                {(Number(loyalty.debt) || 0) > 0 ? <> · долг <b style={{ color: 'var(--red)' }}>{fmtMoney(Number(loyalty.debt))}</b></> : null}
                 {debtLimit > 0 ? <> · лимит {fmtMoney(availableDebt)}</> : null}
               </span>
               <b>{usedBonus > 0 ? `−${usedBonus.toFixed(0)} бон.` : 'бонусы'}</b>
@@ -2813,11 +2873,73 @@ export default function CashierModule({
               {usedBonus > 0 && (
                 <div className="disc"><span>Бонусы</span><b className="bank-fig">−{usedBonus.toFixed(0)}</b></div>
               )}
+              {payDebtAmt > 0.001 && (
+                <div className="debt-line"><span>Погашение долга</span><b className="bank-fig">+{payDebtAmt.toFixed(2)}</b></div>
+              )}
               <div className="due">
                 <span>К оплате</span>
-                <b className="bank-fig sum">{total.toFixed(2)} сом</b>
+                <b className="bank-fig sum">{collectTotal.toFixed(2)} сом</b>
               </div>
             </div>
+
+            {client && clientDebt > 0.001 && (
+              <div className="pay-debt-box">
+                <button
+                  type="button"
+                  className={`pay-debt-toggle ${payDebtOn ? 'on' : ''}`}
+                  onClick={() => {
+                    setPayDebtOn(v => {
+                      const next = !v
+                      if (next && !(Number(payDebtBuf) > 0)) {
+                        setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))
+                      }
+                      return next
+                    })
+                  }}
+                >
+                  <span className="sw" aria-hidden />
+                  <span>
+                    Погасить долг <b>{fmtMoney(clientDebt)}</b>
+                    <em>вместе с этим чеком</em>
+                  </span>
+                </button>
+                {payDebtOn && (
+                  <>
+                    <div className="pay-bonus-quick" style={{ marginTop: 10 }}>
+                      <button
+                        type="button"
+                        className={Math.abs(payDebtAmt - Math.round(clientDebt / 2 * 100) / 100) < 0.02 ? 'on' : ''}
+                        onClick={() => setPayDebtBuf(String(Math.round(clientDebt / 2 * 100) / 100))}
+                      >
+                        ½
+                      </button>
+                      <button
+                        type="button"
+                        className={Math.abs(payDebtAmt - clientDebt) < 0.02 ? 'on' : ''}
+                        onClick={() => setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))}
+                      >
+                        Весь
+                      </button>
+                      <button type="button" onClick={() => setPayDebtBuf('0')}>0</button>
+                    </div>
+                    <div className="kp-display" style={{ marginTop: 8, marginBottom: 0 }}>
+                      <div className="lbl">СУММА ПОГАШЕНИЯ</div>
+                      <input
+                        className="kp-field"
+                        value={payDebtBuf}
+                        inputMode="decimal"
+                        onChange={e => setPayDebtBuf(sanitizeDecimalInput(e.target.value))}
+                        onFocus={e => e.currentTarget.select()}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="pay-debt-hint">
+                      Чек {total.toFixed(2)} + долг {payDebtAmt.toFixed(2)} = <b>{collectTotal.toFixed(2)} сом</b>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {client && loyalty && maxBonus > 0 && (
               <div className="pay-bonus-box">
@@ -2892,7 +3014,7 @@ export default function CashierModule({
             )}
 
             <div className="modal-card-actions">
-              <button type="button" className="btn-cancel" disabled={busy} onClick={() => { setPayPickOpen(false); setBonusUsed(0) }}>Отмена</button>
+              <button type="button" className="btn-cancel" disabled={busy} onClick={() => { setPayPickOpen(false); setBonusUsed(0); setPayDebtOn(false) }}>Отмена</button>
             </div>
           </div>
         </div>
@@ -3100,9 +3222,14 @@ export default function CashierModule({
               </div>
 
               <div className="cash-due-pill">
-                <span>К оплате</span>
-                <b>{total.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} сом</b>
+                <span>К оплате{payDebtAmt > 0.001 ? ' (чек + долг)' : ''}</span>
+                <b>{collectTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} сом</b>
               </div>
+              {payDebtAmt > 0.001 && (
+                <div className="cash-debt-split">
+                  Чек {total.toFixed(2)} · долг <span>{payDebtAmt.toFixed(2)}</span>
+                </div>
+              )}
 
               <div className={`cash-change-hero ${cashChange < -0.001 ? 'short' : cashReceived > 0.001 ? 'ok' : 'idle'}`}>
                 <div className="cash-change-lbl">
@@ -3135,7 +3262,7 @@ export default function CashierModule({
               </div>
 
               <div className="cash-bills">
-                <button type="button" className="cash-bill exact" onClick={() => setCashBuf(String(Math.round(total * 100) / 100))}>
+                <button type="button" className="cash-bill exact" onClick={() => setCashBuf(String(Math.round(collectTotal * 100) / 100))}>
                   Без сдачи
                 </button>
                 {[10, 20, 50, 100, 200, 500].map(v => (
@@ -3181,8 +3308,11 @@ export default function CashierModule({
                 <button
                   type="button"
                   className="btn-confirm cash-accept"
-                  disabled={busy || cashReceived < total - 0.001}
-                  onClick={() => void submitSale(cashReceived)}
+                  disabled={busy || cashReceived < collectTotal - 0.001}
+                  onClick={() => {
+                    const goodsRecv = Math.max(0, Math.round((cashReceived - payDebtAmt) * 100) / 100)
+                    void submitSale(goodsRecv)
+                  }}
                 >
                   Принять
                 </button>
