@@ -176,6 +176,12 @@ export interface PosShift {
   closedAtIso?: string | null
   openingCash: number
   closingCash?: number | null
+  /** Ожидаемые наличные при закрытии (старт + продаж нал − расходы) */
+  expectedCash?: number | null
+  /** Фактический пересчёт кассира */
+  actualCash?: number | null
+  /** fact − expected */
+  cashDiff?: number | null
   salesCash: number
   salesCard: number
   salesCredit: number
@@ -183,6 +189,97 @@ export interface PosShift {
   expenseTotal: number
   status: 'open' | 'closed'
   note?: string
+}
+
+/** Запись audit / денежного журнала (источник правды) */
+export interface MoneyLedgerEntry {
+  id: string
+  createdAtIso: string
+  type: string
+  amount: number
+  direction: 'in' | 'out' | 'info'
+  signedAmount: number
+  cashAffect: boolean
+  posId?: string
+  shiftId?: string
+  cashierId?: string
+  cashierName?: string
+  refType?: string
+  refId?: string
+  note?: string
+  reason?: string
+  meta?: Record<string, unknown>
+  balanceAfter?: number
+}
+
+export interface FinanceTruthBundle {
+  cashBook: {
+    balance: number
+    entries: MoneyLedgerEntry[]
+    days: { day: string; inflow: number; outflow: number; net: number; count: number }[]
+    summary: { inflow: number; outflow: number; count: number }
+  }
+  expectedVsActual: {
+    threshold: number
+    rows: {
+      shiftId: string
+      posId: string
+      cashierId: string
+      cashierName: string
+      openedAtIso?: string
+      closedAtIso?: string
+      openingCash: number
+      salesCash: number
+      expenseTotal: number
+      expectedCash: number
+      actualCash: number
+      cashDiff: number
+      alert: boolean
+      day: string
+    }[]
+    summary: {
+      shifts: number
+      withAlert: number
+      absDiffSum: number
+      shortCount: number
+      overCount: number
+    }
+  }
+  profit: {
+    summary: {
+      revenue: number
+      cogs: number
+      profit: number
+      marginPct: number
+      salesCount: number
+    }
+    products: {
+      productId: number
+      productName: string
+      qty: number
+      revenue: number
+      cogs: number
+      profit: number
+    }[]
+  }
+  journal: MoneyLedgerEntry[]
+  alerts: {
+    threshold: number
+    alerts: {
+      id: string
+      kind: string
+      severity: string
+      title: string
+      message: string
+      amount: number
+      atIso?: string
+      posId?: string
+      shiftId?: string
+      cashierName?: string
+    }[]
+    count: number
+  }
+  generatedAtIso: string
 }
 
 export interface PosSupplier {

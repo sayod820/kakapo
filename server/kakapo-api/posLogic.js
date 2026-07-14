@@ -1,6 +1,7 @@
 import { nextOrderId } from './seed.js'
 import { stampOrderForClient } from './accountLifecycle.js'
 import { findClientByPhone } from './loyaltyBonus.js'
+import { appendMoneyLedger } from './financeTruth.js'
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
@@ -33,6 +34,7 @@ export function ensurePosCollections(db) {
   if (!Array.isArray(db.supplierPayments)) db.supplierPayments = []
   if (!Array.isArray(db.expenses)) db.expenses = []
   if (!Array.isArray(db.financeMoves)) db.financeMoves = []
+  if (!Array.isArray(db.moneyLedger)) db.moneyLedger = []
   if (!Array.isArray(db.posPoints)) db.posPoints = []
   if (!db._seq || typeof db._seq !== 'object') db._seq = {}
   ensureDefaultPosPoint(db)
@@ -302,19 +304,23 @@ export function updateProductStockLayer(db, receiptId, productId, patch = {}) {
 
 function consumeReceiptBalances(db, productId, qty) {
   let left = round2(qty)
+  let cogs = 0
   const receipts = (db.stockReceipts || [])
     .filter(r => Array.isArray(r.items) && r.items.some(i => Number(i.productId) === Number(productId) && Number(i.remainingQty) > 0))
     .sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
   for (const receipt of receipts) {
     for (const item of receipt.items || []) {
       if (Number(item.productId) !== Number(productId)) continue
-      if (left <= 0) return
+      if (left <= 0) break
       const take = Math.min(Number(item.remainingQty) || 0, left)
+      const unitCost = Number(item.costPrice) || 0
+      cogs = round2(cogs + take * unitCost)
       item.remainingQty = round2((Number(item.remainingQty) || 0) - take)
       left = round2(left - take)
     }
   }
   syncProductPricingFromActiveLayer(db, productId)
+  return cogs
 }
 
 function consumeStock(db, items) {
@@ -323,11 +329,11 @@ function consumeStock(db, items) {
     const qty = round2(raw.qty)
     if (!(qty > 0)) throw new Error(`Некорректное количество для ${product.name}`)
     if (round2(product.stock) < qty) throw new Error(`Недостаточно остатка: ${product.name}`)
-    return { product, qty }
+    return { product, qty, cogs: 0 }
   })
   for (const row of normalized) {
     row.product.stock = round2((Number(row.product.stock) || 0) - row.qty)
-    consumeReceiptBalances(db, row.product.id, row.qty)
+    row.cogs = consumeReceiptBalances(db, row.product.id, row.qty)
   }
   return normalized
 }
@@ -400,6 +406,20 @@ export function openPosShift(db, data = {}) {
     note: String(data.note || '').trim(),
   }
   db.posShifts.unshift(row)
+  appendMoneyLedger(db, {
+    type: 'shift_open',
+    amount: row.openingCash,
+    direction: 'in',
+    cashAffect: true,
+    posId,
+    shiftId: row.id,
+    cashierId: cashier.id,
+    cashierName: cashier.name,
+    refType: 'shift',
+    refId: row.id,
+    reason: 'Открытие смены · разменный фонд',
+    note: row.note,
+  })
   return row
 }
 
@@ -407,10 +427,40 @@ export function closePosShift(db, id, data = {}) {
   ensurePosCollections(db)
   const row = db.posShifts.find(s => s.id === id)
   if (!row) throw new Error('Смена не найдена')
+  const expectedCash = round2(
+    (Number(row.openingCash) || 0)
+    + (Number(row.salesCash) || 0)
+    - (Number(row.expenseTotal) || 0),
+  )
+  const actualCash = round2(data.closingCash)
+  const cashDiff = round2(actualCash - expectedCash)
   row.status = 'closed'
   row.closedAtIso = nowIso()
-  row.closingCash = round2(data.closingCash)
+  row.closingCash = actualCash
+  row.expectedCash = expectedCash
+  row.actualCash = actualCash
+  row.cashDiff = cashDiff
   row.note = String(data.note || row.note || '').trim()
+  appendMoneyLedger(db, {
+    type: 'shift_close',
+    amount: Math.abs(cashDiff),
+    direction: 'info',
+    cashAffect: false,
+    signedAmount: cashDiff,
+    posId: row.posId || '',
+    shiftId: row.id,
+    cashierId: row.cashierId,
+    cashierName: row.cashierName,
+    refType: 'shift',
+    refId: row.id,
+    reason: Math.abs(cashDiff) < 0.009
+      ? 'Сверка кассы · без расхождения'
+      : cashDiff < 0
+        ? `Недостача ${Math.abs(cashDiff).toFixed(2)} сом`
+        : `Излишек ${cashDiff.toFixed(2)} сом`,
+    note: row.note,
+    meta: { expectedCash, actualCash, cashDiff },
+  })
   return row
 }
 
@@ -525,6 +575,21 @@ export function createExpense(db, data = {}) {
     const shift = db.posShifts.find(s => s.id === row.shiftId)
     if (shift) shift.expenseTotal = round2((shift.expenseTotal || 0) + amount)
   }
+  const shift = row.shiftId ? db.posShifts.find(s => s.id === row.shiftId) : null
+  appendMoneyLedger(db, {
+    type: 'expense',
+    amount,
+    direction: 'out',
+    cashAffect: true,
+    posId: shift?.posId || '',
+    shiftId: row.shiftId || '',
+    cashierId: '',
+    cashierName: row.createdBy || '',
+    refType: 'expense',
+    refId: row.id,
+    reason: `Расход · ${row.category}`,
+    note: row.note,
+  })
   return row
 }
 
@@ -548,6 +613,17 @@ export function createFinanceMove(db, data = {}) {
     createdAtIso: nowIso(),
   }
   db.financeMoves.unshift(row)
+  appendMoneyLedger(db, {
+    type: type === 'deposit' ? 'deposit' : 'withdraw',
+    amount,
+    direction: type === 'deposit' ? 'in' : 'out',
+    cashAffect: true,
+    cashierName: row.createdBy || '',
+    refType: 'finance_move',
+    refId: row.id,
+    reason: type === 'deposit' ? 'Вклад в кассу' : 'Снятие из кассы',
+    note: row.note,
+  })
   return row
 }
 
@@ -683,7 +759,21 @@ function buildStockReceipt(db, data = {}, meta = {}) {
 
 export function createStockReceipt(db, data = {}) {
   ensurePosCollections(db)
-  return buildStockReceipt(db, data)
+  const receipt = buildStockReceipt(db, data)
+  if ((Number(receipt.paidNow) || 0) > 0) {
+    appendMoneyLedger(db, {
+      type: 'purchase_pay',
+      amount: receipt.paidNow,
+      direction: 'out',
+      cashAffect: true,
+      cashierName: receipt.createdBy || '',
+      refType: 'receipt',
+      refId: receipt.id,
+      reason: `Оплата закупа · ${receipt.supplierName || 'поставщик'}`,
+      note: '',
+    })
+  }
+  return receipt
 }
 
 export function updateStockReceipt(db, id, data = {}) {
@@ -883,15 +973,21 @@ export function createPosSale(db, data = {}) {
   const rows = consumeStock(db, rawItems)
   const items = rows.map(row => {
     const price = round2(rawItems.find(x => Number(x.productId) === Number(row.product.id))?.price ?? row.product.price)
+    const lineCost = round2(row.cogs || 0)
+    const unitCost = row.qty > 0 ? round2(lineCost / row.qty) : 0
     return {
       productId: row.product.id,
       productName: row.product.name,
       qty: row.qty,
       price,
       lineTotal: round2(price * row.qty),
+      unitCost,
+      lineCost,
     }
   })
   const total = round2(items.reduce((sum, item) => sum + item.lineTotal, 0))
+  const totalCost = round2(items.reduce((sum, item) => sum + (Number(item.lineCost) || 0), 0))
+  const profit = round2(total - totalCost)
   const paymentMethod = ['cash', 'card', 'credit', 'mixed'].includes(data.paymentMethod) ? data.paymentMethod : 'cash'
   const paidCash = round2(data.paidCash ?? (paymentMethod === 'cash' ? total : 0))
   const paidCard = round2(data.paidCard ?? (paymentMethod === 'card' ? total : 0))
@@ -919,6 +1015,8 @@ export function createPosSale(db, data = {}) {
     cardNum: String(data.cardNum || '').trim(),
     paymentMethod,
     total,
+    totalCost,
+    profit,
     paidCash,
     paidCard,
     debtAdded,
@@ -944,6 +1042,45 @@ export function createPosSale(db, data = {}) {
     if (card) card.debt = round2((Number(card.debt) || 0) + debtAdded)
   }
   db.posSales.unshift(sale)
+  const baseLed = {
+    posId,
+    shiftId: shift?.id || '',
+    cashierId: cashier?.id || '',
+    cashierName: cashier?.name || '',
+    refType: 'sale',
+    refId: sale.id,
+    createdAtIso: sale.createdAtIso,
+  }
+  if (paidCash > 0) {
+    appendMoneyLedger(db, {
+      ...baseLed,
+      type: 'sale_cash',
+      amount: paidCash,
+      direction: 'in',
+      cashAffect: true,
+      reason: `Продажа нал · ${sale.orderId || sale.number}`,
+    })
+  }
+  if (paidCard > 0) {
+    appendMoneyLedger(db, {
+      ...baseLed,
+      type: 'sale_card',
+      amount: paidCard,
+      direction: 'in',
+      cashAffect: false,
+      reason: `Продажа карта · ${sale.orderId || sale.number}`,
+    })
+  }
+  if (debtAdded > 0) {
+    appendMoneyLedger(db, {
+      ...baseLed,
+      type: 'sale_credit',
+      amount: debtAdded,
+      direction: 'info',
+      cashAffect: false,
+      reason: `Продажа в долг · ${sale.clientName || sale.clientPhone || ''}`,
+    })
+  }
   return sale
 }
 
@@ -1194,6 +1331,42 @@ export function returnPosSale(db, saleId, meta = {}) {
   sale.returnedByCashierId = String(meta.cashierId || '').trim()
   sale.status = fullyReturned ? 'returned' : 'partial'
   sale.lastReturnTotal = returnTotal
+  if (sale.totalCost != null && Number(sale.originalTotal) > 0) {
+    const ratio = returnTotal / Number(sale.originalTotal)
+    const cutCost = round2((Number(sale.totalCost) || 0) * Math.min(1, ratio))
+    sale.totalCost = Math.max(0, round2((Number(sale.totalCost) || 0) - cutCost))
+    sale.profit = round2((Number(sale.total) || 0) - (Number(sale.totalCost) || 0))
+  }
+  const ledBase = {
+    posId: sale.posId || '',
+    shiftId: sale.shiftId || '',
+    cashierId: String(meta.cashierId || sale.cashierId || ''),
+    cashierName: sale.cashierName || '',
+    refType: 'sale_return',
+    refId: sale.id,
+  }
+  if (cutCash > 0) {
+    appendMoneyLedger(db, {
+      ...ledBase,
+      type: 'sale_return_cash',
+      amount: cutCash,
+      direction: 'out',
+      cashAffect: true,
+      reason: `Возврат нал · ${sale.orderId || sale.number}`,
+      note: String(meta.note || '').trim(),
+    })
+  }
+  if (cutCard > 0) {
+    appendMoneyLedger(db, {
+      ...ledBase,
+      type: 'sale_return_card',
+      amount: cutCard,
+      direction: 'out',
+      cashAffect: false,
+      reason: `Возврат карта · ${sale.orderId || sale.number}`,
+      note: String(meta.note || '').trim(),
+    })
+  }
   return sale
 }
 

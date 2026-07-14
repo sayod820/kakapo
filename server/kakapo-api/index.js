@@ -99,6 +99,24 @@ import {
   getPosFinanceSummary,
   getPosReport,
 } from './posLogic.js'
+import {
+  getCashBook,
+  getExpectedVsActual,
+  getProfitReport,
+  getFinanceAlerts,
+  getFinanceTruthBundle,
+  listMoneyLedger,
+} from './financeTruth.js'
+
+function financeTruthQuery(req) {
+  return {
+    from: req.query.from || null,
+    to: req.query.to || null,
+    posId: req.query.posId || '',
+    cashierId: req.query.cashierId || '',
+    type: req.query.type || '',
+  }
+}
 
 const loyaltyHooks = () => ({
   findCardByNum,
@@ -1583,6 +1601,32 @@ app.delete('/finance/moves/:id', (req, res) => {
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось удалить' })
   }
+})
+
+/** Единый источник правды: цифры только из БД */
+app.get('/finance/truth', (req, res) => {
+  res.json(getFinanceTruthBundle(db, financeTruthQuery(req)))
+})
+app.get('/finance/cashbook', (req, res) => {
+  res.json(getCashBook(db, financeTruthQuery(req)))
+})
+app.get('/finance/expected-vs-actual', (req, res) => {
+  res.json(getExpectedVsActual(db, financeTruthQuery(req)))
+})
+app.get('/finance/profit', (req, res) => {
+  res.json(getProfitReport(db, financeTruthQuery(req)))
+})
+app.get('/finance/journal', (req, res) => {
+  const q = financeTruthQuery(req)
+  const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || 500))
+  const rows = listMoneyLedger(db, q)
+  res.json({
+    rows: rows.slice(0, limit),
+    count: rows.length,
+  })
+})
+app.get('/finance/alerts', (req, res) => {
+  res.json(getFinanceAlerts(db, financeTruthQuery(req)))
 })
 
 function normalizePhoneDigits(phone) {

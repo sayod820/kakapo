@@ -1,6 +1,9 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { api } from '@/lib/api'
+import { USE_API } from '@/lib/config'
+import type { FinanceTruthBundle } from '@/lib/types'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
@@ -23,6 +26,7 @@ import {
   isSalePartiallyReturned,
   paymentLabel,
   periodRange,
+  periodToApiQuery,
   posName,
   revisionDiffCount,
   round2,
@@ -67,6 +71,7 @@ export default function ReportsModule() {
   const [tab, setTab] = useState<ReportTab>('overview')
   const [showHelp, setShowHelp] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
 
   const { from, to } = useMemo(
     () => periodRange(period, customFrom, customTo),
@@ -138,18 +143,42 @@ export default function ReportsModule() {
   const openShiftsNow = useMemo(() => periodShifts.filter(s => s.status === 'open'), [periodShifts])
   const cashIn = useMemo(() => round2(salesAgg.cash + salesAgg.card), [salesAgg.cash, salesAgg.card])
   const cashOut = useMemo(() => round2(purchasePaid + expenseTotal), [purchasePaid, expenseTotal])
+  const dbProfit = truth?.profit?.summary
+  const dbTill = truth?.expectedVsActual
 
   const periodLabel = formatPeriodLabel(period, customFrom, customTo)
   const activeTabHint = REPORT_TABS.find(t => t.id === tab)?.hint || ''
 
+  const apiQuery = useMemo(
+    () => periodToApiQuery(period, customFrom, customTo, {
+      posId: posFilter || undefined,
+      cashierId: cashierFilter || undefined,
+    }),
+    [period, customFrom, customTo, posFilter, cashierFilter],
+  )
+
+  const loadTruth = useCallback(async () => {
+    if (!USE_API) return
+    try {
+      setTruth(await api.getFinanceTruth(apiQuery))
+    } catch {
+      /* UI покажет локальные цифры */
+    }
+  }, [apiQuery])
+
+  useEffect(() => {
+    if (!apiReady) return
+    void loadTruth()
+  }, [apiReady, loadTruth])
+
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([syncPosFromApi(), syncClientsFromApi()])
+      await Promise.all([syncPosFromApi(), syncClientsFromApi(), loadTruth()])
     } finally {
       setRefreshing(false)
     }
-  }, [])
+  }, [loadTruth])
 
   function resetFilters() {
     setPeriod('30d')
@@ -230,7 +259,7 @@ export default function ReportsModule() {
           <b style={{ color: 'var(--text)', display: 'block', marginBottom: 8 }}>Как пользоваться</b>
           <div>1) Сверху выберите <b style={{ color: 'var(--text)' }}>период</b>, <b style={{ color: 'var(--text)' }}>кассу</b>, <b style={{ color: 'var(--text)' }}>кассира</b> и оплату.</div>
           <div>2) Вкладки ниже — разные отчёты по действиям программы (продажи, возвраты, склад…).</div>
-          <div>3) <b style={{ color: 'var(--text)' }}>Выручка</b> — сумма проданных чеков (без полных возвратов). <b style={{ color: 'var(--text)' }}>Маржа ≈</b> выручка − себестоимость товаров − расходы.</div>
+          <div>3) <b style={{ color: 'var(--text)' }}>Выручка</b> — сумма проданных чеков. <b style={{ color: 'var(--text)' }}>Прибыль</b> (вкладка) — выручка − себестоимость FIFO из БД. <b style={{ color: 'var(--text)' }}>Касса факт</b> — ожидаемое vs пересчёт.</div>
           <div>4) Кнопка <b style={{ color: 'var(--text)' }}>CSV</b> сохраняет таблицу в Excel/таблицу.</div>
         </div>
       )}
@@ -349,8 +378,10 @@ export default function ReportsModule() {
             <div className="k-kpi k-statcard"><div className="kl">Закупки</div><div className="kv">{fmtMoney(purchaseCost)}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Расходы</div><div className="kv">{fmtMoney(expenseTotal)}</div></div>
             <div className="k-kpi k-statcard">
-              <div className="kl">Маржа ≈</div>
-              <div className="kv" style={{ color: margin >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(margin)}</div>
+              <div className="kl">Прибыль (БД)</div>
+              <div className="kv" style={{ color: (dbProfit?.profit ?? margin) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                {fmtMoney(dbProfit?.profit ?? margin)}
+              </div>
             </div>
             <div className="k-kpi k-statcard"><div className="kl">Долг поставщикам</div><div className="kv">{fmtMoney(supplierDebt)}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Долг клиентов</div><div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(clientDebtTotal)}</div></div>
@@ -359,7 +390,13 @@ export default function ReportsModule() {
           <div className="k-card" style={{ padding: 16, marginBottom: 14, fontSize: 13, color: 'var(--muted)', fontWeight: 700, lineHeight: 1.55 }}>
             <div>Открытых смен: <b style={{ color: 'var(--text)' }}>{openShiftsNow.length}</b> · смен в периоде: <b style={{ color: 'var(--text)' }}>{periodShifts.length}</b></div>
             <div>Списания: <b style={{ color: 'var(--text)' }}>{periodWriteoffs.length}</b> ({fmtMoney(writeoffCost)}) · ревизии: <b style={{ color: 'var(--text)' }}>{revStats.count}</b></div>
-            <div style={{ marginTop: 6, opacity: .9 }}>Маржа приблизительная: выручка − себестоимость (цена закупки товара) − расходы кассы. Списания склада в маржу не входят.</div>
+            <div style={{ marginTop: 6, opacity: .9 }}>
+              Прибыль считается на сервере: выручка − FIFO-себестоимость слоёв прихода.
+              {dbProfit ? ` Наценка ${dbProfit.marginPct}%.` : ' Пока без данных БД — оценка по товарам.'}
+              {(dbTill?.summary.withAlert ?? 0) > 0
+                ? ` · Внимание: ${dbTill?.summary.withAlert} смен с расхождением ≥ ${dbTill?.threshold} сом.`
+                : ''}
+            </div>
           </div>
 
           <div className="k-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
@@ -595,11 +632,22 @@ export default function ReportsModule() {
                       <th>Нал</th>
                       <th>Карта</th>
                       <th>Долг</th>
-                      <th>Старт / Факт</th>
+                      <th>Старт</th>
+                      <th>Ожид.</th>
+                      <th>Факт</th>
+                      <th>Δ</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {periodShifts.map(s => (
+                    {periodShifts.map(s => {
+                      const expected = s.expectedCash != null
+                        ? Number(s.expectedCash)
+                        : round2((Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) - (Number(s.expenseTotal) || 0))
+                      const actual = s.actualCash != null ? Number(s.actualCash) : (s.closingCash != null ? Number(s.closingCash) : null)
+                      const diff = s.cashDiff != null
+                        ? Number(s.cashDiff)
+                        : actual != null ? round2(actual - expected) : null
+                      return (
                       <tr key={s.id}>
                         <td style={{ color: s.status === 'open' ? 'var(--green)' : 'var(--muted)', fontWeight: 800 }}>
                           {s.status === 'open' ? 'Открыта' : 'Закрыта'}
@@ -612,7 +660,112 @@ export default function ReportsModule() {
                         <td>{fmtMoney(s.salesCash)}</td>
                         <td>{fmtMoney(s.salesCard)}</td>
                         <td>{fmtMoney(s.salesCredit)}</td>
-                        <td>{fmtMoney(s.openingCash)} / {s.closingCash != null ? fmtMoney(s.closingCash) : '—'}</td>
+                        <td>{fmtMoney(s.openingCash)}</td>
+                        <td>{s.status === 'closed' ? fmtMoney(expected) : '—'}</td>
+                        <td>{actual != null ? fmtMoney(actual) : '—'}</td>
+                        <td style={{
+                          fontWeight: 900,
+                          color: diff == null || Math.abs(diff) < 0.009 ? 'var(--muted)' : diff < 0 ? 'var(--red)' : 'var(--green)',
+                        }}>
+                          {diff == null ? '—' : `${diff > 0 ? '+' : ''}${fmtMoney(diff)}`}
+                        </td>
+                      </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {tab === 'till' && (
+        <>
+          <div className="k-kpis" style={{ marginBottom: 16 }}>
+            <div className="k-kpi k-statcard"><div className="kl">Смен</div><div className="kv">{dbTill?.summary.shifts ?? 0}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">С алертами (≥{dbTill?.threshold ?? 50})</div><div className="kv" style={{ color: 'var(--red)' }}>{dbTill?.summary.withAlert ?? 0}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Недостачи</div><div className="kv" style={{ color: 'var(--red)' }}>{dbTill?.summary.shortCount ?? 0}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Излишки</div><div className="kv" style={{ color: 'var(--green)' }}>{dbTill?.summary.overCount ?? 0}</div></div>
+          </div>
+          <div className="k-card" style={{ overflow: 'hidden' }}>
+            <div className="k-card-h"><b>Ожидаемое vs фактическое (из БД)</b></div>
+            {!dbTill?.rows?.length ? (
+              <div className="k-empty">Нет закрытых смен за период</div>
+            ) : (
+              <div className="k-tbl-scroll">
+                <table className="k-tbl">
+                  <thead>
+                    <tr>
+                      <th>День</th>
+                      <th>Точка</th>
+                      <th>Кассир</th>
+                      <th>Ожидалось</th>
+                      <th>Факт</th>
+                      <th>Разница</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dbTill.rows.map(r => (
+                      <tr key={r.shiftId} style={r.alert ? { background: 'rgba(180,40,40,.12)' } : undefined}>
+                        <td style={{ fontWeight: 800 }}>{r.day}</td>
+                        <td>{posName(posPoints, r.posId || defPos)}</td>
+                        <td>{r.cashierName || '—'}</td>
+                        <td>{fmtMoney(r.expectedCash)}</td>
+                        <td>{fmtMoney(r.actualCash)}</td>
+                        <td style={{
+                          fontWeight: 900,
+                          color: Math.abs(r.cashDiff) < 0.009 ? 'var(--muted)' : r.cashDiff < 0 ? 'var(--red)' : 'var(--green)',
+                        }}>
+                          {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}{r.alert ? ' ⚠' : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {tab === 'profit' && (
+        <>
+          <div className="k-kpis" style={{ marginBottom: 16 }}>
+            <div className="k-kpi k-statcard"><div className="kl">Выручка</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(dbProfit?.revenue ?? salesAgg.revenue)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Себестоимость FIFO</div><div className="kv">{fmtMoney(dbProfit?.cogs ?? cogs)}</div></div>
+            <div className="k-kpi k-statcard">
+              <div className="kl">Прибыль</div>
+              <div className="kv" style={{ color: (dbProfit?.profit ?? salesAgg.revenue - cogs) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                {fmtMoney(dbProfit?.profit ?? round2(salesAgg.revenue - cogs))}
+              </div>
+            </div>
+            <div className="k-kpi k-statcard"><div className="kl">Наценка %</div><div className="kv">{dbProfit?.marginPct ?? 0}%</div></div>
+          </div>
+          <div className="k-card" style={{ overflow: 'hidden' }}>
+            <div className="k-card-h"><b>Прибыль по товарам (сервер)</b></div>
+            {!(truth?.profit?.products?.length) ? (
+              <div className="k-empty">Нет данных прибыли из БД</div>
+            ) : (
+              <div className="k-tbl-scroll">
+                <table className="k-tbl">
+                  <thead>
+                    <tr>
+                      <th>Товар</th>
+                      <th>Кол-во</th>
+                      <th>Выручка</th>
+                      <th>Себест.</th>
+                      <th>Прибыль</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {truth!.profit.products.map(p => (
+                      <tr key={p.productId}>
+                        <td style={{ fontWeight: 800 }}>{p.productName}</td>
+                        <td>{p.qty}</td>
+                        <td>{fmtMoney(p.revenue)}</td>
+                        <td>{fmtMoney(p.cogs)}</td>
+                        <td style={{ fontWeight: 900, color: p.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(p.profit)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -901,11 +1054,11 @@ export default function ReportsModule() {
           <div className="k-kpis" style={{ marginBottom: 16 }}>
             <div className="k-kpi k-statcard"><div className="kl">Позиций</div><div className="kv">{productRows.length}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Выручка</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Себестоимость</div><div className="kv">{fmtMoney(cogs)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Себестоимость</div><div className="kv">{fmtMoney(dbProfit?.cogs ?? cogs)}</div></div>
             <div className="k-kpi k-statcard">
-              <div className="kl">Маржа товаров ≈</div>
-              <div className="kv" style={{ color: salesAgg.revenue - cogs >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                {fmtMoney(salesAgg.revenue - cogs)}
+              <div className="kl">Прибыль</div>
+              <div className="kv" style={{ color: (dbProfit?.profit ?? salesAgg.revenue - cogs) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                {fmtMoney(dbProfit?.profit ?? round2(salesAgg.revenue - cogs))}
               </div>
             </div>
           </div>
@@ -924,7 +1077,7 @@ export default function ReportsModule() {
                       <th>Кол-во</th>
                       <th>Выручка</th>
                       <th>Себест.</th>
-                      <th>Маржа ≈</th>
+                      <th>Прибыль</th>
                     </tr>
                   </thead>
                   <tbody>

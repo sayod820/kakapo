@@ -675,6 +675,34 @@ export const api = {
   deleteFinanceMove: (id: string) =>
     request<{ id: string }>(`/finance/moves/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getPosFinanceSummary: () => request<any>('/finance/pos-summary'),
+  getFinanceTruth: (q?: Record<string, string>) => {
+    const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
+    return request<import('./types').FinanceTruthBundle>(`/finance/truth${qs ? `?${qs}` : ''}`)
+  },
+  getFinanceCashBook: (q?: Record<string, string>) => {
+    const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
+    return request<import('./types').FinanceTruthBundle['cashBook']>(`/finance/cashbook${qs ? `?${qs}` : ''}`)
+  },
+  getFinanceExpectedVsActual: (q?: Record<string, string>) => {
+    const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
+    return request<import('./types').FinanceTruthBundle['expectedVsActual']>(
+      `/finance/expected-vs-actual${qs ? `?${qs}` : ''}`,
+    )
+  },
+  getFinanceProfit: (q?: Record<string, string>) => {
+    const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
+    return request<import('./types').FinanceTruthBundle['profit']>(`/finance/profit${qs ? `?${qs}` : ''}`)
+  },
+  getFinanceJournal: (q?: Record<string, string>) => {
+    const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
+    return request<{ rows: import('./types').MoneyLedgerEntry[]; count: number }>(
+      `/finance/journal${qs ? `?${qs}` : ''}`,
+    )
+  },
+  getFinanceAlerts: (q?: Record<string, string>) => {
+    const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
+    return request<import('./types').FinanceTruthBundle['alerts']>(`/finance/alerts${qs ? `?${qs}` : ''}`)
+  },
   getPosReport: () => request<any>('/reports/pos'),
 
   // ── Синхронизация ──

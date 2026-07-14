@@ -17,6 +17,8 @@ export type ReportTab =
   | 'returns'
   | 'cashiers'
   | 'shifts'
+  | 'till'
+  | 'profit'
   | 'warehouse'
   | 'suppliers'
   | 'debts'
@@ -40,11 +42,48 @@ export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: st
   { id: 'returns', label: 'Возвраты', icon: '↩️', hint: 'Полные и частичные возвраты' },
   { id: 'cashiers', label: 'Кассиры', icon: '👤', hint: 'Кто сколько продал' },
   { id: 'shifts', label: 'Смены', icon: '⏱', hint: 'Открытие/закрытие кассы' },
+  { id: 'till', label: 'Касса факт', icon: '⚖️', hint: 'Ожидаемое vs фактическое по закрытым сменам (из БД)' },
+  { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Выручка − закупочная себестоимость (FIFO) из БД' },
   { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии, сроки' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и расходы' },
   { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты и продажи в долг' },
   { id: 'products', label: 'Товары', icon: '📦', hint: 'Что продаётся лучше всего' },
 ]
+
+/** Query-параметры периода для API /finance/* */
+export function periodToApiQuery(
+  period: ReportPeriod,
+  customFrom?: string,
+  customTo?: string,
+  extra?: { posId?: string; cashierId?: string; type?: string },
+): Record<string, string> {
+  const { from, to } = periodRange(period, customFrom, customTo)
+  const q: Record<string, string> = {}
+  if (from != null) q.from = new Date(from).toISOString()
+  if (to != null) q.to = new Date(to).toISOString()
+  if (extra?.posId) q.posId = extra.posId
+  if (extra?.cashierId) q.cashierId = extra.cashierId
+  if (extra?.type) q.type = extra.type
+  return q
+}
+
+export const LEDGER_TYPE_LABELS: Record<string, string> = {
+  shift_open: 'Открытие смены',
+  shift_close: 'Сверка кассы',
+  sale_cash: 'Продажа · нал',
+  sale_card: 'Продажа · карта',
+  sale_credit: 'Продажа · долг',
+  sale_return_cash: 'Возврат · нал',
+  sale_return_card: 'Возврат · карта',
+  expense: 'Расход',
+  deposit: 'Вклад',
+  withdraw: 'Снятие',
+  purchase_pay: 'Оплата закупа',
+}
+
+export function ledgerTypeLabel(type: string) {
+  return LEDGER_TYPE_LABELS[type] || type
+}
 
 export const SALE_STATUS_OPTS: { id: SaleStatusFilter; label: string }[] = [
   { id: 'all', label: 'Все чеки' },
