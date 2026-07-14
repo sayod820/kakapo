@@ -531,24 +531,9 @@ export const POS_MOCK_CSS = `
   }
   .pay-breakdown > div{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12px;font-weight:700;color:var(--t2);}
   .pay-breakdown .disc{color:var(--pur);}
-  .pay-breakdown .debt-line{color:var(--red);}
-  .pay-breakdown .debt-line .bank-fig{color:var(--red);}
   .pay-breakdown .due{padding-top:8px;margin-top:2px;border-top:1px dashed var(--border);color:var(--t1);font-size:13px;}
   .bank-fig{font-family:'JetBrains Mono',monospace;font-weight:900;font-size:14px;color:var(--t1);letter-spacing:-.02em;tabular-nums;}
   .bank-fig.sum{font-size:clamp(18px,4.5vw,26px);color:var(--accent);line-height:1.1;text-align:right;min-width:0;overflow-wrap:anywhere;}
-  .pay-debt-soft{
-    background:rgba(255,69,69,.06)!important;border-color:rgba(255,69,69,.22)!important;
-  }
-  .pos-root[data-theme="light"] .pay-debt-soft{background:rgba(220,38,38,.05)!important;border-color:rgba(220,38,38,.2)!important;}
-  .pos-root .pay-debt-soft .pay-bonus-quick button.on{border-color:var(--red);background:rgba(255,69,69,.12);color:var(--t1);}
-  .pay-debt-input{
-    width:100%;box-sizing:border-box;margin:0 0 8px;padding:10px 12px;border-radius:11px;
-    font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:800;text-align:right;
-    background:var(--surface);border:1.5px solid var(--border);color:var(--t1);outline:none;
-  }
-  .pay-debt-input:focus{border-color:rgba(255,69,69,.45);}
-  .cash-debt-split{margin:-2px 0 10px;font-size:11px;font-weight:700;color:var(--t3);text-align:center;}
-  .cash-debt-split span{color:var(--red);font-weight:800;}
   .pay-bonus-box{
     padding:12px;border-radius:14px;background:rgba(155,109,255,.08);border:1.5px solid rgba(155,109,255,.28);margin-bottom:12px;
   }
