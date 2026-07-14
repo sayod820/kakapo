@@ -344,7 +344,6 @@ export default function CashierModule({
   const cashiers = usePosStore(s => s.cashiers)
   const sales = usePosStore(s => s.sales)
   const apiReady = usePosStore(s => s.apiReady)
-  const apiSyncing = usePosStore(s => s.apiSyncing)
   const { categories, roots, childrenOf } = useCategories()
   const { getPhoto, hydrate } = useProductPhotos()
 
@@ -2433,8 +2432,8 @@ export default function CashierModule({
     }
   }
 
-  // ─── Gate ───
-  if (!apiReady || (apiSyncing && !activeShift && !shifts.some(s => s.status === 'open'))) {
+  // ─── Gate (только первая загрузка, не при автообновлении) ───
+  if (!apiReady) {
     return (
       <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
         <style>{POS_MOCK_CSS}</style>

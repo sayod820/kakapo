@@ -62,7 +62,10 @@ export const usePosStore = create<PosStore>((set) => ({
       set({ apiReady: true, apiSyncing: false, apiError: '' })
       return
     }
-    set({ apiSyncing: true, apiError: '' })
+    const alreadyReady = usePosStore.getState().apiReady
+    // Фоновый poll не включает apiSyncing — иначе мигает экран «Касса»
+    if (!alreadyReady) set({ apiSyncing: true, apiError: '' })
+    else set({ apiError: '' })
     try {
       const [
         cashiers,
@@ -107,7 +110,7 @@ export const usePosStore = create<PosStore>((set) => ({
       })
     } catch (e) {
       set({
-        apiReady: true,
+        apiReady: alreadyReady || true,
         apiSyncing: false,
         apiError: e instanceof Error ? e.message : 'Не удалось загрузить POS данные',
       })
