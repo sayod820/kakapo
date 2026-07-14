@@ -1782,6 +1782,8 @@ export default function CashierModule({
         paidCash: cashPaid,
         paidCard: cardPaid,
         debtAdded,
+        bonusSpent: spend > 0 ? spend : undefined,
+        orderGoodsTotal: afterDisc,
         items: cart.map(l => ({
           productId: l.productId,
           productName: l.name,
@@ -1801,12 +1803,12 @@ export default function CashierModule({
             client.phone,
             purchaseAmt,
             `Покупка в магазине · ${methods.join('+') || 'касса'}`,
-            { orderId: created?.id || undefined, itemsSummary },
+            { orderId: created?.orderId || created?.id || undefined, itemsSummary },
           )
         }
         if (debtAdded > 0.001) {
           recordStoreDebtCharge(client.phone, debtAdded, debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг', {
-            orderId: created?.id || undefined,
+            orderId: created?.orderId || created?.id || undefined,
             itemsSummary,
           })
         }
@@ -1816,21 +1818,32 @@ export default function CashierModule({
       if (cashPaid > 0 && client?.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
         earnedBonus = calcCashDepositBonus(cashPaid)
       }
-      if (client?.card && USE_API && (spend > 0 || earnedBonus > 0)) {
+      // Бонусы и кэшбэк по заказу начисляет API через loyalty; здесь — только кэшбэк занал (posCashBonus)
+      if (client?.card && USE_API && earnedBonus > 0) {
+        try {
+          const cardRow = cards.find(c => client.card && cardNumsMatch(c.num, client.card))
+          const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
+          const nextPos = prevPos + earnedBonus
+          const base = Number(loyalty?.bonus) || 0
+          await api.updateCard(client.card, {
+            bonus: base + earnedBonus,
+            posCashBonus: nextPos,
+          })
+          if (client.phone) {
+            recordBalanceTopup(client.phone, cashPaid, earnedBonus, apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)')
+          }
+        } catch { /* ignore */ }
+      } else if (client?.card && USE_API && spend > 0 && !created?.orderId) {
         try {
           const base = Number(loyalty?.bonus) || 0
           const cardRow = cards.find(c => client.card && cardNumsMatch(c.num, client.card))
           const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-          const nextPos = Math.max(0, prevPos - spend) + earnedBonus
-          const nextBonus = Math.max(0, base - spend + earnedBonus)
+          const nextPos = Math.max(0, prevPos - spend)
           await api.updateCard(client.card, {
-            bonus: nextBonus,
+            bonus: Math.max(0, base - spend),
             posCashBonus: nextPos,
-            ...(spend > 0 ? { allowBonusDecrease: true } : {}),
+            allowBonusDecrease: true,
           })
-          if (client.phone && earnedBonus > 0) {
-            recordBalanceTopup(client.phone, cashPaid, earnedBonus, apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)')
-          }
         } catch { /* ignore */ }
       }
       await refresh()

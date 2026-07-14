@@ -570,6 +570,7 @@ const OSTATUS = {
   waiting_courier: {l:"Ждём курьера",  c:"var(--gd)"},
   delivering:      {l:"В пути",        c:"var(--blue)"},
   delivered:       {l:"Доставлен",     c:"var(--gr)"},
+  pos_sale:        {l:"В магазине",    c:"var(--gr)"},
   cancelled:       {l:"Отменён",       c:"var(--red)"},
 };
 
@@ -3334,7 +3335,9 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     setReviewDrafts(drafts);
     setShowRev(o);
   };
-  const filtered = filter==="all" ? ordersList : ordersList.filter(o => o.status===filter);
+  const filtered = filter==="all"
+    ? ordersList
+    : ordersList.filter(o => o.status === filter || (filter === 'delivered' && o.status === 'pos_sale'));
   const ST = OSTATUS;
   const selectedContacts = selected ? orderContacts(selected.id) : [];
   const selectedAmounts = selected ? clientOrderBreakdown(selected) : null;
@@ -3406,7 +3409,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
             </div>
           </div>
         )}
-        {selected.status==="delivered" && (
+        {(selected.status==="delivered" || selected.status==="pos_sale") && (
           <div style={{ padding:"14px 16px", borderRadius:16, background:"rgba(31,215,96,.07)", border:"1px solid rgba(31,215,96,.25)", display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
             <div style={{ width:38, height:38, borderRadius:11, background:"rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="check" s={20} c="var(--gr)" w={2.5}/></div>
             <div><div style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>Заказ доставлен!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>Начислено <span style={{ color:"var(--gd)", fontWeight:700 }}>+{selected.bonus} бонусов</span></div></div>

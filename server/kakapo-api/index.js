@@ -87,6 +87,7 @@ import {
   listExpiryItems,
   listPosSales,
   createPosSale,
+  createClientOrderFromPosSale,
   returnPosSale,
   getPosFinanceSummary,
   getPosReport,
@@ -1270,7 +1271,48 @@ app.get('/pos/sales', (_req, res) => {
 })
 app.post('/pos/sales', (req, res) => {
   try {
-    const row = createPosSale(db, req.body || {})
+    const body = req.body || {}
+    const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
+    if (bonusSpendReq > 0) {
+      const phone = String(body.clientPhone || '').trim()
+      if (!phone) return res.status(400).json({ detail: 'Для списания бонусов нужен клиент' })
+      const client = findClientByPhone(db, phone)
+      if (!client) return res.status(400).json({ detail: 'Клиент не найден' })
+      const card = client.card ? findCardByNum(client.card) : ensureCardRowForClient(client)
+      const bal = Number(card?.bonus) || 0
+      if (bal < bonusSpendReq) {
+        return res.status(400).json({ detail: `Недостаточно бонусов (доступно ${bal})` })
+      }
+    }
+
+    const row = createPosSale(db, body)
+    let order = null
+    if (row.clientPhone) {
+      order = createClientOrderFromPosSale(db, row, body)
+      if (order) {
+        if (bonusSpendReq > 0) {
+          const spendResult = applyBonusSpendOnOrder(db, order, bonusSpendReq, loyaltyHooks())
+          if (!spendResult.ok) {
+            db.orders = (db.orders || []).filter(o => o.id !== order.id)
+            row.orderId = undefined
+            return res.status(400).json({ detail: spendResult.error || 'Не удалось списать бонусы' })
+          }
+        }
+        applyClientLoyaltyAfterDelivery(db, order, loyaltyHooks())
+        const phone = order.client?.phone || ''
+        if (phone) {
+          const client = findClientByPhone(db, phone)
+          if (client) {
+            broadcastLoyalty({
+              phone: client.phone,
+              bonus: client.bonus,
+              card: client.card || '',
+            })
+          }
+        }
+        broadcast('new_order', order)
+      }
+    }
     persist()
     broadcastPosUpdate({ kind: 'sale', id: row.id })
     broadcastProduct({ reason: 'sale' })

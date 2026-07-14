@@ -573,9 +573,11 @@ export const api = {
     paidCash?: number
     paidCard?: number
     debtAdded?: number
+    bonusSpent?: number
+    orderGoodsTotal?: number
     note?: string
     items: { productId: number; productName?: string; qty: number; price?: number }[]
-  }) => request<PosSale>('/pos/sales', { method: 'POST', body: JSON.stringify(data) }),
+  }) => request<PosSale & { orderId?: string }>('/pos/sales', { method: 'POST', body: JSON.stringify(data) }),
   returnPosSale: (id: string, data?: {
     note?: string
     cashierId?: string

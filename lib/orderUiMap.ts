@@ -80,6 +80,8 @@ function clientStatus(o: Order): string {
   const order = normalizeOrder(o)
   const s = order.status
 
+  if (order.channel === 'pos' && s === 'delivered') return 'pos_sale'
+
   if (isMixedOrder(order)) {
     if (s === 'courier_picked' || s === 'delivering') return 'delivering'
     if (s === 'delivered') return 'delivered'

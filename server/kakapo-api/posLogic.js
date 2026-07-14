@@ -1,9 +1,21 @@
+import { nextOrderId } from './seed.js'
+import { stampOrderForClient } from './accountLifecycle.js'
+import { findClientByPhone } from './loyaltyBonus.js'
+
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
 function nowIso() {
   return new Date().toISOString()
+}
+
+function nowTimeLocal() {
+  return new Date().toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Dushanbe',
+  })
 }
 
 function nextId(prefix) {
@@ -809,6 +821,96 @@ export function createPosSale(db, data = {}) {
   }
   db.posSales.unshift(sale)
   return sale
+}
+
+/**
+ * Покупка на кассе с клиентом → заказ в «Мои заказы» (сразу delivered),
+ * чтобы обновить счётчики профиля (заказы / SM / VIP).
+ */
+export function createClientOrderFromPosSale(db, sale, extras = {}) {
+  if (!sale) return null
+  const phone = String(sale.clientPhone || extras.clientPhone || '').trim()
+  if (!phone) return null
+
+  const client =
+    getClientById(db, sale.clientId || extras.clientId) ||
+    findClientByPhone(db, phone)
+
+  const goodsTotal = round2(
+    Number(extras.orderGoodsTotal ?? extras.goodsTotal ?? sale.total) || 0,
+  )
+  const bonusSpent = Math.max(0, Math.floor(Number(extras.bonusSpent) || 0))
+  const payable = Math.max(0, round2(goodsTotal - bonusSpent))
+  const debtAdded = round2(Number(sale.debtAdded) || 0)
+  const createdAtIso = sale.createdAtIso || nowIso()
+  const createdAt = nowTimeLocal()
+
+  const items = (sale.items || []).map(item => {
+    let product = null
+    try {
+      product = getProduct(db, item.productId)
+    } catch {
+      product = null
+    }
+    return {
+      id: Number(item.productId) || 0,
+      product_id: Number(item.productId) || 0,
+      art: product?.art || '',
+      e: product?.e || '📦',
+      name: item.productName || product?.name || 'Товар',
+      qty: Number(item.qty) || 0,
+      unit: product?.unit || '',
+      price: round2(Number(item.price) || 0),
+      source: 'market',
+      done: true,
+    }
+  })
+
+  const pay =
+    sale.paymentMethod === 'mixed'
+      ? 'mixed'
+      : sale.paymentMethod === 'credit'
+        ? 'credit'
+        : sale.paymentMethod === 'card'
+          ? 'card'
+          : 'cash'
+
+  const order = {
+    id: nextOrderId(db),
+    type: 'market',
+    status: 'delivered',
+    channel: 'pos',
+    posSaleId: sale.id,
+    posSaleNumber: sale.number,
+    createdAt,
+    createdAtIso,
+    deliveredAt: createdAt,
+    deliveredAtIso: createdAtIso,
+    total: payable,
+    goodsTotal,
+    deliveryFee: 0,
+    deliveryFeeLocked: true,
+    comment: extras.note || sale.note || 'Покупка в магазине',
+    payment_method: pay,
+    pay,
+    creditAmount: debtAdded > 0 ? debtAdded : undefined,
+    vip: client?.vip === true,
+    priority: 'normal',
+    client: {
+      name: sale.clientName || client?.name || '',
+      phone: phone || client?.phone || '',
+      addr: client?.addr || 'Касса КАКАПО',
+    },
+    items,
+    marketStatus: 'done',
+    bonusSpent: 0,
+    pickupIds: ['store'],
+  }
+
+  stampOrderForClient(order, client)
+  db.orders.push(order)
+  sale.orderId = order.id
+  return order
 }
 
 export function returnPosSale(db, saleId, meta = {}) {

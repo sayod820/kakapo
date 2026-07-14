@@ -67,6 +67,11 @@ export interface Order {
   createdAtIso?: string
   /** ISO-дата доставки (для лояльности) */
   deliveredAtIso?: string
+  /** Канал оформления: pos = покупка на кассе */
+  channel?: 'pos' | 'app' | 'admin' | string
+  /** Связь с чеком кассы */
+  posSaleId?: string
+  posSaleNumber?: number
   /** Курьер на месте у клиента (перед подтверждением доставки) */
   courierAtClient?: boolean
   /** Причина отмены заказа */
@@ -319,6 +324,7 @@ export interface PosSale {
   paidCard: number
   debtAdded: number
   note?: string
+  orderId?: string
   items: PosSaleItem[]
   status?: 'sold' | 'partial' | 'returned'
   originalTotal?: number
