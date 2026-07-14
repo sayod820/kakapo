@@ -329,9 +329,12 @@ type NavTarget = 'products' | 'clients' | 'debts' | 'warehouse' | 'reports' | 's
 export default function CashierModule({
   onExit,
   onNavigate: _onNavigate,
+  embedded = false,
 }: {
   onExit?: () => void
   onNavigate?: (page: NavTarget) => void
+  /** Встроена в правую панель «Торговля» (с боковым меню) */
+  embedded?: boolean
 }) {
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
@@ -443,6 +446,7 @@ export default function CashierModule({
   const amountInputRef = useRef<HTMLInputElement>(null)
   const [cashierMenuOpen, setCashierMenuOpen] = useState(false)
   const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
+  const [openShiftModal, setOpenShiftModal] = useState(false)
   const [switchCashierId, setSwitchCashierId] = useState('')
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
   const [receiptQ, setReceiptQ] = useState('')
@@ -546,6 +550,7 @@ export default function CashierModule({
 
   const overlayBlocksSearch =
     !activeShift
+    || openShiftModal
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
@@ -1336,6 +1341,8 @@ export default function CashierModule({
       setDiscountPct(0)
       setBonusUsed(0)
       setPay('cash')
+      setOpenShiftModal(false)
+      showToast('Смена открыта', cashier.name)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось открыть смену')
     } finally {
@@ -1686,6 +1693,11 @@ export default function CashierModule({
   }
 
   function addProduct(p: Product, weightKg?: number) {
+    if (!activeShift) {
+      showToast('Смена не открыта', 'Сначала откройте смену')
+      setOpenShiftModal(true)
+      return
+    }
     const stock = Number(p.stock) || 0
     if (stock <= 0) return
     if (isWeighted(p) && weightKg == null) {
@@ -2210,6 +2222,11 @@ export default function CashierModule({
   }
 
   function startPay() {
+    if (!activeShift) {
+      showToast('Смена не открыта', 'Сначала откройте смену')
+      setOpenShiftModal(true)
+      return
+    }
     if (!cart.length) return
     setBonusUsed(0)
     setAmountPad(false)
@@ -2391,7 +2408,7 @@ export default function CashierModule({
   // ─── Gate ───
   if (!apiReady || (apiSyncing && !activeShift && !shifts.some(s => s.status === 'open'))) {
     return (
-      <div className="pos-root" data-theme={theme}>
+      <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
         <style>{POS_MOCK_CSS}</style>
         <div className="gate">
           <div className="gate-bg" />
@@ -2399,58 +2416,6 @@ export default function CashierModule({
             <div className="gate-logo">K</div>
             <div className="gate-title">Касса</div>
             <div className="gate-sub">Загрузка смены…</div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!activeShift) {
-    return (
-      <div className="pos-root" data-theme={theme}>
-        <style>{POS_MOCK_CSS}</style>
-        <div className="gate">
-          <div className="gate-bg" />
-          <div className="gate-card">
-            <div className="gate-logo">K</div>
-            <div className="gate-title">Открытие смены</div>
-            <div className="gate-sub">KAKAPO Касса · г. Яван, РЦ №1</div>
-            <span className="gate-label">Кто работает?</span>
-            <div className="cashier-grid">
-              {cashierOptions.slice(0, 6).map(c => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={`cashier-opt ${pickedCashierId === c.id ? 'on' : ''}`}
-                  onClick={() => { setPickedCashierId(c.id); setGateName(c.name) }}
-                >
-                  <div className="av">{initialsOf(c.name)}</div>
-                  <span>{c.name.split(' ')[0]}</span>
-                </button>
-              ))}
-            </div>
-            {!cashiers.length && (
-              <>
-                <span className="gate-label">Имя кассира</span>
-                <input className="gate-input" value={gateName} onChange={e => setGateName(e.target.value)} placeholder="Кассир" />
-              </>
-            )}
-            <span className="gate-label">Наличные в кассе на начало смены</span>
-            <input className="gate-input" value={gateCash} onChange={e => setGateCash(sanitizeDecimalInput(e.target.value))} inputMode="decimal" />
-            <div className="kp-quick" style={{ marginBottom: 16 }}>
-              {[0, 100, 500, 1000].map(v => (
-                <button key={v} type="button" onClick={() => setGateCash(v === 0 ? '0.00' : String(v))}>{v === 0 ? 'Пустая' : `${v}`}</button>
-              ))}
-            </div>
-            {msg && <div className="pos-err">{msg}</div>}
-            <button type="button" className="btn-gate" disabled={busy} onClick={() => void openShift()}>
-              {busy ? 'Открываем…' : 'Открыть смену'}
-            </button>
-            {onExit && (
-              <button type="button" className="btn-switch-till" style={{ marginTop: 10 }} onClick={onExit}>
-                ← Вернуться в Торговлю
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -2478,7 +2443,7 @@ export default function CashierModule({
   const repayCashTier = repayMethod === 'cash' && repayAmount > 0 ? cashDepositTierForAmount(repayAmount) : null
 
   return (
-    <div className="pos-root" data-theme={theme}>
+    <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
       <style>{POS_MOCK_CSS}</style>
       <div className="app">
         <div className="topbar">
@@ -2499,8 +2464,9 @@ export default function CashierModule({
               value={q}
               onChange={e => onProductSearchChange(e.target.value)}
               placeholder="Товар, штрихкод…"
-              autoFocus
+              autoFocus={!!activeShift}
               onKeyDown={onProductSearchKeyDown}
+              disabled={!activeShift}
             />
             <span className="scan-tag" title="Сканер">📷</span>
           </div>
@@ -2577,57 +2543,69 @@ export default function CashierModule({
             🔔<span className="bell-badge" />
           </button>
           <div className="account-wrap" ref={accountMenuRef}>
-            <button
-              type="button"
-              className={`account-btn ${cashierMenuOpen ? 'on' : ''}`}
-              onClick={() => setCashierMenuOpen(v => !v)}
-            >
-              <div className="account-av">{settings.initials}</div>
-              <div className="info">
-                <b>{settings.cashierName}</b>
-                <span>Кассир ▾</span>
-              </div>
-            </button>
-            {cashierMenuOpen && (
-              <div className="account-menu">
-                <div className="account-menu-head">
-                  <b>{settings.cashierName}</b>
-                  <span>Смена открыта</span>
-                </div>
+            {!activeShift ? (
+              <button
+                type="button"
+                className="btn-open-shift"
+                onClick={() => setOpenShiftModal(true)}
+              >
+                Открыть смену
+              </button>
+            ) : (
+              <>
                 <button
                   type="button"
-                  className="account-menu-item"
-                  onClick={() => openCashierScreen('receipts')}
+                  className={`account-btn ${cashierMenuOpen ? 'on' : ''}`}
+                  onClick={() => setCashierMenuOpen(v => !v)}
                 >
-                  <span className="ami-ic">🧾</span>
-                  <span>
-                    <b>История чеков</b>
-                    <i>Все продажи, возврат, повтор в чек</i>
-                  </span>
+                  <div className="account-av">{settings.initials}</div>
+                  <div className="info">
+                    <b>{settings.cashierName}</b>
+                    <span>Кассир ▾</span>
+                  </div>
                 </button>
-                <button
-                  type="button"
-                  className="account-menu-item"
-                  onClick={() => openCashierScreen('switch')}
-                >
-                  <span className="ami-ic">🔁</span>
-                  <span>
-                    <b>Сменить кассира</b>
-                    <i>Закрыть смену и открыть на другого</i>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="account-menu-item danger"
-                  onClick={() => openCashierScreen('close')}
-                >
-                  <span className="ami-ic">⏹</span>
-                  <span>
-                    <b>Закрыть смену</b>
-                    <i>Итоги смены и наличные в кассе</i>
-                  </span>
-                </button>
-              </div>
+                {cashierMenuOpen && (
+                  <div className="account-menu">
+                    <div className="account-menu-head">
+                      <b>{settings.cashierName}</b>
+                      <span>Смена открыта</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="account-menu-item"
+                      onClick={() => openCashierScreen('receipts')}
+                    >
+                      <span className="ami-ic">🧾</span>
+                      <span>
+                        <b>История чеков</b>
+                        <i>Все продажи, возврат, повтор в чек</i>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="account-menu-item"
+                      onClick={() => openCashierScreen('switch')}
+                    >
+                      <span className="ami-ic">🔁</span>
+                      <span>
+                        <b>Сменить кассира</b>
+                        <i>Закрыть смену и открыть на другого</i>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="account-menu-item danger"
+                      onClick={() => openCashierScreen('close')}
+                    >
+                      <span className="ami-ic">⏹</span>
+                      <span>
+                        <b>Закрыть смену</b>
+                        <i>Итоги смены и наличные в кассе</i>
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -4457,6 +4435,69 @@ export default function CashierModule({
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {!activeShift && !openShiftModal && (
+        <div className="shift-lock-bar">
+          <div className="shift-lock-txt">
+            <b>Смена ещё не открыта</b>
+            <span>Точка продаж готова — откройте смену, чтобы пробивать чеки</span>
+          </div>
+          <button type="button" className="btn-open-shift" onClick={() => setOpenShiftModal(true)}>
+            Открыть смену
+          </button>
+        </div>
+      )}
+
+      {openShiftModal && !activeShift && (
+        <div className="gate gate-modal" onClick={() => !busy && setOpenShiftModal(false)}>
+          <div className="gate-bg" />
+          <div className="gate-card" onClick={e => e.stopPropagation()}>
+            <div className="gate-logo">K</div>
+            <div className="gate-title">Открытие смены</div>
+            <div className="gate-sub">KAKAPO Касса · г. Яван, РЦ №1</div>
+            <span className="gate-label">Кто работает?</span>
+            <div className="cashier-grid">
+              {cashierOptions.slice(0, 6).map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`cashier-opt ${pickedCashierId === c.id ? 'on' : ''}`}
+                  onClick={() => { setPickedCashierId(c.id); setGateName(c.name) }}
+                >
+                  <div className="av">{initialsOf(c.name)}</div>
+                  <span>{c.name.split(' ')[0]}</span>
+                </button>
+              ))}
+            </div>
+            {!cashiers.length && (
+              <>
+                <span className="gate-label">Имя кассира</span>
+                <input className="gate-input" value={gateName} onChange={e => setGateName(e.target.value)} placeholder="Кассир" />
+              </>
+            )}
+            <span className="gate-label">Наличные в кассе на начало смены</span>
+            <input className="gate-input" value={gateCash} onChange={e => setGateCash(sanitizeDecimalInput(e.target.value))} inputMode="decimal" />
+            <div className="kp-quick" style={{ marginBottom: 16 }}>
+              {[0, 100, 500, 1000].map(v => (
+                <button key={v} type="button" onClick={() => setGateCash(v === 0 ? '0.00' : String(v))}>{v === 0 ? 'Пустая' : `${v}`}</button>
+              ))}
+            </div>
+            {msg && <div className="pos-err">{msg}</div>}
+            <button type="button" className="btn-gate" disabled={busy} onClick={() => void openShift()}>
+              {busy ? 'Открываем…' : 'Открыть смену'}
+            </button>
+            <button
+              type="button"
+              className="btn-switch-till"
+              style={{ marginTop: 10 }}
+              disabled={busy}
+              onClick={() => { setOpenShiftModal(false); setMsg('') }}
+            >
+              Закрыть
+            </button>
           </div>
         </div>
       )}

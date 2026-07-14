@@ -66,7 +66,8 @@ const CSS = `
   .k-user .who b{display:block;font-size:13px;line-height:1.1}
   .k-user .who span{font-size:11px;color:var(--muted)}
   .k-body{flex:1;min-height:0;overflow:auto;padding:18px 20px}
-
+  .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
+  .k-body-pos > .pos-root{flex:1;min-height:0;}
   .k-page-h{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
   .k-page-h h1{font-size:22px;font-weight:900;margin:0}
   .k-page-h .sub{color:var(--muted);font-size:13px;margin-top:4px;max-width:560px;line-height:1.45}
@@ -309,22 +310,18 @@ function TradeAppInner() {
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
-    const soon = SOON_PAGES[current]
-    if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
-    return <ProductsModule search={search} />
-  }
-
-  /** Касса — отдельное полноэкранное окно POS, без меню Торговли */
-  if (current === 'sales') {
-    return (
-      <div className="k-trade" style={{ display: 'block', minHeight: '100vh' }}>
-        <style>{CSS}</style>
+    if (current === 'sales') {
+      return (
         <CashierModule
+          embedded
           onExit={() => goTo('products')}
           onNavigate={page => goTo(page)}
         />
-      </div>
-    )
+      )
+    }
+    const soon = SOON_PAGES[current]
+    if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
+    return <ProductsModule search={search} />
   }
 
   return (
@@ -363,32 +360,34 @@ function TradeAppInner() {
       </aside>
 
       <div className="k-main">
-        <header className="k-top">
-          <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
-          {showSearch ? (
-            <div className="k-search">
-              <span className="mag">🔍</span>
-              <input
-                placeholder="Поиск по названию, артикулу, штрихкоду…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+        {current !== 'sales' && (
+          <header className="k-top">
+            <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
+            {showSearch ? (
+              <div className="k-search">
+                <span className="mag">🔍</span>
+                <input
+                  placeholder="Поиск по названию, артикулу, штрихкоду…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+            ) : (
+              <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>
+                {NAV.find(n => n.id === current)?.label}
+              </div>
+            )}
+            <button type="button" className="k-bell" title="Товары с низким остатком">
+              🔔<span className="badge">{lowStock}</span>
+            </button>
+            <div className="k-user">
+              <div className="av">K</div>
+              <div className="who"><b>Сотрудник</b><span>Торговля</span></div>
             </div>
-          ) : (
-            <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>
-              {NAV.find(n => n.id === current)?.label}
-            </div>
-          )}
-          <button type="button" className="k-bell" title="Товары с низким остатком">
-            🔔<span className="badge">{lowStock}</span>
-          </button>
-          <div className="k-user">
-            <div className="av">K</div>
-            <div className="who"><b>Сотрудник</b><span>Торговля</span></div>
-          </div>
-        </header>
+          </header>
+        )}
 
-        <div className="k-body">{renderPage()}</div>
+        <div className={`k-body ${current === 'sales' ? 'k-body-pos' : ''}`}>{renderPage()}</div>
       </div>
 
       <nav className="k-bottom-nav k-hide-desk" aria-label="Быстрая навигация">
