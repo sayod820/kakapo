@@ -22,6 +22,7 @@ import {
   recordBalanceTopup,
   recordStoreDebtCharge,
   recordStoreDebtRepayment,
+  recordStorePurchase,
   subscribeBalanceTopup,
   subscribeDebtHistory,
   topupBalanceCredit,
@@ -1788,12 +1789,28 @@ export default function CashierModule({
           price: l.price,
         })),
       })
-      if (debtAdded > 0.001 && client?.phone) {
+      if (client?.phone) {
         const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
-        recordStoreDebtCharge(client.phone, debtAdded, debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг', {
-          orderId: created?.id || undefined,
-          itemsSummary,
-        })
+        const purchaseAmt = Math.round((afterDisc - debtAdded) * 100) / 100
+        if (purchaseAmt > 0.001) {
+          const methods: string[] = []
+          if (cashPaid > 0.001) methods.push('нал')
+          if (cardPaid > 0.001) methods.push('карта')
+          if (spend > 0) methods.push('бонусы')
+          recordStorePurchase(
+            client.phone,
+            purchaseAmt,
+            `Покупка в магазине · ${methods.join('+') || 'касса'}`,
+            { orderId: created?.id || undefined, itemsSummary },
+          )
+        }
+        if (debtAdded > 0.001) {
+          recordStoreDebtCharge(client.phone, debtAdded, debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг', {
+            orderId: created?.id || undefined,
+            itemsSummary,
+          })
+        }
+        setHistTick(t => t + 1)
       }
       let earnedBonus = 0
       if (cashPaid > 0 && client?.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {

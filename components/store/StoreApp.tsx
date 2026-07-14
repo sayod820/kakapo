@@ -4355,7 +4355,7 @@ function VipDebtSection({
   )
 
   const historyList = useMemo(() => {
-    if (tab === 'debt') return history.filter(h => h.type === 'debt')
+    if (tab === 'debt') return history.filter(h => h.type === 'debt' || h.type === 'purchase')
     if (tab === 'pay') return history.filter(h => h.type === 'pay')
     return history
   }, [history, tab])
@@ -4375,7 +4375,7 @@ function VipDebtSection({
       setOrderDetail({ hist: h, order })
       return
     }
-    if (h.type === 'pay') setPayDetail(h)
+    if (h.type === 'pay' || h.type === 'purchase') setPayDetail(h)
   }
 
   const renderUnpaidRow = (b: DebtOrderBalance, i: number) => {
@@ -4452,8 +4452,9 @@ function VipDebtSection({
 
   const renderHistoryRow = (h: import('@/lib/clientVipCredit').DebtHistoryEntry, i: number) => {
     const isPay = h.type === 'pay'
-    const clickable = !!(isPay || h.orderId)
-    const settled = isPay
+    const isPurchase = h.type === 'purchase'
+    const settled = isPay || isPurchase
+    const clickable = !!(isPay || isPurchase || h.orderId)
     return (
       <button
         key={h.id || `hist-${i}`}
@@ -4476,14 +4477,24 @@ function VipDebtSection({
           border: `1px solid ${settled ? 'rgba(31,215,96,.25)' : 'rgba(255,184,0,.25)'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
         }}>
-          {settled ? '✅' : '🛒'}
+          {isPurchase ? '🏪' : settled ? '✅' : '🛒'}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
-              {isPay ? (h.desc || 'Погашение через поддержку') : (h.orderId || 'Заказ в долг')}
+              {isPurchase
+                ? (h.desc || 'Покупка в магазине')
+                : isPay
+                  ? (h.desc || 'Погашение через поддержку')
+                  : (h.orderId || 'Заказ в долг')}
             </span>
-            {!isPay && (
+            {isPurchase && (
+              <span style={{
+                fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
+                background: 'rgba(31,215,96,.15)', color: 'var(--gr)',
+              }}>касса</span>
+            )}
+            {!isPay && !isPurchase && (
               <span style={{
                 fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
                 background: 'rgba(255,184,0,.15)', color: 'var(--gd)',
@@ -4502,10 +4513,10 @@ function VipDebtSection({
         <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
           <div>
             <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: settled ? 'var(--gr)' : '#FF8080' }}>
-              {isPay ? '+' : '−'}{Math.abs(h.amount).toLocaleString()} ЅМ
+              {settled ? '' : '−'}{Math.abs(h.amount).toLocaleString()} ЅМ
             </div>
             <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
-              {settled ? 'оплачено' : 'в долг'}
+              {isPurchase ? 'покупка' : settled ? 'оплачено' : 'в долг'}
             </div>
           </div>
           {clickable && <Ic n="arr" s={14} c="var(--t3)" />}
@@ -4610,7 +4621,11 @@ function VipDebtSection({
         {/* Фильтры */}
         <div style={{ flexShrink: 0, display: 'flex', gap: 6, padding: '12px 14px', borderBottom: '1px solid var(--b1)' }}>
           {tabs.map(t => {
-            const count = t.id === 'all' ? history.length : history.filter(h => h.type === (t.id === 'debt' ? 'debt' : 'pay')).length
+            const count = t.id === 'all'
+              ? history.length
+              : t.id === 'debt'
+                ? history.filter(h => h.type === 'debt' || h.type === 'purchase').length
+                : history.filter(h => h.type === 'pay').length
             const on = tab === t.id
             return (
               <button
@@ -4747,7 +4762,7 @@ function VipDebtSection({
         )
       })()}
 
-      {/* Детали погашения */}
+      {/* Детали погашения / покупки */}
       {payDetail && (
         <DebtBottomSheet onClose={() => setPayDetail(null)}>
             <div style={{ textAlign: 'center', marginBottom: 20 }}>
@@ -4755,24 +4770,35 @@ function VipDebtSection({
                 width: 56, height: 56, borderRadius: 16, margin: '0 auto 12px',
                 background: 'rgba(31,215,96,.12)', border: '1px solid rgba(31,215,96,.3)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28,
-              }}>✅</div>
-              <div className="ub" style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>{payDetail.desc || 'Погашение через поддержку'}</div>
+              }}>{payDetail.type === 'purchase' ? '🏪' : '✅'}</div>
+              <div className="ub" style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>
+                {payDetail.desc || (payDetail.type === 'purchase' ? 'Покупка в магазине' : 'Погашение через поддержку')}
+              </div>
               <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: 'var(--gr)' }}>
-                +{payDetail.amount.toLocaleString()} ЅМ
+                {payDetail.amount.toLocaleString()} ЅМ
               </div>
             </div>
             <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
               {[
                 { l: 'Дата', v: payDetail.date },
                 { l: 'Время', v: payDetail.time || '—' },
-                { l: 'Статус', v: 'Успешно', c: 'var(--gr)' },
-              ].map((row, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < 2 ? '1px solid var(--b1)' : 'none' }}>
+                { l: 'Статус', v: payDetail.type === 'purchase' ? 'Оплачено в кассе' : 'Успешно', c: 'var(--gr)' },
+                ...(payDetail.orderId ? [{ l: 'Чек', v: payDetail.orderId }] : []),
+              ].map((row, i, arr) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--b1)' : 'none' }}>
                   <span style={{ fontSize: 12, color: 'var(--t3)' }}>{row.l}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: row.c || 'var(--t1)' }}>{row.v}</span>
                 </div>
               ))}
             </div>
+            {payDetail.itemsSummary && (
+              <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--t3)', marginBottom: 8 }}>Состав</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', lineHeight: 1.45 }}>
+                  {payDetail.itemsSummary}
+                </div>
+              </div>
+            )}
             <button onClick={() => setPayDetail(null)} className="btn" style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontSize: 14, fontWeight: 700 }}>
               Закрыть
             </button>

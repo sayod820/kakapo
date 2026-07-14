@@ -34,7 +34,8 @@ export type DebtHistoryEntry = {
   orderId?: string
   /** Краткое описание состава заказа */
   itemsSummary?: string
-  type: 'debt' | 'pay'
+  /** debt = в долг, pay = погашение, purchase = оплаченная покупка в магазине */
+  type: 'debt' | 'pay' | 'purchase'
 }
 
 export function emitDebtHistoryChange() {
@@ -57,6 +58,23 @@ export function debtHistoryTotals(list: DebtHistoryEntry[]) {
     else if (row.type === 'pay') repaid += row.amount
   }
   return { borrowed, repaid }
+}
+
+export function recordStorePurchase(
+  phone: string,
+  amount: number,
+  desc = 'Покупка в магазине',
+  meta?: { orderId?: string; itemsSummary?: string },
+): void {
+  const pay = Math.max(0, Math.round(amount * 100) / 100)
+  if (!phone.trim() || pay <= 0) return
+  pushDebtHistory(phone, {
+    desc,
+    amount: pay,
+    type: 'purchase',
+    orderId: meta?.orderId,
+    itemsSummary: meta?.itemsSummary,
+  })
 }
 
 /** Разделить заказы в долг на оплаченные (FIFO по погашениям) и неоплаченные */
