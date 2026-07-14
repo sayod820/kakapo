@@ -3233,36 +3233,6 @@ export default function CashierModule({
                 <button
                   type="button"
                   className="account-menu-item"
-                  onClick={() => {
-                    setCashierMenuOpen(false)
-                    setPosSurface('dashboard')
-                  }}
-                >
-                  <span className="ami-ic">←</span>
-                  <span>
-                    <b>К дашборду</b>
-                    <i>Вернуться к карточке кассы</i>
-                  </span>
-                </button>
-                {onExit && (
-                  <button
-                    type="button"
-                    className="account-menu-item"
-                    onClick={() => {
-                      setCashierMenuOpen(false)
-                      onExit()
-                    }}
-                  >
-                    <span className="ami-ic">🏠</span>
-                    <span>
-                      <b>В Торговлю</b>
-                      <i>Товары, склад, клиенты</i>
-                    </span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="account-menu-item"
                   onClick={() => openCashierScreen('receipts')}
                 >
                   <span className="ami-ic">🧾</span>
