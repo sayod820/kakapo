@@ -3565,15 +3565,6 @@ export default function CashierModule({
             </button>
           </div>
 
-          <div className="check-till-actions">
-            <button type="button" className="action-chip ac-till-in" onClick={() => openTillMove('in')} disabled={!activeShift || busy}>
-              <span className="ic-wrap">⬇️</span><span>Внести</span>
-            </button>
-            <button type="button" className="action-chip ac-till-out" onClick={() => openTillMove('out')} disabled={!activeShift || busy}>
-              <span className="ic-wrap">⬆️</span><span>Снять</span>
-            </button>
-          </div>
-
           <div className="cart-totals">
             <div className="tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
             <div className="tot-row"><span>Сумма</span><span>{subtotalGross.toFixed(2)}</span></div>
