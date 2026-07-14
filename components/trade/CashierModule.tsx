@@ -320,6 +320,7 @@ export default function CashierModule({
   const clients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
   const shifts = usePosStore(s => s.shifts)
+  const posPoints = usePosStore(s => s.posPoints)
   const cashiers = usePosStore(s => s.cashiers)
   const sales = usePosStore(s => s.sales)
   const apiReady = usePosStore(s => s.apiReady)
@@ -425,13 +426,17 @@ export default function CashierModule({
   const [cashierMenuOpen, setCashierMenuOpen] = useState(false)
   const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
   const [openShiftModal, setOpenShiftModal] = useState(false)
+  const [openingPosId, setOpeningPosId] = useState<string | null>(null)
+  const [createPosModal, setCreatePosModal] = useState(false)
+  const [newPosName, setNewPosName] = useState('')
+  const [newPosCode, setNewPosCode] = useState('')
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
   const setPosSurface = useCallback((surface: 'dashboard' | 'register') => {
     setPosSurfaceState(surface)
     onSurfaceChange?.(surface)
   }, [onSurfaceChange])
-  const [dashMenuOpen, setDashMenuOpen] = useState(false)
+  const [dashMenuPosId, setDashMenuPosId] = useState<string | null>(null)
   const [switchCashierId, setSwitchCashierId] = useState('')
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
   const [receiptQ, setReceiptQ] = useState('')
@@ -554,19 +559,46 @@ export default function CashierModule({
   const activeShift = useMemo(() => {
     const open = shifts.filter(s => s.status === 'open')
     if (!open.length) return null
-    if (!settings.cashierId) return open[0]
-    return open.find(s => s.cashierId === settings.cashierId) || open[0]
+    if (settings.cashierId) {
+      const mine = open.find(s => s.cashierId === settings.cashierId)
+      if (mine) return mine
+    }
+    return open[0]
   }, [shifts, settings.cashierId])
+
+  const activePosPoint = useMemo(() => {
+    const id = activeShift?.posId
+    if (!id) return posPoints[0] || null
+    return posPoints.find(p => p.id === id) || posPoints[0] || null
+  }, [activeShift?.posId, posPoints])
+
+  const visiblePosPoints = useMemo(
+    () => (posPoints.length ? posPoints : []).filter(p => p.active !== false),
+    [posPoints],
+  )
+
+  function shiftForPos(posId: string) {
+    return shifts.find(s => s.status === 'open' && (s.posId || '') === posId) || null
+  }
+
+  function formatOpenedAt(iso?: string | null) {
+    if (!iso) return null
+    const d = new Date(iso)
+    return Number.isNaN(d.getTime())
+      ? String(iso)
+      : d.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  }
 
   const overlayBlocksSearch =
     posSurface !== 'register'
     || !activeShift
     || openShiftModal
+    || createPosModal
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
     || histOpen || payPickOpen
-    || dashMenuOpen
+    || !!dashMenuPosId
 
   function focusProductSearch() {
     const el = searchInputRef.current
@@ -1340,13 +1372,15 @@ export default function CashierModule({
     try {
       const cash = Number(gateCash) || 0
       if (cash < 0) throw new Error('Укажите сумму наличных')
+      const posId = openingPosId || visiblePosPoints[0]?.id
+      if (!posId) throw new Error('Сначала создайте точку продаж')
       const picked = cashierOptions.find(c => c.id === pickedCashierId)
       const cashier = await ensureCashier(picked?.name || gateName, pickedCashierId)
       const next = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
       saveSettings(next)
       setSettings(next)
       if (!USE_API) throw new Error('Касса работает только с API')
-      await api.openPosShift({ cashierId: cashier.id, openingCash: cash })
+      await api.openPosShift({ cashierId: cashier.id, openingCash: cash, posId })
       await refresh()
       setCart([])
       setClient(null)
@@ -1354,10 +1388,31 @@ export default function CashierModule({
       setBonusUsed(0)
       setPay('cash')
       setOpenShiftModal(false)
+      setOpeningPosId(null)
       setPosSurface('register')
       showToast('Смена открыта', cashier.name)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось открыть смену')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function createPosPoint() {
+    setBusy(true)
+    setMsg('')
+    try {
+      const name = newPosName.trim()
+      if (!name) throw new Error('Укажите название точки продаж')
+      if (!USE_API) throw new Error('Нужен API сервер')
+      await api.createPosPoint({ name, code: newPosCode.trim() || undefined })
+      await refresh()
+      setCreatePosModal(false)
+      setNewPosName('')
+      setNewPosCode('')
+      showToast('Точка создана', name)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось создать точку')
     } finally {
       setBusy(false)
     }
@@ -1403,7 +1458,11 @@ export default function CashierModule({
       const s = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
       saveSettings(s)
       setSettings(s)
-      await api.openPosShift({ cashierId: cashier.id, openingCash: cash })
+      await api.openPosShift({
+        cashierId: cashier.id,
+        openingCash: cash,
+        posId: activeShift.posId || activePosPoint?.id,
+      })
       await refresh()
       setCashierScreen(null)
       setCashierMenuOpen(false)
@@ -1482,6 +1541,12 @@ export default function CashierModule({
     const namedIds = new Set(namedHits.map(p => Number(p.id)))
 
     return [...sales]
+      .filter(s => {
+        const posId = activeShift?.posId
+        if (!posId) return true
+        if (!s.posId) return true
+        return s.posId === posId
+      })
       .sort((a, b) => {
         const nb = saleOrderSeq(b)
         const na = saleOrderSeq(a)
@@ -1532,7 +1597,7 @@ export default function CashierModule({
         ].join(' ').toLowerCase()
         return hay.includes(q)
       })
-  }, [sales, receiptQ, receiptFilter, products])
+  }, [sales, receiptQ, receiptFilter, products, activeShift?.posId])
 
   const receiptProductHint = useMemo(() => {
     const qRaw = receiptQ.trim()
@@ -2127,6 +2192,7 @@ export default function CashierModule({
       const created = await api.createPosSale({
         cashierId: activeShift.cashierId,
         shiftId: activeShift.id,
+        posId: activeShift.posId || activePosPoint?.id,
         clientId: client?.id,
         clientName: client?.name,
         clientPhone: client?.phone,
@@ -2439,142 +2505,197 @@ export default function CashierModule({
   const showDashboard = (!activeShift || posSurface === 'dashboard') && !cashierScreen
 
   if (showDashboard) {
-    const openedAt = activeShift?.openedAtIso
-    const openedLabel = openedAt
-      ? (() => {
-          const d = new Date(openedAt)
-          return Number.isNaN(d.getTime())
-            ? String(openedAt)
-            : d.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-        })()
-      : null
+    const myOpenShift = activeShift
     return (
       <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
         <style>{POS_MOCK_CSS}</style>
-        <div className="odoo-dash" onClick={() => dashMenuOpen && setDashMenuOpen(false)}>
+        <div className="odoo-dash" onClick={() => dashMenuPosId && setDashMenuPosId(null)}>
           <div className="odoo-dash-top">
             <div>
               <h1>Точка продаж</h1>
               <p>Выберите кассу и откройте сессию</p>
             </div>
+            <button
+              type="button"
+              className="odoo-create-pos"
+              onClick={e => {
+                e.stopPropagation()
+                setMsg('')
+                setNewPosName('')
+                setNewPosCode('')
+                setCreatePosModal(true)
+              }}
+            >
+              + Создать точку продаж
+            </button>
           </div>
           <div className="odoo-dash-body">
             <div className="odoo-kanban">
-              <div className="odoo-card" onClick={e => e.stopPropagation()}>
-                <div className="odoo-card-head">
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div className="odoo-card-mark" aria-hidden>🛒</div>
-                    <div className="odoo-card-title">Магазин · Ленина 42</div>
-                    <div className="odoo-card-sub">Касса №1 · KAKAPO</div>
+              {!visiblePosPoints.length && (
+                <div className="odoo-card" style={{ padding: 20 }}>
+                  <div className="odoo-card-title">Пока нет точек продаж</div>
+                  <div className="odoo-card-meta" style={{ padding: '10px 0 14px' }}>
+                    Создайте первую кассу — все продажи и сессии будут привязаны к ней
                   </div>
-                  <div className="odoo-card-menu">
-                    <button
-                      type="button"
-                      className="odoo-card-more"
-                      aria-label="Меню"
-                      onClick={() => setDashMenuOpen(v => !v)}
-                    >
-                      ⋮
-                    </button>
-                    {dashMenuOpen && (
-                      <div className="odoo-card-drop">
-                        <button
-                          type="button"
-                          className="odoo-card-drop-item"
-                          onClick={() => {
-                            setDashMenuOpen(false)
-                            if (!activeShift) {
-                              showToast('Сессия закрыта', 'Сначала откройте сессию')
-                              setOpenShiftModal(true)
-                              return
-                            }
-                            openCashierScreen('receipts')
-                          }}
-                        >
-                          Заказы
-                        </button>
-                        <button
-                          type="button"
-                          className="odoo-card-drop-item"
-                          onClick={() => {
-                            setDashMenuOpen(false)
-                            if (!activeShift) {
-                              setOpenShiftModal(true)
-                              return
-                            }
-                            openCashierScreen('close')
-                          }}
-                        >
-                          Закрыть сессию
-                        </button>
+                  <button
+                    type="button"
+                    className="odoo-btn-primary"
+                    onClick={() => setCreatePosModal(true)}
+                  >
+                    Создать точку продаж
+                  </button>
+                </div>
+              )}
+              {visiblePosPoints.map(point => {
+                const shift = shiftForPos(point.id)
+                const openedLabel = formatOpenedAt(shift?.openedAtIso)
+                const isMine = !!(shift && myOpenShift && shift.id === myOpenShift.id)
+                const menuOpen = dashMenuPosId === point.id
+                return (
+                  <div
+                    key={point.id}
+                    className="odoo-card"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <div className="odoo-card-head">
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="odoo-card-mark" aria-hidden>🛒</div>
+                        <div className="odoo-card-title">{point.name}</div>
+                        <div className="odoo-card-sub">{point.code || 'Касса · KAKAPO'}</div>
                       </div>
-                    )}
+                      <div className="odoo-card-menu">
+                        <button
+                          type="button"
+                          className="odoo-card-more"
+                          aria-label="Меню"
+                          onClick={() => setDashMenuPosId(menuOpen ? null : point.id)}
+                        >
+                          ⋮
+                        </button>
+                        {menuOpen && (
+                          <div className="odoo-card-drop">
+                            <button
+                              type="button"
+                              className="odoo-card-drop-item"
+                              onClick={() => {
+                                setDashMenuPosId(null)
+                                if (!shift || !isMine) {
+                                  showToast('Сессия закрыта', 'Сначала откройте сессию на этой кассе')
+                                  setOpeningPosId(point.id)
+                                  setOpenShiftModal(true)
+                                  return
+                                }
+                                openCashierScreen('receipts')
+                              }}
+                            >
+                              Заказы
+                            </button>
+                            <button
+                              type="button"
+                              className="odoo-card-drop-item"
+                              onClick={() => {
+                                setDashMenuPosId(null)
+                                if (!shift || !isMine) {
+                                  setOpeningPosId(point.id)
+                                  setOpenShiftModal(true)
+                                  return
+                                }
+                                openCashierScreen('close')
+                              }}
+                            >
+                              Закрыть сессию
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className={`odoo-card-status ${shift ? 'open' : 'closed'}`}>
+                      {shift ? 'Сессия открыта' : 'Сессия закрыта'}
+                    </div>
+                    <div className="odoo-card-meta">
+                      {shift ? (
+                        <>
+                          Кассир: <b>{shift.cashierName || '—'}</b>
+                          {openedLabel ? <><br />Открыта: <b>{openedLabel}</b></> : null}
+                          <br />Продаж: <b>{shift.salesCount || 0}</b>
+                          {' · '}Нал: <b>{fmtMoney(shift.salesCash || 0)}</b>
+                        </>
+                      ) : (
+                        <>Откройте сессию, чтобы начать продажи на этой кассе</>
+                      )}
+                    </div>
+                    <div className="odoo-card-actions">
+                      {shift && isMine ? (
+                        <>
+                          <button
+                            type="button"
+                            className="odoo-btn-primary go"
+                            onClick={() => {
+                              setDashMenuPosId(null)
+                              setPosSurface('register')
+                            }}
+                          >
+                            Продолжить продажу
+                          </button>
+                          <button
+                            type="button"
+                            className="odoo-btn-secondary"
+                            onClick={() => {
+                              setDashMenuPosId(null)
+                              openCashierScreen('close')
+                            }}
+                          >
+                            Закрыть сессию
+                          </button>
+                        </>
+                      ) : shift ? (
+                        <button type="button" className="odoo-btn-secondary" disabled>
+                          Занято · {shift.cashierName || 'кассир'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="odoo-btn-primary"
+                          onClick={() => {
+                            setDashMenuPosId(null)
+                            if (myOpenShift) {
+                              showToast('Сессия уже открыта', 'Сначала закройте текущую сессию или продолжите продажу')
+                              return
+                            }
+                            setOpeningPosId(point.id)
+                            setMsg('')
+                            setOpenShiftModal(true)
+                          }}
+                        >
+                          Новая сессия
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className={`odoo-card-status ${activeShift ? 'open' : 'closed'}`}>
-                  {activeShift ? 'Сессия открыта' : 'Сессия закрыта'}
-                </div>
-                <div className="odoo-card-meta">
-                  {activeShift ? (
-                    <>
-                      Кассир: <b>{activeShift.cashierName || settings.cashierName || '—'}</b>
-                      {openedLabel ? <><br />Открыта: <b>{openedLabel}</b></> : null}
-                      <br />Продаж: <b>{activeShift.salesCount || 0}</b>
-                      {' · '}Нал: <b>{fmtMoney(activeShift.salesCash || 0)}</b>
-                    </>
-                  ) : (
-                    <>Откройте сессию, чтобы начать продажи на кассе</>
-                  )}
-                </div>
-                <div className="odoo-card-actions">
-                  {activeShift ? (
-                    <>
-                      <button
-                        type="button"
-                        className="odoo-btn-primary go"
-                        onClick={() => {
-                          setDashMenuOpen(false)
-                          setPosSurface('register')
-                        }}
-                      >
-                        Продолжить продажу
-                      </button>
-                      <button
-                        type="button"
-                        className="odoo-btn-secondary"
-                        onClick={() => {
-                          setDashMenuOpen(false)
-                          openCashierScreen('close')
-                        }}
-                      >
-                        Закрыть сессию
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="odoo-btn-primary"
-                      onClick={() => {
-                        setDashMenuOpen(false)
-                        setOpenShiftModal(true)
-                      }}
-                    >
-                      Новая сессия
-                    </button>
-                  )}
-                </div>
-              </div>
+                )
+              })}
             </div>
           </div>
         </div>
 
-        {openShiftModal && !activeShift && (
-          <div className="gate gate-modal" onClick={() => !busy && setOpenShiftModal(false)}>
+        {openShiftModal && (
+          <div
+            className="gate gate-modal"
+            onClick={() => {
+              if (busy) return
+              setOpenShiftModal(false)
+              setOpeningPosId(null)
+              setMsg('')
+            }}
+          >
             <div className="gate-bg" />
             <div className="gate-card" onClick={e => e.stopPropagation()}>
               <div className="gate-logo">K</div>
               <div className="gate-title">Открытие сессии</div>
-              <div className="gate-sub">Укажите кассира и наличные в кассе</div>
+              <div className="gate-sub">
+                {visiblePosPoints.find(p => p.id === openingPosId)?.name
+                  || 'Укажите кассира и наличные в кассе'}
+              </div>
               <span className="gate-label">Кто работает?</span>
               <div className="cashier-grid">
                 {cashierOptions.slice(0, 6).map(c => (
@@ -2603,15 +2724,61 @@ export default function CashierModule({
                 ))}
               </div>
               {msg && <div className="pos-err">{msg}</div>}
-              <button type="button" className="btn-gate" disabled={busy} onClick={() => void openShift()}>
-                {busy ? 'Открываем…' : 'Открыть сессию'}
+              <button type="button" className="btn-gate" disabled={busy || !!myOpenShift} onClick={() => void openShift()}>
+                {busy ? 'Открываем…' : myOpenShift ? 'Уже есть открытая сессия' : 'Открыть сессию'}
               </button>
               <button
                 type="button"
                 className="btn-switch-till"
                 style={{ marginTop: 10 }}
                 disabled={busy}
-                onClick={() => { setOpenShiftModal(false); setMsg('') }}
+                onClick={() => { setOpenShiftModal(false); setOpeningPosId(null); setMsg('') }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
+
+        {createPosModal && (
+          <div
+            className="gate gate-modal"
+            onClick={() => {
+              if (busy) return
+              setCreatePosModal(false)
+              setMsg('')
+            }}
+          >
+            <div className="gate-bg" />
+            <div className="gate-card" onClick={e => e.stopPropagation()}>
+              <div className="gate-logo">+</div>
+              <div className="gate-title">Новая точка продаж</div>
+              <div className="gate-sub">Касса, к которой будут привязаны сессии и продажи</div>
+              <span className="gate-label">Название</span>
+              <input
+                className="gate-input"
+                value={newPosName}
+                onChange={e => setNewPosName(e.target.value)}
+                placeholder="Магазин · Ленина 42"
+                autoFocus
+              />
+              <span className="gate-label">Подпись (необязательно)</span>
+              <input
+                className="gate-input"
+                value={newPosCode}
+                onChange={e => setNewPosCode(e.target.value)}
+                placeholder={`Касса №${visiblePosPoints.length + 1} · KAKAPO`}
+              />
+              {msg && <div className="pos-err">{msg}</div>}
+              <button type="button" className="btn-gate" disabled={busy} onClick={() => void createPosPoint()}>
+                {busy ? 'Создаём…' : 'Создать'}
+              </button>
+              <button
+                type="button"
+                className="btn-switch-till"
+                style={{ marginTop: 10 }}
+                disabled={busy}
+                onClick={() => { setCreatePosModal(false); setMsg('') }}
               >
                 Отмена
               </button>
@@ -2655,8 +2822,8 @@ export default function CashierModule({
       <div className="app">
         <div className="topbar">
           <div className="top-loc">
-            <b>Магазин · Ленина 42</b>
-            <div className="dot-row"><span className="d" />Онлайн</div>
+            <b>{activePosPoint?.name || 'Точка продаж'}</b>
+            <div className="dot-row"><span className="d" />{activePosPoint?.code || 'Онлайн'}</div>
           </div>
 
           <div className="searchpill">

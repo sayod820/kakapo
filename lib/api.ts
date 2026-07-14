@@ -11,6 +11,7 @@ import type {
   RestaurantPayout,
   Review,
   PosCashier,
+  PosPoint,
   PosShift,
   PosSupplier,
   SupplierPayment,
@@ -556,8 +557,13 @@ export const api = {
     request<PosCashier>('/cashiers', { method: 'POST', body: JSON.stringify(data) }),
   updateCashier: (id: string, data: Partial<PosCashier>) =>
     request<PosCashier>(`/cashiers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getPosPoints: () => request<PosPoint[]>('/pos/points'),
+  createPosPoint: (data: { name: string; code?: string; note?: string }) =>
+    request<PosPoint>('/pos/points', { method: 'POST', body: JSON.stringify(data) }),
+  updatePosPoint: (id: string, data: Partial<Pick<PosPoint, 'name' | 'code' | 'note' | 'active'>>) =>
+    request<PosPoint>(`/pos/points/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getPosShifts: () => request<PosShift[]>('/pos/shifts'),
-  openPosShift: (data: { cashierId: string; openingCash: number; note?: string }) =>
+  openPosShift: (data: { cashierId: string; openingCash: number; note?: string; posId?: string }) =>
     request<PosShift>('/pos/shifts/open', { method: 'POST', body: JSON.stringify(data) }),
   closePosShift: (id: string, data: { closingCash: number; note?: string }) =>
     request<PosShift>(`/pos/shifts/${id}/close`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -565,6 +571,7 @@ export const api = {
   createPosSale: (data: {
     cashierId?: string
     shiftId?: string
+    posId?: string
     clientId?: string
     clientName?: string
     clientPhone?: string

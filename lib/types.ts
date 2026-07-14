@@ -145,6 +145,17 @@ export interface Category {
   active?: boolean
 }
 
+export interface PosPoint {
+  id: string
+  /** Название точки, напр. «Магазин · Ленина 42» */
+  name: string
+  /** Подпись, напр. «Касса №1 · KAKAPO» */
+  code?: string
+  note?: string
+  active: boolean
+  createdAtIso?: string
+}
+
 export interface PosCashier {
   id: string
   name: string
@@ -157,6 +168,8 @@ export interface PosCashier {
 
 export interface PosShift {
   id: string
+  /** К какой точке продаж относится смена */
+  posId?: string
   cashierId: string
   cashierName: string
   openedAtIso: string
@@ -323,6 +336,8 @@ export interface PosSale {
   paidCash: number
   paidCard: number
   debtAdded: number
+  /** Точка продаж, с которой проведён чек */
+  posId?: string
   /** Сколько наличных дал клиент (до сдачи) */
   cashReceived?: number
   /** Сдача клиенту */

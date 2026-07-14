@@ -96,6 +96,13 @@ export const POS_MOCK_CSS = `
     font-family:inherit;
   }
   .odoo-dash-top p{margin:6px 0 0;font-size:13px;font-weight:700;color:#7E9A86;max-width:560px;line-height:1.45;}
+  .pos-root button.odoo-create-pos{
+    flex-shrink:0;padding:11px 16px;border-radius:12px;font-weight:900;font-size:13px;
+    background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;
+    box-shadow:0 8px 20px rgba(31,215,96,.25);border:none;cursor:pointer;
+    white-space:nowrap;
+  }
+  .pos-root button.odoo-create-pos:hover{filter:brightness(1.06);}
   .odoo-dash-body{
     padding:20px 22px 28px;flex:1;
     background:radial-gradient(ellipse 70% 50% at 10% 0%, rgba(31,215,96,.07), transparent 55%), #070C09;
@@ -155,6 +162,10 @@ export const POS_MOCK_CSS = `
     background:#0D1610;border:1.5px solid #1C2A21;color:#E8F3EB;
   }
   .pos-root button.odoo-btn-secondary:hover{border-color:#1FD760;color:#1FD760;background:#0D1610;}
+  .pos-root button.odoo-btn-secondary:disabled{
+    opacity:.55;cursor:not-allowed;border-color:#1C2A21;color:#5E7A67;
+  }
+  .pos-root button.odoo-btn-secondary:disabled:hover{border-color:#1C2A21;color:#5E7A67;background:#0D1610;}
 
   .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:500;}
   .gate.gate-modal{background:rgba(3,11,5,.72);backdrop-filter:blur(5px);}

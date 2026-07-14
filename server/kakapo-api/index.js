@@ -57,6 +57,9 @@ import {
   listCashiers,
   createCashier,
   updateCashier,
+  listPosPoints,
+  createPosPoint,
+  updatePosPoint,
   listPosShifts,
   openPosShift,
   closePosShift,
@@ -1238,6 +1241,30 @@ app.patch('/cashiers/:id', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось обновить кассира' })
+  }
+})
+
+app.get('/pos/points', (_req, res) => {
+  res.json(listPosPoints(db))
+})
+app.post('/pos/points', (req, res) => {
+  try {
+    const row = createPosPoint(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'pos', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось создать точку продаж' })
+  }
+})
+app.patch('/pos/points/:id', (req, res) => {
+  try {
+    const row = updatePosPoint(db, req.params.id, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'pos', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить точку продаж' })
   }
 })
 

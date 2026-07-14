@@ -6,6 +6,7 @@ import { USE_API } from './config'
 import type {
   PosCashier,
   PosExpense,
+  PosPoint,
   PosSale,
   PosShift,
   PosSupplier,
@@ -16,6 +17,7 @@ import type {
 
 interface PosStore {
   cashiers: PosCashier[]
+  posPoints: PosPoint[]
   shifts: PosShift[]
   sales: PosSale[]
   receipts: StockReceipt[]
@@ -44,6 +46,7 @@ interface PosStore {
 
 export const usePosStore = create<PosStore>((set) => ({
   cashiers: [],
+  posPoints: [],
   shifts: [],
   sales: [],
   receipts: [],
@@ -69,6 +72,7 @@ export const usePosStore = create<PosStore>((set) => ({
     try {
       const [
         cashiers,
+        posPoints,
         shifts,
         sales,
         receipts,
@@ -81,6 +85,7 @@ export const usePosStore = create<PosStore>((set) => ({
         report,
       ] = await Promise.all([
         api.getCashiers(),
+        api.getPosPoints(),
         api.getPosShifts(),
         api.getPosSales(),
         api.getStockReceipts(),
@@ -94,6 +99,7 @@ export const usePosStore = create<PosStore>((set) => ({
       ])
       set({
         cashiers,
+        posPoints,
         shifts,
         sales,
         receipts,

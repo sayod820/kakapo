@@ -32,7 +32,69 @@ export function ensurePosCollections(db) {
   if (!Array.isArray(db.suppliers)) db.suppliers = []
   if (!Array.isArray(db.supplierPayments)) db.supplierPayments = []
   if (!Array.isArray(db.expenses)) db.expenses = []
+  if (!Array.isArray(db.posPoints)) db.posPoints = []
   if (!db._seq || typeof db._seq !== 'object') db._seq = {}
+  ensureDefaultPosPoint(db)
+}
+
+const DEFAULT_POS_ID = 'POS-DEFAULT'
+
+function ensureDefaultPosPoint(db) {
+  if (!db.posPoints.length) {
+    db.posPoints.push({
+      id: DEFAULT_POS_ID,
+      name: 'Магазин · Ленина 42',
+      code: 'Касса №1 · KAKAPO',
+      note: '',
+      active: true,
+      createdAtIso: nowIso(),
+    })
+  }
+  const fallbackId = db.posPoints[0]?.id || DEFAULT_POS_ID
+  for (const s of db.posShifts) {
+    if (!s.posId) s.posId = fallbackId
+  }
+  for (const s of db.posSales) {
+    if (!s.posId) s.posId = fallbackId
+  }
+}
+
+export function listPosPoints(db) {
+  ensurePosCollections(db)
+  return [...db.posPoints].sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
+}
+
+export function createPosPoint(db, data = {}) {
+  ensurePosCollections(db)
+  const name = String(data.name || '').trim()
+  if (!name) throw new Error('Укажите название точки продаж')
+  const n = db.posPoints.length + 1
+  const code = String(data.code || '').trim() || `Касса №${n} · KAKAPO`
+  const row = {
+    id: nextId('POS'),
+    name,
+    code,
+    note: String(data.note || '').trim(),
+    active: data.active !== false,
+    createdAtIso: nowIso(),
+  }
+  db.posPoints.push(row)
+  return row
+}
+
+export function updatePosPoint(db, id, data = {}) {
+  ensurePosCollections(db)
+  const row = db.posPoints.find(p => p.id === id)
+  if (!row) throw new Error('Точка продаж не найдена')
+  if (data.name != null) {
+    const name = String(data.name).trim()
+    if (!name) throw new Error('Укажите название')
+    row.name = name
+  }
+  if (data.code != null) row.code = String(data.code).trim()
+  if (data.note != null) row.note = String(data.note).trim()
+  if (data.active != null) row.active = !!data.active
+  return row
 }
 
 /** Присвоить сквозные номера старым чекам. true = были изменения. */
@@ -297,10 +359,16 @@ export function openPosShift(db, data = {}) {
   ensurePosCollections(db)
   const cashier = db.cashiers.find(c => c.id === data.cashierId)
   if (!cashier) throw new Error('Кассир не найден')
+  const posId = String(data.posId || '').trim() || (db.posPoints[0]?.id || DEFAULT_POS_ID)
+  const pos = db.posPoints.find(p => p.id === posId)
+  if (!pos || pos.active === false) throw new Error('Точка продаж не найдена')
+  const openOnPos = db.posShifts.find(s => s.posId === posId && s.status === 'open')
+  if (openOnPos) throw new Error('На этой точке продаж уже открыта сессия')
   const existing = db.posShifts.find(s => s.cashierId === cashier.id && s.status === 'open')
   if (existing) throw new Error('У кассира уже открыта смена')
   const row = {
     id: nextId('SHIFT'),
+    posId,
     cashierId: cashier.id,
     cashierName: cashier.name,
     openedAtIso: nowIso(),
@@ -786,6 +854,7 @@ export function createPosSale(db, data = {}) {
   const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
   const shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
   if (data.shiftId && !shift) throw new Error('Смена не найдена')
+  const posId = String(data.posId || shift?.posId || (db.posPoints[0]?.id || DEFAULT_POS_ID)).trim()
   // Один счётчик с онлайн-заказами: K-4864 …
   const orderId = nextOrderId(db)
   const sale = {
@@ -796,6 +865,7 @@ export function createPosSale(db, data = {}) {
     cashierId: cashier?.id || '',
     cashierName: cashier?.name || '',
     shiftId: shift?.id || '',
+    posId,
     clientId: data.clientId || '',
     clientName: String(data.clientName || '').trim(),
     clientPhone: String(data.clientPhone || '').trim(),
