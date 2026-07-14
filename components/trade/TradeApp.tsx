@@ -12,6 +12,7 @@ import ClientsModule from '@/components/trade/ClientsModule'
 import DebtsModule from '@/components/trade/DebtsModule'
 import CashierModule from '@/components/trade/CashierModule'
 import ComingSoonModule from '@/components/trade/ComingSoonModule'
+import ReportsModule from '@/components/trade/ReportsModule'
 
 /* ══════════════════════════════════════════════════════════════
    6-е приложение KAKAPO — «Торговля»
@@ -240,14 +241,11 @@ const NAV: NavItem[] = [
   { id: 'debts', label: 'Долги', icon: '💳' },
   { id: 'warehouse', label: 'Склад', icon: '🏬' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚' },
-  { id: 'finance', label: 'Финансы', icon: '💰', tag: 'скоро' },
-  { id: 'reports', label: 'Отчёты', icon: '📊', tag: 'скоро' },
+  { id: 'finance', label: 'Финансы', icon: '💰' },
+  { id: 'reports', label: 'Отчёты', icon: '📊' },
 ]
 
-const SOON_PAGES: Record<string, { title: string; icon: string; desc: string }> = {
-  finance: { icon: '💰', title: 'Финансы', desc: 'Выручка, расходы и движение денег.' },
-  reports: { icon: '📊', title: 'Отчёты', desc: 'Сводные отчёты по продажам и складу.' },
-}
+const SOON_PAGES: Record<string, { title: string; icon: string; desc: string }> = {}
 
 function Clock() {
   const [now, setNow] = useState<Date | null>(null)
@@ -320,6 +318,7 @@ function TradeAppInner() {
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
+    if (current === 'reports' || current === 'finance') return <ReportsModule />
     const soon = SOON_PAGES[current]
     if (soon) return <ComingSoonModule icon={soon.icon} title={soon.title} description={soon.desc} />
     return <ProductsModule search={search} />
