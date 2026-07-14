@@ -2892,47 +2892,39 @@ export default function CashierModule({
                   </span>
                 </button>
                 {payDebtOn && (
-                  <>
-                    <div className="pay-bonus-quick" style={{ marginTop: 10 }}>
-                      <button
-                        type="button"
-                        className={Math.abs(payDebtAmt - Math.round(clientDebt / 2 * 100) / 100) < 0.02 ? 'on' : ''}
-                        onClick={() => setPayDebtBuf(String(Math.round(clientDebt / 2 * 100) / 100))}
-                      >
-                        ½
-                      </button>
-                      <button
-                        type="button"
-                        className={Math.abs(payDebtAmt - clientDebt) < 0.02 ? 'on' : ''}
-                        onClick={() => setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))}
-                      >
-                        Весь
-                      </button>
-                      <button type="button" onClick={() => setPayDebtBuf('0')}>0</button>
-                    </div>
-                    <div className="kp-display" style={{ marginTop: 8, marginBottom: 0 }}>
-                      <div className="lbl">СУММА ПОГАШЕНИЯ</div>
-                      <input
-                        className="kp-field"
-                        value={payDebtBuf}
-                        inputMode="decimal"
-                        onChange={e => {
-                          const next = sanitizeDecimalInput(e.target.value)
-                          const n = Number(next)
-                          if (next !== '' && Number.isFinite(n) && n > clientDebt + 0.001) {
-                            setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))
-                            return
-                          }
-                          setPayDebtBuf(next)
-                        }}
-                        onFocus={e => e.currentTarget.select()}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="pay-debt-hint">
-                      Чек {total.toFixed(2)} + долг {payDebtAmt.toFixed(2)} = <b>{collectTotal.toFixed(2)} сом</b>
-                    </div>
-                  </>
+                  <div className="pay-debt-row">
+                    <button
+                      type="button"
+                      className={Math.abs(payDebtAmt - Math.round(clientDebt / 2 * 100) / 100) < 0.02 ? 'on' : ''}
+                      onClick={() => setPayDebtBuf(String(Math.round(clientDebt / 2 * 100) / 100))}
+                    >
+                      ½
+                    </button>
+                    <button
+                      type="button"
+                      className={Math.abs(payDebtAmt - clientDebt) < 0.02 ? 'on' : ''}
+                      onClick={() => setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))}
+                    >
+                      Весь
+                    </button>
+                    <input
+                      className="pay-debt-amt"
+                      value={payDebtBuf}
+                      inputMode="decimal"
+                      onChange={e => {
+                        const next = sanitizeDecimalInput(e.target.value)
+                        const n = Number(next)
+                        if (next !== '' && Number.isFinite(n) && n > clientDebt + 0.001) {
+                          setPayDebtBuf(String(Math.round(clientDebt * 100) / 100))
+                          return
+                        }
+                        setPayDebtBuf(next)
+                      }}
+                      onFocus={e => e.currentTarget.select()}
+                      placeholder="0"
+                      aria-label="Сумма погашения"
+                    />
+                  </div>
                 )}
               </div>
             )}
