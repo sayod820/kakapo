@@ -781,6 +781,8 @@ export function createPosSale(db, data = {}) {
   const paidCash = round2(data.paidCash ?? (paymentMethod === 'cash' ? total : 0))
   const paidCard = round2(data.paidCard ?? (paymentMethod === 'card' ? total : 0))
   const debtAdded = round2(data.debtAdded ?? (paymentMethod === 'credit' ? total : 0))
+  const cashReceived = round2(data.cashReceived ?? 0)
+  const changeGiven = round2(data.changeGiven ?? 0)
   const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
   const shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
   if (data.shiftId && !shift) throw new Error('Смена не найдена')
@@ -803,6 +805,8 @@ export function createPosSale(db, data = {}) {
     paidCash,
     paidCard,
     debtAdded,
+    cashReceived,
+    changeGiven,
     note: String(data.note || '').trim(),
     items,
   }

@@ -573,6 +573,8 @@ export const api = {
     paidCash?: number
     paidCard?: number
     debtAdded?: number
+    cashReceived?: number
+    changeGiven?: number
     bonusSpent?: number
     orderGoodsTotal?: number
     note?: string

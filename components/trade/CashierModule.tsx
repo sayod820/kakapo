@@ -1985,6 +1985,7 @@ export default function CashierModule({
     let cardPaid = 0
     let debtAdded = 0
     let change = 0
+    let cashReceivedVal = 0
 
     if (methodPay === 'credit') {
       apiMethod = 'credit'
@@ -2024,10 +2025,17 @@ export default function CashierModule({
       else if (cardPaid > 0 && cashPaid < 0.01 && debtAdded < 0.01) apiMethod = 'card'
       else if (debtAdded > 0 && cashPaid < 0.01 && cardPaid < 0.01) apiMethod = 'credit'
       else apiMethod = 'mixed'
+      cashReceivedVal = Math.round(Math.max(0, paidCash) * 100) / 100
+      change = Math.max(0, Math.round((cashReceivedVal - cashPaid) * 100) / 100)
     } else if (methodPay === 'cash') {
       apiMethod = 'cash'
       cashPaid = payable
-      change = Math.max(0, paidCash - payable)
+      const debtRepayNow = currentPayDebtAmt()
+      cashReceivedVal = Math.round(Math.max(0, paidCash) * 100) / 100
+      if (cashReceivedVal < payable + debtRepayNow - 0.001) {
+        cashReceivedVal = Math.round((payable + debtRepayNow) * 100) / 100
+      }
+      change = Math.max(0, Math.round((cashReceivedVal - payable - debtRepayNow) * 100) / 100)
     } else {
       apiMethod = 'card'
       cardPaid = payable
@@ -2047,6 +2055,8 @@ export default function CashierModule({
         paidCash: cashPaid,
         paidCard: cardPaid,
         debtAdded,
+        cashReceived: cashReceivedVal > 0.001 ? cashReceivedVal : undefined,
+        changeGiven: change > 0.001 ? change : undefined,
         bonusSpent: spend > 0 ? spend : undefined,
         orderGoodsTotal: afterDisc,
         items: cart.map(l => ({
@@ -3507,8 +3517,7 @@ export default function CashierModule({
                   className="btn-confirm cash-accept"
                   disabled={busy || cashReceived < collectTotal - 0.001}
                   onClick={() => {
-                    const goodsRecv = Math.max(0, Math.round((cashReceived - payDebtAmt) * 100) / 100)
-                    void submitSale(goodsRecv)
+                    void submitSale(cashReceived)
                   }}
                 >
                   Принять
@@ -4136,6 +4145,14 @@ export default function CashierModule({
                         </div>
                         <div className="hist-amt-col">
                           <div className="hist-amt">{fmtMoney(s.total)}</div>
+                          {(Number(s.cashReceived) || 0) > 0.001 && (
+                            <div className="hist-cash-meta">
+                              <span>дал {fmtMoney(Number(s.cashReceived))}</span>
+                              {(Number(s.changeGiven) || 0) > 0.001 && (
+                                <span className="hist-change">сдача {fmtMoney(Number(s.changeGiven))}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </button>
                     )
@@ -4159,6 +4176,12 @@ export default function CashierModule({
                               : 'Смешанная'}
                   </b></div>
                   <div><span>Сумма</span><b className="sum">{fmtMoney(receiptDetail.total)}</b></div>
+                  {(Number(receiptDetail.cashReceived) || 0) > 0.001 && (
+                    <div><span>Дал клиент</span><b className="bank-fig">{fmtMoney(Number(receiptDetail.cashReceived))}</b></div>
+                  )}
+                  {(Number(receiptDetail.changeGiven) || 0) > 0.001 && (
+                    <div><span>Сдача</span><b className="sum">{fmtMoney(Number(receiptDetail.changeGiven))}</b></div>
+                  )}
                   <div><span>Клиент</span><b>{receiptDetail.clientName || 'Без клиента'}</b></div>
                   <div><span>Кассир</span><b>{receiptDetail.cashierName || settings.cashierName}</b></div>
                 </div>

@@ -800,6 +800,11 @@ export const POS_MOCK_CSS = `
   .hist-amt-col{flex-shrink:0;text-align:right;}
   .hist-amt{font-family:'JetBrains Mono';font-size:13px;font-weight:900;color:var(--gd);}
   .hist-remain{font-size:9.5px;font-weight:800;color:var(--org);margin-top:3px;font-family:'JetBrains Mono',monospace;}
+  .hist-cash-meta{
+    margin-top:4px;display:flex;flex-direction:column;align-items:flex-end;gap:1px;
+    font-size:10.5px;font-weight:700;color:var(--t3);line-height:1.25;
+  }
+  .hist-cash-meta .hist-change{color:var(--accent);font-weight:800;}
   .hist-row.tone-credit .hist-amt,.hist-row.tone-debt .hist-amt{color:var(--org);}
   .hist-row.tone-credit.settled .hist-amt,.hist-row.tone-debt.settled .hist-amt{color:var(--accent);}
   .hist-row.tone-repay .hist-amt{color:var(--blue);}

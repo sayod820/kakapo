@@ -323,6 +323,10 @@ export interface PosSale {
   paidCash: number
   paidCard: number
   debtAdded: number
+  /** Сколько наличных дал клиент (до сдачи) */
+  cashReceived?: number
+  /** Сдача клиенту */
+  changeGiven?: number
   note?: string
   orderId?: string
   items: PosSaleItem[]
