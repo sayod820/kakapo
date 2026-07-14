@@ -550,6 +550,7 @@ export default function CashierModule({
   }, [
     overlayBlocksSearch,
     activeShift?.id,
+    activeTicketId,
     catModalOpen, clientOpen, clientScanOpen, discOpen, discPickOpen,
     qtyEditOpen, cashOpen, splitCardOpen, topupOpen, repayOpen,
     histOpen, payPickOpen,
@@ -1640,6 +1641,9 @@ export default function CashierModule({
     setDiscOpen(false)
     setQtyEditOpen(false)
     showToast('Новый чек', `Чек ${t.seq}`)
+    // после клика по «+» фокус остаётся на кнопке — вернуть в поиск
+    window.setTimeout(focusProductSearch, 0)
+    window.setTimeout(focusProductSearch, 60)
   }
 
   function switchTicket(id: string) {
@@ -1656,6 +1660,8 @@ export default function CashierModule({
     setDiscOpen(false)
     setDiscPickOpen(false)
     setActiveTicketId(id)
+    window.setTimeout(focusProductSearch, 0)
+    window.setTimeout(focusProductSearch, 60)
   }
 
   function closeTicket(id: string) {
