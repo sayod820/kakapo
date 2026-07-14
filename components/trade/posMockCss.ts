@@ -605,6 +605,19 @@ export const POS_MOCK_CSS = `
   .pos-root button.ac-topup{background:rgba(31,215,96,.1);border:1.5px solid rgba(31,215,96,.32);}
   .ac-topup .ic-wrap{background:rgba(31,215,96,.2);}
   .pos-root button.ac-topup:hover{border-color:var(--accent);}
+  .check-till-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 14px 8px;flex-shrink:0;}
+  .pos-root button.ac-till-in{background:rgba(31,215,96,.1);border:1.5px solid rgba(31,215,96,.32);}
+  .ac-till-in .ic-wrap{background:rgba(31,215,96,.2);}
+  .pos-root button.ac-till-in:hover{border-color:var(--accent);}
+  .pos-root button.ac-till-out{background:rgba(255,140,0,.1);border:1.5px solid rgba(255,140,0,.32);}
+  .ac-till-out .ic-wrap{background:rgba(255,140,0,.2);}
+  .pos-root button.ac-till-out:hover{border-color:var(--org);}
+  .till-expected{font-size:12px;color:var(--t2);margin:0 0 10px;font-weight:700;line-height:1.4;}
+  .till-expected b{color:var(--gd);font-family:'JetBrains Mono',monospace;}
+  .till-supplier-grid{display:grid;gap:6px;max-height:160px;overflow:auto;margin-bottom:10px;}
+  .pos-root button.till-supplier-opt{text-align:left;padding:8px 10px;border-radius:10px;border:1.5px solid var(--border);background:rgba(255,255,255,.03);display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--t2);}
+  .pos-root button.till-supplier-opt.on{border-color:var(--org);background:rgba(255,140,0,.12);color:var(--gd);}
+  .pos-root button.till-supplier-opt span:last-child{color:var(--org);font-family:'JetBrains Mono',monospace;flex-shrink:0;}
 
   .link-row{display:flex;gap:4px;padding:2px 14px 8px;flex-shrink:0;justify-content:center;align-items:center;}
   .link-row button{font-size:11px;color:#6B8F76;font-weight:700;padding:4px 10px;}

@@ -642,7 +642,7 @@ export default function ReportsModule() {
                     {periodShifts.map(s => {
                       const expected = s.expectedCash != null
                         ? Number(s.expectedCash)
-                        : round2((Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) - (Number(s.expenseTotal) || 0))
+                        : round2((Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) + (Number(s.cashInTotal) || 0) - (Number(s.expenseTotal) || 0))
                       const actual = s.actualCash != null ? Number(s.actualCash) : (s.closingCash != null ? Number(s.closingCash) : null)
                       const diff = s.cashDiff != null
                         ? Number(s.cashDiff)

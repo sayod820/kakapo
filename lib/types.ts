@@ -187,8 +187,24 @@ export interface PosShift {
   salesCredit: number
   salesCount: number
   expenseTotal: number
+  /** Внесения наличных в смену (не продажи) */
+  cashInTotal?: number
   status: 'open' | 'closed'
   note?: string
+}
+
+/** Вклад в кассу / снятие денег владельцем */
+export interface FinanceMove {
+  id: string
+  type: 'deposit' | 'withdraw'
+  amount: number
+  note?: string
+  createdBy?: string
+  createdAtIso: string
+  shiftId?: string
+  posId?: string
+  supplierId?: string
+  supplierName?: string
 }
 
 /** Запись audit / денежного журнала (источник правды) */
@@ -312,16 +328,6 @@ export interface PosExpense {
   createdBy?: string
   createdAtIso: string
   shiftId?: string
-}
-
-/** Вклад в кассу / снятие денег владельцем */
-export interface FinanceMove {
-  id: string
-  type: 'deposit' | 'withdraw'
-  amount: number
-  note?: string
-  createdBy?: string
-  createdAtIso: string
 }
 
 export interface StockReceiptItem {

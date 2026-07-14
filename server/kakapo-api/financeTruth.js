@@ -138,6 +138,7 @@ function shiftExpectedCash(shift) {
   return round2(
     (Number(shift.openingCash) || 0)
     + (Number(shift.salesCash) || 0)
+    + (Number(shift.cashInTotal) || 0)
     - (Number(shift.expenseTotal) || 0),
   )
 }
@@ -163,6 +164,7 @@ export function getExpectedVsActual(db, q = {}) {
       closedAtIso: s.closedAtIso,
       openingCash: round2(s.openingCash),
       salesCash: round2(s.salesCash),
+      cashInTotal: round2(s.cashInTotal),
       expenseTotal: round2(s.expenseTotal),
       expectedCash: expected,
       actualCash: actual,

@@ -670,8 +670,18 @@ export const api = {
   createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string; shiftId?: string }) =>
     request<PosExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
   getFinanceMoves: () => request<FinanceMove[]>('/finance/moves'),
-  createFinanceMove: (data: { type: 'deposit' | 'withdraw'; amount: number; note?: string; createdBy?: string }) =>
-    request<FinanceMove>('/finance/moves', { method: 'POST', body: JSON.stringify(data) }),
+  createFinanceMove: (data: {
+    type: 'deposit' | 'withdraw'
+    amount: number
+    note?: string
+    createdBy?: string
+    cashierId?: string
+    cashierName?: string
+    shiftId?: string
+    posId?: string
+    supplierId?: string
+    reason?: string
+  }) => request<FinanceMove>('/finance/moves', { method: 'POST', body: JSON.stringify(data) }),
   deleteFinanceMove: (id: string) =>
     request<{ id: string }>(`/finance/moves/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getPosFinanceSummary: () => request<any>('/finance/pos-summary'),

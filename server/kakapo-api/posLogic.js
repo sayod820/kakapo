@@ -402,6 +402,7 @@ export function openPosShift(db, data = {}) {
     salesCredit: 0,
     salesCount: 0,
     expenseTotal: 0,
+    cashInTotal: 0,
     status: 'open',
     note: String(data.note || '').trim(),
   }
@@ -430,6 +431,7 @@ export function closePosShift(db, id, data = {}) {
   const expectedCash = round2(
     (Number(row.openingCash) || 0)
     + (Number(row.salesCash) || 0)
+    + (Number(row.cashInTotal) || 0)
     - (Number(row.expenseTotal) || 0),
   )
   const actualCash = round2(data.closingCash)
@@ -593,7 +595,7 @@ export function createExpense(db, data = {}) {
   return row
 }
 
-/** Вклады / снятия капитала магазина */
+/** Вклады / снятия — с открытой смены списывают/вносят наличные в кассу */
 export function listFinanceMoves(db) {
   ensurePosCollections(db)
   return [...db.financeMoves].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
@@ -604,27 +606,88 @@ export function createFinanceMove(db, data = {}) {
   const type = data.type === 'withdraw' ? 'withdraw' : 'deposit'
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму')
+
+  let shift = null
+  if (data.shiftId) {
+    shift = db.posShifts.find(s => s.id === data.shiftId)
+    if (!shift) throw new Error('Смена не найдена')
+    if (shift.status !== 'open') throw new Error('Смена уже закрыта')
+  }
+
+  const cashierName = String(data.createdBy || data.cashierName || shift?.cashierName || '').trim()
+  const cashierId = String(data.cashierId || shift?.cashierId || '').trim()
+  const supplierId = String(data.supplierId || '').trim()
+  let supplier = null
+  let payment = null
+
+  if (type === 'withdraw' && supplierId) {
+    supplier = db.suppliers.find(s => s.id === supplierId)
+    if (!supplier) throw new Error('Поставщик не найден')
+  }
+
+  const note = String(data.note || '').trim()
+  const reason = String(data.reason || '').trim()
+    || (type === 'deposit'
+      ? 'Внесение в кассу'
+      : supplier
+        ? `Оплата поставщику · ${supplier.name}`
+        : 'Снятие из кассы')
+
   const row = {
     id: nextId('FIN'),
     type,
     amount,
-    note: String(data.note || '').trim(),
-    createdBy: String(data.createdBy || '').trim(),
+    note,
+    createdBy: cashierName,
     createdAtIso: nowIso(),
+    shiftId: shift?.id || undefined,
+    posId: shift?.posId || data.posId || '',
+    supplierId: supplier?.id,
+    supplierName: supplier?.name,
   }
   db.financeMoves.unshift(row)
+
+  if (shift) {
+    if (type === 'withdraw') {
+      shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + amount)
+    } else {
+      shift.cashInTotal = round2((Number(shift.cashInTotal) || 0) + amount)
+    }
+  }
+
+  if (supplier) {
+    supplier.totalPaid = round2((Number(supplier.totalPaid) || 0) + amount)
+    syncSupplierPayable(supplier)
+    payment = {
+      id: nextId('SPAY'),
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      amount,
+      paidAtIso: row.createdAtIso,
+      note: note || `С кассы · ${shift?.id || ''}`,
+      financeMoveId: row.id,
+      shiftId: shift?.id,
+    }
+    if (!Array.isArray(db.supplierPayments)) db.supplierPayments = []
+    db.supplierPayments.unshift(payment)
+  }
+
   appendMoneyLedger(db, {
     type: type === 'deposit' ? 'deposit' : 'withdraw',
     amount,
     direction: type === 'deposit' ? 'in' : 'out',
     cashAffect: true,
-    cashierName: row.createdBy || '',
+    posId: row.posId || '',
+    shiftId: row.shiftId || '',
+    cashierId,
+    cashierName,
     refType: 'finance_move',
     refId: row.id,
-    reason: type === 'deposit' ? 'Вклад в кассу' : 'Снятие из кассы',
-    note: row.note,
+    reason,
+    note,
+    meta: supplier ? { supplierId: supplier.id, supplierName: supplier.name, paymentId: payment?.id } : {},
   })
-  return row
+  return { ...row, payment }
 }
 
 export function deleteFinanceMove(db, id) {

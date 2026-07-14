@@ -132,7 +132,7 @@ export default function FinanceModule() {
       shifts
         .filter(s => s.status === 'open')
         .reduce((sum, s) => {
-          const expected = (Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) - (Number(s.expenseTotal) || 0)
+          const expected = (Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) + (Number(s.cashInTotal) || 0) - (Number(s.expenseTotal) || 0)
           return sum + expected
         }, 0),
     )

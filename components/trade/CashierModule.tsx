@@ -223,6 +223,21 @@ function initialsOf(name: string) {
   return name.split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || 'K'
 }
 
+/** Ожидаемые наличные в кассе: старт + продажи нал + внесено − снято/расходы */
+function expectedTillCash(shift: {
+  openingCash?: number
+  salesCash?: number
+  cashInTotal?: number
+  expenseTotal?: number
+}) {
+  return Math.round((
+    (Number(shift.openingCash) || 0)
+    + (Number(shift.salesCash) || 0)
+    + (Number(shift.cashInTotal) || 0)
+    - (Number(shift.expenseTotal) || 0)
+  ) * 100) / 100
+}
+
 function loadSettings(): PosSettings {
   if (typeof window === 'undefined') return { cashierId: '', cashierName: 'Кассир', initials: 'К' }
   try {
@@ -323,6 +338,7 @@ export default function CashierModule({
   const posPoints = usePosStore(s => s.posPoints)
   const cashiers = usePosStore(s => s.cashiers)
   const sales = usePosStore(s => s.sales)
+  const suppliers = usePosStore(s => s.suppliers)
   const apiReady = usePosStore(s => s.apiReady)
   const { categories, roots, childrenOf } = useCategories()
   const { getPhoto, hydrate } = useProductPhotos()
@@ -450,6 +466,10 @@ export default function CashierModule({
   /** index позиции → qty к возврату (0 = не выбрано) */
   const [returnQtyByIdx, setReturnQtyByIdx] = useState<Record<number, number>>({})
   const [closingCash, setClosingCash] = useState('')
+  const [tillMoveKind, setTillMoveKind] = useState<null | 'in' | 'out'>(null)
+  const [tillAmountBuf, setTillAmountBuf] = useState('')
+  const [tillNote, setTillNote] = useState('')
+  const [tillSupplierId, setTillSupplierId] = useState('')
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [topupOpen, setTopupOpen] = useState(false)
   const [topupBuf, setTopupBuf] = useState('')
@@ -530,7 +550,7 @@ export default function CashierModule({
   }, [qtyEditOpen, qtyEditMode, qtyEditPad])
 
   useEffect(() => {
-    const open = discOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
+    const open = discOpen || cashOpen || splitCardOpen || topupOpen || repayOpen || !!tillMoveKind
     if (!open || amountPad) return
     const t = window.setTimeout(() => {
       const el = amountInputRef.current
@@ -539,7 +559,7 @@ export default function CashierModule({
       el.select()
     }, 40)
     return () => window.clearTimeout(t)
-  }, [discOpen, cashOpen, splitCardOpen, topupOpen, repayOpen, amountPad])
+  }, [discOpen, cashOpen, splitCardOpen, topupOpen, repayOpen, tillMoveKind, amountPad])
 
   useEffect(() => {
     if (!clientScanOpen) return
@@ -570,6 +590,16 @@ export default function CashierModule({
     }
     return open[0]
   }, [shifts, settings.cashierId])
+
+  const tillExpected = useMemo(
+    () => (activeShift ? expectedTillCash(activeShift) : 0),
+    [activeShift],
+  )
+
+  const tillSuppliers = useMemo(
+    () => [...suppliers].sort((a, b) => (Number(b.payableAmount) || 0) - (Number(a.payableAmount) || 0)),
+    [suppliers],
+  )
 
   const activePosPoint = useMemo(() => {
     const id = activeShift?.posId
@@ -1554,10 +1584,72 @@ export default function CashierModule({
       void refresh()
       return
     }
-    const expected = activeShift ? activeShift.openingCash + activeShift.salesCash : 0
+    const expected = activeShift ? expectedTillCash(activeShift) : 0
     setClosingCash(expected > 0 ? expected.toFixed(2) : '0.00')
     setSwitchCashierId(settings.cashierId || pickedCashierId || cashierOptions[0]?.id || '')
     setCashierScreen(kind)
+  }
+
+  function openTillMove(kind: 'in' | 'out') {
+    if (!activeShift) {
+      showToast('Смена закрыта', 'Сначала откройте смену')
+      return
+    }
+    setCashierMenuOpen(false)
+    setMsg('')
+    setTillMoveKind(kind)
+    setTillAmountBuf('')
+    setTillNote('')
+    setTillSupplierId('')
+    setAmountPad(false)
+  }
+
+  async function submitTillMove() {
+    if (!activeShift || !tillMoveKind) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const amount = Number(tillAmountBuf)
+      if (!(amount > 0)) throw new Error('Укажите сумму')
+      if (!USE_API) throw new Error('Нужен API')
+      if (tillMoveKind === 'out' && amount > tillExpected + 0.009) {
+        throw new Error(`В кассе только ${fmtMoney(tillExpected)}`)
+      }
+      await api.createFinanceMove({
+        type: tillMoveKind === 'in' ? 'deposit' : 'withdraw',
+        amount,
+        note: tillNote.trim() || undefined,
+        createdBy: settings.cashierName,
+        cashierId: settings.cashierId || activeShift.cashierId,
+        cashierName: settings.cashierName || activeShift.cashierName,
+        shiftId: activeShift.id,
+        posId: activeShift.posId || activePosPoint?.id,
+        supplierId: tillMoveKind === 'out' && tillSupplierId ? tillSupplierId : undefined,
+        reason: tillMoveKind === 'in'
+          ? 'Внесение в кассу'
+          : tillSupplierId
+            ? undefined
+            : 'Снятие из кассы',
+      })
+      await refresh()
+      const kindLabel = tillMoveKind === 'in' ? 'Внесено' : 'Снято'
+      const supplierName = tillSupplierId
+        ? suppliers.find(s => s.id === tillSupplierId)?.name
+        : ''
+      showToast(
+        kindLabel,
+        supplierName ? `${fmtMoney(amount)} · ${supplierName}` : fmtMoney(amount),
+      )
+      setTillMoveKind(null)
+      setTillAmountBuf('')
+      setTillNote('')
+      setTillSupplierId('')
+      setAmountPad(false)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Ошибка')
+    } finally {
+      setBusy(false)
+    }
   }
 
   function saleLineLeft(it: { qty?: number; returnedQty?: number }) {
@@ -3182,6 +3274,28 @@ export default function CashierModule({
                 <button
                   type="button"
                   className="account-menu-item"
+                  onClick={() => openTillMove('in')}
+                >
+                  <span className="ami-ic">⬇️</span>
+                  <span>
+                    <b>Внести в кассу</b>
+                    <i>Положить наличные · ожидается {fmtMoney(tillExpected)}</i>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="account-menu-item"
+                  onClick={() => openTillMove('out')}
+                >
+                  <span className="ami-ic">⬆️</span>
+                  <span>
+                    <b>Снять из кассы</b>
+                    <i>Оплата поставщику / расход наличными</i>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="account-menu-item"
                   onClick={() => openCashierScreen('switch')}
                 >
                   <span className="ami-ic">🔁</span>
@@ -3448,6 +3562,15 @@ export default function CashierModule({
             </button>
             <button type="button" className={`action-chip ac-discount-all ${discountPct > 0 ? 'on' : ''}`} onClick={openAllDiscount} disabled={!cart.length}>
               <span className="ic-wrap">%</span><span>Скидка на всё</span>
+            </button>
+          </div>
+
+          <div className="check-till-actions">
+            <button type="button" className="action-chip ac-till-in" onClick={() => openTillMove('in')} disabled={!activeShift || busy}>
+              <span className="ic-wrap">⬇️</span><span>Внести</span>
+            </button>
+            <button type="button" className="action-chip ac-till-out" onClick={() => openTillMove('out')} disabled={!activeShift || busy}>
+              <span className="ic-wrap">⬆️</span><span>Снять</span>
             </button>
           </div>
 
@@ -4265,6 +4388,118 @@ export default function CashierModule({
         </div>
       )}
 
+      {tillMoveKind && activeShift && (
+        <div className="overlay" onClick={() => !busy && setTillMoveKind(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <h3>{tillMoveKind === 'in' ? '⬇️ Внести в кассу' : '⬆️ Снять из кассы'}</h3>
+            <div className="till-expected">
+              Сейчас ожидается в кассе: <b>{fmtMoney(tillExpected)}</b>
+              {tillMoveKind === 'out' ? (
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>
+                  Снятие списывается с кассы. Можно выбрать поставщика — долг уменьшится.
+                </div>
+              ) : (
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>
+                  Внесение увеличит ожидаемый остаток наличных в смене.
+                </div>
+              )}
+            </div>
+
+            {tillMoveKind === 'out' && (
+              <>
+                <div className="gate-label">Поставщик (необязательно)</div>
+                <div className="till-supplier-grid">
+                  <button
+                    type="button"
+                    className={`till-supplier-opt ${!tillSupplierId ? 'on' : ''}`}
+                    onClick={() => setTillSupplierId('')}
+                  >
+                    <span>Без поставщика · просто снятие</span>
+                  </button>
+                  {tillSuppliers.slice(0, 12).map(s => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={`till-supplier-opt ${tillSupplierId === s.id ? 'on' : ''}`}
+                      onClick={() => {
+                        setTillSupplierId(s.id)
+                        const debt = Number(s.payableAmount) || 0
+                        if (debt > 0 && !tillAmountBuf) setTillAmountBuf(debt.toFixed(2))
+                      }}
+                    >
+                      <span>{s.name}</span>
+                      <span>{(Number(s.payableAmount) || 0) > 0 ? fmtMoney(s.payableAmount) : '—'}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="kp-display">
+              <div className="lbl">СУММА</div>
+              <input
+                ref={amountInputRef}
+                className="kp-field"
+                value={tillAmountBuf}
+                inputMode="decimal"
+                autoFocus
+                onChange={e => setTillAmountBuf(sanitizeDecimalInput(e.target.value))}
+                onFocus={e => e.currentTarget.select()}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="kp-quick" style={{ marginBottom: 10 }}>
+              {(tillMoveKind === 'out'
+                ? [50, 100, 200, tillExpected].filter((v, i, a) => v > 0 && a.indexOf(v) === i)
+                : [50, 100, 200, 500]
+              ).map(v => (
+                <button key={v} type="button" onClick={() => setTillAmountBuf(Number(v).toFixed(2))}>
+                  {v === tillExpected ? 'Всё' : String(v)}
+                </button>
+              ))}
+            </div>
+            <label className="gate-label">Заметка</label>
+            <input
+              className="gate-input"
+              value={tillNote}
+              onChange={e => setTillNote(e.target.value)}
+              placeholder={tillMoveKind === 'out' ? 'За что / кому…' : 'Откуда деньги…'}
+            />
+            <div className="amount-pad-row" style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
+                onClick={() => setAmountPad(v => !v)}
+              >
+                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+              </button>
+            </div>
+            {amountPad && (
+              <Keypad onDigit={k => setTillAmountBuf(b => appendDigit(b, k))} onBack={() => setTillAmountBuf(b => b.slice(0, -1))} />
+            )}
+            {msg && <div className="pos-err">{msg}</div>}
+            <div className="modal-card-actions">
+              <button
+                type="button"
+                className="btn-cancel"
+                disabled={busy}
+                onClick={() => { setTillMoveKind(null); setAmountPad(false); setMsg('') }}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="btn-confirm"
+                disabled={busy}
+                onClick={() => void submitTillMove()}
+              >
+                {busy ? 'Сохраняем…' : tillMoveKind === 'in' ? 'Внести' : 'Снять'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {topupOpen && client && (
         <div className="overlay" onClick={() => !busy && setTopupOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -4970,7 +5205,7 @@ export default function CashierModule({
               <div className="z-stat"><div className="l">Наличные</div><div className="v" style={{ color: 'var(--accent)' }}>{fmtMoney(activeShift.salesCash)}</div></div>
               <div className="z-stat"><div className="l">Карта</div><div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(activeShift.salesCard)}</div></div>
               <div className="z-stat"><div className="l">В долг</div><div className="v" style={{ color: 'var(--org)' }}>{fmtMoney(activeShift.salesCredit)}</div></div>
-              <div className="z-stat"><div className="l">Ожид. в кассе</div><div className="v">{fmtMoney(activeShift.openingCash + activeShift.salesCash)}</div></div>
+              <div className="z-stat"><div className="l">Ожид. в кассе</div><div className="v">{fmtMoney(expectedTillCash(activeShift))}</div></div>
             </div>
 
             {cashierScreen === 'switch' && (
@@ -5001,13 +5236,13 @@ export default function CashierModule({
               placeholder="0.00"
             />
             <div className="kp-quick" style={{ marginBottom: 16 }}>
-              {[0, activeShift.openingCash + activeShift.salesCash, 100, 500].filter((v, i, a) => a.indexOf(v) === i).map(v => (
+              {[0, expectedTillCash(activeShift), 100, 500].filter((v, i, a) => a.indexOf(v) === i).map(v => (
                 <button
                   key={v}
                   type="button"
                   onClick={() => setClosingCash(v === 0 ? '0.00' : Number(v).toFixed(2))}
                 >
-                  {v === 0 ? '0' : v === activeShift.openingCash + activeShift.salesCash ? 'Ожид.' : String(v)}
+                  {v === 0 ? '0' : v === expectedTillCash(activeShift) ? 'Ожид.' : String(v)}
                 </button>
               ))}
             </div>
