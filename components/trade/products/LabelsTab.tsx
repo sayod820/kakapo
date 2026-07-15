@@ -11,6 +11,8 @@ import LabelCard from './LabelCard'
 import LabelDesignModal from './LabelDesignModal'
 import LabelEditModal from './LabelEditModal'
 import {
+  applyXP235BDesign,
+  applyPaperPreset,
   buildLabelPick,
   buildLabelsPrintDocument,
   buildPrintCss,
@@ -221,6 +223,20 @@ export default function LabelsTab({
     setDesignOpen(false)
   }
 
+  async function setupXP235B() {
+    const next = applyXP235BDesign(design)
+    setDesign(next)
+    saveLabelDesign(next)
+    setPrinterPanelOpen(true)
+    if (isKakapoDesktop()) {
+      const desk = getKakapoDesktop()
+      const printers = await desk?.getPrinters().catch(() => [] as DesktopPrinter[]) || []
+      setDeskPrinters(printers)
+      const auto = pickLabelPrinter(printers)
+      if (auto) setLabelPrinterName(auto)
+    }
+  }
+
   async function saveLabelPrinter() {
     const desk = getKakapoDesktop()
     if (!desk) return
@@ -292,9 +308,14 @@ export default function LabelsTab({
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {isKakapoDesktop() && (
-            <button type="button" className="k-btn k-btn-s" onClick={() => setPrinterPanelOpen(v => !v)}>
-              🖨 XP-235B{printerPanelOpen ? ' ▲' : ''}
-            </button>
+            <>
+              <button type="button" className="k-btn k-btn-g" onClick={() => void setupXP235B()}>
+                ⚙ Настроить XP-235B
+              </button>
+              <button type="button" className="k-btn k-btn-s" onClick={() => setPrinterPanelOpen(v => !v)}>
+                🖨 Принтер{printerPanelOpen ? ' ▲' : ''}
+              </button>
+            </>
           )}
           <button type="button" className="k-btn k-btn-s" onClick={openDesign}>🎨 Дизайн</button>
           <button type="button" className="k-btn k-btn-s" onClick={selectAll}>Выбрать все</button>
@@ -313,25 +334,36 @@ export default function LabelsTab({
       {printerPanelOpen && isKakapoDesktop() && (
         <div className="k-card" style={{ marginBottom: 14 }}>
           <div className="k-card-h">
-            <b>Принтер этикеток · Xprinter XP-235B</b>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>настройка здесь, не на кассе</span>
+            <b>Настройка XP-235B</b>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Товары → Этикетки (не касса)</span>
           </div>
-          <div className="k-card-b" style={{ display: 'grid', gap: 10, maxWidth: 480 }}>
+          <div className="k-card-b" style={{ display: 'grid', gap: 12, maxWidth: 520 }}>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
+              <li>В Windows: драйвер XP-235B, принтер виден в списке</li>
+              <li>Ролик <b>58×40 мм</b> в принтере</li>
+              <li>Ниже выберите <b>XP-235B</b> → Сохранить</li>
+              <li><b>Тест этикетки</b> — проверка печати</li>
+              <li>Выберите товары справа → <b>Печать</b></li>
+            </ol>
             <select
               className="k-sel"
               value={labelPrinterName}
               onChange={e => setLabelPrinterName(e.target.value)}
             >
-              <option value="">Выберите XP-235B в Windows</option>
+              <option value="">Выберите Xprinter XP-235B</option>
               {deskPrinters.map(p => (
                 <option key={p.name} value={p.name}>
                   {p.displayName || p.name}{p.isDefault ? ' · default' : ''}
                 </option>
               ))}
             </select>
-            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
-              Размер этикетки: <b>{design.labelWidthMm}×{design.labelHeightMm} мм</b> (в «Дизайн»).
-              Лента XP-235B — термопечать, без A4.
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Размер: <b>{design.labelWidthMm}×{design.labelHeightMm} мм</b>
+              {design.paperPreset === 'xp235b' ? ' · XP-235B' : ''}
+              {' · '}
+              <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11 }} onClick={openDesign}>
+                изменить в Дизайн
+              </button>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button type="button" className="k-btn k-btn-s" disabled={labelPrintBusy} onClick={() => void saveLabelPrinter()}>

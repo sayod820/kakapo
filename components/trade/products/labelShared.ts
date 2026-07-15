@@ -4,7 +4,7 @@ import type { Product, ProductStockLayer } from '@/lib/types'
 
 export type LabelBlockId = 'brand' | 'name' | 'meta' | 'price' | 'plu' | 'barcode'
 export type LabelAlign = 'left' | 'center' | 'right'
-export type PaperPresetId = 'a4' | 'thermal58' | 'thermal80' | 'label40x30' | 'label58x40' | 'label50x25' | 'custom'
+export type PaperPresetId = 'a4' | 'thermal58' | 'thermal80' | 'label40x30' | 'label58x40' | 'label50x25' | 'xp235b' | 'custom'
 
 export type LabelBlockConfig = {
   id: LabelBlockId
@@ -79,6 +79,7 @@ export const PAPER_PRESETS: Record<Exclude<PaperPresetId, 'custom'>, {
   label40x30: { label: 'Наклейки 40×30 мм', paperWidthMm: 210, paperHeightMm: 297, labelWidthMm: 40, labelHeightMm: 30, marginMm: 5, gapMm: 2 },
   label58x40: { label: 'Наклейки 58×40 мм', paperWidthMm: 210, paperHeightMm: 297, labelWidthMm: 58, labelHeightMm: 40, marginMm: 5, gapMm: 3 },
   label50x25: { label: 'Наклейки 50×25 мм', paperWidthMm: 210, paperHeightMm: 297, labelWidthMm: 50, labelHeightMm: 25, marginMm: 5, gapMm: 2 },
+  xp235b: { label: 'Xprinter XP-235B (ролик 58×40)', paperWidthMm: 58, paperHeightMm: 0, labelWidthMm: 58, labelHeightMm: 40, marginMm: 0, gapMm: 0 },
 }
 
 export const DEFAULT_BLOCKS: LabelBlockConfig[] = [
@@ -106,13 +107,13 @@ export const DEFAULT_LABEL_DESIGN: LabelDesign = {
   borderStyle: 'solid',
   barcodeHeight: 36,
   barcodeShowDigits: true,
-  paperPreset: 'label58x40',
-  paperWidthMm: 210,
-  paperHeightMm: 297,
+  paperPreset: 'xp235b',
+  paperWidthMm: 58,
+  paperHeightMm: 0,
   labelWidthMm: 58,
   labelHeightMm: 40,
-  marginMm: 5,
-  gapMm: 3,
+  marginMm: 0,
+  gapMm: 0,
   blocks: DEFAULT_BLOCKS,
 }
 
@@ -124,6 +125,10 @@ function normalizeBlocks(raw?: LabelBlockConfig[] | null): LabelBlockConfig[] {
     if (!merged.find(x => x.id === b.id)) merged.push(b)
   }
   return merged
+}
+
+export function applyXP235BDesign(design: LabelDesign = DEFAULT_LABEL_DESIGN): LabelDesign {
+  return applyPaperPreset('xp235b', design)
 }
 
 export function applyPaperPreset(preset: PaperPresetId, design: LabelDesign): LabelDesign {

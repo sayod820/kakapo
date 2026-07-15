@@ -12,7 +12,7 @@
   },
   "build": {
     "appId": "tj.kakapo.trade",
-    "productName": "KAKAPO Касса",
+    "productName": "KAKAPO Kassa",
     "directories": {
       "output": "dist"
     },
@@ -27,12 +27,12 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "KAKAPO-Trade-Setup-${version}.${ext}"
+      "artifactName": "KAKAPO-Kassa-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "KAKAPO Касса"
+      "shortcutName": "KAKAPO Kassa"
     }
   },
   "devDependencies": {
