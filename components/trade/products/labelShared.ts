@@ -260,6 +260,36 @@ export function buildPrintCss(design: LabelDesign) {
   `
 }
 
+/** HTML для прямой печати этикеток из Electron (без браузерного диалога) */
+export function buildLabelsPrintDocument(design: LabelDesign, labelsInnerHtml: string): string {
+  const pageH = design.paperHeightMm > 0 ? design.paperHeightMm : Math.max(design.labelHeightMm + design.marginMm * 2, 40)
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Этикетки</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;padding:${design.marginMm}mm}
+  #k-label-print{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, ${design.labelWidthMm}mm);
+    gap:${design.gapMm}mm;
+    justify-content:start;
+  }
+  .k-label-card{
+    width:${design.labelWidthMm}mm !important;
+    height:${design.labelHeightMm}mm !important;
+    min-height:${design.labelHeightMm}mm !important;
+    max-width:${design.labelWidthMm}mm !important;
+    break-inside:avoid;
+    page-break-inside:avoid;
+    overflow:hidden;
+  }
+  .k-label-edit-btn{display:none !important}
+  svg{max-width:100%;height:auto}
+  @page{size:${design.paperWidthMm}mm ${pageH}mm;margin:0}
+</style></head><body>
+  <div id="k-label-print">${labelsInnerHtml}</div>
+</body></html>`
+}
+
 type CSSProperties = Record<string, string | number | undefined>
 
 export function previewCardStyle(design: LabelDesign): CSSProperties {

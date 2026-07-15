@@ -1,0 +1,45 @@
+{
+  "name": "kakapo-trade-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "КАКАПО Касса — одно приложение: чеки, этикетки, оборудование",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "pack": "electron-builder --win dir",
+    "dist": "electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "tj.kakapo.trade",
+    "productName": "KAKAPO Касса",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "casScale.cjs",
+      "config.json",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "KAKAPO-Trade-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "KAKAPO Касса"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.6.3"
+  }
+}

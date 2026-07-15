@@ -8,3 +8,5 @@ server/node_modules/
 server/data/
 server/kakapo-api/node_modules/
 server/kakapo-api/data/
+desktop/node_modules/
+desktop/dist/

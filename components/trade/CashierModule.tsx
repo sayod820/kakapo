@@ -39,6 +39,7 @@ import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { printPosReceipt } from '@/lib/printPosReceipt'
+import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
 import { useProducts } from '@/lib/store'
 import type { Category, PosSale, Product, ProductStockLayer } from '@/lib/types'
 import {
@@ -504,6 +505,16 @@ export default function CashierModule({
     debtAmt?: number
   } | null>(null)
   const [printAskSale, setPrintAskSale] = useState<PosSale | null>(null)
+  const [deskPrinters, setDeskPrinters] = useState<DesktopPrinter[]>([])
+  const [deskPrinterName, setDeskPrinterName] = useState('')
+  const [deskLabelPrinterName, setDeskLabelPrinterName] = useState('')
+  const [deskPaperMm, setDeskPaperMm] = useState<58 | 80>(80)
+  const [deskScaleMode, setDeskScaleMode] = useState<'none' | 'plu-label'>('plu-label')
+  const [deskScaleHost, setDeskScaleHost] = useState('')
+  const [deskScalePort, setDeskScalePort] = useState('20304')
+  const [deskScaleDept, setDeskScaleDept] = useState('1')
+  const [deskPrintBusy, setDeskPrintBusy] = useState(false)
+  const [deskCasBusy, setDeskCasBusy] = useState(false)
   const [qtyEditDraftKey, setQtyEditDraftKey] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -1485,6 +1496,30 @@ export default function CashierModule({
     setEditPosName(point.name || '')
     setEditPosCode(point.code || '')
     setEditPosNote(point.note || '')
+    if (isKakapoDesktop()) {
+      const desk = getKakapoDesktop()
+      void Promise.all([
+        desk?.getPrinters().catch(() => [] as DesktopPrinter[]),
+        desk?.getPrinterSettings().catch(() => ({
+          printerName: '',
+          paperWidthMm: 80 as const,
+          labelPrinterName: '',
+          scaleMode: 'plu-label' as const,
+          scaleHost: '',
+          scalePort: 20304,
+          scaleDept: 1,
+        })),
+      ]).then(([printers, settings]) => {
+        setDeskPrinters(printers || [])
+        setDeskPrinterName(settings?.printerName || '')
+        setDeskLabelPrinterName(settings?.labelPrinterName || '')
+        setDeskPaperMm(settings?.paperWidthMm === 58 ? 58 : 80)
+        setDeskScaleMode(settings?.scaleMode === 'none' ? 'none' : 'plu-label')
+        setDeskScaleHost(settings?.scaleHost || '')
+        setDeskScalePort(String(settings?.scalePort || 20304))
+        setDeskScaleDept(String(settings?.scaleDept || 1))
+      })
+    }
   }
 
   async function savePosSettings() {
@@ -1500,6 +1535,17 @@ export default function CashierModule({
         code: editPosCode.trim(),
         note: editPosNote.trim(),
       })
+      if (isKakapoDesktop()) {
+        await getKakapoDesktop()?.savePrinterSettings({
+          printerName: deskPrinterName,
+          paperWidthMm: deskPaperMm,
+          labelPrinterName: deskLabelPrinterName,
+          scaleMode: deskScaleMode,
+          scaleHost: deskScaleHost.trim(),
+          scalePort: Number(deskScalePort) || 20304,
+          scaleDept: Number(deskScaleDept) || 1,
+        })
+      }
       await refresh()
       setEditPosId(null)
       showToast('Сохранено', name)
@@ -2369,12 +2415,16 @@ export default function CashierModule({
     setCreditNoteOpen(true)
   }
 
-  function doPrintSale(sale: PosSale) {
-    printPosReceipt(sale, {
-      storeName: 'KAKAPO',
-      posLabel: activePosPoint?.name || activePosPoint?.code || undefined,
-      cashierName: sale.cashierName || settings.cashierName,
-    })
+  async function doPrintSale(sale: PosSale) {
+    try {
+      await printPosReceipt(sale, {
+        storeName: 'KAKAPO',
+        posLabel: activePosPoint?.name || activePosPoint?.code || undefined,
+        cashierName: sale.cashierName || settings.cashierName,
+      })
+    } catch (e) {
+      showToast('Печать', e instanceof Error ? e.message : 'Не удалось напечатать чек')
+    }
   }
 
   async function confirmCreditNote() {
@@ -3149,23 +3199,208 @@ export default function CashierModule({
 
               <div className="pos-device-block">
                 <div className="pos-device-head">
-                  <b>Оборудование</b>
-                  <span>подключим после полной подготовки</span>
+                  <b>Одно приложение · оборудование</b>
+                  <span>{isKakapoDesktop() ? 'чеки · этикетки · весы' : 'установите KAKAPO Касса (Electron)'}</span>
                 </div>
-                <div className="pos-device-row">
-                  <div>
-                    <strong>Принтер чеков</strong>
-                    <em>USB / сеть · печать чека</em>
-                  </div>
-                  <span className="pos-device-soon">Скоро</span>
-                </div>
-                <div className="pos-device-row">
-                  <div>
-                    <strong>Весы</strong>
-                    <em>взвешивание товаров на кассе</em>
-                  </div>
-                  <span className="pos-device-soon">Скоро</span>
-                </div>
+                {isKakapoDesktop() ? (
+                  <>
+                    <div className="pos-device-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                      <div>
+                        <strong>1. Принтер чеков</strong>
+                        <em>кассовая лента 58/80 мм</em>
+                      </div>
+                      <select
+                        className="gate-input"
+                        value={deskPrinterName}
+                        onChange={e => setDeskPrinterName(e.target.value)}
+                        style={{ margin: 0 }}
+                      >
+                        <option value="">Принтер по умолчанию Windows</option>
+                        {deskPrinters.map(p => (
+                          <option key={`r-${p.name}`} value={p.name}>
+                            {p.displayName || p.name}{p.isDefault ? ' · default' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button type="button" className="btn-switch-till" style={{ flex: 1, margin: 0, opacity: deskPaperMm === 58 ? 1 : 0.65 }} onClick={() => setDeskPaperMm(58)}>58 мм</button>
+                        <button type="button" className="btn-switch-till" style={{ flex: 1, margin: 0, opacity: deskPaperMm === 80 ? 1 : 0.65 }} onClick={() => setDeskPaperMm(80)}>80 мм</button>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-switch-till"
+                        style={{ margin: 0 }}
+                        disabled={deskPrintBusy}
+                        onClick={() => {
+                          void (async () => {
+                            const desk = getKakapoDesktop()
+                            if (!desk) return
+                            setDeskPrintBusy(true)
+                            try {
+                              await desk.savePrinterSettings({
+                                printerName: deskPrinterName,
+                                paperWidthMm: deskPaperMm,
+                                labelPrinterName: deskLabelPrinterName,
+                                scaleMode: deskScaleMode,
+                                scaleHost: deskScaleHost.trim(),
+                                scalePort: Number(deskScalePort) || 20304,
+                                scaleDept: Number(deskScaleDept) || 1,
+                              })
+                              const sample: PosSale = {
+                                id: 'TEST',
+                                number: 0,
+                                orderId: 'TEST',
+                                createdAtIso: new Date().toISOString(),
+                                cashierName: settings.cashierName,
+                                paymentMethod: 'cash',
+                                total: 1,
+                                paidCash: 1,
+                                paidCard: 0,
+                                debtAdded: 0,
+                                items: [{ productId: 0, productName: 'Тест чека', qty: 1, price: 1, lineTotal: 1 }],
+                              }
+                              await printPosReceipt(sample, {
+                                storeName: 'KAKAPO',
+                                posLabel: editPosName || 'Тест',
+                                cashierName: settings.cashierName,
+                              })
+                              showToast('Тест чека', deskPrinterName || 'принтер по умолчанию')
+                            } catch (e) {
+                              showToast('Печать', e instanceof Error ? e.message : 'Ошибка')
+                            } finally {
+                              setDeskPrintBusy(false)
+                            }
+                          })()
+                        }}
+                      >
+                        {deskPrintBusy ? 'Печатаем…' : 'Тест чека'}
+                      </button>
+                    </div>
+
+                    <div className="pos-device-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8, marginTop: 10 }}>
+                      <div>
+                        <strong>2. Принтер этикеток</strong>
+                        <em>Товары → Этикетки · можно тот же принтер</em>
+                      </div>
+                      <select
+                        className="gate-input"
+                        value={deskLabelPrinterName}
+                        onChange={e => setDeskLabelPrinterName(e.target.value)}
+                        style={{ margin: 0 }}
+                      >
+                        <option value="">Как принтер чеков</option>
+                        {deskPrinters.map(p => (
+                          <option key={`l-${p.name}`} value={p.name}>
+                            {p.displayName || p.name}{p.isDefault ? ' · default' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="pos-device-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8, marginTop: 10 }}>
+                      <div>
+                        <strong>3. Весы CAS CL-3000 / CL-5000</strong>
+                        <em>этикетка печатается на весах · PLU из товара</em>
+                      </div>
+                      <select
+                        className="gate-input"
+                        value={deskScaleMode}
+                        onChange={e => setDeskScaleMode(e.target.value === 'none' ? 'none' : 'plu-label')}
+                        style={{ margin: 0 }}
+                      >
+                        <option value="plu-label">CAS · выгрузка PLU по сети</option>
+                        <option value="none">Нет / вручную на кассе</option>
+                      </select>
+                      {deskScaleMode === 'plu-label' && (
+                        <>
+                          <input
+                            className="gate-input"
+                            value={deskScaleHost}
+                            onChange={e => setDeskScaleHost(e.target.value)}
+                            placeholder="IP весов, напр. 192.168.1.50"
+                            style={{ margin: 0 }}
+                          />
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <input
+                              className="gate-input"
+                              value={deskScalePort}
+                              onChange={e => setDeskScalePort(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                              placeholder="Порт 20304"
+                              style={{ margin: 0, flex: 1 }}
+                            />
+                            <input
+                              className="gate-input"
+                              value={deskScaleDept}
+                              onChange={e => setDeskScaleDept(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                              placeholder="Отдел"
+                              style={{ margin: 0, width: 72 }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-switch-till"
+                            style={{ margin: 0 }}
+                            disabled={deskCasBusy || !deskScaleHost.trim()}
+                            onClick={() => {
+                              void (async () => {
+                                const desk = getKakapoDesktop()
+                                if (!desk) return
+                                setDeskCasBusy(true)
+                                try {
+                                  await desk.savePrinterSettings({
+                                    printerName: deskPrinterName,
+                                    paperWidthMm: deskPaperMm,
+                                    labelPrinterName: deskLabelPrinterName,
+                                    scaleMode: deskScaleMode,
+                                    scaleHost: deskScaleHost.trim(),
+                                    scalePort: Number(deskScalePort) || 20304,
+                                    scaleDept: Number(deskScaleDept) || 1,
+                                  })
+                                  const items = products
+                                    .filter(p => isWeighted(p) && Number(p.plu) > 0)
+                                    .map(p => ({
+                                      plu: Number(p.plu),
+                                      name: p.name,
+                                      price: Number(p.price) || 0,
+                                      barcode: productBarcodes(p)[0] || '',
+                                      department: Number(deskScaleDept) || 1,
+                                    }))
+                                  const res = await desk.syncCasPlu({
+                                    host: deskScaleHost.trim(),
+                                    port: Number(deskScalePort) || 20304,
+                                    department: Number(deskScaleDept) || 1,
+                                    items,
+                                  })
+                                  showToast('CAS', `Выгружено PLU: ${res.count}`)
+                                } catch (e) {
+                                  showToast('CAS', e instanceof Error ? e.message : 'Ошибка связи с весами')
+                                } finally {
+                                  setDeskCasBusy(false)
+                                }
+                              })()
+                            }}
+                          >
+                            {deskCasBusy ? 'Выгрузка…' : 'Выгрузить PLU на весы'}
+                          </button>
+                        </>
+                      )}
+                      <div style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.4 }}>
+                        Весы и ПК в одной сети. В товаре: тип «вес» + PLU. Этикетка печатается на CAS.
+                        Порт чаще 20304 (или 20000).
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="pos-device-row">
+                      <div>
+                        <strong>Чеки · этикетки · весы</strong>
+                        <em>одно ПК-приложение: npm run desktop</em>
+                      </div>
+                      <span className="pos-device-soon">ПК</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {msg && <div className="pos-err">{msg}</div>}
@@ -4206,8 +4441,7 @@ export default function CashierModule({
                 type="button"
                 className="btn-confirm"
                 onClick={() => {
-                  doPrintSale(printAskSale)
-                  setPrintAskSale(null)
+                  void doPrintSale(printAskSale).finally(() => setPrintAskSale(null))
                 }}
               >
                 🖨 Печатать
@@ -5442,7 +5676,7 @@ export default function CashierModule({
                     type="button"
                     className="action-chip ac-topup"
                     disabled={busy}
-                    onClick={() => doPrintSale(receiptDetail)}
+                    onClick={() => void doPrintSale(receiptDetail)}
                   >
                     <span className="ic-wrap">🖨</span><span>Печать</span>
                   </button>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
+import { getKakapoDesktop, isKakapoDesktop } from '@/lib/desktopBridge'
 import { productMatchesSearch } from '@/lib/productBarcodes'
 import type { Product, ProductStockLayer } from '@/lib/types'
 import LabelCard from './LabelCard'
@@ -10,6 +11,7 @@ import LabelDesignModal from './LabelDesignModal'
 import LabelEditModal from './LabelEditModal'
 import {
   buildLabelPick,
+  buildLabelsPrintDocument,
   buildPrintCss,
   DEFAULT_LABEL_DESIGN,
   defaultLabelEdit,
@@ -203,8 +205,32 @@ export default function LabelsTab({
     setDesignOpen(false)
   }
 
-  function printLabels() {
+  async function printLabels() {
     if (!chosenPicks.length) return
+    const root = document.getElementById('k-label-print')
+    if (!root) return
+
+    if (isKakapoDesktop()) {
+      const desk = getKakapoDesktop()
+      if (!desk) return
+      try {
+        const settings = await desk.getPrinterSettings()
+        const pageHeightMm = design.paperHeightMm > 0
+          ? design.paperHeightMm
+          : Math.max(design.labelHeightMm + design.marginMm * 2, 40)
+        const html = buildLabelsPrintDocument(design, root.innerHTML)
+        await desk.printHtml(html, {
+          role: 'label',
+          printerName: settings.labelPrinterName || settings.printerName || undefined,
+          pageWidthMm: design.paperWidthMm,
+          pageHeightMm,
+        })
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : 'Не удалось напечатать этикетки')
+      }
+      return
+    }
+
     window.print()
   }
 
@@ -220,7 +246,12 @@ export default function LabelsTab({
           <button type="button" className="k-btn k-btn-s" onClick={openDesign}>🎨 Дизайн</button>
           <button type="button" className="k-btn k-btn-s" onClick={selectAll}>Выбрать все</button>
           <button type="button" className="k-btn k-btn-s" onClick={() => setSelected(new Set())}>Сбросить</button>
-          <button type="button" className="k-btn k-btn-g" disabled={!chosenPicks.length} onClick={printLabels}>
+          <button
+            type="button"
+            className="k-btn k-btn-g"
+            disabled={!chosenPicks.length}
+            onClick={() => void printLabels()}
+          >
             🖨️ Печать ({chosenPicks.length})
           </button>
         </div>

@@ -8,7 +8,11 @@
     "dev:backend": "npm run dev --prefix server",
     "dev:all": "powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "desktop": "npm start --prefix desktop",
+    "desktop:dev": "npm run dev --prefix desktop",
+    "desktop:install": "npm install --prefix desktop",
+    "desktop:dist": "npm run dist --prefix desktop"
   },
   "dependencies": {
     "clsx": "^2.1.1",
