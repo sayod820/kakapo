@@ -14,7 +14,7 @@ let printWindow = null
 
 const DEFAULT_SETTINGS = {
   printerName: '',
-  paperWidthMm: 80,
+  paperWidthMm: 58,
   labelPrinterName: '',
   scaleMode: 'plu-label',
   scaleHost: '',

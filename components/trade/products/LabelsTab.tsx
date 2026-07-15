@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
-import { getKakapoDesktop, isKakapoDesktop } from '@/lib/desktopBridge'
+import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
+import { pickLabelPrinter, pickReceiptPrinter, XP235B_LABEL_HEIGHT_MM, XP235B_LABEL_WIDTH_MM } from '@/lib/printerPresets'
 import { productMatchesSearch } from '@/lib/productBarcodes'
 import type { Product, ProductStockLayer } from '@/lib/types'
 import LabelCard from './LabelCard'
@@ -62,9 +63,24 @@ export default function LabelsTab({
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [draftEdit, setDraftEdit] = useState<LabelEdit | null>(null)
   const loadingRef = useRef<Set<number>>(new Set())
+  const [deskPrinters, setDeskPrinters] = useState<DesktopPrinter[]>([])
+  const [labelPrinterName, setLabelPrinterName] = useState('')
+  const [labelPrintBusy, setLabelPrintBusy] = useState(false)
+  const [printerPanelOpen, setPrinterPanelOpen] = useState(false)
 
   useEffect(() => {
     setDesign(loadLabelDesign())
+    if (!isKakapoDesktop()) return
+    const desk = getKakapoDesktop()
+    void Promise.all([
+      desk?.getPrinters().catch(() => [] as DesktopPrinter[]),
+      desk?.getPrinterSettings().catch(() => ({ labelPrinterName: '', printerName: '' })),
+    ]).then(([printers, settings]) => {
+      setDeskPrinters(printers || [])
+      const saved = settings?.labelPrinterName || ''
+      const auto = pickLabelPrinter(printers || [])
+      setLabelPrinterName(saved || auto || pickReceiptPrinter(printers || []))
+    })
   }, [])
 
   const printCss = useMemo(() => buildPrintCss(design), [design])
@@ -205,6 +221,39 @@ export default function LabelsTab({
     setDesignOpen(false)
   }
 
+  async function saveLabelPrinter() {
+    const desk = getKakapoDesktop()
+    if (!desk) return
+    const cur = await desk.getPrinterSettings()
+    await desk.savePrinterSettings({ ...cur, labelPrinterName })
+  }
+
+  async function testLabelPrinter() {
+    const desk = getKakapoDesktop()
+    if (!desk) return
+    setLabelPrintBusy(true)
+    try {
+      await saveLabelPrinter()
+      const sample = buildLabelsPrintDocument(design, `
+        <div class="k-label-card" style="background:#fff;border:1px solid #ccc;padding:8px;display:flex;flex-direction:column;justify-content:center;align-items:center;font-family:Arial,sans-serif">
+          <div style="font-weight:900;font-size:12px;color:#0a7a3e">KAKAPO</div>
+          <div style="font-weight:800;font-size:14px;margin-top:4px">Тест XP-235B</div>
+          <div style="font-size:11px;margin-top:4px;color:#666">${design.labelWidthMm}×${design.labelHeightMm} мм</div>
+        </div>
+      `, { thermalRoll: true })
+      await desk.printHtml(sample, {
+        role: 'label',
+        printerName: labelPrinterName || undefined,
+        pageWidthMm: design.labelWidthMm || XP235B_LABEL_WIDTH_MM,
+        pageHeightMm: design.labelHeightMm || XP235B_LABEL_HEIGHT_MM,
+      })
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Ошибка печати')
+    } finally {
+      setLabelPrintBusy(false)
+    }
+  }
+
   async function printLabels() {
     if (!chosenPicks.length) return
     const root = document.getElementById('k-label-print')
@@ -214,16 +263,15 @@ export default function LabelsTab({
       const desk = getKakapoDesktop()
       if (!desk) return
       try {
-        const settings = await desk.getPrinterSettings()
-        const pageHeightMm = design.paperHeightMm > 0
-          ? design.paperHeightMm
-          : Math.max(design.labelHeightMm + design.marginMm * 2, 40)
-        const html = buildLabelsPrintDocument(design, root.innerHTML)
+        await saveLabelPrinter()
+        const w = design.labelWidthMm || XP235B_LABEL_WIDTH_MM
+        const h = design.labelHeightMm || XP235B_LABEL_HEIGHT_MM
+        const html = buildLabelsPrintDocument(design, root.innerHTML, { thermalRoll: true })
         await desk.printHtml(html, {
           role: 'label',
-          printerName: settings.labelPrinterName || settings.printerName || undefined,
-          pageWidthMm: design.paperWidthMm,
-          pageHeightMm,
+          printerName: labelPrinterName || undefined,
+          pageWidthMm: w,
+          pageHeightMm: h,
         })
       } catch (e) {
         window.alert(e instanceof Error ? e.message : 'Не удалось напечатать этикетки')
@@ -243,6 +291,11 @@ export default function LabelsTab({
           <div className="sub">Поиск, партии, дизайн, штрихкод и печать</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {isKakapoDesktop() && (
+            <button type="button" className="k-btn k-btn-s" onClick={() => setPrinterPanelOpen(v => !v)}>
+              🖨 XP-235B{printerPanelOpen ? ' ▲' : ''}
+            </button>
+          )}
           <button type="button" className="k-btn k-btn-s" onClick={openDesign}>🎨 Дизайн</button>
           <button type="button" className="k-btn k-btn-s" onClick={selectAll}>Выбрать все</button>
           <button type="button" className="k-btn k-btn-s" onClick={() => setSelected(new Set())}>Сбросить</button>
@@ -256,6 +309,41 @@ export default function LabelsTab({
           </button>
         </div>
       </div>
+
+      {printerPanelOpen && isKakapoDesktop() && (
+        <div className="k-card" style={{ marginBottom: 14 }}>
+          <div className="k-card-h">
+            <b>Принтер этикеток · Xprinter XP-235B</b>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>настройка здесь, не на кассе</span>
+          </div>
+          <div className="k-card-b" style={{ display: 'grid', gap: 10, maxWidth: 480 }}>
+            <select
+              className="k-sel"
+              value={labelPrinterName}
+              onChange={e => setLabelPrinterName(e.target.value)}
+            >
+              <option value="">Выберите XP-235B в Windows</option>
+              {deskPrinters.map(p => (
+                <option key={p.name} value={p.name}>
+                  {p.displayName || p.name}{p.isDefault ? ' · default' : ''}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
+              Размер этикетки: <b>{design.labelWidthMm}×{design.labelHeightMm} мм</b> (в «Дизайн»).
+              Лента XP-235B — термопечать, без A4.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="k-btn k-btn-s" disabled={labelPrintBusy} onClick={() => void saveLabelPrinter()}>
+                Сохранить
+              </button>
+              <button type="button" className="k-btn k-btn-g" disabled={labelPrintBusy || !labelPrinterName} onClick={() => void testLabelPrinter()}>
+                {labelPrintBusy ? 'Печать…' : 'Тест этикетки'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="k-label-layout">
         <section className="k-card">

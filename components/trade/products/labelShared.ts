@@ -260,8 +260,38 @@ export function buildPrintCss(design: LabelDesign) {
   `
 }
 
-/** HTML для прямой печати этикеток из Electron (без браузерного диалога) */
-export function buildLabelsPrintDocument(design: LabelDesign, labelsInnerHtml: string): string {
+/** HTML для прямой печати этикеток (XP-235B и др. термо-ролик) */
+export function buildLabelsPrintDocument(
+  design: LabelDesign,
+  labelsInnerHtml: string,
+  opts?: { thermalRoll?: boolean },
+): string {
+  const thermal = opts?.thermalRoll !== false
+  if (thermal) {
+    const w = design.labelWidthMm
+    const h = design.labelHeightMm
+    return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Этикетки</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif}
+  #k-label-print{display:flex;flex-direction:column;gap:0}
+  .k-label-card{
+    width:${w}mm !important;
+    height:${h}mm !important;
+    min-height:${h}mm !important;
+    max-width:${w}mm !important;
+    overflow:hidden;
+    page-break-after:always;
+    break-after:page;
+  }
+  .k-label-card:last-child{page-break-after:auto}
+  .k-label-edit-btn{display:none !important}
+  svg{max-width:100%;height:auto}
+  @page{size:${w}mm ${h}mm;margin:0}
+</style></head><body>
+  <div id="k-label-print">${labelsInnerHtml}</div>
+</body></html>`
+  }
   const pageH = design.paperHeightMm > 0 ? design.paperHeightMm : Math.max(design.labelHeightMm + design.marginMm * 2, 40)
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Этикетки</title>
 <style>

@@ -40,6 +40,7 @@ import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { printPosReceipt } from '@/lib/printPosReceipt'
 import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
+import { pickReceiptPrinter, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
 import type { Category, PosSale, Product, ProductStockLayer } from '@/lib/types'
 import {
@@ -507,8 +508,7 @@ export default function CashierModule({
   const [printAskSale, setPrintAskSale] = useState<PosSale | null>(null)
   const [deskPrinters, setDeskPrinters] = useState<DesktopPrinter[]>([])
   const [deskPrinterName, setDeskPrinterName] = useState('')
-  const [deskLabelPrinterName, setDeskLabelPrinterName] = useState('')
-  const [deskPaperMm, setDeskPaperMm] = useState<58 | 80>(80)
+  const [deskPaperMm, setDeskPaperMm] = useState<58 | 80>(XP58C_RECEIPT_MM)
   const [deskScaleMode, setDeskScaleMode] = useState<'none' | 'plu-label'>('plu-label')
   const [deskScaleHost, setDeskScaleHost] = useState('')
   const [deskScalePort, setDeskScalePort] = useState('20304')
@@ -1511,9 +1511,10 @@ export default function CashierModule({
         })),
       ]).then(([printers, settings]) => {
         setDeskPrinters(printers || [])
-        setDeskPrinterName(settings?.printerName || '')
-        setDeskLabelPrinterName(settings?.labelPrinterName || '')
-        setDeskPaperMm(settings?.paperWidthMm === 58 ? 58 : 80)
+        const saved = settings?.printerName || ''
+        const auto = pickReceiptPrinter(printers || [])
+        setDeskPrinterName(saved || auto)
+        setDeskPaperMm(settings?.paperWidthMm === 80 ? 80 : XP58C_RECEIPT_MM)
         setDeskScaleMode(settings?.scaleMode === 'none' ? 'none' : 'plu-label')
         setDeskScaleHost(settings?.scaleHost || '')
         setDeskScalePort(String(settings?.scalePort || 20304))
@@ -1536,10 +1537,11 @@ export default function CashierModule({
         note: editPosNote.trim(),
       })
       if (isKakapoDesktop()) {
+        const cur = await getKakapoDesktop()?.getPrinterSettings()
         await getKakapoDesktop()?.savePrinterSettings({
+          ...cur,
           printerName: deskPrinterName,
           paperWidthMm: deskPaperMm,
-          labelPrinterName: deskLabelPrinterName,
           scaleMode: deskScaleMode,
           scaleHost: deskScaleHost.trim(),
           scalePort: Number(deskScalePort) || 20304,
@@ -3199,15 +3201,15 @@ export default function CashierModule({
 
               <div className="pos-device-block">
                 <div className="pos-device-head">
-                  <b>Одно приложение · оборудование</b>
-                  <span>{isKakapoDesktop() ? 'чеки · этикетки · весы' : 'установите KAKAPO Касса (Electron)'}</span>
+                  <b>Касса · оборудование</b>
+                  <span>{isKakapoDesktop() ? 'XP-58C чек · CAS весы' : 'KAKAPO Касса (Electron)'}</span>
                 </div>
                 {isKakapoDesktop() ? (
                   <>
                     <div className="pos-device-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                       <div>
-                        <strong>1. Принтер чеков</strong>
-                        <em>кассовая лента 58/80 мм</em>
+                        <strong>Чек · Xprinter XP-58C</strong>
+                        <em>лента 58 мм · этикетки в Товары → Этикетки</em>
                       </div>
                       <select
                         className="gate-input"
@@ -3215,16 +3217,15 @@ export default function CashierModule({
                         onChange={e => setDeskPrinterName(e.target.value)}
                         style={{ margin: 0 }}
                       >
-                        <option value="">Принтер по умолчанию Windows</option>
+                        <option value="">Выберите XP-58C в Windows</option>
                         {deskPrinters.map(p => (
                           <option key={`r-${p.name}`} value={p.name}>
                             {p.displayName || p.name}{p.isDefault ? ' · default' : ''}
                           </option>
                         ))}
                       </select>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button type="button" className="btn-switch-till" style={{ flex: 1, margin: 0, opacity: deskPaperMm === 58 ? 1 : 0.65 }} onClick={() => setDeskPaperMm(58)}>58 мм</button>
-                        <button type="button" className="btn-switch-till" style={{ flex: 1, margin: 0, opacity: deskPaperMm === 80 ? 1 : 0.65 }} onClick={() => setDeskPaperMm(80)}>80 мм</button>
+                      <div style={{ fontSize: 11, color: 'var(--t3)' }}>
+                        XP-58C: бумага <b>58 мм</b>. Если в списке несколько принтеров — выберите тот, что в «Устройства и принтеры» как XP-58C.
                       </div>
                       <button
                         type="button"
@@ -3237,14 +3238,11 @@ export default function CashierModule({
                             if (!desk) return
                             setDeskPrintBusy(true)
                             try {
+                              const cur = await desk.getPrinterSettings()
                               await desk.savePrinterSettings({
+                                ...cur,
                                 printerName: deskPrinterName,
-                                paperWidthMm: deskPaperMm,
-                                labelPrinterName: deskLabelPrinterName,
-                                scaleMode: deskScaleMode,
-                                scaleHost: deskScaleHost.trim(),
-                                scalePort: Number(deskScalePort) || 20304,
-                                scaleDept: Number(deskScaleDept) || 1,
+                                paperWidthMm: XP58C_RECEIPT_MM,
                               })
                               const sample: PosSale = {
                                 id: 'TEST',
@@ -3257,14 +3255,14 @@ export default function CashierModule({
                                 paidCash: 1,
                                 paidCard: 0,
                                 debtAdded: 0,
-                                items: [{ productId: 0, productName: 'Тест чека', qty: 1, price: 1, lineTotal: 1 }],
+                                items: [{ productId: 0, productName: 'Тест XP-58C', qty: 1, price: 1, lineTotal: 1 }],
                               }
                               await printPosReceipt(sample, {
                                 storeName: 'KAKAPO',
                                 posLabel: editPosName || 'Тест',
                                 cashierName: settings.cashierName,
                               })
-                              showToast('Тест чека', deskPrinterName || 'принтер по умолчанию')
+                              showToast('XP-58C', deskPrinterName || 'принтер не выбран')
                             } catch (e) {
                               showToast('Печать', e instanceof Error ? e.message : 'Ошибка')
                             } finally {
@@ -3273,34 +3271,14 @@ export default function CashierModule({
                           })()
                         }}
                       >
-                        {deskPrintBusy ? 'Печатаем…' : 'Тест чека'}
+                        {deskPrintBusy ? 'Печатаем…' : 'Тест чека XP-58C'}
                       </button>
                     </div>
 
                     <div className="pos-device-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8, marginTop: 10 }}>
                       <div>
-                        <strong>2. Принтер этикеток</strong>
-                        <em>Товары → Этикетки · можно тот же принтер</em>
-                      </div>
-                      <select
-                        className="gate-input"
-                        value={deskLabelPrinterName}
-                        onChange={e => setDeskLabelPrinterName(e.target.value)}
-                        style={{ margin: 0 }}
-                      >
-                        <option value="">Как принтер чеков</option>
-                        {deskPrinters.map(p => (
-                          <option key={`l-${p.name}`} value={p.name}>
-                            {p.displayName || p.name}{p.isDefault ? ' · default' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="pos-device-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8, marginTop: 10 }}>
-                      <div>
-                        <strong>3. Весы CAS CL-3000 / CL-5000</strong>
-                        <em>этикетка печатается на весах · PLU из товара</em>
+                        <strong>Весы CAS CL-3000 / CL-5000</strong>
+                        <em>этикетка с весов · PLU в карточке товара</em>
                       </div>
                       <select
                         className="gate-input"
@@ -3348,9 +3326,9 @@ export default function CashierModule({
                                 setDeskCasBusy(true)
                                 try {
                                   await desk.savePrinterSettings({
+                                    ...(await desk.getPrinterSettings()),
                                     printerName: deskPrinterName,
                                     paperWidthMm: deskPaperMm,
-                                    labelPrinterName: deskLabelPrinterName,
                                     scaleMode: deskScaleMode,
                                     scaleHost: deskScaleHost.trim(),
                                     scalePort: Number(deskScalePort) || 20304,
@@ -3394,8 +3372,8 @@ export default function CashierModule({
                   <>
                     <div className="pos-device-row">
                       <div>
-                        <strong>Чеки · этикетки · весы</strong>
-                        <em>одно ПК-приложение: npm run desktop</em>
+                        <strong>XP-58C · CAS</strong>
+                        <em>запустите KAKAPO Касса (npm run desktop)</em>
                       </div>
                       <span className="pos-device-soon">ПК</span>
                     </div>
