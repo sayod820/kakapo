@@ -36,7 +36,7 @@ export const POS_MOCK_CSS = `
   .pos-root *,.pos-root *::before,.pos-root *::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
   .ub{font-family:'Unbounded',sans-serif;}
   .mono{font-family:'JetBrains Mono',monospace;}
-  .pos-root button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
+.pos-root button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
   .pos-root input,.pos-root select{font-family:inherit;color:inherit;background:transparent;}
   .pos-root input::placeholder,.pos-root textarea::placeholder{color:var(--t3);}
   .pos-root input:-webkit-autofill,
