@@ -168,11 +168,13 @@ async function printLabelsViaTspl(html, options = {}) {
     height: hPx,
     useContentSize: true,
     enableLargerThanScreen: true,
+    backgroundColor: '#ffffff',
     webPreferences: {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
       zoomFactor: 1,
+      offscreen: false,
     },
   })
 
@@ -181,10 +183,22 @@ async function printLabelsViaTspl(html, options = {}) {
   } catch { /* ignore */ }
 
   const tmpFile = path.join(os.tmpdir(), `kakapo-label-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
-  fs.writeFileSync(tmpFile, html, 'utf8')
+  // Гарантируем светлую схему в самом HTML (тёмная тема Electron иначе инвертирует цвета)
+  const lightHtml = String(html || '').replace(
+    /<head([^>]*)>/i,
+    '<head$1><meta name="color-scheme" content="light only"><style>:root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important}*{color-scheme:light only!important}</style>',
+  )
+  fs.writeFileSync(tmpFile, lightHtml, 'utf8')
 
   try {
     await printWindow.loadFile(tmpFile)
+    try {
+      await printWindow.webContents.insertCSS(`
+        :root { color-scheme: light only !important; }
+        html, body { background:#ffffff !important; color:#000000 !important; }
+        .k-label-card { background:#ffffff !important; color:#000000 !important; }
+      `)
+    } catch { /* ignore */ }
     await waitForPrintRender(printWindow.webContents)
 
     try {

@@ -13,14 +13,13 @@ function mmToDots(mm) {
 
 /**
  * BGRA → 1-bit packed, nearest-neighbor resize.
- * XP-235B / TSPL: bit 1 = белый (не греть), bit 0 = чёрный (печать).
- * Поэтому тёмные пиксели = 0, светлые = 1 (инверсия относительно «обычного» bitmap).
+ * TSPL/Xprinter: bit 1 = чёрная точка, bit 0 = белый (пусто).
  */
 function bgraToMonoPacked(bgra, srcWidth, srcHeight, dstWidth, dstHeight, threshold = 160) {
   const width = Math.max(1, dstWidth || srcWidth)
   const height = Math.max(1, dstHeight || srcHeight)
   const rowBytes = Math.ceil(width / 8)
-  const out = Buffer.alloc(rowBytes * height, 0xff) // всё белое по умолчанию
+  const out = Buffer.alloc(rowBytes * height, 0) // белый фон
   for (let y = 0; y < height; y++) {
     const sy = Math.min(srcHeight - 1, Math.floor((y * srcHeight) / height))
     for (let x = 0; x < width; x++) {
@@ -29,11 +28,12 @@ function bgraToMonoPacked(bgra, srcWidth, srcHeight, dstWidth, dstHeight, thresh
       const b = bgra[i]
       const g = bgra[i + 1]
       const r = bgra[i + 2]
-      const luma = (r * 77 + g * 150 + b * 29) >> 8
-      // Тёмный текст/штрихкод → сбрасываем бит (чёрная точка на термоленте)
+      const a = bgra[i + 3]
+      // Учитываем alpha; тёмный = печать (бит 1)
+      const luma = a < 8 ? 255 : ((r * 77 + g * 150 + b * 29) >> 8)
       if (luma < threshold) {
         const byteIndex = y * rowBytes + (x >> 3)
-        out[byteIndex] &= ~(0x80 >> (x & 7))
+        out[byteIndex] |= 0x80 >> (x & 7)
       }
     }
   }
@@ -55,19 +55,19 @@ function buildTsplBitmapJob({
   const hDots = mmToDots(heightMm)
 
   // Crop/pad mono to exact label size in dots
-  // Полярность XP-235B: 1 = белый, 0 = чёрный
+  // TSPL: 1 = чёрный, 0 = белый
   const src = mono
   const widthBytes = Math.ceil(wDots / 8)
-  const packed = Buffer.alloc(widthBytes * hDots, 0xff)
+  const packed = Buffer.alloc(widthBytes * hDots, 0)
   const copyW = Math.min(src.width, wDots)
   const copyH = Math.min(src.height, hDots)
   for (let y = 0; y < copyH; y++) {
     for (let x = 0; x < copyW; x++) {
       const srcByte = y * src.widthBytes + (x >> 3)
       const bit = (src.data[srcByte] >> (7 - (x & 7))) & 1
-      if (!bit) {
+      if (bit) {
         const dstByte = y * widthBytes + (x >> 3)
-        packed[dstByte] &= ~(0x80 >> (x & 7))
+        packed[dstByte] |= 0x80 >> (x & 7)
       }
     }
   }
