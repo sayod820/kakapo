@@ -110,7 +110,7 @@ export const DEFAULT_LABEL_DESIGN: LabelDesign = {
   padding: 5,
   borderRadius: 0,
   borderStyle: 'none',
-  barcodeHeight: 28,
+  barcodeHeight: 22,
   barcodeShowDigits: true,
   paperPreset: 'xp235b',
   paperWidthMm: 58,
@@ -309,6 +309,7 @@ export function buildLabelsPrintDocument(
     width:${wPx}px !important;
     height:${hPx}px !important;
     min-height:${hPx}px !important;
+    max-height:${hPx}px !important;
     max-width:${wPx}px !important;
     overflow:hidden;
     page-break-after:always;

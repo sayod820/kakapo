@@ -268,8 +268,8 @@ export default function LabelsTab({
       await desk.printHtml(sample, {
         role: 'label',
         printerName: labelPrinterName || undefined,
-        pageWidthMm: design.labelWidthMm || XP235B_LABEL_WIDTH_MM,
-        pageHeightMm: design.labelHeightMm || XP235B_LABEL_HEIGHT_MM,
+        pageWidthMm: XP235B_LABEL_WIDTH_MM,
+        pageHeightMm: XP235B_LABEL_HEIGHT_MM,
         gapMm: 2,
       })
     } catch (e) {
@@ -287,10 +287,16 @@ export default function LabelsTab({
       if (!desk) return
       try {
         await saveLabelPrinter()
-        const w = design.labelWidthMm || XP235B_LABEL_WIDTH_MM
-        const h = design.labelHeightMm || XP235B_LABEL_HEIGHT_MM
+        const w = XP235B_LABEL_WIDTH_MM
+        const h = XP235B_LABEL_HEIGHT_MM
         const edits = chosenPicks.map(pick => getEdit(pick))
-        const html = buildLabelsThermalPrintDocument(edits, design)
+        const html = buildLabelsThermalPrintDocument(edits, {
+          ...design,
+          labelWidthMm: w,
+          labelHeightMm: h,
+          paperWidthMm: w,
+          layout: design.layout || 'retail',
+        })
         await desk.printHtml(html, {
           role: 'label',
           printerName: labelPrinterName || undefined,
@@ -351,9 +357,9 @@ export default function LabelsTab({
           <div className="k-card-b" style={{ display: 'grid', gap: 12, maxWidth: 520 }}>
             <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
               <li>В Windows: драйвер XP-235B, принтер виден в списке</li>
-              <li>Ролик <b>58×40 мм</b> в принтере</li>
+              <li>Ролик <b>58×40 мм</b>. В свойствах принтера бумага тоже <b>58×40</b> (не 2 этикетки)</li>
               <li>Ниже выберите <b>XP-235B</b> → Сохранить</li>
-              <li><b>Тест этикетки</b> — печать через TSPL (чёткий штрихкод)</li>
+              <li><b>Тест этикетки</b> — должна выйти <b>1</b> наклейка</li>
               <li>Выберите товары справа → <b>Печать</b></li>
             </ol>
             <select

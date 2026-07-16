@@ -51,9 +51,8 @@ function buildTsplBitmapJob({
 }) {
   const wDots = mmToDots(widthMm)
   const hDots = mmToDots(heightMm)
-  const gapDots = Math.max(0, mmToDots(gapMm))
 
-  // Crop/pad mono to exact label size
+  // Crop/pad mono to exact label size in dots
   const src = mono
   const widthBytes = Math.ceil(wDots / 8)
   const packed = Buffer.alloc(widthBytes * hDots, 0)
@@ -70,22 +69,26 @@ function buildTsplBitmapJob({
     }
   }
 
+  // SIZE must match physical label (not label+gap). PRINT 1 — один лист, без второго параметра.
+  const gap = Number.isFinite(Number(gapMm)) && Number(gapMm) >= 0 ? Number(gapMm) : 2
   const header = Buffer.from(
     [
       `SIZE ${Number(widthMm)} mm,${Number(heightMm)} mm`,
-      `GAP ${Number(gapMm)} mm,0`,
+      `GAP ${gap} mm,0`,
       'DIRECTION 1',
       'REFERENCE 0,0',
+      'OFFSET 0 mm,0 mm',
       'DENSITY 10',
-      'SPEED 2',
+      'SPEED 3',
       'SET TEAR ON',
       'CLS',
       `BITMAP 0,0,${widthBytes},${hDots},0,`,
-    ].join('\r\n') + '',
+    ].join('\r\n'),
     'ascii',
   )
-  // BITMAP line ends with comma then binary data — no CRLF before data
-  const footer = Buffer.from(`\r\nPRINT ${Math.max(1, copies)},1\r\n`, 'ascii')
+  // BITMAP: binary immediately after comma; then CRLF + PRINT once
+  const n = Math.max(1, Math.min(99, Number(copies) || 1))
+  const footer = Buffer.from(`\r\nPRINT ${n}\r\n`, 'ascii')
   return Buffer.concat([header, packed, footer])
 }
 

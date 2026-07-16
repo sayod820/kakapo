@@ -69,7 +69,7 @@ export function barcodeToSvgHtml(value: string, heightPx: number, showDigits: bo
       return ''
     }
   }
-  svg.setAttribute('style', 'width:92%;height:auto;display:block;margin:0 auto')
+  svg.setAttribute('style', 'width:100%;height:auto;display:block;margin:0 auto')
   return svg.outerHTML
 }
 
@@ -102,23 +102,24 @@ function buildRetailLabelCardHtml(edit: LabelEdit, design: LabelDesign): string 
   const pad = Math.max(design.padding, mmToLabelPx(RETAIL_LAYOUT.paddingMm))
   const barcodeH = mmToLabelPx(RETAIL_LAYOUT.barcodeHeightMm)
   const barcodeSvg = retailShowBarcode(edit)
-    ? barcodeToSvgHtml(edit.barcode, barcodeH, design.barcodeShowDigits)
-    : ''
-
-  const plu = retailShowPlu(edit)
-    ? `<div style="font-size:${RETAIL_LAYOUT.pluMm}mm;font-weight:700;line-height:1.15;margin-bottom:0.5mm;flex-shrink:0">PLU ${escHtml(edit.plu)}</div>`
-    : ''
-
-  const barcode = barcodeSvg
-    ? `<div style="width:100%;max-width:100%;flex-shrink:0;display:flex;justify-content:center;margin-top:auto">${barcodeSvg}</div>`
+    ? barcodeToSvgHtml(edit.barcode, barcodeH, false)
     : ''
 
   const size = retailShowSize(edit)
-    ? `<div style="font-size:${RETAIL_LAYOUT.sizeMm}mm;font-weight:600;line-height:1.1;margin-top:0.5mm;flex-shrink:0">${escHtml(edit.size)}</div>`
+    ? `<div style="font-size:${RETAIL_LAYOUT.sizeMm}mm;font-weight:600;line-height:1.15;margin-top:0.3mm;margin-bottom:0.2mm;flex-shrink:0">${escHtml(edit.size)}</div>`
+    : ''
+
+  const plu = retailShowPlu(edit)
+    ? `<div style="font-size:${RETAIL_LAYOUT.pluMm}mm;font-weight:700;line-height:1.15;flex-shrink:0">PLU ${escHtml(edit.plu)}</div>`
+    : ''
+
+  const barcode = barcodeSvg
+    ? `<div style="width:${RETAIL_LAYOUT.barcodeWidthPct}%;max-width:${RETAIL_LAYOUT.barcodeWidthPct}%;flex-shrink:0;display:flex;justify-content:center;margin-top:auto;padding-top:0.4mm">${barcodeSvg}</div>`
     : ''
 
   return `<div class="k-label-card k-label-retail" style="background:#fff;color:#000;border:none;padding:${pad}px ${pad + 2}px ${pad}px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;height:100%;overflow:hidden;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;text-align:center">
   <div style="font-size:${RETAIL_LAYOUT.nameMm}mm;font-weight:800;line-height:1.1;letter-spacing:0.03em;text-transform:uppercase;width:100%;flex-shrink:0">${escHtml(retailLabelName(edit))}</div>
+  ${size}
   <hr style="border:none;border-top:${RETAIL_LAYOUT.rulePx}px solid #000;margin:2px 0;width:100%;flex-shrink:0">
   <div style="display:flex;align-items:flex-end;justify-content:center;gap:0.6mm;flex:1 1 auto;min-height:0;width:100%;padding:1px 0">
     <span style="font-size:${RETAIL_LAYOUT.priceMm}mm;font-weight:900;line-height:0.92;letter-spacing:-0.02em">${escHtml(labelPriceAmount(edit.price))}</span>
@@ -127,7 +128,6 @@ function buildRetailLabelCardHtml(edit: LabelEdit, design: LabelDesign): string 
   <hr style="border:none;border-top:${RETAIL_LAYOUT.rulePx}px solid #000;margin:2px 0;width:100%;flex-shrink:0">
   ${plu}
   ${barcode}
-  ${size}
 </div>`
 }
 

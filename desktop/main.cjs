@@ -151,6 +151,10 @@ async function printLabelsViaTspl(html, options = {}) {
   let pageHeightMm = Number(options.pageHeightMm)
   if (!Number.isFinite(pageWidthMm) || pageWidthMm <= 0) pageWidthMm = 58
   if (!Number.isFinite(pageHeightMm) || pageHeightMm <= 0) pageHeightMm = 40
+  // Защита: не даём случайно 80×300 (чек) уйти на этикетки
+  if (pageHeightMm > 60) pageHeightMm = 40
+  if (pageWidthMm > 70) pageWidthMm = 58
+
   const gapMm = Number(options.gapMm)
   const gap = Number.isFinite(gapMm) && gapMm >= 0 ? gapMm : 2
 
@@ -163,12 +167,18 @@ async function printLabelsViaTspl(html, options = {}) {
     width: wPx,
     height: hPx,
     useContentSize: true,
+    enableLargerThanScreen: true,
     webPreferences: {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      zoomFactor: 1,
     },
   })
+
+  try {
+    printWindow.setContentSize(wPx, hPx)
+  } catch { /* ignore */ }
 
   const tmpFile = path.join(os.tmpdir(), `kakapo-label-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
   fs.writeFileSync(tmpFile, html, 'utf8')
@@ -177,49 +187,26 @@ async function printLabelsViaTspl(html, options = {}) {
     await printWindow.loadFile(tmpFile)
     await waitForPrintRender(printWindow.webContents)
 
-    // Force content size for capture (deviceScaleFactor 1)
-    await printWindow.webContents.executeJavaScript(`
-      document.body.style.zoom = '1';
-      true
-    `).catch(() => undefined)
-
     try {
       printWindow.webContents.setZoomFactor(1)
+    } catch { /* ignore */ }
+
+    try {
+      printWindow.setContentSize(wPx, hPx)
     } catch { /* ignore */ }
 
     const cardCount = await printWindow.webContents.executeJavaScript(`
       (function () {
         const cards = Array.from(document.querySelectorAll('.k-label-card'));
         if (!cards.length) return 0;
-        document.documentElement.style.width = '${wPx}px';
-        document.documentElement.style.height = '${hPx}px';
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.margin = '0';
-        document.body.style.padding = '0';
-        document.body.style.width = '${wPx}px';
-        document.body.style.height = '${hPx}px';
-        document.body.style.overflow = 'hidden';
-        document.body.style.background = '#fff';
+        document.documentElement.style.cssText = 'width:${wPx}px;height:${hPx}px;overflow:hidden;margin:0;padding:0;';
+        document.body.style.cssText = 'width:${wPx}px;height:${hPx}px;overflow:hidden;margin:0;padding:0;background:#fff;';
         const root = document.getElementById('k-label-print');
         if (root) {
-          root.style.display = 'block';
-          root.style.width = '${wPx}px';
-          root.style.height = '${hPx}px';
-          root.style.margin = '0';
-          root.style.padding = '0';
+          root.style.cssText = 'display:block;width:${wPx}px;height:${hPx}px;margin:0;padding:0;overflow:hidden;';
         }
         cards.forEach((c) => {
-          c.style.display = 'none';
-          c.style.pageBreakAfter = 'auto';
-          c.style.breakAfter = 'auto';
-          c.style.width = '${wPx}px';
-          c.style.height = '${hPx}px';
-          c.style.minHeight = '${hPx}px';
-          c.style.maxWidth = '${wPx}px';
-          c.style.margin = '0';
-          c.style.overflow = 'hidden';
-          c.style.background = '#fff';
-          c.style.color = '#000';
+          c.style.cssText = 'display:none;width:${wPx}px;height:${hPx}px;min-height:${hPx}px;max-width:${wPx}px;margin:0;padding:0;overflow:hidden;background:#fff;color:#000;page-break-after:auto;break-after:auto;box-sizing:border-box;';
         });
         return cards.length;
       })()
@@ -234,17 +221,20 @@ async function printLabelsViaTspl(html, options = {}) {
       await printWindow.webContents.executeJavaScript(`
         (function () {
           const cards = Array.from(document.querySelectorAll('.k-label-card'));
-          cards.forEach((c, idx) => { c.style.display = idx === ${i} ? 'flex' : 'none'; });
+          cards.forEach((c, idx) => {
+            c.style.display = idx === ${i} ? 'flex' : 'none';
+            c.style.flexDirection = 'column';
+          });
         })()
       `)
-      await new Promise(r => setTimeout(r, 120))
+      await new Promise(r => setTimeout(r, 150))
 
-      const img = await printWindow.webContents.capturePage({
-        x: 0,
-        y: 0,
-        width: wPx,
-        height: hPx,
-      })
+      let img = await printWindow.webContents.capturePage()
+      // Windows DPI: захват может быть 1.25×/1.5×/2× — всегда жмём ровно в 203 DPI точки
+      const sz = img.getSize()
+      if (sz.width !== wPx || sz.height !== hPx) {
+        img = img.resize({ width: wPx, height: hPx, quality: 'best' })
+      }
       const size = img.getSize()
       const bgra = img.toBitmap()
       const mono = bgraToMonoPacked(bgra, size.width, size.height, wPx, hPx, 168)

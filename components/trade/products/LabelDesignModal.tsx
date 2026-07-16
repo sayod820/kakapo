@@ -63,7 +63,7 @@ export default function LabelDesignModal({
               value={design.layout || 'retail'}
               onChange={e => onChange({ ...design, layout: e.target.value as LabelLayoutId })}
             >
-              <option value="retail">Магазин — крупная цена, штрихкод и размер внизу</option>
+              <option value="retail">Магазин — цена крупно, вес под названием, мелкий штрихкод</option>
               <option value="blocks">Свободный — блоки вручную</option>
             </select>
           </div>

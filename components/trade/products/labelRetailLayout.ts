@@ -1,15 +1,17 @@
 import type { CSSProperties } from 'react'
 import type { LabelDesign, LabelEdit } from './labelShared'
 
-/** Размеры макета «магазин» для 58×40 мм */
+/** Макет как на фото: название → вес → цена → PLU → мелкий штрихкод */
 export const RETAIL_LAYOUT = {
-  nameMm: 2.7,
-  priceMm: 9.5,
-  currencyMm: 2.5,
-  pluMm: 2.1,
-  sizeMm: 2.1,
-  barcodeHeightMm: 6.5,
-  paddingMm: 1.4,
+  nameMm: 2.8,
+  sizeMm: 2.2,
+  priceMm: 10,
+  currencyMm: 2.6,
+  pluMm: 2.2,
+  /** Мелкий штрихкод внизу (~3.2 мм) */
+  barcodeHeightMm: 3.2,
+  barcodeWidthPct: 72,
+  paddingMm: 1.2,
   rulePx: 1.5,
 } as const
 
@@ -112,8 +114,9 @@ export function retailSizeStyle(): CSSProperties {
   return {
     fontSize: `${RETAIL_LAYOUT.sizeMm}mm`,
     fontWeight: 600,
-    lineHeight: 1.1,
-    marginTop: '0.5mm',
+    lineHeight: 1.15,
+    marginTop: '0.3mm',
+    marginBottom: '0.2mm',
     flexShrink: 0,
     color: '#000',
   }
@@ -121,12 +124,13 @@ export function retailSizeStyle(): CSSProperties {
 
 export function retailBarcodeWrapStyle(): CSSProperties {
   return {
-    width: '100%',
-    maxWidth: '100%',
+    width: `${RETAIL_LAYOUT.barcodeWidthPct}%`,
+    maxWidth: `${RETAIL_LAYOUT.barcodeWidthPct}%`,
     flexShrink: 0,
     display: 'flex',
     justifyContent: 'center',
     marginTop: 'auto',
+    paddingTop: '0.4mm',
   }
 }
 

@@ -36,6 +36,9 @@ function RetailLabelBody({ edit, design }: { edit: LabelEdit; design: LabelDesig
   return (
     <div style={retailCardStyle(design)}>
       <div style={retailNameStyle()}>{retailLabelName(edit)}</div>
+      {retailShowSize(edit) && (
+        <div style={retailSizeStyle()}>{edit.size}</div>
+      )}
       <hr style={retailDividerStyle(design)} />
       <div style={retailPriceRowStyle()}>
         <span style={retailAmountStyle()}>{labelPriceAmount(edit.price)}</span>
@@ -51,12 +54,9 @@ function RetailLabelBody({ edit, design }: { edit: LabelEdit; design: LabelDesig
             value={edit.barcode}
             height={retailBarcodeHeightPx()}
             color="#000000"
-            showText={design.barcodeShowDigits}
+            showText={false}
           />
         </div>
-      )}
-      {retailShowSize(edit) && (
-        <div style={retailSizeStyle()}>{edit.size}</div>
       )}
     </div>
   )
