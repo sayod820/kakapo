@@ -34,15 +34,17 @@ export function barcodeToSvgHtml(value: string, design: LabelDesign): string {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   const { format, value: normalized } = barcodeFormat(code)
   try {
-    JsBarcode(svg, normalized, {
+      JsBarcode(svg, normalized, {
       format,
       height: design.barcodeHeight,
       displayValue: design.barcodeShowDigits,
-      margin: 2,
+      margin: 1,
       lineColor: '#000000',
-      fontSize: 11,
-      width: 1.5,
-      textMargin: 2,
+      background: '#ffffff',
+      fontSize: 12,
+      width: 2,
+      textMargin: 1,
+      flat: true,
     })
   } catch {
     try {
@@ -50,10 +52,13 @@ export function barcodeToSvgHtml(value: string, design: LabelDesign): string {
         format: 'CODE128',
         height: design.barcodeHeight,
         displayValue: design.barcodeShowDigits,
-        margin: 2,
+        margin: 1,
         lineColor: '#000000',
-        fontSize: 11,
-        width: 1.5,
+        background: '#ffffff',
+        fontSize: 12,
+        width: 2,
+        textMargin: 1,
+        flat: true,
       })
     } catch {
       return ''
@@ -86,13 +91,13 @@ function renderBlockHtml(id: LabelBlockId, edit: LabelEdit, design: LabelDesign,
 
   switch (id) {
     case 'brand':
-      return `<div style="text-align:${align};width:100%;font-size:${design.brandSize}px;font-weight:800;color:${design.accentColor};letter-spacing:.06em">${escHtml(edit.brand || 'KAKAPO')}</div>`
+      return `<div style="text-align:${align};width:100%;font-size:${design.brandSize}px;font-weight:800;color:#000;letter-spacing:.04em">${escHtml(edit.brand || 'KAKAPO')}</div>`
     case 'name':
-      return `<div style="text-align:${align};width:100%;font-size:${design.nameSize}px;font-weight:800;line-height:1.2;color:#000">${escHtml(edit.name)}</div>`
+      return `<div style="text-align:${align};width:100%;font-size:${design.nameSize}px;font-weight:800;line-height:1.15;color:#000">${escHtml(edit.name)}</div>`
     case 'meta':
-      return `<div style="text-align:${align};width:100%;font-size:${design.metaSize}px;line-height:1.2;color:#333">${escHtml(edit.meta)}</div>`
+      return `<div style="text-align:${align};width:100%;font-size:${Math.max(design.metaSize, 11)}px;line-height:1.15;color:#000;font-weight:600">${escHtml(edit.meta)}</div>`
     case 'price':
-      return `<div style="text-align:${align};width:100%;font-size:${design.priceSize}px;font-weight:900;line-height:1.1;color:${design.accentColor}">${escHtml(formatLabelMoney(edit.price))}</div>`
+      return `<div style="text-align:${align};width:100%;font-size:${design.priceSize}px;font-weight:900;line-height:1.1;color:#000">${escHtml(formatLabelMoney(edit.price))}</div>`
     case 'plu':
       return `<div style="text-align:${align};width:100%;font-size:${design.metaSize}px;font-weight:700;color:#000">PLU ${escHtml(edit.plu)}</div>`
     case 'barcode':
@@ -105,9 +110,6 @@ function renderBlockHtml(id: LabelBlockId, edit: LabelEdit, design: LabelDesign,
 }
 
 export function buildLabelCardPrintHtml(edit: LabelEdit, design: LabelDesign): string {
-  const border = design.borderStyle === 'none'
-    ? 'none'
-    : `${design.borderStyle === 'dashed' ? '1px dashed' : '1px solid'} ${design.borderColor}`
   const barcodeSvg = edit.showBarcode && edit.barcode.trim()
     ? barcodeToSvgHtml(edit.barcode, design)
     : ''
@@ -117,7 +119,7 @@ export function buildLabelCardPrintHtml(edit: LabelEdit, design: LabelDesign): s
     .filter(Boolean)
     .join('')
 
-  return `<div class="k-label-card" style="background:${design.bgColor};color:#000;border:${border};border-radius:${design.borderRadius}px;padding:${design.padding}px;display:flex;flex-direction:column;justify-content:flex-start;gap:3px;overflow:hidden;box-sizing:border-box">${blocks}</div>`
+  return `<div class="k-label-card" style="background:#fff;color:#000;border:none;border-radius:0;padding:${Math.max(design.padding, 4)}px;display:flex;flex-direction:column;justify-content:flex-start;gap:2px;overflow:hidden;box-sizing:border-box">${blocks}</div>`
 }
 
 export function buildLabelsThermalPrintDocument(edits: LabelEdit[], design: LabelDesign): string {

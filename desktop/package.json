@@ -20,6 +20,7 @@
       "main.cjs",
       "preload.cjs",
       "casScale.cjs",
+      "tsplLabel.cjs",
       "config.json",
       "package.json"
     ],

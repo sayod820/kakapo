@@ -6,6 +6,12 @@ const os = require('os')
 const path = require('path')
 
 const { syncCasPlu } = require('./casScale.cjs')
+const {
+  mmToDots,
+  bgraToMonoPacked,
+  buildMultiLabelTspl,
+  printRawWindows,
+} = require('./tsplLabel.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
@@ -104,13 +110,13 @@ async function getPrintersAsync() {
 }
 
 function labelPx(mm) {
-  return Math.max(120, Math.round((Number(mm) * 203) / 25.4))
+  return Math.max(1, mmToDots(mm))
 }
 
 function waitForPrintRender(webContents) {
   return webContents.executeJavaScript(`
     new Promise((resolve) => {
-      const done = () => setTimeout(resolve, 350)
+      const done = () => setTimeout(resolve, 400)
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(done).catch(done)
         return
@@ -120,40 +126,181 @@ function waitForPrintRender(webContents) {
         return
       }
       window.addEventListener('load', done, { once: true })
-      setTimeout(resolve, 800)
+      setTimeout(resolve, 900)
     })
   `).catch(() => undefined)
 }
 
+function destroyPrintWindow() {
+  if (!printWindow) return
+  try { printWindow.destroy() } catch { /* ignore */ }
+  printWindow = null
+}
+
+/** Этикетки XP-235B: TSPL RAW bitmap 203 DPI — без дизеринга Windows-драйвера */
+async function printLabelsViaTspl(html, options = {}) {
+  const settings = loadPrinterSettings()
+  const printerName = String(
+    options.printerName || settings.labelPrinterName || settings.printerName || '',
+  ).trim()
+  if (!printerName) {
+    throw new Error('Выберите принтер XP-235B в настройках этикеток')
+  }
+
+  let pageWidthMm = Number(options.pageWidthMm)
+  let pageHeightMm = Number(options.pageHeightMm)
+  if (!Number.isFinite(pageWidthMm) || pageWidthMm <= 0) pageWidthMm = 58
+  if (!Number.isFinite(pageHeightMm) || pageHeightMm <= 0) pageHeightMm = 40
+  const gapMm = Number(options.gapMm)
+  const gap = Number.isFinite(gapMm) && gapMm >= 0 ? gapMm : 2
+
+  const wPx = labelPx(pageWidthMm)
+  const hPx = labelPx(pageHeightMm)
+
+  destroyPrintWindow()
+  printWindow = new BrowserWindow({
+    show: false,
+    width: wPx,
+    height: hPx,
+    useContentSize: true,
+    webPreferences: {
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  const tmpFile = path.join(os.tmpdir(), `kakapo-label-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
+  fs.writeFileSync(tmpFile, html, 'utf8')
+
+  try {
+    await printWindow.loadFile(tmpFile)
+    await waitForPrintRender(printWindow.webContents)
+
+    // Force content size for capture (deviceScaleFactor 1)
+    await printWindow.webContents.executeJavaScript(`
+      document.body.style.zoom = '1';
+      true
+    `).catch(() => undefined)
+
+    try {
+      printWindow.webContents.setZoomFactor(1)
+    } catch { /* ignore */ }
+
+    const cardCount = await printWindow.webContents.executeJavaScript(`
+      (function () {
+        const cards = Array.from(document.querySelectorAll('.k-label-card'));
+        if (!cards.length) return 0;
+        document.documentElement.style.width = '${wPx}px';
+        document.documentElement.style.height = '${hPx}px';
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.margin = '0';
+        document.body.style.padding = '0';
+        document.body.style.width = '${wPx}px';
+        document.body.style.height = '${hPx}px';
+        document.body.style.overflow = 'hidden';
+        document.body.style.background = '#fff';
+        const root = document.getElementById('k-label-print');
+        if (root) {
+          root.style.display = 'block';
+          root.style.width = '${wPx}px';
+          root.style.height = '${hPx}px';
+          root.style.margin = '0';
+          root.style.padding = '0';
+        }
+        cards.forEach((c) => {
+          c.style.display = 'none';
+          c.style.pageBreakAfter = 'auto';
+          c.style.breakAfter = 'auto';
+          c.style.width = '${wPx}px';
+          c.style.height = '${hPx}px';
+          c.style.minHeight = '${hPx}px';
+          c.style.maxWidth = '${wPx}px';
+          c.style.margin = '0';
+          c.style.overflow = 'hidden';
+          c.style.background = '#fff';
+          c.style.color = '#000';
+        });
+        return cards.length;
+      })()
+    `)
+
+    if (!cardCount) {
+      throw new Error('Нет этикеток для печати')
+    }
+
+    const labelsMono = []
+    for (let i = 0; i < cardCount; i++) {
+      await printWindow.webContents.executeJavaScript(`
+        (function () {
+          const cards = Array.from(document.querySelectorAll('.k-label-card'));
+          cards.forEach((c, idx) => { c.style.display = idx === ${i} ? 'flex' : 'none'; });
+        })()
+      `)
+      await new Promise(r => setTimeout(r, 120))
+
+      const img = await printWindow.webContents.capturePage({
+        x: 0,
+        y: 0,
+        width: wPx,
+        height: hPx,
+      })
+      const size = img.getSize()
+      const bgra = img.toBitmap()
+      const mono = bgraToMonoPacked(bgra, size.width, size.height, wPx, hPx, 168)
+      labelsMono.push(mono)
+    }
+
+    const job = buildMultiLabelTspl({
+      widthMm: pageWidthMm,
+      heightMm: pageHeightMm,
+      gapMm: gap,
+      labelsMono,
+    })
+
+    await printRawWindows(printerName, job)
+    return {
+      ok: true,
+      printerName,
+      role: 'label',
+      mode: 'tspl-raw',
+      pageWidthMm,
+      pageHeightMm,
+      count: labelsMono.length,
+    }
+  } finally {
+    try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+    destroyPrintWindow()
+  }
+}
+
 function printHtml(html, options = {}) {
+  const role = options.role === 'label' ? 'label' : 'receipt'
+  if (role === 'label') {
+    return printLabelsViaTspl(html, options)
+  }
+
   return new Promise((resolve, reject) => {
     const settings = loadPrinterSettings()
-    const role = options.role === 'label' ? 'label' : 'receipt'
     const printerName = String(
-      options.printerName
-      || (role === 'label' ? settings.labelPrinterName : settings.printerName)
-      || settings.printerName
-      || '',
+      options.printerName || settings.printerName || '',
     ).trim()
 
     let pageWidthMm = Number(options.pageWidthMm)
     let pageHeightMm = Number(options.pageHeightMm)
     if (!Number.isFinite(pageWidthMm) || pageWidthMm <= 0) {
-      pageWidthMm = role === 'label' ? 58 : (Number(settings.paperWidthMm) === 58 ? 58 : 80)
+      pageWidthMm = Number(settings.paperWidthMm) === 58 ? 58 : 80
     }
     if (!Number.isFinite(pageHeightMm) || pageHeightMm <= 0) {
-      pageHeightMm = role === 'label' ? 40 : 300
+      pageHeightMm = 300
     }
 
     const pageWidth = Math.round(pageWidthMm * 1000)
     const pageHeight = Math.round(pageHeightMm * 1000)
-    const winW = role === 'label' ? labelPx(pageWidthMm) + 40 : Math.max(320, Math.round(pageWidthMm * 4))
-    const winH = role === 'label' ? labelPx(pageHeightMm) + 80 : Math.max(400, Math.round(pageHeightMm * 4))
+    const winW = Math.max(320, Math.round(pageWidthMm * 4))
+    const winH = Math.max(400, Math.round(pageHeightMm * 4))
 
-    if (printWindow) {
-      try { printWindow.destroy() } catch { /* ignore */ }
-      printWindow = null
-    }
+    destroyPrintWindow()
 
     printWindow = new BrowserWindow({
       show: false,
@@ -186,8 +333,7 @@ function printHtml(html, options = {}) {
 
     const failTimer = setTimeout(() => {
       cleanupTmp()
-      try { printWindow?.destroy() } catch { /* ignore */ }
-      printWindow = null
+      destroyPrintWindow()
       reject(new Error('Таймаут печати'))
     }, 45000)
 
@@ -199,7 +345,6 @@ function printHtml(html, options = {}) {
           printBackground: true,
           deviceName: printerName || undefined,
           margins: { marginType: 'none' },
-          preferCSSPageSize: role === 'label',
           pageSize: { width: pageWidth, height: pageHeight },
           scaleFactor: 100,
         }
@@ -207,8 +352,7 @@ function printHtml(html, options = {}) {
         printWindow.webContents.print(printOpts, (success, failureReason) => {
           clearTimeout(failTimer)
           cleanupTmp()
-          try { printWindow?.destroy() } catch { /* ignore */ }
-          printWindow = null
+          destroyPrintWindow()
           if (!success) {
             reject(new Error(failureReason || 'Печать отменена'))
             return
@@ -224,8 +368,7 @@ function printHtml(html, options = {}) {
       } catch (err) {
         clearTimeout(failTimer)
         cleanupTmp()
-        try { printWindow?.destroy() } catch { /* ignore */ }
-        printWindow = null
+        destroyPrintWindow()
         reject(err instanceof Error ? err : new Error(String(err)))
       }
     }
@@ -237,8 +380,7 @@ function printHtml(html, options = {}) {
     printWindow.webContents.once('did-fail-load', (_e, code, desc) => {
       clearTimeout(failTimer)
       cleanupTmp()
-      try { printWindow?.destroy() } catch { /* ignore */ }
-      printWindow = null
+      destroyPrintWindow()
       reject(new Error(desc || `Ошибка загрузки печати (${code})`))
     })
   })

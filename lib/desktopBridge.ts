@@ -26,6 +26,8 @@ export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
   role?: 'receipt' | 'label'
   pageWidthMm?: number
   pageHeightMm?: number
+  /** Зазор между этикетками (мм), XP-235B обычно 2 */
+  gapMm?: number
 }
 
 export type CasPluItem = {

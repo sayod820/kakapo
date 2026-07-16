@@ -280,7 +280,12 @@ export function buildLabelsPrintDocument(
     return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Этикетки</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  html,body{width:${wPx}px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif}
+  html,body{
+    width:${wPx}px;background:#fff;color:#000;
+    font-family:Arial,Helvetica,sans-serif;
+    -webkit-font-smoothing:none;font-smooth:never;
+    text-rendering:geometricPrecision;
+  }
   #k-label-print{display:block;width:${wPx}px}
   .k-label-card{
     width:${wPx}px !important;
@@ -290,10 +295,12 @@ export function buildLabelsPrintDocument(
     overflow:hidden;
     page-break-after:always;
     break-after:page;
+    background:#fff !important;
+    color:#000 !important;
   }
-  .k-label-card:last-child{page-break-after:auto}
+  .k-label-card *{color:#000 !important;-webkit-font-smoothing:none;font-smooth:never}
   .k-label-edit-btn{display:none !important}
-  svg,img{max-width:100%;height:auto;display:block}
+  svg,img{max-width:100%;height:auto;display:block;image-rendering:pixelated;image-rendering:crisp-edges}
   @page{size:${w}mm ${h}mm;margin:0}
 </style></head><body>
   <div id="k-label-print">${labelsInnerHtml}</div>

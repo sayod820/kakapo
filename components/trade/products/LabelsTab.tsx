@@ -266,6 +266,7 @@ export default function LabelsTab({
         printerName: labelPrinterName || undefined,
         pageWidthMm: design.labelWidthMm || XP235B_LABEL_WIDTH_MM,
         pageHeightMm: design.labelHeightMm || XP235B_LABEL_HEIGHT_MM,
+        gapMm: 2,
       })
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'Ошибка печати')
@@ -291,6 +292,7 @@ export default function LabelsTab({
           printerName: labelPrinterName || undefined,
           pageWidthMm: w,
           pageHeightMm: h,
+          gapMm: 2,
         })
       } catch (e) {
         window.alert(e instanceof Error ? e.message : 'Не удалось напечатать этикетки')
@@ -347,7 +349,7 @@ export default function LabelsTab({
               <li>В Windows: драйвер XP-235B, принтер виден в списке</li>
               <li>Ролик <b>58×40 мм</b> в принтере</li>
               <li>Ниже выберите <b>XP-235B</b> → Сохранить</li>
-              <li><b>Тест этикетки</b> — проверка печати</li>
+              <li><b>Тест этикетки</b> — печать через TSPL (чёткий штрихкод)</li>
               <li>Выберите товары справа → <b>Печать</b></li>
             </ol>
             <select
