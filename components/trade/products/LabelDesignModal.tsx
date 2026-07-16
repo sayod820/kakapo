@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import LabelCanvasEditor from './LabelCanvasEditor'
 import LabelCard from './LabelCard'
 import {
@@ -32,6 +33,20 @@ export default function LabelDesignModal({
   onSave: () => void
   onReset: () => void
 }) {
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
   if (!open) return null
 
   function setBlock(id: LabelBlockId, patch: Partial<LabelBlockConfig>) {
@@ -52,125 +67,146 @@ export default function LabelDesignModal({
   const isRetail = design.layout !== 'blocks'
 
   return (
-    <div className="k-modal-bg" style={{ zIndex: 1300 }} onClick={onClose}>
-      <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()} style={{ maxWidth: 920, maxHeight: '94vh' }}>
-        <div className="k-modal-h">
-          <b>Дизайн этикетки</b>
-          <button type="button" onClick={onClose}>✕</button>
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1400,
+        background: 'var(--bg, #0b0f0c)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '12px 16px',
+          borderBottom: '1px solid var(--border)',
+          flexShrink: 0,
+          background: 'var(--card, #121812)',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Дизайн этикетки — полный экран</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+            {design.labelWidthMm}×{design.labelHeightMm} мм · {paperLabel} · Esc — закрыть
+          </div>
         </div>
-        <div className="k-modal-b" style={{ padding: 16, overflow: 'auto' }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)', marginBottom: 8 }}>Макет</div>
-          <div className="k-field" style={{ marginBottom: 16 }}>
-            <label>Стиль</label>
-            <select
-              className="k-sel"
-              value={design.layout || 'retail'}
-              onChange={e => onChange({
-                ...design,
-                layout: e.target.value as LabelLayoutId,
-                elements: design.elements?.length ? design.elements : DEFAULT_LABEL_ELEMENTS.map(x => ({ ...x })),
-              })}
-            >
-              <option value="retail">Магазин — графический редактор (58×40)</option>
-              <option value="blocks">Свободный — список блоков</option>
-            </select>
-          </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select
+            className="k-sel"
+            style={{ width: 220 }}
+            value={design.layout || 'retail'}
+            onChange={e => onChange({
+              ...design,
+              layout: e.target.value as LabelLayoutId,
+              elements: design.elements?.length ? design.elements : DEFAULT_LABEL_ELEMENTS.map(x => ({ ...x })),
+            })}
+          >
+            <option value="retail">Магазин — графический редактор</option>
+            <option value="blocks">Свободный — список блоков</option>
+          </select>
+          <select
+            className="k-sel"
+            style={{ width: 200 }}
+            value={design.paperPreset}
+            onChange={e => setPaperPreset(e.target.value as PaperPresetId)}
+          >
+            {(Object.keys(PAPER_PRESETS) as Array<keyof typeof PAPER_PRESETS>).map(id => (
+              <option key={id} value={id}>{PAPER_PRESETS[id].label}</option>
+            ))}
+            <option value="custom">Свой размер</option>
+          </select>
+          <button type="button" className="k-btn k-btn-s" onClick={onClose}>✕ Закрыть</button>
+        </div>
+      </div>
 
-          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)', marginBottom: 8 }}>Бумага</div>
-          <div className="k-grid2" style={{ marginBottom: 16 }}>
-            <div className="k-field" style={{ gridColumn: '1 / -1' }}>
-              <label>Формат</label>
-              <select className="k-sel" value={design.paperPreset} onChange={e => setPaperPreset(e.target.value as PaperPresetId)}>
-                {(Object.keys(PAPER_PRESETS) as Array<keyof typeof PAPER_PRESETS>).map(id => (
-                  <option key={id} value={id}>{PAPER_PRESETS[id].label}</option>
-                ))}
-                <option value="custom">Свой размер</option>
-              </select>
-            </div>
-            <div className="k-field">
-              <label>Ширина этикетки (мм)</label>
-              <input className="k-inp" type="number" min="20" value={design.labelWidthMm} onChange={e => onChange({ ...design, paperPreset: 'custom', labelWidthMm: Number(e.target.value) || 40 })} />
-            </div>
-            <div className="k-field">
-              <label>Высота этикетки (мм)</label>
-              <input className="k-inp" type="number" min="15" value={design.labelHeightMm} onChange={e => onChange({ ...design, paperPreset: 'custom', labelHeightMm: Number(e.target.value) || 30 })} />
-            </div>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 12 }}>
+        {isRetail ? (
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <LabelCanvasEditor design={design} onChange={onChange} fill />
           </div>
-
-          {isRetail ? (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)', marginBottom: 8 }}>
-                Графический редактор (как Paint — перетаскивание)
-              </div>
-              <LabelCanvasEditor design={design} onChange={onChange} />
-            </div>
-          ) : (
-            <>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)', marginBottom: 8 }}>Расположение элементов</div>
-              <div style={{ marginBottom: 16 }}>
-                {design.blocks.map((block, i) => (
-                  <div
-                    key={block.id}
-                    style={{
-                      display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto',
-                      gap: 8, alignItems: 'center', padding: '8px 10px', marginBottom: 6,
-                      background: 'var(--card2)', borderRadius: 8, border: '1px solid var(--border)',
-                    }}
-                  >
-                    <input type="checkbox" checked={block.show} onChange={e => setBlock(block.id, { show: e.target.checked })} />
-                    <span style={{ fontSize: 12, fontWeight: 700 }}>{LABEL_BLOCK_LABELS[block.id]}</span>
-                    <select className="k-sel" style={{ width: 90, padding: '4px 6px', fontSize: 11 }} value={block.align} onChange={e => setBlock(block.id, { align: e.target.value as LabelBlockConfig['align'] })}>
-                      <option value="left">Слева</option>
-                      <option value="center">Центр</option>
-                      <option value="right">Справа</option>
-                    </select>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '2px 8px' }} disabled={i === 0} onClick={() => onChange({ ...design, blocks: moveBlock(design.blocks, block.id, -1) })}>↑</button>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '2px 8px' }} disabled={i === design.blocks.length - 1} onClick={() => onChange({ ...design, blocks: moveBlock(design.blocks, block.id, 1) })}>↓</button>
-                  </div>
-                ))}
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-                  Печать: {design.labelWidthMm}×{design.labelHeightMm} мм на {paperLabel}
+        ) : (
+          <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)', marginBottom: 8 }}>Расположение элементов</div>
+            <div style={{ marginBottom: 16, maxWidth: 720 }}>
+              {design.blocks.map((block, i) => (
+                <div
+                  key={block.id}
+                  style={{
+                    display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto',
+                    gap: 8, alignItems: 'center', padding: '8px 10px', marginBottom: 6,
+                    background: 'var(--card2)', borderRadius: 8, border: '1px solid var(--border)',
+                  }}
+                >
+                  <input type="checkbox" checked={block.show} onChange={e => setBlock(block.id, { show: e.target.checked })} />
+                  <span style={{ fontSize: 12, fontWeight: 700 }}>{LABEL_BLOCK_LABELS[block.id]}</span>
+                  <select className="k-sel" style={{ width: 90, padding: '4px 6px', fontSize: 11 }} value={block.align} onChange={e => setBlock(block.id, { align: e.target.value as LabelBlockConfig['align'] })}>
+                    <option value="left">Слева</option>
+                    <option value="center">Центр</option>
+                    <option value="right">Справа</option>
+                  </select>
+                  <button type="button" className="k-btn k-btn-s" style={{ padding: '2px 8px' }} disabled={i === 0} onClick={() => onChange({ ...design, blocks: moveBlock(design.blocks, block.id, -1) })}>↑</button>
+                  <button type="button" className="k-btn k-btn-s" style={{ padding: '2px 8px' }} disabled={i === design.blocks.length - 1} onClick={() => onChange({ ...design, blocks: moveBlock(design.blocks, block.id, 1) })}>↓</button>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'center', padding: 12, background: 'var(--card2)', borderRadius: 8 }}>
-                  <LabelCard
-                    design={design}
-                    sizeStyle={previewCardStyle(design)}
-                    edit={{
-                      brand: 'KAKAPO',
-                      name: 'Пример товара',
-                      price: '12.50',
-                      meta: '500 гр · KAK-0001',
-                      size: '500 г',
-                      barcode: '4600123456789',
-                      plu: '',
-                      showBarcode: true,
-                      showPlu: false,
-                    }}
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} onClick={onSave}>Применить</button>
-            <button
-              type="button"
-              className="k-btn k-btn-s"
-              onClick={() => {
-                onReset()
-                onChange({
-                  ...DEFAULT_LABEL_DESIGN,
-                  elements: DEFAULT_LABEL_ELEMENTS.map(e => ({ ...e })),
-                })
-              }}
-            >
-              Сброс
-            </button>
-            <button type="button" className="k-btn k-btn-s" onClick={onClose}>Отмена</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 24, background: 'var(--card2)', borderRadius: 12 }}>
+              <LabelCard
+                design={design}
+                sizeStyle={previewCardStyle(design)}
+                edit={{
+                  brand: 'KAKAPO',
+                  name: 'Пример товара',
+                  price: '12.50',
+                  meta: '500 гр · KAK-0001',
+                  size: '500 г',
+                  barcode: '4600123456789',
+                  plu: '',
+                  showBarcode: true,
+                  showPlu: false,
+                }}
+              />
+            </div>
           </div>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: 10,
+          padding: '12px 16px',
+          borderTop: '1px solid var(--border)',
+          flexShrink: 0,
+          background: 'var(--card, #121812)',
+        }}
+      >
+        <button type="button" className="k-btn k-btn-g" style={{ minWidth: 160, padding: '12px 18px', fontSize: 14 }} onClick={onSave}>
+          Применить
+        </button>
+        <button
+          type="button"
+          className="k-btn k-btn-s"
+          style={{ padding: '12px 18px' }}
+          onClick={() => {
+            onReset()
+            onChange({
+              ...DEFAULT_LABEL_DESIGN,
+              elements: DEFAULT_LABEL_ELEMENTS.map(e => ({ ...e })),
+            })
+          }}
+        >
+          Сброс
+        </button>
+        <button type="button" className="k-btn k-btn-s" style={{ padding: '12px 18px' }} onClick={onClose}>
+          Отмена
+        </button>
+        <div style={{ flex: 1 }} />
+        <div style={{ alignSelf: 'center', fontSize: 12, color: 'var(--muted)' }}>
+          Перетаскивание мышью · угол блока — размер
         </div>
       </div>
     </div>
