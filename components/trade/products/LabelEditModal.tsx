@@ -38,7 +38,11 @@ export default function LabelEditModal({
             <input className="k-inp" type="number" step="0.01" value={edit.price} onChange={e => onChange({ ...edit, price: e.target.value })} />
           </div>
           <div className="k-field" style={{ marginBottom: 12 }}>
-            <label>Подпись (вес, артикул, партия)</label>
+            <label>Размер / вес (внизу этикетки)</label>
+            <input className="k-inp" value={edit.size} onChange={e => onChange({ ...edit, size: e.target.value })} placeholder="500 г" />
+          </div>
+          <div className="k-field" style={{ marginBottom: 12 }}>
+            <label>Подпись (артикул, партия — старый макет)</label>
             <input className="k-inp" value={edit.meta} onChange={e => onChange({ ...edit, meta: e.target.value })} />
           </div>
           <div className="k-field" style={{ marginBottom: 12 }}>

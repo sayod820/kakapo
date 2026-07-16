@@ -42,7 +42,7 @@ const LABEL_CSS = `
 `
 
 const EMPTY_EDIT: LabelEdit = {
-  brand: 'KAKAPO', name: '', price: '0', meta: '', barcode: '', plu: '',
+  brand: 'KAKAPO', name: '', price: '0', meta: '', size: '', barcode: '', plu: '',
   showBarcode: true, showPlu: false,
 }
 
@@ -158,7 +158,10 @@ export default function LabelsTab({
   }, [filtered, loadLayers])
 
   function getEdit(pick: LabelPick): LabelEdit {
-    return edits[pick.key] ?? defaultLabelEdit(pick.product, pick.layer)
+    const base = defaultLabelEdit(pick.product, pick.layer)
+    const saved = edits[pick.key]
+    if (!saved) return base
+    return { ...base, ...saved, size: saved.size || base.size }
   }
 
   function ensureEdit(key: string, pick: LabelPick) {
@@ -252,13 +255,14 @@ export default function LabelsTab({
       await saveLabelPrinter()
       const sampleEdit = {
         brand: 'KAKAPO',
-        name: 'Тест XP-235B',
-        price: '1.00',
-        meta: `${design.labelWidthMm}×${design.labelHeightMm} мм`,
+        name: 'Брокколи свежая',
+        price: '42.50',
+        meta: '',
+        size: '500 г',
         barcode: '4601234567890',
-        plu: '',
+        plu: '6403',
         showBarcode: true,
-        showPlu: false,
+        showPlu: true,
       }
       const sample = buildLabelsThermalPrintDocument([sampleEdit], design)
       await desk.printHtml(sample, {

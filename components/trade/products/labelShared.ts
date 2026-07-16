@@ -1,9 +1,10 @@
 import { productBarcodes } from '@/lib/productBarcodes'
-import { formatPriceLabel, isWeighted } from '@/lib/productWeight'
+import { formatPriceLabel, formatWeightGrams, isWeighted, productUnitGrams } from '@/lib/productWeight'
 import type { Product, ProductStockLayer } from '@/lib/types'
 
 export type LabelBlockId = 'brand' | 'name' | 'meta' | 'price' | 'plu' | 'barcode'
 export type LabelAlign = 'left' | 'center' | 'right'
+export type LabelLayoutId = 'blocks' | 'retail'
 export type PaperPresetId = 'a4' | 'thermal58' | 'thermal80' | 'label40x30' | 'label58x40' | 'label50x25' | 'xp235b' | 'custom'
 
 export type LabelBlockConfig = {
@@ -13,6 +14,7 @@ export type LabelBlockConfig = {
 }
 
 export type LabelDesign = {
+  layout: LabelLayoutId
   bgColor: string
   textColor: string
   accentColor: string
@@ -41,6 +43,8 @@ export type LabelEdit = {
   name: string
   price: string
   meta: string
+  /** Размер / вес внизу этикетки, напр. «500 г» */
+  size: string
   barcode: string
   plu: string
   showBarcode: boolean
@@ -94,18 +98,19 @@ export const DEFAULT_BLOCKS: LabelBlockConfig[] = [
 export const LABEL_DESIGN_KEY = 'kakapo-label-design-v2'
 
 export const DEFAULT_LABEL_DESIGN: LabelDesign = {
+  layout: 'retail',
   bgColor: '#ffffff',
   textColor: '#111111',
   accentColor: '#0a7a3e',
   borderColor: '#cccccc',
   brandSize: 10,
-  nameSize: 14,
-  priceSize: 22,
-  metaSize: 10,
-  padding: 8,
-  borderRadius: 4,
-  borderStyle: 'solid',
-  barcodeHeight: 36,
+  nameSize: 11,
+  priceSize: 38,
+  metaSize: 9,
+  padding: 5,
+  borderRadius: 0,
+  borderStyle: 'none',
+  barcodeHeight: 28,
   barcodeShowDigits: true,
   paperPreset: 'xp235b',
   paperWidthMm: 58,
@@ -128,7 +133,7 @@ function normalizeBlocks(raw?: LabelBlockConfig[] | null): LabelBlockConfig[] {
 }
 
 export function applyXP235BDesign(design: LabelDesign = DEFAULT_LABEL_DESIGN): LabelDesign {
-  return applyPaperPreset('xp235b', design)
+  return { ...applyPaperPreset('xp235b', design), layout: 'retail' }
 }
 
 export function applyPaperPreset(preset: PaperPresetId, design: LabelDesign): LabelDesign {
@@ -155,6 +160,7 @@ export function loadLabelDesign(): LabelDesign {
     return {
       ...DEFAULT_LABEL_DESIGN,
       ...parsed,
+      layout: parsed.layout === 'blocks' ? 'blocks' : 'retail',
       blocks: normalizeBlocks(parsed.blocks),
     }
   } catch {
@@ -194,6 +200,17 @@ export function pickScanBarcode(product: Product): string {
   return ''
 }
 
+export function labelSizeLine(product: Product): string {
+  const unit = String(product.unit || '').trim()
+  if (unit) return unit
+  if (isWeighted(product)) {
+    const g = productUnitGrams(product)
+    if (g >= 1000) return '1 кг'
+    return formatWeightGrams(g)
+  }
+  return '1 шт'
+}
+
 export function defaultLabelEdit(product: Product, layer?: ProductStockLayer | null): LabelEdit {
   const price = layer?.retailPrice ?? product.price ?? 0
   const scanCode = pickScanBarcode(product)
@@ -207,6 +224,7 @@ export function defaultLabelEdit(product: Product, layer?: ProductStockLayer | n
     name: product.name,
     price: String(price),
     meta,
+    size: labelSizeLine(product),
     barcode: scanCode,
     plu: product.plu || '',
     showBarcode: !!scanCode,
@@ -299,6 +317,7 @@ export function buildLabelsPrintDocument(
     color:#000 !important;
   }
   .k-label-card *{color:#000 !important;-webkit-font-smoothing:none;font-smooth:never}
+  .k-label-retail{display:flex;flex-direction:column;align-items:center;height:100%}
   .k-label-edit-btn{display:none !important}
   svg,img{max-width:100%;height:auto;display:block;image-rendering:pixelated;image-rendering:crisp-edges}
   @page{size:${w}mm ${h}mm;margin:0}

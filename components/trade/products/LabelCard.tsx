@@ -3,6 +3,23 @@
 import type { CSSProperties } from 'react'
 import LabelBarcode from './LabelBarcode'
 import {
+  labelPriceAmount,
+  retailAmountStyle,
+  retailBarcodeHeightPx,
+  retailBarcodeWrapStyle,
+  retailCardStyle,
+  retailCurrencyStyle,
+  retailDividerStyle,
+  retailLabelName,
+  retailNameStyle,
+  retailPluStyle,
+  retailPriceRowStyle,
+  retailShowBarcode,
+  retailShowPlu,
+  retailShowSize,
+  retailSizeStyle,
+} from './labelRetailLayout'
+import {
   formatLabelMoney,
   type LabelAlign,
   type LabelBlockConfig,
@@ -13,6 +30,36 @@ import {
 
 function alignStyle(align: LabelAlign): CSSProperties {
   return { textAlign: align, width: '100%' }
+}
+
+function RetailLabelBody({ edit, design }: { edit: LabelEdit; design: LabelDesign }) {
+  return (
+    <div style={retailCardStyle(design)}>
+      <div style={retailNameStyle()}>{retailLabelName(edit)}</div>
+      <hr style={retailDividerStyle(design)} />
+      <div style={retailPriceRowStyle()}>
+        <span style={retailAmountStyle()}>{labelPriceAmount(edit.price)}</span>
+        <span style={retailCurrencyStyle()}>сом</span>
+      </div>
+      <hr style={retailDividerStyle(design)} />
+      {retailShowPlu(edit) && (
+        <div style={retailPluStyle()}>PLU {edit.plu}</div>
+      )}
+      {retailShowBarcode(edit) && (
+        <div style={retailBarcodeWrapStyle()}>
+          <LabelBarcode
+            value={edit.barcode}
+            height={retailBarcodeHeightPx()}
+            color="#000000"
+            showText={design.barcodeShowDigits}
+          />
+        </div>
+      )}
+      {retailShowSize(edit) && (
+        <div style={retailSizeStyle()}>{edit.size}</div>
+      )}
+    </div>
+  )
 }
 
 export default function LabelCard({
@@ -26,6 +73,24 @@ export default function LabelCard({
   onEdit?: () => void
   sizeStyle?: CSSProperties
 }) {
+  if (design.layout === 'retail') {
+    return (
+      <div className="k-label-card" style={{ ...sizeStyle, position: 'relative', overflow: 'hidden', boxSizing: 'border-box' }}>
+        {onEdit && (
+          <button
+            type="button"
+            className="k-label-edit-btn"
+            onClick={onEdit}
+            style={{ position: 'absolute', top: 4, right: 4, border: 'none', background: '#f0f0f0', borderRadius: 4, padding: '2px 6px', fontSize: 10, cursor: 'pointer', zIndex: 2 }}
+          >
+            ✏️
+          </button>
+        )}
+        <RetailLabelBody edit={edit} design={design} />
+      </div>
+    )
+  }
+
   const cardStyle: CSSProperties = {
     ...sizeStyle,
     background: design.bgColor,

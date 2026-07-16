@@ -11,6 +11,7 @@ import {
   type LabelBlockConfig,
   type LabelBlockId,
   type LabelDesign,
+  type LabelLayoutId,
   type PaperPresetId,
 } from './labelShared'
 
@@ -54,6 +55,18 @@ export default function LabelDesignModal({
           <button type="button" onClick={onClose}>✕</button>
         </div>
         <div className="k-modal-b" style={{ padding: 16, overflow: 'auto' }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)', marginBottom: 8 }}>🏷️ Макет этикетки</div>
+          <div className="k-field" style={{ marginBottom: 16 }}>
+            <label>Стиль</label>
+            <select
+              className="k-sel"
+              value={design.layout || 'retail'}
+              onChange={e => onChange({ ...design, layout: e.target.value as LabelLayoutId })}
+            >
+              <option value="retail">Магазин — крупная цена, штрихкод и размер внизу</option>
+              <option value="blocks">Свободный — блоки вручную</option>
+            </select>
+          </div>
           <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)', marginBottom: 8 }}>📄 Бумага и размер этикетки</div>
           <div className="k-grid2" style={{ marginBottom: 16 }}>
             <div className="k-field" style={{ gridColumn: '1 / -1' }}>
