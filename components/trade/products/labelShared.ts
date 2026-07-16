@@ -275,23 +275,25 @@ export function buildLabelsPrintDocument(
   if (thermal) {
     const w = design.labelWidthMm
     const h = design.labelHeightMm
+    const wPx = Math.round((w * 203) / 25.4)
+    const hPx = Math.round((h * 203) / 25.4)
     return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Этикетки</title>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif}
-  #k-label-print{display:flex;flex-direction:column;gap:0}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{width:${wPx}px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif}
+  #k-label-print{display:block;width:${wPx}px}
   .k-label-card{
-    width:${w}mm !important;
-    height:${h}mm !important;
-    min-height:${h}mm !important;
-    max-width:${w}mm !important;
+    width:${wPx}px !important;
+    height:${hPx}px !important;
+    min-height:${hPx}px !important;
+    max-width:${wPx}px !important;
     overflow:hidden;
     page-break-after:always;
     break-after:page;
   }
   .k-label-card:last-child{page-break-after:auto}
   .k-label-edit-btn{display:none !important}
-  svg{max-width:100%;height:auto}
+  svg,img{max-width:100%;height:auto;display:block}
   @page{size:${w}mm ${h}mm;margin:0}
 </style></head><body>
   <div id="k-label-print">${labelsInnerHtml}</div>

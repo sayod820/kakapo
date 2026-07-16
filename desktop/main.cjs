@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 
 const { syncCasPlu } = require('./casScale.cjs')
@@ -102,6 +103,28 @@ async function getPrintersAsync() {
   return win.webContents.getPrinters()
 }
 
+function labelPx(mm) {
+  return Math.max(120, Math.round((Number(mm) * 203) / 25.4))
+}
+
+function waitForPrintRender(webContents) {
+  return webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const done = () => setTimeout(resolve, 350)
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(done).catch(done)
+        return
+      }
+      if (document.readyState === 'complete') {
+        done()
+        return
+      }
+      window.addEventListener('load', done, { once: true })
+      setTimeout(resolve, 800)
+    })
+  `).catch(() => undefined)
+}
+
 function printHtml(html, options = {}) {
   return new Promise((resolve, reject) => {
     const settings = loadPrinterSettings()
@@ -124,6 +147,8 @@ function printHtml(html, options = {}) {
 
     const pageWidth = Math.round(pageWidthMm * 1000)
     const pageHeight = Math.round(pageHeightMm * 1000)
+    const winW = role === 'label' ? labelPx(pageWidthMm) + 40 : Math.max(320, Math.round(pageWidthMm * 4))
+    const winH = role === 'label' ? labelPx(pageHeightMm) + 80 : Math.max(400, Math.round(pageHeightMm * 4))
 
     if (printWindow) {
       try { printWindow.destroy() } catch { /* ignore */ }
@@ -132,54 +157,86 @@ function printHtml(html, options = {}) {
 
     printWindow = new BrowserWindow({
       show: false,
-      width: Math.max(280, Math.round(pageWidthMm * 4)),
-      height: Math.max(400, Math.round(pageHeightMm * 4)),
+      width: winW,
+      height: winH,
       webPreferences: {
-        sandbox: true,
+        sandbox: false,
         contextIsolation: true,
         nodeIntegration: false,
       },
     })
 
-    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html)
-    printWindow.loadURL(dataUrl)
+    const tmpFile = path.join(os.tmpdir(), `kakapo-print-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
+    let tmpFileWritten = false
+    try {
+      fs.writeFileSync(tmpFile, html, 'utf8')
+      tmpFileWritten = true
+    } catch (err) {
+      reject(new Error(`Не удалось подготовить печать: ${err.message || err}`))
+      return
+    }
+
+    const cleanupTmp = () => {
+      if (!tmpFileWritten) return
+      try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+      tmpFileWritten = false
+    }
+
+    printWindow.loadFile(tmpFile)
 
     const failTimer = setTimeout(() => {
+      cleanupTmp()
       try { printWindow?.destroy() } catch { /* ignore */ }
       printWindow = null
       reject(new Error('Таймаут печати'))
     }, 45000)
 
-    printWindow.webContents.on('did-finish-load', () => {
-      const printOpts = {
-        silent: !!printerName,
-        printBackground: true,
-        deviceName: printerName || undefined,
-        margins: { marginType: 'none' },
-        pageSize: { width: pageWidth, height: pageHeight },
-        scaleFactor: 100,
-      }
+    const runPrint = async () => {
+      try {
+        await waitForPrintRender(printWindow.webContents)
+        const printOpts = {
+          silent: !!printerName,
+          printBackground: true,
+          deviceName: printerName || undefined,
+          margins: { marginType: 'none' },
+          preferCSSPageSize: role === 'label',
+          pageSize: { width: pageWidth, height: pageHeight },
+          scaleFactor: 100,
+        }
 
-      printWindow.webContents.print(printOpts, (success, failureReason) => {
+        printWindow.webContents.print(printOpts, (success, failureReason) => {
+          clearTimeout(failTimer)
+          cleanupTmp()
+          try { printWindow?.destroy() } catch { /* ignore */ }
+          printWindow = null
+          if (!success) {
+            reject(new Error(failureReason || 'Печать отменена'))
+            return
+          }
+          resolve({
+            ok: true,
+            printerName: printerName || 'default',
+            role,
+            pageWidthMm,
+            pageHeightMm,
+          })
+        })
+      } catch (err) {
         clearTimeout(failTimer)
+        cleanupTmp()
         try { printWindow?.destroy() } catch { /* ignore */ }
         printWindow = null
-        if (!success) {
-          reject(new Error(failureReason || 'Печать отменена'))
-          return
-        }
-        resolve({
-          ok: true,
-          printerName: printerName || 'default',
-          role,
-          pageWidthMm,
-          pageHeightMm,
-        })
-      })
+        reject(err instanceof Error ? err : new Error(String(err)))
+      }
+    }
+
+    printWindow.webContents.once('did-finish-load', () => {
+      void runPrint()
     })
 
-    printWindow.webContents.on('did-fail-load', (_e, code, desc) => {
+    printWindow.webContents.once('did-fail-load', (_e, code, desc) => {
       clearTimeout(failTimer)
+      cleanupTmp()
       try { printWindow?.destroy() } catch { /* ignore */ }
       printWindow = null
       reject(new Error(desc || `Ошибка загрузки печати (${code})`))

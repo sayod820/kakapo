@@ -10,11 +10,11 @@ import type { Product, ProductStockLayer } from '@/lib/types'
 import LabelCard from './LabelCard'
 import LabelDesignModal from './LabelDesignModal'
 import LabelEditModal from './LabelEditModal'
+import { buildLabelsThermalPrintDocument } from './labelPrintHtml'
 import {
   applyXP235BDesign,
   applyPaperPreset,
   buildLabelPick,
-  buildLabelsPrintDocument,
   buildPrintCss,
   DEFAULT_LABEL_DESIGN,
   defaultLabelEdit,
@@ -250,13 +250,17 @@ export default function LabelsTab({
     setLabelPrintBusy(true)
     try {
       await saveLabelPrinter()
-      const sample = buildLabelsPrintDocument(design, `
-        <div class="k-label-card" style="background:#fff;border:1px solid #ccc;padding:8px;display:flex;flex-direction:column;justify-content:center;align-items:center;font-family:Arial,sans-serif">
-          <div style="font-weight:900;font-size:12px;color:#0a7a3e">KAKAPO</div>
-          <div style="font-weight:800;font-size:14px;margin-top:4px">Тест XP-235B</div>
-          <div style="font-size:11px;margin-top:4px;color:#666">${design.labelWidthMm}×${design.labelHeightMm} мм</div>
-        </div>
-      `, { thermalRoll: true })
+      const sampleEdit = {
+        brand: 'KAKAPO',
+        name: 'Тест XP-235B',
+        price: '1.00',
+        meta: `${design.labelWidthMm}×${design.labelHeightMm} мм`,
+        barcode: '4601234567890',
+        plu: '',
+        showBarcode: true,
+        showPlu: false,
+      }
+      const sample = buildLabelsThermalPrintDocument([sampleEdit], design)
       await desk.printHtml(sample, {
         role: 'label',
         printerName: labelPrinterName || undefined,
@@ -272,8 +276,6 @@ export default function LabelsTab({
 
   async function printLabels() {
     if (!chosenPicks.length) return
-    const root = document.getElementById('k-label-print')
-    if (!root) return
 
     if (isKakapoDesktop()) {
       const desk = getKakapoDesktop()
@@ -282,7 +284,8 @@ export default function LabelsTab({
         await saveLabelPrinter()
         const w = design.labelWidthMm || XP235B_LABEL_WIDTH_MM
         const h = design.labelHeightMm || XP235B_LABEL_HEIGHT_MM
-        const html = buildLabelsPrintDocument(design, root.innerHTML, { thermalRoll: true })
+        const edits = chosenPicks.map(pick => getEdit(pick))
+        const html = buildLabelsThermalPrintDocument(edits, design)
         await desk.printHtml(html, {
           role: 'label',
           printerName: labelPrinterName || undefined,
@@ -295,6 +298,8 @@ export default function LabelsTab({
       return
     }
 
+    const root = document.getElementById('k-label-print')
+    if (!root) return
     window.print()
   }
 
