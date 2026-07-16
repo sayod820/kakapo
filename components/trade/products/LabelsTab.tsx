@@ -10,7 +10,7 @@ import type { Product, ProductStockLayer } from '@/lib/types'
 import LabelCard from './LabelCard'
 import LabelDesignModal from './LabelDesignModal'
 import LabelEditModal from './LabelEditModal'
-import { buildLabelsThermalPrintDocument } from './labelPrintHtml'
+import { buildSingleLabelThermalDocument } from './labelPrintHtml'
 import {
   applyXP235BDesign,
   applyPaperPreset,
@@ -264,7 +264,12 @@ export default function LabelsTab({
         showBarcode: true,
         showPlu: true,
       }
-      const sample = buildLabelsThermalPrintDocument([sampleEdit], design)
+      const sample = buildSingleLabelThermalDocument(sampleEdit, {
+        ...design,
+        layout: 'retail',
+        labelWidthMm: XP235B_LABEL_WIDTH_MM,
+        labelHeightMm: XP235B_LABEL_HEIGHT_MM,
+      })
       await desk.printHtml(sample, {
         role: 'label',
         printerName: labelPrinterName || undefined,
@@ -289,21 +294,24 @@ export default function LabelsTab({
         await saveLabelPrinter()
         const w = XP235B_LABEL_WIDTH_MM
         const h = XP235B_LABEL_HEIGHT_MM
-        const edits = chosenPicks.map(pick => getEdit(pick))
-        const html = buildLabelsThermalPrintDocument(edits, {
+        const printDesign = {
           ...design,
+          layout: (design.layout === 'blocks' ? 'blocks' : 'retail') as typeof design.layout,
           labelWidthMm: w,
           labelHeightMm: h,
           paperWidthMm: w,
-          layout: design.layout || 'retail',
-        })
-        await desk.printHtml(html, {
-          role: 'label',
-          printerName: labelPrinterName || undefined,
-          pageWidthMm: w,
-          pageHeightMm: h,
-          gapMm: 2,
-        })
+        }
+        // По одной этикетке: 1 товар = 1 TSPL job = 1 бумага
+        for (const pick of chosenPicks) {
+          const html = buildSingleLabelThermalDocument(getEdit(pick), printDesign)
+          await desk.printHtml(html, {
+            role: 'label',
+            printerName: labelPrinterName || undefined,
+            pageWidthMm: w,
+            pageHeightMm: h,
+            gapMm: 2,
+          })
+        }
       } catch (e) {
         window.alert(e instanceof Error ? e.message : 'Не удалось напечатать этикетки')
       }
@@ -513,7 +521,10 @@ export default function LabelsTab({
         onChange={setDraftDesign}
         onClose={() => setDesignOpen(false)}
         onSave={saveDesign}
-        onReset={() => setDraftDesign(DEFAULT_LABEL_DESIGN)}
+        onReset={() => setDraftDesign({
+          ...DEFAULT_LABEL_DESIGN,
+          elements: DEFAULT_LABEL_DESIGN.elements.map(e => ({ ...e })),
+        })}
       />
     </div>
   )

@@ -2,18 +2,17 @@
 
 import JsBarcode from 'jsbarcode'
 import {
+  isElementShown,
   labelPriceAmount,
   mmToLabelPx,
-  RETAIL_LAYOUT,
   retailLabelName,
-  retailShowBarcode,
-  retailShowPlu,
-  retailShowSize,
 } from './labelRetailLayout'
 import {
+  getLabelElements,
   type LabelBlockId,
   type LabelDesign,
   type LabelEdit,
+  type LabelElement,
   buildLabelsPrintDocument,
 } from './labelShared'
 
@@ -73,6 +72,56 @@ export function barcodeToSvgHtml(value: string, heightPx: number, showDigits: bo
   return svg.outerHTML
 }
 
+function absStyle(el: LabelElement) {
+  const x = mmToLabelPx(el.x)
+  const y = mmToLabelPx(el.y)
+  const w = mmToLabelPx(el.w)
+  const h = mmToLabelPx(el.h)
+  return `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;box-sizing:border-box;text-align:${el.align};display:flex;align-items:${el.id === 'price' || el.id === 'barcode' ? 'center' : 'flex-start'};justify-content:${el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'}`
+}
+
+function fontPx(mm: number) {
+  return Math.max(8, mmToLabelPx(mm))
+}
+
+function renderAbsElement(el: LabelElement, edit: LabelEdit): string {
+  if (!isElementShown(el, edit)) return ''
+
+  if (el.id === 'line1' || el.id === 'line2') {
+    return `<div class="k-label-abs" style="${absStyle(el)}"><div style="width:100%;height:${Math.max(2, mmToLabelPx(0.35))}px;background:#000;margin:auto 0"></div></div>`
+  }
+  if (el.id === 'name') {
+    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:800;line-height:1.05;letter-spacing:0.02em;text-transform:uppercase">${escHtml(retailLabelName(edit))}</div>`
+  }
+  if (el.id === 'size') {
+    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:600;line-height:1.1">${escHtml(edit.size)}</div>`
+  }
+  if (el.id === 'price') {
+    const cur = Math.max(10, Math.round(fontPx(el.fontSizeMm) * 0.28))
+    return `<div class="k-label-abs" style="${absStyle(el)};gap:4px">
+      <span style="font-size:${fontPx(el.fontSizeMm)}px;font-weight:900;line-height:0.92;letter-spacing:-0.02em">${escHtml(labelPriceAmount(edit.price))}</span>
+      <span style="font-size:${cur}px;font-weight:700;line-height:1;padding-bottom:4px">сом</span>
+    </div>`
+  }
+  if (el.id === 'plu') {
+    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:700;line-height:1.1">PLU ${escHtml(edit.plu)}</div>`
+  }
+  if (el.id === 'barcode') {
+    const hPx = Math.max(10, mmToLabelPx(el.h * 0.85))
+    const svg = barcodeToSvgHtml(edit.barcode, hPx, false)
+    if (!svg) return ''
+    return `<div class="k-label-abs" style="${absStyle(el)}">${svg}</div>`
+  }
+  return ''
+}
+
+function buildRetailLabelCardHtml(edit: LabelEdit, design: LabelDesign): string {
+  const w = mmToLabelPx(design.labelWidthMm)
+  const h = mmToLabelPx(design.labelHeightMm)
+  const parts = getLabelElements(design).map(el => renderAbsElement(el, edit)).join('')
+  return `<div class="k-label-card" style="position:relative;width:${w}px;height:${h}px;min-height:${h}px;max-height:${h}px;overflow:hidden;background:#fff;color:#000;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif">${parts}</div>`
+}
+
 function renderBlockHtml(id: LabelBlockId, edit: LabelEdit, design: LabelDesign, barcodeSvg: string): string {
   const cfg = design.blocks.find(b => b.id === id)
   if (!cfg?.show) return ''
@@ -98,39 +147,6 @@ function renderBlockHtml(id: LabelBlockId, edit: LabelEdit, design: LabelDesign,
   }
 }
 
-function buildRetailLabelCardHtml(edit: LabelEdit, design: LabelDesign): string {
-  const pad = Math.max(design.padding, mmToLabelPx(RETAIL_LAYOUT.paddingMm))
-  const barcodeH = mmToLabelPx(RETAIL_LAYOUT.barcodeHeightMm)
-  const barcodeSvg = retailShowBarcode(edit)
-    ? barcodeToSvgHtml(edit.barcode, barcodeH, false)
-    : ''
-
-  const size = retailShowSize(edit)
-    ? `<div style="font-size:${RETAIL_LAYOUT.sizeMm}mm;font-weight:600;line-height:1.15;margin-top:0.3mm;margin-bottom:0.2mm;flex-shrink:0">${escHtml(edit.size)}</div>`
-    : ''
-
-  const plu = retailShowPlu(edit)
-    ? `<div style="font-size:${RETAIL_LAYOUT.pluMm}mm;font-weight:700;line-height:1.15;flex-shrink:0">PLU ${escHtml(edit.plu)}</div>`
-    : ''
-
-  const barcode = barcodeSvg
-    ? `<div style="width:${RETAIL_LAYOUT.barcodeWidthPct}%;max-width:${RETAIL_LAYOUT.barcodeWidthPct}%;flex-shrink:0;display:flex;justify-content:center;margin-top:auto;padding-top:0.4mm">${barcodeSvg}</div>`
-    : ''
-
-  return `<div class="k-label-card k-label-retail" style="background:#fff;color:#000;border:none;padding:${pad}px ${pad + 2}px ${pad}px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;height:100%;overflow:hidden;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;text-align:center">
-  <div style="font-size:${RETAIL_LAYOUT.nameMm}mm;font-weight:800;line-height:1.1;letter-spacing:0.03em;text-transform:uppercase;width:100%;flex-shrink:0">${escHtml(retailLabelName(edit))}</div>
-  ${size}
-  <hr style="border:none;border-top:${RETAIL_LAYOUT.rulePx}px solid #000;margin:2px 0;width:100%;flex-shrink:0">
-  <div style="display:flex;align-items:flex-end;justify-content:center;gap:0.6mm;flex:1 1 auto;min-height:0;width:100%;padding:1px 0">
-    <span style="font-size:${RETAIL_LAYOUT.priceMm}mm;font-weight:900;line-height:0.92;letter-spacing:-0.02em">${escHtml(labelPriceAmount(edit.price))}</span>
-    <span style="font-size:${RETAIL_LAYOUT.currencyMm}mm;font-weight:700;line-height:1;padding-bottom:0.8mm">сом</span>
-  </div>
-  <hr style="border:none;border-top:${RETAIL_LAYOUT.rulePx}px solid #000;margin:2px 0;width:100%;flex-shrink:0">
-  ${plu}
-  ${barcode}
-</div>`
-}
-
 function buildClassicLabelCardHtml(edit: LabelEdit, design: LabelDesign): string {
   const barcodeSvg = edit.showBarcode && edit.barcode.trim()
     ? barcodeToSvgHtml(edit.barcode, design.barcodeHeight, design.barcodeShowDigits)
@@ -141,15 +157,36 @@ function buildClassicLabelCardHtml(edit: LabelEdit, design: LabelDesign): string
     .filter(Boolean)
     .join('')
 
-  return `<div class="k-label-card" style="background:#fff;color:#000;border:none;border-radius:0;padding:${Math.max(design.padding, 4)}px;display:flex;flex-direction:column;justify-content:flex-start;gap:2px;overflow:hidden;box-sizing:border-box">${blocks}</div>`
+  return `<div class="k-label-card" style="background:#fff;color:#000;border:none;border-radius:0;padding:${Math.max(design.padding, 4)}px;display:flex;flex-direction:column;justify-content:flex-start;gap:2px;overflow:hidden;box-sizing:border-box;height:100%">${blocks}</div>`
 }
 
 export function buildLabelCardPrintHtml(edit: LabelEdit, design: LabelDesign): string {
-  if (design.layout === 'retail') return buildRetailLabelCardHtml(edit, design)
+  if (design.layout !== 'blocks') return buildRetailLabelCardHtml(edit, design)
   return buildClassicLabelCardHtml(edit, design)
 }
 
+/** Один HTML-документ = одна этикетка (для TSPL / XP-235B) */
+export function buildSingleLabelThermalDocument(edit: LabelEdit, design: LabelDesign): string {
+  const fixed: LabelDesign = {
+    ...design,
+    layout: design.layout === 'blocks' ? 'blocks' : 'retail',
+    labelWidthMm: 58,
+    labelHeightMm: 40,
+    paperWidthMm: 58,
+    elements: getLabelElements(design),
+  }
+  return buildLabelsPrintDocument(fixed, buildLabelCardPrintHtml(edit, fixed), { thermalRoll: true })
+}
+
 export function buildLabelsThermalPrintDocument(edits: LabelEdit[], design: LabelDesign): string {
-  const cardsHtml = edits.map(edit => buildLabelCardPrintHtml(edit, design)).join('')
-  return buildLabelsPrintDocument(design, cardsHtml, { thermalRoll: true })
+  const fixed: LabelDesign = {
+    ...design,
+    layout: design.layout === 'blocks' ? 'blocks' : 'retail',
+    labelWidthMm: 58,
+    labelHeightMm: 40,
+    paperWidthMm: 58,
+    elements: getLabelElements(design),
+  }
+  const cardsHtml = edits.map(edit => buildLabelCardPrintHtml(edit, fixed)).join('')
+  return buildLabelsPrintDocument(fixed, cardsHtml, { thermalRoll: true })
 }

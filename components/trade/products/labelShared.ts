@@ -6,11 +6,24 @@ export type LabelBlockId = 'brand' | 'name' | 'meta' | 'price' | 'plu' | 'barcod
 export type LabelAlign = 'left' | 'center' | 'right'
 export type LabelLayoutId = 'blocks' | 'retail'
 export type PaperPresetId = 'a4' | 'thermal58' | 'thermal80' | 'label40x30' | 'label58x40' | 'label50x25' | 'xp235b' | 'custom'
+export type LabelElementId = 'name' | 'size' | 'line1' | 'price' | 'line2' | 'plu' | 'barcode'
 
 export type LabelBlockConfig = {
   id: LabelBlockId
   show: boolean
   align: LabelAlign
+}
+
+/** Позиционируемый блок макета (мм) */
+export type LabelElement = {
+  id: LabelElementId
+  x: number
+  y: number
+  w: number
+  h: number
+  fontSizeMm: number
+  align: LabelAlign
+  visible: boolean
 }
 
 export type LabelDesign = {
@@ -36,6 +49,7 @@ export type LabelDesign = {
   marginMm: number
   gapMm: number
   blocks: LabelBlockConfig[]
+  elements: LabelElement[]
 }
 
 export type LabelEdit = {
@@ -95,7 +109,62 @@ export const DEFAULT_BLOCKS: LabelBlockConfig[] = [
   { id: 'barcode', show: true, align: 'center' },
 ]
 
-export const LABEL_DESIGN_KEY = 'kakapo-label-design-v2'
+export const LABEL_ELEMENT_LABELS: Record<LabelElementId, string> = {
+  name: 'Название',
+  size: 'Вес / размер',
+  line1: 'Линия сверху',
+  price: 'Цена',
+  line2: 'Линия снизу',
+  plu: 'PLU',
+  barcode: 'Штрихкод',
+}
+
+/** Макет как на фото: имя + вес сверху, крупная цена, PLU, мелкий штрихкод внизу */
+export const DEFAULT_LABEL_ELEMENTS: LabelElement[] = [
+  { id: 'name', x: 1, y: 0.8, w: 56, h: 4.2, fontSizeMm: 2.8, align: 'center', visible: true },
+  { id: 'size', x: 1, y: 4.8, w: 56, h: 3.2, fontSizeMm: 2.2, align: 'center', visible: true },
+  { id: 'line1', x: 2, y: 8.2, w: 54, h: 0.5, fontSizeMm: 0, align: 'center', visible: true },
+  { id: 'price', x: 1, y: 9, w: 56, h: 13.5, fontSizeMm: 9.5, align: 'center', visible: true },
+  { id: 'line2', x: 2, y: 23, w: 54, h: 0.5, fontSizeMm: 0, align: 'center', visible: true },
+  { id: 'plu', x: 1, y: 24, w: 56, h: 3, fontSizeMm: 2.2, align: 'center', visible: true },
+  { id: 'barcode', x: 10, y: 27.5, w: 38, h: 10, fontSizeMm: 1.6, align: 'center', visible: true },
+]
+
+export function normalizeLabelElements(raw?: LabelElement[] | null): LabelElement[] {
+  const list = Array.isArray(raw) ? raw : []
+  const byId = new Map(list.map(e => [e.id, e]))
+  return DEFAULT_LABEL_ELEMENTS.map(def => {
+    const saved = byId.get(def.id)
+    if (!saved) return { ...def }
+    return {
+      ...def,
+      ...saved,
+      id: def.id,
+      x: Number.isFinite(Number(saved.x)) ? Number(saved.x) : def.x,
+      y: Number.isFinite(Number(saved.y)) ? Number(saved.y) : def.y,
+      w: Number.isFinite(Number(saved.w)) && Number(saved.w) > 0 ? Number(saved.w) : def.w,
+      h: Number.isFinite(Number(saved.h)) && Number(saved.h) > 0 ? Number(saved.h) : def.h,
+      fontSizeMm: Number.isFinite(Number(saved.fontSizeMm)) ? Number(saved.fontSizeMm) : def.fontSizeMm,
+      align: saved.align === 'left' || saved.align === 'right' ? saved.align : 'center',
+      visible: saved.visible !== false,
+    }
+  })
+}
+
+export function getLabelElements(design: LabelDesign): LabelElement[] {
+  return normalizeLabelElements(design.elements)
+}
+
+export function updateLabelElement(
+  design: LabelDesign,
+  id: LabelElementId,
+  patch: Partial<LabelElement>,
+): LabelDesign {
+  const elements = getLabelElements(design).map(el => (el.id === id ? { ...el, ...patch, id } : el))
+  return { ...design, elements }
+}
+
+export const LABEL_DESIGN_KEY = 'kakapo-label-design-v3'
 
 export const DEFAULT_LABEL_DESIGN: LabelDesign = {
   layout: 'retail',
@@ -107,19 +176,20 @@ export const DEFAULT_LABEL_DESIGN: LabelDesign = {
   nameSize: 11,
   priceSize: 38,
   metaSize: 9,
-  padding: 5,
+  padding: 0,
   borderRadius: 0,
   borderStyle: 'none',
   barcodeHeight: 22,
-  barcodeShowDigits: true,
+  barcodeShowDigits: false,
   paperPreset: 'xp235b',
   paperWidthMm: 58,
   paperHeightMm: 0,
   labelWidthMm: 58,
   labelHeightMm: 40,
   marginMm: 0,
-  gapMm: 0,
+  gapMm: 2,
   blocks: DEFAULT_BLOCKS,
+  elements: DEFAULT_LABEL_ELEMENTS.map(e => ({ ...e })),
 }
 
 function normalizeBlocks(raw?: LabelBlockConfig[] | null): LabelBlockConfig[] {
@@ -133,7 +203,15 @@ function normalizeBlocks(raw?: LabelBlockConfig[] | null): LabelBlockConfig[] {
 }
 
 export function applyXP235BDesign(design: LabelDesign = DEFAULT_LABEL_DESIGN): LabelDesign {
-  return { ...applyPaperPreset('xp235b', design), layout: 'retail' }
+  return {
+    ...applyPaperPreset('xp235b', design),
+    layout: 'retail',
+    labelWidthMm: 58,
+    labelHeightMm: 40,
+    paperWidthMm: 58,
+    gapMm: 2,
+    elements: normalizeLabelElements(design.elements?.length ? design.elements : DEFAULT_LABEL_ELEMENTS),
+  }
 }
 
 export function applyPaperPreset(preset: PaperPresetId, design: LabelDesign): LabelDesign {
@@ -162,6 +240,7 @@ export function loadLabelDesign(): LabelDesign {
       ...parsed,
       layout: parsed.layout === 'blocks' ? 'blocks' : 'retail',
       blocks: normalizeBlocks(parsed.blocks),
+      elements: normalizeLabelElements(parsed.elements),
     }
   } catch {
     return DEFAULT_LABEL_DESIGN
@@ -311,14 +390,15 @@ export function buildLabelsPrintDocument(
     min-height:${hPx}px !important;
     max-height:${hPx}px !important;
     max-width:${wPx}px !important;
-    overflow:hidden;
+    overflow:hidden !important;
+    position:relative !important;
     page-break-after:always;
     break-after:page;
     background:#fff !important;
     color:#000 !important;
   }
   .k-label-card *{color:#000 !important;-webkit-font-smoothing:none;font-smooth:never}
-  .k-label-retail{display:flex;flex-direction:column;align-items:center;height:100%}
+  .k-label-abs{position:absolute;overflow:hidden;box-sizing:border-box}
   .k-label-edit-btn{display:none !important}
   svg,img{max-width:100%;height:auto;display:block;image-rendering:pixelated;image-rendering:crisp-edges}
   @page{size:${w}mm ${h}mm;margin:0}

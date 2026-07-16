@@ -3,21 +3,13 @@
 import type { CSSProperties } from 'react'
 import LabelBarcode from './LabelBarcode'
 import {
+  elementBoxStyle,
+  isElementShown,
   labelPriceAmount,
-  retailAmountStyle,
-  retailBarcodeHeightPx,
-  retailBarcodeWrapStyle,
-  retailCardStyle,
-  retailCurrencyStyle,
-  retailDividerStyle,
+  mmToLabelPx,
+  retailCanvasStyle,
   retailLabelName,
-  retailNameStyle,
-  retailPluStyle,
-  retailPriceRowStyle,
-  retailShowBarcode,
-  retailShowPlu,
-  retailShowSize,
-  retailSizeStyle,
+  elementsForDesign,
 } from './labelRetailLayout'
 import {
   formatLabelMoney,
@@ -26,38 +18,124 @@ import {
   type LabelBlockId,
   type LabelDesign,
   type LabelEdit,
+  type LabelElement,
 } from './labelShared'
 
 function alignStyle(align: LabelAlign): CSSProperties {
   return { textAlign: align, width: '100%' }
 }
 
-function RetailLabelBody({ edit, design }: { edit: LabelEdit; design: LabelDesign }) {
-  return (
-    <div style={retailCardStyle(design)}>
-      <div style={retailNameStyle()}>{retailLabelName(edit)}</div>
-      {retailShowSize(edit) && (
-        <div style={retailSizeStyle()}>{edit.size}</div>
-      )}
-      <hr style={retailDividerStyle(design)} />
-      <div style={retailPriceRowStyle()}>
-        <span style={retailAmountStyle()}>{labelPriceAmount(edit.price)}</span>
-        <span style={retailCurrencyStyle()}>сом</span>
-      </div>
-      <hr style={retailDividerStyle(design)} />
-      {retailShowPlu(edit) && (
-        <div style={retailPluStyle()}>PLU {edit.plu}</div>
-      )}
-      {retailShowBarcode(edit) && (
-        <div style={retailBarcodeWrapStyle()}>
-          <LabelBarcode
-            value={edit.barcode}
-            height={retailBarcodeHeightPx()}
-            color="#000000"
-            showText={false}
-          />
+function RetailAbsoluteBody({
+  edit,
+  design,
+  scale = 1,
+}: {
+  edit: LabelEdit
+  design: LabelDesign
+  scale?: number
+}) {
+  const elements = elementsForDesign(design)
+
+  function renderEl(el: LabelElement) {
+    if (!isElementShown(el, edit)) return null
+    const box = elementBoxStyle(el, scale)
+
+    if (el.id === 'line1' || el.id === 'line2') {
+      return (
+        <div key={el.id} style={{ ...box, alignItems: 'center' }}>
+          <div style={{ width: '100%', height: Math.max(1, (0.35 * scale)), background: '#000' }} />
         </div>
-      )}
+      )
+    }
+
+    if (el.id === 'name') {
+      return (
+        <div
+          key={el.id}
+          style={{
+            ...box,
+            fontSize: `${el.fontSizeMm * scale}mm`,
+            fontWeight: 800,
+            lineHeight: 1.05,
+            letterSpacing: '0.02em',
+            textTransform: 'uppercase',
+            color: '#000',
+          }}
+        >
+          {retailLabelName(edit)}
+        </div>
+      )
+    }
+
+    if (el.id === 'size') {
+      return (
+        <div
+          key={el.id}
+          style={{
+            ...box,
+            fontSize: `${el.fontSizeMm * scale}mm`,
+            fontWeight: 600,
+            lineHeight: 1.1,
+            color: '#000',
+          }}
+        >
+          {edit.size}
+        </div>
+      )
+    }
+
+    if (el.id === 'price') {
+      return (
+        <div key={el.id} style={{ ...box, gap: `${0.5 * scale}mm`, color: '#000' }}>
+          <span style={{ fontSize: `${el.fontSizeMm * scale}mm`, fontWeight: 900, lineHeight: 0.92, letterSpacing: '-0.02em' }}>
+            {labelPriceAmount(edit.price)}
+          </span>
+          <span style={{ fontSize: `${Math.max(2, el.fontSizeMm * 0.28) * scale}mm`, fontWeight: 700, lineHeight: 1, paddingBottom: `${0.6 * scale}mm` }}>
+            сом
+          </span>
+        </div>
+      )
+    }
+
+    if (el.id === 'plu') {
+      return (
+        <div
+          key={el.id}
+          style={{
+            ...box,
+            fontSize: `${el.fontSizeMm * scale}mm`,
+            fontWeight: 700,
+            lineHeight: 1.1,
+            color: '#000',
+          }}
+        >
+          PLU {edit.plu}
+        </div>
+      )
+    }
+
+    if (el.id === 'barcode') {
+      const hPx = Math.max(10, mmToLabelPx(el.h * 0.85))
+      return (
+        <div key={el.id} style={{ ...box, width: '100%', maxWidth: `${el.w * scale}mm` }}>
+          <div style={{ width: '100%' }}>
+            <LabelBarcode
+              value={edit.barcode}
+              height={hPx}
+              color="#000000"
+              showText={false}
+            />
+          </div>
+        </div>
+      )
+    }
+
+    return null
+  }
+
+  return (
+    <div style={retailCanvasStyle(design, scale)}>
+      {elements.map(renderEl)}
     </div>
   )
 }
@@ -67,15 +145,27 @@ export default function LabelCard({
   design,
   onEdit,
   sizeStyle,
+  previewScale = 1.4,
 }: {
   edit: LabelEdit
   design: LabelDesign
   onEdit?: () => void
   sizeStyle?: CSSProperties
+  previewScale?: number
 }) {
   if (design.layout === 'retail') {
     return (
-      <div className="k-label-card" style={{ ...sizeStyle, position: 'relative', overflow: 'hidden', boxSizing: 'border-box' }}>
+      <div
+        className="k-label-card"
+        style={{
+          ...sizeStyle,
+          position: 'relative',
+          overflow: 'hidden',
+          boxSizing: 'border-box',
+          width: sizeStyle?.width || `${design.labelWidthMm * previewScale}mm`,
+          height: sizeStyle?.height || `${design.labelHeightMm * previewScale}mm`,
+        }}
+      >
         {onEdit && (
           <button
             type="button"
@@ -86,7 +176,7 @@ export default function LabelCard({
             ✏️
           </button>
         )}
-        <RetailLabelBody edit={edit} design={design} />
+        <RetailAbsoluteBody edit={edit} design={design} scale={previewScale} />
       </div>
     )
   }

@@ -206,9 +206,11 @@ async function printLabelsViaTspl(html, options = {}) {
           root.style.cssText = 'display:block;width:${wPx}px;height:${hPx}px;margin:0;padding:0;overflow:hidden;';
         }
         cards.forEach((c) => {
-          c.style.cssText = 'display:none;width:${wPx}px;height:${hPx}px;min-height:${hPx}px;max-width:${wPx}px;margin:0;padding:0;overflow:hidden;background:#fff;color:#000;page-break-after:auto;break-after:auto;box-sizing:border-box;';
+          c.style.cssText = 'display:none;position:relative;width:${wPx}px;height:${hPx}px;min-height:${hPx}px;max-height:${hPx}px;max-width:${wPx}px;margin:0;padding:0;overflow:hidden;background:#fff;color:#000;page-break-after:auto;break-after:auto;box-sizing:border-box;';
         });
-        return cards.length;
+        // Одна карточка в документе — показываем только первую (защита от «имя / штрихкод на 2 бумаги»)
+        if (cards[0]) cards[0].style.display = 'block';
+        return Math.min(1, cards.length);
       })()
     `)
 
