@@ -77,40 +77,50 @@ function absStyle(el: LabelElement) {
   const y = mmToLabelPx(el.y)
   const w = mmToLabelPx(el.w)
   const h = mmToLabelPx(el.h)
-  return `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;box-sizing:border-box;text-align:${el.align};display:flex;align-items:${el.id === 'price' || el.id === 'barcode' ? 'center' : 'flex-start'};justify-content:${el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'}`
+  const alignItems = el.id === 'price' ? 'flex-end' : el.id === 'barcode' ? 'center' : 'flex-start'
+  const justify = el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'
+  return `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;box-sizing:border-box;text-align:${el.align};display:flex;align-items:${alignItems};justify-content:${justify}`
 }
 
 function fontPx(mm: number) {
   return Math.max(8, mmToLabelPx(mm))
 }
 
-function renderAbsElement(el: LabelElement, edit: LabelEdit): string {
+function renderAbsElement(el: LabelElement, edit: LabelEdit, design: LabelDesign): string {
   if (!isElementShown(el, edit)) return ''
 
   if (el.id === 'line1' || el.id === 'line2') {
     return `<div class="k-label-abs" style="${absStyle(el)}"><div style="width:100%;height:${Math.max(2, mmToLabelPx(0.35))}px;background:#000;margin:auto 0"></div></div>`
   }
   if (el.id === 'name') {
-    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:800;line-height:1.05;letter-spacing:0.02em;text-transform:uppercase">${escHtml(retailLabelName(edit))}</div>`
+    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:800;line-height:1.05;letter-spacing:0.02em;text-transform:uppercase;width:100%">${escHtml(retailLabelName(edit))}</div>`
   }
   if (el.id === 'size') {
-    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:600;line-height:1.1">${escHtml(edit.size)}</div>`
+    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:600;line-height:1.1;width:100%">${escHtml(edit.size)}</div>`
   }
   if (el.id === 'price') {
     const cur = Math.max(10, Math.round(fontPx(el.fontSizeMm) * 0.28))
-    return `<div class="k-label-abs" style="${absStyle(el)};gap:4px">
-      <span style="font-size:${fontPx(el.fontSizeMm)}px;font-weight:900;line-height:0.92;letter-spacing:-0.02em">${escHtml(labelPriceAmount(edit.price))}</span>
-      <span style="font-size:${cur}px;font-weight:700;line-height:1;padding-bottom:4px">сом</span>
+    const gap = mmToLabelPx(0.5)
+    const pad = mmToLabelPx(0.6)
+    const justify = el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'
+    return `<div class="k-label-abs" style="${absStyle(el)}">
+      <div style="display:flex;align-items:flex-end;justify-content:${justify};gap:${gap}px;width:100%">
+        <span style="font-size:${fontPx(el.fontSizeMm)}px;font-weight:900;line-height:0.92;letter-spacing:-0.02em">${escHtml(labelPriceAmount(edit.price))}</span>
+        <span style="font-size:${cur}px;font-weight:700;line-height:1;padding-bottom:${pad}px">сом</span>
+      </div>
     </div>`
   }
   if (el.id === 'plu') {
-    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:700;line-height:1.1">PLU ${escHtml(edit.plu)}</div>`
+    return `<div class="k-label-abs" style="${absStyle(el)};font-size:${fontPx(el.fontSizeMm)}px;font-weight:700;line-height:1.1;width:100%">PLU ${escHtml(edit.plu)}</div>`
   }
   if (el.id === 'barcode') {
-    const hPx = Math.max(10, mmToLabelPx(el.h * 0.85))
-    const svg = barcodeToSvgHtml(edit.barcode, hPx, false)
+    const showDigits = design.barcodeShowDigits !== false
+    const boxH = mmToLabelPx(el.h)
+    const digitReserve = showDigits ? Math.max(10, Math.round(boxH * 0.28)) : 0
+    const hPx = Math.max(10, boxH - digitReserve - 2)
+    const svg = barcodeToSvgHtml(edit.barcode, hPx, showDigits)
     if (!svg) return ''
-    return `<div class="k-label-abs" style="${absStyle(el)}">${svg}</div>`
+    return `<div class="k-label-abs" style="${absStyle(el)};width:100%">${svg}</div>`
   }
   return ''
 }
@@ -118,7 +128,7 @@ function renderAbsElement(el: LabelElement, edit: LabelEdit): string {
 function buildRetailLabelCardHtml(edit: LabelEdit, design: LabelDesign): string {
   const w = mmToLabelPx(design.labelWidthMm)
   const h = mmToLabelPx(design.labelHeightMm)
-  const parts = getLabelElements(design).map(el => renderAbsElement(el, edit)).join('')
+  const parts = getLabelElements(design).map(el => renderAbsElement(el, edit, design)).join('')
   return `<div class="k-label-card" style="position:relative;width:${w}px;height:${h}px;min-height:${h}px;max-height:${h}px;overflow:hidden;background:#fff;color:#000;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif">${parts}</div>`
 }
 

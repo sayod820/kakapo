@@ -164,8 +164,9 @@ export default function LabelCanvasEditor({
       return <div style={{ fontSize: el.fontSizeMm * scale, fontWeight: 600, width: '100%' }}>{edit.size}</div>
     }
     if (el.id === 'price') {
+      const justify = el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'
       return (
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: Math.max(4, scale * 0.4), width: '100%', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: Math.max(4, scale * 0.4), width: '100%', justifyContent: justify }}>
           <span style={{ fontSize: el.fontSizeMm * scale, fontWeight: 900, lineHeight: 0.92 }}>{labelPriceAmount(edit.price)}</span>
           <span style={{ fontSize: Math.max(2, el.fontSizeMm * 0.28) * scale, fontWeight: 700, paddingBottom: scale * 0.3 }}>сом</span>
         </div>
@@ -175,9 +176,13 @@ export default function LabelCanvasEditor({
       return <div style={{ fontSize: el.fontSizeMm * scale, fontWeight: 700, width: '100%' }}>PLU {edit.plu}</div>
     }
     if (el.id === 'barcode') {
+      const showDigits = design.barcodeShowDigits !== false
+      const boxH = mmToLabelPx(el.h)
+      const digitReserve = showDigits ? Math.max(10, Math.round(boxH * 0.28)) : 0
+      const hPx = Math.max(16, boxH - digitReserve - 2)
       return (
         <div style={{ width: '100%' }}>
-          <LabelBarcode value={edit.barcode} height={Math.max(16, mmToLabelPx(el.h * 0.75))} color="#000" showText={false} />
+          <LabelBarcode value={edit.barcode} height={hPx} color="#000" showText={showDigits} />
         </div>
       )
     }
@@ -232,6 +237,16 @@ export default function LabelCanvasEditor({
             />
             Показывать
           </label>
+          {selectedEl.id === 'barcode' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={design.barcodeShowDigits !== false}
+                onChange={e => onChange({ ...design, barcodeShowDigits: e.target.checked })}
+              />
+              Номер штрихкода внизу
+            </label>
+          )}
           {!selectedEl.id.startsWith('line') && (
             <div className="k-field">
               <label>Шрифт ({selectedEl.fontSizeMm.toFixed(1)} мм)</label>

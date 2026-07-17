@@ -41,7 +41,8 @@ export function elementBoxStyle(el: LabelElement, scale = 1): CSSProperties {
     overflow: 'hidden',
     textAlign: el.align,
     display: 'flex',
-    alignItems: el.id === 'price' || el.id === 'barcode' ? 'center' : 'flex-start',
+    // price: как в редакторе — цена+сом у нижнего края блока; barcode — по центру
+    alignItems: el.id === 'price' ? 'flex-end' : el.id === 'barcode' ? 'center' : 'flex-start',
     justifyContent: el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center',
   }
 }

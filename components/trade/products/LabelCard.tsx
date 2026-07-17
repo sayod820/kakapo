@@ -86,13 +86,23 @@ function RetailAbsoluteBody({
 
     if (el.id === 'price') {
       return (
-        <div key={el.id} style={{ ...box, gap: `${0.5 * scale}mm`, color: '#000' }}>
-          <span style={{ fontSize: `${el.fontSizeMm * scale}mm`, fontWeight: 900, lineHeight: 0.92, letterSpacing: '-0.02em' }}>
-            {labelPriceAmount(edit.price)}
-          </span>
-          <span style={{ fontSize: `${Math.max(2, el.fontSizeMm * 0.28) * scale}mm`, fontWeight: 700, lineHeight: 1, paddingBottom: `${0.6 * scale}mm` }}>
-            сом
-          </span>
+        <div key={el.id} style={{ ...box, color: '#000' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center',
+              gap: `${0.5 * scale}mm`,
+              width: '100%',
+            }}
+          >
+            <span style={{ fontSize: `${el.fontSizeMm * scale}mm`, fontWeight: 900, lineHeight: 0.92, letterSpacing: '-0.02em' }}>
+              {labelPriceAmount(edit.price)}
+            </span>
+            <span style={{ fontSize: `${Math.max(2, el.fontSizeMm * 0.28) * scale}mm`, fontWeight: 700, lineHeight: 1, paddingBottom: `${0.6 * scale}mm` }}>
+              сом
+            </span>
+          </div>
         </div>
       )
     }
@@ -115,7 +125,10 @@ function RetailAbsoluteBody({
     }
 
     if (el.id === 'barcode') {
-      const hPx = Math.max(10, mmToLabelPx(el.h * 0.85))
+      const showDigits = design.barcodeShowDigits !== false
+      const boxH = mmToLabelPx(el.h)
+      const digitReserve = showDigits ? Math.max(10, Math.round(boxH * 0.28)) : 0
+      const hPx = Math.max(10, boxH - digitReserve - 2)
       return (
         <div key={el.id} style={{ ...box, width: '100%', maxWidth: `${el.w * scale}mm` }}>
           <div style={{ width: '100%' }}>
@@ -123,7 +136,7 @@ function RetailAbsoluteBody({
               value={edit.barcode}
               height={hPx}
               color="#000000"
-              showText={false}
+              showText={showDigits}
             />
           </div>
         </div>

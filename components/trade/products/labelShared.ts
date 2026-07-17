@@ -127,7 +127,7 @@ export const DEFAULT_LABEL_ELEMENTS: LabelElement[] = [
   { id: 'price', x: 1, y: 9, w: 56, h: 13.5, fontSizeMm: 9.5, align: 'center', visible: true },
   { id: 'line2', x: 2, y: 23, w: 54, h: 0.5, fontSizeMm: 0, align: 'center', visible: true },
   { id: 'plu', x: 1, y: 24, w: 56, h: 3, fontSizeMm: 2.2, align: 'center', visible: true },
-  { id: 'barcode', x: 10, y: 27.5, w: 38, h: 10, fontSizeMm: 1.6, align: 'center', visible: true },
+  { id: 'barcode', x: 8, y: 27, w: 42, h: 11.5, fontSizeMm: 1.6, align: 'center', visible: true },
 ]
 
 export function normalizeLabelElements(raw?: LabelElement[] | null): LabelElement[] {
@@ -164,7 +164,8 @@ export function updateLabelElement(
   return { ...design, elements }
 }
 
-export const LABEL_DESIGN_KEY = 'kakapo-label-design-v3'
+export const LABEL_DESIGN_KEY = 'kakapo-label-design-v4'
+const LEGACY_DESIGN_KEYS = ['kakapo-label-design-v3', 'kakapo-label-design'] as const
 
 export const DEFAULT_LABEL_DESIGN: LabelDesign = {
   layout: 'retail',
@@ -180,7 +181,7 @@ export const DEFAULT_LABEL_DESIGN: LabelDesign = {
   borderRadius: 0,
   borderStyle: 'none',
   barcodeHeight: 22,
-  barcodeShowDigits: false,
+  barcodeShowDigits: true,
   paperPreset: 'xp235b',
   paperWidthMm: 58,
   paperHeightMm: 0,
@@ -232,16 +233,34 @@ export function applyPaperPreset(preset: PaperPresetId, design: LabelDesign): La
 export function loadLabelDesign(): LabelDesign {
   if (typeof window === 'undefined') return DEFAULT_LABEL_DESIGN
   try {
-    const raw = localStorage.getItem(LABEL_DESIGN_KEY) || localStorage.getItem('kakapo-label-design')
+    let raw = localStorage.getItem(LABEL_DESIGN_KEY)
+    let fromLegacy = false
+    if (!raw) {
+      for (const key of LEGACY_DESIGN_KEYS) {
+        raw = localStorage.getItem(key)
+        if (raw) {
+          fromLegacy = true
+          break
+        }
+      }
+    }
     if (!raw) return DEFAULT_LABEL_DESIGN
     const parsed = JSON.parse(raw)
-    return {
+    const design: LabelDesign = {
       ...DEFAULT_LABEL_DESIGN,
       ...parsed,
       layout: parsed.layout === 'blocks' ? 'blocks' : 'retail',
       blocks: normalizeBlocks(parsed.blocks),
       elements: normalizeLabelElements(parsed.elements),
+      // Старые сохранения держали false — для retail включаем цифры под штрихкодом
+      barcodeShowDigits: fromLegacy
+        ? true
+        : parsed.barcodeShowDigits !== false,
     }
+    if (fromLegacy) {
+      try { localStorage.setItem(LABEL_DESIGN_KEY, JSON.stringify(design)) } catch { /* ignore */ }
+    }
+    return design
   } catch {
     return DEFAULT_LABEL_DESIGN
   }

@@ -46,30 +46,34 @@ function invertMono(mono) {
   return { ...mono, data: out }
 }
 
-/** Углы этикетки должны быть белыми; если тёмные — Electron захватил инверсию */
-function shouldInvertCapture(bgra, width, height) {
-  const margin = Math.max(2, Math.min(8, Math.floor(Math.min(width, height) * 0.04)))
-  const pts = [
-    [margin, margin],
-    [width - 1 - margin, margin],
-    [margin, height - 1 - margin],
-    [width - 1 - margin, height - 1 - margin],
-  ]
-  let sum = 0
-  for (const [x, y] of pts) {
-    const i = (y * width + x) * 4
-    sum += (bgra[i] * 77 + bgra[i + 1] * 150 + bgra[i + 2] * 29) >> 8
+function countBlackBits(mono) {
+  let count = 0
+  const total = mono.width * mono.height
+  for (let y = 0; y < mono.height; y++) {
+    for (let x = 0; x < mono.width; x++) {
+      const byte = y * mono.widthBytes + (x >> 3)
+      if ((mono.data[byte] >> (7 - (x & 7))) & 1) count++
+    }
   }
-  return (sum / pts.length) < 140
+  return { count, total }
 }
 
-/** BGRA → mono с авто-инверсией если захват перевёрнут (чёрный фон / белый текст) */
-function monoFromBgra(bgra, srcWidth, srcHeight, dstWidth, dstHeight, threshold = 168) {
-  let mono = bgraToMonoPacked(bgra, srcWidth, srcHeight, dstWidth, dstHeight, threshold)
-  if (shouldInvertCapture(bgra, srcWidth, srcHeight)) {
-    mono = invertMono(mono)
+/**
+ * XP-235B печатает инверсно: бит 0 = чёрный, бит 1 = белый.
+ * Если захват тоже перевёрнут (>45% «чёрных» пикселей) — сначала выравниваем mono.
+ */
+function prepareMonoForXp235b(mono) {
+  const { count, total } = countBlackBits(mono)
+  let out = mono
+  if (count > total * 0.45) {
+    out = invertMono(out)
   }
-  return mono
+  return invertMono(out)
+}
+
+/** BGRA → mono для этикетки */
+function monoFromBgra(bgra, srcWidth, srcHeight, dstWidth, dstHeight, threshold = 168) {
+  return bgraToMonoPacked(bgra, srcWidth, srcHeight, dstWidth, dstHeight, threshold)
 }
 
 /**
@@ -86,9 +90,8 @@ function buildTsplBitmapJob({
   const wDots = mmToDots(widthMm)
   const hDots = mmToDots(heightMm)
 
-  // Crop/pad mono to exact label size in dots
-  // TSPL: 1 = чёрный, 0 = белый
-  const src = mono
+  // Crop/pad mono to exact label size in dots (XP-235B — инверсная полярность)
+  const src = prepareMonoForXp235b(mono)
   const widthBytes = Math.ceil(wDots / 8)
   const packed = Buffer.alloc(widthBytes * hDots, 0)
   const copyW = Math.min(src.width, wDots)

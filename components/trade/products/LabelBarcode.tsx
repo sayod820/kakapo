@@ -32,23 +32,28 @@ export default function LabelBarcode({
       JsBarcode(el, code, {
         format,
         height,
-        displayValue: showText !== false,
-        margin: 2,
+        displayValue: !!showText,
+        margin: 0,
         lineColor: color || '#111111',
-        fontSize: 11,
+        background: '#ffffff',
+        fontSize: showText ? Math.max(10, Math.round(height * 0.28)) : 0,
         width: 1.5,
-        textMargin: 2,
+        textMargin: showText ? 2 : 0,
+        flat: true,
       })
     } catch {
       try {
         JsBarcode(el, code, {
           format: 'CODE128',
           height,
-          displayValue: showText !== false,
-          margin: 2,
+          displayValue: !!showText,
+          margin: 0,
           lineColor: color || '#111111',
-          fontSize: 11,
+          background: '#ffffff',
+          fontSize: showText ? Math.max(10, Math.round(height * 0.28)) : 0,
           width: 1.5,
+          textMargin: showText ? 2 : 0,
+          flat: true,
         })
       } catch {
         el.innerHTML = ''
@@ -65,7 +70,7 @@ export default function LabelBarcode({
   }
 
   return (
-    <div style={{ width: '100%', overflow: 'hidden', marginTop: 6 }}>
+    <div style={{ width: '100%', overflow: 'hidden', margin: 0 }}>
       <svg ref={ref} style={{ width: '100%', height: 'auto', display: 'block' }} />
     </div>
   )
