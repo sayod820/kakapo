@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, nativeTheme } = require('electron')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -8,7 +8,7 @@ const path = require('path')
 const { syncCasPlu } = require('./casScale.cjs')
 const {
   mmToDots,
-  bgraToMonoPacked,
+  monoFromBgra,
   buildMultiLabelTspl,
   printRawWindows,
 } = require('./tsplLabel.cjs')
@@ -161,6 +161,9 @@ async function printLabelsViaTspl(html, options = {}) {
   const wPx = labelPx(pageWidthMm)
   const hPx = labelPx(pageHeightMm)
 
+  const prevTheme = nativeTheme.themeSource
+  nativeTheme.themeSource = 'light'
+
   destroyPrintWindow()
   printWindow = new BrowserWindow({
     show: false,
@@ -236,24 +239,28 @@ async function printLabelsViaTspl(html, options = {}) {
     for (let i = 0; i < cardCount; i++) {
       await printWindow.webContents.executeJavaScript(`
         (function () {
+          document.documentElement.style.cssText = 'background:#fff!important;color:#000!important;color-scheme:light only!important';
+          document.body.style.cssText = 'background:#fff!important;color:#000!important';
           const cards = Array.from(document.querySelectorAll('.k-label-card'));
           cards.forEach((c, idx) => {
-            c.style.display = idx === ${i} ? 'flex' : 'none';
-            c.style.flexDirection = 'column';
+            if (idx === ${i}) {
+              c.style.cssText = 'display:block!important;position:relative!important;width:${wPx}px!important;height:${hPx}px!important;background:#fff!important;color:#000!important;overflow:hidden!important';
+            } else {
+              c.style.display = 'none';
+            }
           });
         })()
       `)
-      await new Promise(r => setTimeout(r, 150))
+      await new Promise(r => setTimeout(r, 200))
 
-      let img = await printWindow.webContents.capturePage()
-      // Windows DPI: захват может быть 1.25×/1.5×/2× — всегда жмём ровно в 203 DPI точки
+      let img = await printWindow.webContents.capturePage({ x: 0, y: 0, width: wPx, height: hPx })
       const sz = img.getSize()
       if (sz.width !== wPx || sz.height !== hPx) {
         img = img.resize({ width: wPx, height: hPx, quality: 'best' })
       }
       const size = img.getSize()
       const bgra = img.toBitmap()
-      const mono = bgraToMonoPacked(bgra, size.width, size.height, wPx, hPx, 168)
+      const mono = monoFromBgra(bgra, size.width, size.height, wPx, hPx, 168)
       labelsMono.push(mono)
     }
 
@@ -275,6 +282,7 @@ async function printLabelsViaTspl(html, options = {}) {
       count: labelsMono.length,
     }
   } finally {
+    nativeTheme.themeSource = prevTheme
     try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
     destroyPrintWindow()
   }

@@ -40,6 +40,38 @@ function bgraToMonoPacked(bgra, srcWidth, srcHeight, dstWidth, dstHeight, thresh
   return { data: out, widthBytes: rowBytes, width, height }
 }
 
+function invertMono(mono) {
+  const out = Buffer.from(mono.data)
+  for (let i = 0; i < out.length; i++) out[i] ^= 0xff
+  return { ...mono, data: out }
+}
+
+/** Углы этикетки должны быть белыми; если тёмные — Electron захватил инверсию */
+function shouldInvertCapture(bgra, width, height) {
+  const margin = Math.max(2, Math.min(8, Math.floor(Math.min(width, height) * 0.04)))
+  const pts = [
+    [margin, margin],
+    [width - 1 - margin, margin],
+    [margin, height - 1 - margin],
+    [width - 1 - margin, height - 1 - margin],
+  ]
+  let sum = 0
+  for (const [x, y] of pts) {
+    const i = (y * width + x) * 4
+    sum += (bgra[i] * 77 + bgra[i + 1] * 150 + bgra[i + 2] * 29) >> 8
+  }
+  return (sum / pts.length) < 140
+}
+
+/** BGRA → mono с авто-инверсией если захват перевёрнут (чёрный фон / белый текст) */
+function monoFromBgra(bgra, srcWidth, srcHeight, dstWidth, dstHeight, threshold = 168) {
+  let mono = bgraToMonoPacked(bgra, srcWidth, srcHeight, dstWidth, dstHeight, threshold)
+  if (shouldInvertCapture(bgra, srcWidth, srcHeight)) {
+    mono = invertMono(mono)
+  }
+  return mono
+}
+
 /**
  * Build TSPL job: one label = SIZE + GAP + CLS + BITMAP + PRINT
  * Multiple labels = repeat BITMAP+PRINT or send separate jobs sequentially.
@@ -217,6 +249,7 @@ module.exports = {
   DPI,
   mmToDots,
   bgraToMonoPacked,
+  monoFromBgra,
   buildTsplBitmapJob,
   buildMultiLabelTspl,
   printRawWindows,
