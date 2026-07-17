@@ -44,7 +44,7 @@ export default function ReceiptLabelPrintModal({
   if (!open || !receipt) return null
 
   const selectedCount = rows.filter(r => r.selected).length
-  const totalCopies = rows.reduce((s, r) => s + (r.selected ? Math.max(0, r.copies) : 0), 0)
+  const totalCopies = rows.reduce((s, r) => s + (r.selected ? Math.max(0, Number(r.copies) || 0) : 0), 0)
 
   function toggleAll(on: boolean) {
     setRows(prev => prev.map(r => ({ ...r, selected: on })))
@@ -137,9 +137,21 @@ export default function ReceiptLabelPrintModal({
                     type="number"
                     min={1}
                     max={99}
-                    value={row.copies}
+                    value={row.copies === 0 ? '' : row.copies}
                     disabled={!row.selected}
-                    onChange={e => patchRow(row.key, { copies: Math.max(1, Math.min(99, Number(e.target.value) || 1)) })}
+                    onChange={e => {
+                      const raw = e.target.value.trim()
+                      if (raw === '') {
+                        patchRow(row.key, { copies: 0 })
+                        return
+                      }
+                      const n = Number(raw)
+                      if (!Number.isFinite(n)) return
+                      patchRow(row.key, { copies: Math.max(0, Math.min(99, Math.floor(n))) })
+                    }}
+                    onBlur={() => {
+                      if (!row.copies || row.copies < 1) patchRow(row.key, { copies: 1 })
+                    }}
                     style={{ width: 64, textAlign: 'center', padding: '6px 8px' }}
                   />
                 </div>
