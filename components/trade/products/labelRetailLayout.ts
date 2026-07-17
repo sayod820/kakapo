@@ -37,9 +37,12 @@ export function isElementShownForDesign(el: LabelElement): boolean {
 }
 
 export function barcodeHeightsInBox(boxHeightPx: number, showDigits: boolean) {
-  const digitReserve = showDigits ? Math.max(12, Math.round(boxHeightPx * 0.32)) : 0
+  const h = Math.max(20, Math.round(boxHeightPx))
+  // Цифры ~28% высоты блока — крупно и не обрезаются
+  const digitReserve = showDigits ? Math.max(14, Math.round(h * 0.28)) : 0
   return {
-    barHeight: Math.max(8, boxHeightPx - digitReserve),
+    barHeight: Math.max(14, h - digitReserve),
+    digitReserve,
     showDigits,
   }
 }
@@ -57,7 +60,7 @@ export function elementBoxStyle(el: LabelElement, scale = 1): CSSProperties {
     display: 'flex',
     flexDirection: 'column',
     alignItems: el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center',
-    justifyContent: el.id === 'price' || el.id === 'barcode' ? 'flex-end' : 'flex-start',
+    justifyContent: el.id === 'price' ? 'flex-end' : el.id === 'barcode' ? 'center' : 'flex-start',
   }
 }
 

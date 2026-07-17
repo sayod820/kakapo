@@ -33,7 +33,7 @@ function barcodeFormat(value: string) {
   return { format: 'CODE128' as const, value: value.trim() }
 }
 
-/** Штрихкод строго в ширину блока (не на всю этикетку) */
+/** Штрихкод в ширину блока — растёт при ресайзе, цифры читаемые */
 export function barcodeToSvgHtml(
   value: string,
   heightPx: number,
@@ -45,17 +45,22 @@ export function barcodeToSvgHtml(
 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   const { format, value: normalized } = barcodeFormat(code)
-  const digitFont = showDigits ? Math.max(9, Math.min(14, Math.round(heightPx * 0.22))) : 0
+  const boxW = Math.max(40, maxWidthPx || 120)
+  const barH = Math.max(12, Math.round(heightPx))
+  const modules = format === 'EAN13' ? 95 : format === 'EAN8' ? 67 : Math.max(40, normalized.length * 11 + 20)
+  const moduleW = Math.max(1, Math.min(3.2, boxW / modules))
+  const digitFont = showDigits ? Math.max(10, Math.min(18, Math.round(barH * 0.42))) : 0
+
   const opts = {
     format,
-    height: Math.max(8, heightPx),
+    height: barH,
     displayValue: showDigits,
     margin: 0,
     lineColor: '#000000',
     background: '#ffffff',
     fontSize: digitFont,
-    width: 1.4,
-    textMargin: showDigits ? 1 : 0,
+    width: moduleW,
+    textMargin: showDigits ? 2 : 0,
     flat: true,
   } as const
 
@@ -69,12 +74,8 @@ export function barcodeToSvgHtml(
     }
   }
 
-  const boxW = Math.max(24, maxWidthPx || 0)
-  if (boxW > 0) {
-    svg.setAttribute('style', `max-width:${boxW}px;width:auto;height:auto;display:block;margin:0 auto`)
-  } else {
-    svg.setAttribute('style', 'max-width:100%;width:auto;height:auto;display:block;margin:0 auto')
-  }
+  svg.setAttribute('width', String(boxW))
+  svg.setAttribute('style', `width:100%;max-width:${boxW}px;height:auto;display:block;margin:0 auto`)
   return svg.outerHTML
 }
 
@@ -83,9 +84,8 @@ function absStyle(el: LabelElement) {
   const y = mmToLabelPx(el.y)
   const w = mmToLabelPx(el.w)
   const h = mmToLabelPx(el.h)
-  const alignItems = el.id === 'price' ? 'flex-end' : el.id === 'barcode' ? 'flex-end' : 'flex-start'
+  const alignItems = el.id === 'price' ? 'flex-end' : el.id === 'barcode' ? 'center' : 'flex-start'
   const justify = el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'
-  // Важно: width/height только здесь — не переопределять width:100% (ломает рамку штрихкода)
   return `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;box-sizing:border-box;text-align:${el.align};display:flex;flex-direction:column;align-items:${justify};justify-content:${alignItems}`
 }
 
@@ -127,7 +127,7 @@ function renderAbsElement(el: LabelElement, edit: LabelEdit, design: LabelDesign
     const { barHeight } = barcodeHeightsInBox(boxH, showDigits)
     const svg = barcodeToSvgHtml(edit.barcode, barHeight, showDigits, boxW)
     if (!svg) return ''
-    return `<div class="k-label-abs" style="${absStyle(el)}"><div style="width:100%;max-width:${boxW}px;overflow:hidden;margin:0 auto">${svg}</div></div>`
+    return `<div class="k-label-abs" style="${absStyle(el)}"><div style="width:${boxW}px;max-width:100%">${svg}</div></div>`
   }
   return ''
 }

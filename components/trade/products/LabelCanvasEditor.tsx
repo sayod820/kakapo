@@ -8,7 +8,6 @@ import {
   isElementShown,
   isElementShownForDesign,
   labelPriceAmount,
-  mmToLabelPx,
   retailLabelName,
 } from './labelRetailLayout'
 import {
@@ -93,8 +92,10 @@ export default function LabelCanvasEditor({
     return (el: LabelElement): LabelElement => {
       const maxW = design.labelWidthMm
       const maxH = design.labelHeightMm
-      const w = Math.max(el.id.startsWith('line') ? 4 : 8, Math.min(el.w, maxW))
-      const h = Math.max(el.id.startsWith('line') ? 0.3 : 2, Math.min(el.h, maxH))
+      const minW = el.id === 'barcode' ? 16 : el.id.startsWith('line') ? 4 : 8
+      const minH = el.id === 'barcode' ? 8 : el.id.startsWith('line') ? 0.3 : 2
+      const w = Math.max(minW, Math.min(el.w, maxW))
+      const h = Math.max(minH, Math.min(el.h, maxH))
       const x = Math.max(0, Math.min(el.x, maxW - w))
       const y = Math.max(0, Math.min(el.y, maxH - h))
       return { ...el, x, y, w, h }
@@ -172,17 +173,17 @@ export default function LabelCanvasEditor({
     }
     if (el.id === 'barcode') {
       const showDigits = design.barcodeShowDigits !== false
-      const boxHPx = Math.max(20, el.h * scale)
+      const boxHPx = Math.max(24, el.h * scale)
+      const boxWPx = Math.max(48, el.w * scale)
       const { barHeight } = barcodeHeightsInBox(boxHPx, showDigits)
-      const maxW = Math.max(40, el.w * scale)
       return (
-        <div style={{ width: '100%', maxWidth: maxW, overflow: 'hidden' }}>
+        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
           <LabelBarcode
             value={edit.barcode || preview.barcode}
             height={barHeight}
             color="#000"
             showText={showDigits}
-            maxWidthPx={maxW}
+            maxWidthPx={boxWPx}
           />
         </div>
       )

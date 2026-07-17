@@ -128,16 +128,16 @@ function RetailAbsoluteBody({
     if (el.id === 'barcode') {
       const showDigits = design.barcodeShowDigits !== false
       const boxHPx = mmToLabelPx(el.h)
+      const boxWPx = mmToLabelPx(el.w)
       const { barHeight } = barcodeHeightsInBox(boxHPx, showDigits)
-      const maxW = mmToLabelPx(el.w)
       return (
-        <div key={el.id} style={box}>
+        <div key={el.id} style={{ ...box, justifyContent: 'center', overflow: 'hidden' }}>
           <LabelBarcode
             value={edit.barcode}
             height={barHeight}
             color="#000000"
             showText={showDigits}
-            maxWidthPx={maxW}
+            maxWidthPx={boxWPx}
           />
         </div>
       )

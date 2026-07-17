@@ -140,7 +140,7 @@ export const DEFAULT_LABEL_ELEMENTS: LabelElement[] = [
   { id: 'price', x: 1, y: 9, w: 56, h: 13.5, fontSizeMm: 9.5, align: 'center', visible: true },
   { id: 'line2', x: 2, y: 23, w: 54, h: 0.5, fontSizeMm: 0, align: 'center', visible: true },
   { id: 'plu', x: 1, y: 24, w: 56, h: 3, fontSizeMm: 2.2, align: 'center', visible: true },
-  { id: 'barcode', x: 8, y: 27, w: 42, h: 11.5, fontSizeMm: 1.6, align: 'center', visible: true },
+  { id: 'barcode', x: 6, y: 26.5, w: 46, h: 12.5, fontSizeMm: 2.2, align: 'center', visible: true },
 ]
 
 export function normalizeLabelElements(raw?: LabelElement[] | null): LabelElement[] {
