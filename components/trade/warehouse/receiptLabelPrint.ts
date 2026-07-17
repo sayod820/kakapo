@@ -110,18 +110,29 @@ export async function printReceiptLabelRows(
     }
 
     let printed = 0
-    for (const row of selected) {
-      const html = buildSingleLabelThermalDocument(row.edit, design)
+    const batchItems = selected.map(row => {
       const n = Math.max(1, Math.min(99, Math.round(row.copies) || 1))
-      for (let i = 0; i < n; i++) {
-        await desk.printHtml(html, {
-          role: 'label',
-          printerName,
-          pageWidthMm: XP235B_LABEL_WIDTH_MM,
-          pageHeightMm: XP235B_LABEL_HEIGHT_MM,
-          gapMm: design.gapMm ?? 2,
-        })
-        printed++
+      printed += n
+      return {
+        html: buildSingleLabelThermalDocument(row.edit, design),
+        copies: n,
+      }
+    })
+
+    const printOpts = {
+      role: 'label' as const,
+      printerName,
+      pageWidthMm: XP235B_LABEL_WIDTH_MM,
+      pageHeightMm: XP235B_LABEL_HEIGHT_MM,
+      gapMm: design.gapMm ?? 2,
+    }
+
+    if (typeof desk.printLabelsBatch === 'function') {
+      await desk.printLabelsBatch(batchItems, printOpts)
+    } else {
+      // Старый desktop: по одной позиции, но copies через PRINT n
+      for (const item of batchItems) {
+        await desk.printHtml(item.html, { ...printOpts, copies: item.copies })
       }
     }
     return { printed }

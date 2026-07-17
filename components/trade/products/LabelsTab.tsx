@@ -322,16 +322,30 @@ export default function LabelsTab({
           paperWidthMm: w,
           elements: design.elements,
         }
-        // По одной этикетке: 1 товар = 1 TSPL job = 1 бумага
-        for (const pick of chosenPicks) {
-          const html = buildSingleLabelThermalDocument(getEdit(pick), printDesign)
-          await desk.printHtml(html, {
+        // Пакет: захват по 1 разу на товар, копии через PRINT n, одно RAW-задание
+        const batchItems = chosenPicks.map(pick => ({
+          html: buildSingleLabelThermalDocument(getEdit(pick), printDesign),
+          copies: 1,
+        }))
+        if (typeof desk.printLabelsBatch === 'function') {
+          await desk.printLabelsBatch(batchItems, {
             role: 'label',
             printerName: labelPrinterName || undefined,
             pageWidthMm: w,
             pageHeightMm: h,
             gapMm: 2,
           })
+        } else {
+          for (const item of batchItems) {
+            await desk.printHtml(item.html, {
+              role: 'label',
+              printerName: labelPrinterName || undefined,
+              pageWidthMm: w,
+              pageHeightMm: h,
+              gapMm: 2,
+              copies: 1,
+            })
+          }
         }
       } catch (e) {
         window.alert(e instanceof Error ? e.message : 'Не удалось напечатать этикетки')

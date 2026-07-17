@@ -28,6 +28,13 @@ export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
   pageHeightMm?: number
   /** Зазор между этикетками (мм), XP-235B обычно 2 */
   gapMm?: number
+  /** Копии одной этикетки (TSPL PRINT n) — без паузы между листами */
+  copies?: number
+}
+
+export type DesktopLabelBatchItem = {
+  html: string
+  copies?: number
 }
 
 export type CasPluItem = {
@@ -45,6 +52,10 @@ export type KakapoDesktopApi = {
   getPrinterSettings: () => Promise<DesktopPrinterSettings>
   savePrinterSettings: (data: Partial<DesktopPrinterSettings>) => Promise<DesktopPrinterSettings>
   printHtml: (html: string, options?: DesktopPrintOptions) => Promise<{ ok: boolean }>
+  printLabelsBatch?: (
+    items: DesktopLabelBatchItem[],
+    options?: DesktopPrintOptions,
+  ) => Promise<{ ok: boolean; count?: number }>
   syncCasPlu: (payload: {
     host?: string
     port?: number

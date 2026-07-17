@@ -9,6 +9,7 @@ const { syncCasPlu } = require('./casScale.cjs')
 const {
   mmToDots,
   monoFromBgra,
+  buildTsplBitmapJob,
   buildMultiLabelTspl,
   printRawWindows,
 } = require('./tsplLabel.cjs')
@@ -116,7 +117,7 @@ function labelPx(mm) {
 function waitForPrintRender(webContents) {
   return webContents.executeJavaScript(`
     new Promise((resolve) => {
-      const done = () => setTimeout(resolve, 400)
+      const done = () => setTimeout(resolve, 40)
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(done).catch(done)
         return
@@ -126,9 +127,101 @@ function waitForPrintRender(webContents) {
         return
       }
       window.addEventListener('load', done, { once: true })
-      setTimeout(resolve, 900)
+      setTimeout(resolve, 200)
     })
   `).catch(() => undefined)
+}
+
+function resolveLabelPageSize(options = {}) {
+  let pageWidthMm = Number(options.pageWidthMm)
+  let pageHeightMm = Number(options.pageHeightMm)
+  if (!Number.isFinite(pageWidthMm) || pageWidthMm <= 0) pageWidthMm = 58
+  if (!Number.isFinite(pageHeightMm) || pageHeightMm <= 0) pageHeightMm = 40
+  if (pageHeightMm > 60) pageHeightMm = 40
+  if (pageWidthMm > 70) pageWidthMm = 58
+  const gapMm = Number(options.gapMm)
+  const gap = Number.isFinite(gapMm) && gapMm >= 0 ? gapMm : 2
+  return { pageWidthMm, pageHeightMm, gap }
+}
+
+function ensureLabelPrintWindow(wPx, hPx) {
+  if (printWindow && !printWindow.isDestroyed()) {
+    try { printWindow.setContentSize(wPx, hPx) } catch { /* ignore */ }
+    return printWindow
+  }
+  destroyPrintWindow()
+  printWindow = new BrowserWindow({
+    show: false,
+    width: wPx,
+    height: hPx,
+    useContentSize: true,
+    enableLargerThanScreen: true,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      zoomFactor: 1,
+      offscreen: false,
+    },
+  })
+  try { printWindow.setContentSize(wPx, hPx) } catch { /* ignore */ }
+  return printWindow
+}
+
+function wrapLabelHtmlLight(html) {
+  return String(html || '').replace(
+    /<head([^>]*)>/i,
+    '<head$1><meta name="color-scheme" content="light only"><style>:root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important}*{color-scheme:light only!important}</style>',
+  )
+}
+
+async function captureOneLabelMono(html, wPx, hPx) {
+  const win = ensureLabelPrintWindow(wPx, hPx)
+  const tmpFile = path.join(os.tmpdir(), `kakapo-label-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
+  fs.writeFileSync(tmpFile, wrapLabelHtmlLight(html), 'utf8')
+  try {
+    await win.loadFile(tmpFile)
+    try {
+      await win.webContents.insertCSS(`
+        :root { color-scheme: light only !important; }
+        html, body { background:#ffffff !important; color:#000000 !important; }
+        .k-label-card { background:#ffffff !important; color:#000000 !important; }
+      `)
+    } catch { /* ignore */ }
+    await waitForPrintRender(win.webContents)
+    try { win.webContents.setZoomFactor(1) } catch { /* ignore */ }
+    try { win.setContentSize(wPx, hPx) } catch { /* ignore */ }
+
+    const cardCount = await win.webContents.executeJavaScript(`
+      (function () {
+        const cards = Array.from(document.querySelectorAll('.k-label-card'));
+        if (!cards.length) return 0;
+        document.documentElement.style.cssText = 'width:${wPx}px;height:${hPx}px;overflow:hidden;margin:0;padding:0;';
+        document.body.style.cssText = 'width:${wPx}px;height:${hPx}px;overflow:hidden;margin:0;padding:0;background:#fff;';
+        const root = document.getElementById('k-label-print');
+        if (root) {
+          root.style.cssText = 'display:block;width:${wPx}px;height:${hPx}px;margin:0;padding:0;overflow:hidden;';
+        }
+        cards.forEach((c, idx) => {
+          c.style.cssText = 'display:' + (idx === 0 ? 'block' : 'none') + ';position:relative;width:${wPx}px;height:${hPx}px;min-height:${hPx}px;max-height:${hPx}px;max-width:${wPx}px;margin:0;padding:0;overflow:hidden;background:#fff;color:#000;box-sizing:border-box;';
+        });
+        return Math.min(1, cards.length);
+      })()
+    `)
+    if (!cardCount) throw new Error('Нет этикеток для печати')
+
+    let img = await win.webContents.capturePage({ x: 0, y: 0, width: wPx, height: hPx })
+    const sz = img.getSize()
+    if (sz.width !== wPx || sz.height !== hPx) {
+      img = img.resize({ width: wPx, height: hPx, quality: 'best' })
+    }
+    const size = img.getSize()
+    const bgra = img.toBitmap()
+    return monoFromBgra(bgra, size.width, size.height, wPx, hPx, 168)
+  } finally {
+    try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+  }
 }
 
 function destroyPrintWindow() {
@@ -147,130 +240,23 @@ async function printLabelsViaTspl(html, options = {}) {
     throw new Error('Выберите принтер XP-235B в настройках этикеток')
   }
 
-  let pageWidthMm = Number(options.pageWidthMm)
-  let pageHeightMm = Number(options.pageHeightMm)
-  if (!Number.isFinite(pageWidthMm) || pageWidthMm <= 0) pageWidthMm = 58
-  if (!Number.isFinite(pageHeightMm) || pageHeightMm <= 0) pageHeightMm = 40
-  // Защита: не даём случайно 80×300 (чек) уйти на этикетки
-  if (pageHeightMm > 60) pageHeightMm = 40
-  if (pageWidthMm > 70) pageWidthMm = 58
-
-  const gapMm = Number(options.gapMm)
-  const gap = Number.isFinite(gapMm) && gapMm >= 0 ? gapMm : 2
-
+  const { pageWidthMm, pageHeightMm, gap } = resolveLabelPageSize(options)
+  const copies = Math.max(1, Math.min(99, Math.round(Number(options.copies) || 1)))
   const wPx = labelPx(pageWidthMm)
   const hPx = labelPx(pageHeightMm)
 
   const prevTheme = nativeTheme.themeSource
   nativeTheme.themeSource = 'light'
 
-  destroyPrintWindow()
-  printWindow = new BrowserWindow({
-    show: false,
-    width: wPx,
-    height: hPx,
-    useContentSize: true,
-    enableLargerThanScreen: true,
-    backgroundColor: '#ffffff',
-    webPreferences: {
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-      zoomFactor: 1,
-      offscreen: false,
-    },
-  })
-
   try {
-    printWindow.setContentSize(wPx, hPx)
-  } catch { /* ignore */ }
-
-  const tmpFile = path.join(os.tmpdir(), `kakapo-label-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
-  // Гарантируем светлую схему в самом HTML (тёмная тема Electron иначе инвертирует цвета)
-  const lightHtml = String(html || '').replace(
-    /<head([^>]*)>/i,
-    '<head$1><meta name="color-scheme" content="light only"><style>:root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important}*{color-scheme:light only!important}</style>',
-  )
-  fs.writeFileSync(tmpFile, lightHtml, 'utf8')
-
-  try {
-    await printWindow.loadFile(tmpFile)
-    try {
-      await printWindow.webContents.insertCSS(`
-        :root { color-scheme: light only !important; }
-        html, body { background:#ffffff !important; color:#000000 !important; }
-        .k-label-card { background:#ffffff !important; color:#000000 !important; }
-      `)
-    } catch { /* ignore */ }
-    await waitForPrintRender(printWindow.webContents)
-
-    try {
-      printWindow.webContents.setZoomFactor(1)
-    } catch { /* ignore */ }
-
-    try {
-      printWindow.setContentSize(wPx, hPx)
-    } catch { /* ignore */ }
-
-    const cardCount = await printWindow.webContents.executeJavaScript(`
-      (function () {
-        const cards = Array.from(document.querySelectorAll('.k-label-card'));
-        if (!cards.length) return 0;
-        document.documentElement.style.cssText = 'width:${wPx}px;height:${hPx}px;overflow:hidden;margin:0;padding:0;';
-        document.body.style.cssText = 'width:${wPx}px;height:${hPx}px;overflow:hidden;margin:0;padding:0;background:#fff;';
-        const root = document.getElementById('k-label-print');
-        if (root) {
-          root.style.cssText = 'display:block;width:${wPx}px;height:${hPx}px;margin:0;padding:0;overflow:hidden;';
-        }
-        cards.forEach((c) => {
-          c.style.cssText = 'display:none;position:relative;width:${wPx}px;height:${hPx}px;min-height:${hPx}px;max-height:${hPx}px;max-width:${wPx}px;margin:0;padding:0;overflow:hidden;background:#fff;color:#000;page-break-after:auto;break-after:auto;box-sizing:border-box;';
-        });
-        // Одна карточка в документе — показываем только первую (защита от «имя / штрихкод на 2 бумаги»)
-        if (cards[0]) cards[0].style.display = 'block';
-        return Math.min(1, cards.length);
-      })()
-    `)
-
-    if (!cardCount) {
-      throw new Error('Нет этикеток для печати')
-    }
-
-    const labelsMono = []
-    for (let i = 0; i < cardCount; i++) {
-      await printWindow.webContents.executeJavaScript(`
-        (function () {
-          document.documentElement.style.cssText = 'background:#fff!important;color:#000!important;color-scheme:light only!important';
-          document.body.style.cssText = 'background:#fff!important;color:#000!important';
-          const cards = Array.from(document.querySelectorAll('.k-label-card'));
-          cards.forEach((c, idx) => {
-            if (idx === ${i}) {
-              c.style.cssText = 'display:block!important;position:relative!important;width:${wPx}px!important;height:${hPx}px!important;background:#fff!important;color:#000!important;overflow:hidden!important';
-            } else {
-              c.style.display = 'none';
-            }
-          });
-        })()
-      `)
-      await new Promise(r => setTimeout(r, 200))
-
-      let img = await printWindow.webContents.capturePage({ x: 0, y: 0, width: wPx, height: hPx })
-      const sz = img.getSize()
-      if (sz.width !== wPx || sz.height !== hPx) {
-        img = img.resize({ width: wPx, height: hPx, quality: 'best' })
-      }
-      const size = img.getSize()
-      const bgra = img.toBitmap()
-      const mono = monoFromBgra(bgra, size.width, size.height, wPx, hPx, 168)
-      labelsMono.push(mono)
-    }
-
-    const job = buildMultiLabelTspl({
+    const mono = await captureOneLabelMono(html, wPx, hPx)
+    const job = buildTsplBitmapJob({
       widthMm: pageWidthMm,
       heightMm: pageHeightMm,
       gapMm: gap,
-      labelsMono,
+      mono,
+      copies,
     })
-
     await printRawWindows(printerName, job)
     return {
       ok: true,
@@ -279,19 +265,128 @@ async function printLabelsViaTspl(html, options = {}) {
       mode: 'tspl-raw',
       pageWidthMm,
       pageHeightMm,
-      count: labelsMono.length,
+      count: copies,
     }
   } finally {
     nativeTheme.themeSource = prevTheme
-    try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
     destroyPrintWindow()
+  }
+}
+
+/**
+ * Пакетная печать: захват каждой этикетки один раз, копии через PRINT n,
+ * одно RAW-задание на принтер — без паузы между листами.
+ */
+async function printLabelsBatchViaTspl(items, options = {}) {
+  const list = Array.isArray(items) ? items.filter(it => it && typeof it.html === 'string' && it.html) : []
+  if (!list.length) throw new Error('Нет этикеток для печати')
+
+  const settings = loadPrinterSettings()
+  const printerName = String(
+    options.printerName || settings.labelPrinterName || settings.printerName || '',
+  ).trim()
+  if (!printerName) {
+    throw new Error('Выберите принтер XP-235B в настройках этикеток')
+  }
+
+  const { pageWidthMm, pageHeightMm, gap } = resolveLabelPageSize(options)
+  const wPx = labelPx(pageWidthMm)
+  const hPx = labelPx(pageHeightMm)
+
+  const prevTheme = nativeTheme.themeSource
+  nativeTheme.themeSource = 'light'
+
+  try {
+    const labelsMono = []
+    let total = 0
+    for (const it of list) {
+      const copies = Math.max(1, Math.min(99, Math.round(Number(it.copies) || 1)))
+      const mono = await captureOneLabelMono(it.html, wPx, hPx)
+      labelsMono.push({ mono, copies })
+      total += copies
+    }
+    const job = buildMultiLabelTspl({
+      widthMm: pageWidthMm,
+      heightMm: pageHeightMm,
+      gapMm: gap,
+      labelsMono,
+    })
+    await printRawWindows(printerName, job)
+    return {
+      ok: true,
+      printerName,
+      role: 'label',
+      mode: 'tspl-raw-batch',
+      pageWidthMm,
+      pageHeightMm,
+      count: total,
+    }
+  } finally {
+    nativeTheme.themeSource = prevTheme
+    destroyPrintWindow()
+  }
+}
+
+/** Склеивает подряд printHtml(label) в один RAW-пакет (даже со старым UI) */
+let labelJobQueue = []
+let labelFlushTimer = null
+
+function enqueueLabelPrint(html, options = {}) {
+  return new Promise((resolve, reject) => {
+    labelJobQueue.push({ html, options, resolve, reject })
+    if (labelFlushTimer) clearTimeout(labelFlushTimer)
+    labelFlushTimer = setTimeout(() => {
+      void flushLabelJobQueue()
+    }, 80)
+  })
+}
+
+async function flushLabelJobQueue() {
+  labelFlushTimer = null
+  const batch = labelJobQueue.splice(0)
+  if (!batch.length) return
+
+  const merged = []
+  for (const job of batch) {
+    const add = Math.max(1, Math.min(99, Math.round(Number(job.options?.copies) || 1)))
+    const last = merged[merged.length - 1]
+    if (last && last.html === job.html) {
+      last.copies = Math.min(99, last.copies + add)
+      last.jobs.push(job)
+    } else {
+      merged.push({
+        html: job.html,
+        options: job.options || {},
+        copies: add,
+        jobs: [job],
+      })
+    }
+  }
+
+  try {
+    const result = await printLabelsBatchViaTspl(
+      merged.map(m => ({ html: m.html, copies: m.copies })),
+      merged[0].options,
+    )
+    for (const m of merged) {
+      for (const j of m.jobs) j.resolve(result)
+    }
+  } catch (err) {
+    for (const m of merged) {
+      for (const j of m.jobs) j.reject(err)
+    }
   }
 }
 
 function printHtml(html, options = {}) {
   const role = options.role === 'label' ? 'label' : 'receipt'
   if (role === 'label') {
-    return printLabelsViaTspl(html, options)
+    // Не ждём каждую этикетку: UI часто делает await в цикле.
+    // Копим задания ~80мс и шлём одним RAW (PRINT n) — без паузы между листами.
+    enqueueLabelPrint(html, options).catch(err => {
+      console.error('[kakapo label print]', err)
+    })
+    return Promise.resolve({ ok: true, queued: true })
   }
 
   return new Promise((resolve, reject) => {
@@ -428,6 +523,10 @@ app.whenReady().then(() => {
   ipcMain.handle('desktop:printHtml', async (_e, html, options) => {
     if (!html || typeof html !== 'string') throw new Error('Пустой документ печати')
     return printHtml(html, options || {})
+  })
+
+  ipcMain.handle('desktop:printLabelsBatch', async (_e, items, options) => {
+    return printLabelsBatchViaTspl(items || [], options || {})
   })
 
   ipcMain.handle('desktop:syncCasPlu', async (_e, payload) => {

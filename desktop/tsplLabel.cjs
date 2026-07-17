@@ -130,10 +130,21 @@ function buildTsplBitmapJob({
   return Buffer.concat([header, packed, footer])
 }
 
+/**
+ * Несколько этикеток в одном RAW-задании.
+ * labelsMono: mono[] или [{ mono, copies }]
+ * Одинаковые копии — через TSPL PRINT n (без паузы между ними).
+ */
 function buildMultiLabelTspl({ widthMm, heightMm, gapMm, labelsMono }) {
   const parts = []
-  for (const mono of labelsMono) {
-    parts.push(buildTsplBitmapJob({ widthMm, heightMm, gapMm, mono, copies: 1 }))
+  for (const entry of labelsMono || []) {
+    const wrapped = entry && entry.mono
+    const mono = wrapped ? entry.mono : entry
+    const copies = wrapped
+      ? Math.max(1, Math.min(99, Number(entry.copies) || 1))
+      : 1
+    if (!mono) continue
+    parts.push(buildTsplBitmapJob({ widthMm, heightMm, gapMm, mono, copies }))
   }
   return Buffer.concat(parts)
 }
