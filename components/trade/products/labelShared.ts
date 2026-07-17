@@ -326,7 +326,7 @@ export function defaultLabelEdit(product: Product, layer?: ProductStockLayer | n
     barcode: scanCode,
     plu: product.plu || '',
     showBarcode: !!scanCode,
-    showPlu: !!(product.plu && isWeighted(product)),
+    showPlu: !!product.plu,
   }
 }
 

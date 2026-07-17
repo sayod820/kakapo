@@ -19,11 +19,12 @@ export function retailLabelName(edit: LabelEdit) {
 }
 
 export function retailShowPlu(edit: LabelEdit) {
-  return edit.showPlu && !!String(edit.plu || '').trim()
+  // Есть номер PLU — печатаем/показываем (галочка showPlu=false только явное скрытие в старых правках игнорируем, если plu есть)
+  return !!String(edit.plu || '').trim()
 }
 
 export function retailShowBarcode(edit: LabelEdit) {
-  return edit.showBarcode && !!String(edit.barcode || '').trim()
+  return edit.showBarcode !== false && !!String(edit.barcode || '').trim()
 }
 
 export function retailShowSize(edit: LabelEdit) {
@@ -41,15 +42,15 @@ export function elementBoxStyle(el: LabelElement, scale = 1): CSSProperties {
     overflow: 'hidden',
     textAlign: el.align,
     display: 'flex',
-    // price: как в редакторе — цена+сом у нижнего края блока; barcode — по центру
-    alignItems: el.id === 'price' ? 'flex-end' : el.id === 'barcode' ? 'center' : 'flex-start',
-    justifyContent: el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center',
+    flexDirection: 'column',
+    alignItems: el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center',
+    justifyContent: el.id === 'price' || el.id === 'barcode' ? 'flex-end' : 'flex-start',
   }
 }
 
 export function isElementShown(el: LabelElement, edit: LabelEdit): boolean {
   if (!el.visible) return false
-  if (el.id === 'name') return !!edit.name
+  if (el.id === 'name') return !!String(edit.name || '').trim()
   if (el.id === 'size') return retailShowSize(edit)
   if (el.id === 'plu') return retailShowPlu(edit)
   if (el.id === 'barcode') return retailShowBarcode(edit)

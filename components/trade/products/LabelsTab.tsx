@@ -161,7 +161,11 @@ export default function LabelsTab({
     const base = defaultLabelEdit(pick.product, pick.layer)
     const saved = edits[pick.key]
     if (!saved) return base
-    return { ...base, ...saved, size: saved.size || base.size }
+    const merged = { ...base, ...saved, size: saved.size || base.size }
+    // PLU и размер всегда доступны для печати, если есть в товаре
+    if (merged.plu) merged.showPlu = true
+    if (!merged.size && base.size) merged.size = base.size
+    return merged
   }
 
   function ensureEdit(key: string, pick: LabelPick) {

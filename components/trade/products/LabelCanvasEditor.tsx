@@ -6,7 +6,6 @@ import {
   elementBoxStyle,
   isElementShown,
   labelPriceAmount,
-  mmToLabelPx,
   retailLabelName,
 } from './labelRetailLayout'
 import {
@@ -177,12 +176,10 @@ export default function LabelCanvasEditor({
     }
     if (el.id === 'barcode') {
       const showDigits = design.barcodeShowDigits !== false
-      const boxH = mmToLabelPx(el.h)
-      const digitReserve = showDigits ? Math.max(10, Math.round(boxH * 0.28)) : 0
-      const hPx = Math.max(16, boxH - digitReserve - 2)
+      const boxH = Math.max(16, el.h * scale * 0.68)
       return (
-        <div style={{ width: '100%' }}>
-          <LabelBarcode value={edit.barcode} height={hPx} color="#000" showText={showDigits} />
+        <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+          <LabelBarcode value={edit.barcode} height={boxH} color="#000" showText={showDigits} />
         </div>
       )
     }
