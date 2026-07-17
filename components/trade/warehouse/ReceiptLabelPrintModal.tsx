@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Product, StockReceipt } from '@/lib/types'
 import { formatQty } from './warehouseShared'
 import {
@@ -9,6 +9,10 @@ import {
   type ReceiptLabelRow,
 } from './receiptLabelPrint'
 import { loadLabelDesign } from '@/components/trade/products/labelShared'
+
+function clampCopies(n: number) {
+  return Math.max(1, Math.min(99, Math.floor(n) || 1))
+}
 
 export default function ReceiptLabelPrintModal({
   open,
@@ -24,6 +28,8 @@ export default function ReceiptLabelPrintModal({
   const [rows, setRows] = useState<ReceiptLabelRow[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [bulkQty, setBulkQty] = useState('1')
+  const receiptIdRef = useRef<string | null>(null)
 
   const productsById = useMemo(() => {
     const m = new Map<number, Product>()
@@ -31,20 +37,40 @@ export default function ReceiptLabelPrintModal({
     return m
   }, [products])
 
+  // Инициализация только при открытии / смене прихода. При обновлении каталога — сохраняем copies и selected.
   useEffect(() => {
     if (!open || !receipt) {
+      receiptIdRef.current = null
       setRows([])
       setMsg('')
+      setBulkQty('1')
       return
     }
-    setRows(buildReceiptLabelRows(receipt, productsById))
-    setMsg('')
+
+    const newReceipt = receiptIdRef.current !== receipt.id
+    if (newReceipt) receiptIdRef.current = receipt.id
+
+    setRows(prev => {
+      const fresh = buildReceiptLabelRows(receipt, productsById)
+      if (newReceipt || !prev.length) return fresh
+
+      const prevMap = new Map(prev.map(r => [r.key, r]))
+      return fresh.map(r => {
+        const old = prevMap.get(r.key)
+        if (!old) return r
+        return {
+          ...r,
+          selected: old.selected,
+          copies: old.copies,
+        }
+      })
+    })
   }, [open, receipt, productsById])
 
   if (!open || !receipt) return null
 
   const selectedCount = rows.filter(r => r.selected).length
-  const totalCopies = rows.reduce((s, r) => s + (r.selected ? Math.max(0, Number(r.copies) || 0) : 0), 0)
+  const totalCopies = rows.reduce((s, r) => s + (r.selected ? clampCopies(r.copies) : 0), 0)
 
   function toggleAll(on: boolean) {
     setRows(prev => prev.map(r => ({ ...r, selected: on })))
@@ -54,11 +80,24 @@ export default function ReceiptLabelPrintModal({
     setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)))
   }
 
+  function applyBulk(target: 'selected' | 'all') {
+    const n = clampCopies(Number(bulkQty) || 1)
+    setBulkQty(String(n))
+    setRows(prev => prev.map(r => {
+      if (target === 'all' || r.selected) return { ...r, copies: n }
+      return r
+    }))
+  }
+
   async function printSelected() {
+    const toPrint = rows.map(r => ({
+      ...r,
+      copies: r.selected ? clampCopies(r.copies) : 0,
+    }))
     setBusy(true)
     setMsg('')
     try {
-      const { printed } = await printReceiptLabelRows(rows, { design: loadLabelDesign() })
+      const { printed } = await printReceiptLabelRows(toPrint, { design: loadLabelDesign() })
       setMsg(`Напечатано: ${printed}`)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка печати')
@@ -88,9 +127,32 @@ export default function ReceiptLabelPrintModal({
         <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
           <button type="button" className="k-btn k-btn-s" onClick={() => toggleAll(true)}>Выбрать все</button>
           <button type="button" className="k-btn k-btn-s" onClick={() => toggleAll(false)}>Снять все</button>
-          <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>
-            Выбрано: <b style={{ color: 'var(--text)' }}>{selectedCount}</b> · этикеток: <b style={{ color: 'var(--text)' }}>{totalCopies}</b>
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Кол-во этикеток:</span>
+            <input
+              className="k-inp"
+              type="number"
+              min={1}
+              max={99}
+              value={bulkQty}
+              onChange={e => setBulkQty(e.target.value)}
+              onBlur={() => {
+                const n = clampCopies(Number(bulkQty) || 1)
+                setBulkQty(String(n))
+              }}
+              style={{ width: 56, textAlign: 'center', padding: '6px 8px' }}
+            />
+            <button type="button" className="k-btn k-btn-s" disabled={!selectedCount} onClick={() => applyBulk('selected')}>
+              Для выбранных
+            </button>
+            <button type="button" className="k-btn k-btn-s" onClick={() => applyBulk('all')}>
+              Для всех
+            </button>
+          </div>
+        </div>
+
+        <div style={{ padding: '6px 16px', borderBottom: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>
+          Выбрано: <b style={{ color: 'var(--text)' }}>{selectedCount}</b> · этикеток к печати: <b style={{ color: 'var(--text)' }}>{totalCopies}</b>
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
@@ -98,7 +160,7 @@ export default function ReceiptLabelPrintModal({
             <div className="k-empty" style={{ padding: 24 }}>Нет товаров для печати (проверьте каталог)</div>
           ) : (
             rows.map(row => (
-              <label
+              <div
                 key={row.key}
                 style={{
                   display: 'grid',
@@ -110,16 +172,15 @@ export default function ReceiptLabelPrintModal({
                   borderRadius: 10,
                   border: `1px solid ${row.selected ? 'var(--green)' : 'var(--border)'}`,
                   background: row.selected ? 'rgba(31,215,96,.06)' : 'var(--card2)',
-                  cursor: 'pointer',
                 }}
               >
                 <input
                   type="checkbox"
                   checked={row.selected}
                   onChange={e => patchRow(row.key, { selected: e.target.checked })}
-                  style={{ accentColor: 'var(--green)', width: 18, height: 18 }}
+                  style={{ accentColor: 'var(--green)', width: 18, height: 18, cursor: 'pointer' }}
                 />
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, cursor: 'pointer' }} onClick={() => patchRow(row.key, { selected: !row.selected })}>
                   <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {row.product.e || '📦'} {row.product.name}
                   </div>
@@ -130,32 +191,26 @@ export default function ReceiptLabelPrintModal({
                     {' · '}приход {formatQty(row.item.qty)}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>шт</span>
                   <input
                     className="k-inp"
                     type="number"
                     min={1}
                     max={99}
-                    value={row.copies === 0 ? '' : row.copies}
+                    value={row.copies}
                     disabled={!row.selected}
                     onChange={e => {
-                      const raw = e.target.value.trim()
-                      if (raw === '') {
-                        patchRow(row.key, { copies: 0 })
-                        return
-                      }
+                      const raw = e.target.value
+                      if (raw === '') return
                       const n = Number(raw)
                       if (!Number.isFinite(n)) return
-                      patchRow(row.key, { copies: Math.max(0, Math.min(99, Math.floor(n))) })
-                    }}
-                    onBlur={() => {
-                      if (!row.copies || row.copies < 1) patchRow(row.key, { copies: 1 })
+                      patchRow(row.key, { copies: Math.max(1, Math.min(99, Math.floor(n))) })
                     }}
                     style={{ width: 64, textAlign: 'center', padding: '6px 8px' }}
                   />
                 </div>
-              </label>
+              </div>
             ))
           )}
         </div>
