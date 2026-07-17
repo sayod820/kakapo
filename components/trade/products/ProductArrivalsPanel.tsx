@@ -4,9 +4,10 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { formatBulkPricingHint, serializeBulkPricing } from '@/lib/productBulkPricing'
-import type { Product, ProductStockLayer } from '@/lib/types'
+import type { Product, ProductStockLayer, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from './BulkPricingFields'
 import { money, sanitizeDecimal } from './productFormShared'
+import ReceiptLabelPrintModal from '@/components/trade/warehouse/ReceiptLabelPrintModal'
 
 function formatDate(iso: string) {
   try {
@@ -21,6 +22,27 @@ function bulkSummary(layer: ProductStockLayer) {
   if (!tiers.length) return '—'
   const best = tiers[tiers.length - 1]
   return `от ${best.minQty} шт → ${best.price.toFixed(2)}`
+}
+
+function receiptFromLayer(product: Product, layer: ProductStockLayer): StockReceipt {
+  return {
+    id: layer.receiptId,
+    supplierName: layer.supplierName || 'Ручной приход',
+    createdAtIso: layer.createdAtIso,
+    totalCost: (Number(layer.qty) || 0) * (Number(layer.costPrice) || 0),
+    paidNow: 0,
+    debtAdded: 0,
+    items: [{
+      productId: product.id,
+      productName: product.name,
+      qty: layer.qty,
+      remainingQty: layer.remainingQty,
+      costPrice: layer.costPrice,
+      retailPrice: layer.retailPrice,
+      bulkPricing: layer.bulkPricing,
+      expiryDate: layer.expiryDate,
+    }],
+  }
 }
 
 export default function ProductArrivalsPanel({
@@ -51,6 +73,7 @@ export default function ProductArrivalsPanel({
   const [editRetail, setEditRetail] = useState('')
   const [editBulk, setEditBulk] = useState<BulkPricingRow[]>([])
   const [addDirty, setAddDirty] = useState(false)
+  const [labelReceipt, setLabelReceipt] = useState<StockReceipt | null>(null)
 
   const sessionRef = useRef<{ productId: number | null }>({ productId: null })
 
@@ -129,7 +152,7 @@ export default function ProductArrivalsPanel({
     setSaving(true)
     setMsg('')
     try {
-      await api.addProductStockLayer(product.id, {
+      const res = await api.addProductStockLayer(product.id, {
         qty: q,
         costPrice: Number(costPrice) || 0,
         retailPrice: Number(retailPrice) || Number(product.price) || 0,
@@ -143,6 +166,12 @@ export default function ProductArrivalsPanel({
       await loadLayers()
       onUpdated?.()
       setMsg('Приход добавлен')
+      if (res?.receipt) {
+        setLabelReceipt(res.receipt)
+      } else if (res?.layers?.length) {
+        const layer = res.layers.find(l => l.receiptId === res.receipt?.id) || res.layers[0]
+        setLabelReceipt(receiptFromLayer(product, layer))
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось добавить приход')
     } finally {
@@ -295,9 +324,20 @@ export default function ProductArrivalsPanel({
                         <td style={{ fontSize: 11, color: '#FF8C00' }}>{bulkSummary(layer)}</td>
                         <td style={{ fontSize: 11, color: 'var(--muted)' }}>{formatDate(layer.createdAtIso)}</td>
                         <td>
-                          <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => startEdit(layer)}>
-                            {editId === layer.receiptId ? '▼' : 'Изменить'}
-                          </button>
+                          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              className="k-btn k-btn-s"
+                              style={{ padding: '4px 8px', fontSize: 11 }}
+                              title="Печать этикеток"
+                              onClick={() => setLabelReceipt(receiptFromLayer(product, layer))}
+                            >
+                              🖨️
+                            </button>
+                            <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => startEdit(layer)}>
+                              {editId === layer.receiptId ? '▼' : 'Изменить'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                       {editId === layer.receiptId && (
@@ -331,6 +371,13 @@ export default function ProductArrivalsPanel({
           )}
         </div>
       </div>
+
+      <ReceiptLabelPrintModal
+        open={!!labelReceipt}
+        receipt={labelReceipt}
+        products={[product]}
+        onClose={() => setLabelReceipt(null)}
+      />
     </div>
   )
 }

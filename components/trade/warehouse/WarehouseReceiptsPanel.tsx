@@ -12,6 +12,7 @@ import WarehouseNewSupplierModal from './WarehouseNewSupplierModal'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import WarehouseSupplierSelect from './WarehouseSupplierSelect'
+import ReceiptLabelPrintModal from './ReceiptLabelPrintModal'
 import {
   clearReceiptDraft,
   costFromPurchaseTotal,
@@ -335,6 +336,7 @@ export default function WarehouseReceiptsPanel({
   const [newSupplierOpen, setNewSupplierOpen] = useState(false)
   const [newSupplierName, setNewSupplierName] = useState('')
   const [editingSupplier, setEditingSupplier] = useState<PosSupplier | null>(null)
+  const [labelReceipt, setLabelReceipt] = useState<StockReceipt | null>(null)
 
   const { open, supplierId, paidNow, lines, activeLineKey } = draft
 
@@ -615,11 +617,15 @@ export default function WarehouseReceiptsPanel({
       }
       if (editingId) {
         await api.updateStockReceipt(editingId, payload)
+        await Promise.all([onRefresh(), fetchProducts()])
+        resetForm()
       } else {
-        await api.createStockReceipt(payload)
+        const created = await api.createStockReceipt(payload)
+        await Promise.all([onRefresh(), fetchProducts()])
+        resetForm()
+        // После нового прихода — сразу выбор этикеток
+        setLabelReceipt(created)
       }
-      await Promise.all([onRefresh(), fetchProducts()])
-      resetForm()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
     } finally {
@@ -760,6 +766,15 @@ export default function WarehouseReceiptsPanel({
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className="k-btn k-btn-s"
+                          style={{ padding: '4px 10px' }}
+                          title="Печать этикеток"
+                          onClick={() => setLabelReceipt(r)}
+                        >
+                          🖨️
+                        </button>
                         <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={() => openEditForm(r)} title="Редактировать">✎</button>
                         <button
                           type="button"
@@ -998,6 +1013,13 @@ export default function WarehouseReceiptsPanel({
         editingSupplier={editingSupplier}
         onClose={() => { setNewSupplierOpen(false); setEditingSupplier(null) }}
         onCreated={onSupplierCreated}
+      />
+
+      <ReceiptLabelPrintModal
+        open={!!labelReceipt}
+        receipt={labelReceipt}
+        products={products}
+        onClose={() => setLabelReceipt(null)}
       />
     </div>
   )

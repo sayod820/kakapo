@@ -39,12 +39,19 @@ const CSS = `
     --bg:#070C09; --panel:#0B120E; --card:#101A13; --card2:#0D1610; --border:#1C2A21;
     --text:#E8F3EB; --muted:#7E9A86; --muted2:#5E7A67;
     --green:#1FD760; --green-d:#12351E; --blue:#3B8EF0; --purple:#9B6DFF; --red:#FF5A5A; --gold:#FFB800;
+    --hover:#0e1712; --tbl-line:#16241b; --nav-hover:#111d15; --scroll:#1e2f24;
     display:flex;min-height:100vh;background:var(--bg);color:var(--text);
     font-family:'Nunito',system-ui,-apple-system,sans-serif;font-size:14px;
   }
+  .k-trade[data-theme="light"]{
+    --bg:#F3F7F4; --panel:#FFFFFF; --card:#FFFFFF; --card2:#EAF1EC; --border:#D0DDD4;
+    --text:#0C1A10; --muted:#4A6B52; --muted2:#7A9580;
+    --green:#129B45; --green-d:#D6F0DF; --blue:#2563EB; --purple:#7C3AED; --red:#DC2626; --gold:#D97706;
+    --hover:#EAF1EC; --tbl-line:#D0DDD4; --nav-hover:#EAF1EC; --scroll:#BCCBBF;
+  }
   .k-trade button{font-family:inherit}
   .k-trade ::-webkit-scrollbar{width:8px;height:8px}
-  .k-trade ::-webkit-scrollbar-thumb{background:#1e2f24;border-radius:8px}
+  .k-trade ::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:8px}
 
   .k-side{width:236px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
   .k-logo{display:flex;align-items:center;gap:10px;padding:18px 18px 6px;font-weight:900;font-size:17px;line-height:1.2}
@@ -53,8 +60,8 @@ const CSS = `
   .k-nav{flex:1;overflow-y:auto;padding:6px 12px 12px}
   .k-navitem{display:flex;align-items:center;gap:12px;width:100%;border:none;background:transparent;color:var(--muted);cursor:pointer;padding:11px 12px;border-radius:12px;font-size:14px;font-weight:700;text-align:left;margin-bottom:2px;transition:background .12s,color .12s}
   .k-navitem .ic{font-size:17px;width:22px;text-align:center;flex-shrink:0}
-  .k-navitem .tag{margin-left:auto;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:#1a1a1a;color:var(--muted)}
-  .k-navitem:hover{background:#111d15;color:var(--text)}
+  .k-navitem .tag{margin-left:auto;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;background:var(--card2);color:var(--muted)}
+  .k-navitem:hover{background:var(--nav-hover);color:var(--text)}
   .k-navitem.active{background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;box-shadow:0 8px 20px rgba(31,215,96,.25)}
   .k-navitem.active .tag{background:rgba(5,33,13,.2);color:#05210D}
   .k-side-foot{padding:12px;border-top:1px solid var(--border)}
@@ -73,6 +80,11 @@ const CSS = `
   .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 14px 11px 42px;font-size:14px;outline:none}
   .k-search input:focus{border-color:var(--green)}
   .k-search .mag{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted)}
+  .k-theme-toggle{display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--card2);border:1.5px solid var(--border);flex-shrink:0}
+  .k-theme-mode{width:34px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--muted);border:none;background:transparent;cursor:pointer;transition:background .15s,color .15s}
+  .k-theme-mode:hover{color:var(--text)}
+  .k-theme-mode.on{background:var(--card);color:var(--green);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+  .k-trade[data-theme="light"] .k-theme-mode.on{box-shadow:0 1px 4px rgba(12,26,16,.12)}
   .k-user{display:flex;align-items:center;gap:10px;padding:5px 6px 5px 5px;border:1px solid var(--border);background:var(--card);border-radius:14px;cursor:pointer;color:var(--text)}
   .k-user .av{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#1FD760,#12a548);color:#05210D;display:flex;align-items:center;justify-content:center;font-weight:900}
   .k-user .who b{display:block;font-size:13px;line-height:1.1;color:var(--text);font-weight:800}
@@ -106,19 +118,21 @@ const CSS = `
   .k-btn-s:hover{border-color:var(--green)}
   .k-tbl{width:100%;border-collapse:collapse}
   .k-tbl th{text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:9px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:1}
-  .k-tbl td{padding:9px 10px;border-bottom:1px solid #16241b;font-size:13px}
+  .k-tbl td{padding:9px 10px;border-bottom:1px solid var(--tbl-line);font-size:13px}
   .k-tbl tbody tr.k-prodrow{cursor:pointer}
-  .k-tbl tbody tr:hover{background:#0e1712}
+  .k-tbl tbody tr:hover{background:var(--hover)}
   .k-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
   .k-badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:800}
   .k-empty{padding:34px;text-align:center;color:var(--muted2)}
   .k-alert{padding:10px 14px;border-radius:10px;font-size:13px;background:var(--green-d);color:var(--green);border:1px solid #1f5a33}
+  .k-trade[data-theme="light"] .k-alert{border-color:#9FD4B0}
   .k-cats{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
   .k-cat{flex-shrink:0;border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:14px;padding:10px 14px;font-weight:800;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:78px;transition:.12s}
   .k-cat .ce{font-size:18px}
-  .k-cat:hover{color:var(--text);border-color:#2a4032}
+  .k-cat:hover{color:var(--text);border-color:var(--muted2)}
   .k-cat.active{background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;border-color:transparent}
   .k-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:60;padding:20px}
+  .k-trade[data-theme="light"] .k-modal-bg{background:rgba(12,26,16,.45)}
   .k-modal{width:460px;max-width:100%;max-height:88vh;background:var(--panel);border:1px solid var(--border);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
   .k-modal-wide{width:640px}
   .k-receipt-modal-bg{padding:10px;align-items:stretch;justify-content:center}
@@ -129,14 +143,14 @@ const CSS = `
   .k-modal-b{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
   .k-subtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
   .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
-  .k-subtab:hover{color:var(--text);border-color:#2a4032}
+  .k-subtab:hover{color:var(--text);border-color:var(--muted2)}
   .k-subtab.active{background:var(--green-d);border-color:var(--green);color:var(--green)}
   .k-product-layout{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
   .k-product-list{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;position:sticky;top:0}
   .k-product-list-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
   .k-product-list-body{max-height:62vh;overflow:auto;padding:8px}
   .k-product-pick{display:flex;align-items:center;gap:10px;width:100%;border:1px solid transparent;background:transparent;color:var(--text);border-radius:10px;padding:9px 10px;cursor:pointer;text-align:left;margin-bottom:4px}
-  .k-product-pick:hover{background:#0e1712;border-color:var(--border)}
+  .k-product-pick:hover{background:var(--hover);border-color:var(--border)}
   .k-product-pick.active{background:var(--green-d);border-color:var(--green)}
   .k-product-pick .pe{font-size:18px;width:24px;text-align:center}
   .k-product-pick .pi{flex:1;min-width:0}
@@ -233,6 +247,20 @@ const CSS = `
   }
 `
 
+const THEME_KEY = 'kakapo_trade_pos_theme'
+type TradeTheme = 'dark' | 'light'
+
+function loadTradeTheme(): TradeTheme {
+  if (typeof window === 'undefined') return 'dark'
+  const t = localStorage.getItem(THEME_KEY)
+  return t === 'light' ? 'light' : 'dark'
+}
+
+function saveTradeTheme(theme: TradeTheme) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(THEME_KEY, theme)
+}
+
 type TradePage = TradePageId
 
 type NavItem = {
@@ -295,6 +323,16 @@ function TradeAppInner({
   const [search, setSearch] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
+  const [theme, setTheme] = useState<TradeTheme>('dark')
+
+  useEffect(() => {
+    setTheme(loadTradeTheme())
+  }, [])
+
+  function applyTheme(next: TradeTheme) {
+    setTheme(next)
+    saveTradeTheme(next)
+  }
 
   useEffect(() => {
     void useProducts.getState().fetchProducts()
@@ -368,7 +406,7 @@ function TradeAppInner({
     || defaultPage
 
   return (
-    <div className={`k-trade ${posFullscreen ? 'pos-fs' : ''}`}>
+    <div className={`k-trade ${posFullscreen ? 'pos-fs' : ''}`} data-theme={theme}>
       <style>{CSS}</style>
 
       {!posFullscreen && (
@@ -431,6 +469,29 @@ function TradeAppInner({
                 {NAV.find(n => n.id === current)?.label}
               </div>
             )}
+            <div className="k-theme-toggle" role="group" aria-label="Тема">
+              <button
+                type="button"
+                className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
+                title="Тёмная тема"
+                onClick={() => applyTheme('dark')}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
+                title="Светлая тема"
+                onClick={() => applyTheme('light')}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
             <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
               <div className="av">{initials(session.name)}</div>
               <div className="who"><b>{session.name}</b><span>Выйти</span></div>
@@ -442,6 +503,8 @@ function TradeAppInner({
           {current === 'sales' ? (
             <CashierModule
               embedded={!posFullscreen}
+              theme={theme}
+              onThemeChange={applyTheme}
               onSurfaceChange={setPosSurface}
               onExit={() => goTo(homePage)}
               onNavigate={p => goTo(p as TradePage)}
@@ -474,15 +537,17 @@ function TradeAppInner({
 function TradeAppGate() {
   const [session, setSession] = useState<TradeEmployeeSession | null>(null)
   const [ready, setReady] = useState(false)
+  const [theme, setTheme] = useState<TradeTheme>('dark')
 
   useEffect(() => {
     setSession(loadTradeEmployeeSession())
+    setTheme(loadTradeTheme())
     setReady(true)
   }, [])
 
   if (!ready) {
     return (
-      <div className="k-trade" style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="k-trade" data-theme={theme} style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
         <style>{CSS}</style>
         <div style={{ color: 'var(--muted)', fontWeight: 700 }}>Загрузка…</div>
       </div>
@@ -491,7 +556,7 @@ function TradeAppGate() {
 
   if (!session) {
     return (
-      <>
+      <div className="k-trade" data-theme={theme} style={{ minHeight: '100vh', display: 'block' }}>
         <style>{CSS}</style>
         <TradeLoginPage
           onSuccess={s => {
@@ -499,7 +564,7 @@ function TradeAppGate() {
             setSession(s)
           }}
         />
-      </>
+      </div>
     )
   }
 

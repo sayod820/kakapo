@@ -330,12 +330,16 @@ export default function CashierModule({
   onNavigate: _onNavigate,
   embedded = false,
   onSurfaceChange,
+  theme: themeProp,
+  onThemeChange,
 }: {
   onExit?: () => void
   onNavigate?: (page: NavTarget) => void
   /** Встроена в правую панель «Торговля» (с боковым меню) */
   embedded?: boolean
   onSurfaceChange?: (surface: 'dashboard' | 'register') => void
+  theme?: ThemeName
+  onThemeChange?: (theme: ThemeName) => void
 }) {
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
@@ -351,7 +355,16 @@ export default function CashierModule({
   const { getPhoto, hydrate } = useProductPhotos()
 
   const [settings, setSettings] = useState<PosSettings>(loadSettings)
-  const [theme, setTheme] = useState<ThemeName>(loadTheme)
+  const [themeLocal, setThemeLocal] = useState<ThemeName>(loadTheme)
+  const theme = themeProp ?? themeLocal
+
+  function applyTheme(next: ThemeName) {
+    if (onThemeChange) onThemeChange(next)
+    else {
+      setThemeLocal(next)
+      localStorage.setItem(THEME_KEY, next)
+    }
+  }
   const [q, setQ] = useState('')
   const qRef = useRef('')
   const scanCommitTimer = useRef<number | null>(null)
@@ -3543,7 +3556,7 @@ export default function CashierModule({
               type="button"
               className={`theme-mode ${theme === 'dark' ? 'on' : ''}`}
               title="Тёмная тема"
-              onClick={() => { setTheme('dark'); localStorage.setItem(THEME_KEY, 'dark') }}
+              onClick={() => applyTheme('dark')}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
@@ -3553,7 +3566,7 @@ export default function CashierModule({
               type="button"
               className={`theme-mode ${theme === 'light' ? 'on' : ''}`}
               title="Светлая тема"
-              onClick={() => { setTheme('light'); localStorage.setItem(THEME_KEY, 'light') }}
+              onClick={() => applyTheme('light')}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
