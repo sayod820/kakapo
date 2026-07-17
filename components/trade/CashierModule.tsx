@@ -1526,12 +1526,21 @@ export default function CashierModule({
         setDeskPrinters(printers || [])
         const saved = settings?.printerName || ''
         const auto = pickReceiptPrinter(printers || [])
-        setDeskPrinterName(saved || auto)
-        setDeskPaperMm(settings?.paperWidthMm === 80 ? 80 : XP58C_RECEIPT_MM)
+        const name = saved || auto
+        setDeskPrinterName(name)
+        setDeskPaperMm(XP58C_RECEIPT_MM)
         setDeskScaleMode(settings?.scaleMode === 'none' ? 'none' : 'plu-label')
         setDeskScaleHost(settings?.scaleHost || '')
         setDeskScalePort(String(settings?.scalePort || 20304))
         setDeskScaleDept(String(settings?.scaleDept || 1))
+        // Если принтер не был сохранён — сразу запомним XP-58C
+        if (!saved && name && desk) {
+          void desk.savePrinterSettings({
+            ...settings,
+            printerName: name,
+            paperWidthMm: XP58C_RECEIPT_MM,
+          }).catch(() => undefined)
+        }
       })
     }
   }
@@ -2843,7 +2852,7 @@ export default function CashierModule({
   // ─── Gate (только первая загрузка, не при автообновлении) ───
   if (!apiReady) {
     return (
-      <div className="pos-root" data-theme="dark" data-embed={embedded ? '1' : undefined}>
+      <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
         <style>{POS_MOCK_CSS}</style>
         <div className="gate gate-loading">
           <div className="gate-bg" />
@@ -2862,7 +2871,7 @@ export default function CashierModule({
   if (showDashboard) {
     const myOpenShift = activeShift
     return (
-      <div className="pos-root" data-theme="dark" data-embed={embedded ? '1' : undefined}>
+      <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
         <style>{POS_MOCK_CSS}</style>
         <div className="odoo-dash" onClick={() => dashMenuPosId && setDashMenuPosId(null)}>
           <div className="odoo-dash-top">
@@ -2870,19 +2879,44 @@ export default function CashierModule({
               <h1>Точка продаж</h1>
               <p>Выберите кассу и откройте сессию</p>
             </div>
-            <button
-              type="button"
-              className="odoo-create-pos"
-              onClick={e => {
-                e.stopPropagation()
-                setMsg('')
-                setNewPosName('')
-                setNewPosCode('')
-                setCreatePosModal(true)
-              }}
-            >
-              + Создать точку продаж
-            </button>
+            <div className="odoo-dash-actions">
+              <div className="theme-toggle" role="group" aria-label="Тема">
+                <button
+                  type="button"
+                  className={`theme-mode ${theme === 'dark' ? 'on' : ''}`}
+                  title="Тёмная тема"
+                  onClick={e => { e.stopPropagation(); applyTheme('dark') }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={`theme-mode ${theme === 'light' ? 'on' : ''}`}
+                  title="Светлая тема"
+                  onClick={e => { e.stopPropagation(); applyTheme('light') }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+                    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+              <button
+                type="button"
+                className="odoo-create-pos"
+                onClick={e => {
+                  e.stopPropagation()
+                  setMsg('')
+                  setNewPosName('')
+                  setNewPosCode('')
+                  setCreatePosModal(true)
+                }}
+              >
+                + Создать точку продаж
+              </button>
+            </div>
           </div>
           <div className="odoo-dash-body">
             <div className="odoo-kanban">

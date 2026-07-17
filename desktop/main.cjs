@@ -51,7 +51,7 @@ function savePrinterSettings(next) {
   const port = Number(next.scalePort ?? cur.scalePort) || 20304
   const merged = {
     printerName: String(next.printerName ?? cur.printerName ?? ''),
-    paperWidthMm: Number(next.paperWidthMm) === 58 ? 58 : 80,
+    paperWidthMm: Number(next.paperWidthMm) === 80 ? 80 : 58,
     labelPrinterName: String(next.labelPrinterName ?? cur.labelPrinterName ?? ''),
     scaleMode: next.scaleMode === 'none' ? 'none' : 'plu-label',
     scaleHost: String(next.scaleHost ?? cur.scaleHost ?? '').trim(),
@@ -108,6 +108,38 @@ async function getPrintersAsync() {
     return win.webContents.getPrintersAsync()
   }
   return win.webContents.getPrinters()
+}
+
+const XP_RECEIPT_HINTS = ['xp-58', 'xp58', '58c', 'xp-58c', 'xprinter 58', 'xprinter xp-58']
+
+function printerNameMatches(name, hints) {
+  const n = String(name || '').toLowerCase()
+  return hints.some(h => n.includes(h))
+}
+
+function pickReceiptPrinterName(printers) {
+  const list = printers || []
+  const hit = list.find(p =>
+    printerNameMatches(p.name, XP_RECEIPT_HINTS)
+    || printerNameMatches(p.displayName || '', XP_RECEIPT_HINTS),
+  )
+  if (hit) return hit.name
+  const def = list.find(p => p.isDefault)
+  return def?.name || list[0]?.name || ''
+}
+
+async function resolveReceiptPrinterName(preferred) {
+  const settings = loadPrinterSettings()
+  let name = String(preferred || settings.printerName || '').trim()
+  if (name) return name
+  try {
+    const printers = await getPrintersAsync()
+    name = pickReceiptPrinterName(printers)
+    if (name) {
+      savePrinterSettings({ ...settings, printerName: name, paperWidthMm: 58 })
+    }
+  } catch { /* ignore */ }
+  return name
 }
 
 function labelPx(mm) {
@@ -389,17 +421,20 @@ function printHtml(html, options = {}) {
     return Promise.resolve({ ok: true, queued: true })
   }
 
-  return new Promise((resolve, reject) => {
+  return (async () => {
     const settings = loadPrinterSettings()
-    const printerName = String(
-      options.printerName || settings.printerName || '',
-    ).trim()
+    const printerName = await resolveReceiptPrinterName(options.printerName)
+    if (!printerName) {
+      throw new Error('Выберите принтер чеков XP-58C в настройках точки продаж')
+    }
 
-    let pageWidthMm = Number(options.pageWidthMm)
+    let pageWidthMm = Number(options.pageWidthMm ?? options.paperWidthMm)
     let pageHeightMm = Number(options.pageHeightMm)
     if (!Number.isFinite(pageWidthMm) || pageWidthMm <= 0) {
-      pageWidthMm = Number(settings.paperWidthMm) === 58 ? 58 : 80
+      pageWidthMm = Number(settings.paperWidthMm) === 80 ? 80 : 58
     }
+    // XP-58C — 58 мм; если имя похоже на XP-58, не даём уйти на 80
+    if (printerNameMatches(printerName, XP_RECEIPT_HINTS)) pageWidthMm = 58
     if (!Number.isFinite(pageHeightMm) || pageHeightMm <= 0) {
       pageHeightMm = 300
     }
@@ -415,6 +450,7 @@ function printHtml(html, options = {}) {
       show: false,
       width: winW,
       height: winH,
+      backgroundColor: '#ffffff',
       webPreferences: {
         sandbox: false,
         contextIsolation: true,
@@ -423,76 +459,42 @@ function printHtml(html, options = {}) {
     })
 
     const tmpFile = path.join(os.tmpdir(), `kakapo-print-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
-    let tmpFileWritten = false
+    fs.writeFileSync(tmpFile, String(html || ''), 'utf8')
+
     try {
-      fs.writeFileSync(tmpFile, html, 'utf8')
-      tmpFileWritten = true
-    } catch (err) {
-      reject(new Error(`Не удалось подготовить печать: ${err.message || err}`))
-      return
-    }
+      await printWindow.loadFile(tmpFile)
+      await waitForPrintRender(printWindow.webContents)
 
-    const cleanupTmp = () => {
-      if (!tmpFileWritten) return
-      try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
-      tmpFileWritten = false
-    }
+      const printOpts = {
+        silent: true,
+        printBackground: true,
+        deviceName: printerName,
+        margins: { marginType: 'none' },
+        pageSize: { width: pageWidth, height: pageHeight },
+        scaleFactor: 100,
+      }
 
-    printWindow.loadFile(tmpFile)
-
-    const failTimer = setTimeout(() => {
-      cleanupTmp()
-      destroyPrintWindow()
-      reject(new Error('Таймаут печати'))
-    }, 45000)
-
-    const runPrint = async () => {
-      try {
-        await waitForPrintRender(printWindow.webContents)
-        const printOpts = {
-          silent: !!printerName,
-          printBackground: true,
-          deviceName: printerName || undefined,
-          margins: { marginType: 'none' },
-          pageSize: { width: pageWidth, height: pageHeight },
-          scaleFactor: 100,
-        }
-
+      const result = await new Promise((resolve, reject) => {
         printWindow.webContents.print(printOpts, (success, failureReason) => {
-          clearTimeout(failTimer)
-          cleanupTmp()
-          destroyPrintWindow()
           if (!success) {
-            reject(new Error(failureReason || 'Печать отменена'))
+            reject(new Error(failureReason || 'Печать чека отменена / принтер недоступен'))
             return
           }
           resolve({
             ok: true,
-            printerName: printerName || 'default',
+            printerName,
             role,
             pageWidthMm,
             pageHeightMm,
           })
         })
-      } catch (err) {
-        clearTimeout(failTimer)
-        cleanupTmp()
-        destroyPrintWindow()
-        reject(err instanceof Error ? err : new Error(String(err)))
-      }
-    }
-
-    printWindow.webContents.once('did-finish-load', () => {
-      void runPrint()
-    })
-
-    printWindow.webContents.once('did-fail-load', (_e, code, desc) => {
-      clearTimeout(failTimer)
-      cleanupTmp()
+      })
+      return result
+    } finally {
+      try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
       destroyPrintWindow()
-      reject(new Error(desc || `Ошибка загрузки печати (${code})`))
-    })
-  })
+    }
+  })()
 }
 
 app.whenReady().then(() => {

@@ -1,5 +1,6 @@
 import type { PosSale } from '@/lib/types'
 import { getKakapoDesktop, isKakapoDesktop } from '@/lib/desktopBridge'
+import { pickReceiptPrinter, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 
 type PosReceiptSale = PosSale & {
   bonusSpent?: number
@@ -66,7 +67,7 @@ export function buildPosReceiptHtml(
     paperWidthMm?: 58 | 80
   },
 ): string {
-  const paperWidthMm = opts?.paperWidthMm === 58 ? 58 : 80
+  const paperWidthMm = opts?.paperWidthMm === 80 ? 80 : 58
   const store = esc(opts?.storeName || 'KAKAPO')
   const storeAddress = esc(opts?.storeAddress || '')
   const storePhone = esc(opts?.storePhone || '')
@@ -181,7 +182,7 @@ export function buildPosReceiptHtml(
     <div class="total"><span>Итого</span><span>${money(total)}</span></div>
     <div class="sum-row"><span>Оплата</span><b>${esc(payLabel(sale))}</b></div>
     ${extras.filter(Boolean).join('')}
-    ${Number(sale.bonusEarned) > 0.001 ? `<div class="sum-row"><span>Начислено бонусов</span><b>${Math.floor(Number(sale.bonusEarned))} ⭐</b></div>` : ''}
+    ${Number(sale.bonusEarned) > 0.001 ? `<div class="sum-row"><span>Начислено бонусов</span><b>${Math.floor(Number(sale.bonusEarned))}</b></div>` : ''}
     ${sale.note ? `<div class="note">Примечание: ${esc(sale.note)}</div>` : ''}
     <hr class="sep"/>
     <div class="foot">
@@ -200,18 +201,38 @@ export async function printPosReceipt(
 
   const desktop = getKakapoDesktop()
   if (isKakapoDesktop() && desktop) {
-    const settings = await desktop.getPrinterSettings().catch(() => ({
-      printerName: '',
-      paperWidthMm: 80 as const,
-      labelPrinterName: '',
-      scaleMode: 'plu-label' as const,
-    }))
-    const paperWidthMm = settings.paperWidthMm === 58 ? 58 : 80
+    const [settings, printers] = await Promise.all([
+      desktop.getPrinterSettings().catch(() => ({
+        printerName: '',
+        paperWidthMm: XP58C_RECEIPT_MM,
+        labelPrinterName: '',
+        scaleMode: 'plu-label' as const,
+      })),
+      desktop.getPrinters().catch(() => []),
+    ])
+
+    let printerName = String(settings.printerName || '').trim()
+    if (!printerName) {
+      printerName = pickReceiptPrinter(printers)
+    }
+    if (!printerName) {
+      throw new Error('Выберите принтер XP-58C в настройках точки продаж')
+    }
+
+    const paperWidthMm = XP58C_RECEIPT_MM
+    if (settings.printerName !== printerName || settings.paperWidthMm !== paperWidthMm) {
+      await desktop.savePrinterSettings({
+        ...settings,
+        printerName,
+        paperWidthMm,
+      }).catch(() => undefined)
+    }
+
     const html = buildPosReceiptHtml(sale, { ...opts, paperWidthMm })
     const pageHeightMm = Math.max(300, Math.min(1200, 130 + (sale.items || []).length * 16))
     await desktop.printHtml(html, {
       role: 'receipt',
-      printerName: settings.printerName,
+      printerName,
       paperWidthMm,
       pageWidthMm: paperWidthMm,
       pageHeightMm,
@@ -219,7 +240,7 @@ export async function printPosReceipt(
     return
   }
 
-  const html = buildPosReceiptHtml(sale, { ...opts, paperWidthMm: 80 })
+  const html = buildPosReceiptHtml(sale, { ...opts, paperWidthMm: 58 })
   const w = window.open('', '_blank', 'width=420,height=720')
   if (!w) {
     window.alert('Разрешите всплывающие окна для печати чека')
