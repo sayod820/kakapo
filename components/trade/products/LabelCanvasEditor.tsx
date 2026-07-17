@@ -3,13 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import LabelBarcode from './LabelBarcode'
 import {
+  barcodeHeightsInBox,
   elementBoxStyle,
   isElementShown,
+  isElementShownForDesign,
   labelPriceAmount,
+  mmToLabelPx,
   retailLabelName,
 } from './labelRetailLayout'
 import {
   DEFAULT_LABEL_ELEMENTS,
+  LABEL_EDITOR_PREVIEW_EDIT,
   LABEL_ELEMENT_LABELS,
   getLabelElements,
   updateLabelElement,
@@ -18,18 +22,6 @@ import {
   type LabelElement,
   type LabelElementId,
 } from './labelShared'
-
-const SAMPLE_EDIT: LabelEdit = {
-  brand: 'KAKAPO',
-  name: 'Брокколи свежая',
-  price: '42.50',
-  meta: '',
-  size: '500 г',
-  barcode: '4601234567890',
-  plu: '6403',
-  showBarcode: true,
-  showPlu: true,
-}
 
 type DragMode = 'move' | 'resize'
 
@@ -73,14 +65,16 @@ function useCanvasScale(labelW: number, labelH: number, fill: boolean) {
 export default function LabelCanvasEditor({
   design,
   onChange,
-  edit = SAMPLE_EDIT,
+  edit = LABEL_EDITOR_PREVIEW_EDIT,
   fill = false,
+  editorMode = true,
 }: {
   design: LabelDesign
   onChange: (d: LabelDesign) => void
   edit?: LabelEdit
-  /** Растянуть холст на всю доступную область */
   fill?: boolean
+  /** true = показывать все блоки макета (размер, штрихкод), независимо от данных товара */
+  editorMode?: boolean
 }) {
   const { hostRef, scale } = useCanvasScale(design.labelWidthMm, design.labelHeightMm, fill)
   const [selected, setSelected] = useState<LabelElementId | null>('price')
@@ -146,21 +140,23 @@ export default function LabelCanvasEditor({
   }
 
   function renderContent(el: LabelElement) {
-    if (!isElementShown(el, edit) && el.id !== 'line1' && el.id !== 'line2') {
+    const shown = editorMode ? isElementShownForDesign(el) : isElementShown(el, edit)
+    if (!shown && el.id !== 'line1' && el.id !== 'line2') {
       return <span style={{ fontSize: 11, color: '#999' }}>скрыто</span>
     }
+    const preview = editorMode ? LABEL_EDITOR_PREVIEW_EDIT : edit
     if (el.id === 'line1' || el.id === 'line2') {
       return <div style={{ width: '100%', height: Math.max(2, 0.35 * scale), background: '#000' }} />
     }
     if (el.id === 'name') {
       return (
         <div style={{ fontSize: el.fontSizeMm * scale, fontWeight: 800, textTransform: 'uppercase', lineHeight: 1.05, width: '100%' }}>
-          {retailLabelName(edit)}
+          {retailLabelName(edit.name ? edit : preview)}
         </div>
       )
     }
     if (el.id === 'size') {
-      return <div style={{ fontSize: el.fontSizeMm * scale, fontWeight: 600, width: '100%' }}>{edit.size}</div>
+      return <div style={{ fontSize: el.fontSizeMm * scale, fontWeight: 600, width: '100%' }}>{edit.size || preview.size}</div>
     }
     if (el.id === 'price') {
       const justify = el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'
@@ -172,14 +168,22 @@ export default function LabelCanvasEditor({
       )
     }
     if (el.id === 'plu') {
-      return <div style={{ fontSize: el.fontSizeMm * scale, fontWeight: 700, width: '100%' }}>PLU {edit.plu}</div>
+      return <div style={{ fontSize: el.fontSizeMm * scale, fontWeight: 700, width: '100%' }}>PLU {edit.plu || preview.plu}</div>
     }
     if (el.id === 'barcode') {
       const showDigits = design.barcodeShowDigits !== false
-      const boxH = Math.max(16, el.h * scale * 0.68)
+      const boxHPx = Math.max(20, el.h * scale)
+      const { barHeight } = barcodeHeightsInBox(boxHPx, showDigits)
+      const maxW = Math.max(40, el.w * scale)
       return (
-        <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
-          <LabelBarcode value={edit.barcode} height={boxH} color="#000" showText={showDigits} />
+        <div style={{ width: '100%', maxWidth: maxW, overflow: 'hidden' }}>
+          <LabelBarcode
+            value={edit.barcode || preview.barcode}
+            height={barHeight}
+            color="#000"
+            showText={showDigits}
+            maxWidthPx={maxW}
+          />
         </div>
       )
     }

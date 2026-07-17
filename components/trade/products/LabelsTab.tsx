@@ -21,6 +21,7 @@ import {
   formatLabelMoney,
   labelPickKey,
   layerShortLabel,
+  LABEL_EDITOR_PREVIEW_EDIT,
   loadLabelDesign,
   previewCardStyle,
   previewGridStyle,
@@ -161,11 +162,19 @@ export default function LabelsTab({
     const base = defaultLabelEdit(pick.product, pick.layer)
     const saved = edits[pick.key]
     if (!saved) return base
-    const merged = { ...base, ...saved, size: saved.size || base.size }
-    // PLU и размер всегда доступны для печати, если есть в товаре
-    if (merged.plu) merged.showPlu = true
-    if (!merged.size && base.size) merged.size = base.size
-    return merged
+    // Только текст товара — макет (позиции блоков) всегда из общего design
+    return {
+      ...base,
+      name: saved.name?.trim() ? saved.name : base.name,
+      price: saved.price?.trim() ? saved.price : base.price,
+      size: saved.size?.trim() ? saved.size : base.size,
+      barcode: saved.barcode?.trim() ? saved.barcode : base.barcode,
+      plu: saved.plu?.trim() ? saved.plu : base.plu,
+      brand: saved.brand?.trim() ? saved.brand : base.brand,
+      meta: saved.meta?.trim() ? saved.meta : base.meta,
+      showBarcode: saved.showBarcode ?? base.showBarcode,
+      showPlu: saved.showPlu ?? base.showPlu,
+    }
   }
 
   function ensureEdit(key: string, pick: LabelPick) {
@@ -225,8 +234,15 @@ export default function LabelsTab({
   }
 
   function saveDesign() {
-    setDesign(draftDesign)
-    saveLabelDesign(draftDesign)
+    const next = {
+      ...draftDesign,
+      labelWidthMm: XP235B_LABEL_WIDTH_MM,
+      labelHeightMm: XP235B_LABEL_HEIGHT_MM,
+      paperWidthMm: XP235B_LABEL_WIDTH_MM,
+      elements: draftDesign.elements?.length ? draftDesign.elements : design.elements,
+    }
+    setDesign(next)
+    saveLabelDesign(next)
     setDesignOpen(false)
   }
 
@@ -304,6 +320,7 @@ export default function LabelsTab({
           labelWidthMm: w,
           labelHeightMm: h,
           paperWidthMm: w,
+          elements: design.elements,
         }
         // По одной этикетке: 1 товар = 1 TSPL job = 1 бумага
         for (const pick of chosenPicks) {

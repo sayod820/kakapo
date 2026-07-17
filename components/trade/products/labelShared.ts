@@ -65,6 +65,19 @@ export type LabelEdit = {
   showPlu: boolean
 }
 
+/** Пример для редактора — всегда с размером, PLU и штрихкодом */
+export const LABEL_EDITOR_PREVIEW_EDIT: LabelEdit = {
+  brand: 'KAKAPO',
+  name: 'Томаты черри',
+  price: '1.40',
+  meta: '',
+  size: '400 гр',
+  barcode: '4600123456789',
+  plu: '6403',
+  showBarcode: true,
+  showPlu: true,
+}
+
 export type LabelPick = {
   key: string
   productId: number
@@ -419,7 +432,7 @@ export function buildLabelsPrintDocument(
   .k-label-card *{color:#000 !important;-webkit-font-smoothing:none;font-smooth:never}
   .k-label-abs{position:absolute;overflow:hidden;box-sizing:border-box}
   .k-label-edit-btn{display:none !important}
-  svg,img{max-width:100%;height:auto;display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+  svg,img{max-width:100%;width:auto;height:auto;display:block;margin:0 auto;image-rendering:pixelated;image-rendering:crisp-edges}
   @page{size:${w}mm ${h}mm;margin:0}
 </style></head><body>
   <div id="k-label-print">${labelsInnerHtml}</div>

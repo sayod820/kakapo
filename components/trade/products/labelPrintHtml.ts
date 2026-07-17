@@ -6,6 +6,7 @@ import {
   labelPriceAmount,
   mmToLabelPx,
   retailLabelName,
+  barcodeHeightsInBox,
 } from './labelRetailLayout'
 import {
   getLabelElements,
@@ -70,10 +71,9 @@ export function barcodeToSvgHtml(
 
   const boxW = Math.max(24, maxWidthPx || 0)
   if (boxW > 0) {
-    svg.setAttribute('width', String(boxW))
-    svg.setAttribute('style', `width:${boxW}px;max-width:${boxW}px;height:auto;display:block;margin:0 auto`)
+    svg.setAttribute('style', `max-width:${boxW}px;width:auto;height:auto;display:block;margin:0 auto`)
   } else {
-    svg.setAttribute('style', 'width:100%;max-width:100%;height:auto;display:block;margin:0 auto')
+    svg.setAttribute('style', 'max-width:100%;width:auto;height:auto;display:block;margin:0 auto')
   }
   return svg.outerHTML
 }
@@ -124,11 +124,10 @@ function renderAbsElement(el: LabelElement, edit: LabelEdit, design: LabelDesign
     const showDigits = design.barcodeShowDigits !== false
     const boxW = mmToLabelPx(el.w)
     const boxH = mmToLabelPx(el.h)
-    const digitReserve = showDigits ? Math.max(12, Math.round(boxH * 0.32)) : 0
-    const hPx = Math.max(8, boxH - digitReserve)
-    const svg = barcodeToSvgHtml(edit.barcode, hPx, showDigits, boxW)
+    const { barHeight } = barcodeHeightsInBox(boxH, showDigits)
+    const svg = barcodeToSvgHtml(edit.barcode, barHeight, showDigits, boxW)
     if (!svg) return ''
-    return `<div class="k-label-abs" style="${absStyle(el)}"><div style="width:100%;max-width:100%;overflow:hidden">${svg}</div></div>`
+    return `<div class="k-label-abs" style="${absStyle(el)}"><div style="width:100%;max-width:${boxW}px;overflow:hidden;margin:0 auto">${svg}</div></div>`
   }
   return ''
 }
@@ -136,14 +135,7 @@ function renderAbsElement(el: LabelElement, edit: LabelEdit, design: LabelDesign
 function buildRetailLabelCardHtml(edit: LabelEdit, design: LabelDesign): string {
   const w = mmToLabelPx(design.labelWidthMm)
   const h = mmToLabelPx(design.labelHeightMm)
-  // Печать: PLU и размер всегда, если есть текст (не зависеть от showPlu в карточке товара)
-  const printEdit: LabelEdit = {
-    ...edit,
-    showPlu: !!(edit.showPlu || String(edit.plu || '').trim()),
-    showBarcode: !!(edit.showBarcode || String(edit.barcode || '').trim()),
-    size: String(edit.size || '').trim() || edit.size,
-  }
-  const parts = getLabelElements(design).map(el => renderAbsElement(el, printEdit, design)).join('')
+  const parts = getLabelElements(design).map(el => renderAbsElement(el, edit, design)).join('')
   return `<div class="k-label-card" style="position:relative;width:${w}px;height:${h}px;min-height:${h}px;max-height:${h}px;overflow:hidden;background:#fff;color:#000;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif">${parts}</div>`
 }
 

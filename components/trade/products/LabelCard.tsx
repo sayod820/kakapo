@@ -3,6 +3,7 @@
 import type { CSSProperties } from 'react'
 import LabelBarcode from './LabelBarcode'
 import {
+  barcodeHeightsInBox,
   elementBoxStyle,
   isElementShown,
   labelPriceAmount,
@@ -126,19 +127,18 @@ function RetailAbsoluteBody({
 
     if (el.id === 'barcode') {
       const showDigits = design.barcodeShowDigits !== false
-      const boxH = mmToLabelPx(el.h)
-      const digitReserve = showDigits ? Math.max(12, Math.round(boxH * 0.32)) : 0
-      const hPx = Math.max(8, boxH - digitReserve)
+      const boxHPx = mmToLabelPx(el.h)
+      const { barHeight } = barcodeHeightsInBox(boxHPx, showDigits)
+      const maxW = mmToLabelPx(el.w)
       return (
         <div key={el.id} style={box}>
-          <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
-            <LabelBarcode
-              value={edit.barcode}
-              height={hPx}
-              color="#000000"
-              showText={showDigits}
-            />
-          </div>
+          <LabelBarcode
+            value={edit.barcode}
+            height={barHeight}
+            color="#000000"
+            showText={showDigits}
+            maxWidthPx={maxW}
+          />
         </div>
       )
     }

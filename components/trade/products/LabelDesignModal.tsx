@@ -8,6 +8,7 @@ import {
   DEFAULT_LABEL_DESIGN,
   DEFAULT_LABEL_ELEMENTS,
   LABEL_BLOCK_LABELS,
+  LABEL_EDITOR_PREVIEW_EDIT,
   moveBlock,
   PAPER_PRESETS,
   previewCardStyle,
@@ -126,7 +127,13 @@ export default function LabelDesignModal({
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 12 }}>
         {isRetail ? (
           <div style={{ flex: 1, minHeight: 0 }}>
-            <LabelCanvasEditor design={design} onChange={onChange} fill />
+            <LabelCanvasEditor
+              design={design}
+              onChange={onChange}
+              edit={LABEL_EDITOR_PREVIEW_EDIT}
+              editorMode
+              fill
+            />
           </div>
         ) : (
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -185,7 +192,7 @@ export default function LabelDesignModal({
         }}
       >
         <button type="button" className="k-btn k-btn-g" style={{ minWidth: 160, padding: '12px 18px', fontSize: 14 }} onClick={onSave}>
-          Применить
+          Применить ко всем этикеткам
         </button>
         <button
           type="button"
@@ -206,7 +213,7 @@ export default function LabelDesignModal({
         </button>
         <div style={{ flex: 1 }} />
         <div style={{ alignSelf: 'center', fontSize: 12, color: 'var(--muted)' }}>
-          Перетаскивание мышью · угол блока — размер
+          Макет один на все товары · перетаскивание · угол — размер блока
         </div>
       </div>
     </div>

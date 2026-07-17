@@ -31,6 +31,19 @@ export function retailShowSize(edit: LabelEdit) {
   return !!String(edit.size || '').trim()
 }
 
+/** В редакторе: только флаг visible из макета (не скрывать из-за пустых данных) */
+export function isElementShownForDesign(el: LabelElement): boolean {
+  return el.visible
+}
+
+export function barcodeHeightsInBox(boxHeightPx: number, showDigits: boolean) {
+  const digitReserve = showDigits ? Math.max(12, Math.round(boxHeightPx * 0.32)) : 0
+  return {
+    barHeight: Math.max(8, boxHeightPx - digitReserve),
+    showDigits,
+  }
+}
+
 export function elementBoxStyle(el: LabelElement, scale = 1): CSSProperties {
   return {
     position: 'absolute',
