@@ -153,53 +153,54 @@ export function buildPosReceiptHtml(
   const clientBits = [sale.clientPhone, sale.cardNum ? `${L.cardSuffix} ${String(sale.cardNum).slice(-4)}` : ''].filter(Boolean)
   if (clientBits.length) customer.push(`<div class="muted">${esc(clientBits.join(' · '))}</div>`)
 
-  const fontSize = paperWidthMm === 58 ? 11 : 12
-  const smallSize = paperWidthMm === 58 ? 9 : 10
-  const titleSize = paperWidthMm === 58 ? 18 : 21
-  const totalSize = paperWidthMm === 58 ? 15 : 18
+  const fontSize = paperWidthMm === 58 ? 16 : 15
+  const smallSize = paperWidthMm === 58 ? 13 : 12
+  const titleSize = paperWidthMm === 58 ? 28 : 24
+  const totalSize = paperWidthMm === 58 ? 22 : 20
+  const bannerSize = paperWidthMm === 58 ? 15 : 14
   const htmlLang = template.lang === 'tg' ? 'tg' : 'ru'
 
   return `<!DOCTYPE html><html lang="${htmlLang}"><head><meta charset="utf-8"><title>${esc(titleBanner)} ${esc(receiptTitle(sale))}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   :root{color-scheme:light only}
-  body{font-family:Arial,'Helvetica Neue',sans-serif;background:#fff;color:#000;padding:7px;width:${paperWidthMm}mm;max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .receipt{font-size:${fontSize}px;line-height:1.22}
-  .shop{text-align:center;font-weight:900;font-size:${titleSize}px;letter-spacing:.7px;line-height:1.05;text-transform:uppercase}
-  .tag{text-align:center;font-weight:800;font-size:${smallSize}px;margin-top:2px}
-  .muted{color:#333;font-size:${smallSize}px;line-height:1.25}
+  body{font-family:Arial,'Helvetica Neue',sans-serif;background:#fff;color:#000;padding:8px;width:${paperWidthMm}mm;max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .receipt{font-size:${fontSize}px;line-height:1.35;font-weight:700}
+  .shop{text-align:center;font-weight:900;font-size:${titleSize}px;letter-spacing:.6px;line-height:1.08;text-transform:uppercase}
+  .tag{text-align:center;font-weight:800;font-size:${smallSize}px;margin-top:3px}
+  .muted{color:#111;font-size:${smallSize}px;line-height:1.3;font-weight:700}
   .center{text-align:center}
-  .sep{height:1px;border:0;border-top:1px dashed #000;margin:7px 0}
-  .black{background:#000;color:#fff;text-align:center;font-size:${smallSize}px;font-weight:900;padding:3px 5px;margin:7px 0 5px;border-radius:2px}
+  .sep{height:0;border:0;border-top:2px dotted #000;margin:9px 0}
+  .doc-title{background:#fff;color:#000;text-align:center;font-size:${bannerSize + 2}px;font-weight:900;padding:6px 4px;margin:8px 0 7px;letter-spacing:.03em;border:0;border-bottom:2px solid #000;border-top:2px solid #000}
   .meta-row,.sum-row,.item-calc{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
-  .meta-row{font-size:${smallSize}px;margin:1px 0}
-  .meta-row span{color:#333}
-  .meta-row b{font-weight:800;text-align:right;word-break:break-word}
-  .customer{border:1px solid #000;border-radius:4px;padding:5px;margin:6px 0}
-  .customer-title{font-size:${smallSize}px;font-weight:900;text-transform:uppercase;margin-bottom:2px}
-  .customer-name{font-weight:900}
-  .item{padding:5px 0;border-bottom:1px dotted #999}
-  .item-name{font-weight:800;word-break:break-word}
-  .item-name em{display:block;font-style:normal;font-size:${smallSize}px;font-weight:800;color:#000;margin-top:1px}
-  .item-calc{font-family:'Courier New',Courier,monospace;margin-top:3px;font-size:${fontSize}px}
-  .item-calc b{font-size:${fontSize + 1}px;white-space:nowrap}
-  .sum-row{font-size:${fontSize}px;margin:3px 0}
+  .meta-row{font-size:${smallSize}px;margin:3px 0;font-weight:700}
+  .meta-row span{color:#111;font-weight:700}
+  .meta-row b{font-weight:900;text-align:right;word-break:break-word}
+  .customer{border:2px solid #000;border-radius:5px;padding:7px;margin:8px 0}
+  .customer-title{font-size:${smallSize}px;font-weight:900;text-transform:uppercase;margin-bottom:3px}
+  .customer-name{font-weight:900;font-size:${fontSize}px}
+  .item{padding:7px 0;border-bottom:2px dotted #000}
+  .item-name{font-weight:900;word-break:break-word;font-size:${fontSize}px}
+  .item-name em{display:block;font-style:normal;font-size:${smallSize}px;font-weight:800;color:#000;margin-top:2px}
+  .item-calc{font-family:Arial,'Helvetica Neue',sans-serif;margin-top:4px;font-size:${fontSize}px;font-weight:800}
+  .item-calc b{font-size:${fontSize + 1}px;white-space:nowrap;font-weight:900}
+  .sum-row{font-size:${fontSize}px;margin:4px 0;font-weight:800}
   .sum-row b{font-weight:900;white-space:nowrap}
   .sum-row.debt b{border-bottom:2px solid #000}
-  .sum-row.change b{font-size:${fontSize + 1}px}
-  .total{display:flex;justify-content:space-between;gap:8px;align-items:flex-end;font-size:${totalSize}px;font-weight:900;margin:6px 0 4px;text-transform:uppercase}
+  .sum-row.change b{font-size:${fontSize + 2}px}
+  .total{display:flex;justify-content:space-between;gap:8px;align-items:flex-end;font-size:${totalSize}px;font-weight:900;margin:8px 0 6px;text-transform:uppercase;letter-spacing:.02em}
   .total span:last-child{white-space:nowrap}
-  .note{font-size:${smallSize}px;margin-top:6px;color:#000;white-space:pre-wrap;border-top:1px dotted #777;padding-top:5px}
-  .foot{text-align:center;font-size:${smallSize}px;margin-top:10px;color:#000}
-  .thanks{font-weight:900;font-size:${fontSize + 1}px;margin-bottom:3px}
-  @media print{body{padding:0;width:${paperWidthMm}mm}.receipt{page-break-inside:avoid}}
+  .note{font-size:${smallSize}px;margin-top:8px;color:#000;white-space:pre-wrap;border-top:2px dotted #000;padding-top:6px;font-weight:700}
+  .foot{text-align:center;font-size:${smallSize}px;margin-top:12px;color:#000;font-weight:700}
+  .thanks{font-weight:900;font-size:${fontSize + 2}px;margin-bottom:4px}
+  @media print{body{padding:4px;width:${paperWidthMm}mm}.receipt{page-break-inside:avoid}}
 </style></head><body>
   <div class="receipt">
     <div class="shop">${store}</div>
     <div class="tag">${headerText}</div>
     ${(storeAddress || storePhone) ? `<div class="center muted">${storeAddress}${storeAddress && storePhone ? '<br>' : ''}${storePhone}</div>` : ''}
     <hr class="sep"/>
-    <div class="black">${esc(titleBanner)}</div>
+    <div class="doc-title">${esc(titleBanner)}</div>
     ${metaRow(L.orderNo, orderNo)}
     ${sale.number ? metaRow(L.receiptNo, `№${sale.number}`) : ''}
     ${metaRow(L.date, when)}

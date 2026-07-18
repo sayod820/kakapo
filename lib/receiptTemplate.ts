@@ -78,7 +78,7 @@ const LABELS_RU: ReceiptLabels = {
   goods: 'Товары',
   discount: 'Скидка',
   bonus: 'Бонусами',
-  total: 'Итого',
+  total: 'ИТОГ',
   payment: 'Оплата',
   cash: 'Наличные',
   cardPay: 'Карта',

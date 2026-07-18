@@ -457,17 +457,7 @@ function printHtml(html, options = {}) {
   }
 
   return (async () => {
-    // 1) Растр HTML — тот же дизайн/шрифты, что предпросмотр
-    try {
-      const res = await printReceiptHtmlRaster(html, options)
-      logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, h: res.height })
-      return res
-    } catch (errRaster) {
-      const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
-      logPrintDebug('receipt raster fail, try text escpos', { error: msgR })
-    }
-
-    // 2) Текстовый ESC/POS (fallback)
+    // 1) Нативный ESC/POS текст — чётко, как старая касса
     try {
       if (options.sale && typeof options.sale === 'object') {
         const res = await printReceiptEscPos(options.sale, options)
@@ -479,15 +469,23 @@ function printHtml(html, options = {}) {
       return res
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      logPrintDebug('receipt escpos fail, try gdi', { error: msg })
+      logPrintDebug('receipt escpos fail, try raster', { error: msg })
       try {
-        const res = await printReceiptHtmlFallback(html, options)
-        logPrintDebug('receipt gdi ok', { printer: res.printerName })
+        const res = await printReceiptHtmlRaster(html, options)
+        logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, h: res.height })
         return res
-      } catch (err2) {
-        const msg2 = err2 instanceof Error ? err2.message : String(err2)
-        logPrintDebug('receipt gdi fail', { error: msg2 })
-        throw new Error(`Печать чека не удалась. Raster/RAW: ${msg}. GDI: ${msg2}`)
+      } catch (errRaster) {
+        const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
+        logPrintDebug('receipt raster fail, try gdi', { error: msgR })
+        try {
+          const res = await printReceiptHtmlFallback(html, options)
+          logPrintDebug('receipt gdi ok', { printer: res.printerName })
+          return res
+        } catch (err2) {
+          const msg2 = err2 instanceof Error ? err2.message : String(err2)
+          logPrintDebug('receipt gdi fail', { error: msg2 })
+          throw new Error(`Печать чека не удалась. RAW: ${msg}. Raster: ${msgR}. GDI: ${msg2}`)
+        }
       }
     }
   })()
@@ -502,10 +500,23 @@ function wrapReceiptHtmlForRaster(html, widthPx) {
   const inject = `<meta name="color-scheme" content="light only"><style>
 :root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important;margin:0!important;}
 html,body{width:${widthPx}px!important;max-width:${widthPx}px!important;overflow:hidden!important;}
-body{padding:6px!important;box-sizing:border-box!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-.receipt{width:100%!important;max-width:100%!important;}
+body{padding:8px!important;box-sizing:border-box!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;font-family:Arial,Helvetica,sans-serif!important;}
+.receipt{width:100%!important;max-width:100%!important;font-size:17px!important;line-height:1.4!important;font-weight:800!important;}
+.shop{font-size:30px!important;font-weight:900!important;line-height:1.1!important;}
+.tag{font-size:14px!important;font-weight:800!important;margin-top:4px!important;}
+.muted,.meta-row,.foot,.note,.customer-title{font-size:14px!important;font-weight:700!important;color:#000!important;}
+.black{background:#fff!important;color:#000!important;font-size:18px!important;font-weight:900!important;padding:8px 4px!important;margin:8px 0!important;border-top:2px solid #000!important;border-bottom:2px solid #000!important;border-radius:0!important;}
+.doc-title{background:#fff!important;color:#000!important;font-size:18px!important;font-weight:900!important;padding:8px 4px!important;margin:8px 0!important;border-top:2px solid #000!important;border-bottom:2px solid #000!important;}
+.meta-row{margin:4px 0!important;}
+.meta-row b,.item-name,.sum-row b,.customer-name{font-weight:900!important;}
+.item{padding:8px 0!important;border-bottom:2px dotted #000!important;}
+.item-name,.item-calc,.sum-row{font-size:17px!important;font-weight:800!important;}
+.item-calc{font-family:Arial,Helvetica,sans-serif!important;margin-top:5px!important;}
+.total{font-size:24px!important;font-weight:900!important;margin:10px 0 8px!important;}
+.thanks{font-size:19px!important;font-weight:900!important;margin-bottom:5px!important;}
+.sep{border-top:2px dashed #000!important;margin:10px 0!important;}
+.customer{border:2px solid #000!important;padding:8px!important;}
 *{color-scheme:light only!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-.black{background:#000!important;color:#fff!important;}
 </style>`
   const s = String(html || '')
   if (/<head[^>]*>/i.test(s)) {
@@ -570,7 +581,7 @@ async function captureReceiptMono(html, widthDots) {
     const size = img.getSize()
     const bgra = img.toBitmap()
     // чуть контрастнее порог — чёрная плашка «ТОВАРНЫЙ ЧЕК» и жирный текст
-    return monoFromBgra(bgra, size.width, size.height, wPx, hPx, 175)
+    return monoFromBgra(bgra, size.width, size.height, wPx, hPx, 160)
   } finally {
     nativeTheme.themeSource = prevTheme
     try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }

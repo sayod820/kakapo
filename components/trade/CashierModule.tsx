@@ -3426,7 +3426,7 @@ export default function CashierModule({
 
                 <div className="pos-settings-card">
                   <h3>Принтер чеков · XP-58C</h3>
-                  <p className="hint">Лента 58 мм · печать как в предпросмотре (дизайн + шрифты)</p>
+                  <p className="hint">Лента 58 мм · нативный шрифт принтера (чётко, как старая касса)</p>
                   {isKakapoDesktop() ? (
                     <>
                       {!deskPrinters.length ? (
