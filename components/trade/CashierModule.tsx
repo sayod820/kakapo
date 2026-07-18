@@ -3426,7 +3426,7 @@ export default function CashierModule({
 
                 <div className="pos-settings-card">
                   <h3>Принтер чеков · XP-58C</h3>
-                  <p className="hint">Лента 58 мм · RU: RAW ESC/POS · Тоҷикӣ: Unicode</p>
+                  <p className="hint">Лента 58 мм · RAW ESC/POS (RU и Тоҷикӣ)</p>
                   {isKakapoDesktop() ? (
                     <>
                       {!deskPrinters.length ? (
@@ -3497,7 +3497,7 @@ export default function CashierModule({
                 <div className="pos-settings-card span-all">
                   <h3>Шаблон чека</h3>
                   <p className="hint">
-                    Язык подписей на чеке. Тоҷикӣ печатается через Unicode (буквы ғқҳҷӯӣ).
+                    Язык подписей на чеке. На принтере Тоҷикӣ идёт через RAW (ғ→г, қ→к, ҳ→х, ҷ→ч, ӯ→у, ӣ→и).
                   </p>
                   <div className="receipt-tpl-grid">
                     <div className="receipt-tpl-form">

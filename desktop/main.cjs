@@ -457,24 +457,10 @@ function printHtml(html, options = {}) {
   }
 
   return (async () => {
-    // Тоҷикӣ: буквы ғқҳҷӯӣ нет в CP866 — только Unicode HTML/GDI
-    const forceGdi = options.forceGdi === true || options.receiptLang === 'tg'
-    if (forceGdi) {
-      try {
-        const res = await printReceiptHtmlFallback(html, options)
-        logPrintDebug('receipt gdi ok (tg/unicode)', { printer: res.printerName })
-        return res
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        logPrintDebug('receipt gdi fail (tg)', { error: msg })
-        throw new Error(`Печать чека (Unicode/GDI) не удалась: ${msg}`)
-      }
-    }
-
     try {
       if (options.sale && typeof options.sale === 'object') {
         const res = await printReceiptEscPos(options.sale, options)
-        logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode })
+        logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode, lang: options.receiptLang || 'ru' })
         return res
       }
       const res = await printReceiptHtmlAsEscPos(html, options)

@@ -286,8 +286,9 @@ export async function printPosReceipt(
       pageWidthMm: paperWidthMm,
       pageHeightMm,
       receiptLang: template.lang,
-      forceGdi: template.lang === 'tg',
-      sale: template.lang === 'ru' ? sale : undefined,
+      // Всегда ESC/POS RAW (GDI на XP-58C часто крутит пустую ленту).
+      // Таджикские ғқҳҷӯӣ desktop сворачивает в ближайшие CP866.
+      sale,
       storeName: texts.storeName,
       storeAddress: texts.storeAddress || undefined,
       storePhone: texts.storePhone || undefined,

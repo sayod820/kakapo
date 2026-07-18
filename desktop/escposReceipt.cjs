@@ -29,6 +29,37 @@ const CP866_MAP = (() => {
   return m
 })()
 
+/** Таджикские буквы → ближайшие в CP866 (XP-58C RAW не умеет ғқҳҷӯӣ) */
+const TAJIK_FOLD = {
+  ғ: 'г', Ғ: 'Г',
+  қ: 'к', Қ: 'К',
+  ҳ: 'х', Ҳ: 'Х',
+  ҷ: 'ч', Ҷ: 'Ч',
+  ӯ: 'у', Ӯ: 'У',
+  ӣ: 'и', Ӣ: 'И',
+}
+
+function foldForCp866(ch) {
+  return TAJIK_FOLD[ch] || ch
+}
+
+function encodeCp866(text) {
+  const s = String(text || '')
+  const out = Buffer.alloc(s.length)
+  for (let i = 0; i < s.length; i++) {
+    const ch = foldForCp866(s[i])
+    const code = ch.charCodeAt(0)
+    if (code < 128) {
+      out[i] = code
+    } else if (CP866_MAP[ch] != null) {
+      out[i] = CP866_MAP[ch]
+    } else {
+      out[i] = 0x3F // ?
+    }
+  }
+  return out
+}
+
 const DEFAULT_LABELS = {
   shopTag: 'магазин · касса',
   titleSale: 'ТОВАРНЫЙ ЧЕК',
@@ -63,23 +94,6 @@ const DEFAULT_LABELS = {
   payMixed: 'Смешанная',
   returnedQty: 'возврат',
   currency: 'сом',
-}
-
-function encodeCp866(text) {
-  const s = String(text || '')
-  const out = Buffer.alloc(s.length)
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i]
-    const code = ch.charCodeAt(0)
-    if (code < 128) {
-      out[i] = code
-    } else if (CP866_MAP[ch] != null) {
-      out[i] = CP866_MAP[ch]
-    } else {
-      out[i] = 0x3F // ?
-    }
-  }
-  return out
 }
 
 function money(n) {
