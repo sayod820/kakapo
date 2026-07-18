@@ -212,11 +212,17 @@ export async function printPosReceipt(
     ])
 
     let printerName = String(settings.printerName || '').trim()
-    if (!printerName) {
+    const stillThere = printerName && printers.some(p => p.name === printerName)
+    if (!stillThere) {
       printerName = pickReceiptPrinter(printers)
     }
     if (!printerName) {
-      throw new Error('Выберите принтер XP-58C в настройках точки продаж')
+      const names = printers.map(p => p.displayName || p.name).filter(Boolean)
+      throw new Error(
+        names.length
+          ? `Принтер XP-58C не найден в Windows. Сейчас: ${names.slice(0, 4).join(', ')}. Подключите XP-58C и установите драйвер.`
+          : 'Принтер XP-58C не найден в Windows. Подключите USB, включите принтер и установите драйвер Xprinter.',
+      )
     }
 
     const paperWidthMm = XP58C_RECEIPT_MM
@@ -236,6 +242,13 @@ export async function printPosReceipt(
       paperWidthMm,
       pageWidthMm: paperWidthMm,
       pageHeightMm,
+      // ESC/POS RAW на desktop (если поддерживается)
+      sale,
+      storeName: opts?.storeName || 'KAKAPO',
+      storeAddress: opts?.storeAddress,
+      storePhone: opts?.storePhone,
+      posLabel: opts?.posLabel,
+      cashierName: opts?.cashierName || sale.cashierName,
     })
     return
   }

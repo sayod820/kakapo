@@ -19,6 +19,10 @@ export const POS_MOCK_CSS = `
   .pos-root[data-embed="1"] .toast{
     position:absolute;
   }
+  /* настройки всегда fixed на весь экран — даже в embed */
+  .pos-root[data-embed="1"] .pos-settings-fs{
+    position:fixed !important;
+  }
   .pos-root[data-theme="dark"],.pos-root[data-theme="green"],.pos-root[data-theme="purple"],.pos-root[data-theme="gold"]{
     --bg:#030B05; --surface:#0A1710; --surface2:#0F2216; --surface3:#132A1A; --border:#1A3322; --border2:#234430;
     --accent:#1FD760; --accent2:#17B34E;
@@ -206,6 +210,98 @@ export const POS_MOCK_CSS = `
     color:var(--t2);background:rgba(31,215,96,.1);border:1px solid rgba(31,215,96,.22);
   }
   .pos-root[data-theme="light"] .pos-device-soon{background:rgba(18,155,69,.1);border-color:rgba(18,155,69,.22);}
+
+  /* Полноэкранные настройки точки продаж — на весь экран окна, не в колонке меню */
+  .pos-settings-fs{
+    position:fixed !important;inset:0 !important;z-index:8000 !important;
+    display:flex;flex-direction:column;
+    background:var(--bg);color:var(--t1);overflow:hidden;
+    width:100vw;height:100vh;max-width:100vw;max-height:100vh;
+  }
+  .pos-settings-top{
+    flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:16px 28px;border-bottom:1px solid var(--border);background:var(--surface);
+    min-height:72px;
+  }
+  .pos-settings-top h2{margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em;color:var(--t1);}
+  .pos-settings-top p{margin:4px 0 0;font-size:13px;font-weight:700;color:var(--t2);}
+  .pos-settings-top-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+  .pos-settings-scroll{
+    flex:1;min-height:0;overflow:auto;
+    padding:22px 28px 28px;
+  }
+  .pos-settings-wrap{
+    width:min(1120px,100%);
+    margin:0 auto;
+    display:grid;
+    grid-template-columns:minmax(300px,.9fr) minmax(380px,1.1fr);
+    gap:18px;
+    align-items:start;
+  }
+  .pos-settings-wrap .pos-settings-card.span-all{
+    grid-column:1 / -1;
+  }
+  .pos-settings-body{display:contents;}
+  .pos-settings-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:18px;
+    padding:20px 22px;box-shadow:0 8px 24px var(--shade);min-width:0;
+  }
+  .pos-settings-card h3{
+    margin:0 0 4px;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;color:var(--t1);
+  }
+  .pos-settings-card .hint{margin:0 0 16px;font-size:12.5px;font-weight:700;color:var(--t2);line-height:1.45;}
+  .pos-settings-field{margin-bottom:14px;}
+  .pos-settings-field:last-child{margin-bottom:0;}
+  .pos-settings-field .gate-label{margin-bottom:7px;}
+  .pos-settings-field .gate-input{margin-bottom:0;font-size:14px;}
+  .pos-settings-scale-grid{
+    display:grid;grid-template-columns:1.5fr 120px 90px;gap:12px;
+  }
+  .pos-printer-list{
+    display:grid;grid-template-columns:1fr;gap:8px;margin:8px 0 12px;
+    max-height:min(320px,38vh);overflow:auto;padding-right:2px;
+  }
+  .pos-root button.pos-printer-opt{
+    text-align:left;padding:14px 16px;border-radius:14px;border:1.5px solid var(--border);
+    background:var(--surface2);display:flex;align-items:center;justify-content:space-between;gap:12px;
+    width:100%;
+  }
+  .pos-root button.pos-printer-opt:hover{border-color:var(--accent);}
+  .pos-root button.pos-printer-opt.on{
+    border-color:var(--accent);background:rgba(31,215,96,.1);
+  }
+  .pos-root[data-theme="light"] button.pos-printer-opt.on{background:rgba(18,155,69,.1);}
+  .pos-printer-opt b{display:block;font-size:14px;font-weight:900;color:var(--t1);}
+  .pos-printer-opt span{display:block;font-size:11.5px;font-weight:700;color:var(--t3);margin-top:3px;word-break:break-all;}
+  .pos-printer-badge{
+    flex-shrink:0;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:900;
+    background:rgba(31,215,96,.14);color:var(--accent);border:1px solid rgba(31,215,96,.28);
+  }
+  .pos-settings-actions{
+    flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;
+    padding:14px 28px;border-top:1px solid var(--border);background:var(--surface);
+  }
+  .pos-settings-actions-inner{
+    width:min(1120px,100%);display:flex;gap:12px;align-items:center;
+  }
+  .pos-settings-actions .btn-gate{width:auto;min-width:220px;flex:1;max-width:420px;}
+  .pos-settings-actions .btn-switch-till{min-width:140px;flex-shrink:0;}
+  .pos-settings-status{
+    margin-top:12px;padding:12px 14px;border-radius:12px;font-size:12.5px;font-weight:800;line-height:1.4;
+    background:var(--surface2);border:1px solid var(--border);color:var(--t2);
+  }
+  .pos-settings-status.ok{color:var(--accent);border-color:rgba(31,215,96,.3);background:rgba(31,215,96,.08);}
+  .pos-settings-status.warn{color:var(--org);border-color:rgba(255,140,0,.28);background:rgba(255,140,0,.08);}
+  .pos-settings-row-btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;}
+  .pos-settings-row-btns .btn-switch-till{flex:1;min-width:160px;margin:0 !important;width:auto !important;}
+
+  @media (max-width:860px){
+    .pos-settings-wrap{grid-template-columns:1fr;}
+    .pos-settings-scale-grid{grid-template-columns:1fr 1fr;}
+    .pos-settings-top{padding:14px 16px;align-items:flex-start;}
+    .pos-settings-scroll{padding:14px 16px 20px;}
+    .pos-settings-actions{padding:12px 16px;}
+  }
   .cashier-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;}
   .pos-root button.cashier-opt{padding:12px 5px;border-radius:14px;border:1.5px solid var(--border);background:var(--surface2);text-align:center;color:var(--t1);}
   .pos-root button.cashier-opt.on{border-color:var(--accent);background:rgba(31,215,96,.08);}

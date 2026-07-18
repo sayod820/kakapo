@@ -205,7 +205,7 @@ if (-not [KakapoRawPrint]::OpenPrinter($printer, [ref]$hPrinter, [IntPtr]::Zero)
 }
 try {
   $di = New-Object KakapoRawPrint+DOCINFOA
-  $di.pDocName = "KAKAPO Label"
+  $di.pDocName = "KAKAPO Print"
   $di.pDataType = "RAW"
   if (-not [KakapoRawPrint]::StartDocPrinter($hPrinter, 1, $di)) { throw "StartDocPrinter failed" }
   try {

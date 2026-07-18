@@ -13,6 +13,7 @@ const {
   buildMultiLabelTspl,
   printRawWindows,
 } = require('./tsplLabel.cjs')
+const { buildEscPosReceipt, buildEscPosFromReceiptHtml } = require('./escposReceipt.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
@@ -110,22 +111,43 @@ async function getPrintersAsync() {
   return win.webContents.getPrinters()
 }
 
-const XP_RECEIPT_HINTS = ['xp-58', 'xp58', '58c', 'xp-58c', 'xprinter 58', 'xprinter xp-58']
+const XP_RECEIPT_HINTS = [
+  'xp-58c', 'xp58c', 'xp-58', 'xp58', '58c',
+  'xprinter 58', 'xprinter xp-58', 'xpos-58', 'pos-58',
+]
 
 function printerNameMatches(name, hints) {
   const n = String(name || '').toLowerCase()
   return hints.some(h => n.includes(h))
 }
 
+function isLikelyLabelPrinter(p) {
+  const hints = ['xp-235', 'xp235', '235b', 'xp-235b', 'xprinter 235']
+  return printerNameMatches(p.name, hints) || printerNameMatches(p.displayName || '', hints)
+}
+
+function isVirtualPrinter(p) {
+  const n = `${p.name || ''} ${p.displayName || ''}`.toLowerCase()
+  return ['onenote', 'pdf', 'xps document', 'fax', 'microsoft print to'].some(v => n.includes(v))
+}
+
 function pickReceiptPrinterName(printers) {
   const list = printers || []
-  const hit = list.find(p =>
-    printerNameMatches(p.name, XP_RECEIPT_HINTS)
-    || printerNameMatches(p.displayName || '', XP_RECEIPT_HINTS),
+  const exact = list.find(p =>
+    !isLikelyLabelPrinter(p) && (
+      printerNameMatches(p.name, XP_RECEIPT_HINTS)
+      || printerNameMatches(p.displayName || '', XP_RECEIPT_HINTS)
+    ),
   )
-  if (hit) return hit.name
-  const def = list.find(p => p.isDefault)
-  return def?.name || list[0]?.name || ''
+  if (exact) return exact.name
+  const soft = list.find(p =>
+    !isLikelyLabelPrinter(p) && !isVirtualPrinter(p) && (/xprinter/i.test(p.name) || /xprinter/i.test(p.displayName || '')),
+  )
+  if (soft) return soft.name
+  const real = list.find(p => !isLikelyLabelPrinter(p) && !isVirtualPrinter(p))
+  if (real) return real.name
+  const def = list.find(p => p.isDefault && !isVirtualPrinter(p))
+  return def?.name || ''
 }
 
 async function resolveReceiptPrinterName(preferred) {
@@ -140,6 +162,14 @@ async function resolveReceiptPrinterName(preferred) {
     }
   } catch { /* ignore */ }
   return name
+}
+
+function describeMissingReceiptPrinter(printers) {
+  const names = (printers || []).map(p => p.displayName || p.name).filter(Boolean)
+  if (!names.length) {
+    return 'Принтер XP-58C не найден в Windows. Подключите USB, включите принтер и установите драйвер Xprinter.'
+  }
+  return `Принтер XP-58C не найден в Windows. Сейчас доступны: ${names.slice(0, 4).join(', ')}. Подключите XP-58C и нажмите «Обновить» в настройках.`
 }
 
 function labelPx(mm) {
@@ -421,11 +451,107 @@ function printHtml(html, options = {}) {
     return Promise.resolve({ ok: true, queued: true })
   }
 
+  // Чек XP-58C: ESC/POS RAW (как старые кассы) — GDI часто не печатает на термопринтере
+  if (options.sale && typeof options.sale === 'object') {
+    return printReceiptEscPos(options.sale, options)
+  }
+  // Старый UI шлёт только HTML — тоже уводим в RAW
+  return printReceiptHtmlAsEscPos(html, options)
+}
+
+async function ensureReceiptPrinterName(preferred) {
+  const settings = loadPrinterSettings()
+  let printerName = await resolveReceiptPrinterName(preferred)
+  if (!printerName) {
+    let printers = []
+    try { printers = await getPrintersAsync() } catch { /* ignore */ }
+    throw new Error(describeMissingReceiptPrinter(printers))
+  }
+  try {
+    const printers = await getPrintersAsync()
+    const exists = (printers || []).some(p => p.name === printerName)
+    if (!exists) {
+      const again = pickReceiptPrinterName(printers)
+      if (again) {
+        printerName = again
+        savePrinterSettings({ ...settings, printerName, paperWidthMm: 58 })
+      } else {
+        throw new Error(describeMissingReceiptPrinter(printers))
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && /XP-58C|не найден/.test(err.message)) throw err
+  }
+  return printerName
+}
+
+async function printReceiptHtmlAsEscPos(html, options = {}) {
+  const settings = loadPrinterSettings()
+  const printerName = await ensureReceiptPrinterName(options.printerName)
+  const paperWidthMm = printerNameMatches(printerName, XP_RECEIPT_HINTS)
+    ? 58
+    : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
+  const raw = buildEscPosFromReceiptHtml(html, { paperWidthMm })
+  await printRawWindows(printerName, raw)
+  return {
+    ok: true,
+    printerName,
+    role: 'receipt',
+    mode: 'escpos-from-html',
+    pageWidthMm: paperWidthMm,
+  }
+}
+
+async function printReceiptEscPos(sale, options = {}) {
+  const settings = loadPrinterSettings()
+  const printerName = await ensureReceiptPrinterName(options.printerName)
+
+  const paperWidthMm = printerNameMatches(printerName, XP_RECEIPT_HINTS)
+    ? 58
+    : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
+
+  const raw = buildEscPosReceipt(sale, {
+    storeName: options.storeName,
+    storeAddress: options.storeAddress,
+    storePhone: options.storePhone,
+    posLabel: options.posLabel,
+    cashierName: options.cashierName,
+    paperWidthMm,
+  })
+  await printRawWindows(printerName, raw)
+  return {
+    ok: true,
+    printerName,
+    role: 'receipt',
+    mode: 'escpos-raw',
+    pageWidthMm: paperWidthMm,
+  }
+}
+
+function printReceiptHtmlFallback(html, options = {}) {
   return (async () => {
     const settings = loadPrinterSettings()
-    const printerName = await resolveReceiptPrinterName(options.printerName)
+    let printerName = await resolveReceiptPrinterName(options.printerName)
     if (!printerName) {
-      throw new Error('Выберите принтер чеков XP-58C в настройках точки продаж')
+      let printers = []
+      try { printers = await getPrintersAsync() } catch { /* ignore */ }
+      throw new Error(describeMissingReceiptPrinter(printers))
+    }
+
+    try {
+      const printers = await getPrintersAsync()
+      const exists = (printers || []).some(p => p.name === printerName)
+      if (!exists) {
+        const again = pickReceiptPrinterName(printers)
+        if (again) {
+          printerName = again
+          savePrinterSettings({ ...settings, printerName, paperWidthMm: 58 })
+        } else {
+          throw new Error(describeMissingReceiptPrinter(printers))
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && /XP-58C|не найден/.test(err.message)) throw err
     }
 
     let pageWidthMm = Number(options.pageWidthMm ?? options.paperWidthMm)
@@ -433,7 +559,6 @@ function printHtml(html, options = {}) {
     if (!Number.isFinite(pageWidthMm) || pageWidthMm <= 0) {
       pageWidthMm = Number(settings.paperWidthMm) === 80 ? 80 : 58
     }
-    // XP-58C — 58 мм; если имя похоже на XP-58, не даём уйти на 80
     if (printerNameMatches(printerName, XP_RECEIPT_HINTS)) pageWidthMm = 58
     if (!Number.isFinite(pageHeightMm) || pageHeightMm <= 0) {
       pageHeightMm = 300
@@ -483,7 +608,8 @@ function printHtml(html, options = {}) {
           resolve({
             ok: true,
             printerName,
-            role,
+            role: 'receipt',
+            mode: 'html-gdi',
             pageWidthMm,
             pageHeightMm,
           })
