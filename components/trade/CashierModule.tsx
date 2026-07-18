@@ -3471,12 +3471,19 @@ export default function CashierModule({
 
                 <div className="pos-settings-card span-all">
                   <h3>Шаблон чека</h3>
-                  <p className="hint">Превью = печать · XP‑58C · 58 мм · как на макете</p>
+                  <p className="hint">Превью = печать · XP‑58C · 58 мм · полный редактор в окне кассы</p>
                   <div className="pos-settings-row-btns">
                     <button
                       type="button"
                       className="btn-pay"
-                      onClick={() => setReceiptTplOpen(true)}
+                      onClick={() => {
+                        const desk = getKakapoDesktop()
+                        if (desk && typeof desk.openReceiptEditor === 'function') {
+                          void desk.openReceiptEditor()
+                          return
+                        }
+                        setReceiptTplOpen(true)
+                      }}
                     >
                       Редактировать
                     </button>

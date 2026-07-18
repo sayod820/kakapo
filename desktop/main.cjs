@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, shell, nativeTheme } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu } = require('electron')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -14,12 +14,19 @@ const {
   printRawWindows,
 } = require('./tsplLabel.cjs')
 const { buildEscPosReceipt, buildEscPosFromReceiptHtml, buildDemoReceiptSale } = require('./escposReceipt.cjs')
+const {
+  DEFAULT_RECEIPT_TEMPLATE,
+  normalizeReceiptTemplate,
+  mergeTemplateOpts,
+} = require('./receiptTemplate.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
+const TEMPLATE_PATH = () => path.join(app.getPath('userData'), 'receipt-template.json')
 
 let mainWindow = null
 let printWindow = null
+let receiptEditorWindow = null
 
 const DEFAULT_SETTINGS = {
   printerName: '',
@@ -73,6 +80,100 @@ function savePrinterSettings(next) {
   return merged
 }
 
+function loadReceiptTemplate() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(TEMPLATE_PATH(), 'utf8'))
+    return normalizeReceiptTemplate(raw)
+  } catch {
+    return normalizeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE)
+  }
+}
+
+function saveReceiptTemplate(data) {
+  const tpl = normalizeReceiptTemplate(data)
+  fs.writeFileSync(TEMPLATE_PATH(), JSON.stringify(tpl, null, 2), 'utf8')
+  return tpl
+}
+
+function openReceiptEditor() {
+  if (receiptEditorWindow && !receiptEditorWindow.isDestroyed()) {
+    receiptEditorWindow.focus()
+    return
+  }
+  receiptEditorWindow = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'Шаблон чека — KAKAPO',
+    backgroundColor: '#0d1117',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+  receiptEditorWindow.loadFile(path.join(__dirname, 'receipt-editor.html'))
+  receiptEditorWindow.on('closed', () => {
+    receiptEditorWindow = null
+  })
+}
+
+function closeReceiptEditor() {
+  if (receiptEditorWindow && !receiptEditorWindow.isDestroyed()) {
+    receiptEditorWindow.close()
+  }
+}
+
+function injectReceiptTemplateButton() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.executeJavaScript(`
+    (function () {
+      if (document.getElementById('kakapo-receipt-template-btn')) return;
+      if (!window.kakapoDesktop || typeof window.kakapoDesktop.openReceiptEditor !== 'function') return;
+      const btn = document.createElement('button');
+      btn.id = 'kakapo-receipt-template-btn';
+      btn.type = 'button';
+      btn.textContent = 'Шаблон чека';
+      btn.title = 'Редактор шаблона чека 58 мм';
+      btn.style.cssText = [
+        'position:fixed', 'bottom:20px', 'right:20px', 'z-index:2147483646',
+        'padding:10px 16px', 'border-radius:8px', 'border:1px solid #2ea043',
+        'background:#238636', 'color:#fff', 'font:600 13px system-ui,sans-serif',
+        'cursor:pointer', 'box-shadow:0 4px 12px rgba(0,0,0,0.35)',
+      ].join(';');
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.kakapoDesktop.openReceiptEditor();
+      });
+      document.body.appendChild(btn);
+    })();
+  `).catch(() => { /* ignore cross-origin or unload */ })
+}
+
+function buildAppMenu() {
+  const template = [
+    {
+      label: 'KAKAPO',
+      submenu: [
+        {
+          label: 'Шаблон чека',
+          click: () => openReceiptEditor(),
+        },
+        { type: 'separator' },
+        { role: 'quit', label: 'Выход' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 function createWindow() {
   const config = loadConfig()
   const winCfg = config.window || {}
@@ -109,6 +210,10 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    injectReceiptTemplateButton()
   })
 }
 
@@ -502,7 +607,8 @@ async function printReceiptEscPos(html, options = {}) {
     }
   }
 
-  const storeOpts = {
+  // Шаблон с диска кассы — база; pos/кассир из продажи
+  const storeOpts = mergeTemplateOpts({
     storeName: options.storeName,
     storePhone: options.storePhone,
     subtitle: options.subtitle,
@@ -510,7 +616,7 @@ async function printReceiptEscPos(html, options = {}) {
     footerNote: options.footerNote,
     posLabel: options.posLabel,
     cashierName: options.cashierName,
-  }
+  }, loadReceiptTemplate())
 
   let raw
   if (sale && typeof sale === 'object') {
@@ -567,6 +673,7 @@ async function ensureReceiptPrinterName(preferred) {
 }
 
 app.whenReady().then(() => {
+  buildAppMenu()
   createWindow()
 
   ipcMain.handle('desktop:getInfo', () => ({
@@ -591,6 +698,23 @@ app.whenReady().then(() => {
 
   ipcMain.handle('desktop:savePrinterSettings', (_e, data) => savePrinterSettings(data || {}))
 
+  ipcMain.handle('desktop:getReceiptTemplate', () => ({
+    template: loadReceiptTemplate(),
+    defaults: DEFAULT_RECEIPT_TEMPLATE,
+  }))
+
+  ipcMain.handle('desktop:saveReceiptTemplate', (_e, data) => saveReceiptTemplate(data || {}))
+
+  ipcMain.handle('desktop:openReceiptEditor', () => {
+    openReceiptEditor()
+    return { ok: true }
+  })
+
+  ipcMain.handle('desktop:closeReceiptEditor', () => {
+    closeReceiptEditor()
+    return { ok: true }
+  })
+
   ipcMain.handle('desktop:printHtml', async (_e, html, options) => {
     const opts = options || {}
     if (opts.role === 'label') {
@@ -601,16 +725,13 @@ app.whenReady().then(() => {
 
   ipcMain.handle('desktop:printReceipt', async (_e, payload) => {
     const p = payload && typeof payload === 'object' ? payload : {}
+    const tpl = loadReceiptTemplate()
     return printHtml('', {
       role: 'receipt',
       printerName: p.printerName,
       paperWidthMm: 58,
       sale: p.sale,
-      storeName: p.storeName,
-      storePhone: p.storePhone,
-      subtitle: p.subtitle,
-      footerThanks: p.footerThanks,
-      footerNote: p.footerNote,
+      ...mergeTemplateOpts(p, tpl),
       posLabel: p.posLabel,
       cashierName: p.cashierName,
     })

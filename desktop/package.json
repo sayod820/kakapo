@@ -22,6 +22,8 @@
       "casScale.cjs",
       "tsplLabel.cjs",
       "escposReceipt.cjs",
+      "receiptTemplate.cjs",
+      "receipt-editor.html",
       "config.json",
       "package.json"
     ],

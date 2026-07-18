@@ -1,5 +1,7 @@
 'use strict'
 
+const { normalizeReceiptTemplate } = require('./receiptTemplate.cjs')
+
 const ESC = 0x1b
 const GS = 0x1d
 const FS = 0x1c
@@ -60,6 +62,11 @@ function moneySom(n) {
   return `${money(n)} сом`
 }
 
+function moneyWithCurrency(n, currency) {
+  const cur = String(currency || 'сом').trim() || 'сом'
+  return `${money(n)} ${cur}`
+}
+
 function qtyText(n) {
   const rounded = Math.round((Number(n) || 0) * 1000) / 1000
   return Number.isInteger(rounded) ? String(rounded) : String(rounded)
@@ -94,8 +101,8 @@ function wrapName(name, width) {
 }
 
 /** Имя + сумма справа (как на макете); перенос только по пробелам. */
-function nameAmountLines(name, amount, width) {
-  const right = moneySom(amount)
+function nameAmountLines(name, amount, width, currency) {
+  const right = moneyWithCurrency(amount, currency)
   const maxLeft = Math.max(8, width - right.length - 1)
   const lines = wrapName(name, maxLeft)
   const out = []
@@ -126,19 +133,20 @@ function kvLines(label, value, width) {
   return [l, ...wrapName(r, width)]
 }
 
-function payLabel(sale) {
-  if (sale.paymentMethod === 'credit') return 'В долг'
+function payLabel(sale, tpl) {
+  if (sale.paymentMethod === 'credit') return tpl.labelDebt
   if (sale.paymentMethod === 'mixed') return 'Смешанная'
-  if (sale.paymentMethod === 'cash') return 'Наличные'
-  if (sale.paymentMethod === 'card') return 'Картой'
-  if ((Number(sale.debtAdded) || 0) > 0.001) return 'В долг'
+  if (sale.paymentMethod === 'cash') return tpl.labelCash
+  if (sale.paymentMethod === 'card') return tpl.labelCard
+  if ((Number(sale.debtAdded) || 0) > 0.001) return tpl.labelDebt
   return '-'
 }
 
-function cardLineLabel(sale) {
+function cardLineLabel(sale, labelCard) {
   const digits = String(sale.cardNum || '').replace(/\D/g, '')
-  if (digits.length >= 4) return `Картой (Visa ****${digits.slice(-4)})`
-  return 'Картой'
+  const base = String(labelCard || 'Картой').trim() || 'Картой'
+  if (digits.length >= 4) return `${base} (Visa ****${digits.slice(-4)})`
+  return base
 }
 
 function orderNo(sale) {
@@ -148,10 +156,10 @@ function orderNo(sale) {
   return sale.id || 'Chek'
 }
 
-function docTitle(sale) {
-  if (sale.status === 'returned') return 'ВОЗВРАТНЫЙ ЧЕК'
-  if (sale.status === 'partial') return 'ЧЕК - ЧАСТИЧНЫЙ ВОЗВРАТ'
-  return 'ТОВАРНЫЙ ЧЕК'
+function docTitle(sale, tpl) {
+  if (sale.status === 'returned') return tpl.docTitleReturn
+  if (sale.status === 'partial') return tpl.docTitlePartial
+  return tpl.docTitle
 }
 
 /**
@@ -160,15 +168,17 @@ function docTitle(sale) {
  * После любого увеличения шрифта — полный ESC @ (иначе XP-58C залипает на ширине 16).
  */
 function buildEscPosReceipt(sale, opts = {}) {
+  const tpl = normalizeReceiptTemplate(opts)
+  const currency = tpl.currency
   const width = 32
-  const store = String(opts.storeName || 'КАКАПО').trim() || 'КАКАПО'
-  const phone = String(opts.storePhone || '').trim()
-  const subtitle = String(opts.subtitle || 'магазин - касса').trim() || 'магазин - касса'
-  const footerThanks = String(opts.footerThanks || 'Спасибо за покупку!').trim() || 'Спасибо за покупку!'
-  const footerNote = String(opts.footerNote || 'Сохраняйте чек до проверки товара').trim()
-    || 'Сохраняйте чек до проверки товара'
+  const store = tpl.storeName
+  const phone = tpl.storePhone
+  const subtitle = tpl.subtitle
+  const footerThanks = tpl.footerThanks
+  const footerNote = tpl.footerNote
   const pos = String(opts.posLabel || '').trim()
   const cashier = String(opts.cashierName || sale.cashierName || '').trim()
+  const fmt = (n) => moneyWithCurrency(n, currency)
   const when = sale.createdAtIso
     ? new Date(sale.createdAtIso).toLocaleString('ru-RU', {
       day: '2-digit', month: '2-digit', year: 'numeric',
@@ -228,18 +238,22 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   sep()
   cmd(ESC, 0x45, 1)
-  txt(docTitle(sale))
+  txt(docTitle(sale, tpl))
   cmd(ESC, 0x45, 0)
   sep()
 
   cmd(ESC, 0x61, 0)
-  lines(kvLines('Номер заказа', orderNo(sale), width))
-  if (sale.number != null) lines(kvLines('Номер чека', `№${sale.number}`, width))
-  lines(kvLines('Дата', when, width))
-  if (pos) lines(kvLines('Касса', pos, width))
-  if (cashier) lines(kvLines('Кассир', cashier, width))
-  if (sale.clientName) lines(kvLines('Клиент', sale.clientName, width))
-  if (sale.clientPhone) lines(kvLines('Тел. клиента', sale.clientPhone, width))
+  if (tpl.showOrderNo) lines(kvLines(tpl.labelOrderNo, orderNo(sale), width))
+  if (tpl.showReceiptNo && sale.number != null) {
+    lines(kvLines(tpl.labelReceiptNo, `№${sale.number}`, width))
+  }
+  if (tpl.showDate) lines(kvLines(tpl.labelDate, when, width))
+  if (tpl.showPos && pos) lines(kvLines(tpl.labelPos, pos, width))
+  if (tpl.showCashier && cashier) lines(kvLines(tpl.labelCashier, cashier, width))
+  if (tpl.showClient && sale.clientName) lines(kvLines(tpl.labelClient, sale.clientName, width))
+  if (tpl.showClientPhone && sale.clientPhone) {
+    lines(kvLines(tpl.labelClientPhone, sale.clientPhone, width))
+  }
 
   sep()
 
@@ -248,7 +262,7 @@ function buildEscPosReceipt(sale, opts = {}) {
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
     const fullName = String(it.productName || `#${it.productId}`).trim()
-    const right = moneySom(sum)
+    const right = fmt(sum)
     const maxLeft = Math.max(8, width - right.length - 1)
     let detail = ''
     let title = fullName
@@ -259,7 +273,7 @@ function buildEscPosReceipt(sale, opts = {}) {
         detail = parts.detail
       }
     }
-    lines(nameAmountLines(title, sum, width))
+    lines(nameAmountLines(title, sum, width, currency))
     if (detail) txt(detail)
     txt(`${qtyText(qty)} x ${money(price)}`)
   })
@@ -268,45 +282,52 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   sep()
 
-  lines(kvLines('Сумма', moneySom(subtotal), width))
-  if (discount > 0.001) {
-    lines(kvLines(`Скидка${discountPct > 0 ? ` ${discountPct}%` : ''}`, `-${moneySom(discount)}`, width))
+  lines(kvLines(tpl.labelSum, fmt(subtotal), width))
+  if (tpl.showDiscount && discount > 0.001) {
+    const discLabel = `${tpl.labelDiscount}${discountPct > 0 ? ` ${discountPct}%` : ''}`
+    lines(kvLines(discLabel, `-${fmt(discount)}`, width))
   }
-  if (bonusEarned > 0.001) {
-    lines(kvLines('Начислено бонусов', `+${Math.floor(bonusEarned)}`, width))
+  if (tpl.showBonusEarned && bonusEarned > 0.001) {
+    lines(kvLines(tpl.labelBonusEarned, `+${Math.floor(bonusEarned)}`, width))
   }
-  if (bonusSpent > 0.001) {
-    lines(kvLines('Списано бонусов', `-${moneySom(bonusSpent)}`, width))
+  if (tpl.showBonusSpent && bonusSpent > 0.001) {
+    lines(kvLines(tpl.labelBonusSpent, `-${fmt(bonusSpent)}`, width))
   }
 
   // ИТОГ — жирный + выше высота, потом полный reboot (чтобы не сломать оплату/футер)
   cmd(ESC, 0x45, 1)
   cmd(GS, 0x21, 0x10)
-  txt(padLine('ИТОГ', moneySom(total), width))
+  txt(padLine(tpl.labelTotal, fmt(total), width))
   boot(0)
 
   sep()
 
-  lines(kvLines('Оплата', payLabel(sale), width))
-  if ((Number(sale.paidCash) || 0) > 0.001) lines(kvLines('Наличные', moneySom(sale.paidCash), width))
-  if ((Number(sale.paidCard) || 0) > 0.001) {
-    // Ровно 32 символа на макете: «Картой (Visa ****4821)» + «97.50 сом»
-    lines(kvLines(cardLineLabel(sale), moneySom(sale.paidCard), width))
+  if (tpl.showPay) lines(kvLines(tpl.labelPay, payLabel(sale, tpl), width))
+  if (tpl.showCash && (Number(sale.paidCash) || 0) > 0.001) {
+    lines(kvLines(tpl.labelCash, fmt(sale.paidCash), width))
   }
-  if ((Number(sale.debtAdded) || 0) > 0.001) lines(kvLines('В долг', moneySom(sale.debtAdded), width))
-  if ((Number(sale.cashReceived) || 0) > 0.001) lines(kvLines('Дал клиент', moneySom(sale.cashReceived), width))
-  if ((Number(sale.changeGiven) || 0) > 0.001) {
+  if (tpl.showCard && (Number(sale.paidCard) || 0) > 0.001) {
+    // Ровно 32 символа на макете: «Картой (Visa ****4821)» + «97.50 сом»
+    lines(kvLines(cardLineLabel(sale, tpl.labelCard), fmt(sale.paidCard), width))
+  }
+  if (tpl.showDebt && (Number(sale.debtAdded) || 0) > 0.001) {
+    lines(kvLines(tpl.labelDebt, fmt(sale.debtAdded), width))
+  }
+  if (tpl.showCashGiven && (Number(sale.cashReceived) || 0) > 0.001) {
+    lines(kvLines(tpl.labelCashGiven, fmt(sale.cashReceived), width))
+  }
+  if (tpl.showChange && (Number(sale.changeGiven) || 0) > 0.001) {
     cmd(ESC, 0x45, 1)
-    txt(padLine('Сдача', moneySom(sale.changeGiven), width))
+    txt(padLine(tpl.labelChange, fmt(sale.changeGiven), width))
     cmd(ESC, 0x45, 0)
   }
 
   const balBefore = sale.bonusBalanceBefore
   const balAfter = sale.bonusBalanceAfter
-  if (balBefore != null && balAfter != null) {
+  if (tpl.showBonusBalance && balBefore != null && balAfter != null) {
     sep()
     lines(kvLines(
-      'Баланс бонусов',
+      tpl.labelBonusBalance,
       `${Math.floor(Number(balBefore) || 0)} -> ${Math.floor(Number(balAfter) || 0)}`,
       width,
     ))
