@@ -184,11 +184,23 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     const qty = Number(it.qty) || 0
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
+    const rawName = String(it.productName || `#${it.productId}`).trim()
+    // Как на макете: 400мл отдельно только если имя+цена не влезают в ~32 символа
+    const rightLen = money(sum).length
+    const maxLeft = Math.max(8, 32 - rightLen - 1)
+    const vol = rawName.match(/^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:мл|мл\.|г|гр|кг|л|шт\.?))$/i)
+    let name = rawName
+    let detail = ''
+    if (rawName.length > maxLeft && vol && vol[1].trim().length >= 8 && vol[1].trim().length <= maxLeft) {
+      name = vol[1].trim()
+      detail = vol[2].trim()
+    }
     return `<div class="item">
     <div class="item-row">
-      <span class="item-name">${esc(it.productName || `#${it.productId}`)}</span>
+      <span class="item-name">${esc(name)}</span>
       <span>${money(sum)}</span>
     </div>
+    ${detail ? `<div class="item-qty">${esc(detail)}</div>` : ''}
     <div class="item-qty">${qtyText(qty)} x ${shortMoney(price)}</div>
   </div>`
   }).join('\n')

@@ -93,17 +93,37 @@ function wrapName(name, width) {
   return lines
 }
 
-/** Имя + сумма справа (как на макете); перенос имени без суммы. */
+/** Имя + сумма справа (как на макете); перенос только по пробелам. */
 function nameAmountLines(name, amount, width) {
   const right = moneySom(amount)
   const maxLeft = Math.max(8, width - right.length - 1)
   const lines = wrapName(name, maxLeft)
   const out = []
   lines.forEach((line, i) => {
-    if (i === lines.length - 1) out.push(padLine(clip(line, maxLeft), right, width))
-    else out.push(clip(line, width))
+    if (i === lines.length - 1) out.push(padLine(line, right, width))
+    else out.push(line)
   })
   return out
+}
+
+/** «Шампунь Head&Shoulders 400мл» → имя + отдельная строка объёма (как на макете). */
+function splitNameDetail(name) {
+  const s = String(name || '').trim()
+  const m = s.match(/^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:мл|мл\.|г|гр|кг|л|шт\.?))$/i)
+  if (m && m[1].trim().length >= 8) {
+    return { name: m[1].trim(), detail: m[2].trim() }
+  }
+  return { name: s, detail: '' }
+}
+
+/** Подпись слева / значение справа; без обрезки точками. */
+function kvLines(label, value, width) {
+  const l = String(label || '')
+  const r = String(value ?? '')
+  if (!r) return []
+  if (l.length + 1 + r.length <= width) return [padLine(l, r, width)]
+  if (r.length <= width) return [l, padLine('', r, width)]
+  return [l, ...wrapName(r, width)]
 }
 
 function payLabel(sale) {
@@ -135,13 +155,13 @@ function docTitle(sale) {
 }
 
 /**
- * Макет 1:1 с дизайн-макетом 58 мм.
+ * Макет 1:1 с дизайн-макетом 58 мм (2-я фото).
  * Ширина 32 символа (Font A), кодовая страница CP866.
  */
 function buildEscPosReceipt(sale, opts = {}) {
   const width = 32
   const store = String(opts.storeName || 'КАКАПО').trim() || 'КАКАПО'
-  const phone = clip(String(opts.storePhone || '').trim(), width)
+  const phone = String(opts.storePhone || '').trim()
   const pos = String(opts.posLabel || '').trim()
   const cashier = String(opts.cashierName || sale.cashierName || '').trim()
   const when = sale.createdAtIso
@@ -174,43 +194,52 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   const chunks = []
   const cmd = (...b) => chunks.push(Buffer.from(b))
-  const txt = (s) => chunks.push(encodeCp866(`${clip(s, width)}\n`))
-  const txtRaw = (s) => chunks.push(encodeCp866(`${s}\n`))
+  const txt = (s) => chunks.push(encodeCp866(`${String(s)}\n`))
   const sep = () => txt('-'.repeat(width))
+  // XP-58C: сброс размера обязательно через GS! и ESC! — иначе остаётся ширина 16
+  const resetSize = () => {
+    cmd(GS, 0x21, 0x00)
+    cmd(ESC, 0x21, 0x00)
+    cmd(ESC, 0x4D, 0x00)
+    cmd(ESC, 0x45, 0)
+  }
+  const lines = (arr) => { for (const line of arr) txt(line) }
 
   // Init + CP866 (page 17)
   cmd(ESC, 0x40)
   cmd(FS, 0x2E)
   cmd(ESC, 0x52, 0x00)
   cmd(ESC, 0x74, 17)
-  cmd(ESC, 0x4D, 0x00) // Font A 12x24
+  resetSize()
   cmd(GS, 0x42, 0x00)
-  cmd(ESC, 0x45, 0)
   cmd(ESC, 0x61, 1) // center
 
-  // Header: крупное имя магазина
+  // Header: крупный КАКАПО (только высота — ширина остаётся 32)
   cmd(ESC, 0x45, 1)
-  cmd(GS, 0x21, 0x11) // double width + height (16 cols)
-  txtRaw(clip(store, 16))
-  cmd(GS, 0x21, 0x00)
-  cmd(ESC, 0x45, 0)
+  cmd(GS, 0x21, 0x10)
+  cmd(ESC, 0x21, 0x10)
+  txt(store)
+  resetSize()
+  cmd(ESC, 0x61, 1)
   txt('магазин - касса')
   if (phone) txt(phone)
 
   sep()
   cmd(ESC, 0x45, 1)
   txt(docTitle(sale))
-  cmd(ESC, 0x45, 0)
+  resetSize()
+  cmd(ESC, 0x61, 1)
   sep()
 
   cmd(ESC, 0x61, 0) // left
-  txt(padLine('Номер заказа', clip(orderNo(sale), 16), width))
-  if (sale.number != null) txt(padLine('Номер чека', clip(`№${sale.number}`, 16), width))
-  txt(padLine('Дата', clip(when, 18), width))
-  if (pos) txt(padLine('Касса', clip(pos, 20), width))
-  if (cashier) txt(padLine('Кассир', clip(cashier, 20), width))
-  if (sale.clientName) txt(padLine('Клиент', clip(sale.clientName, 18), width))
-  if (sale.clientPhone) txt(padLine('Тел. клиента', clip(sale.clientPhone, 14), width))
+  resetSize()
+  lines(kvLines('Номер заказа', orderNo(sale), width))
+  if (sale.number != null) lines(kvLines('Номер чека', `№${sale.number}`, width))
+  lines(kvLines('Дата', when, width))
+  if (pos) lines(kvLines('Касса', pos, width))
+  if (cashier) lines(kvLines('Кассир', cashier, width))
+  if (sale.clientName) lines(kvLines('Клиент', sale.clientName, width))
+  if (sale.clientPhone) lines(kvLines('Тел. клиента', sale.clientPhone, width))
 
   sep()
 
@@ -218,7 +247,21 @@ function buildEscPosReceipt(sale, opts = {}) {
     const qty = Number(it.qty) || 0
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
-    nameAmountLines(it.productName || `#${it.productId}`, sum, width).forEach(line => txtRaw(line))
+    const fullName = String(it.productName || `#${it.productId}`).trim()
+    const right = moneySom(sum)
+    const maxLeft = Math.max(8, width - right.length - 1)
+    let detail = ''
+    let title = fullName
+    // Объём на отдельную строку только если полное имя не влезает (как шампунь на макете)
+    if (fullName.length > maxLeft) {
+      const parts = splitNameDetail(fullName)
+      if (parts.detail && parts.name.length <= maxLeft) {
+        title = parts.name
+        detail = parts.detail
+      }
+    }
+    lines(nameAmountLines(title, sum, width))
+    if (detail) txt(detail)
     txt(`${qtyText(qty)} x ${money(price)}`)
   })
 
@@ -226,44 +269,44 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   sep()
 
-  txt(padLine('Сумма', moneySom(subtotal), width))
+  lines(kvLines('Сумма', moneySom(subtotal), width))
   if (discount > 0.001) {
-    txt(padLine(`Скидка${discountPct > 0 ? ` ${discountPct}%` : ''}`, `-${moneySom(discount)}`, width))
+    lines(kvLines(`Скидка${discountPct > 0 ? ` ${discountPct}%` : ''}`, `-${moneySom(discount)}`, width))
   }
   if (bonusEarned > 0.001) {
-    txt(padLine('Начислено бонусов', `+${Math.floor(bonusEarned)}`, width))
+    lines(kvLines('Начислено бонусов', `+${Math.floor(bonusEarned)}`, width))
   }
   if (bonusSpent > 0.001) {
-    txt(padLine('Списано бонусов', `-${moneySom(bonusSpent)}`, width))
+    lines(kvLines('Списано бонусов', `-${moneySom(bonusSpent)}`, width))
   }
 
-  // ИТОГ — жирный + двойная высота
+  // ИТОГ — жирный + выше высота (без двойной ширины)
   cmd(ESC, 0x45, 1)
   cmd(GS, 0x21, 0x10)
+  cmd(ESC, 0x21, 0x10)
   txt(padLine('ИТОГ', moneySom(total), width))
-  cmd(GS, 0x21, 0x00)
-  cmd(ESC, 0x45, 0)
+  resetSize()
 
   sep()
 
-  txt(padLine('Оплата', payLabel(sale), width))
-  if ((Number(sale.paidCash) || 0) > 0.001) txt(padLine('Наличные', moneySom(sale.paidCash), width))
+  lines(kvLines('Оплата', payLabel(sale), width))
+  if ((Number(sale.paidCash) || 0) > 0.001) lines(kvLines('Наличные', moneySom(sale.paidCash), width))
   if ((Number(sale.paidCard) || 0) > 0.001) {
-    txt(padLine(clip(cardLineLabel(sale), 20), moneySom(sale.paidCard), width))
+    lines(kvLines(cardLineLabel(sale), moneySom(sale.paidCard), width))
   }
-  if ((Number(sale.debtAdded) || 0) > 0.001) txt(padLine('В долг', moneySom(sale.debtAdded), width))
-  if ((Number(sale.cashReceived) || 0) > 0.001) txt(padLine('Дал клиент', moneySom(sale.cashReceived), width))
+  if ((Number(sale.debtAdded) || 0) > 0.001) lines(kvLines('В долг', moneySom(sale.debtAdded), width))
+  if ((Number(sale.cashReceived) || 0) > 0.001) lines(kvLines('Дал клиент', moneySom(sale.cashReceived), width))
   if ((Number(sale.changeGiven) || 0) > 0.001) {
     cmd(ESC, 0x45, 1)
     txt(padLine('Сдача', moneySom(sale.changeGiven), width))
-    cmd(ESC, 0x45, 0)
+    resetSize()
   }
 
   const balBefore = sale.bonusBalanceBefore
   const balAfter = sale.bonusBalanceAfter
   if (balBefore != null && balAfter != null) {
     sep()
-    txt(padLine(
+    lines(kvLines(
       'Баланс бонусов',
       `${Math.floor(Number(balBefore) || 0)} -> ${Math.floor(Number(balAfter) || 0)}`,
       width,
@@ -274,7 +317,8 @@ function buildEscPosReceipt(sale, opts = {}) {
   cmd(ESC, 0x61, 1)
   cmd(ESC, 0x45, 1)
   txt('Спасибо за покупку!')
-  cmd(ESC, 0x45, 0)
+  resetSize()
+  cmd(ESC, 0x61, 1)
   txt('Сохраняйте чек до проверки')
   txt('товара')
 
