@@ -13,7 +13,7 @@ const {
   buildMultiLabelTspl,
   printRawWindows,
 } = require('./tsplLabel.cjs')
-const { buildEscPosReceipt, buildEscPosFromReceiptHtml } = require('./escposReceipt.cjs')
+const { buildEscPosReceipt, buildEscPosFromReceiptHtml, buildEscPosRaster } = require('./escposReceipt.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
@@ -457,6 +457,17 @@ function printHtml(html, options = {}) {
   }
 
   return (async () => {
+    // 1) Растр HTML — тот же дизайн/шрифты, что предпросмотр
+    try {
+      const res = await printReceiptHtmlRaster(html, options)
+      logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, h: res.height })
+      return res
+    } catch (errRaster) {
+      const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
+      logPrintDebug('receipt raster fail, try text escpos', { error: msgR })
+    }
+
+    // 2) Текстовый ESC/POS (fallback)
     try {
       if (options.sale && typeof options.sale === 'object') {
         const res = await printReceiptEscPos(options.sale, options)
@@ -476,10 +487,119 @@ function printHtml(html, options = {}) {
       } catch (err2) {
         const msg2 = err2 instanceof Error ? err2.message : String(err2)
         logPrintDebug('receipt gdi fail', { error: msg2 })
-        throw new Error(`Печать чека не удалась. RAW: ${msg}. GDI: ${msg2}`)
+        throw new Error(`Печать чека не удалась. Raster/RAW: ${msg}. GDI: ${msg2}`)
       }
     }
   })()
+}
+
+/** 58 мм ESC/POS: обычно 384 точки (48 мм печатная зона × 8 dot/mm) */
+function receiptRasterWidthDots(paperWidthMm) {
+  return Number(paperWidthMm) === 80 ? 576 : 384
+}
+
+function wrapReceiptHtmlForRaster(html, widthPx) {
+  const inject = `<meta name="color-scheme" content="light only"><style>
+:root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important;margin:0!important;}
+html,body{width:${widthPx}px!important;max-width:${widthPx}px!important;overflow:hidden!important;}
+body{padding:6px!important;box-sizing:border-box!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+.receipt{width:100%!important;max-width:100%!important;}
+*{color-scheme:light only!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+.black{background:#000!important;color:#fff!important;}
+</style>`
+  const s = String(html || '')
+  if (/<head[^>]*>/i.test(s)) {
+    return s.replace(/<head([^>]*)>/i, `<head$1>${inject}`)
+  }
+  return `<!DOCTYPE html><html><head>${inject}</head><body>${s}</body></html>`
+}
+
+async function captureReceiptMono(html, widthDots) {
+  const wPx = Math.max(192, Math.round(widthDots))
+  destroyPrintWindow()
+  printWindow = new BrowserWindow({
+    show: false,
+    width: wPx,
+    height: 900,
+    useContentSize: true,
+    enableLargerThanScreen: true,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      zoomFactor: 1,
+    },
+  })
+  const win = printWindow
+  const tmpFile = path.join(os.tmpdir(), `kakapo-receipt-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
+  fs.writeFileSync(tmpFile, wrapReceiptHtmlForRaster(html, wPx), 'utf8')
+
+  const prevTheme = nativeTheme.themeSource
+  nativeTheme.themeSource = 'light'
+  try {
+    await win.loadFile(tmpFile)
+    try { win.webContents.setZoomFactor(1) } catch { /* ignore */ }
+    await waitForPrintRender(win.webContents)
+    // чуть дольше — шрифты Arial / bold
+    await new Promise(r => setTimeout(r, 120))
+
+    const measured = await win.webContents.executeJavaScript(`
+      (function () {
+        document.documentElement.style.cssText = 'width:${wPx}px;margin:0;padding:0;background:#fff;';
+        document.body.style.cssText = 'width:${wPx}px;max-width:${wPx}px;margin:0;padding:6px;box-sizing:border-box;background:#fff;color:#000;';
+        const el = document.querySelector('.receipt') || document.body;
+        const h = Math.ceil(Math.max(
+          el.scrollHeight || 0,
+          el.getBoundingClientRect().height || 0,
+          document.body.scrollHeight || 0,
+          document.documentElement.scrollHeight || 0
+        ));
+        return Math.max(120, Math.min(2400, h + 8));
+      })()
+    `)
+    const hPx = Math.max(120, Math.round(Number(measured) || 400))
+    try { win.setContentSize(wPx, hPx) } catch { /* ignore */ }
+    await new Promise(r => setTimeout(r, 60))
+
+    let img = await win.webContents.capturePage({ x: 0, y: 0, width: wPx, height: hPx })
+    const sz = img.getSize()
+    if (sz.width !== wPx || sz.height !== hPx) {
+      img = img.resize({ width: wPx, height: hPx, quality: 'best' })
+    }
+    const size = img.getSize()
+    const bgra = img.toBitmap()
+    // чуть контрастнее порог — чёрная плашка «ТОВАРНЫЙ ЧЕК» и жирный текст
+    return monoFromBgra(bgra, size.width, size.height, wPx, hPx, 175)
+  } finally {
+    nativeTheme.themeSource = prevTheme
+    try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+    destroyPrintWindow()
+  }
+}
+
+async function printReceiptHtmlRaster(html, options = {}) {
+  const settings = loadPrinterSettings()
+  const printerName = await ensureReceiptPrinterName(options.printerName)
+  const paperWidthMm = printerNameMatches(printerName, XP_RECEIPT_HINTS)
+    ? 58
+    : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
+  const widthDots = receiptRasterWidthDots(paperWidthMm)
+
+  const mono = await captureReceiptMono(html, widthDots)
+  if (!mono || !mono.data || mono.height < 40) {
+    throw new Error('Пустой снимок чека')
+  }
+  const raw = buildEscPosRaster(mono, { cut: true })
+  await printRawWindows(printerName, raw)
+  return {
+    ok: true,
+    printerName,
+    role: 'receipt',
+    mode: 'escpos-raster',
+    pageWidthMm: paperWidthMm,
+    height: mono.height,
+  }
 }
 
 async function ensureReceiptPrinterName(preferred) {

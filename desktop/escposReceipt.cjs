@@ -287,8 +287,40 @@ function buildEscPosFromReceiptHtml(html, opts = {}) {
   return packEscPosLines(text, opts)
 }
 
+/**
+ * Raster ESC/POS (GS v 0): тот же дизайн/шрифты, что HTML-предпросмотр.
+ * mono: { data, widthBytes, width, height } — бит 1 = чёрный.
+ */
+function buildEscPosRaster(mono, opts = {}) {
+  const width = Math.max(8, Number(mono?.width) || 0)
+  const height = Math.max(1, Number(mono?.height) || 0)
+  const widthBytes = Math.max(1, Number(mono?.widthBytes) || Math.ceil(width / 8))
+  const src = Buffer.isBuffer(mono?.data) ? mono.data : Buffer.alloc(widthBytes * height)
+
+  // ширина в байтах для GS v 0
+  const xL = widthBytes & 0xff
+  const xH = (widthBytes >> 8) & 0xff
+  const yL = height & 0xff
+  const yH = (height >> 8) & 0xff
+
+  const chunks = []
+  chunks.push(Buffer.from([ESC, 0x40])) // init
+  chunks.push(Buffer.from([FS, 0x2E])) // cancel Kanji
+  chunks.push(Buffer.from([ESC, 0x61, 1])) // center image
+  // GS v 0 m=0 — normal density raster
+  chunks.push(Buffer.from([GS, 0x76, 0x30, 0x00, xL, xH, yL, yH]))
+  chunks.push(src.subarray(0, widthBytes * height))
+  chunks.push(Buffer.from([ESC, 0x61, 0])) // left
+  chunks.push(Buffer.from('\n\n\n', 'ascii'))
+  if (opts.cut !== false) {
+    chunks.push(Buffer.from([GS, 0x56, 0x01])) // partial cut
+  }
+  return Buffer.concat(chunks)
+}
+
 module.exports = {
   buildEscPosReceipt,
   buildEscPosFromReceiptHtml,
+  buildEscPosRaster,
   encodeCp866,
 }
