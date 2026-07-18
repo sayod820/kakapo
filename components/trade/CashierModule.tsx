@@ -42,10 +42,7 @@ import { buildPosReceiptHtml, printPosReceipt } from '@/lib/printPosReceipt'
 import {
   DEFAULT_RECEIPT_TEMPLATE,
   loadReceiptTemplate,
-  RECEIPT_FONT_OPTIONS,
   saveReceiptTemplate,
-  type ReceiptFont,
-  type ReceiptFontWeight,
   type ReceiptLang,
   type ReceiptTemplate,
 } from '@/lib/receiptTemplate'
@@ -61,6 +58,7 @@ import {
   useCategories,
 } from '@/lib/useCategories'
 import { fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
+import ReceiptDesignEditor from './ReceiptDesignEditor'
 import { POS_MOCK_CSS } from './posMockCss'
 
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
@@ -481,6 +479,7 @@ export default function CashierModule({
   const [editPosCode, setEditPosCode] = useState('')
   const [editPosNote, setEditPosNote] = useState('')
   const [receiptTpl, setReceiptTpl] = useState<ReceiptTemplate>(DEFAULT_RECEIPT_TEMPLATE)
+  const [receiptEditorOpen, setReceiptEditorOpen] = useState(false)
   const [deletePosId, setDeletePosId] = useState<string | null>(null)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
@@ -2617,6 +2616,21 @@ export default function CashierModule({
     setReceiptTpl(prev => ({ ...prev, lang }))
   }
 
+  async function saveReceiptDesign() {
+    saveReceiptTemplate(receiptTpl)
+    const desk = getKakapoDesktop()
+    if (desk) {
+      const current = await desk.getPrinterSettings().catch(() => null)
+      await desk.savePrinterSettings({
+        ...(current || {}),
+        receiptDensity: receiptTpl.printDensity,
+        receiptPrintMode: receiptTpl.printMode,
+      }).catch(() => undefined)
+    }
+    setReceiptEditorOpen(false)
+    showToast('Дизайн чека', 'Сохранено')
+  }
+
   async function confirmCreditNote() {
     if (!creditPending) return
     const note = creditNoteBuf.trim()
@@ -3499,7 +3513,35 @@ export default function CashierModule({
                   )}
                 </div>
 
-                <div className="pos-settings-card span-all">
+                <div className="pos-settings-card span-all receipt-design-launch">
+                  <div>
+                    <h3>Дизайн чека</h3>
+                    <p className="hint">
+                      Стандартный шаблон XP‑58C · 58 мм · {receiptTpl.printMode === 'raster' ? 'точный дизайн' : 'чёткий ESC/POS'} · плотность {receiptTpl.printDensity}/5
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-switch-till"
+                    onClick={() => setReceiptEditorOpen(true)}
+                  >
+                    ✎ Открыть редактор дизайна
+                  </button>
+                </div>
+
+                <ReceiptDesignEditor
+                  open={receiptEditorOpen}
+                  value={receiptTpl}
+                  previewHtml={receiptPreviewHtml}
+                  printBusy={deskPrintBusy}
+                  onChange={patchReceiptTpl}
+                  onReplace={setReceiptTpl}
+                  onClose={() => setReceiptEditorOpen(false)}
+                  onSave={() => void saveReceiptDesign()}
+                  onTest={() => void testReceiptPrinter()}
+                />
+
+                <div className="pos-settings-card span-all" style={{ display: 'none' }} aria-hidden="true">
                   <h3>Шаблон чека</h3>
                   <p className="hint">
                     Как у этикеток: размер контейнера, шрифт, жирность. Кнопка «Край–край» убирает поля.

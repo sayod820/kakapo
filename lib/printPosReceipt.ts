@@ -174,6 +174,8 @@ export function buildPosReceiptHtml(
   const contentPct = template.contentWidthPct
   const shopCase = template.shopUppercase ? 'uppercase' : 'none'
   const titleCase = template.titleUppercase ? 'uppercase' : 'none'
+  const titleBg = template.titleInverted ? '#000' : '#fff'
+  const titleColor = template.titleInverted ? '#fff' : '#000'
   const contactParts: string[] = []
   if (template.showAddress && storeAddress) contactParts.push(storeAddress)
   if (template.showPhone && storePhone) contactParts.push(storePhone)
@@ -203,7 +205,7 @@ export function buildPosReceiptHtml(
   .center{text-align:${template.storeAlign}}
   .sep{height:0;border:0;border-top:2px ${separator} #000;margin:${blockGap}px 0}
   .doc-title{
-    background:#fff;color:#000;text-align:${template.titleAlign};
+    background:${titleBg};color:${titleColor};text-align:${template.titleAlign};
     font-size:${bannerSize + 2}px;font-weight:${w.black};padding:8px 2px;margin:${blockGap}px 0;
     letter-spacing:${Math.max(0.02, Number(letterEm) + 0.03)}em;text-transform:${titleCase};
     border-top:2px solid #000;border-bottom:2px solid #000;

@@ -350,6 +350,47 @@ export const POS_MOCK_CSS = `
   .receipt-tpl-preview iframe{
     width:100%;height:100%;border:0;background:#fff;display:block;
   }
+  .receipt-design-launch{
+    display:flex;align-items:center;justify-content:space-between;gap:18px;
+  }
+  .receipt-design-launch .hint{margin-bottom:0;}
+  .receipt-design-launch .btn-switch-till{min-width:230px;}
+  .receipt-design-modal{
+    position:fixed;inset:0;z-index:1300;
+    display:flex;flex-direction:column;min-width:0;min-height:0;
+    background:var(--bg);color:var(--t1);
+  }
+  .receipt-design-top{
+    flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--border);
+  }
+  .receipt-design-top h2{margin:0;font-size:21px;font-weight:900;}
+  .receipt-design-top p{margin:3px 0 0;font-size:12px;font-weight:700;color:var(--t2);}
+  .receipt-design-body{
+    flex:1;min-height:0;display:grid;grid-template-columns:minmax(360px,1fr) 340px;
+    gap:20px;padding:20px 24px;overflow:hidden;
+  }
+  .receipt-design-controls{
+    min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));
+    gap:14px;align-content:start;padding-right:4px;
+  }
+  .receipt-design-controls .receipt-editor-box{margin:0;}
+  .receipt-design-controls .gate-input{margin-bottom:0;}
+  .receipt-design-preview{
+    min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center;
+    background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:16px;
+  }
+  .receipt-design-preview-head{width:100%;margin-bottom:10px;}
+  .receipt-design-preview-head b{display:block;font-size:13px;font-weight:900;}
+  .receipt-design-preview-head span{display:block;margin-top:3px;font-size:11px;color:var(--t3);font-weight:700;}
+  .receipt-design-preview .receipt-tpl-preview{
+    width:260px;max-width:100%;height:100%;min-height:420px;
+  }
+  .receipt-design-actions{
+    flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center;gap:10px;
+    padding:12px 24px;background:var(--surface);border-top:1px solid var(--border);
+  }
+  .receipt-design-actions .btn-gate{width:auto;min-width:220px;}
 
   @media (max-width:860px){
     .pos-settings-wrap{grid-template-columns:1fr;}
@@ -359,6 +400,12 @@ export const POS_MOCK_CSS = `
     .pos-settings-top{padding:14px 16px;align-items:flex-start;}
     .pos-settings-scroll{padding:14px 16px 20px;}
     .pos-settings-actions{padding:12px 16px;}
+    .receipt-design-launch{align-items:stretch;flex-direction:column;}
+    .receipt-design-launch .btn-switch-till{width:100%;min-width:0;}
+    .receipt-design-body{grid-template-columns:1fr;overflow:auto;padding:12px;}
+    .receipt-design-controls{grid-template-columns:1fr;overflow:visible;}
+    .receipt-design-preview{min-height:500px;}
+    .receipt-design-actions{padding:10px 12px;flex-wrap:wrap;}
   }
   .cashier-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;}
   .pos-root button.cashier-opt{padding:12px 5px;border-radius:14px;border:1.5px solid var(--border);background:var(--surface2);text-align:center;color:var(--t1);}

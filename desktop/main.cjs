@@ -572,7 +572,7 @@ body{
   font-smooth:never!important;text-rendering:optimizeSpeed!important;
 }
 .receipt{max-width:100%!important;margin-left:auto!important;margin-right:auto!important;}
-.doc-title,.black{background:#fff!important;color:#000!important;border-radius:0!important;}
+.doc-title,.black{border-radius:0!important;}
 .muted,.meta-row span,.foot{color:#000!important;}
 /* Чуть развести штрихи цифр — меньше заливка 8/0/3/6 */
 .item-calc,.sum-row,.total,.meta-row b{letter-spacing:.04em!important;}

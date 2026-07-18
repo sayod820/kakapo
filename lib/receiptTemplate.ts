@@ -5,6 +5,7 @@ export type ReceiptFont = 'arial' | 'arial-narrow' | 'tahoma' | 'verdana' | 'tim
 export type ReceiptFontWeight = 'normal' | 'medium' | 'bold' | 'black'
 
 export type ReceiptTemplate = {
+  schemaVersion: 2
   lang: ReceiptLang
   storeName: string
   storeAddress: string
@@ -36,6 +37,8 @@ export type ReceiptTemplate = {
   titleAlign: ReceiptAlign
   footerAlign: ReceiptAlign
   separatorStyle: ReceiptSeparator
+  /** Чёрная плашка с белым названием чека */
+  titleInverted: boolean
   shopUppercase: boolean
   titleUppercase: boolean
   valuesBold: boolean
@@ -95,6 +98,7 @@ export const RECEIPT_FONT_OPTIONS: { id: ReceiptFont; label: string }[] = [
 ]
 
 export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
+  schemaVersion: 2,
   lang: 'ru',
   storeName: 'KAKAPO',
   storeAddress: '',
@@ -109,12 +113,13 @@ export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
   letterSpacing: 0,
   paddingMm: 1,
   contentWidthPct: 100,
-  printDensity: 3,
-  printMode: 'text',
+  printDensity: 2,
+  printMode: 'raster',
   storeAlign: 'center',
   titleAlign: 'center',
   footerAlign: 'center',
   separatorStyle: 'dotted',
+  titleInverted: true,
   shopUppercase: true,
   titleUppercase: true,
   valuesBold: true,
@@ -231,8 +236,10 @@ function asSep(v: unknown): ReceiptSeparator {
 
 export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<ReceiptTemplate>
+  const legacy = p.schemaVersion !== 2
   const lang: ReceiptLang = p.lang === 'tg' ? 'tg' : 'ru'
   return {
+    schemaVersion: 2,
     lang,
     storeName: String(p.storeName ?? DEFAULT_RECEIPT_TEMPLATE.storeName).trim() || 'KAKAPO',
     storeAddress: String(p.storeAddress ?? '').trim(),
@@ -247,12 +254,13 @@ export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
     letterSpacing: Math.max(0, Math.min(80, Math.round(Number(p.letterSpacing) || 0))),
     paddingMm: Math.max(0, Math.min(6, Math.round((Number(p.paddingMm ?? DEFAULT_RECEIPT_TEMPLATE.paddingMm)) * 10) / 10 || 0)),
     contentWidthPct: Math.max(88, Math.min(100, Math.round(Number(p.contentWidthPct ?? DEFAULT_RECEIPT_TEMPLATE.contentWidthPct) || 100))),
-    printDensity: Math.max(1, Math.min(5, Math.round(Number(p.printDensity) || 3))),
-    printMode: p.printMode === 'raster' ? 'raster' : 'text',
+    printDensity: Math.max(1, Math.min(5, Math.round(Number(legacy ? 2 : p.printDensity) || 2))),
+    printMode: legacy ? 'raster' : (p.printMode === 'text' ? 'text' : 'raster'),
     storeAlign: asAlign(p.storeAlign),
     titleAlign: asAlign(p.titleAlign),
     footerAlign: asAlign(p.footerAlign),
     separatorStyle: asSep(p.separatorStyle),
+    titleInverted: legacy ? true : p.titleInverted !== false,
     shopUppercase: p.shopUppercase !== false,
     titleUppercase: p.titleUppercase !== false,
     valuesBold: p.valuesBold !== false,
