@@ -4,6 +4,8 @@ import { pickReceiptPrinter, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import {
   loadReceiptTemplate,
   normalizeReceiptTemplate,
+  receiptFontCss,
+  receiptWeightCss,
   resolveReceiptTexts,
   type ReceiptLabels,
   type ReceiptTemplate,
@@ -71,15 +73,6 @@ function metaRow(label: string, value?: string | number | null) {
 function moneyRow(label: string, value: number, currency: string, cls = '') {
   if (!(Math.abs(Number(value) || 0) > 0.001)) return ''
   return `<div class="sum-row ${cls}"><span>${esc(label)}</span><b>${money(Number(value) || 0, currency)}</b></div>`
-}
-
-function receiptFontCss(font: ReceiptTemplate['fontFamily']) {
-  if (font === 'arial-narrow') return "'Arial Narrow','Roboto Condensed',Arial,sans-serif"
-  if (font === 'tahoma') return "Tahoma,Arial,sans-serif"
-  if (font === 'verdana') return "Verdana,Arial,sans-serif"
-  if (font === 'times') return "'Times New Roman',Times,serif"
-  if (font === 'courier') return "'Courier New',Courier,monospace"
-  return "Arial,'Helvetica Neue',sans-serif"
 }
 
 function mergePrintOpts(opts?: PosReceiptPrintOpts) {
@@ -169,56 +162,83 @@ export function buildPosReceiptHtml(
   const titleSize = px(paperWidthMm === 58 ? 28 : 24)
   const totalSize = px(paperWidthMm === 58 ? 22 : 20)
   const bannerSize = px(paperWidthMm === 58 ? 15 : 14)
-  const blockPad = template.compact ? 4 : 7
-  const blockGap = template.compact ? 5 : 9
-  const separator = template.separatorStyle === 'solid' ? 'solid' : 'dotted'
+  const blockPad = template.compact ? 3 : 7
+  const blockGap = template.compact ? 4 : 9
+  const separator = template.separatorStyle
   const fontFamily = receiptFontCss(template.fontFamily)
+  const w = receiptWeightCss(template.fontWeight)
+  const valueWeight = template.valuesBold ? w.black : w.strong
+  const lineHeight = (template.lineHeightPct / 100).toFixed(2)
+  const letterEm = (template.letterSpacing / 100).toFixed(2)
+  const padMm = template.paddingMm
+  const contentPct = template.contentWidthPct
+  const shopCase = template.shopUppercase ? 'uppercase' : 'none'
+  const titleCase = template.titleUppercase ? 'uppercase' : 'none'
+  const contactParts: string[] = []
+  if (template.showAddress && storeAddress) contactParts.push(storeAddress)
+  if (template.showPhone && storePhone) contactParts.push(storePhone)
   const htmlLang = template.lang === 'tg' ? 'tg' : 'ru'
 
   return `<!DOCTYPE html><html lang="${htmlLang}"><head><meta charset="utf-8"><title>${esc(titleBanner)} ${esc(receiptTitle(sale))}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   :root{color-scheme:light only}
-  body{font-family:${fontFamily};background:#fff;color:#000;padding:8px;width:${paperWidthMm}mm;max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .receipt{font-size:${fontSize}px;line-height:1.35;font-weight:700}
-  .shop{text-align:${template.storeAlign};font-weight:900;font-size:${titleSize}px;letter-spacing:.6px;line-height:1.08;text-transform:uppercase}
-  .tag{text-align:${template.storeAlign};font-weight:800;font-size:${smallSize}px;margin-top:3px}
-  .muted{color:#111;font-size:${smallSize}px;line-height:1.3;font-weight:700}
+  body{
+    font-family:${fontFamily};background:#fff;color:#000;
+    padding:${padMm}mm;width:${paperWidthMm}mm;max-width:100%;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+    -webkit-font-smoothing:none;font-smooth:never;
+  }
+  .receipt{
+    width:${contentPct}%;max-width:100%;margin:0 auto;
+    font-size:${fontSize}px;line-height:${lineHeight};font-weight:${w.base};
+    letter-spacing:${letterEm}em;
+  }
+  .shop{
+    text-align:${template.storeAlign};font-weight:${w.black};font-size:${titleSize}px;
+    letter-spacing:${Math.max(0.02, Number(letterEm) + 0.04)}em;line-height:1.08;text-transform:${shopCase};
+  }
+  .tag{text-align:${template.storeAlign};font-weight:${w.strong};font-size:${smallSize}px;margin-top:3px}
+  .muted{color:#111;font-size:${smallSize}px;line-height:${lineHeight};font-weight:${w.base}}
   .center{text-align:${template.storeAlign}}
   .sep{height:0;border:0;border-top:2px ${separator} #000;margin:${blockGap}px 0}
   .doc-title{
-    background:#fff;color:#000;text-align:center;
-    font-size:${bannerSize + 2}px;font-weight:900;padding:8px 4px;margin:8px 0 7px;
-    letter-spacing:.04em;text-transform:uppercase;
+    background:#fff;color:#000;text-align:${template.titleAlign};
+    font-size:${bannerSize + 2}px;font-weight:${w.black};padding:8px 2px;margin:${blockGap}px 0;
+    letter-spacing:${Math.max(0.02, Number(letterEm) + 0.03)}em;text-transform:${titleCase};
     border-top:2px solid #000;border-bottom:2px solid #000;
   }
-  .meta-row,.sum-row,.item-calc{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
-  .meta-row{font-size:${smallSize}px;margin:3px 0;font-weight:700}
-  .meta-row span{color:#111;font-weight:700}
-  .meta-row b{font-weight:900;text-align:right;word-break:break-word}
-  .customer{border:2px solid #000;border-radius:5px;padding:${blockPad}px;margin:${blockGap}px 0}
-  .customer-title{font-size:${smallSize}px;font-weight:900;text-transform:uppercase;margin-bottom:3px}
-  .customer-name{font-weight:900;font-size:${fontSize}px}
+  .meta-row,.sum-row,.item-calc{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}
+  .meta-row{font-size:${smallSize}px;margin:3px 0;font-weight:${w.base}}
+  .meta-row span{color:#111;font-weight:${w.base}}
+  .meta-row b{font-weight:${valueWeight};text-align:right;word-break:break-word}
+  .customer{border:2px solid #000;border-radius:4px;padding:${blockPad}px;margin:${blockGap}px 0}
+  .customer-title{font-size:${smallSize}px;font-weight:${w.black};text-transform:uppercase;margin-bottom:3px}
+  .customer-name{font-weight:${w.black};font-size:${fontSize}px}
   .item{padding:${blockPad}px 0;border-bottom:2px ${separator} #000}
-  .item-name{font-weight:900;word-break:break-word;font-size:${fontSize}px}
-  .item-name em{display:block;font-style:normal;font-size:${smallSize}px;font-weight:800;color:#000;margin-top:2px}
-  .item-calc{font-family:${fontFamily};margin-top:4px;font-size:${fontSize}px;font-weight:800}
-  .item-calc b{font-size:${fontSize + 1}px;white-space:nowrap;font-weight:900}
-  .sum-row{font-size:${fontSize}px;margin:4px 0;font-weight:800}
-  .sum-row b{font-weight:900;white-space:nowrap}
+  .item-name{font-weight:${w.black};word-break:break-word;font-size:${fontSize}px}
+  .item-name em{display:block;font-style:normal;font-size:${smallSize}px;font-weight:${w.strong};color:#000;margin-top:2px}
+  .item-calc{font-family:${fontFamily};margin-top:4px;font-size:${fontSize}px;font-weight:${w.strong}}
+  .item-calc b{font-size:${fontSize + 1}px;white-space:nowrap;font-weight:${valueWeight}}
+  .sum-row{font-size:${fontSize}px;margin:4px 0;font-weight:${w.strong}}
+  .sum-row b{font-weight:${valueWeight};white-space:nowrap}
   .sum-row.debt b{border-bottom:2px solid #000}
   .sum-row.change b{font-size:${fontSize + 2}px}
-  .total{display:flex;justify-content:space-between;gap:8px;align-items:flex-end;font-size:${totalSize}px;font-weight:900;margin:8px 0 6px;text-transform:uppercase;letter-spacing:.02em}
+  .total{
+    display:flex;justify-content:space-between;gap:6px;align-items:flex-end;
+    font-size:${totalSize}px;font-weight:${w.black};margin:${blockGap}px 0 6px;text-transform:uppercase;
+    letter-spacing:${Math.max(0.01, Number(letterEm) + 0.01)}em;
+  }
   .total span:last-child{white-space:nowrap}
-  .note{font-size:${smallSize}px;margin-top:8px;color:#000;white-space:pre-wrap;border-top:2px dotted #000;padding-top:6px;font-weight:700}
-  .foot{text-align:center;font-size:${smallSize}px;margin-top:12px;color:#000;font-weight:700}
-  .thanks{font-weight:900;font-size:${fontSize + 2}px;margin-bottom:4px}
-  @media print{body{padding:4px;width:${paperWidthMm}mm}.receipt{page-break-inside:avoid}}
+  .note{font-size:${smallSize}px;margin-top:8px;color:#000;white-space:pre-wrap;border-top:2px ${separator} #000;padding-top:6px;font-weight:${w.base}}
+  .foot{text-align:${template.footerAlign};font-size:${smallSize}px;margin-top:12px;color:#000;font-weight:${w.base}}
+  .thanks{font-weight:${w.black};font-size:${fontSize + 2}px;margin-bottom:4px}
+  @media print{body{padding:${padMm}mm;width:${paperWidthMm}mm}.receipt{page-break-inside:avoid}}
 </style></head><body>
   <div class="receipt">
     <div class="shop">${store}</div>
     <div class="tag">${headerText}</div>
-    ${(storeAddress || storePhone) ? `<div class="center muted">${storeAddress}${storeAddress && storePhone ? '<br>' : ''}${storePhone}</div>` : ''}
+    ${contactParts.length ? `<div class="center muted">${contactParts.join('<br>')}</div>` : ''}
     <hr class="sep"/>
     <div class="doc-title">${esc(titleBanner)}</div>
     ${metaRow(L.orderNo, orderNo)}
@@ -308,6 +328,7 @@ export async function printPosReceipt(
       pageHeightMm,
       receiptLang: template.lang,
       receiptDensity: template.printDensity,
+      receiptPaddingMm: template.paddingMm,
       // Всегда ESC/POS RAW (GDI на XP-58C часто крутит пустую ленту).
       // Таджикские ғқҳҷӯӣ desktop сворачивает в ближайшие CP866.
       sale,

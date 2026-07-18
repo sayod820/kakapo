@@ -495,24 +495,23 @@ function receiptRasterWidthDots(paperWidthMm) {
   return Number(paperWidthMm) === 80 ? 576 : 384
 }
 
-function wrapReceiptHtmlForRaster(html, widthPx) {
-  // Не перебиваем размеры из HTML-шаблона — печать = предпросмотр.
-  // Только: ширина 58мм→точки, чёрный текст на белом для заголовка, без antialias.
+function wrapReceiptHtmlForRaster(html, widthPx, paddingMm = 1) {
+  const pad = Math.max(0, Math.min(6, Number(paddingMm) || 0))
+  // Не перебиваем размеры/шрифты из HTML-шаблона — печать = предпросмотр.
+  // Только: ширина ленты, поля контейнера, белый заголовок, без antialias.
   const inject = `<meta name="color-scheme" content="light only"><style>
 :root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important;margin:0!important;}
 html,body{width:${widthPx}px!important;max-width:${widthPx}px!important;overflow:hidden!important;}
 body{
-  padding:8px!important;box-sizing:border-box!important;
+  padding:${pad}mm!important;box-sizing:border-box!important;
   -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
   -webkit-font-smoothing:none!important;font-smooth:never!important;
   text-rendering:geometricPrecision!important;
 }
-.receipt{width:100%!important;max-width:100%!important;}
+.receipt{max-width:100%!important;margin-left:auto!important;margin-right:auto!important;}
 .doc-title,.black{
   background:#fff!important;color:#000!important;
-  font-weight:900!important;text-transform:uppercase!important;
-  border-top:2px solid #000!important;border-bottom:2px solid #000!important;
-  border-radius:0!important;padding:8px 4px!important;
+  border-radius:0!important;
 }
 .muted,.meta-row span,.foot{color:#000!important;}
 *{
@@ -528,7 +527,7 @@ body{
   return `<!DOCTYPE html><html><head>${inject}</head><body>${s}</body></html>`
 }
 
-async function captureReceiptMono(html, widthDots, density = 4) {
+async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
   const wPx = Math.max(192, Math.round(widthDots))
   destroyPrintWindow()
   printWindow = new BrowserWindow({
@@ -547,7 +546,7 @@ async function captureReceiptMono(html, widthDots, density = 4) {
   })
   const win = printWindow
   const tmpFile = path.join(os.tmpdir(), `kakapo-receipt-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
-  fs.writeFileSync(tmpFile, wrapReceiptHtmlForRaster(html, wPx), 'utf8')
+  fs.writeFileSync(tmpFile, wrapReceiptHtmlForRaster(html, wPx, paddingMm), 'utf8')
 
   const prevTheme = nativeTheme.themeSource
   nativeTheme.themeSource = 'light'
@@ -555,13 +554,13 @@ async function captureReceiptMono(html, widthDots, density = 4) {
     await win.loadFile(tmpFile)
     try { win.webContents.setZoomFactor(1) } catch { /* ignore */ }
     await waitForPrintRender(win.webContents)
-    // чуть дольше — шрифты Arial / bold
     await new Promise(r => setTimeout(r, 120))
 
+    const padCss = `${Math.max(0, Math.min(6, Number(paddingMm) || 0))}mm`
     const measured = await win.webContents.executeJavaScript(`
       (function () {
         document.documentElement.style.cssText = 'width:${wPx}px;margin:0;padding:0;background:#fff;';
-        document.body.style.cssText = 'width:${wPx}px;max-width:${wPx}px;margin:0;padding:6px;box-sizing:border-box;background:#fff;color:#000;';
+        document.body.style.cssText = 'width:${wPx}px;max-width:${wPx}px;margin:0;padding:${padCss};box-sizing:border-box;background:#fff;color:#000;';
         const el = document.querySelector('.receipt') || document.body;
         const h = Math.ceil(Math.max(
           el.scrollHeight || 0,
@@ -584,7 +583,6 @@ async function captureReceiptMono(html, widthDots, density = 4) {
     const size = img.getSize()
     const bgra = img.toBitmap()
     const level = Math.max(1, Math.min(5, Math.round(Number(density) || 4)))
-    // Ниже = тоньше/резче, выше = темнее/толще.
     const threshold = 108 + level * 12
     return monoFromBgra(bgra, size.width, size.height, wPx, hPx, threshold)
   } finally {
@@ -602,7 +600,7 @@ async function printReceiptHtmlRaster(html, options = {}) {
     : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
   const widthDots = receiptRasterWidthDots(paperWidthMm)
 
-  const mono = await captureReceiptMono(html, widthDots, options.receiptDensity)
+  const mono = await captureReceiptMono(html, widthDots, options.receiptDensity, options.receiptPaddingMm)
   if (!mono || !mono.data || mono.height < 40) {
     throw new Error('Пустой снимок чека')
   }

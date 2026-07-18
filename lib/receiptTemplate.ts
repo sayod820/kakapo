@@ -1,7 +1,8 @@
 export type ReceiptLang = 'ru' | 'tg'
 export type ReceiptAlign = 'left' | 'center'
-export type ReceiptSeparator = 'dotted' | 'solid'
+export type ReceiptSeparator = 'dotted' | 'solid' | 'dashed'
 export type ReceiptFont = 'arial' | 'arial-narrow' | 'tahoma' | 'verdana' | 'times' | 'courier'
+export type ReceiptFontWeight = 'normal' | 'medium' | 'bold' | 'black'
 
 export type ReceiptTemplate = {
   lang: ReceiptLang
@@ -14,17 +15,34 @@ export type ReceiptTemplate = {
   footerThanks: string
   /** Нижняя подсказка; пусто = из словаря */
   footerNote: string
-  /** Масштаб всех шрифтов: 85–125% */
+  /** Масштаб всех шрифтов: 80–140% */
   fontScale: number
   fontFamily: ReceiptFont
+  /** Жирность основного текста */
+  fontWeight: ReceiptFontWeight
+  /** Межстрочный интервал 110–160 (%) */
+  lineHeightPct: number
+  /** Межбуквенный интервал 0–80 (×0.01em) */
+  letterSpacing: number
+  /** Поля контейнера 0–6 мм — 0 = от края до края */
+  paddingMm: number
+  /** Ширина контента 88–100% ленты */
+  contentWidthPct: number
   /** Плотность растровой печати: 1–5 */
   printDensity: number
   storeAlign: ReceiptAlign
+  titleAlign: ReceiptAlign
+  footerAlign: ReceiptAlign
   separatorStyle: ReceiptSeparator
+  shopUppercase: boolean
+  titleUppercase: boolean
+  valuesBold: boolean
   compact: boolean
   showCustomer: boolean
   showCashier: boolean
   showFooter: boolean
+  showPhone: boolean
+  showAddress: boolean
 }
 
 export type ReceiptLabels = {
@@ -65,6 +83,15 @@ export type ReceiptLabels = {
 
 export const RECEIPT_TEMPLATE_KEY = 'kakapo_trade_receipt_template'
 
+export const RECEIPT_FONT_OPTIONS: { id: ReceiptFont; label: string }[] = [
+  { id: 'arial', label: 'Arial — стандартный' },
+  { id: 'arial-narrow', label: 'Arial Narrow — узкий' },
+  { id: 'tahoma', label: 'Tahoma — чёткий' },
+  { id: 'verdana', label: 'Verdana — широкий' },
+  { id: 'times', label: 'Times New Roman' },
+  { id: 'courier', label: 'Courier New — кассовый' },
+]
+
 export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
   lang: 'ru',
   storeName: 'KAKAPO',
@@ -75,13 +102,25 @@ export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
   footerNote: '',
   fontScale: 100,
   fontFamily: 'arial',
+  fontWeight: 'bold',
+  lineHeightPct: 135,
+  letterSpacing: 0,
+  paddingMm: 1,
+  contentWidthPct: 100,
   printDensity: 4,
   storeAlign: 'center',
+  titleAlign: 'center',
+  footerAlign: 'center',
   separatorStyle: 'dotted',
+  shopUppercase: true,
+  titleUppercase: true,
+  valuesBold: true,
   compact: false,
   showCustomer: true,
   showCashier: true,
   showFooter: true,
+  showPhone: true,
+  showAddress: true,
 }
 
 const LABELS_RU: ReceiptLabels = {
@@ -160,18 +199,36 @@ export function receiptLabels(lang: ReceiptLang): ReceiptLabels {
   return lang === 'tg' ? LABELS_TG : LABELS_RU
 }
 
+function asFont(v: unknown): ReceiptFont {
+  return (
+    v === 'arial-narrow'
+    || v === 'tahoma'
+    || v === 'verdana'
+    || v === 'times'
+    || v === 'courier'
+  ) ? v : 'arial'
+}
+
+function asWeight(v: unknown): ReceiptFontWeight {
+  return (
+    v === 'normal'
+    || v === 'medium'
+    || v === 'bold'
+    || v === 'black'
+  ) ? v : 'bold'
+}
+
+function asAlign(v: unknown): ReceiptAlign {
+  return v === 'left' ? 'left' : 'center'
+}
+
+function asSep(v: unknown): ReceiptSeparator {
+  return v === 'solid' || v === 'dashed' ? v : 'dotted'
+}
+
 export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<ReceiptTemplate>
   const lang: ReceiptLang = p.lang === 'tg' ? 'tg' : 'ru'
-  const fontScale = Math.max(85, Math.min(125, Math.round(Number(p.fontScale) || 100)))
-  const printDensity = Math.max(1, Math.min(5, Math.round(Number(p.printDensity) || 4)))
-  const fontFamily: ReceiptFont = (
-    p.fontFamily === 'arial-narrow'
-    || p.fontFamily === 'tahoma'
-    || p.fontFamily === 'verdana'
-    || p.fontFamily === 'times'
-    || p.fontFamily === 'courier'
-  ) ? p.fontFamily : 'arial'
   return {
     lang,
     storeName: String(p.storeName ?? DEFAULT_RECEIPT_TEMPLATE.storeName).trim() || 'KAKAPO',
@@ -180,15 +237,27 @@ export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
     headerText: String(p.headerText ?? '').trim(),
     footerThanks: String(p.footerThanks ?? '').trim(),
     footerNote: String(p.footerNote ?? '').trim(),
-    fontScale,
-    fontFamily,
-    printDensity,
-    storeAlign: p.storeAlign === 'left' ? 'left' : 'center',
-    separatorStyle: p.separatorStyle === 'solid' ? 'solid' : 'dotted',
+    fontScale: Math.max(80, Math.min(140, Math.round(Number(p.fontScale) || 100))),
+    fontFamily: asFont(p.fontFamily),
+    fontWeight: asWeight(p.fontWeight),
+    lineHeightPct: Math.max(110, Math.min(160, Math.round(Number(p.lineHeightPct) || 135))),
+    letterSpacing: Math.max(0, Math.min(80, Math.round(Number(p.letterSpacing) || 0))),
+    paddingMm: Math.max(0, Math.min(6, Math.round((Number(p.paddingMm ?? DEFAULT_RECEIPT_TEMPLATE.paddingMm)) * 10) / 10 || 0)),
+    contentWidthPct: Math.max(88, Math.min(100, Math.round(Number(p.contentWidthPct ?? DEFAULT_RECEIPT_TEMPLATE.contentWidthPct) || 100))),
+    printDensity: Math.max(1, Math.min(5, Math.round(Number(p.printDensity) || 4))),
+    storeAlign: asAlign(p.storeAlign),
+    titleAlign: asAlign(p.titleAlign),
+    footerAlign: asAlign(p.footerAlign),
+    separatorStyle: asSep(p.separatorStyle),
+    shopUppercase: p.shopUppercase !== false,
+    titleUppercase: p.titleUppercase !== false,
+    valuesBold: p.valuesBold !== false,
     compact: p.compact === true,
     showCustomer: p.showCustomer !== false,
     showCashier: p.showCashier !== false,
     showFooter: p.showFooter !== false,
+    showPhone: p.showPhone !== false,
+    showAddress: p.showAddress !== false,
   }
 }
 
@@ -219,4 +288,20 @@ export function resolveReceiptTexts(template: ReceiptTemplate) {
     footerThanks: template.footerThanks || labels.thanks,
     footerNote: template.footerNote || labels.keepReceipt,
   }
+}
+
+export function receiptFontCss(font: ReceiptFont) {
+  if (font === 'arial-narrow') return "'Arial Narrow','Roboto Condensed',Arial,sans-serif"
+  if (font === 'tahoma') return 'Tahoma,Arial,sans-serif'
+  if (font === 'verdana') return 'Verdana,Arial,sans-serif'
+  if (font === 'times') return "'Times New Roman',Times,serif"
+  if (font === 'courier') return "'Courier New',Courier,monospace"
+  return "Arial,'Helvetica Neue',sans-serif"
+}
+
+export function receiptWeightCss(weight: ReceiptFontWeight) {
+  if (weight === 'normal') return { base: 500, strong: 700, black: 800 }
+  if (weight === 'medium') return { base: 600, strong: 800, black: 900 }
+  if (weight === 'black') return { base: 800, strong: 900, black: 900 }
+  return { base: 700, strong: 800, black: 900 }
 }

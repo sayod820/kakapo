@@ -336,6 +336,12 @@ export const POS_MOCK_CSS = `
     font-size:11.5px;font-weight:800;
   }
   .pos-root button.receipt-editor-reset:hover{border-color:var(--accent);color:var(--accent);}
+  .receipt-editor-row-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
+  .receipt-editor-row-btns .receipt-editor-reset{margin-top:0;}
+  .receipt-editor-checks{grid-template-columns:1fr 1fr;}
+  @media (max-width:860px){
+    .receipt-editor-row-btns{grid-template-columns:1fr;}
+  }
   .receipt-tpl-preview-wrap .gate-label{display:block;margin-bottom:8px;}
   .receipt-tpl-preview{
     width:100%;max-width:240px;height:min(520px,62vh);border-radius:12px;overflow:hidden;

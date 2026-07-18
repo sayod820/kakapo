@@ -42,7 +42,10 @@ import { buildPosReceiptHtml, printPosReceipt } from '@/lib/printPosReceipt'
 import {
   DEFAULT_RECEIPT_TEMPLATE,
   loadReceiptTemplate,
+  RECEIPT_FONT_OPTIONS,
   saveReceiptTemplate,
+  type ReceiptFont,
+  type ReceiptFontWeight,
   type ReceiptLang,
   type ReceiptTemplate,
 } from '@/lib/receiptTemplate'
@@ -3497,7 +3500,7 @@ export default function CashierModule({
                 <div className="pos-settings-card span-all">
                   <h3>Шаблон чека</h3>
                   <p className="hint">
-                    Печать идёт точь-в-точь как предпросмотр справа. «ТОВАРНЫЙ ЧЕК» — белый фон, чёрный текст.
+                    Как у этикеток: размер контейнера, шрифт, жирность. Кнопка «Край–край» убирает поля.
                   </p>
                   <div className="receipt-tpl-grid">
                     <div className="receipt-tpl-form">
@@ -3521,44 +3524,114 @@ export default function CashierModule({
                         </div>
                       </div>
                       <div className="receipt-editor-box">
-                        <div className="receipt-editor-title">Дизайн печати</div>
+                        <div className="receipt-editor-title">Контейнер · от края до края</div>
                         <div className="pos-settings-field">
-                          <span className="gate-label">Шрифт</span>
+                          <span className="gate-label">Поля контейнера · {receiptTpl.paddingMm} мм {receiptTpl.paddingMm <= 0 ? '(край–край)' : ''}</span>
+                          <input
+                            className="receipt-editor-range"
+                            type="range"
+                            min="0"
+                            max="6"
+                            step="0.5"
+                            value={receiptTpl.paddingMm}
+                            onChange={e => patchReceiptTpl({ paddingMm: Number(e.target.value) })}
+                          />
+                        </div>
+                        <div className="pos-settings-field">
+                          <span className="gate-label">Ширина контента · {receiptTpl.contentWidthPct}%</span>
+                          <input
+                            className="receipt-editor-range"
+                            type="range"
+                            min="88"
+                            max="100"
+                            step="1"
+                            value={receiptTpl.contentWidthPct}
+                            onChange={e => patchReceiptTpl({ contentWidthPct: Number(e.target.value) })}
+                          />
+                        </div>
+
+                        <div className="receipt-editor-title" style={{ marginTop: 12 }}>Шрифт · детально</div>
+                        <div className="pos-settings-field">
+                          <span className="gate-label">Семейство</span>
                           <select
                             className="gate-input receipt-font-select"
                             value={receiptTpl.fontFamily}
-                            onChange={e => patchReceiptTpl({
-                              fontFamily: (
-                                e.target.value === 'arial-narrow'
-                                || e.target.value === 'tahoma'
-                                || e.target.value === 'verdana'
-                                || e.target.value === 'times'
-                                || e.target.value === 'courier'
-                              ) ? e.target.value : 'arial',
-                            })}
+                            onChange={e => patchReceiptTpl({ fontFamily: e.target.value as ReceiptFont })}
                           >
-                            <option value="arial">Arial — стандартный</option>
-                            <option value="arial-narrow">Arial Narrow — узкий</option>
-                            <option value="tahoma">Tahoma — чёткий</option>
-                            <option value="verdana">Verdana — широкий</option>
-                            <option value="times">Times New Roman</option>
-                            <option value="courier">Courier New — кассовый</option>
+                            {RECEIPT_FONT_OPTIONS.map(f => (
+                              <option key={f.id} value={f.id}>{f.label}</option>
+                            ))}
                           </select>
+                        </div>
+                        <div className="receipt-editor-two">
+                          <div className="pos-settings-field">
+                            <span className="gate-label">Жирность</span>
+                            <select
+                              className="gate-input"
+                              value={receiptTpl.fontWeight}
+                              onChange={e => patchReceiptTpl({ fontWeight: e.target.value as ReceiptFontWeight })}
+                            >
+                              <option value="normal">Обычный</option>
+                              <option value="medium">Средний</option>
+                              <option value="bold">Жирный</option>
+                              <option value="black">Очень жирный</option>
+                            </select>
+                          </div>
+                          <div className="pos-settings-field">
+                            <span className="gate-label">Разделители</span>
+                            <select
+                              className="gate-input"
+                              value={receiptTpl.separatorStyle}
+                              onChange={e => patchReceiptTpl({
+                                separatorStyle: e.target.value === 'solid' || e.target.value === 'dashed'
+                                  ? e.target.value
+                                  : 'dotted',
+                              })}
+                            >
+                              <option value="dotted">Точки</option>
+                              <option value="dashed">Пунктир</option>
+                              <option value="solid">Сплошные</option>
+                            </select>
+                          </div>
                         </div>
                         <div className="pos-settings-field">
                           <span className="gate-label">Размер шрифта · {receiptTpl.fontScale}%</span>
                           <input
                             className="receipt-editor-range"
                             type="range"
-                            min="85"
-                            max="125"
+                            min="80"
+                            max="140"
                             step="5"
                             value={receiptTpl.fontScale}
                             onChange={e => patchReceiptTpl({ fontScale: Number(e.target.value) })}
                           />
                         </div>
                         <div className="pos-settings-field">
-                          <span className="gate-label">Чёткость / насыщенность · {receiptTpl.printDensity}/5</span>
+                          <span className="gate-label">Межстрочный · {receiptTpl.lineHeightPct}%</span>
+                          <input
+                            className="receipt-editor-range"
+                            type="range"
+                            min="110"
+                            max="160"
+                            step="5"
+                            value={receiptTpl.lineHeightPct}
+                            onChange={e => patchReceiptTpl({ lineHeightPct: Number(e.target.value) })}
+                          />
+                        </div>
+                        <div className="pos-settings-field">
+                          <span className="gate-label">Межбуквенный · {(receiptTpl.letterSpacing / 100).toFixed(2)}em</span>
+                          <input
+                            className="receipt-editor-range"
+                            type="range"
+                            min="0"
+                            max="80"
+                            step="5"
+                            value={receiptTpl.letterSpacing}
+                            onChange={e => patchReceiptTpl({ letterSpacing: Number(e.target.value) })}
+                          />
+                        </div>
+                        <div className="pos-settings-field">
+                          <span className="gate-label">Чёткость печати · {receiptTpl.printDensity}/5</span>
                           <input
                             className="receipt-editor-range"
                             type="range"
@@ -3569,82 +3642,109 @@ export default function CashierModule({
                             onChange={e => patchReceiptTpl({ printDensity: Number(e.target.value) })}
                           />
                         </div>
+
+                        <div className="receipt-editor-title" style={{ marginTop: 12 }}>Выравнивание</div>
                         <div className="receipt-editor-two">
                           <div className="pos-settings-field">
-                            <span className="gate-label">Название</span>
+                            <span className="gate-label">Магазин</span>
                             <select
                               className="gate-input"
                               value={receiptTpl.storeAlign}
                               onChange={e => patchReceiptTpl({ storeAlign: e.target.value === 'left' ? 'left' : 'center' })}
                             >
-                              <option value="center">По центру</option>
+                              <option value="center">Центр</option>
                               <option value="left">Слева</option>
                             </select>
                           </div>
                           <div className="pos-settings-field">
-                            <span className="gate-label">Разделители</span>
+                            <span className="gate-label">Заголовок</span>
                             <select
                               className="gate-input"
-                              value={receiptTpl.separatorStyle}
-                              onChange={e => patchReceiptTpl({ separatorStyle: e.target.value === 'solid' ? 'solid' : 'dotted' })}
+                              value={receiptTpl.titleAlign}
+                              onChange={e => patchReceiptTpl({ titleAlign: e.target.value === 'left' ? 'left' : 'center' })}
                             >
-                              <option value="dotted">Точками</option>
-                              <option value="solid">Сплошные</option>
+                              <option value="center">Центр</option>
+                              <option value="left">Слева</option>
                             </select>
                           </div>
                         </div>
+                        <div className="pos-settings-field">
+                          <span className="gate-label">Низ чека</span>
+                          <select
+                            className="gate-input"
+                            value={receiptTpl.footerAlign}
+                            onChange={e => patchReceiptTpl({ footerAlign: e.target.value === 'left' ? 'left' : 'center' })}
+                          >
+                            <option value="center">Центр</option>
+                            <option value="left">Слева</option>
+                          </select>
+                        </div>
+
+                        <div className="receipt-editor-title" style={{ marginTop: 12 }}>Блоки и стиль</div>
                         <div className="receipt-editor-checks">
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={receiptTpl.compact}
-                              onChange={e => patchReceiptTpl({ compact: e.target.checked })}
-                            />
+                            <input type="checkbox" checked={receiptTpl.compact} onChange={e => patchReceiptTpl({ compact: e.target.checked })} />
                             Компактно
                           </label>
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={receiptTpl.showCustomer}
-                              onChange={e => patchReceiptTpl({ showCustomer: e.target.checked })}
-                            />
+                            <input type="checkbox" checked={receiptTpl.valuesBold} onChange={e => patchReceiptTpl({ valuesBold: e.target.checked })} />
+                            Жирные суммы
+                          </label>
+                          <label>
+                            <input type="checkbox" checked={receiptTpl.shopUppercase} onChange={e => patchReceiptTpl({ shopUppercase: e.target.checked })} />
+                            МАГАЗИН Caps
+                          </label>
+                          <label>
+                            <input type="checkbox" checked={receiptTpl.titleUppercase} onChange={e => patchReceiptTpl({ titleUppercase: e.target.checked })} />
+                            ЧЕК Caps
+                          </label>
+                          <label>
+                            <input type="checkbox" checked={receiptTpl.showCustomer} onChange={e => patchReceiptTpl({ showCustomer: e.target.checked })} />
                             Клиент
                           </label>
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={receiptTpl.showCashier}
-                              onChange={e => patchReceiptTpl({ showCashier: e.target.checked })}
-                            />
+                            <input type="checkbox" checked={receiptTpl.showCashier} onChange={e => patchReceiptTpl({ showCashier: e.target.checked })} />
                             Кассир
                           </label>
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={receiptTpl.showFooter}
-                              onChange={e => patchReceiptTpl({ showFooter: e.target.checked })}
-                            />
+                            <input type="checkbox" checked={receiptTpl.showAddress} onChange={e => patchReceiptTpl({ showAddress: e.target.checked })} />
+                            Адрес
+                          </label>
+                          <label>
+                            <input type="checkbox" checked={receiptTpl.showPhone} onChange={e => patchReceiptTpl({ showPhone: e.target.checked })} />
+                            Телефон
+                          </label>
+                          <label>
+                            <input type="checkbox" checked={receiptTpl.showFooter} onChange={e => patchReceiptTpl({ showFooter: e.target.checked })} />
                             Низ чека
                           </label>
                         </div>
-                        <button
-                          type="button"
-                          className="receipt-editor-reset"
-                          onClick={() => setReceiptTpl(prev => ({
-                            ...prev,
-                            fontScale: 100,
-                            fontFamily: 'arial',
-                            printDensity: 4,
-                            storeAlign: 'center',
-                            separatorStyle: 'dotted',
-                            compact: false,
-                            showCustomer: true,
-                            showCashier: true,
-                            showFooter: true,
-                          }))}
-                        >
-                          Сбросить дизайн
-                        </button>
+                        <div className="receipt-editor-row-btns">
+                          <button
+                            type="button"
+                            className="receipt-editor-reset"
+                            onClick={() => patchReceiptTpl({ paddingMm: 0, contentWidthPct: 100 })}
+                          >
+                            Край–край
+                          </button>
+                          <button
+                            type="button"
+                            className="receipt-editor-reset"
+                            onClick={() => setReceiptTpl(prev => ({
+                              ...prev,
+                              ...DEFAULT_RECEIPT_TEMPLATE,
+                              lang: prev.lang,
+                              storeName: prev.storeName,
+                              storeAddress: prev.storeAddress,
+                              storePhone: prev.storePhone,
+                              headerText: prev.headerText,
+                              footerThanks: prev.footerThanks,
+                              footerNote: prev.footerNote,
+                            }))}
+                          >
+                            Сбросить дизайн
+                          </button>
+                        </div>
                       </div>
                       <div className="pos-settings-field">
                         <span className="gate-label">Название магазина</span>
