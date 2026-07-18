@@ -101,12 +101,12 @@ function openReceiptEditor() {
     return
   }
   receiptEditorWindow = new BrowserWindow({
-    width: 1100,
-    height: 760,
-    minWidth: 900,
-    minHeight: 600,
+    width: 1280,
+    height: 860,
+    minWidth: 1000,
+    minHeight: 700,
     title: 'Шаблон чека — KAKAPO',
-    backgroundColor: '#0d1117',
+    backgroundColor: '#0b0f14',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

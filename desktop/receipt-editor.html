@@ -5,553 +5,552 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Шаблон чека — KAKAPO</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; }
-    .app { display: flex; flex-direction: column; height: 100%; }
-    header { padding: 12px 20px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    header h1 { font-size: 16px; font-weight: 600; }
-    .header-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-    .tabs { display: inline-flex; padding: 3px; border-radius: 8px; background: #161b22; border: 1px solid #30363d; gap: 2px; }
-    .tab { padding: 6px 12px; border-radius: 6px; border: 0; background: transparent; color: #8b949e; cursor: pointer; font-size: 12px; font-weight: 600; }
-    .tab.active { background: #238636; color: #fff; }
-    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
-    button { padding: 7px 14px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #e6edf3; cursor: pointer; font-size: 13px; }
-    button:hover { background: #30363d; }
-    button.primary { background: #238636; border-color: #2ea043; }
-    button.primary:hover { background: #2ea043; }
-    button.danger { background: #6e2a2a; border-color: #8b3333; }
-    .main { display: flex; flex: 1; overflow: hidden; }
-    .form-panel { width: 440px; min-width: 360px; overflow-y: auto; border-right: 1px solid #30363d; padding: 12px 16px; }
-    .preview-panel { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #161b22; overflow: auto; }
-    .section { margin-bottom: 16px; }
-    .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; margin-bottom: 8px; }
-    label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 3px; }
-    input[type="text"], input[type="number"], select {
-      width: 100%; padding: 6px 8px; margin-bottom: 8px;
-      background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #e6edf3; font-size: 13px;
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#0b0f14;color:#e8eef5}
+    .app{display:grid;grid-template-rows:auto auto 1fr;height:100%}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid #243041;background:#111821}
+    .top h1{font-size:17px;font-weight:700}
+    .top .sub{font-size:12px;color:#8fa0b3;margin-top:2px}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}
+    button{padding:8px 14px;border-radius:8px;border:1px solid #314055;background:#1a2330;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600}
+    button:hover{background:#243041}
+    button.primary{background:#1f8f4e;border-color:#27a85c}
+    button.primary:hover{background:#27a85c}
+    button.ghost{background:transparent}
+    button.danger{background:#5a2222;border-color:#7a3030}
+    .presets{display:flex;gap:8px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid #243041;background:#0f151c;align-items:center}
+    .presets .lbl{font-size:12px;color:#8fa0b3;font-weight:700;margin-right:4px}
+    .preset{padding:6px 12px;border-radius:999px;border:1px solid #314055;background:#16202b;font-size:12px}
+    .preset:hover,.preset.on{border-color:#3d8bfd;background:#1a2a40;color:#fff}
+    .status{padding:0 18px;font-size:12px;min-height:18px;color:#8fa0b3}
+    .status.ok{color:#3fb950}
+    .status.err{color:#f85149}
+    .body{display:grid;grid-template-columns:220px minmax(320px,1fr) 340px;min-height:0}
+    .nav{border-right:1px solid #243041;padding:12px;overflow:auto;background:#111821}
+    .nav button{width:100%;text-align:left;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+    .nav button.on{background:#243041;border-color:#3d8bfd}
+    .nav .badge{font-size:10px;color:#8fa0b3;font-weight:700}
+    .form{overflow:auto;padding:16px 18px;border-right:1px solid #243041}
+    .preview{overflow:auto;padding:16px;background:#0a1017;display:flex;flex-direction:column;align-items:center}
+    .preview h3{font-size:12px;color:#8fa0b3;text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+    .paper{background:#fff;padding:10px;border-radius:6px;box-shadow:0 8px 28px rgba(0,0,0,.45)}
+    iframe{border:0;background:#fff;width:300px;height:720px}
+    .panel{display:none}
+    .panel.on{display:block}
+    h2{font-size:15px;margin:0 0 6px}
+    .hint{font-size:12px;color:#8fa0b3;margin-bottom:14px;line-height:1.45}
+    .card{background:#151d28;border:1px solid #243041;border-radius:12px;padding:12px;margin-bottom:12px}
+    .card h3{font-size:13px;margin-bottom:10px}
+    label{display:block;font-size:12px;color:#8fa0b3;margin:0 0 4px}
+    input[type=text],input[type=number],select,textarea{
+      width:100%;padding:8px 10px;margin-bottom:10px;border-radius:8px;
+      border:1px solid #314055;background:#0d131b;color:#e8eef5;font-size:13px
     }
-    input:focus, select:focus { outline: none; border-color: #58a6ff; }
-    .style-row { display: grid; grid-template-columns: 1fr 110px 72px; gap: 8px; align-items: end; margin-bottom: 8px; }
-    .style-row .chk { display: flex; align-items: center; gap: 6px; color: #c9d1d9; font-size: 12px; margin-bottom: 8px; }
-    .checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
-    .checkbox-grid label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c9d1d9; margin: 0; cursor: pointer; }
-    .checkbox-grid input, .style-row input { accent-color: #238636; }
-    .status { font-size: 12px; color: #8b949e; padding: 0 20px 8px; }
-    .status.ok { color: #3fb950; }
-    .status.err { color: #f85149; }
-    .preview-wrap { background: #fff; padding: 12px; border-radius: 4px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
-    .preview-label { font-size: 11px; color: #8b949e; margin-bottom: 12px; text-align: center; }
-    iframe { border: none; background: #fff; }
-    #codePanel { display: none; }
-    #codePanel.active { display: block; }
-    #formPanel.hidden { display: none; }
-    #codeEditor {
-      width: 100%; min-height: calc(100vh - 140px); resize: vertical;
-      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
-      font-size: 12.5px; line-height: 1.5; tab-size: 2;
-      padding: 12px; border-radius: 6px; border: 1px solid #30363d;
-      background: #0d1117; color: #e6edf3; white-space: pre; overflow: auto;
+    input:focus,select:focus,textarea:focus{outline:none;border-color:#3d8bfd}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .checks{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .checks label{display:flex;align-items:center;gap:8px;color:#d5dee8;font-size:13px;margin:0;cursor:pointer}
+    .checks input{accent-color:#27a85c;width:16px;height:16px}
+    .style-grid{display:grid;gap:8px}
+    .style-item{display:grid;grid-template-columns:1.2fr 1fr auto;gap:8px;align-items:center;padding:8px;border-radius:8px;background:#0d131b;border:1px solid #243041}
+    .style-item span{font-size:13px}
+    .style-item .b{display:flex;align-items:center;gap:6px;font-size:12px;color:#c9d1d9;white-space:nowrap}
+    #codeEditor{min-height:520px;font-family:Consolas,'Courier New',monospace;font-size:12.5px;line-height:1.5;white-space:pre}
+    .legend{display:grid;gap:6px;margin-top:12px;width:100%;max-width:300px}
+    .legend div{display:flex;justify-content:space-between;font-size:11px;color:#8fa0b3;padding:6px 8px;border-radius:6px;background:#151d28;border:1px solid #243041}
+    .legend b{color:#d5dee8;font-weight:600}
+    @media(max-width:1100px){
+      .body{grid-template-columns:180px 1fr}
+      .preview{grid-column:1/-1;border-top:1px solid #243041}
     }
-    .code-hint { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
-    .hint { font-size: 11px; color: #8b949e; margin-bottom: 10px; line-height: 1.4; }
   </style>
 </head>
 <body>
-  <div class="app">
-    <header>
-      <div class="header-left">
-        <h1>Шаблон чека 58 мм</h1>
-        <div class="tabs">
-          <button type="button" class="tab active" id="tabForm">Форма</button>
-          <button type="button" class="tab" id="tabCode">&#123; &#125; Код</button>
-        </div>
-      </div>
-      <div class="toolbar">
-        <button type="button" id="btnSave" class="primary">Сохранить</button>
-        <button type="button" id="btnTest">Тест печати</button>
-        <button type="button" id="btnReset" class="danger">Сброс</button>
-        <button type="button" id="btnClose">Закрыть</button>
-      </div>
-    </header>
-    <p class="status" id="status"></p>
-    <div class="main">
-      <div class="form-panel">
-        <div id="formPanel"></div>
-        <div id="codePanel">
-          <p class="code-hint">JSON шаблона. Превью = то, что уйдёт на бумагу.</p>
-          <textarea id="codeEditor" spellcheck="false"></textarea>
-        </div>
-      </div>
-      <div class="preview-panel">
-        <p class="preview-label">Превью = печать XP-58C · 58 мм</p>
-        <div class="preview-wrap">
-          <iframe id="preview" title="Предпросмотр чека"></iframe>
-        </div>
-      </div>
+<div class="app">
+  <div class="top">
+    <div>
+      <h1>Шаблон чека KAKAPO</h1>
+      <div class="sub">Что на превью справа — то и печатает XP-58C · 58 мм</div>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="btnSave">Сохранить</button>
+      <button type="button" id="btnTest">🖨 Тест печати</button>
+      <button type="button" class="danger" id="btnReset">Сброс</button>
+      <button type="button" class="ghost" id="btnClose">Закрыть</button>
     </div>
   </div>
-  <script>
-    const api = window.kakapoDesktop
-    const SIZE_OPTS = [
-      ['small', 'Мелкий'],
-      ['normal', 'Обычный'],
-      ['tall', 'Высокий'],
-    ]
-    const STYLE_BLOCKS = [
-      { sizeKey: 'sizeStoreName', boldKey: 'boldStoreName', label: 'Название магазина' },
-      { sizeKey: 'sizeSubtitle', boldKey: 'boldSubtitle', label: 'Подзаголовок' },
-      { sizeKey: 'sizePhone', boldKey: 'boldPhone', label: 'Телефон' },
-      { sizeKey: 'sizeDocTitle', boldKey: 'boldDocTitle', label: 'Заголовок чека' },
-      { sizeKey: 'sizeBody', boldKey: 'boldBody', label: 'Строки мета / итоги' },
-      { sizeKey: 'sizeItems', boldKey: 'boldItems', label: 'Товары' },
-      { sizeKey: 'sizeTotal', boldKey: 'boldTotal', label: 'ИТОГ' },
-      { sizeKey: 'sizeFooter', boldKey: 'boldFooterThanks', label: 'Футер «спасибо»', bold2Key: 'boldFooterNote', bold2Label: 'примечание' },
-      { boldOnly: true, boldKey: 'boldChange', label: 'Сдача — жирный' },
-    ]
-    const TEXT_FIELDS = [
-      { key: 'storeName', section: 'header', label: 'Название магазина' },
-      { key: 'subtitle', section: 'header', label: 'Подзаголовок' },
-      { key: 'storePhone', section: 'header', label: 'Телефон' },
-      { key: 'docTitle', section: 'header', label: 'Заголовок чека' },
-      { key: 'docTitleReturn', section: 'header', label: 'Заголовок возврата' },
-      { key: 'docTitlePartial', section: 'header', label: 'Заголовок частичного возврата' },
-      { key: 'currency', section: 'header', label: 'Валюта' },
-      { key: 'labelOrderNo', section: 'labels', label: 'Номер заказа' },
-      { key: 'labelReceiptNo', section: 'labels', label: 'Номер чека' },
-      { key: 'labelDate', section: 'labels', label: 'Дата' },
-      { key: 'labelPos', section: 'labels', label: 'Касса' },
-      { key: 'labelCashier', section: 'labels', label: 'Кассир' },
-      { key: 'labelClient', section: 'labels', label: 'Клиент' },
-      { key: 'labelClientPhone', section: 'labels', label: 'Тел. клиента' },
-      { key: 'labelSum', section: 'labels', label: 'Сумма' },
-      { key: 'labelDiscount', section: 'labels', label: 'Скидка' },
-      { key: 'labelBonusEarned', section: 'labels', label: 'Начислено бонусов' },
-      { key: 'labelBonusSpent', section: 'labels', label: 'Списано бонусов' },
-      { key: 'labelTotal', section: 'labels', label: 'ИТОГ' },
-      { key: 'labelPay', section: 'labels', label: 'Оплата' },
-      { key: 'labelCash', section: 'labels', label: 'Наличные' },
-      { key: 'labelCard', section: 'labels', label: 'Картой' },
-      { key: 'labelDebt', section: 'labels', label: 'В долг' },
-      { key: 'labelCashGiven', section: 'labels', label: 'Дал клиент' },
-      { key: 'labelChange', section: 'labels', label: 'Сдача' },
-      { key: 'labelBonusBalance', section: 'labels', label: 'Баланс бонусов' },
-      { key: 'footerThanks', section: 'footer', label: 'Благодарность' },
-      { key: 'footerNote', section: 'footer', label: 'Примечание' },
-    ]
-    const BOOL_FIELDS = [
-      { key: 'showStoreName', label: 'Название магазина' },
-      { key: 'showSubtitle', label: 'Подзаголовок' },
-      { key: 'showStorePhone', label: 'Телефон магазина' },
-      { key: 'showDocTitle', label: 'Заголовок чека' },
-      { key: 'showItems', label: 'Список товаров' },
-      { key: 'showSubtotal', label: 'Сумма до скидки' },
-      { key: 'showFooterThanks', label: 'Благодарность' },
-      { key: 'showFooterNote', label: 'Примечание внизу' },
-      { key: 'showOrderNo', label: 'Номер заказа' },
-      { key: 'showReceiptNo', label: 'Номер чека' },
-      { key: 'showDate', label: 'Дата' },
-      { key: 'showPos', label: 'Касса' },
-      { key: 'showCashier', label: 'Кассир' },
-      { key: 'showClient', label: 'Клиент' },
-      { key: 'showClientPhone', label: 'Тел. клиента' },
-      { key: 'showDiscount', label: 'Скидка' },
-      { key: 'showBonusEarned', label: 'Начислено бонусов' },
-      { key: 'showBonusSpent', label: 'Списано бонусов' },
-      { key: 'showBonusBalance', label: 'Баланс бонусов' },
-      { key: 'showPay', label: 'Оплата' },
-      { key: 'showCash', label: 'Наличные' },
-      { key: 'showCard', label: 'Картой' },
-      { key: 'showDebt', label: 'В долг' },
-      { key: 'showCashGiven', label: 'Дал клиент' },
-      { key: 'showChange', label: 'Сдача' },
-    ]
-    const SECTION_TITLES = {
-      print: 'Базовый шрифт',
-      style: 'Размер и жирность',
-      header: 'Шапка',
-      labels: 'Подписи полей',
-      footer: 'Футер',
-      show: 'Отключение строк',
-    }
 
-    let template = {}
-    let defaults = {}
-    let mode = 'form'
-    let codeErr = ''
+  <div class="presets">
+    <span class="lbl">Готовые шаблоны:</span>
+    <button type="button" class="preset" data-preset="full">Полный (все функции)</button>
+    <button type="button" class="preset" data-preset="simple">Простой</button>
+    <button type="button" class="preset" data-preset="small">Мелкий шрифт</button>
+    <button type="button" class="preset" data-preset="normal">Обычный шрифт</button>
+  </div>
+  <div class="status" id="status"></div>
 
-    function money(n) { return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2) }
-    function fmt(n, cur) { return `${money(n)} ${cur || 'сом'}` }
-    function esc(s) {
-      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    }
-    function padLine(left, right, w) {
-      const l = String(left || ''), r = String(right || '')
-      const sp = Math.max(1, w - l.length - r.length)
-      return l + ' '.repeat(sp) + r
-    }
-    function wrapName(name, width) {
-      const s = String(name || '').trim() || 'Товар'
-      if (s.length <= width) return [s]
-      const lines = []
-      let rest = s
-      while (rest.length > width) {
-        let cut = -1
-        for (let i = Math.min(width, rest.length - 1); i >= Math.min(8, width); i--) {
-          const ch = rest[i]
-          if (ch === ' ' || ch === '-' || ch === '&') { cut = ch === ' ' ? i : i + 1; break }
-        }
-        if (cut < 1) cut = width
-        lines.push(rest.slice(0, cut).trim())
-        rest = rest.slice(cut).trim()
-      }
-      if (rest) lines.push(rest)
-      return lines
-    }
-    function nameAmountLines(name, amount, width, currency) {
-      const right = fmt(amount, currency)
-      const maxLeft = Math.max(8, width - right.length - 1)
-      const nameLines = wrapName(name, width)
-      if (nameLines.length === 1 && nameLines[0].length <= maxLeft) return [padLine(nameLines[0], right, width)]
-      return [...nameLines, padLine('', right, width)]
-    }
-    function cssClass(size, bold) {
-      const sz = size === 'tall' ? 'tall' : (size === 'normal' ? 'normal' : 'small')
-      return `ln ${sz}${bold ? ' bold' : ''}`
-    }
+  <div class="body">
+    <aside class="nav" id="nav">
+      <button type="button" class="on" data-tab="texts">Тексты <span class="badge">шапка</span></button>
+      <button type="button" data-tab="font">Шрифт <span class="badge">размер</span></button>
+      <button type="button" data-tab="show">Строки <span class="badge">вкл/выкл</span></button>
+      <button type="button" data-tab="labels">Подписи <span class="badge">названия</span></button>
+      <button type="button" data-tab="code">Код JSON <span class="badge">профи</span></button>
+    </aside>
 
-    const DEMO = {
-      number: 128, orderId: 'ORD-1047',
-      cashierName: 'Азиза М.', clientName: 'Рустам А.', clientPhone: '+992 900 12 34 56',
-      cardNum: '4821', paymentMethod: 'mixed', total: 147.5, paidCash: 50, paidCard: 97.5,
-      cashReceived: 100, changeGiven: 50, orderGoodsTotal: 175, discountAmount: 17.5,
-      bonusSpent: 10, bonusEarned: 15, bonusBalanceBefore: 245, bonusBalanceAfter: 250,
-      items: [
-        { productName: 'Шампунь Head&Shoulders 400мл', qty: 1, price: 85, lineTotal: 85 },
-        { productName: 'Мыло Dove 100г', qty: 2, price: 18, lineTotal: 36 },
-        { productName: 'Зубная паста Colgate', qty: 1, price: 42, lineTotal: 42 },
-        { productName: 'Хлеб белый', qty: 2, price: 6, lineTotal: 12 },
-      ],
+    <section class="form">
+      <div class="panel on" id="tab-texts">
+        <h2>Тексты шаблона</h2>
+        <p class="hint">Меняйте название, телефон, «спасибо» — справа сразу видно результат.</p>
+        <div class="card">
+          <h3>Шапка магазина</h3>
+          <label>Название</label><input type="text" id="storeName">
+          <label>Подзаголовок</label><input type="text" id="subtitle">
+          <label>Телефон</label><input type="text" id="storePhone">
+          <div class="grid2">
+            <div><label>Заголовок чека</label><input type="text" id="docTitle"></div>
+            <div><label>Валюта</label><input type="text" id="currency"></div>
+          </div>
+          <label>Заголовок возврата</label><input type="text" id="docTitleReturn">
+          <label>Частичный возврат</label><input type="text" id="docTitlePartial">
+        </div>
+        <div class="card">
+          <h3>Низ чека</h3>
+          <label>Благодарность</label><input type="text" id="footerThanks">
+          <label>Примечание</label><input type="text" id="footerNote">
+        </div>
+      </div>
+
+      <div class="panel" id="tab-font">
+        <h2>Шрифт и жирность</h2>
+        <p class="hint">Мелкий = больше текста в строке (как на макете). Высокий = только выше, без уширения.</p>
+        <div class="card">
+          <h3>База</h3>
+          <label>Базовый размер всего чека</label>
+          <select id="printFont">
+            <option value="small">Мелкий Font B — 42 символа (рекомендуется)</option>
+            <option value="normal">Обычный Font A — 32 символа</option>
+          </select>
+          <label>Высота строки (16–48)</label>
+          <input type="number" id="lineSpacing" min="16" max="48">
+        </div>
+        <div class="card">
+          <h3>Блоки: размер + жирный</h3>
+          <div class="style-grid" id="styleGrid"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="tab-show">
+        <h2>Какие строки печатать</h2>
+        <p class="hint">Снимите галочку — строка исчезнет и с превью, и с бумаги.</p>
+        <div class="card">
+          <h3>Шапка и товары</h3>
+          <div class="checks" id="showHead"></div>
+        </div>
+        <div class="card">
+          <h3>Данные чека</h3>
+          <div class="checks" id="showMeta"></div>
+        </div>
+        <div class="card">
+          <h3>Суммы и оплата</h3>
+          <div class="checks" id="showPay"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="tab-labels">
+        <h2>Подписи полей</h2>
+        <p class="hint">Можно переименовать «ИТОГ», «Кассир», «Скидка» и т.д.</p>
+        <div class="card" id="labelsCard"></div>
+      </div>
+
+      <div class="panel" id="tab-code">
+        <h2>Код шаблона (JSON)</h2>
+        <p class="hint">Полный шаблон как у программиста. Превью обновляется сразу.</p>
+        <textarea id="codeEditor" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <aside class="preview">
+      <h3>Превью = печать</h3>
+      <div class="paper"><iframe id="preview" title="Превью чека"></iframe></div>
+      <div class="legend">
+        <div><span>Шрифт</span><b id="legFont">—</b></div>
+        <div><span>Символов в строке</span><b id="legWidth">—</b></div>
+        <div><span>Строк включено</span><b id="legShow">—</b></div>
+        <div><span>Жирных блоков</span><b id="legBold">—</b></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+const api = window.kakapoDesktop
+
+const STYLE_BLOCKS = [
+  { size: 'sizeStoreName', bold: 'boldStoreName', label: 'Название' },
+  { size: 'sizeSubtitle', bold: 'boldSubtitle', label: 'Подзаголовок' },
+  { size: 'sizePhone', bold: 'boldPhone', label: 'Телефон' },
+  { size: 'sizeDocTitle', bold: 'boldDocTitle', label: 'Заголовок чека' },
+  { size: 'sizeBody', bold: 'boldBody', label: 'Строки данных' },
+  { size: 'sizeItems', bold: 'boldItems', label: 'Товары' },
+  { size: 'sizeTotal', bold: 'boldTotal', label: 'ИТОГ' },
+  { size: 'sizeFooter', bold: 'boldFooterThanks', label: '«Спасибо»', bold2: 'boldFooterNote', bold2Label: 'примечание' },
+  { boldOnly: true, bold: 'boldChange', label: 'Сдача жирным' },
+]
+
+const SHOW_GROUPS = {
+  showHead: [
+    ['showStoreName', 'Название'], ['showSubtitle', 'Подзаголовок'], ['showStorePhone', 'Телефон'],
+    ['showDocTitle', 'Заголовок'], ['showItems', 'Товары'], ['showFooterThanks', 'Спасибо'], ['showFooterNote', 'Примечание'],
+  ],
+  showMeta: [
+    ['showOrderNo', 'Номер заказа'], ['showReceiptNo', 'Номер чека'], ['showDate', 'Дата'],
+    ['showPos', 'Касса'], ['showCashier', 'Кассир'], ['showClient', 'Клиент'], ['showClientPhone', 'Тел. клиента'],
+  ],
+  showPay: [
+    ['showSubtotal', 'Сумма'], ['showDiscount', 'Скидка'], ['showBonusEarned', 'Начислено бонусов'],
+    ['showBonusSpent', 'Списано бонусов'], ['showBonusBalance', 'Баланс бонусов'],
+    ['showPay', 'Оплата'], ['showCash', 'Наличные'], ['showCard', 'Картой'],
+    ['showDebt', 'В долг'], ['showCashGiven', 'Дал клиент'], ['showChange', 'Сдача'],
+  ],
+}
+
+const LABEL_FIELDS = [
+  ['labelOrderNo', 'Номер заказа'], ['labelReceiptNo', 'Номер чека'], ['labelDate', 'Дата'],
+  ['labelPos', 'Касса'], ['labelCashier', 'Кассир'], ['labelClient', 'Клиент'],
+  ['labelClientPhone', 'Тел. клиента'], ['labelSum', 'Сумма'], ['labelDiscount', 'Скидка'],
+  ['labelBonusEarned', 'Начислено бонусов'], ['labelBonusSpent', 'Списано бонусов'],
+  ['labelTotal', 'ИТОГ'], ['labelPay', 'Оплата'], ['labelCash', 'Наличные'],
+  ['labelCard', 'Картой'], ['labelDebt', 'В долг'], ['labelCashGiven', 'Дал клиент'],
+  ['labelChange', 'Сдача'], ['labelBonusBalance', 'Баланс бонусов'],
+]
+
+const TEXT_IDS = [
+  'storeName', 'subtitle', 'storePhone', 'docTitle', 'docTitleReturn', 'docTitlePartial',
+  'currency', 'footerThanks', 'footerNote',
+]
+
+const FULL_TEMPLATE = {
+  printFont: 'small', charsPerLine: 42, lineSpacing: 20,
+  sizeStoreName: 'normal', sizeSubtitle: 'small', sizePhone: 'small', sizeDocTitle: 'normal',
+  sizeBody: 'small', sizeItems: 'small', sizeTotal: 'normal', sizeFooter: 'small',
+  boldStoreName: true, boldSubtitle: false, boldPhone: false, boldDocTitle: true,
+  boldBody: false, boldItems: false, boldTotal: true, boldChange: true,
+  boldFooterThanks: true, boldFooterNote: false,
+  storeName: 'КАКАПО', storePhone: '+992 112 373 333', subtitle: 'магазин - касса',
+  docTitle: 'ТОВАРНЫЙ ЧЕК', docTitleReturn: 'ВОЗВРАТНЫЙ ЧЕК',
+  docTitlePartial: 'ЧЕК - ЧАСТИЧНЫЙ ВОЗВРАТ', currency: 'сом',
+  labelOrderNo: 'Номер заказа', labelReceiptNo: 'Номер чека', labelDate: 'Дата',
+  labelPos: 'Касса', labelCashier: 'Кассир', labelClient: 'Клиент',
+  labelClientPhone: 'Тел. клиента', labelSum: 'Сумма', labelDiscount: 'Скидка',
+  labelBonusEarned: 'Начислено бонусов', labelBonusSpent: 'Списано бонусов',
+  labelTotal: 'ИТОГ', labelPay: 'Оплата', labelCash: 'Наличные', labelCard: 'Картой',
+  labelDebt: 'В долг', labelCashGiven: 'Дал клиент', labelChange: 'Сдача',
+  labelBonusBalance: 'Баланс бонусов',
+  footerThanks: 'Спасибо за покупку!', footerNote: 'Сохраняйте чек до проверки товара',
+  showStoreName: true, showSubtitle: true, showStorePhone: true, showDocTitle: true,
+  showItems: true, showSubtotal: true, showFooterThanks: true, showFooterNote: true,
+  showOrderNo: true, showReceiptNo: true, showDate: true, showPos: true, showCashier: true,
+  showClient: true, showClientPhone: true, showDiscount: true, showBonusEarned: true,
+  showBonusSpent: true, showBonusBalance: true, showPay: true, showCash: true,
+  showCard: true, showDebt: true, showCashGiven: true, showChange: true,
+}
+
+let draft = { ...FULL_TEMPLATE }
+let defaults = { ...FULL_TEMPLATE }
+let codeMode = false
+let codeErr = ''
+
+function money(n){ return (Math.round((Number(n)||0)*100)/100).toFixed(2) }
+function fmt(n,c){ return `${money(n)} ${c||'сом'}` }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+function pad(l,r,w){ const a=String(l||''),b=String(r||''); return a+' '.repeat(Math.max(1,w-a.length-b.length))+b }
+function wrap(name,w){
+  const s=String(name||'').trim()||'Товар'; if(s.length<=w) return [s]
+  const out=[]; let rest=s
+  while(rest.length>w){
+    let cut=-1
+    for(let i=Math.min(w,rest.length-1);i>=Math.min(8,w);i--){
+      const ch=rest[i]; if(ch===' '||ch==='-'||ch==='&'){ cut=ch===' '?i:i+1; break }
     }
+    if(cut<1) cut=w
+    out.push(rest.slice(0,cut).trim()); rest=rest.slice(cut).trim()
+  }
+  if(rest) out.push(rest); return out
+}
+function nameAmt(name,amount,w,cur){
+  const right=fmt(amount,cur); const max=Math.max(8,w-right.length-1)
+  const lines=wrap(name,w)
+  if(lines.length===1 && lines[0].length<=max) return [pad(lines[0],right,w)]
+  return [...lines, pad('',right,w)]
+}
+function cls(size,bold){ return `ln ${size==='tall'?'tall':size==='normal'?'normal':'small'}${bold?' bold':''}` }
 
-    /** Превью рисует те же символы/переносы, что уйдёт на принтер. */
-    function buildPreviewHtml(tpl) {
-      const w = tpl.printFont === 'small' ? 42 : 32
-      const cur = tpl.currency || 'сом'
-      const basePx = tpl.printFont === 'small' ? 10.5 : 12.5
-      const out = []
-      const push = (text, size, bold, center) => {
-        const lines = String(text).split('\n')
-        for (const line of lines) {
-          out.push(`<div class="${cssClass(size, bold)}${center ? ' c' : ''}">${esc(line) || '&nbsp;'}</div>`)
-        }
-      }
-      const sep = () => push('-'.repeat(w), tpl.sizeBody, false, false)
-      const kv = (l, v, size, bold) => {
-        if (!v) return
-        const line = l.length + 1 + String(v).length <= w ? padLine(l, v, w) : `${l}\n${padLine('', v, w)}`
-        push(line, size, bold, false)
-      }
+const DEMO_ITEMS = [
+  { productName:'Шампунь Head&Shoulders 400мл', qty:1, price:85, lineTotal:85 },
+  { productName:'Мыло Dove 100г', qty:2, price:18, lineTotal:36 },
+  { productName:'Зубная паста Colgate', qty:1, price:42, lineTotal:42 },
+  { productName:'Хлеб белый', qty:2, price:6, lineTotal:12 },
+]
 
-      if (tpl.showStoreName) push(tpl.storeName, tpl.sizeStoreName, tpl.boldStoreName, true)
-      if (tpl.showSubtitle) push(tpl.subtitle, tpl.sizeSubtitle, tpl.boldSubtitle, true)
-      if (tpl.showStorePhone && tpl.storePhone) push(tpl.storePhone, tpl.sizePhone, tpl.boldPhone, true)
-      sep()
-      if (tpl.showDocTitle) push(tpl.docTitle, tpl.sizeDocTitle, tpl.boldDocTitle, true)
-      sep()
-      if (tpl.showOrderNo) kv(tpl.labelOrderNo, 'ORD-1047', tpl.sizeBody, tpl.boldBody)
-      if (tpl.showReceiptNo) kv(tpl.labelReceiptNo, '№128', tpl.sizeBody, tpl.boldBody)
-      if (tpl.showDate) kv(tpl.labelDate, '18.07.2026 14:32', tpl.sizeBody, tpl.boldBody)
-      if (tpl.showPos) kv(tpl.labelPos, 'Касса 1', tpl.sizeBody, tpl.boldBody)
-      if (tpl.showCashier) kv(tpl.labelCashier, 'Азиза М.', tpl.sizeBody, tpl.boldBody)
-      if (tpl.showClient) kv(tpl.labelClient, 'Рустам А.', tpl.sizeBody, tpl.boldBody)
-      if (tpl.showClientPhone) kv(tpl.labelClientPhone, '+992 900 12 34 56', tpl.sizeBody, tpl.boldBody)
-      sep()
-      if (tpl.showItems) {
-        for (const it of DEMO.items) {
-          for (const line of nameAmountLines(it.productName, it.lineTotal, w, cur)) {
-            push(line, tpl.sizeItems, tpl.boldItems, false)
-          }
-          push(`${it.qty} x ${money(it.price)}`, tpl.sizeItems, tpl.boldItems, false)
-        }
-      }
-      sep()
-      if (tpl.showSubtotal) kv(tpl.labelSum, fmt(175, cur), tpl.sizeBody, tpl.boldBody)
-      if (tpl.showDiscount) kv(`${tpl.labelDiscount} 10%`, `-${fmt(17.5, cur)}`, tpl.sizeBody, tpl.boldBody)
-      if (tpl.showBonusEarned) kv(tpl.labelBonusEarned, '+15', tpl.sizeBody, tpl.boldBody)
-      if (tpl.showBonusSpent) kv(tpl.labelBonusSpent, `-${fmt(10, cur)}`, tpl.sizeBody, tpl.boldBody)
-      push(padLine(tpl.labelTotal, fmt(147.5, cur), w), tpl.sizeTotal, tpl.boldTotal, false)
-      sep()
-      if (tpl.showPay) kv(tpl.labelPay, 'Смешанная', tpl.sizeBody, tpl.boldBody)
-      if (tpl.showCash) kv(tpl.labelCash, fmt(50, cur), tpl.sizeBody, tpl.boldBody)
-      if (tpl.showCard) kv(`${tpl.labelCard} (Visa ****4821)`, fmt(97.5, cur), tpl.sizeBody, tpl.boldBody)
-      if (tpl.showCashGiven) kv(tpl.labelCashGiven, fmt(100, cur), tpl.sizeBody, tpl.boldBody)
-      if (tpl.showChange) push(padLine(tpl.labelChange, fmt(50, cur), w), tpl.sizeBody, tpl.boldChange, false)
-      if (tpl.showBonusBalance) {
-        sep()
-        kv(tpl.labelBonusBalance, '245 -> 250', tpl.sizeBody, tpl.boldBody)
-      }
-      sep()
-      if (tpl.showFooterThanks) {
-        for (const line of wrapName(tpl.footerThanks, w)) push(line, tpl.sizeFooter, tpl.boldFooterThanks, true)
-      }
-      if (tpl.showFooterNote) {
-        for (const line of wrapName(tpl.footerNote, w)) push(line, tpl.sizeFooter, tpl.boldFooterNote, true)
-      }
+function buildPreview(tpl){
+  const w = tpl.printFont==='small' ? 42 : 32
+  const cur = tpl.currency||'сом'
+  const base = tpl.printFont==='small' ? 10.5 : 12.5
+  const out=[]
+  const push=(t,size,bold,c)=>{
+    String(t).split('\n').forEach(line=>{
+      out.push(`<div class="${cls(size,bold)}${c?' c':''}">${esc(line)||'&nbsp;'}</div>`)
+    })
+  }
+  const sep=()=>push('-'.repeat(w), tpl.sizeBody, false, false)
+  const kv=(l,v,size,bold)=>{
+    if(!v) return
+    const line = l.length+1+String(v).length<=w ? pad(l,v,w) : `${l}\n${pad('',v,w)}`
+    push(line,size,bold,false)
+  }
 
-      const iframeW = Math.round(w * (basePx * 0.62) + 16)
-      return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-        body{margin:0;padding:8px 4px;background:#fff;color:#000;
-          font-family:'Courier New',Courier,monospace;width:${w}ch;
-          -webkit-font-smoothing:none;font-smooth:never;}
-        .ln{white-space:pre;line-height:1.28;font-size:${basePx}px;font-weight:400;}
-        .ln.small{font-size:${basePx}px;}
-        .ln.normal{font-size:${basePx + 1.5}px;}
-        .ln.tall{font-size:${basePx + 3}px;line-height:1.35;}
-        .ln.bold{font-weight:700;}
-        .ln.c{text-align:center;}
-      </style></head><body>${out.join('')}</body></html>`
+  if(tpl.showStoreName) push(tpl.storeName, tpl.sizeStoreName, tpl.boldStoreName, true)
+  if(tpl.showSubtitle) push(tpl.subtitle, tpl.sizeSubtitle, tpl.boldSubtitle, true)
+  if(tpl.showStorePhone && tpl.storePhone) push(tpl.storePhone, tpl.sizePhone, tpl.boldPhone, true)
+  sep()
+  if(tpl.showDocTitle) push(tpl.docTitle, tpl.sizeDocTitle, tpl.boldDocTitle, true)
+  sep()
+  if(tpl.showOrderNo) kv(tpl.labelOrderNo,'ORD-1047',tpl.sizeBody,tpl.boldBody)
+  if(tpl.showReceiptNo) kv(tpl.labelReceiptNo,'№128',tpl.sizeBody,tpl.boldBody)
+  if(tpl.showDate) kv(tpl.labelDate,'18.07.2026 14:32',tpl.sizeBody,tpl.boldBody)
+  if(tpl.showPos) kv(tpl.labelPos,'Касса 1',tpl.sizeBody,tpl.boldBody)
+  if(tpl.showCashier) kv(tpl.labelCashier,'Азиза М.',tpl.sizeBody,tpl.boldBody)
+  if(tpl.showClient) kv(tpl.labelClient,'Рустам А.',tpl.sizeBody,tpl.boldBody)
+  if(tpl.showClientPhone) kv(tpl.labelClientPhone,'+992 900 12 34 56',tpl.sizeBody,tpl.boldBody)
+  sep()
+  if(tpl.showItems){
+    for(const it of DEMO_ITEMS){
+      for(const line of nameAmt(it.productName,it.lineTotal,w,cur)) push(line,tpl.sizeItems,tpl.boldItems,false)
+      push(`${it.qty} x ${money(it.price)}`,tpl.sizeItems,tpl.boldItems,false)
     }
+  }
+  sep()
+  if(tpl.showSubtotal) kv(tpl.labelSum,fmt(175,cur),tpl.sizeBody,tpl.boldBody)
+  if(tpl.showDiscount) kv(`${tpl.labelDiscount} 10%`,`-${fmt(17.5,cur)}`,tpl.sizeBody,tpl.boldBody)
+  if(tpl.showBonusEarned) kv(tpl.labelBonusEarned,'+15',tpl.sizeBody,tpl.boldBody)
+  if(tpl.showBonusSpent) kv(tpl.labelBonusSpent,`-${fmt(10,cur)}`,tpl.sizeBody,tpl.boldBody)
+  push(pad(tpl.labelTotal,fmt(147.5,cur),w),tpl.sizeTotal,tpl.boldTotal,false)
+  sep()
+  if(tpl.showPay) kv(tpl.labelPay,'Смешанная',tpl.sizeBody,tpl.boldBody)
+  if(tpl.showCash) kv(tpl.labelCash,fmt(50,cur),tpl.sizeBody,tpl.boldBody)
+  if(tpl.showCard) kv(`${tpl.labelCard} (Visa ****4821)`,fmt(97.5,cur),tpl.sizeBody,tpl.boldBody)
+  if(tpl.showCashGiven) kv(tpl.labelCashGiven,fmt(100,cur),tpl.sizeBody,tpl.boldBody)
+  if(tpl.showChange) push(pad(tpl.labelChange,fmt(50,cur),w),tpl.sizeBody,tpl.boldChange,false)
+  if(tpl.showBonusBalance){ sep(); kv(tpl.labelBonusBalance,'245 -> 250',tpl.sizeBody,tpl.boldBody) }
+  sep()
+  if(tpl.showFooterThanks) wrap(tpl.footerThanks,w).forEach(l=>push(l,tpl.sizeFooter,tpl.boldFooterThanks,true))
+  if(tpl.showFooterNote) wrap(tpl.footerNote,w).forEach(l=>push(l,tpl.sizeFooter,tpl.boldFooterNote,true))
 
-    function readForm() {
-      const out = { ...template }
-      const fontEl = document.getElementById('f_printFont')
-      const spaceEl = document.getElementById('f_lineSpacing')
-      if (fontEl) out.printFont = fontEl.value
-      if (spaceEl) out.lineSpacing = Number(spaceEl.value)
-      for (const b of STYLE_BLOCKS) {
-        if (b.sizeKey) {
-          const el = document.getElementById('f_' + b.sizeKey)
-          if (el) out[b.sizeKey] = el.value
-        }
-        if (b.boldKey) {
-          const el = document.getElementById('f_' + b.boldKey)
-          if (el) out[b.boldKey] = el.checked
-        }
-        if (b.bold2Key) {
-          const el = document.getElementById('f_' + b.bold2Key)
-          if (el) out[b.bold2Key] = el.checked
-        }
-      }
-      for (const f of TEXT_FIELDS) {
-        const el = document.getElementById('f_' + f.key)
-        if (el) out[f.key] = el.value
-      }
-      for (const f of BOOL_FIELDS) {
-        const el = document.getElementById('f_' + f.key)
-        if (el) out[f.key] = el.checked
-      }
-      out.charsPerLine = out.printFont === 'small' ? 42 : 32
-      return out
-    }
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+    body{margin:0;padding:8px 4px;background:#fff;color:#000;font-family:'Courier New',Courier,monospace;width:${w}ch}
+    .ln{white-space:pre;line-height:1.28;font-size:${base}px;font-weight:400}
+    .ln.normal{font-size:${base+1.5}px}
+    .ln.tall{font-size:${base+3}px;line-height:1.35}
+    .ln.bold{font-weight:700}
+    .ln.c{text-align:center}
+  </style></head><body>${out.join('')}</body></html>`
+}
 
-    function readCurrent() {
-      if (mode === 'code') {
-        try {
-          const parsed = JSON.parse(document.getElementById('codeEditor').value)
-          codeErr = ''
-          return { ...template, ...parsed }
-        } catch (e) {
-          codeErr = e.message || 'Некорректный JSON'
-          return null
-        }
-      }
-      return readForm()
-    }
+function setStatus(msg, ok){
+  const el=document.getElementById('status')
+  el.textContent=msg||''
+  el.className='status'+(msg?(ok?' ok':' err'):'')
+}
 
-    function syncCodeFromTemplate(tpl) {
-      document.getElementById('codeEditor').value = JSON.stringify(tpl, null, 2)
-      codeErr = ''
-    }
+function readUI(){
+  const t={ ...draft }
+  for(const id of TEXT_IDS){ const el=document.getElementById(id); if(el) t[id]=el.value }
+  const pf=document.getElementById('printFont'); if(pf) t.printFont=pf.value
+  const ls=document.getElementById('lineSpacing'); if(ls) t.lineSpacing=Number(ls.value)||20
+  for(const b of STYLE_BLOCKS){
+    if(b.size){ const el=document.getElementById(b.size); if(el) t[b.size]=el.value }
+    if(b.bold){ const el=document.getElementById(b.bold); if(el) t[b.bold]=el.checked }
+    if(b.bold2){ const el=document.getElementById(b.bold2); if(el) t[b.bold2]=el.checked }
+  }
+  for(const group of Object.values(SHOW_GROUPS)){
+    for(const [key] of group){ const el=document.getElementById(key); if(el) t[key]=el.checked }
+  }
+  for(const [key] of LABEL_FIELDS){ const el=document.getElementById(key); if(el) t[key]=el.value }
+  t.charsPerLine = t.printFont==='small' ? 42 : 32
+  return t
+}
 
-    function updatePreview() {
-      const tpl = mode === 'code' ? (readCurrent() || template) : readForm()
-      if (mode === 'code' && codeErr) setStatus('JSON: ' + codeErr, false)
-      const iframe = document.getElementById('preview')
-      const w = tpl.printFont === 'small' ? 42 : 32
-      const basePx = tpl.printFont === 'small' ? 10.5 : 12.5
-      iframe.style.width = Math.round(w * (basePx * 0.62) + 24) + 'px'
-      iframe.style.height = '760px'
-      iframe.srcdoc = buildPreviewHtml(tpl)
-    }
+function current(){
+  if(codeMode){
+    try{
+      const parsed=JSON.parse(document.getElementById('codeEditor').value)
+      codeErr=''; return { ...FULL_TEMPLATE, ...parsed }
+    }catch(e){ codeErr=e.message||'JSON'; return null }
+  }
+  return readUI()
+}
 
-    function setMode(next) {
-      mode = next
-      document.getElementById('tabForm').classList.toggle('active', next === 'form')
-      document.getElementById('tabCode').classList.toggle('active', next === 'code')
-      document.getElementById('formPanel').classList.toggle('hidden', next === 'code')
-      document.getElementById('codePanel').classList.toggle('active', next === 'code')
-      if (next === 'code') syncCodeFromTemplate(readForm())
-      else if (!codeErr) {
-        const tpl = readCurrent()
-        if (tpl) fillForm(tpl)
-      }
-      updatePreview()
-    }
+function fillUI(tpl){
+  draft={ ...FULL_TEMPLATE, ...tpl }
+  for(const id of TEXT_IDS){ const el=document.getElementById(id); if(el) el.value=draft[id]??'' }
+  document.getElementById('printFont').value = draft.printFont==='normal'?'normal':'small'
+  document.getElementById('lineSpacing').value = draft.lineSpacing||20
+  for(const b of STYLE_BLOCKS){
+    if(b.size){ const el=document.getElementById(b.size); if(el) el.value=draft[b.size]||'small' }
+    if(b.bold){ const el=document.getElementById(b.bold); if(el) el.checked=!!draft[b.bold] }
+    if(b.bold2){ const el=document.getElementById(b.bold2); if(el) el.checked=!!draft[b.bold2] }
+  }
+  for(const group of Object.values(SHOW_GROUPS)){
+    for(const [key] of group){ const el=document.getElementById(key); if(el) el.checked=draft[key]!==false }
+  }
+  for(const [key] of LABEL_FIELDS){ const el=document.getElementById(key); if(el) el.value=draft[key]??'' }
+  document.getElementById('codeEditor').value=JSON.stringify(draft,null,2)
+  refresh()
+}
 
-    function buildForm() {
-      const panel = document.getElementById('formPanel')
-      panel.innerHTML = ''
+function refresh(){
+  const tpl = current() || draft
+  if(codeMode && codeErr) setStatus('JSON: '+codeErr, false)
+  const iframe=document.getElementById('preview')
+  const w=tpl.printFont==='small'?42:32
+  iframe.style.width = Math.round(w*(tpl.printFont==='small'?6.5:7.6)+20)+'px'
+  iframe.srcdoc=buildPreview(tpl)
+  document.getElementById('legFont').textContent = tpl.printFont==='small'?'Мелкий':'Обычный'
+  document.getElementById('legWidth').textContent = String(w)
+  const showKeys=[].concat(...Object.values(SHOW_GROUPS).map(g=>g.map(x=>x[0])))
+  document.getElementById('legShow').textContent = showKeys.filter(k=>tpl[k]!==false).length+' / '+showKeys.length
+  const boldKeys=['boldStoreName','boldDocTitle','boldTotal','boldChange','boldFooterThanks','boldItems','boldBody']
+  document.getElementById('legBold').textContent = boldKeys.filter(k=>tpl[k]).length
+}
 
-      // Базовый шрифт
-      const printSec = document.createElement('div')
-      printSec.className = 'section'
-      printSec.innerHTML = `<h2>${SECTION_TITLES.print}</h2>
-        <p class="hint">Мелкий = Font B (42 символа). Обычный = Font A (32). Превью = бумага.</p>
-        <label for="f_printFont">Базовый размер тела чека</label>
-        <select id="f_printFont">
-          <option value="small">Мелкий (рекомендуется)</option>
+function buildStatic(){
+  const styleGrid=document.getElementById('styleGrid')
+  styleGrid.innerHTML=''
+  for(const b of STYLE_BLOCKS){
+    const row=document.createElement('div')
+    row.className='style-item'
+    if(b.boldOnly){
+      row.innerHTML=`<span>${esc(b.label)}</span><div></div><label class="b"><input type="checkbox" id="${b.bold}"> жирный</label>`
+    } else {
+      row.innerHTML=`<span>${esc(b.label)}</span>
+        <select id="${b.size}">
+          <option value="small">Мелкий</option>
           <option value="normal">Обычный</option>
+          <option value="tall">Высокий</option>
         </select>
-        <label for="f_lineSpacing">Высота строки (16–48)</label>
-        <input type="number" id="f_lineSpacing" min="16" max="48">`
-      panel.appendChild(printSec)
+        <label class="b"><input type="checkbox" id="${b.bold}"> жирный</label>
+        ${b.bold2?`<label class="b" style="grid-column:1/-1"><input type="checkbox" id="${b.bold2}"> ${esc(b.bold2Label)} жирный</label>`:''}`
+    }
+    styleGrid.appendChild(row)
+  }
+  for(const [gid, list] of Object.entries(SHOW_GROUPS)){
+    const box=document.getElementById(gid)
+    box.innerHTML=''
+    for(const [key,label] of list){
+      const l=document.createElement('label')
+      l.innerHTML=`<input type="checkbox" id="${key}" checked> ${esc(label)}`
+      box.appendChild(l)
+    }
+  }
+  const labels=document.getElementById('labelsCard')
+  labels.innerHTML=''
+  for(const [key,label] of LABEL_FIELDS){
+    const wrap=document.createElement('div')
+    wrap.innerHTML=`<label for="${key}">${esc(label)}</label><input type="text" id="${key}">`
+    labels.appendChild(wrap)
+  }
+}
 
-      // Стили
-      const styleSec = document.createElement('div')
-      styleSec.className = 'section'
-      styleSec.innerHTML = `<h2>${SECTION_TITLES.style}</h2>
-        <p class="hint">Размер: мелкий / обычный / высокий. Галочка = жирный.</p>`
-      for (const b of STYLE_BLOCKS) {
-        const row = document.createElement('div')
-        if (b.boldOnly) {
-          row.className = 'style-row'
-          row.style.gridTemplateColumns = '1fr auto'
-          row.innerHTML = `<div class="chk"><input type="checkbox" id="f_${b.boldKey}"> <span>${esc(b.label)}</span></div>`
-        } else {
-          row.className = 'style-row'
-          row.innerHTML = `
-            <div>
-              <label>${esc(b.label)}</label>
-              <select id="f_${b.sizeKey}">${SIZE_OPTS.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('')}</select>
-            </div>
-            <div class="chk"><input type="checkbox" id="f_${b.boldKey}"> жирный</div>
-            ${b.bold2Key ? `<div class="chk"><input type="checkbox" id="f_${b.bold2Key}"> ${esc(b.bold2Label)}</div>` : '<div></div>'}
-          `
-        }
-        styleSec.appendChild(row)
-      }
-      panel.appendChild(styleSec)
+function applyPreset(name){
+  let t={ ...FULL_TEMPLATE }
+  if(name==='simple'){
+    t.showClient=false; t.showClientPhone=false; t.showBonusEarned=false
+    t.showBonusSpent=false; t.showBonusBalance=false; t.showCashGiven=false
+    t.showDebt=false; t.showFooterNote=false
+  } else if(name==='small'){
+    t.printFont='small'; t.sizeBody='small'; t.sizeItems='small'; t.sizeFooter='small'
+    t.sizeSubtitle='small'; t.sizePhone='small'; t.lineSpacing=20
+  } else if(name==='normal'){
+    t.printFont='normal'; t.sizeBody='normal'; t.sizeItems='normal'
+    t.sizeSubtitle='normal'; t.sizePhone='normal'; t.sizeFooter='normal'; t.lineSpacing=24
+  }
+  fillUI(t)
+  document.querySelectorAll('.preset').forEach(b=>b.classList.toggle('on', b.dataset.preset===name))
+  setStatus('Шаблон «'+(name==='full'?'Полный':name==='simple'?'Простой':name==='small'?'Мелкий':'Обычный')+'» загружен — смотрите превью', true)
+}
 
-      const sections = { header: [], labels: [], footer: [] }
-      for (const f of TEXT_FIELDS) sections[f.section].push(f)
-      for (const sec of ['header', 'labels', 'footer', 'show']) {
-        const div = document.createElement('div')
-        div.className = 'section'
-        div.innerHTML = `<h2>${SECTION_TITLES[sec]}</h2>`
-        if (sec === 'show') {
-          const grid = document.createElement('div')
-          grid.className = 'checkbox-grid'
-          for (const f of BOOL_FIELDS) {
-            const lbl = document.createElement('label')
-            lbl.innerHTML = `<input type="checkbox" id="f_${f.key}" checked> ${esc(f.label)}`
-            grid.appendChild(lbl)
-          }
-          div.appendChild(grid)
-        } else {
-          for (const f of sections[sec]) {
-            const wrap = document.createElement('div')
-            wrap.innerHTML = `<label for="f_${f.key}">${esc(f.label)}</label>
-              <input type="text" id="f_${f.key}">`
-            div.appendChild(wrap)
-          }
-        }
-        panel.appendChild(div)
-      }
-
-      panel.querySelectorAll('input, select').forEach(el => {
-        el.addEventListener('input', updatePreview)
-        el.addEventListener('change', () => {
-          if (el.id === 'f_printFont') {
-            const body = document.getElementById('f_sizeBody')
-            const items = document.getElementById('f_sizeItems')
-            if (body) body.value = el.value
-            if (items) items.value = el.value
-          }
-          updatePreview()
-        })
+function bind(){
+  document.getElementById('nav').addEventListener('click', e=>{
+    const btn=e.target.closest('button[data-tab]'); if(!btn) return
+    const tab=btn.dataset.tab
+    codeMode = tab==='code'
+    document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b===btn))
+    document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on', p.id==='tab-'+tab))
+    if(codeMode) document.getElementById('codeEditor').value=JSON.stringify(readUI(),null,2)
+    else if(!codeErr){ const t=current(); if(t) fillUI(t) }
+    refresh()
+  })
+  document.querySelector('.form').addEventListener('input', ()=>{ draft=readUI(); refresh() })
+  document.querySelector('.form').addEventListener('change', e=>{
+    if(e.target.id==='printFont'){
+      const v=e.target.value
+      ;['sizeBody','sizeItems','sizeSubtitle','sizePhone','sizeFooter'].forEach(id=>{
+        const el=document.getElementById(id); if(el) el.value=v
       })
     }
+    draft=readUI(); refresh()
+  })
+  document.getElementById('codeEditor').addEventListener('input', ()=>{
+    const t=current(); if(t){ draft=t; setStatus('',true); refresh() } else setStatus('JSON: '+codeErr,false)
+  })
+  document.querySelectorAll('.preset').forEach(b=>b.addEventListener('click', ()=>applyPreset(b.dataset.preset)))
 
-    function fillForm(tpl) {
-      template = { ...tpl }
-      const set = (id, val, isCheck) => {
-        const el = document.getElementById(id)
-        if (!el) return
-        if (isCheck) el.checked = !!val
-        else el.value = val != null ? val : ''
-      }
-      set('f_printFont', tpl.printFont)
-      set('f_lineSpacing', tpl.lineSpacing)
-      for (const b of STYLE_BLOCKS) {
-        if (b.sizeKey) set('f_' + b.sizeKey, tpl[b.sizeKey])
-        if (b.boldKey) set('f_' + b.boldKey, tpl[b.boldKey], true)
-        if (b.bold2Key) set('f_' + b.bold2Key, tpl[b.bold2Key], true)
-      }
-      for (const f of TEXT_FIELDS) set('f_' + f.key, tpl[f.key])
-      for (const f of BOOL_FIELDS) set('f_' + f.key, tpl[f.key] !== false, true)
-      if (mode === 'code') syncCodeFromTemplate(template)
-      updatePreview()
-    }
+  document.getElementById('btnSave').onclick=async()=>{
+    try{
+      const t=current(); if(!t){ setStatus('Исправьте JSON',false); return }
+      await api.saveReceiptTemplate(t); draft=t
+      setStatus('Сохранено. Печать будет как на превью справа', true)
+    }catch(err){ setStatus('Ошибка: '+(err.message||err), false) }
+  }
+  document.getElementById('btnTest').onclick=async()=>{
+    try{
+      const t=current(); if(!t){ setStatus('Исправьте JSON',false); return }
+      setStatus('Печать…', true)
+      await api.printReceipt({
+        sale:{
+          number:128, orderId:'ORD-1047', createdAtIso:'2026-07-18T14:32:00',
+          cashierName:'Азиза М.', clientName:'Рустам А.', clientPhone:'+992 900 12 34 56',
+          cardNum:'4821', paymentMethod:'mixed', total:147.5, paidCash:50, paidCard:97.5,
+          cashReceived:100, changeGiven:50, orderGoodsTotal:175, discountAmount:17.5,
+          bonusSpent:10, bonusEarned:15, bonusBalanceBefore:245, bonusBalanceAfter:250,
+          items:DEMO_ITEMS,
+        },
+        ...t, posLabel:'Касса 1',
+      })
+      setStatus('Чек отправлен на принтер — сравните с превью', true)
+    }catch(err){ setStatus('Ошибка печати: '+(err.message||err), false) }
+  }
+  document.getElementById('btnReset').onclick=()=>{ applyPreset('full'); setStatus('Сброшено на полный шаблон', true) }
+  document.getElementById('btnClose').onclick=()=>api.closeReceiptEditor()
+}
 
-    function setStatus(msg, ok) {
-      const el = document.getElementById('status')
-      el.textContent = msg || ''
-      el.className = 'status' + (msg ? (ok ? ' ok' : ' err') : '')
-    }
-
-    async function init() {
-      buildForm()
-      try {
-        const data = await api.getReceiptTemplate()
-        defaults = data.defaults || {}
-        fillForm(data.template || data)
-      } catch (err) {
-        setStatus('Ошибка загрузки: ' + (err.message || err), false)
-      }
-    }
-
-    document.getElementById('tabForm').addEventListener('click', () => setMode('form'))
-    document.getElementById('tabCode').addEventListener('click', () => setMode('code'))
-    document.getElementById('codeEditor').addEventListener('input', () => {
-      const tpl = readCurrent()
-      if (tpl) { template = tpl; setStatus('', true); updatePreview() }
-      else setStatus('JSON: ' + codeErr, false)
-    })
-
-    document.getElementById('btnSave').addEventListener('click', async () => {
-      try {
-        const tpl = readCurrent()
-        if (!tpl) { setStatus('Исправьте JSON перед сохранением', false); return }
-        await api.saveReceiptTemplate(tpl)
-        template = tpl
-        if (mode === 'form') fillForm(tpl)
-        else syncCodeFromTemplate(tpl)
-        setStatus('Сохранено — печать будет как в превью', true)
-      } catch (err) {
-        setStatus('Ошибка сохранения: ' + (err.message || err), false)
-      }
-    })
-
-    document.getElementById('btnTest').addEventListener('click', async () => {
-      try {
-        const tpl = readCurrent()
-        if (!tpl) { setStatus('Исправьте JSON перед печатью', false); return }
-        setStatus('Печать…', true)
-        await api.printReceipt({ sale: DEMO, ...tpl, posLabel: 'Касса 1' })
-        setStatus('Тестовый чек отправлен — сравните с превью', true)
-      } catch (err) {
-        setStatus('Ошибка печати: ' + (err.message || err), false)
-      }
-    })
-
-    document.getElementById('btnReset').addEventListener('click', () => {
-      if (defaults && Object.keys(defaults).length) fillForm(defaults)
-      setStatus('Сброшено к умолчанию', true)
-    })
-
-    document.getElementById('btnClose').addEventListener('click', () => api.closeReceiptEditor())
-
-    init()
-  </script>
+async function init(){
+  buildStatic(); bind()
+  try{
+    const data=await api.getReceiptTemplate()
+    defaults = { ...FULL_TEMPLATE, ...(data.defaults||{}) }
+    const saved = data.template || data
+    // Если шаблон пустой/старый — сразу полный удобный
+    fillUI({ ...FULL_TEMPLATE, ...saved })
+    document.querySelector('.preset[data-preset="full"]').classList.add('on')
+    setStatus('Откройте разделы слева: Тексты · Шрифт · Строки · Подписи', true)
+  }catch(err){
+    fillUI(FULL_TEMPLATE)
+    setStatus('Локальный шаблон (без загрузки): '+(err.message||err), false)
+  }
+}
+init()
+</script>
 </body>
 </html>
