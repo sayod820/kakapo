@@ -196,10 +196,11 @@ function buildEscPosReceipt(sale, opts = {}) {
   const cmd = (...b) => chunks.push(Buffer.from(b))
   const txt = (s) => chunks.push(encodeCp866(`${String(s)}\n`))
   const sep = () => txt('-'.repeat(width))
-  // XP-58C: сброс размера обязательно через GS! и ESC! — иначе остаётся ширина 16
+  // XP-58C и клоны: размер только через GS! (одиночный источник истины).
+  // ESC! ("select print mode") на многих клонах перезаписывает весь байт режима целиком
+  // и сбивает жирность/размер, выставленные отдельными командами — поэтому не используем её вовсе.
   const resetSize = () => {
     cmd(GS, 0x21, 0x00)
-    cmd(ESC, 0x21, 0x00)
     cmd(ESC, 0x4D, 0x00)
     cmd(ESC, 0x45, 0)
   }
@@ -217,7 +218,6 @@ function buildEscPosReceipt(sale, opts = {}) {
   // Header: крупный КАКАПО (только высота — ширина остаётся 32)
   cmd(ESC, 0x45, 1)
   cmd(GS, 0x21, 0x10)
-  cmd(ESC, 0x21, 0x10)
   txt(store)
   resetSize()
   cmd(ESC, 0x61, 1)
@@ -283,7 +283,6 @@ function buildEscPosReceipt(sale, opts = {}) {
   // ИТОГ — жирный + выше высота (без двойной ширины)
   cmd(ESC, 0x45, 1)
   cmd(GS, 0x21, 0x10)
-  cmd(ESC, 0x21, 0x10)
   txt(padLine('ИТОГ', moneySom(total), width))
   resetSize()
 
