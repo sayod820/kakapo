@@ -505,6 +505,9 @@ async function printReceiptEscPos(html, options = {}) {
   const storeOpts = {
     storeName: options.storeName,
     storePhone: options.storePhone,
+    subtitle: options.subtitle,
+    footerThanks: options.footerThanks,
+    footerNote: options.footerNote,
     posLabel: options.posLabel,
     cashierName: options.cashierName,
   }
@@ -605,6 +608,9 @@ app.whenReady().then(() => {
       sale: p.sale,
       storeName: p.storeName,
       storePhone: p.storePhone,
+      subtitle: p.subtitle,
+      footerThanks: p.footerThanks,
+      footerNote: p.footerNote,
       posLabel: p.posLabel,
       cashierName: p.cashierName,
     })

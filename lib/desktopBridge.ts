@@ -63,6 +63,9 @@ export type KakapoDesktopApi = {
     printerName?: string
     storeName?: string
     storePhone?: string
+    subtitle?: string
+    footerThanks?: string
+    footerNote?: string
     posLabel?: string
     cashierName?: string
   }) => Promise<{ ok: boolean }>

@@ -42,10 +42,12 @@ import {
   loadReceiptStore,
   printPosReceipt,
   buildDemoReceiptSale,
+  buildPosReceiptHtml,
   saveReceiptStore,
   type ReceiptStoreConfig,
   DEFAULT_RECEIPT_STORE,
 } from '@/lib/printPosReceipt'
+import ReceiptTemplateEditor from '@/components/trade/ReceiptTemplateEditor'
 import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
@@ -478,6 +480,7 @@ export default function CashierModule({
   const [editPosCode, setEditPosCode] = useState('')
   const [editPosNote, setEditPosNote] = useState('')
   const [receiptStore, setReceiptStore] = useState<ReceiptStoreConfig>(DEFAULT_RECEIPT_STORE)
+  const [receiptTplOpen, setReceiptTplOpen] = useState(false)
   const [deletePosId, setDeletePosId] = useState<string | null>(null)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
@@ -1667,8 +1670,11 @@ export default function CashierModule({
       })
       const sample = buildDemoReceiptSale()
       await printPosReceipt(sample, {
-        storeName: receiptStore.storeName || 'КАКАПО',
-        storePhone: receiptStore.storePhone || '+992 112 373 333',
+        storeName: receiptStore.storeName,
+        storePhone: receiptStore.storePhone,
+        subtitle: receiptStore.subtitle,
+        footerThanks: receiptStore.footerThanks,
+        footerNote: receiptStore.footerNote,
         posLabel: editPosName || 'Саунаи Курботу',
         cashierName: sample.cashierName,
       })
@@ -2548,6 +2554,9 @@ export default function CashierModule({
       await printPosReceipt(sale, {
         storeName: store.storeName,
         storePhone: store.storePhone,
+        subtitle: store.subtitle,
+        footerThanks: store.footerThanks,
+        footerNote: store.footerNote,
         posLabel: posPoint?.name || posPoint?.code || activePosPoint?.name || activePosPoint?.code || undefined,
         cashierName: sale.cashierName || settings.cashierName,
       })
@@ -3461,24 +3470,31 @@ export default function CashierModule({
                 </div>
 
                 <div className="pos-settings-card span-all">
-                  <h3>Магазин на чеке</h3>
-                  <p className="hint">Шаблон receipt-example · XP‑58C · 58 мм</p>
-                  <div className="pos-settings-field">
-                    <span className="gate-label">Название</span>
-                    <input
-                      className="gate-input"
-                      value={receiptStore.storeName}
-                      onChange={e => setReceiptStore(prev => ({ ...prev, storeName: e.target.value }))}
-                      placeholder="КАКАПО"
-                    />
+                  <h3>Шаблон чека</h3>
+                  <p className="hint">Превью = печать · XP‑58C · 58 мм · как на макете</p>
+                  <div className="pos-settings-row-btns">
+                    <button
+                      type="button"
+                      className="btn-pay"
+                      onClick={() => setReceiptTplOpen(true)}
+                    >
+                      Редактировать
+                    </button>
                   </div>
-                  <div className="pos-settings-field">
-                    <span className="gate-label">Телефон</span>
-                    <input
-                      className="gate-input"
-                      value={receiptStore.storePhone}
-                      onChange={e => setReceiptStore(prev => ({ ...prev, storePhone: e.target.value }))}
-                      placeholder="+992 …"
+                  <div className="receipt-tpl-mini-wrap">
+                    <iframe
+                      title="Превью шаблона чека"
+                      className="receipt-tpl-mini"
+                      srcDoc={buildPosReceiptHtml(buildDemoReceiptSale(), {
+                        storeName: receiptStore.storeName,
+                        storePhone: receiptStore.storePhone,
+                        subtitle: receiptStore.subtitle,
+                        footerThanks: receiptStore.footerThanks,
+                        footerNote: receiptStore.footerNote,
+                        posLabel: editPosName || 'Саунаи Курботу',
+                        cashierName: 'Азиза М.',
+                      })}
+                      sandbox=""
                     />
                   </div>
                 </div>
@@ -3606,6 +3622,32 @@ export default function CashierModule({
               </div>
             </div>
           </div>
+        )}
+
+        {receiptTplOpen && (
+          <ReceiptTemplateEditor
+            initial={receiptStore}
+            posLabel={editPosName || 'Саунаи Курботу'}
+            onCancel={() => setReceiptTplOpen(false)}
+            onSave={cfg => {
+              setReceiptStore(cfg)
+              saveReceiptStore(cfg)
+              setReceiptTplOpen(false)
+              showToast('Шаблон чека', 'Сохранено')
+            }}
+            onTestPrint={async cfg => {
+              await printPosReceipt(buildDemoReceiptSale(), {
+                storeName: cfg.storeName,
+                storePhone: cfg.storePhone,
+                subtitle: cfg.subtitle,
+                footerThanks: cfg.footerThanks,
+                footerNote: cfg.footerNote,
+                posLabel: editPosName || 'Саунаи Курботу',
+                cashierName: 'Азиза М.',
+              })
+              showToast('Чек напечатан', 'Тест шаблона')
+            }}
+          />
         )}
 
         {deletePosId && (

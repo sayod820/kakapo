@@ -7,11 +7,27 @@ const STORE_KEY = 'kakapo_trade_receipt_store'
 export type ReceiptStoreConfig = {
   storeName: string
   storePhone: string
+  subtitle: string
+  footerThanks: string
+  footerNote: string
 }
 
 export const DEFAULT_RECEIPT_STORE: ReceiptStoreConfig = {
   storeName: 'КАКАПО',
-  storePhone: '',
+  storePhone: '+992 112 373 333',
+  subtitle: 'магазин - касса',
+  footerThanks: 'Спасибо за покупку!',
+  footerNote: 'Сохраняйте чек до проверки товара',
+}
+
+export function normalizeReceiptStore(p?: Partial<ReceiptStoreConfig> | null): ReceiptStoreConfig {
+  return {
+    storeName: String(p?.storeName || DEFAULT_RECEIPT_STORE.storeName).trim() || 'КАКАПО',
+    storePhone: String(p?.storePhone ?? DEFAULT_RECEIPT_STORE.storePhone).trim(),
+    subtitle: String(p?.subtitle || DEFAULT_RECEIPT_STORE.subtitle).trim() || DEFAULT_RECEIPT_STORE.subtitle,
+    footerThanks: String(p?.footerThanks || DEFAULT_RECEIPT_STORE.footerThanks).trim() || DEFAULT_RECEIPT_STORE.footerThanks,
+    footerNote: String(p?.footerNote || DEFAULT_RECEIPT_STORE.footerNote).trim() || DEFAULT_RECEIPT_STORE.footerNote,
+  }
 }
 
 export function loadReceiptStore(): ReceiptStoreConfig {
@@ -19,11 +35,7 @@ export function loadReceiptStore(): ReceiptStoreConfig {
   try {
     const raw = localStorage.getItem(STORE_KEY)
     if (!raw) return { ...DEFAULT_RECEIPT_STORE }
-    const p = JSON.parse(raw) as Partial<ReceiptStoreConfig>
-    return {
-      storeName: String(p.storeName || DEFAULT_RECEIPT_STORE.storeName).trim() || 'КАКАПО',
-      storePhone: String(p.storePhone || '').trim(),
-    }
+    return normalizeReceiptStore(JSON.parse(raw) as Partial<ReceiptStoreConfig>)
   } catch {
     return { ...DEFAULT_RECEIPT_STORE }
   }
@@ -31,15 +43,15 @@ export function loadReceiptStore(): ReceiptStoreConfig {
 
 export function saveReceiptStore(cfg: ReceiptStoreConfig) {
   if (typeof window === 'undefined') return
-  localStorage.setItem(STORE_KEY, JSON.stringify({
-    storeName: String(cfg.storeName || '').trim() || 'КАКАПО',
-    storePhone: String(cfg.storePhone || '').trim(),
-  }))
+  localStorage.setItem(STORE_KEY, JSON.stringify(normalizeReceiptStore(cfg)))
 }
 
 export type PosReceiptPrintOpts = {
   storeName?: string
   storePhone?: string
+  subtitle?: string
+  footerThanks?: string
+  footerNote?: string
   posLabel?: string
   cashierName?: string
 }
@@ -106,7 +118,24 @@ function docTitle(sale: PosSale) {
   return 'ТОВАРНЫЙ ЧЕК'
 }
 
-/** Демо 1:1 с дизайн-макетом — для «Тест чека». */
+function resolveTemplateOpts(opts?: PosReceiptPrintOpts): Required<Pick<
+  PosReceiptPrintOpts,
+  'storeName' | 'storePhone' | 'subtitle' | 'footerThanks' | 'footerNote'
+>> {
+  const storeCfg = typeof window !== 'undefined' ? loadReceiptStore() : { ...DEFAULT_RECEIPT_STORE }
+  return {
+    storeName: (opts?.storeName || storeCfg.storeName || 'КАКАПО').trim() || 'КАКАПО',
+    storePhone: (opts?.storePhone ?? storeCfg.storePhone) || '',
+    subtitle: (opts?.subtitle || storeCfg.subtitle || DEFAULT_RECEIPT_STORE.subtitle).trim()
+      || DEFAULT_RECEIPT_STORE.subtitle,
+    footerThanks: (opts?.footerThanks || storeCfg.footerThanks || DEFAULT_RECEIPT_STORE.footerThanks).trim()
+      || DEFAULT_RECEIPT_STORE.footerThanks,
+    footerNote: (opts?.footerNote || storeCfg.footerNote || DEFAULT_RECEIPT_STORE.footerNote).trim()
+      || DEFAULT_RECEIPT_STORE.footerNote,
+  }
+}
+
+/** Демо 1:1 с дизайн-макетом — для «Тест чека» и превью. */
 export function buildDemoReceiptSale(): PosSale {
   return {
     id: 'DEMO',
@@ -139,11 +168,14 @@ export function buildDemoReceiptSale(): PosSale {
   }
 }
 
-/** Единственный шаблон чека — структура receipt-example.html */
+/** Единственный шаблон чека — структура как на макете. */
 export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): string {
-  const storeCfg = loadReceiptStore()
-  const storeName = esc((opts?.storeName || storeCfg.storeName || 'КАКАПО').trim() || 'КАКАПО')
-  const storePhone = esc((opts?.storePhone ?? storeCfg.storePhone) || '')
+  const tpl = resolveTemplateOpts(opts)
+  const storeName = esc(tpl.storeName)
+  const storePhone = esc(tpl.storePhone)
+  const subtitle = esc(tpl.subtitle)
+  const footerThanks = esc(tpl.footerThanks)
+  const footerNote = esc(tpl.footerNote)
   const pos = esc(opts?.posLabel || '')
   const cashier = esc(opts?.cashierName || sale.cashierName || '')
   const when = sale.createdAtIso
@@ -185,7 +217,6 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
     const rawName = String(it.productName || `#${it.productId}`).trim()
-    // Как на макете: 400мл отдельно только если имя+цена не влезают в ~32 символа
     const rightLen = money(sum).length
     const maxLeft = Math.max(8, 32 - rightLen - 1)
     const vol = rawName.match(/^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:мл|мл\.|г|гр|кг|л|шт\.?))$/i)
@@ -243,7 +274,6 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     moneyRow('Сдача', Number(sale.changeGiven) || 0, { bold: true }),
   ].filter(Boolean).join('\n    ')
 
-  // JSON для desktop fallback; экранируем </ чтобы не закрыть script
   const saleJson = JSON.stringify(sale).replace(/</g, '\\u003c')
 
   return `<!DOCTYPE html>
@@ -294,7 +324,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
 <script type="application/json" id="kakapo-sale">${saleJson}</script>
 <div class="receipt">
   <div class="center title">${storeName}</div>
-  <div class="center sub">магазин - касса</div>
+  <div class="center sub">${subtitle}</div>
   ${storePhone ? `<div class="center sub">${storePhone}</div>` : ''}
 
   <div class="line"></div>
@@ -327,8 +357,8 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   <div class="line"></div>
 
   <div class="center footer">
-    <div class="bold">Спасибо за покупку!</div>
-    <div class="sub">Сохраняйте чек до проверки товара</div>
+    <div class="bold">${footerThanks}</div>
+    <div class="sub">${footerNote}</div>
   </div>
 </div>
 </body>
@@ -341,11 +371,10 @@ export async function printPosReceipt(
 ): Promise<void> {
   if (typeof window === 'undefined') return
 
-  const storeCfg = loadReceiptStore()
+  const tpl = resolveTemplateOpts(opts)
   const printOpts: PosReceiptPrintOpts = {
     ...opts,
-    storeName: opts?.storeName || storeCfg.storeName,
-    storePhone: opts?.storePhone ?? storeCfg.storePhone,
+    ...tpl,
   }
 
   const desktop = getKakapoDesktop()
@@ -383,13 +412,15 @@ export async function printPosReceipt(
       }).catch(() => undefined)
     }
 
-    // Plain JSON — чтобы IPC не потерял sale
     const salePayload = JSON.parse(JSON.stringify(sale)) as PosSale
     const payload = {
       printerName,
       sale: salePayload,
       storeName: printOpts.storeName,
       storePhone: printOpts.storePhone,
+      subtitle: printOpts.subtitle,
+      footerThanks: printOpts.footerThanks,
+      footerNote: printOpts.footerNote,
       posLabel: opts?.posLabel,
       cashierName: opts?.cashierName || sale.cashierName,
     }

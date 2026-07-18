@@ -163,6 +163,10 @@ function buildEscPosReceipt(sale, opts = {}) {
   const width = 32
   const store = String(opts.storeName || 'КАКАПО').trim() || 'КАКАПО'
   const phone = String(opts.storePhone || '').trim()
+  const subtitle = String(opts.subtitle || 'магазин - касса').trim() || 'магазин - касса'
+  const footerThanks = String(opts.footerThanks || 'Спасибо за покупку!').trim() || 'Спасибо за покупку!'
+  const footerNote = String(opts.footerNote || 'Сохраняйте чек до проверки товара').trim()
+    || 'Сохраняйте чек до проверки товара'
   const pos = String(opts.posLabel || '').trim()
   const cashier = String(opts.cashierName || sale.cashierName || '').trim()
   const when = sale.createdAtIso
@@ -219,7 +223,7 @@ function buildEscPosReceipt(sale, opts = {}) {
   cmd(GS, 0x21, 0x11)
   txt(store)
   boot(1)
-  txt('магазин - касса')
+  txt(subtitle)
   if (phone) txt(phone)
 
   sep()
@@ -311,10 +315,9 @@ function buildEscPosReceipt(sale, opts = {}) {
   sep()
   cmd(ESC, 0x61, 1)
   cmd(ESC, 0x45, 1)
-  txt('Спасибо за покупку!')
+  for (const line of wrapName(footerThanks, width)) txt(line)
   cmd(ESC, 0x45, 0)
-  txt('Сохраняйте чек до проверки')
-  txt('товара')
+  for (const line of wrapName(footerNote, width)) txt(line)
 
   // Запас бумаги, чтобы футер не обрезался ножом
   chunks.push(encodeCp866('\n\n\n\n'))
