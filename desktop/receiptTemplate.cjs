@@ -1,15 +1,37 @@
 'use strict'
 
 /**
- * Полный шаблон чека 58 мм (как макет).
- * Хранится в userData кассы — работает даже со старым /trade на сервере.
+ * Полный шаблон чека 58 мм.
+ * Превью редактора и ESC/POS печать используют одни и те же поля стиля.
  */
 
 const DEFAULT_RECEIPT_TEMPLATE = {
-  // XP-58C: Font B = мелкий (42 символа). Не трогаем GS L/W — ломают ширину.
+  // Базовый шрифт тела чека. small = Font B (42 симв.), normal = Font A (32 симв.)
   printFont: 'small',
   charsPerLine: 42,
-  lineSpacing: 24,
+  lineSpacing: 20,
+
+  // Размер отдельных блоков: small | normal | tall (tall = выше, без уширения)
+  sizeStoreName: 'normal',
+  sizeSubtitle: 'small',
+  sizePhone: 'small',
+  sizeDocTitle: 'normal',
+  sizeBody: 'small',
+  sizeItems: 'small',
+  sizeTotal: 'normal',
+  sizeFooter: 'small',
+
+  // Жирный / обычный
+  boldStoreName: true,
+  boldSubtitle: false,
+  boldPhone: false,
+  boldDocTitle: true,
+  boldBody: false,
+  boldItems: false,
+  boldTotal: true,
+  boldChange: true,
+  boldFooterThanks: true,
+  boldFooterNote: false,
 
   storeName: 'КАКАПО',
   storePhone: '+992 112 373 333',
@@ -87,18 +109,50 @@ function asInt(v, fallback, min, max) {
   return Math.max(min, Math.min(max, n))
 }
 
+function asSize(v, fallback) {
+  return ['small', 'normal', 'tall'].includes(v) ? v : fallback
+}
+
+function asFont(v, fallback) {
+  // large → normal (старые шаблоны); без double-width
+  if (v === 'large') return 'normal'
+  return ['small', 'normal'].includes(v) ? v : fallback
+}
+
+/** Ширина строки в символах для XP-58C. */
+function charsPerLineFor(printFont) {
+  return printFont === 'small' ? 42 : 32
+}
+
 function normalizeReceiptTemplate(raw) {
   const p = raw && typeof raw === 'object' ? raw : {}
   const d = DEFAULT_RECEIPT_TEMPLATE
-  const printFont = ['small', 'normal', 'large'].includes(p.printFont)
-    ? p.printFont
-    : d.printFont
-  // Ширина жёстко связана со шрифтом — иначе XP-58C режет слова
-  const charsPerLine = printFont === 'small' ? 42 : 32
+  const printFont = asFont(p.printFont, d.printFont)
+  const charsPerLine = charsPerLineFor(printFont)
   return {
     printFont,
     charsPerLine,
     lineSpacing: asInt(p.lineSpacing, d.lineSpacing, 16, 48),
+
+    sizeStoreName: asSize(p.sizeStoreName, d.sizeStoreName),
+    sizeSubtitle: asSize(p.sizeSubtitle, d.sizeSubtitle),
+    sizePhone: asSize(p.sizePhone, d.sizePhone),
+    sizeDocTitle: asSize(p.sizeDocTitle, d.sizeDocTitle),
+    sizeBody: asSize(p.sizeBody, d.sizeBody),
+    sizeItems: asSize(p.sizeItems, d.sizeItems),
+    sizeTotal: asSize(p.sizeTotal, d.sizeTotal),
+    sizeFooter: asSize(p.sizeFooter, d.sizeFooter),
+
+    boldStoreName: asBool(p.boldStoreName, d.boldStoreName),
+    boldSubtitle: asBool(p.boldSubtitle, d.boldSubtitle),
+    boldPhone: asBool(p.boldPhone, d.boldPhone),
+    boldDocTitle: asBool(p.boldDocTitle, d.boldDocTitle),
+    boldBody: asBool(p.boldBody, d.boldBody),
+    boldItems: asBool(p.boldItems, d.boldItems),
+    boldTotal: asBool(p.boldTotal, d.boldTotal),
+    boldChange: asBool(p.boldChange, d.boldChange),
+    boldFooterThanks: asBool(p.boldFooterThanks, d.boldFooterThanks),
+    boldFooterNote: asBool(p.boldFooterNote, d.boldFooterNote),
 
     storeName: asStr(p.storeName, d.storeName),
     storePhone: String(p.storePhone != null ? p.storePhone : d.storePhone).trim(),
@@ -159,11 +213,10 @@ function normalizeReceiptTemplate(raw) {
   }
 }
 
-/** savedTemplate — база с диска; printOpts — любые переопределения (в т.ч. полный шаблон из редактора) */
+/** savedTemplate — база с диска; printOpts — любые переопределения */
 function mergeTemplateOpts(printOpts, savedTemplate) {
   const t = normalizeReceiptTemplate(savedTemplate)
   const o = printOpts && typeof printOpts === 'object' ? printOpts : {}
-  // любое поле шаблона, переданное в printOpts, перекрывает диск (нужно для «Тест печати» без сохранения)
   const overlay = {}
   for (const key of Object.keys(DEFAULT_RECEIPT_TEMPLATE)) {
     if (o[key] !== undefined) overlay[key] = o[key]
@@ -180,4 +233,5 @@ module.exports = {
   DEFAULT_RECEIPT_TEMPLATE,
   normalizeReceiptTemplate,
   mergeTemplateOpts,
+  charsPerLineFor,
 }

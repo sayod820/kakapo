@@ -12,22 +12,16 @@
     header h1 { font-size: 16px; font-weight: 600; }
     .header-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
     .tabs { display: inline-flex; padding: 3px; border-radius: 8px; background: #161b22; border: 1px solid #30363d; gap: 2px; }
-    .tab {
-      padding: 6px 12px; border-radius: 6px; border: 0; background: transparent;
-      color: #8b949e; cursor: pointer; font-size: 12px; font-weight: 600;
-    }
+    .tab { padding: 6px 12px; border-radius: 6px; border: 0; background: transparent; color: #8b949e; cursor: pointer; font-size: 12px; font-weight: 600; }
     .tab.active { background: #238636; color: #fff; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
-    button {
-      padding: 7px 14px; border-radius: 6px; border: 1px solid #30363d;
-      background: #21262d; color: #e6edf3; cursor: pointer; font-size: 13px;
-    }
+    button { padding: 7px 14px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #e6edf3; cursor: pointer; font-size: 13px; }
     button:hover { background: #30363d; }
     button.primary { background: #238636; border-color: #2ea043; }
     button.primary:hover { background: #2ea043; }
     button.danger { background: #6e2a2a; border-color: #8b3333; }
     .main { display: flex; flex: 1; overflow: hidden; }
-    .form-panel { width: 420px; min-width: 360px; overflow-y: auto; border-right: 1px solid #30363d; padding: 12px 16px; }
+    .form-panel { width: 440px; min-width: 360px; overflow-y: auto; border-right: 1px solid #30363d; padding: 12px 16px; }
     .preview-panel { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #161b22; overflow: auto; }
     .section { margin-bottom: 16px; }
     .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; margin-bottom: 8px; }
@@ -36,28 +30,30 @@
       width: 100%; padding: 6px 8px; margin-bottom: 8px;
       background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #e6edf3; font-size: 13px;
     }
-    input[type="text"]:focus, input[type="number"]:focus, select:focus { outline: none; border-color: #58a6ff; }
+    input:focus, select:focus { outline: none; border-color: #58a6ff; }
+    .style-row { display: grid; grid-template-columns: 1fr 110px 72px; gap: 8px; align-items: end; margin-bottom: 8px; }
+    .style-row .chk { display: flex; align-items: center; gap: 6px; color: #c9d1d9; font-size: 12px; margin-bottom: 8px; }
     .checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
     .checkbox-grid label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c9d1d9; margin: 0; cursor: pointer; }
-    .checkbox-grid input { accent-color: #238636; }
+    .checkbox-grid input, .style-row input { accent-color: #238636; }
     .status { font-size: 12px; color: #8b949e; padding: 0 20px 8px; }
     .status.ok { color: #3fb950; }
     .status.err { color: #f85149; }
-    .preview-wrap { background: #fff; padding: 16px; border-radius: 4px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+    .preview-wrap { background: #fff; padding: 12px; border-radius: 4px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
     .preview-label { font-size: 11px; color: #8b949e; margin-bottom: 12px; text-align: center; }
-    iframe { border: none; width: 272px; height: 720px; background: #fff; }
+    iframe { border: none; background: #fff; }
     #codePanel { display: none; }
     #codePanel.active { display: block; }
     #formPanel.hidden { display: none; }
     #codeEditor {
       width: 100%; min-height: calc(100vh - 140px); resize: vertical;
-      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
+      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
       font-size: 12.5px; line-height: 1.5; tab-size: 2;
       padding: 12px; border-radius: 6px; border: 1px solid #30363d;
       background: #0d1117; color: #e6edf3; white-space: pre; overflow: auto;
     }
-    #codeEditor:focus { outline: none; border-color: #58a6ff; }
     .code-hint { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
+    .hint { font-size: 11px; color: #8b949e; margin-bottom: 10px; line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -82,12 +78,12 @@
       <div class="form-panel">
         <div id="formPanel"></div>
         <div id="codePanel">
-          <p class="code-hint">Шаблон (JSON) — правьте как код. Превью обновляется на лету.</p>
+          <p class="code-hint">JSON шаблона. Превью = то, что уйдёт на бумагу.</p>
           <textarea id="codeEditor" spellcheck="false"></textarea>
         </div>
       </div>
       <div class="preview-panel">
-        <p class="preview-label">Предпросмотр (демо ORD-1047)</p>
+        <p class="preview-label">Превью = печать XP-58C · 58 мм</p>
         <div class="preview-wrap">
           <iframe id="preview" title="Предпросмотр чека"></iframe>
         </div>
@@ -96,6 +92,22 @@
   </div>
   <script>
     const api = window.kakapoDesktop
+    const SIZE_OPTS = [
+      ['small', 'Мелкий'],
+      ['normal', 'Обычный'],
+      ['tall', 'Высокий'],
+    ]
+    const STYLE_BLOCKS = [
+      { sizeKey: 'sizeStoreName', boldKey: 'boldStoreName', label: 'Название магазина' },
+      { sizeKey: 'sizeSubtitle', boldKey: 'boldSubtitle', label: 'Подзаголовок' },
+      { sizeKey: 'sizePhone', boldKey: 'boldPhone', label: 'Телефон' },
+      { sizeKey: 'sizeDocTitle', boldKey: 'boldDocTitle', label: 'Заголовок чека' },
+      { sizeKey: 'sizeBody', boldKey: 'boldBody', label: 'Строки мета / итоги' },
+      { sizeKey: 'sizeItems', boldKey: 'boldItems', label: 'Товары' },
+      { sizeKey: 'sizeTotal', boldKey: 'boldTotal', label: 'ИТОГ' },
+      { sizeKey: 'sizeFooter', boldKey: 'boldFooterThanks', label: 'Футер «спасибо»', bold2Key: 'boldFooterNote', bold2Label: 'примечание' },
+      { boldOnly: true, boldKey: 'boldChange', label: 'Сдача — жирный' },
+    ]
     const TEXT_FIELDS = [
       { key: 'storeName', section: 'header', label: 'Название магазина' },
       { key: 'subtitle', section: 'header', label: 'Подзаголовок' },
@@ -126,14 +138,6 @@
       { key: 'footerThanks', section: 'footer', label: 'Благодарность' },
       { key: 'footerNote', section: 'footer', label: 'Примечание' },
     ]
-    const PRINT_FIELDS = [
-      { key: 'printFont', label: 'Размер шрифта', type: 'select', options: [
-        ['small', 'Мелкий Font B — 42 символа (рекомендуется)'],
-        ['normal', 'Обычный Font A — 32 символа'],
-        ['large', 'Крупный (жирнее, 32 символа)'],
-      ] },
-      { key: 'lineSpacing', label: 'Высота строки (16–48)', type: 'number', min: 16, max: 48 },
-    ]
     const BOOL_FIELDS = [
       { key: 'showStoreName', label: 'Название магазина' },
       { key: 'showSubtitle', label: 'Подзаголовок' },
@@ -162,33 +166,61 @@
       { key: 'showChange', label: 'Сдача' },
     ]
     const SECTION_TITLES = {
-      print: 'Печать и размер',
+      print: 'Базовый шрифт',
+      style: 'Размер и жирность',
       header: 'Шапка',
       labels: 'Подписи полей',
       footer: 'Футер',
-      show: 'Отключение ненужных строк',
+      show: 'Отключение строк',
     }
 
     let template = {}
     let defaults = {}
-    let mode = 'form' // form | code
+    let mode = 'form'
     let codeErr = ''
 
-    function money(n) {
-      return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2)
-    }
+    function money(n) { return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2) }
     function fmt(n, cur) { return `${money(n)} ${cur || 'сом'}` }
+    function esc(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
     function padLine(left, right, w) {
       const l = String(left || ''), r = String(right || '')
       const sp = Math.max(1, w - l.length - r.length)
       return l + ' '.repeat(sp) + r
     }
-    function esc(s) {
-      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    function wrapName(name, width) {
+      const s = String(name || '').trim() || 'Товар'
+      if (s.length <= width) return [s]
+      const lines = []
+      let rest = s
+      while (rest.length > width) {
+        let cut = -1
+        for (let i = Math.min(width, rest.length - 1); i >= Math.min(8, width); i--) {
+          const ch = rest[i]
+          if (ch === ' ' || ch === '-' || ch === '&') { cut = ch === ' ' ? i : i + 1; break }
+        }
+        if (cut < 1) cut = width
+        lines.push(rest.slice(0, cut).trim())
+        rest = rest.slice(cut).trim()
+      }
+      if (rest) lines.push(rest)
+      return lines
+    }
+    function nameAmountLines(name, amount, width, currency) {
+      const right = fmt(amount, currency)
+      const maxLeft = Math.max(8, width - right.length - 1)
+      const nameLines = wrapName(name, width)
+      if (nameLines.length === 1 && nameLines[0].length <= maxLeft) return [padLine(nameLines[0], right, width)]
+      return [...nameLines, padLine('', right, width)]
+    }
+    function cssClass(size, bold) {
+      const sz = size === 'tall' ? 'tall' : (size === 'normal' ? 'normal' : 'small')
+      return `ln ${sz}${bold ? ' bold' : ''}`
     }
 
-    const DEMO_SALE = {
-      number: 128, orderId: 'ORD-1047', createdAtIso: '2026-07-18T14:32:00',
+    const DEMO = {
+      number: 128, orderId: 'ORD-1047',
       cashierName: 'Азиза М.', clientName: 'Рустам А.', clientPhone: '+992 900 12 34 56',
       cardNum: '4821', paymentMethod: 'mixed', total: 147.5, paidCash: 50, paidCard: 97.5,
       cashReceived: 100, changeGiven: 50, orderGoodsTotal: 175, discountAmount: 17.5,
@@ -201,83 +233,104 @@
       ],
     }
 
+    /** Превью рисует те же символы/переносы, что уйдёт на принтер. */
     function buildPreviewHtml(tpl) {
-      const cur = tpl.currency || 'сом'
       const w = tpl.printFont === 'small' ? 42 : 32
-      const fontPx = tpl.printFont === 'large' ? 14 : (tpl.printFont === 'normal' ? 12 : 10)
-      const when = '18.07.2026 14:32'
-      const subtotal = 175
-      const discount = 17.5
-      const discountPct = 10
-      const total = 147.5
-      const lines = []
-      const sep = () => lines.push('<div class="sep"></div>')
-      const kv = (l, v) => { if (v) lines.push(`<div class="kv"><span>${esc(l)}</span><span>${esc(v)}</span></div>`) }
-      const center = (t, bold) => lines.push(`<div class="c${bold ? ' bold' : ''}">${esc(t)}</div>`)
+      const cur = tpl.currency || 'сом'
+      const basePx = tpl.printFont === 'small' ? 10.5 : 12.5
+      const out = []
+      const push = (text, size, bold, center) => {
+        const lines = String(text).split('\n')
+        for (const line of lines) {
+          out.push(`<div class="${cssClass(size, bold)}${center ? ' c' : ''}">${esc(line) || '&nbsp;'}</div>`)
+        }
+      }
+      const sep = () => push('-'.repeat(w), tpl.sizeBody, false, false)
+      const kv = (l, v, size, bold) => {
+        if (!v) return
+        const line = l.length + 1 + String(v).length <= w ? padLine(l, v, w) : `${l}\n${padLine('', v, w)}`
+        push(line, size, bold, false)
+      }
 
-      if (tpl.showStoreName) center(tpl.storeName, true)
-      if (tpl.showSubtitle) center(tpl.subtitle)
-      if (tpl.showStorePhone && tpl.storePhone) center(tpl.storePhone)
+      if (tpl.showStoreName) push(tpl.storeName, tpl.sizeStoreName, tpl.boldStoreName, true)
+      if (tpl.showSubtitle) push(tpl.subtitle, tpl.sizeSubtitle, tpl.boldSubtitle, true)
+      if (tpl.showStorePhone && tpl.storePhone) push(tpl.storePhone, tpl.sizePhone, tpl.boldPhone, true)
       sep()
-      if (tpl.showDocTitle) center(tpl.docTitle, true)
+      if (tpl.showDocTitle) push(tpl.docTitle, tpl.sizeDocTitle, tpl.boldDocTitle, true)
       sep()
-      if (tpl.showOrderNo) kv(tpl.labelOrderNo, 'ORD-1047')
-      if (tpl.showReceiptNo) kv(tpl.labelReceiptNo, '№128')
-      if (tpl.showDate) kv(tpl.labelDate, when)
-      if (tpl.showPos) kv(tpl.labelPos, 'Касса 1')
-      if (tpl.showCashier) kv(tpl.labelCashier, 'Азиза М.')
-      if (tpl.showClient) kv(tpl.labelClient, 'Рустам А.')
-      if (tpl.showClientPhone) kv(tpl.labelClientPhone, '+992 900 12 34 56')
+      if (tpl.showOrderNo) kv(tpl.labelOrderNo, 'ORD-1047', tpl.sizeBody, tpl.boldBody)
+      if (tpl.showReceiptNo) kv(tpl.labelReceiptNo, '№128', tpl.sizeBody, tpl.boldBody)
+      if (tpl.showDate) kv(tpl.labelDate, '18.07.2026 14:32', tpl.sizeBody, tpl.boldBody)
+      if (tpl.showPos) kv(tpl.labelPos, 'Касса 1', tpl.sizeBody, tpl.boldBody)
+      if (tpl.showCashier) kv(tpl.labelCashier, 'Азиза М.', tpl.sizeBody, tpl.boldBody)
+      if (tpl.showClient) kv(tpl.labelClient, 'Рустам А.', tpl.sizeBody, tpl.boldBody)
+      if (tpl.showClientPhone) kv(tpl.labelClientPhone, '+992 900 12 34 56', tpl.sizeBody, tpl.boldBody)
       sep()
       if (tpl.showItems) {
-        lines.push(`<div class="kv"><span>Шампунь Head&Shoulders</span><span>${fmt(85, cur)}</span></div>`)
-        lines.push('<div class="detail">400мл</div>')
-        lines.push('<div class="qty">1 x 85.00</div>')
-        lines.push(`<div class="kv"><span>Мыло Dove 100г</span><span>${fmt(36, cur)}</span></div>`)
-        lines.push('<div class="qty">2 x 18.00</div>')
-        lines.push(`<div class="kv"><span>Зубная паста Colgate</span><span>${fmt(42, cur)}</span></div>`)
-        lines.push('<div class="qty">1 x 42.00</div>')
-        lines.push(`<div class="kv"><span>Хлеб белый</span><span>${fmt(12, cur)}</span></div>`)
-        lines.push('<div class="qty">2 x 6.00</div>')
+        for (const it of DEMO.items) {
+          for (const line of nameAmountLines(it.productName, it.lineTotal, w, cur)) {
+            push(line, tpl.sizeItems, tpl.boldItems, false)
+          }
+          push(`${it.qty} x ${money(it.price)}`, tpl.sizeItems, tpl.boldItems, false)
+        }
       }
       sep()
-      if (tpl.showSubtotal) kv(tpl.labelSum, fmt(subtotal, cur))
-      if (tpl.showDiscount) kv(`${tpl.labelDiscount} ${discountPct}%`, `-${fmt(discount, cur)}`)
-      if (tpl.showBonusEarned) kv(tpl.labelBonusEarned, '+15')
-      if (tpl.showBonusSpent) kv(tpl.labelBonusSpent, `-${fmt(10, cur)}`)
-      lines.push(`<div class="kv bold big"><span>${esc(tpl.labelTotal)}</span><span>${fmt(total, cur)}</span></div>`)
+      if (tpl.showSubtotal) kv(tpl.labelSum, fmt(175, cur), tpl.sizeBody, tpl.boldBody)
+      if (tpl.showDiscount) kv(`${tpl.labelDiscount} 10%`, `-${fmt(17.5, cur)}`, tpl.sizeBody, tpl.boldBody)
+      if (tpl.showBonusEarned) kv(tpl.labelBonusEarned, '+15', tpl.sizeBody, tpl.boldBody)
+      if (tpl.showBonusSpent) kv(tpl.labelBonusSpent, `-${fmt(10, cur)}`, tpl.sizeBody, tpl.boldBody)
+      push(padLine(tpl.labelTotal, fmt(147.5, cur), w), tpl.sizeTotal, tpl.boldTotal, false)
       sep()
-      if (tpl.showPay) kv(tpl.labelPay, 'Смешанная')
-      if (tpl.showCash) kv(tpl.labelCash, fmt(50, cur))
-      if (tpl.showCard) kv(`${tpl.labelCard} (Visa ****4821)`, fmt(97.5, cur))
-      if (tpl.showCashGiven) kv(tpl.labelCashGiven, fmt(100, cur))
-      if (tpl.showChange) lines.push(`<div class="kv bold"><span>${esc(tpl.labelChange)}</span><span>${fmt(50, cur)}</span></div>`)
+      if (tpl.showPay) kv(tpl.labelPay, 'Смешанная', tpl.sizeBody, tpl.boldBody)
+      if (tpl.showCash) kv(tpl.labelCash, fmt(50, cur), tpl.sizeBody, tpl.boldBody)
+      if (tpl.showCard) kv(`${tpl.labelCard} (Visa ****4821)`, fmt(97.5, cur), tpl.sizeBody, tpl.boldBody)
+      if (tpl.showCashGiven) kv(tpl.labelCashGiven, fmt(100, cur), tpl.sizeBody, tpl.boldBody)
+      if (tpl.showChange) push(padLine(tpl.labelChange, fmt(50, cur), w), tpl.sizeBody, tpl.boldChange, false)
       if (tpl.showBonusBalance) {
         sep()
-        kv(tpl.labelBonusBalance, '245 -> 250')
+        kv(tpl.labelBonusBalance, '245 -> 250', tpl.sizeBody, tpl.boldBody)
       }
       sep()
-      if (tpl.showFooterThanks) center(tpl.footerThanks, true)
-      if (tpl.showFooterNote) center(tpl.footerNote)
+      if (tpl.showFooterThanks) {
+        for (const line of wrapName(tpl.footerThanks, w)) push(line, tpl.sizeFooter, tpl.boldFooterThanks, true)
+      }
+      if (tpl.showFooterNote) {
+        for (const line of wrapName(tpl.footerNote, w)) push(line, tpl.sizeFooter, tpl.boldFooterNote, true)
+      }
 
+      const iframeW = Math.round(w * (basePx * 0.62) + 16)
       return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-        body { margin: 0; padding: 8px 0; font-family: 'Courier New', Courier, monospace; font-size: ${fontPx}px; line-height: 1.35; color: #000; width: ${w}ch; }
-        .c { text-align: center; }
-        .bold { font-weight: bold; }
-        .big { font-size: 13px; }
-        .sep { border-top: 1px dashed #000; margin: 6px 0; }
-        .kv { display: flex; justify-content: space-between; gap: 4px; }
-        .kv span:last-child { text-align: right; white-space: nowrap; }
-        .detail, .qty { font-size: 10px; }
-        .qty { margin-bottom: 2px; }
-      </style></head><body>${lines.join('')}</body></html>`
+        body{margin:0;padding:8px 4px;background:#fff;color:#000;
+          font-family:'Courier New',Courier,monospace;width:${w}ch;
+          -webkit-font-smoothing:none;font-smooth:never;}
+        .ln{white-space:pre;line-height:1.28;font-size:${basePx}px;font-weight:400;}
+        .ln.small{font-size:${basePx}px;}
+        .ln.normal{font-size:${basePx + 1.5}px;}
+        .ln.tall{font-size:${basePx + 3}px;line-height:1.35;}
+        .ln.bold{font-weight:700;}
+        .ln.c{text-align:center;}
+      </style></head><body>${out.join('')}</body></html>`
     }
 
     function readForm() {
       const out = { ...template }
-      for (const f of PRINT_FIELDS) {
-        const el = document.getElementById('f_' + f.key)
-        if (el) out[f.key] = f.type === 'number' ? Number(el.value) : el.value
+      const fontEl = document.getElementById('f_printFont')
+      const spaceEl = document.getElementById('f_lineSpacing')
+      if (fontEl) out.printFont = fontEl.value
+      if (spaceEl) out.lineSpacing = Number(spaceEl.value)
+      for (const b of STYLE_BLOCKS) {
+        if (b.sizeKey) {
+          const el = document.getElementById('f_' + b.sizeKey)
+          if (el) out[b.sizeKey] = el.value
+        }
+        if (b.boldKey) {
+          const el = document.getElementById('f_' + b.boldKey)
+          if (el) out[b.boldKey] = el.checked
+        }
+        if (b.bold2Key) {
+          const el = document.getElementById('f_' + b.bold2Key)
+          if (el) out[b.bold2Key] = el.checked
+        }
       }
       for (const f of TEXT_FIELDS) {
         const el = document.getElementById('f_' + f.key)
@@ -287,6 +340,7 @@
         const el = document.getElementById('f_' + f.key)
         if (el) out[f.key] = el.checked
       }
+      out.charsPerLine = out.printFont === 'small' ? 42 : 32
       return out
     }
 
@@ -309,35 +363,78 @@
       codeErr = ''
     }
 
+    function updatePreview() {
+      const tpl = mode === 'code' ? (readCurrent() || template) : readForm()
+      if (mode === 'code' && codeErr) setStatus('JSON: ' + codeErr, false)
+      const iframe = document.getElementById('preview')
+      const w = tpl.printFont === 'small' ? 42 : 32
+      const basePx = tpl.printFont === 'small' ? 10.5 : 12.5
+      iframe.style.width = Math.round(w * (basePx * 0.62) + 24) + 'px'
+      iframe.style.height = '760px'
+      iframe.srcdoc = buildPreviewHtml(tpl)
+    }
+
     function setMode(next) {
       mode = next
       document.getElementById('tabForm').classList.toggle('active', next === 'form')
       document.getElementById('tabCode').classList.toggle('active', next === 'code')
       document.getElementById('formPanel').classList.toggle('hidden', next === 'code')
       document.getElementById('codePanel').classList.toggle('active', next === 'code')
-      if (next === 'code') {
-        syncCodeFromTemplate(readForm())
-      } else if (!codeErr) {
+      if (next === 'code') syncCodeFromTemplate(readForm())
+      else if (!codeErr) {
         const tpl = readCurrent()
         if (tpl) fillForm(tpl)
       }
       updatePreview()
     }
 
-    function updatePreview() {
-      const tpl = mode === 'code' ? (readCurrent() || template) : readForm()
-      if (mode === 'code' && codeErr) {
-        setStatus('JSON: ' + codeErr, false)
-      }
-      const iframe = document.getElementById('preview')
-      iframe.srcdoc = buildPreviewHtml(tpl)
-    }
-
     function buildForm() {
       const panel = document.getElementById('formPanel')
-      const sections = { print: PRINT_FIELDS, header: [], labels: [], footer: [], show: [] }
+      panel.innerHTML = ''
+
+      // Базовый шрифт
+      const printSec = document.createElement('div')
+      printSec.className = 'section'
+      printSec.innerHTML = `<h2>${SECTION_TITLES.print}</h2>
+        <p class="hint">Мелкий = Font B (42 символа). Обычный = Font A (32). Превью = бумага.</p>
+        <label for="f_printFont">Базовый размер тела чека</label>
+        <select id="f_printFont">
+          <option value="small">Мелкий (рекомендуется)</option>
+          <option value="normal">Обычный</option>
+        </select>
+        <label for="f_lineSpacing">Высота строки (16–48)</label>
+        <input type="number" id="f_lineSpacing" min="16" max="48">`
+      panel.appendChild(printSec)
+
+      // Стили
+      const styleSec = document.createElement('div')
+      styleSec.className = 'section'
+      styleSec.innerHTML = `<h2>${SECTION_TITLES.style}</h2>
+        <p class="hint">Размер: мелкий / обычный / высокий. Галочка = жирный.</p>`
+      for (const b of STYLE_BLOCKS) {
+        const row = document.createElement('div')
+        if (b.boldOnly) {
+          row.className = 'style-row'
+          row.style.gridTemplateColumns = '1fr auto'
+          row.innerHTML = `<div class="chk"><input type="checkbox" id="f_${b.boldKey}"> <span>${esc(b.label)}</span></div>`
+        } else {
+          row.className = 'style-row'
+          row.innerHTML = `
+            <div>
+              <label>${esc(b.label)}</label>
+              <select id="f_${b.sizeKey}">${SIZE_OPTS.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('')}</select>
+            </div>
+            <div class="chk"><input type="checkbox" id="f_${b.boldKey}"> жирный</div>
+            ${b.bold2Key ? `<div class="chk"><input type="checkbox" id="f_${b.bold2Key}"> ${esc(b.bold2Label)}</div>` : '<div></div>'}
+          `
+        }
+        styleSec.appendChild(row)
+      }
+      panel.appendChild(styleSec)
+
+      const sections = { header: [], labels: [], footer: [] }
       for (const f of TEXT_FIELDS) sections[f.section].push(f)
-      for (const sec of ['print', 'header', 'labels', 'footer', 'show']) {
+      for (const sec of ['header', 'labels', 'footer', 'show']) {
         const div = document.createElement('div')
         div.className = 'section'
         div.innerHTML = `<h2>${SECTION_TITLES[sec]}</h2>`
@@ -350,48 +447,48 @@
             grid.appendChild(lbl)
           }
           div.appendChild(grid)
-        } else if (sec === 'print') {
-          for (const f of PRINT_FIELDS) {
-            const wrap = document.createElement('div')
-            if (f.type === 'select') {
-              wrap.innerHTML = `<label for="f_${f.key}">${esc(f.label)}</label>
-                <select id="f_${f.key}">${f.options.map(o => `<option value="${o[0]}">${esc(o[1])}</option>`).join('')}</select>`
-            } else {
-              wrap.innerHTML = `<label for="f_${f.key}">${esc(f.label)}</label>
-                <input type="number" id="f_${f.key}" min="${f.min}" max="${f.max}">`
-            }
-            div.appendChild(wrap)
-          }
         } else {
           for (const f of sections[sec]) {
             const wrap = document.createElement('div')
             wrap.innerHTML = `<label for="f_${f.key}">${esc(f.label)}</label>
-              <input type="text" id="f_${f.key}" data-key="${f.key}">`
+              <input type="text" id="f_${f.key}">`
             div.appendChild(wrap)
           }
         }
         panel.appendChild(div)
       }
+
       panel.querySelectorAll('input, select').forEach(el => {
         el.addEventListener('input', updatePreview)
-        el.addEventListener('change', updatePreview)
+        el.addEventListener('change', () => {
+          if (el.id === 'f_printFont') {
+            const body = document.getElementById('f_sizeBody')
+            const items = document.getElementById('f_sizeItems')
+            if (body) body.value = el.value
+            if (items) items.value = el.value
+          }
+          updatePreview()
+        })
       })
     }
 
     function fillForm(tpl) {
       template = { ...tpl }
-      for (const f of PRINT_FIELDS) {
-        const el = document.getElementById('f_' + f.key)
-        if (el) el.value = tpl[f.key] != null ? tpl[f.key] : ''
+      const set = (id, val, isCheck) => {
+        const el = document.getElementById(id)
+        if (!el) return
+        if (isCheck) el.checked = !!val
+        else el.value = val != null ? val : ''
       }
-      for (const f of TEXT_FIELDS) {
-        const el = document.getElementById('f_' + f.key)
-        if (el) el.value = tpl[f.key] != null ? tpl[f.key] : ''
+      set('f_printFont', tpl.printFont)
+      set('f_lineSpacing', tpl.lineSpacing)
+      for (const b of STYLE_BLOCKS) {
+        if (b.sizeKey) set('f_' + b.sizeKey, tpl[b.sizeKey])
+        if (b.boldKey) set('f_' + b.boldKey, tpl[b.boldKey], true)
+        if (b.bold2Key) set('f_' + b.bold2Key, tpl[b.bold2Key], true)
       }
-      for (const f of BOOL_FIELDS) {
-        const el = document.getElementById('f_' + f.key)
-        if (el) el.checked = tpl[f.key] !== false
-      }
+      for (const f of TEXT_FIELDS) set('f_' + f.key, tpl[f.key])
+      for (const f of BOOL_FIELDS) set('f_' + f.key, tpl[f.key] !== false, true)
       if (mode === 'code') syncCodeFromTemplate(template)
       updatePreview()
     }
@@ -417,27 +514,19 @@
     document.getElementById('tabCode').addEventListener('click', () => setMode('code'))
     document.getElementById('codeEditor').addEventListener('input', () => {
       const tpl = readCurrent()
-      if (tpl) {
-        template = tpl
-        setStatus('', true)
-        updatePreview()
-      } else {
-        setStatus('JSON: ' + codeErr, false)
-      }
+      if (tpl) { template = tpl; setStatus('', true); updatePreview() }
+      else setStatus('JSON: ' + codeErr, false)
     })
 
     document.getElementById('btnSave').addEventListener('click', async () => {
       try {
         const tpl = readCurrent()
-        if (!tpl) {
-          setStatus('Исправьте JSON перед сохранением', false)
-          return
-        }
+        if (!tpl) { setStatus('Исправьте JSON перед сохранением', false); return }
         await api.saveReceiptTemplate(tpl)
         template = tpl
         if (mode === 'form') fillForm(tpl)
         else syncCodeFromTemplate(tpl)
-        setStatus('Сохранено', true)
+        setStatus('Сохранено — печать будет как в превью', true)
       } catch (err) {
         setStatus('Ошибка сохранения: ' + (err.message || err), false)
       }
@@ -446,13 +535,10 @@
     document.getElementById('btnTest').addEventListener('click', async () => {
       try {
         const tpl = readCurrent()
-        if (!tpl) {
-          setStatus('Исправьте JSON перед печатью', false)
-          return
-        }
+        if (!tpl) { setStatus('Исправьте JSON перед печатью', false); return }
         setStatus('Печать…', true)
-        await api.printReceipt({ sale: DEMO_SALE, ...tpl, posLabel: 'Касса 1' })
-        setStatus('Тестовый чек отправлен на печать', true)
+        await api.printReceipt({ sale: DEMO, ...tpl, posLabel: 'Касса 1' })
+        setStatus('Тестовый чек отправлен — сравните с превью', true)
       } catch (err) {
         setStatus('Ошибка печати: ' + (err.message || err), false)
       }
@@ -460,12 +546,10 @@
 
     document.getElementById('btnReset').addEventListener('click', () => {
       if (defaults && Object.keys(defaults).length) fillForm(defaults)
-      setStatus('Сброшено к значениям по умолчанию', true)
+      setStatus('Сброшено к умолчанию', true)
     })
 
-    document.getElementById('btnClose').addEventListener('click', () => {
-      api.closeReceiptEditor()
-    })
+    document.getElementById('btnClose').addEventListener('click', () => api.closeReceiptEditor())
 
     init()
   </script>
