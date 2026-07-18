@@ -93,6 +93,19 @@ function wrapName(name, width) {
   return lines
 }
 
+/** Имя + сумма справа (как на макете); перенос имени без суммы. */
+function nameAmountLines(name, amount, width) {
+  const right = moneySom(amount)
+  const maxLeft = Math.max(8, width - right.length - 1)
+  const lines = wrapName(name, maxLeft)
+  const out = []
+  lines.forEach((line, i) => {
+    if (i === lines.length - 1) out.push(padLine(clip(line, maxLeft), right, width))
+    else out.push(clip(line, width))
+  })
+  return out
+}
+
 function payLabel(sale) {
   if (sale.paymentMethod === 'credit') return 'В долг'
   if (sale.paymentMethod === 'mixed') return 'Смешанная'
@@ -100,6 +113,12 @@ function payLabel(sale) {
   if (sale.paymentMethod === 'card') return 'Картой'
   if ((Number(sale.debtAdded) || 0) > 0.001) return 'В долг'
   return '-'
+}
+
+function cardLineLabel(sale) {
+  const digits = String(sale.cardNum || '').replace(/\D/g, '')
+  if (digits.length >= 4) return `Картой (Visa ****${digits.slice(-4)})`
+  return 'Картой'
 }
 
 function orderNo(sale) {
@@ -111,18 +130,17 @@ function orderNo(sale) {
 
 function docTitle(sale) {
   if (sale.status === 'returned') return 'ВОЗВРАТНЫЙ ЧЕК'
-  if (sale.status === 'partial') return 'ЧЕК · ЧАСТИЧНЫЙ ВОЗВРАТ'
+  if (sale.status === 'partial') return 'ЧЕК - ЧАСТИЧНЫЙ ВОЗВРАТ'
   return 'ТОВАРНЫЙ ЧЕК'
 }
 
 /**
- * Способ B: чистый ESC/POS текст для XP-58C.
+ * Макет 1:1 с дизайн-макетом 58 мм.
  * Ширина 32 символа (Font A), кодовая страница CP866.
- * Порядок полей = receipt-example.html.
  */
 function buildEscPosReceipt(sale, opts = {}) {
   const width = 32
-  const store = clip(String(opts.storeName || 'КАКАПО').trim() || 'КАКАПО', width)
+  const store = String(opts.storeName || 'КАКАПО').trim() || 'КАКАПО'
   const phone = clip(String(opts.storePhone || '').trim(), width)
   const pos = String(opts.posLabel || '').trim()
   const cashier = String(opts.cashierName || sale.cashierName || '').trim()
@@ -157,23 +175,26 @@ function buildEscPosReceipt(sale, opts = {}) {
   const chunks = []
   const cmd = (...b) => chunks.push(Buffer.from(b))
   const txt = (s) => chunks.push(encodeCp866(`${clip(s, width)}\n`))
+  const txtRaw = (s) => chunks.push(encodeCp866(`${s}\n`))
   const sep = () => txt('-'.repeat(width))
 
   // Init + CP866 (page 17)
   cmd(ESC, 0x40)
   cmd(FS, 0x2E)
-  cmd(ESC, 0x52, 0x00) // international character set USA
-  cmd(ESC, 0x74, 17) // code page CP866
+  cmd(ESC, 0x52, 0x00)
+  cmd(ESC, 0x74, 17)
   cmd(ESC, 0x4D, 0x00) // Font A 12x24
-  cmd(GS, 0x42, 0x00) // reverse off
-  cmd(ESC, 0x45, 0) // bold off
+  cmd(GS, 0x42, 0x00)
+  cmd(ESC, 0x45, 0)
   cmd(ESC, 0x61, 1) // center
 
-  // Header
+  // Header: крупное имя магазина
   cmd(ESC, 0x45, 1)
-  txt(store)
+  cmd(GS, 0x21, 0x11) // double width + height (16 cols)
+  txtRaw(clip(store, 16))
+  cmd(GS, 0x21, 0x00)
   cmd(ESC, 0x45, 0)
-  txt('магазин · касса')
+  txt('магазин - касса')
   if (phone) txt(phone)
 
   sep()
@@ -197,16 +218,8 @@ function buildEscPosReceipt(sale, opts = {}) {
     const qty = Number(it.qty) || 0
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
-    const nameLines = wrapName(it.productName || `#${it.productId}`, width)
-    nameLines.forEach((line, i) => {
-      if (i === nameLines.length - 1) {
-        // last name line + amount on next layout: name then amount row
-        txt(line)
-      } else {
-        txt(line)
-      }
-    })
-    txt(padLine(`${qtyText(qty)} x ${money(price)}`, moneySom(sum), width))
+    nameAmountLines(it.productName || `#${it.productId}`, sum, width).forEach(line => txtRaw(line))
+    txt(`${qtyText(qty)} x ${money(price)}`)
   })
 
   if (!items.length) txt('Нет позиций')
@@ -224,15 +237,20 @@ function buildEscPosReceipt(sale, opts = {}) {
     txt(padLine('Списано бонусов', `-${moneySom(bonusSpent)}`, width))
   }
 
+  // ИТОГ — жирный + двойная высота
   cmd(ESC, 0x45, 1)
+  cmd(GS, 0x21, 0x10)
   txt(padLine('ИТОГ', moneySom(total), width))
+  cmd(GS, 0x21, 0x00)
   cmd(ESC, 0x45, 0)
 
   sep()
 
   txt(padLine('Оплата', payLabel(sale), width))
   if ((Number(sale.paidCash) || 0) > 0.001) txt(padLine('Наличные', moneySom(sale.paidCash), width))
-  if ((Number(sale.paidCard) || 0) > 0.001) txt(padLine('Картой', moneySom(sale.paidCard), width))
+  if ((Number(sale.paidCard) || 0) > 0.001) {
+    txt(padLine(clip(cardLineLabel(sale), 20), moneySom(sale.paidCard), width))
+  }
   if ((Number(sale.debtAdded) || 0) > 0.001) txt(padLine('В долг', moneySom(sale.debtAdded), width))
   if ((Number(sale.cashReceived) || 0) > 0.001) txt(padLine('Дал клиент', moneySom(sale.cashReceived), width))
   if ((Number(sale.changeGiven) || 0) > 0.001) {
@@ -245,7 +263,11 @@ function buildEscPosReceipt(sale, opts = {}) {
   const balAfter = sale.bonusBalanceAfter
   if (balBefore != null && balAfter != null) {
     sep()
-    txt(padLine('Баланс бонусов', `${Math.floor(Number(balBefore) || 0)} -> ${Math.floor(Number(balAfter) || 0)}`, width))
+    txt(padLine(
+      'Баланс бонусов',
+      `${Math.floor(Number(balBefore) || 0)} -> ${Math.floor(Number(balAfter) || 0)}`,
+      width,
+    ))
   }
 
   sep()
@@ -255,7 +277,6 @@ function buildEscPosReceipt(sale, opts = {}) {
   cmd(ESC, 0x45, 0)
   txt('Сохраняйте чек до проверки')
   txt('товара')
-  txt('www.kakapo.tj')
 
   chunks.push(encodeCp866('\n\n\n'))
   cmd(GS, 0x56, 0x01) // partial cut
@@ -284,8 +305,24 @@ function packEscPosLines(lines, opts = {}) {
   return Buffer.concat(chunks)
 }
 
-/** Fallback: HTML → строки → ESC/POS (для старого UI без sale) */
+function extractSaleFromHtml(html) {
+  const s = String(html || '')
+  const m = s.match(/id=["']kakapo-sale["'][^>]*>([\s\S]*?)<\/script>/i)
+    || s.match(/<!--KAKAPO_SALE_JSON:([\s\S]*?)-->/)
+  if (!m) return null
+  try {
+    return JSON.parse(m[1].trim())
+  } catch {
+    return null
+  }
+}
+
+/** Fallback: HTML → sale JSON (если есть) или строки → ESC/POS */
 function buildEscPosFromReceiptHtml(html, opts = {}) {
+  const embedded = extractSaleFromHtml(html)
+  if (embedded && typeof embedded === 'object') {
+    return buildEscPosReceipt(embedded, opts)
+  }
   const text = String(html || '')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -304,8 +341,42 @@ function buildEscPosFromReceiptHtml(html, opts = {}) {
   return packEscPosLines(text, opts)
 }
 
+/** Демо-продажа 1:1 с дизайн-макетом (для «Тест чека»). */
+function buildDemoReceiptSale() {
+  return {
+    id: 'DEMO',
+    number: 128,
+    orderId: 'ORD-1047',
+    createdAtIso: '2026-07-18T14:32:00',
+    cashierName: 'Азиза М.',
+    clientName: 'Рустам А.',
+    clientPhone: '+992 900 12 34 56',
+    cardNum: '4821',
+    paymentMethod: 'mixed',
+    total: 147.5,
+    paidCash: 50,
+    paidCard: 97.5,
+    debtAdded: 0,
+    cashReceived: 100,
+    changeGiven: 50,
+    orderGoodsTotal: 175,
+    discountAmount: 17.5,
+    bonusSpent: 10,
+    bonusEarned: 15,
+    bonusBalanceBefore: 245,
+    bonusBalanceAfter: 250,
+    items: [
+      { productId: 1, productName: 'Шампунь Head&Shoulders 400мл', qty: 1, price: 85, lineTotal: 85 },
+      { productId: 2, productName: 'Мыло Dove 100г', qty: 2, price: 18, lineTotal: 36 },
+      { productId: 3, productName: 'Зубная паста Colgate', qty: 1, price: 42, lineTotal: 42 },
+      { productId: 4, productName: 'Хлеб белый', qty: 2, price: 6, lineTotal: 12 },
+    ],
+  }
+}
+
 module.exports = {
   buildEscPosReceipt,
   buildEscPosFromReceiptHtml,
+  buildDemoReceiptSale,
   encodeCp866,
 }

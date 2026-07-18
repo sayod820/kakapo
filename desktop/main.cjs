@@ -13,7 +13,7 @@ const {
   buildMultiLabelTspl,
   printRawWindows,
 } = require('./tsplLabel.cjs')
-const { buildEscPosReceipt, buildEscPosFromReceiptHtml } = require('./escposReceipt.cjs')
+const { buildEscPosReceipt, buildEscPosFromReceiptHtml, buildDemoReceiptSale } = require('./escposReceipt.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
@@ -493,18 +493,32 @@ async function printReceiptEscPos(html, options = {}) {
   const printerName = await ensureReceiptPrinterName(options.printerName)
   let sale = normalizeSalePayload(options.sale)
 
+  // Старый «Тест чека» (1 сом) → полный демо-макет как на дизайне
+  if (sale && (sale.id === 'TEST' || sale.orderId === 'TEST-001' || /Тест печати/i.test(String(sale.items?.[0]?.productName || '')))) {
+    const demo = buildDemoReceiptSale()
+    sale = {
+      ...demo,
+      cashierName: options.cashierName || demo.cashierName,
+    }
+  }
+
+  const storeOpts = {
+    storeName: options.storeName,
+    storePhone: options.storePhone,
+    posLabel: options.posLabel,
+    cashierName: options.cashierName,
+  }
+
   let raw
   if (sale && typeof sale === 'object') {
-    raw = buildEscPosReceipt(sale, {
-      storeName: options.storeName,
-      storePhone: options.storePhone,
-      posLabel: options.posLabel,
-      cashierName: options.cashierName,
-    })
+    raw = buildEscPosReceipt(sale, storeOpts)
   } else if (html && typeof html === 'string' && html.includes('<')) {
-    // Старый UI без sale: вытаскиваем текст из HTML → ESC/POS
-    logPrintDebug('receipt fallback html→text', { htmlLen: html.length })
-    raw = buildEscPosFromReceiptHtml(html, {})
+    if (/Тест печати XP-58C/i.test(html)) {
+      raw = buildEscPosReceipt(buildDemoReceiptSale(), storeOpts)
+    } else {
+      logPrintDebug('receipt fallback html→text', { htmlLen: html.length })
+      raw = buildEscPosFromReceiptHtml(html, storeOpts)
+    }
   } else {
     throw new Error('Нет данных чека. Обновите страницу /trade (F5) и повторите тест.')
   }

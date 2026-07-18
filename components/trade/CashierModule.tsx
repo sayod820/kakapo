@@ -41,6 +41,7 @@ import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import {
   loadReceiptStore,
   printPosReceipt,
+  buildDemoReceiptSale,
   saveReceiptStore,
   type ReceiptStoreConfig,
   DEFAULT_RECEIPT_STORE,
@@ -1664,26 +1665,12 @@ export default function CashierModule({
         printerName: xp,
         paperWidthMm: XP58C_RECEIPT_MM,
       })
-      const sample: PosSale = {
-        id: 'TEST',
-        number: 1,
-        orderId: 'TEST-001',
-        createdAtIso: new Date().toISOString(),
-        cashierName: settings.cashierName || 'Кассир',
-        paymentMethod: 'cash',
-        total: 1,
-        paidCash: 1,
-        paidCard: 0,
-        debtAdded: 0,
-        cashReceived: 1,
-        changeGiven: 0,
-        items: [{ productId: 0, productName: 'Тест печати XP-58C', qty: 1, price: 1, lineTotal: 1 }],
-      }
+      const sample = buildDemoReceiptSale()
       await printPosReceipt(sample, {
-        storeName: receiptStore.storeName,
-        storePhone: receiptStore.storePhone,
-        posLabel: editPosName || 'Касса',
-        cashierName: settings.cashierName,
+        storeName: receiptStore.storeName || 'КАКАПО',
+        storePhone: receiptStore.storePhone || '+992 112 373 333',
+        posLabel: editPosName || 'Саунаи Курботу',
+        cashierName: sample.cashierName,
       })
       showToast('Чек напечатан', xp)
     } catch (e) {

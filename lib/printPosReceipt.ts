@@ -94,10 +94,49 @@ function moneyRow(label: string, value: number, opts?: { bold?: boolean; prefix?
   return `<div class="${cls}"><span>${esc(label)}</span><span>${prefix}${money(value)}</span></div>`
 }
 
+function cardLineLabel(sale: PosSale) {
+  const digits = String(sale.cardNum || '').replace(/\D/g, '')
+  if (digits.length >= 4) return `Картой (Visa ****${digits.slice(-4)})`
+  return 'Картой'
+}
+
 function docTitle(sale: PosSale) {
   if (sale.status === 'returned') return 'ВОЗВРАТНЫЙ ЧЕК'
-  if (sale.status === 'partial') return 'ЧЕК · ЧАСТИЧНЫЙ ВОЗВРАТ'
+  if (sale.status === 'partial') return 'ЧЕК - ЧАСТИЧНЫЙ ВОЗВРАТ'
   return 'ТОВАРНЫЙ ЧЕК'
+}
+
+/** Демо 1:1 с дизайн-макетом — для «Тест чека». */
+export function buildDemoReceiptSale(): PosSale {
+  return {
+    id: 'DEMO',
+    number: 128,
+    orderId: 'ORD-1047',
+    createdAtIso: '2026-07-18T14:32:00',
+    cashierName: 'Азиза М.',
+    clientName: 'Рустам А.',
+    clientPhone: '+992 900 12 34 56',
+    cardNum: '4821',
+    paymentMethod: 'mixed',
+    total: 147.5,
+    paidCash: 50,
+    paidCard: 97.5,
+    debtAdded: 0,
+    cashReceived: 100,
+    changeGiven: 50,
+    orderGoodsTotal: 175,
+    discountAmount: 17.5,
+    bonusSpent: 10,
+    bonusEarned: 15,
+    bonusBalanceBefore: 245,
+    bonusBalanceAfter: 250,
+    items: [
+      { productId: 1, productName: 'Шампунь Head&Shoulders 400мл', qty: 1, price: 85, lineTotal: 85 },
+      { productId: 2, productName: 'Мыло Dove 100г', qty: 2, price: 18, lineTotal: 36 },
+      { productId: 3, productName: 'Зубная паста Colgate', qty: 1, price: 42, lineTotal: 42 },
+      { productId: 4, productName: 'Хлеб белый', qty: 2, price: 6, lineTotal: 12 },
+    ],
+  }
 }
 
 /** Единственный шаблон чека — структура receipt-example.html */
@@ -186,11 +225,14 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   const payments = [
     row('Оплата', payLabel(sale)),
     moneyRow('Наличные', Number(sale.paidCash) || 0),
-    moneyRow('Картой', Number(sale.paidCard) || 0),
+    moneyRow(cardLineLabel(sale), Number(sale.paidCard) || 0),
     moneyRow('В долг', Number(sale.debtAdded) || 0),
     moneyRow('Дал клиент', Number(sale.cashReceived) || 0),
     moneyRow('Сдача', Number(sale.changeGiven) || 0, { bold: true }),
   ].filter(Boolean).join('\n    ')
+
+  // JSON для desktop fallback; экранируем </ чтобы не закрыть script
+  const saleJson = JSON.stringify(sale).replace(/</g, '\\u003c')
 
   return `<!DOCTYPE html>
 <html lang="ru">
@@ -223,7 +265,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   }
   .center{text-align:center}
   .bold{font-weight:700}
-  .title{font-size:20px;font-weight:800;letter-spacing:1px}
+  .title{font-size:22px;font-weight:800;letter-spacing:1px}
   .sub{font-size:12px}
   .line{border-top:1px dashed #000;margin:8px 0}
   .row{display:flex;justify-content:space-between;gap:8px}
@@ -232,14 +274,15 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   .item-name{flex:1;word-break:break-word}
   .item-qty{color:#000;font-size:12px}
   .totals .row{margin:3px 0}
-  .grand-total{font-size:16px;font-weight:800;margin:6px 0}
+  .grand-total{font-size:17px;font-weight:800;margin:6px 0}
   .footer{margin-top:10px}
 </style>
 </head>
 <body>
+<script type="application/json" id="kakapo-sale">${saleJson}</script>
 <div class="receipt">
   <div class="center title">${storeName}</div>
-  <div class="center sub">магазин · касса</div>
+  <div class="center sub">магазин - касса</div>
   ${storePhone ? `<div class="center sub">${storePhone}</div>` : ''}
 
   <div class="line"></div>
@@ -266,7 +309,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
 
   ${showBalance ? `<div class="line"></div>
   <div class="totals">
-    <div class="row"><span>Баланс бонусов</span><span>${Math.floor(Number(balBefore) || 0)} → ${Math.floor(Number(balAfter) || 0)}</span></div>
+    <div class="row"><span>Баланс бонусов</span><span>${Math.floor(Number(balBefore) || 0)} -> ${Math.floor(Number(balAfter) || 0)}</span></div>
   </div>` : ''}
 
   <div class="line"></div>
@@ -274,7 +317,6 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   <div class="center footer">
     <div class="bold">Спасибо за покупку!</div>
     <div class="sub">Сохраняйте чек до проверки товара</div>
-    <div class="sub" style="margin-top:6px;">www.kakapo.tj</div>
   </div>
 </div>
 </body>
