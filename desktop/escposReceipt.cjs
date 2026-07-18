@@ -262,31 +262,50 @@ function buildEscPosReceipt(sale, opts = {}) {
   return Buffer.concat(chunks)
 }
 
-/** Оставлен для этикеток/legacy; чеки печатаются через buildEscPosReceipt */
-function buildEscPosRaster(mono, opts = {}) {
-  const height = Math.max(1, Number(mono?.height) || 0)
-  const widthBytes = Math.max(1, Number(mono?.widthBytes) || Math.ceil((Number(mono?.width) || 8) / 8))
-  const src = Buffer.isBuffer(mono?.data) ? mono.data : Buffer.alloc(widthBytes * height)
-  const xL = widthBytes & 0xff
-  const xH = (widthBytes >> 8) & 0xff
-  const yL = height & 0xff
-  const yH = (height >> 8) & 0xff
+function packEscPosLines(lines, opts = {}) {
+  const width = 32
   const chunks = []
   const cmd = (...b) => chunks.push(Buffer.from(b))
+  const txt = (s) => chunks.push(encodeCp866(`${clip(s, width)}\n`))
   cmd(ESC, 0x40)
   cmd(FS, 0x2E)
-  cmd(GS, 0x28, 0x4B, 0x02, 0x00, 0x31, 3)
-  cmd(ESC, 0x61, 1)
-  cmd(GS, 0x76, 0x30, 0x00, xL, xH, yL, yH)
-  chunks.push(src.subarray(0, widthBytes * height))
+  cmd(ESC, 0x52, 0x00)
+  cmd(ESC, 0x74, 17)
+  cmd(ESC, 0x4D, 0x00)
+  cmd(GS, 0x42, 0x00)
   cmd(ESC, 0x61, 0)
-  chunks.push(Buffer.from('\n', 'ascii'))
+  for (const line of lines || []) {
+    const t = String(line || '').trim()
+    if (!t) continue
+    txt(t)
+  }
+  chunks.push(encodeCp866('\n\n\n'))
   if (opts.cut !== false) cmd(GS, 0x56, 0x01)
   return Buffer.concat(chunks)
 }
 
+/** Fallback: HTML → строки → ESC/POS (для старого UI без sale) */
+function buildEscPosFromReceiptHtml(html, opts = {}) {
+  const text = String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|tr|li|h[1-6]|table|section)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(l => l.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  return packEscPosLines(text, opts)
+}
+
 module.exports = {
   buildEscPosReceipt,
-  buildEscPosRaster,
+  buildEscPosFromReceiptHtml,
   encodeCp866,
 }

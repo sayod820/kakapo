@@ -329,17 +329,27 @@ export async function printPosReceipt(
       }).catch(() => undefined)
     }
 
-    await desktop.printHtml('', {
-      role: 'receipt',
+    // Plain JSON — чтобы IPC не потерял sale
+    const salePayload = JSON.parse(JSON.stringify(sale)) as PosSale
+    const payload = {
       printerName,
-      paperWidthMm,
-      pageWidthMm: paperWidthMm,
-      sale,
+      sale: salePayload,
       storeName: printOpts.storeName,
       storePhone: printOpts.storePhone,
       posLabel: opts?.posLabel,
       cashierName: opts?.cashierName || sale.cashierName,
-    })
+    }
+
+    if (typeof desktop.printReceipt === 'function') {
+      await desktop.printReceipt(payload)
+    } else {
+      await desktop.printHtml(buildPosReceiptHtml(salePayload, printOpts), {
+        role: 'receipt',
+        paperWidthMm,
+        pageWidthMm: paperWidthMm,
+        ...payload,
+      })
+    }
     return
   }
 

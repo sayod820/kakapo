@@ -13,7 +13,7 @@ const {
   buildMultiLabelTspl,
   printRawWindows,
 } = require('./tsplLabel.cjs')
-const { buildEscPosReceipt } = require('./escposReceipt.cjs')
+const { buildEscPosReceipt, buildEscPosFromReceiptHtml } = require('./escposReceipt.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
@@ -466,11 +466,10 @@ function printHtml(html, options = {}) {
     return Promise.resolve({ ok: true, queued: true })
   }
 
-  // Чек: только ESC/POS текст (CP866). HTML на принтер НЕ отправляем —
-  // XP-58C печатает сырой HTML как «мусор».
+  // Чек: ESC/POS текст (CP866). HTML как RAW не шлём.
   return (async () => {
     try {
-      const res = await printReceiptEscPos(options)
+      const res = await printReceiptEscPos(html, options)
       logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode })
       return res
     } catch (err) {
@@ -481,19 +480,35 @@ function printHtml(html, options = {}) {
   })()
 }
 
-async function printReceiptEscPos(options = {}) {
-  const sale = options.sale
-  if (!sale || typeof sale !== 'object') {
-    throw new Error('Нет данных продажи для печати чека (sale)')
+function normalizeSalePayload(raw) {
+  if (!raw) return null
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) } catch { return null }
   }
+  if (typeof raw === 'object') return raw
+  return null
+}
+
+async function printReceiptEscPos(html, options = {}) {
   const printerName = await ensureReceiptPrinterName(options.printerName)
-  const raw = buildEscPosReceipt(sale, {
-    storeName: options.storeName,
-    storePhone: options.storePhone,
-    posLabel: options.posLabel,
-    cashierName: options.cashierName,
-  })
-  // Защита: никогда не слать HTML
+  let sale = normalizeSalePayload(options.sale)
+
+  let raw
+  if (sale && typeof sale === 'object') {
+    raw = buildEscPosReceipt(sale, {
+      storeName: options.storeName,
+      storePhone: options.storePhone,
+      posLabel: options.posLabel,
+      cashierName: options.cashierName,
+    })
+  } else if (html && typeof html === 'string' && html.includes('<')) {
+    // Старый UI без sale: вытаскиваем текст из HTML → ESC/POS
+    logPrintDebug('receipt fallback html→text', { htmlLen: html.length })
+    raw = buildEscPosFromReceiptHtml(html, {})
+  } else {
+    throw new Error('Нет данных чека. Обновите страницу /trade (F5) и повторите тест.')
+  }
+
   const asAscii = raw.toString('latin1')
   if (/<!DOCTYPE|<html/i.test(asAscii)) {
     throw new Error('Внутренняя ошибка: HTML попал в RAW-буфер')
@@ -503,7 +518,7 @@ async function printReceiptEscPos(options = {}) {
     ok: true,
     printerName,
     role: 'receipt',
-    mode: 'escpos-text-cp866',
+    mode: sale ? 'escpos-text-cp866' : 'escpos-from-html',
     pageWidthMm: 58,
   }
 }
@@ -561,11 +576,24 @@ app.whenReady().then(() => {
 
   ipcMain.handle('desktop:printHtml', async (_e, html, options) => {
     const opts = options || {}
-    // Чек: достаточно sale. Этикетка: нужен html.
-    if (opts.role === 'label' || (!opts.sale && (!html || typeof html !== 'string'))) {
+    if (opts.role === 'label') {
       if (!html || typeof html !== 'string') throw new Error('Пустой документ печати')
     }
-    return printHtml(html || '', opts)
+    return printHtml(typeof html === 'string' ? html : '', opts)
+  })
+
+  ipcMain.handle('desktop:printReceipt', async (_e, payload) => {
+    const p = payload && typeof payload === 'object' ? payload : {}
+    return printHtml('', {
+      role: 'receipt',
+      printerName: p.printerName,
+      paperWidthMm: 58,
+      sale: p.sale,
+      storeName: p.storeName,
+      storePhone: p.storePhone,
+      posLabel: p.posLabel,
+      cashierName: p.cashierName,
+    })
   })
 
   ipcMain.handle('desktop:printLabelsBatch', async (_e, items, options) => {
