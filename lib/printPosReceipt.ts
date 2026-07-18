@@ -73,6 +73,15 @@ function moneyRow(label: string, value: number, currency: string, cls = '') {
   return `<div class="sum-row ${cls}"><span>${esc(label)}</span><b>${money(Number(value) || 0, currency)}</b></div>`
 }
 
+function receiptFontCss(font: ReceiptTemplate['fontFamily']) {
+  if (font === 'arial-narrow') return "'Arial Narrow','Roboto Condensed',Arial,sans-serif"
+  if (font === 'tahoma') return "Tahoma,Arial,sans-serif"
+  if (font === 'verdana') return "Verdana,Arial,sans-serif"
+  if (font === 'times') return "'Times New Roman',Times,serif"
+  if (font === 'courier') return "'Courier New',Courier,monospace"
+  return "Arial,'Helvetica Neue',sans-serif"
+}
+
 function mergePrintOpts(opts?: PosReceiptPrintOpts) {
   const base = normalizeReceiptTemplate(opts?.template || loadReceiptTemplate())
   const template = normalizeReceiptTemplate({
@@ -163,13 +172,14 @@ export function buildPosReceiptHtml(
   const blockPad = template.compact ? 4 : 7
   const blockGap = template.compact ? 5 : 9
   const separator = template.separatorStyle === 'solid' ? 'solid' : 'dotted'
+  const fontFamily = receiptFontCss(template.fontFamily)
   const htmlLang = template.lang === 'tg' ? 'tg' : 'ru'
 
   return `<!DOCTYPE html><html lang="${htmlLang}"><head><meta charset="utf-8"><title>${esc(titleBanner)} ${esc(receiptTitle(sale))}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   :root{color-scheme:light only}
-  body{font-family:Arial,'Helvetica Neue',sans-serif;background:#fff;color:#000;padding:8px;width:${paperWidthMm}mm;max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:${fontFamily};background:#fff;color:#000;padding:8px;width:${paperWidthMm}mm;max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .receipt{font-size:${fontSize}px;line-height:1.35;font-weight:700}
   .shop{text-align:${template.storeAlign};font-weight:900;font-size:${titleSize}px;letter-spacing:.6px;line-height:1.08;text-transform:uppercase}
   .tag{text-align:${template.storeAlign};font-weight:800;font-size:${smallSize}px;margin-top:3px}
@@ -192,7 +202,7 @@ export function buildPosReceiptHtml(
   .item{padding:${blockPad}px 0;border-bottom:2px ${separator} #000}
   .item-name{font-weight:900;word-break:break-word;font-size:${fontSize}px}
   .item-name em{display:block;font-style:normal;font-size:${smallSize}px;font-weight:800;color:#000;margin-top:2px}
-  .item-calc{font-family:Arial,'Helvetica Neue',sans-serif;margin-top:4px;font-size:${fontSize}px;font-weight:800}
+  .item-calc{font-family:${fontFamily};margin-top:4px;font-size:${fontSize}px;font-weight:800}
   .item-calc b{font-size:${fontSize + 1}px;white-space:nowrap;font-weight:900}
   .sum-row{font-size:${fontSize}px;margin:4px 0;font-weight:800}
   .sum-row b{font-weight:900;white-space:nowrap}

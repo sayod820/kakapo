@@ -3523,6 +3523,29 @@ export default function CashierModule({
                       <div className="receipt-editor-box">
                         <div className="receipt-editor-title">Дизайн печати</div>
                         <div className="pos-settings-field">
+                          <span className="gate-label">Шрифт</span>
+                          <select
+                            className="gate-input receipt-font-select"
+                            value={receiptTpl.fontFamily}
+                            onChange={e => patchReceiptTpl({
+                              fontFamily: (
+                                e.target.value === 'arial-narrow'
+                                || e.target.value === 'tahoma'
+                                || e.target.value === 'verdana'
+                                || e.target.value === 'times'
+                                || e.target.value === 'courier'
+                              ) ? e.target.value : 'arial',
+                            })}
+                          >
+                            <option value="arial">Arial — стандартный</option>
+                            <option value="arial-narrow">Arial Narrow — узкий</option>
+                            <option value="tahoma">Tahoma — чёткий</option>
+                            <option value="verdana">Verdana — широкий</option>
+                            <option value="times">Times New Roman</option>
+                            <option value="courier">Courier New — кассовый</option>
+                          </select>
+                        </div>
+                        <div className="pos-settings-field">
                           <span className="gate-label">Размер шрифта · {receiptTpl.fontScale}%</span>
                           <input
                             className="receipt-editor-range"
@@ -3610,6 +3633,7 @@ export default function CashierModule({
                           onClick={() => setReceiptTpl(prev => ({
                             ...prev,
                             fontScale: 100,
+                            fontFamily: 'arial',
                             printDensity: 4,
                             storeAlign: 'center',
                             separatorStyle: 'dotted',

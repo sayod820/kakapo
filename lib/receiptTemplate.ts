@@ -1,6 +1,7 @@
 export type ReceiptLang = 'ru' | 'tg'
 export type ReceiptAlign = 'left' | 'center'
 export type ReceiptSeparator = 'dotted' | 'solid'
+export type ReceiptFont = 'arial' | 'arial-narrow' | 'tahoma' | 'verdana' | 'times' | 'courier'
 
 export type ReceiptTemplate = {
   lang: ReceiptLang
@@ -15,6 +16,7 @@ export type ReceiptTemplate = {
   footerNote: string
   /** Масштаб всех шрифтов: 85–125% */
   fontScale: number
+  fontFamily: ReceiptFont
   /** Плотность растровой печати: 1–5 */
   printDensity: number
   storeAlign: ReceiptAlign
@@ -72,6 +74,7 @@ export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
   footerThanks: '',
   footerNote: '',
   fontScale: 100,
+  fontFamily: 'arial',
   printDensity: 4,
   storeAlign: 'center',
   separatorStyle: 'dotted',
@@ -162,6 +165,13 @@ export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
   const lang: ReceiptLang = p.lang === 'tg' ? 'tg' : 'ru'
   const fontScale = Math.max(85, Math.min(125, Math.round(Number(p.fontScale) || 100)))
   const printDensity = Math.max(1, Math.min(5, Math.round(Number(p.printDensity) || 4)))
+  const fontFamily: ReceiptFont = (
+    p.fontFamily === 'arial-narrow'
+    || p.fontFamily === 'tahoma'
+    || p.fontFamily === 'verdana'
+    || p.fontFamily === 'times'
+    || p.fontFamily === 'courier'
+  ) ? p.fontFamily : 'arial'
   return {
     lang,
     storeName: String(p.storeName ?? DEFAULT_RECEIPT_TEMPLATE.storeName).trim() || 'KAKAPO',
@@ -171,6 +181,7 @@ export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
     footerThanks: String(p.footerThanks ?? '').trim(),
     footerNote: String(p.footerNote ?? '').trim(),
     fontScale,
+    fontFamily,
     printDensity,
     storeAlign: p.storeAlign === 'left' ? 'left' : 'center',
     separatorStyle: p.separatorStyle === 'solid' ? 'solid' : 'dotted',
