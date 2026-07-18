@@ -38,14 +38,13 @@ import { filterProductsBySearch, pickProductBySearch, productBarcodes, productSe
 import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
-import { buildPosReceiptHtml, printPosReceipt } from '@/lib/printPosReceipt'
 import {
-  DEFAULT_RECEIPT_TEMPLATE,
-  loadReceiptTemplate,
-  normalizeReceiptTemplate,
-  saveReceiptTemplate,
-  type ReceiptTemplate,
-} from '@/lib/receiptTemplate'
+  loadReceiptStore,
+  printPosReceipt,
+  saveReceiptStore,
+  type ReceiptStoreConfig,
+  DEFAULT_RECEIPT_STORE,
+} from '@/lib/printPosReceipt'
 import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
@@ -58,7 +57,6 @@ import {
   useCategories,
 } from '@/lib/useCategories'
 import { fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
-import ReceiptDesignEditor from './ReceiptDesignEditor'
 import { POS_MOCK_CSS } from './posMockCss'
 
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
@@ -478,8 +476,7 @@ export default function CashierModule({
   const [editPosName, setEditPosName] = useState('')
   const [editPosCode, setEditPosCode] = useState('')
   const [editPosNote, setEditPosNote] = useState('')
-  const [receiptTpl, setReceiptTpl] = useState<ReceiptTemplate>(DEFAULT_RECEIPT_TEMPLATE)
-  const [receiptEditorOpen, setReceiptEditorOpen] = useState(false)
+  const [receiptStore, setReceiptStore] = useState<ReceiptStoreConfig>(DEFAULT_RECEIPT_STORE)
   const [deletePosId, setDeletePosId] = useState<string | null>(null)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
@@ -1519,7 +1516,7 @@ export default function CashierModule({
     setEditPosName(point.name || '')
     setEditPosCode(point.code || '')
     setEditPosNote(point.note || '')
-    setReceiptTpl(loadReceiptTemplate())
+    setReceiptStore(loadReceiptStore())
     if (isKakapoDesktop()) {
       const desk = getKakapoDesktop()
       void Promise.all([
@@ -1570,7 +1567,7 @@ export default function CashierModule({
         code: editPosCode.trim(),
         note: editPosNote.trim(),
       })
-      saveReceiptTemplate(receiptTpl)
+      saveReceiptStore(receiptStore)
       if (isKakapoDesktop()) {
         const desk = getKakapoDesktop()
         const printers = deskPrinters.length
@@ -1587,8 +1584,6 @@ export default function CashierModule({
           scaleHost: deskScaleHost.trim(),
           scalePort: Number(deskScalePort) || 20304,
           scaleDept: Number(deskScaleDept) || 1,
-          receiptDensity: receiptTpl.printDensity,
-          receiptPrintMode: receiptTpl.printMode,
         })
         setDeskPrinterName(printerName)
         setDeskPaperMm(XP58C_RECEIPT_MM)
@@ -1685,11 +1680,12 @@ export default function CashierModule({
         items: [{ productId: 0, productName: 'Тест печати XP-58C', qty: 1, price: 1, lineTotal: 1 }],
       }
       await printPosReceipt(sample, {
-        template: receiptTpl,
+        storeName: receiptStore.storeName,
+        storePhone: receiptStore.storePhone,
         posLabel: editPosName || 'Касса',
         cashierName: settings.cashierName,
       })
-      showToast('Чек напечатан', `${xp} · ${receiptTpl.lang === 'tg' ? 'Тоҷикӣ' : 'RU'}`)
+      showToast('Чек напечатан', xp)
     } catch (e) {
       showToast('Печать', e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -2558,75 +2554,19 @@ export default function CashierModule({
 
   async function doPrintSale(sale: PosSale) {
     try {
+      const store = loadReceiptStore()
+      const posPoint = sale.posId
+        ? posPoints.find(p => p.id === sale.posId)
+        : activePosPoint
       await printPosReceipt(sale, {
-        template: loadReceiptTemplate(),
-        posLabel: activePosPoint?.name || activePosPoint?.code || undefined,
+        storeName: store.storeName,
+        storePhone: store.storePhone,
+        posLabel: posPoint?.name || posPoint?.code || activePosPoint?.name || activePosPoint?.code || undefined,
         cashierName: sale.cashierName || settings.cashierName,
       })
     } catch (e) {
       showToast('Печать', e instanceof Error ? e.message : 'Не удалось напечатать чек')
     }
-  }
-
-  const receiptPreviewHtml = useMemo(() => {
-    const sample: PosSale = {
-      id: 'PREVIEW',
-      number: 42,
-      orderId: 'ORD-42',
-      createdAtIso: new Date().toISOString(),
-      cashierName: settings.cashierName || 'Кассир',
-      paymentMethod: 'cash',
-      total: 25.5,
-      paidCash: 25.5,
-      paidCard: 0,
-      debtAdded: 0,
-      cashReceived: 30,
-      changeGiven: 4.5,
-      clientName: receiptTpl.lang === 'tg' ? 'Ализода' : 'Иванов',
-      items: [
-        {
-          productId: 1,
-          productName: receiptTpl.lang === 'tg' ? 'Нони гарм' : 'Хлеб белый',
-          qty: 2,
-          price: 3.5,
-          lineTotal: 7,
-        },
-        {
-          productId: 2,
-          productName: receiptTpl.lang === 'tg' ? 'Шир 1л' : 'Молоко 1л',
-          qty: 1,
-          price: 18.5,
-          lineTotal: 18.5,
-        },
-      ],
-    }
-    return buildPosReceiptHtml(sample, {
-      template: receiptTpl,
-      posLabel: editPosName || 'Касса',
-      cashierName: settings.cashierName,
-      paperWidthMm: 58,
-    })
-  }, [receiptTpl, editPosName, settings.cashierName])
-
-  function patchReceiptTpl(patch: Partial<ReceiptTemplate>) {
-    setReceiptTpl(prev => ({ ...prev, ...patch }))
-  }
-
-  async function saveReceiptDesign() {
-    const next = normalizeReceiptTemplate({ ...receiptTpl, printMode: 'raster', schemaVersion: 3 })
-    setReceiptTpl(next)
-    saveReceiptTemplate(next)
-    const desk = getKakapoDesktop()
-    if (desk) {
-      const current = await desk.getPrinterSettings().catch(() => null)
-      await desk.savePrinterSettings({
-        ...(current || {}),
-        receiptDensity: next.printDensity,
-        receiptPrintMode: 'raster',
-      }).catch(() => undefined)
-    }
-    setReceiptEditorOpen(false)
-    showToast('Дизайн чека', 'Сохранено · печать как предпросмотр')
   }
 
   async function confirmCreditNote() {
@@ -2725,6 +2665,15 @@ export default function CashierModule({
     setMsg('')
     try {
       const note = String(saleNote || '').trim()
+      const discountTotal = Math.round((itemDiscAmount + discAmount) * 100) / 100
+      const bonusBalanceBefore = loyalty ? Math.max(0, Math.floor(Number(loyalty.bonus) || 0)) : undefined
+      let earnedBonusPreview = 0
+      if (cashPaid > 0 && client?.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
+        earnedBonusPreview = calcCashDepositBonus(cashPaid)
+      }
+      const bonusBalanceAfter = bonusBalanceBefore != null
+        ? Math.max(0, bonusBalanceBefore - spend + earnedBonusPreview)
+        : undefined
       const created = await api.createPosSale({
         cashierId: activeShift.cashierId,
         shiftId: activeShift.id,
@@ -2740,7 +2689,11 @@ export default function CashierModule({
         cashReceived: cashReceivedVal > 0.001 ? cashReceivedVal : undefined,
         changeGiven: change > 0.001 ? change : undefined,
         bonusSpent: spend > 0 ? spend : undefined,
-        orderGoodsTotal: afterDisc,
+        bonusEarned: earnedBonusPreview > 0 ? earnedBonusPreview : undefined,
+        bonusBalanceBefore,
+        bonusBalanceAfter,
+        orderGoodsTotal: Math.round(subtotalGross * 100) / 100,
+        discountAmount: discountTotal > 0.001 ? discountTotal : undefined,
         note: note || undefined,
         items: cart.map(l => ({
           productId: l.productId,
@@ -2835,7 +2788,16 @@ export default function CashierModule({
       setCreditNoteOpen(false)
       setCreditNoteBuf('')
       setCreditPending(null)
-      setPrintAskSale(created)
+      setPrintAskSale({
+        ...created,
+        orderGoodsTotal: created.orderGoodsTotal ?? Math.round(subtotalGross * 100) / 100,
+        discountAmount: created.discountAmount ?? (discountTotal > 0.001 ? discountTotal : undefined),
+        bonusSpent: created.bonusSpent ?? (spend > 0 ? spend : undefined),
+        bonusEarned: created.bonusEarned ?? (earnedBonusPreview > 0 ? earnedBonusPreview : undefined),
+        bonusBalanceBefore: created.bonusBalanceBefore ?? bonusBalanceBefore,
+        bonusBalanceAfter: created.bonusBalanceAfter ?? bonusBalanceAfter,
+        total: created.total ?? total,
+      })
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка продажи')
       showToast('Ошибка', e instanceof Error ? e.message : 'Ошибка продажи')
@@ -3511,33 +3473,28 @@ export default function CashierModule({
                   )}
                 </div>
 
-                <div className="pos-settings-card span-all receipt-design-launch">
-                  <div>
-                    <h3>Дизайн чека</h3>
-                    <p className="hint">
-                      Стандартный шаблон XP‑58C · 58 мм · {receiptTpl.printMode === 'raster' ? 'точный дизайн' : 'чёткий ESC/POS'} · плотность {receiptTpl.printDensity}/5
-                    </p>
+                <div className="pos-settings-card span-all">
+                  <h3>Магазин на чеке</h3>
+                  <p className="hint">Шаблон receipt-example · XP‑58C · 58 мм</p>
+                  <div className="pos-settings-field">
+                    <span className="gate-label">Название</span>
+                    <input
+                      className="gate-input"
+                      value={receiptStore.storeName}
+                      onChange={e => setReceiptStore(prev => ({ ...prev, storeName: e.target.value }))}
+                      placeholder="КАКАПО"
+                    />
                   </div>
-                  <button
-                    type="button"
-                    className="btn-switch-till"
-                    onClick={() => setReceiptEditorOpen(true)}
-                  >
-                    ✎ Открыть редактор дизайна
-                  </button>
+                  <div className="pos-settings-field">
+                    <span className="gate-label">Телефон</span>
+                    <input
+                      className="gate-input"
+                      value={receiptStore.storePhone}
+                      onChange={e => setReceiptStore(prev => ({ ...prev, storePhone: e.target.value }))}
+                      placeholder="+992 …"
+                    />
+                  </div>
                 </div>
-
-                <ReceiptDesignEditor
-                  open={receiptEditorOpen}
-                  value={receiptTpl}
-                  previewHtml={receiptPreviewHtml}
-                  printBusy={deskPrintBusy}
-                  onChange={patchReceiptTpl}
-                  onReplace={setReceiptTpl}
-                  onClose={() => setReceiptEditorOpen(false)}
-                  onSave={() => void saveReceiptDesign()}
-                  onTest={() => void testReceiptPrinter()}
-                />
 
                 <div className="pos-settings-card span-all">
                   <h3>Весы CAS</h3>

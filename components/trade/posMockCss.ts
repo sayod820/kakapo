@@ -294,118 +294,13 @@ export const POS_MOCK_CSS = `
   .pos-settings-status.warn{color:var(--org);border-color:rgba(255,140,0,.28);background:rgba(255,140,0,.08);}
   .pos-settings-row-btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;}
   .pos-settings-row-btns .btn-switch-till{flex:1;min-width:160px;margin:0 !important;width:auto !important;}
-  .receipt-tpl-grid{
-    display:grid;grid-template-columns:minmax(280px,1fr) minmax(220px,260px);gap:20px;align-items:start;
-  }
-  .receipt-tpl-form{min-width:0;}
-  .receipt-lang-toggle{
-    display:grid;grid-template-columns:1fr 1fr;gap:8px;
-  }
-  .pos-root .receipt-lang-toggle button{
-    margin:0;padding:11px 12px;border-radius:12px;font-size:13px;font-weight:900;
-    border:1.5px solid var(--border);background:var(--surface2);color:var(--t2);width:100%;
-  }
-  .pos-root .receipt-lang-toggle button.on{
-    border-color:var(--accent);background:rgba(31,215,96,.12);color:var(--accent);
-  }
-  .pos-root[data-theme="light"] .receipt-lang-toggle button.on{background:rgba(18,155,69,.1);}
-  .receipt-editor-box{
-    margin:4px 0 16px;padding:15px;border-radius:14px;
-    background:var(--surface2);border:1px solid var(--border);
-  }
-  .receipt-editor-title{
-    margin-bottom:13px;font-size:12px;font-weight:900;text-transform:uppercase;
-    letter-spacing:.05em;color:var(--t1);
-  }
-  .receipt-editor-box .pos-settings-field{margin-bottom:13px;}
-  .receipt-editor-range{
-    width:100%;height:5px;accent-color:var(--accent);cursor:pointer;
-  }
-  .receipt-editor-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-  .receipt-editor-checks{
-    display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:2px;
-  }
-  .receipt-editor-checks label{
-    display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:var(--t2);
-    cursor:pointer;
-  }
-  .receipt-editor-checks input{width:16px;height:16px;accent-color:var(--accent);}
-  .pos-root button.receipt-editor-reset{
-    width:100%;margin-top:14px;padding:9px 11px;border-radius:10px;
-    border:1px solid var(--border);background:var(--surface);color:var(--t2);
-    font-size:11.5px;font-weight:800;
-  }
-  .pos-root button.receipt-editor-reset:hover{border-color:var(--accent);color:var(--accent);}
-  .receipt-editor-row-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
-  .receipt-editor-row-btns .receipt-editor-reset{margin-top:0;}
-  .receipt-editor-checks{grid-template-columns:1fr 1fr;}
-  @media (max-width:860px){
-    .receipt-editor-row-btns{grid-template-columns:1fr;}
-  }
-  .receipt-tpl-preview-wrap .gate-label{display:block;margin-bottom:8px;}
-  .receipt-tpl-preview{
-    width:100%;max-width:240px;height:min(520px,62vh);border-radius:12px;overflow:hidden;
-    border:1px solid var(--border);background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04);
-  }
-  .receipt-tpl-preview iframe{
-    width:100%;height:100%;border:0;background:#fff;display:block;
-  }
-  .receipt-design-launch{
-    display:flex;align-items:center;justify-content:space-between;gap:18px;
-  }
-  .receipt-design-launch .hint{margin-bottom:0;}
-  .receipt-design-launch .btn-switch-till{min-width:230px;}
-  .receipt-design-modal{
-    position:fixed;inset:0;z-index:1300;
-    display:flex;flex-direction:column;min-width:0;min-height:0;
-    background:var(--bg);color:var(--t1);
-  }
-  .receipt-design-top{
-    flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;
-    padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--border);
-  }
-  .receipt-design-top h2{margin:0;font-size:21px;font-weight:900;}
-  .receipt-design-top p{margin:3px 0 0;font-size:12px;font-weight:700;color:var(--t2);}
-  .receipt-design-body{
-    flex:1;min-height:0;display:grid;grid-template-columns:minmax(360px,1fr) 340px;
-    gap:20px;padding:20px 24px;overflow:hidden;
-  }
-  .receipt-design-controls{
-    min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));
-    gap:14px;align-content:start;padding-right:4px;
-  }
-  .receipt-design-controls .receipt-editor-box{margin:0;}
-  .receipt-design-controls .gate-input{margin-bottom:0;}
-  .receipt-design-preview{
-    min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center;
-    background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:16px;
-  }
-  .receipt-design-preview-head{width:100%;margin-bottom:10px;}
-  .receipt-design-preview-head b{display:block;font-size:13px;font-weight:900;}
-  .receipt-design-preview-head span{display:block;margin-top:3px;font-size:11px;color:var(--t3);font-weight:700;}
-  .receipt-design-preview .receipt-tpl-preview{
-    width:260px;max-width:100%;height:100%;min-height:420px;
-  }
-  .receipt-design-actions{
-    flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center;gap:10px;
-    padding:12px 24px;background:var(--surface);border-top:1px solid var(--border);
-  }
-  .receipt-design-actions .btn-gate{width:auto;min-width:220px;}
 
   @media (max-width:860px){
     .pos-settings-wrap{grid-template-columns:1fr;}
-    .receipt-tpl-grid{grid-template-columns:1fr;}
-    .receipt-tpl-preview{max-width:100%;height:380px;}
     .pos-settings-scale-grid{grid-template-columns:1fr 1fr;}
     .pos-settings-top{padding:14px 16px;align-items:flex-start;}
     .pos-settings-scroll{padding:14px 16px 20px;}
     .pos-settings-actions{padding:12px 16px;}
-    .receipt-design-launch{align-items:stretch;flex-direction:column;}
-    .receipt-design-launch .btn-switch-till{width:100%;min-width:0;}
-    .receipt-design-body{grid-template-columns:1fr;overflow:auto;padding:12px;}
-    .receipt-design-controls{grid-template-columns:1fr;overflow:visible;}
-    .receipt-design-preview{min-height:500px;}
-    .receipt-design-actions{padding:10px 12px;flex-wrap:wrap;}
   }
   .cashier-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;}
   .pos-root button.cashier-opt{padding:12px 5px;border-radius:14px;border:1.5px solid var(--border);background:var(--surface2);text-align:center;color:var(--t1);}

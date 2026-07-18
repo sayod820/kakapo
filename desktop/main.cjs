@@ -13,7 +13,7 @@ const {
   buildMultiLabelTspl,
   printRawWindows,
 } = require('./tsplLabel.cjs')
-const { buildEscPosReceipt, buildEscPosFromReceiptHtml, buildEscPosRaster } = require('./escposReceipt.cjs')
+const { buildEscPosRaster } = require('./escposReceipt.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
@@ -29,10 +29,6 @@ const DEFAULT_SETTINGS = {
   scaleHost: '',
   scalePort: 20304,
   scaleDept: 1,
-  /** Плотность чека 1–5 (2 = чётко, без заливки цифр). XP-58C @ 203 DPI */
-  receiptDensity: 2,
-  /** raster = HTML-дизайн как в предпросмотре; text = нативный ESC/POS */
-  receiptPrintMode: 'raster',
 }
 
 function loadConfig() {
@@ -45,7 +41,17 @@ function loadConfig() {
 
 function loadPrinterSettings() {
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(SETTINGS_PATH(), 'utf8')) }
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_PATH(), 'utf8'))
+    return {
+      ...DEFAULT_SETTINGS,
+      printerName: String(raw.printerName || ''),
+      paperWidthMm: Number(raw.paperWidthMm) === 80 ? 80 : 58,
+      labelPrinterName: String(raw.labelPrinterName || ''),
+      scaleMode: raw.scaleMode === 'none' ? 'none' : 'plu-label',
+      scaleHost: String(raw.scaleHost || ''),
+      scalePort: Number(raw.scalePort) || 20304,
+      scaleDept: Number(raw.scaleDept) || 1,
+    }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -54,8 +60,6 @@ function loadPrinterSettings() {
 function savePrinterSettings(next) {
   const cur = loadPrinterSettings()
   const port = Number(next.scalePort ?? cur.scalePort) || 20304
-  const density = Math.max(1, Math.min(5, Math.round(Number(next.receiptDensity ?? cur.receiptDensity) || 3)))
-  const modeRaw = next.receiptPrintMode ?? cur.receiptPrintMode ?? 'raster'
   const merged = {
     printerName: String(next.printerName ?? cur.printerName ?? ''),
     paperWidthMm: Number(next.paperWidthMm) === 80 ? 80 : 58,
@@ -64,30 +68,14 @@ function savePrinterSettings(next) {
     scaleHost: String(next.scaleHost ?? cur.scaleHost ?? '').trim(),
     scalePort: port > 0 && port < 65536 ? port : 20304,
     scaleDept: Math.max(1, Math.min(99, Number(next.scaleDept ?? cur.scaleDept) || 1)),
-    receiptDensity: density,
-    receiptPrintMode: modeRaw === 'text' ? 'text' : 'raster',
   }
   fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(merged, null, 2), 'utf8')
   return merged
 }
 
-/** Плотность 1–5: из опций печати или printer-settings.json */
-function resolveReceiptDensity(options = {}) {
-  const fromOpt = Number(options.receiptDensity)
-  if (Number.isFinite(fromOpt) && fromOpt >= 1 && fromOpt <= 5) return Math.round(fromOpt)
-  const fromSettings = Number(loadPrinterSettings().receiptDensity)
-  if (Number.isFinite(fromSettings) && fromSettings >= 1 && fromSettings <= 5) return Math.round(fromSettings)
-  return 3
-}
-
-/**
- * Порог B/W для растра.
- * Ниже порог → меньше чёрного → просветы в 8/0/3/6 остаются.
- * density 3 ≈ 124 (средняя). density 5 ≈ 140 (не max-заливка).
- */
-function receiptMonoThreshold(density) {
-  const level = Math.max(1, Math.min(5, Math.round(Number(density) || 3)))
-  return 100 + level * 8
+/** Порог B/W для растра — фиксированный средний */
+function receiptMonoThreshold() {
+  return 124
 }
 
 function createWindow() {
@@ -484,32 +472,25 @@ function printHtml(html, options = {}) {
   }
 
   return (async () => {
-    const density = resolveReceiptDensity(options)
-    const opts = { ...options, receiptDensity: density }
-
-    // Только HTML-растр = тот же дизайн/шрифт, что в предпросмотре.
-    // ESC/POS text и GDI дают «чужой» шрифт и длинную ленту — отключены.
     try {
-      const res = await printReceiptHtmlRaster(html, opts)
-      logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, density, h: res.height })
+      const res = await printReceiptHtmlRaster(html, options)
+      logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, h: res.height })
       return res
     } catch (errRaster) {
       const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
-      logPrintDebug('receipt raster fail', { error: msgR, density })
-      throw new Error(`Печать дизайна чека не удалась (растр): ${msgR}`)
+      logPrintDebug('receipt raster fail', { error: msgR })
+      throw new Error(`Печать чека не удалась: ${msgR}`)
     }
   })()
 }
 
-/** 58 мм ESC/POS: обычно 384 точки (48 мм печатная зона × 8 dot/mm) */
+/** 58 мм ESC/POS: 384 точки @ 203 DPI */
 function receiptRasterWidthDots(paperWidthMm) {
   return Number(paperWidthMm) === 80 ? 576 : 384
 }
 
-function wrapReceiptHtmlForRaster(html, widthPx, paddingMm = 1) {
-  const pad = Math.max(0, Math.min(6, Number(paddingMm) || 0))
-  const padPx = Math.round(pad * (203 / 25.4))
-  // Фиксируем ширину ленты 384px @ 203 DPI и Arial — как эталонный чек.
+/** Не перебиваем CSS шаблона — только ширина ленты и anti-alias off */
+function wrapReceiptHtmlForRaster(html, widthPx) {
   const inject = `<meta name="color-scheme" content="light only"><style>
 :root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important;margin:0!important;}
 html,body{
@@ -517,18 +498,11 @@ html,body{
   overflow:hidden!important;height:auto!important;
 }
 body{
-  padding:${padPx}px!important;box-sizing:border-box!important;
-  font-family:Arial,'Helvetica Neue',sans-serif!important;
   -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
   -webkit-font-smoothing:none!important;font-smooth:never!important;
   text-rendering:optimizeSpeed!important;
 }
-.receipt{width:100%!important;max-width:100%!important;margin:0!important;}
-.doc-title{border-radius:0!important;}
-.muted,.meta-row span,.foot{color:#000!important;}
 *{
-  color-scheme:light only!important;
-  -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
   -webkit-font-smoothing:none!important;font-smooth:never!important;
   text-rendering:optimizeSpeed!important;
 }
@@ -540,7 +514,6 @@ body{
   return `<!DOCTYPE html><html><head>${inject}</head><body>${s}</body></html>`
 }
 
-/** Обрезает белый хвост растра — иначе чек получается длинным. */
 function trimMonoTrailingWhite(mono, keepPad = 12) {
   if (!mono || !Buffer.isBuffer(mono.data) || mono.height < 20) return mono
   const { data, widthBytes, height } = mono
@@ -563,7 +536,7 @@ function trimMonoTrailingWhite(mono, keepPad = 12) {
   }
 }
 
-async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
+async function captureReceiptMono(html, widthDots) {
   const wPx = Math.max(192, Math.round(widthDots))
   destroyPrintWindow()
   printWindow = new BrowserWindow({
@@ -582,7 +555,7 @@ async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
   })
   const win = printWindow
   const tmpFile = path.join(os.tmpdir(), `kakapo-receipt-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
-  fs.writeFileSync(tmpFile, wrapReceiptHtmlForRaster(html, wPx, paddingMm), 'utf8')
+  fs.writeFileSync(tmpFile, wrapReceiptHtmlForRaster(html, wPx), 'utf8')
 
   const prevTheme = nativeTheme.themeSource
   nativeTheme.themeSource = 'light'
@@ -592,11 +565,10 @@ async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
     await waitForPrintRender(win.webContents)
     await new Promise(r => setTimeout(r, 120))
 
-    const padCss = `${Math.max(0, Math.round((Number(paddingMm) || 0) * (203 / 25.4)))}px`
     const measured = await win.webContents.executeJavaScript(`
       (function () {
         document.documentElement.style.cssText = 'width:${wPx}px;margin:0;padding:0;background:#fff;';
-        document.body.style.cssText = 'width:${wPx}px;max-width:${wPx}px;margin:0;padding:${padCss};box-sizing:border-box;background:#fff;color:#000;font-family:Arial,sans-serif;';
+        document.body.style.cssText = 'width:${wPx}px;max-width:${wPx}px;margin:0;padding:0;box-sizing:border-box;background:#fff;color:#000;';
         const el = document.querySelector('.receipt') || document.body;
         const h = Math.ceil(Math.max(
           el.scrollHeight || 0,
@@ -617,9 +589,8 @@ async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
     }
     const size = img.getSize()
     const bgra = img.toBitmap()
-    const level = resolveReceiptDensity({ receiptDensity: density })
-    const threshold = receiptMonoThreshold(level)
-    logPrintDebug('receipt raster capture', { wPx, hPx, density: level, threshold, dpi: 203 })
+    const threshold = receiptMonoThreshold()
+    logPrintDebug('receipt raster capture', { wPx, hPx, threshold, dpi: 203 })
     const mono = monoFromBgra(bgra, size.width, size.height, wPx, hPx, threshold)
     return trimMonoTrailingWhite(mono, 10)
   } finally {
@@ -636,13 +607,12 @@ async function printReceiptHtmlRaster(html, options = {}) {
     ? 58
     : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
   const widthDots = receiptRasterWidthDots(paperWidthMm)
-  const density = resolveReceiptDensity(options)
 
-  const mono = await captureReceiptMono(html, widthDots, density, options.receiptPaddingMm)
+  const mono = await captureReceiptMono(html, widthDots)
   if (!mono || !mono.data || mono.height < 40) {
     throw new Error('Пустой снимок чека')
   }
-  const raw = buildEscPosRaster(mono, { cut: true, density })
+  const raw = buildEscPosRaster(mono, { cut: true })
   await printRawWindows(printerName, raw)
   return {
     ok: true,
@@ -651,7 +621,6 @@ async function printReceiptHtmlRaster(html, options = {}) {
     mode: 'escpos-raster',
     pageWidthMm: paperWidthMm,
     height: mono.height,
-    density,
   }
 }
 
@@ -679,149 +648,6 @@ async function ensureReceiptPrinterName(preferred) {
     if (err instanceof Error && /XP-58C|не найден/.test(err.message)) throw err
   }
   return printerName
-}
-
-async function printReceiptHtmlAsEscPos(html, options = {}) {
-  const settings = loadPrinterSettings()
-  const printerName = await ensureReceiptPrinterName(options.printerName)
-  const paperWidthMm = printerNameMatches(printerName, XP_RECEIPT_HINTS)
-    ? 58
-    : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
-  const raw = buildEscPosFromReceiptHtml(html, { paperWidthMm })
-  await printRawWindows(printerName, raw)
-  return {
-    ok: true,
-    printerName,
-    role: 'receipt',
-    mode: 'escpos-from-html',
-    pageWidthMm: paperWidthMm,
-  }
-}
-
-async function printReceiptEscPos(sale, options = {}) {
-  const settings = loadPrinterSettings()
-  const printerName = await ensureReceiptPrinterName(options.printerName)
-
-  const paperWidthMm = printerNameMatches(printerName, XP_RECEIPT_HINTS)
-    ? 58
-    : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
-
-  const raw = buildEscPosReceipt(sale, {
-    storeName: options.storeName,
-    storeAddress: options.storeAddress,
-    storePhone: options.storePhone,
-    posLabel: options.posLabel,
-    cashierName: options.cashierName,
-    headerText: options.headerText,
-    footerThanks: options.footerThanks,
-    footerNote: options.footerNote,
-    labels: options.labels,
-    paperWidthMm,
-    density: resolveReceiptDensity(options),
-  })
-  await printRawWindows(printerName, raw)
-  return {
-    ok: true,
-    printerName,
-    role: 'receipt',
-    mode: 'escpos-raw',
-    pageWidthMm: paperWidthMm,
-  }
-}
-
-function printReceiptHtmlFallback(html, options = {}) {
-  return (async () => {
-    const settings = loadPrinterSettings()
-    let printerName = await resolveReceiptPrinterName(options.printerName)
-    if (!printerName) {
-      let printers = []
-      try { printers = await getPrintersAsync() } catch { /* ignore */ }
-      throw new Error(describeMissingReceiptPrinter(printers))
-    }
-
-    try {
-      const printers = await getPrintersAsync()
-      const exists = (printers || []).some(p => p.name === printerName)
-      if (!exists) {
-        const again = pickReceiptPrinterName(printers)
-        if (again) {
-          printerName = again
-          savePrinterSettings({ ...settings, printerName, paperWidthMm: 58 })
-        } else {
-          throw new Error(describeMissingReceiptPrinter(printers))
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && /XP-58C|не найден/.test(err.message)) throw err
-    }
-
-    let pageWidthMm = Number(options.pageWidthMm ?? options.paperWidthMm)
-    let pageHeightMm = Number(options.pageHeightMm)
-    if (!Number.isFinite(pageWidthMm) || pageWidthMm <= 0) {
-      pageWidthMm = Number(settings.paperWidthMm) === 80 ? 80 : 58
-    }
-    if (printerNameMatches(printerName, XP_RECEIPT_HINTS)) pageWidthMm = 58
-    if (!Number.isFinite(pageHeightMm) || pageHeightMm <= 0) {
-      pageHeightMm = 300
-    }
-
-    const pageWidth = Math.round(pageWidthMm * 1000)
-    const pageHeight = Math.round(pageHeightMm * 1000)
-    const winW = Math.max(320, Math.round(pageWidthMm * 4))
-    const winH = Math.max(400, Math.round(pageHeightMm * 4))
-
-    destroyPrintWindow()
-
-    printWindow = new BrowserWindow({
-      show: false,
-      width: winW,
-      height: winH,
-      backgroundColor: '#ffffff',
-      webPreferences: {
-        sandbox: false,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    })
-
-    const tmpFile = path.join(os.tmpdir(), `kakapo-print-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
-    fs.writeFileSync(tmpFile, String(html || ''), 'utf8')
-
-    try {
-      await printWindow.loadFile(tmpFile)
-      await waitForPrintRender(printWindow.webContents)
-
-      const printOpts = {
-        silent: true,
-        printBackground: true,
-        deviceName: printerName,
-        margins: { marginType: 'none' },
-        pageSize: { width: pageWidth, height: pageHeight },
-        scaleFactor: 100,
-      }
-
-      const result = await new Promise((resolve, reject) => {
-        printWindow.webContents.print(printOpts, (success, failureReason) => {
-          if (!success) {
-            reject(new Error(failureReason || 'Печать чека отменена / принтер недоступен'))
-            return
-          }
-          resolve({
-            ok: true,
-            printerName,
-            role: 'receipt',
-            mode: 'html-gdi',
-            pageWidthMm,
-            pageHeightMm,
-          })
-        })
-      })
-      return result
-    } finally {
-      try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
-      destroyPrintWindow()
-    }
-  })()
 }
 
 app.whenReady().then(() => {

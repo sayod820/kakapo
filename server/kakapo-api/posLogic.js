@@ -1103,8 +1103,21 @@ export function createPosSale(db, data = {}) {
       receiptId: row.receiptId || undefined,
     }
   })
-  const total = round2(items.reduce((sum, item) => sum + item.lineTotal, 0))
+  const itemsTotal = round2(items.reduce((sum, item) => sum + item.lineTotal, 0))
   const totalCost = round2(items.reduce((sum, item) => sum + (Number(item.lineCost) || 0), 0))
+  const bonusSpent = Math.max(0, Math.floor(Number(data.bonusSpent) || 0))
+  const bonusEarned = Math.max(0, Math.floor(Number(data.bonusEarned) || 0))
+  const orderGoodsTotal = round2(Number(data.orderGoodsTotal) || 0)
+  const discountAmount = round2(Number(data.discountAmount) || 0)
+  const bonusBalanceBefore = Number.isFinite(Number(data.bonusBalanceBefore))
+    ? Math.max(0, Math.floor(Number(data.bonusBalanceBefore)))
+    : undefined
+  const bonusBalanceAfter = Number.isFinite(Number(data.bonusBalanceAfter))
+    ? Math.max(0, Math.floor(Number(data.bonusBalanceAfter)))
+    : undefined
+  const total = orderGoodsTotal > 0
+    ? Math.max(0, round2(orderGoodsTotal - discountAmount - bonusSpent))
+    : itemsTotal
   const profit = round2(total - totalCost)
   const paymentMethod = ['cash', 'card', 'credit', 'mixed'].includes(data.paymentMethod) ? data.paymentMethod : 'cash'
   const paidCash = round2(data.paidCash ?? (paymentMethod === 'cash' ? total : 0))
@@ -1118,6 +1131,7 @@ export function createPosSale(db, data = {}) {
   const posId = String(data.posId || shift?.posId || (db.posPoints[0]?.id || DEFAULT_POS_ID)).trim()
   // Один счётчик с онлайн-заказами: K-4864 …
   const orderId = nextOrderId(db)
+
   const sale = {
     id: nextId('SALE'),
     number: nextPosSaleNumber(db),
@@ -1141,6 +1155,12 @@ export function createPosSale(db, data = {}) {
     cashReceived,
     changeGiven,
     note: String(data.note || '').trim(),
+    orderGoodsTotal: orderGoodsTotal > 0 ? orderGoodsTotal : undefined,
+    discountAmount: discountAmount > 0 ? discountAmount : undefined,
+    bonusSpent: bonusSpent > 0 ? bonusSpent : undefined,
+    bonusEarned: bonusEarned > 0 ? bonusEarned : undefined,
+    bonusBalanceBefore,
+    bonusBalanceAfter,
     items,
   }
   if (cashier) {

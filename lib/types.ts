@@ -473,6 +473,18 @@ export interface PosSale {
   changeGiven?: number
   note?: string
   orderId?: string
+  /** Сумма товаров до скидки/бонусов */
+  orderGoodsTotal?: number
+  /** Сумма скидки */
+  discountAmount?: number
+  /** Списано бонусов */
+  bonusSpent?: number
+  /** Начислено бонусов */
+  bonusEarned?: number
+  /** Баланс бонусов до операции */
+  bonusBalanceBefore?: number
+  /** Баланс бонусов после операции */
+  bonusBalanceAfter?: number
   items: PosSaleItem[]
   status?: 'sold' | 'partial' | 'returned'
   originalTotal?: number

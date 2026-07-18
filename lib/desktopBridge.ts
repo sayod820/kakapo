@@ -20,10 +20,6 @@ export type DesktopPrinterSettings = {
   scalePort: number
   /** Отдел на весах */
   scaleDept: number
-  /** Плотность чека 1–5 (по умолчанию 3) */
-  receiptDensity?: number
-  /** Режим печати чека */
-  receiptPrintMode?: 'text' | 'raster'
 }
 
 export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
@@ -34,27 +30,6 @@ export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
   gapMm?: number
   /** Копии одной этикетки (TSPL PRINT n) — без паузы между листами */
   copies?: number
-  /** Язык чека (для логов / подписей) */
-  receiptLang?: 'ru' | 'tg'
-  /** Плотность растра чека: 1–5 */
-  receiptDensity?: number
-  /** text = нативный шрифт (чётко), raster = HTML-шаблон */
-  receiptPrintMode?: 'text' | 'raster'
-  /** Поля чека в мм (0 = от края до края) */
-  receiptPaddingMm?: number
-  /** @deprecated GDI на XP-58C ненадёжен — не использовать */
-  forceGdi?: boolean
-  /** Данные продажи для ESC/POS RAW */
-  sale?: unknown
-  storeName?: string
-  storeAddress?: string
-  storePhone?: string
-  posLabel?: string
-  cashierName?: string
-  headerText?: string
-  footerThanks?: string
-  footerNote?: string
-  labels?: Record<string, string>
 }
 
 export type DesktopLabelBatchItem = {
