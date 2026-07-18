@@ -8,9 +8,16 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; }
     .app { display: flex; flex-direction: column; height: 100%; }
-    header { padding: 12px 20px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; }
+    header { padding: 12px 20px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     header h1 { font-size: 16px; font-weight: 600; }
-    .toolbar { display: flex; gap: 8px; }
+    .header-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .tabs { display: inline-flex; padding: 3px; border-radius: 8px; background: #161b22; border: 1px solid #30363d; gap: 2px; }
+    .tab {
+      padding: 6px 12px; border-radius: 6px; border: 0; background: transparent;
+      color: #8b949e; cursor: pointer; font-size: 12px; font-weight: 600;
+    }
+    .tab.active { background: #238636; color: #fff; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
     button {
       padding: 7px 14px; border-radius: 6px; border: 1px solid #30363d;
       background: #21262d; color: #e6edf3; cursor: pointer; font-size: 13px;
@@ -39,12 +46,30 @@
     .preview-wrap { background: #fff; padding: 16px; border-radius: 4px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
     .preview-label { font-size: 11px; color: #8b949e; margin-bottom: 12px; text-align: center; }
     iframe { border: none; width: 272px; height: 720px; background: #fff; }
+    #codePanel { display: none; }
+    #codePanel.active { display: block; }
+    #formPanel.hidden { display: none; }
+    #codeEditor {
+      width: 100%; min-height: calc(100vh - 140px); resize: vertical;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
+      font-size: 12.5px; line-height: 1.5; tab-size: 2;
+      padding: 12px; border-radius: 6px; border: 1px solid #30363d;
+      background: #0d1117; color: #e6edf3; white-space: pre; overflow: auto;
+    }
+    #codeEditor:focus { outline: none; border-color: #58a6ff; }
+    .code-hint { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
   </style>
 </head>
 <body>
   <div class="app">
     <header>
-      <h1>Шаблон чека 58 мм</h1>
+      <div class="header-left">
+        <h1>Шаблон чека 58 мм</h1>
+        <div class="tabs">
+          <button type="button" class="tab active" id="tabForm">Форма</button>
+          <button type="button" class="tab" id="tabCode">&#123; &#125; Код</button>
+        </div>
+      </div>
       <div class="toolbar">
         <button type="button" id="btnSave" class="primary">Сохранить</button>
         <button type="button" id="btnTest">Тест печати</button>
@@ -54,7 +79,13 @@
     </header>
     <p class="status" id="status"></p>
     <div class="main">
-      <div class="form-panel" id="formPanel"></div>
+      <div class="form-panel">
+        <div id="formPanel"></div>
+        <div id="codePanel">
+          <p class="code-hint">Шаблон (JSON) — правьте как код. Превью обновляется на лету.</p>
+          <textarea id="codeEditor" spellcheck="false"></textarea>
+        </div>
+      </div>
       <div class="preview-panel">
         <p class="preview-label">Предпросмотр (демо ORD-1047)</p>
         <div class="preview-wrap">
@@ -118,6 +149,8 @@
 
     let template = {}
     let defaults = {}
+    let mode = 'form' // form | code
+    let codeErr = ''
 
     function money(n) {
       return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2)
@@ -228,8 +261,45 @@
       return out
     }
 
+    function readCurrent() {
+      if (mode === 'code') {
+        try {
+          const parsed = JSON.parse(document.getElementById('codeEditor').value)
+          codeErr = ''
+          return { ...template, ...parsed }
+        } catch (e) {
+          codeErr = e.message || 'Некорректный JSON'
+          return null
+        }
+      }
+      return readForm()
+    }
+
+    function syncCodeFromTemplate(tpl) {
+      document.getElementById('codeEditor').value = JSON.stringify(tpl, null, 2)
+      codeErr = ''
+    }
+
+    function setMode(next) {
+      mode = next
+      document.getElementById('tabForm').classList.toggle('active', next === 'form')
+      document.getElementById('tabCode').classList.toggle('active', next === 'code')
+      document.getElementById('formPanel').classList.toggle('hidden', next === 'code')
+      document.getElementById('codePanel').classList.toggle('active', next === 'code')
+      if (next === 'code') {
+        syncCodeFromTemplate(readForm())
+      } else if (!codeErr) {
+        const tpl = readCurrent()
+        if (tpl) fillForm(tpl)
+      }
+      updatePreview()
+    }
+
     function updatePreview() {
-      const tpl = readForm()
+      const tpl = mode === 'code' ? (readCurrent() || template) : readForm()
+      if (mode === 'code' && codeErr) {
+        setStatus('JSON: ' + codeErr, false)
+      }
       const iframe = document.getElementById('preview')
       iframe.srcdoc = buildPreviewHtml(tpl)
     }
@@ -277,6 +347,7 @@
         const el = document.getElementById('f_' + f.key)
         if (el) el.checked = tpl[f.key] !== false
       }
+      if (mode === 'code') syncCodeFromTemplate(template)
       updatePreview()
     }
 
@@ -297,11 +368,30 @@
       }
     }
 
+    document.getElementById('tabForm').addEventListener('click', () => setMode('form'))
+    document.getElementById('tabCode').addEventListener('click', () => setMode('code'))
+    document.getElementById('codeEditor').addEventListener('input', () => {
+      const tpl = readCurrent()
+      if (tpl) {
+        template = tpl
+        setStatus('', true)
+        updatePreview()
+      } else {
+        setStatus('JSON: ' + codeErr, false)
+      }
+    })
+
     document.getElementById('btnSave').addEventListener('click', async () => {
       try {
-        const tpl = readForm()
+        const tpl = readCurrent()
+        if (!tpl) {
+          setStatus('Исправьте JSON перед сохранением', false)
+          return
+        }
         await api.saveReceiptTemplate(tpl)
         template = tpl
+        if (mode === 'form') fillForm(tpl)
+        else syncCodeFromTemplate(tpl)
         setStatus('Сохранено', true)
       } catch (err) {
         setStatus('Ошибка сохранения: ' + (err.message || err), false)
@@ -310,8 +400,12 @@
 
     document.getElementById('btnTest').addEventListener('click', async () => {
       try {
+        const tpl = readCurrent()
+        if (!tpl) {
+          setStatus('Исправьте JSON перед печатью', false)
+          return
+        }
         setStatus('Печать…', true)
-        const tpl = readForm()
         await api.printReceipt({ sale: DEMO_SALE, ...tpl, posLabel: 'Касса 1' })
         setStatus('Тестовый чек отправлен на печать', true)
       } catch (err) {

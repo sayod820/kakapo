@@ -123,19 +123,18 @@ function normalizeReceiptTemplate(raw) {
   }
 }
 
-/** savedTemplate — база с диска; printOpts — касса/кассир и разовые переопределения */
+/** savedTemplate — база с диска; printOpts — любые переопределения (в т.ч. полный шаблон из редактора) */
 function mergeTemplateOpts(printOpts, savedTemplate) {
   const t = normalizeReceiptTemplate(savedTemplate)
   const o = printOpts && typeof printOpts === 'object' ? printOpts : {}
+  // любое поле шаблона, переданное в printOpts, перекрывает диск (нужно для «Тест печати» без сохранения)
+  const overlay = {}
+  for (const key of Object.keys(DEFAULT_RECEIPT_TEMPLATE)) {
+    if (o[key] !== undefined) overlay[key] = o[key]
+  }
+  const merged = normalizeReceiptTemplate({ ...t, ...overlay })
   return {
-    ...t,
-    storeName: asStr(o.storeName, t.storeName),
-    storePhone: o.storePhone != null && String(o.storePhone).trim() !== ''
-      ? String(o.storePhone).trim()
-      : t.storePhone,
-    subtitle: asStr(o.subtitle, t.subtitle),
-    footerThanks: asStr(o.footerThanks, t.footerThanks),
-    footerNote: asStr(o.footerNote, t.footerNote),
+    ...merged,
     posLabel: o.posLabel,
     cashierName: o.cashierName,
   }

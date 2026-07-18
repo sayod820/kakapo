@@ -1192,6 +1192,25 @@ export const POS_MOCK_CSS = `
   .receipt-tpl-form .hint{margin:0 0 14px;font-size:12px;color:var(--t2);font-weight:600;}
   .receipt-tpl-field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
   .receipt-tpl-field span{font-size:11px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.04em;}
+  .receipt-tpl-tabs{display:inline-flex;padding:3px;border-radius:12px;background:var(--card2,#151515);border:1px solid var(--border);gap:2px;}
+  .receipt-tpl-tab{
+    appearance:none;border:0;cursor:pointer;padding:7px 14px;border-radius:9px;
+    font-size:13px;font-weight:800;color:var(--t2);background:transparent;
+  }
+  .receipt-tpl-tab.is-active{background:var(--accent,#3b82f6);color:#fff;}
+  .receipt-tpl-group{margin-bottom:20px;}
+  .receipt-tpl-group h3{margin:0 0 10px;font-size:13px;font-weight:900;color:var(--t1);text-transform:uppercase;letter-spacing:.05em;}
+  .receipt-tpl-toggles{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;}
+  .receipt-tpl-toggle{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--t2);cursor:pointer;}
+  .receipt-tpl-toggle input{width:16px;height:16px;accent-color:var(--accent,#3b82f6);cursor:pointer;}
+  .receipt-tpl-code{
+    width:100%;min-height:min(64vh,640px);resize:vertical;
+    font-family:'JetBrains Mono','Fira Code','Courier New',monospace;
+    font-size:12.5px;line-height:1.55;tab-size:2;
+    padding:14px;border-radius:12px;border:1px solid var(--border);
+    background:#0e0e0e;color:#e6e6e6;white-space:pre;overflow:auto;
+  }
+  .receipt-tpl-code:focus{outline:none;border-color:var(--accent,#3b82f6);}
   .receipt-tpl-preview-wrap{min-width:0;}
   .receipt-tpl-preview-frame{
     margin-top:10px;width:min(100%,420px);height:min(72vh,720px);

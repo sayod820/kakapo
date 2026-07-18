@@ -127,51 +127,17 @@ function closeReceiptEditor() {
   }
 }
 
-function injectReceiptTemplateButton() {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.webContents.executeJavaScript(`
-    (function () {
-      if (document.getElementById('kakapo-receipt-template-btn')) return;
-      if (!window.kakapoDesktop || typeof window.kakapoDesktop.openReceiptEditor !== 'function') return;
-      const btn = document.createElement('button');
-      btn.id = 'kakapo-receipt-template-btn';
-      btn.type = 'button';
-      btn.textContent = 'Шаблон чека';
-      btn.title = 'Редактор шаблона чека 58 мм';
-      btn.style.cssText = [
-        'position:fixed', 'bottom:20px', 'right:20px', 'z-index:2147483646',
-        'padding:10px 16px', 'border-radius:8px', 'border:1px solid #2ea043',
-        'background:#238636', 'color:#fff', 'font:600 13px system-ui,sans-serif',
-        'cursor:pointer', 'box-shadow:0 4px 12px rgba(0,0,0,0.35)',
-      ].join(';');
-      btn.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        window.kakapoDesktop.openReceiptEditor();
-      });
-      document.body.appendChild(btn);
-    })();
-  `).catch(() => { /* ignore cross-origin or unload */ })
-}
-
 function buildAppMenu() {
-  const template = [
+  // Без пункта «Шаблон чека» в меню — редактор только в настройках /trade
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
       label: 'KAKAPO',
-      submenu: [
-        {
-          label: 'Шаблон чека',
-          click: () => openReceiptEditor(),
-        },
-        { type: 'separator' },
-        { role: 'quit', label: 'Выход' },
-      ],
+      submenu: [{ role: 'quit', label: 'Выход' }],
     },
     { role: 'editMenu' },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
-  ]
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  ]))
 }
 
 function createWindow() {
@@ -210,10 +176,6 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
-  })
-
-  mainWindow.webContents.on('did-finish-load', () => {
-    injectReceiptTemplateButton()
   })
 }
 

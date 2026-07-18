@@ -1670,11 +1670,7 @@ export default function CashierModule({
       })
       const sample = buildDemoReceiptSale()
       await printPosReceipt(sample, {
-        storeName: receiptStore.storeName,
-        storePhone: receiptStore.storePhone,
-        subtitle: receiptStore.subtitle,
-        footerThanks: receiptStore.footerThanks,
-        footerNote: receiptStore.footerNote,
+        ...receiptStore,
         posLabel: editPosName || 'Саунаи Курботу',
         cashierName: sample.cashierName,
       })
@@ -2552,11 +2548,7 @@ export default function CashierModule({
         ? posPoints.find(p => p.id === sale.posId)
         : activePosPoint
       await printPosReceipt(sale, {
-        storeName: store.storeName,
-        storePhone: store.storePhone,
-        subtitle: store.subtitle,
-        footerThanks: store.footerThanks,
-        footerNote: store.footerNote,
+        ...store,
         posLabel: posPoint?.name || posPoint?.code || activePosPoint?.name || activePosPoint?.code || undefined,
         cashierName: sale.cashierName || settings.cashierName,
       })
@@ -3471,7 +3463,7 @@ export default function CashierModule({
 
                 <div className="pos-settings-card span-all">
                   <h3>Шаблон чека</h3>
-                  <p className="hint">Превью = печать · XP‑58C · 58 мм · полный редактор в окне кассы</p>
+                  <p className="hint">Что на экране — то и печатает · XP‑58C · 58 мм</p>
                   <div className="pos-settings-row-btns">
                     <button
                       type="button"
@@ -3479,7 +3471,7 @@ export default function CashierModule({
                       onClick={() => {
                         const desk = getKakapoDesktop()
                         if (desk && typeof desk.openReceiptEditor === 'function') {
-                          void desk.openReceiptEditor()
+                          void desk.openReceiptEditor().catch(() => setReceiptTplOpen(true))
                           return
                         }
                         setReceiptTplOpen(true)
@@ -3493,11 +3485,7 @@ export default function CashierModule({
                       title="Превью шаблона чека"
                       className="receipt-tpl-mini"
                       srcDoc={buildPosReceiptHtml(buildDemoReceiptSale(), {
-                        storeName: receiptStore.storeName,
-                        storePhone: receiptStore.storePhone,
-                        subtitle: receiptStore.subtitle,
-                        footerThanks: receiptStore.footerThanks,
-                        footerNote: receiptStore.footerNote,
+                        ...receiptStore,
                         posLabel: editPosName || 'Саунаи Курботу',
                         cashierName: 'Азиза М.',
                       })}
@@ -3639,16 +3627,16 @@ export default function CashierModule({
             onSave={cfg => {
               setReceiptStore(cfg)
               saveReceiptStore(cfg)
+              const desk = getKakapoDesktop()
+              if (desk && typeof desk.saveReceiptTemplate === 'function') {
+                void desk.saveReceiptTemplate(cfg).catch(() => undefined)
+              }
               setReceiptTplOpen(false)
               showToast('Шаблон чека', 'Сохранено')
             }}
             onTestPrint={async cfg => {
               await printPosReceipt(buildDemoReceiptSale(), {
-                storeName: cfg.storeName,
-                storePhone: cfg.storePhone,
-                subtitle: cfg.subtitle,
-                footerThanks: cfg.footerThanks,
-                footerNote: cfg.footerNote,
+                ...cfg,
                 posLabel: editPosName || 'Саунаи Курботу',
                 cashierName: 'Азиза М.',
               })

@@ -228,11 +228,10 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   boot(1)
 
-  // —— Шапка: крупный КАКАПО (двойная ширина+высота), затем полный reboot ——
+  // Шапка как на превью: обычный размер, только жирный (без двойной ширины/высоты)
   cmd(ESC, 0x45, 1)
-  cmd(GS, 0x21, 0x11)
   txt(store)
-  boot(1)
+  cmd(ESC, 0x45, 0)
   txt(subtitle)
   if (phone) txt(phone)
 
@@ -294,11 +293,10 @@ function buildEscPosReceipt(sale, opts = {}) {
     lines(kvLines(tpl.labelBonusSpent, `-${fmt(bonusSpent)}`, width))
   }
 
-  // ИТОГ — жирный + выше высота, потом полный reboot (чтобы не сломать оплату/футер)
+  // ИТОГ — только жирный, обычный размер (как на экране)
   cmd(ESC, 0x45, 1)
-  cmd(GS, 0x21, 0x10)
   txt(padLine(tpl.labelTotal, fmt(total), width))
-  boot(0)
+  cmd(ESC, 0x45, 0)
 
   sep()
 
