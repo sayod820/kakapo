@@ -440,23 +440,60 @@ async function flushLabelJobQueue() {
   }
 }
 
+function logPrintDebug(msg, extra) {
+  try {
+    const line = `[${new Date().toISOString()}] ${msg}${extra ? ` ${JSON.stringify(extra)}` : ''}\n`
+    fs.appendFileSync(path.join(app.getPath('userData'), 'print-debug.log'), line, 'utf8')
+  } catch { /* ignore */ }
+}
+
 function printHtml(html, options = {}) {
   const role = options.role === 'label' ? 'label' : 'receipt'
   if (role === 'label') {
-    // Не ждём каждую этикетку: UI часто делает await в цикле.
-    // Копим задания ~80мс и шлём одним RAW (PRINT n) — без паузы между листами.
     enqueueLabelPrint(html, options).catch(err => {
       console.error('[kakapo label print]', err)
     })
     return Promise.resolve({ ok: true, queued: true })
   }
 
-  // Чек XP-58C: ESC/POS RAW (как старые кассы) — GDI часто не печатает на термопринтере
-  if (options.sale && typeof options.sale === 'object') {
-    return printReceiptEscPos(options.sale, options)
-  }
-  // Старый UI шлёт только HTML — тоже уводим в RAW
-  return printReceiptHtmlAsEscPos(html, options)
+  return (async () => {
+    // Тоҷикӣ: буквы ғқҳҷӯӣ нет в CP866 — только Unicode HTML/GDI
+    const forceGdi = options.forceGdi === true || options.receiptLang === 'tg'
+    if (forceGdi) {
+      try {
+        const res = await printReceiptHtmlFallback(html, options)
+        logPrintDebug('receipt gdi ok (tg/unicode)', { printer: res.printerName })
+        return res
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logPrintDebug('receipt gdi fail (tg)', { error: msg })
+        throw new Error(`Печать чека (Unicode/GDI) не удалась: ${msg}`)
+      }
+    }
+
+    try {
+      if (options.sale && typeof options.sale === 'object') {
+        const res = await printReceiptEscPos(options.sale, options)
+        logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode })
+        return res
+      }
+      const res = await printReceiptHtmlAsEscPos(html, options)
+      logPrintDebug('receipt escpos-html ok', { printer: res.printerName, mode: res.mode })
+      return res
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logPrintDebug('receipt escpos fail, try gdi', { error: msg })
+      try {
+        const res = await printReceiptHtmlFallback(html, options)
+        logPrintDebug('receipt gdi ok', { printer: res.printerName })
+        return res
+      } catch (err2) {
+        const msg2 = err2 instanceof Error ? err2.message : String(err2)
+        logPrintDebug('receipt gdi fail', { error: msg2 })
+        throw new Error(`Печать чека не удалась. RAW: ${msg}. GDI: ${msg2}`)
+      }
+    }
+  })()
 }
 
 async function ensureReceiptPrinterName(preferred) {
@@ -516,6 +553,10 @@ async function printReceiptEscPos(sale, options = {}) {
     storePhone: options.storePhone,
     posLabel: options.posLabel,
     cashierName: options.cashierName,
+    headerText: options.headerText,
+    footerThanks: options.footerThanks,
+    footerNote: options.footerNote,
+    labels: options.labels,
     paperWidthMm,
   })
   await printRawWindows(printerName, raw)

@@ -156,7 +156,7 @@ function printRawWindows(printerName, data) {
   return new Promise((resolve, reject) => {
     const name = String(printerName || '').trim()
     if (!name) {
-      reject(new Error('Не выбран принтер этикеток'))
+      reject(new Error('Не выбран принтер'))
       return
     }
 

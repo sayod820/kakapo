@@ -1,11 +1,28 @@
 import type { PosSale } from '@/lib/types'
 import { getKakapoDesktop, isKakapoDesktop } from '@/lib/desktopBridge'
 import { pickReceiptPrinter, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
+import {
+  loadReceiptTemplate,
+  normalizeReceiptTemplate,
+  resolveReceiptTexts,
+  type ReceiptLabels,
+  type ReceiptTemplate,
+} from '@/lib/receiptTemplate'
 
 type PosReceiptSale = PosSale & {
   bonusSpent?: number
   bonusEarned?: number
   orderGoodsTotal?: number
+}
+
+export type PosReceiptPrintOpts = {
+  storeName?: string
+  storeAddress?: string
+  storePhone?: string
+  posLabel?: string
+  cashierName?: string
+  paperWidthMm?: 58 | 80
+  template?: Partial<ReceiptTemplate>
 }
 
 function esc(s: string) {
@@ -16,8 +33,8 @@ function esc(s: string) {
     .replace(/"/g, '&quot;')
 }
 
-function money(n: number) {
-  return `${(Math.round(n * 100) / 100).toFixed(2)} сом`
+function money(n: number, currency: string) {
+  return `${(Math.round(n * 100) / 100).toFixed(2)} ${currency}`
 }
 
 function shortMoney(n: number) {
@@ -29,12 +46,12 @@ function qtyText(n: number) {
   return Number.isInteger(rounded) ? String(rounded) : String(rounded).replace('.', ',')
 }
 
-function payLabel(sale: PosReceiptSale) {
-  if (sale.paymentMethod === 'credit') return 'В долг'
-  if (sale.paymentMethod === 'mixed') return 'Смешанная'
-  if (sale.paymentMethod === 'cash') return 'Наличные'
-  if (sale.paymentMethod === 'card') return 'Карта'
-  if ((Number(sale.debtAdded) || 0) > 0.001) return 'В долг'
+function payLabel(sale: PosReceiptSale, L: ReceiptLabels) {
+  if (sale.paymentMethod === 'credit') return L.payCredit
+  if (sale.paymentMethod === 'mixed') return L.payMixed
+  if (sale.paymentMethod === 'cash') return L.payCash
+  if (sale.paymentMethod === 'card') return L.payCard
+  if ((Number(sale.debtAdded) || 0) > 0.001) return L.payCredit
   return sale.paymentMethod || '—'
 }
 
@@ -51,31 +68,42 @@ function metaRow(label: string, value?: string | number | null) {
   return `<div class="meta-row"><span>${esc(label)}</span><b>${esc(v)}</b></div>`
 }
 
-function moneyRow(label: string, value: number, cls = '') {
+function moneyRow(label: string, value: number, currency: string, cls = '') {
   if (!(Math.abs(Number(value) || 0) > 0.001)) return ''
-  return `<div class="sum-row ${cls}"><span>${esc(label)}</span><b>${money(Number(value) || 0)}</b></div>`
+  return `<div class="sum-row ${cls}"><span>${esc(label)}</span><b>${money(Number(value) || 0, currency)}</b></div>`
+}
+
+function mergePrintOpts(opts?: PosReceiptPrintOpts) {
+  const base = normalizeReceiptTemplate(opts?.template || loadReceiptTemplate())
+  const template = normalizeReceiptTemplate({
+    ...base,
+    storeName: opts?.storeName ?? base.storeName,
+    storeAddress: opts?.storeAddress ?? base.storeAddress,
+    storePhone: opts?.storePhone ?? base.storePhone,
+  })
+  const texts = resolveReceiptTexts(template)
+  return { template, texts }
 }
 
 export function buildPosReceiptHtml(
   sale: PosReceiptSale,
-  opts?: {
-    storeName?: string
-    storeAddress?: string
-    storePhone?: string
-    posLabel?: string
-    cashierName?: string
-    paperWidthMm?: 58 | 80
-  },
+  opts?: PosReceiptPrintOpts,
 ): string {
   const paperWidthMm = opts?.paperWidthMm === 80 ? 80 : 58
-  const store = esc(opts?.storeName || 'KAKAPO')
-  const storeAddress = esc(opts?.storeAddress || '')
-  const storePhone = esc(opts?.storePhone || '')
+  const { template, texts } = mergePrintOpts(opts)
+  const L = texts.labels
+  const store = esc(texts.storeName)
+  const storeAddress = esc(texts.storeAddress)
+  const storePhone = esc(texts.storePhone)
+  const headerText = esc(texts.headerText)
+  const footerThanks = esc(texts.footerThanks)
+  const footerNote = esc(texts.footerNote)
   const pos = esc(opts?.posLabel || '')
   const cashier = esc(opts?.cashierName || sale.cashierName || '')
+  const locale = template.lang === 'tg' ? 'tg-TJ' : 'ru-RU'
   const when = sale.createdAtIso
-    ? new Date(sale.createdAtIso).toLocaleString('ru-RU')
-    : new Date().toLocaleString('ru-RU')
+    ? new Date(sale.createdAtIso).toLocaleString(locale)
+    : new Date().toLocaleString(locale)
 
   const orderNo = receiptTitle(sale)
   const items = sale.items || []
@@ -93,6 +121,11 @@ export function buildPosReceiptHtml(
   const discount = Math.max(0, Math.round((subtotal - total - bonusSpent) * 100) / 100)
   const returned = sale.status === 'returned'
   const partialReturn = sale.status === 'partial'
+  const titleBanner = returned
+    ? L.titleReturn
+    : partialReturn
+      ? L.titlePartial
+      : L.titleSale
 
   const lines = items.map((it, idx) => {
     const qty = Number(it.qty) || 0
@@ -100,32 +133,33 @@ export function buildPosReceiptHtml(
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
     const returnedQty = Math.max(0, Number(it.returnedQty) || 0)
     return `<div class="item">
-      <div class="item-name"><span>${idx + 1}. ${esc(it.productName || `#${it.productId}`)}</span>${returnedQty > 0 ? `<em>возврат ${qtyText(returnedQty)}</em>` : ''}</div>
+      <div class="item-name"><span>${idx + 1}. ${esc(it.productName || `#${it.productId}`)}</span>${returnedQty > 0 ? `<em>${esc(L.returnedQty)} ${qtyText(returnedQty)}</em>` : ''}</div>
       <div class="item-calc">
         <span>${qtyText(qty)} × ${shortMoney(price)}</span>
-        <b>${money(sum)}</b>
+        <b>${money(sum, L.currency)}</b>
       </div>
     </div>`
   }).join('')
 
   const extras: string[] = []
-  extras.push(moneyRow('Наличные', Number(sale.paidCash) || 0))
-  extras.push(moneyRow('Карта', Number(sale.paidCard) || 0))
-  extras.push(moneyRow('В долг', Number(sale.debtAdded) || 0, 'debt'))
-  extras.push(moneyRow('Дал клиент', Number(sale.cashReceived) || 0))
-  extras.push(moneyRow('Сдача', Number(sale.changeGiven) || 0, 'change'))
+  extras.push(moneyRow(L.cash, Number(sale.paidCash) || 0, L.currency))
+  extras.push(moneyRow(L.cardPay, Number(sale.paidCard) || 0, L.currency))
+  extras.push(moneyRow(L.credit, Number(sale.debtAdded) || 0, L.currency, 'debt'))
+  extras.push(moneyRow(L.cashReceived, Number(sale.cashReceived) || 0, L.currency))
+  extras.push(moneyRow(L.change, Number(sale.changeGiven) || 0, L.currency, 'change'))
 
   const customer: string[] = []
   if (sale.clientName) customer.push(`<div class="customer-name">${esc(sale.clientName)}</div>`)
-  const clientBits = [sale.clientPhone, sale.cardNum ? `карта ${String(sale.cardNum).slice(-4)}` : ''].filter(Boolean)
+  const clientBits = [sale.clientPhone, sale.cardNum ? `${L.cardSuffix} ${String(sale.cardNum).slice(-4)}` : ''].filter(Boolean)
   if (clientBits.length) customer.push(`<div class="muted">${esc(clientBits.join(' · '))}</div>`)
 
   const fontSize = paperWidthMm === 58 ? 11 : 12
   const smallSize = paperWidthMm === 58 ? 9 : 10
   const titleSize = paperWidthMm === 58 ? 18 : 21
   const totalSize = paperWidthMm === 58 ? 15 : 18
+  const htmlLang = template.lang === 'tg' ? 'tg' : 'ru'
 
-  return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Чек ${esc(receiptTitle(sale))}</title>
+  return `<!DOCTYPE html><html lang="${htmlLang}"><head><meta charset="utf-8"><title>${esc(titleBanner)} ${esc(receiptTitle(sale))}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   :root{color-scheme:light only}
@@ -162,32 +196,32 @@ export function buildPosReceiptHtml(
 </style></head><body>
   <div class="receipt">
     <div class="shop">${store}</div>
-    <div class="tag">магазин · касса</div>
+    <div class="tag">${headerText}</div>
     ${(storeAddress || storePhone) ? `<div class="center muted">${storeAddress}${storeAddress && storePhone ? '<br>' : ''}${storePhone}</div>` : ''}
     <hr class="sep"/>
-    <div class="black">${returned ? 'ВОЗВРАТНЫЙ ЧЕК' : partialReturn ? 'ЧЕК · ЧАСТИЧНЫЙ ВОЗВРАТ' : 'ТОВАРНЫЙ ЧЕК'}</div>
-    ${metaRow('Номер заказа', orderNo)}
-    ${sale.number ? metaRow('Номер чека', `№${sale.number}`) : ''}
-    ${metaRow('Дата', when)}
-    ${pos ? metaRow('Касса', pos) : ''}
-    ${cashier ? metaRow('Кассир', cashier) : ''}
-    ${sale.shiftId ? metaRow('Смена', sale.shiftId.slice(-6)) : ''}
-    ${customer.length ? `<div class="customer"><div class="customer-title">Клиент</div>${customer.join('')}</div>` : ''}
+    <div class="black">${esc(titleBanner)}</div>
+    ${metaRow(L.orderNo, orderNo)}
+    ${sale.number ? metaRow(L.receiptNo, `№${sale.number}`) : ''}
+    ${metaRow(L.date, when)}
+    ${pos ? metaRow(L.pos, pos) : ''}
+    ${cashier ? metaRow(L.cashier, cashier) : ''}
+    ${sale.shiftId ? metaRow(L.shift, sale.shiftId.slice(-6)) : ''}
+    ${customer.length ? `<div class="customer"><div class="customer-title">${esc(L.client)}</div>${customer.join('')}</div>` : ''}
     <hr class="sep"/>
-    ${lines || '<div class="item">Нет позиций</div>'}
+    ${lines || `<div class="item">${esc(L.noItems)}</div>`}
     <hr class="sep"/>
-    ${subtotal > total + 0.001 ? moneyRow('Товары', subtotal) : ''}
-    ${discount > 0.001 ? moneyRow('Скидка', -discount) : ''}
-    ${bonusSpent > 0.001 ? moneyRow('Бонусами', -bonusSpent) : ''}
-    <div class="total"><span>Итого</span><span>${money(total)}</span></div>
-    <div class="sum-row"><span>Оплата</span><b>${esc(payLabel(sale))}</b></div>
+    ${subtotal > total + 0.001 ? moneyRow(L.goods, subtotal, L.currency) : ''}
+    ${discount > 0.001 ? moneyRow(L.discount, -discount, L.currency) : ''}
+    ${bonusSpent > 0.001 ? moneyRow(L.bonus, -bonusSpent, L.currency) : ''}
+    <div class="total"><span>${esc(L.total)}</span><span>${money(total, L.currency)}</span></div>
+    <div class="sum-row"><span>${esc(L.payment)}</span><b>${esc(payLabel(sale, L))}</b></div>
     ${extras.filter(Boolean).join('')}
-    ${Number(sale.bonusEarned) > 0.001 ? `<div class="sum-row"><span>Начислено бонусов</span><b>${Math.floor(Number(sale.bonusEarned))}</b></div>` : ''}
-    ${sale.note ? `<div class="note">Примечание: ${esc(sale.note)}</div>` : ''}
+    ${Number(sale.bonusEarned) > 0.001 ? `<div class="sum-row"><span>${esc(L.bonusEarned)}</span><b>${Math.floor(Number(sale.bonusEarned))}</b></div>` : ''}
+    ${sale.note ? `<div class="note">${esc(L.note)}: ${esc(sale.note)}</div>` : ''}
     <hr class="sep"/>
     <div class="foot">
-      <div class="thanks">Спасибо за покупку!</div>
-      <div>Сохраняйте чек до проверки товара</div>
+      <div class="thanks">${footerThanks}</div>
+      <div>${footerNote}</div>
     </div>
   </div>
 </body></html>`
@@ -195,9 +229,18 @@ export function buildPosReceiptHtml(
 
 export async function printPosReceipt(
   sale: PosReceiptSale,
-  opts?: { storeName?: string; storeAddress?: string; storePhone?: string; posLabel?: string; cashierName?: string },
+  opts?: PosReceiptPrintOpts,
 ): Promise<void> {
   if (typeof window === 'undefined') return
+
+  const { template, texts } = mergePrintOpts(opts)
+  const printOpts: PosReceiptPrintOpts = {
+    ...opts,
+    storeName: texts.storeName,
+    storeAddress: texts.storeAddress || undefined,
+    storePhone: texts.storePhone || undefined,
+    template,
+  }
 
   const desktop = getKakapoDesktop()
   if (isKakapoDesktop() && desktop) {
@@ -234,7 +277,7 @@ export async function printPosReceipt(
       }).catch(() => undefined)
     }
 
-    const html = buildPosReceiptHtml(sale, { ...opts, paperWidthMm })
+    const html = buildPosReceiptHtml(sale, { ...printOpts, paperWidthMm })
     const pageHeightMm = Math.max(300, Math.min(1200, 130 + (sale.items || []).length * 16))
     await desktop.printHtml(html, {
       role: 'receipt',
@@ -242,18 +285,23 @@ export async function printPosReceipt(
       paperWidthMm,
       pageWidthMm: paperWidthMm,
       pageHeightMm,
-      // ESC/POS RAW на desktop (если поддерживается)
-      sale,
-      storeName: opts?.storeName || 'KAKAPO',
-      storeAddress: opts?.storeAddress,
-      storePhone: opts?.storePhone,
+      receiptLang: template.lang,
+      forceGdi: template.lang === 'tg',
+      sale: template.lang === 'ru' ? sale : undefined,
+      storeName: texts.storeName,
+      storeAddress: texts.storeAddress || undefined,
+      storePhone: texts.storePhone || undefined,
       posLabel: opts?.posLabel,
       cashierName: opts?.cashierName || sale.cashierName,
+      headerText: texts.headerText,
+      footerThanks: texts.footerThanks,
+      footerNote: texts.footerNote,
+      labels: texts.labels,
     })
     return
   }
 
-  const html = buildPosReceiptHtml(sale, { ...opts, paperWidthMm: 58 })
+  const html = buildPosReceiptHtml(sale, { ...printOpts, paperWidthMm: 58 })
   const w = window.open('', '_blank', 'width=420,height=720')
   if (!w) {
     window.alert('Разрешите всплывающие окна для печати чека')

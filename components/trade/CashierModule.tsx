@@ -38,7 +38,14 @@ import { filterProductsBySearch, pickProductBySearch, productBarcodes, productSe
 import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
-import { printPosReceipt } from '@/lib/printPosReceipt'
+import { buildPosReceiptHtml, printPosReceipt } from '@/lib/printPosReceipt'
+import {
+  DEFAULT_RECEIPT_TEMPLATE,
+  loadReceiptTemplate,
+  saveReceiptTemplate,
+  type ReceiptLang,
+  type ReceiptTemplate,
+} from '@/lib/receiptTemplate'
 import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
@@ -470,6 +477,7 @@ export default function CashierModule({
   const [editPosName, setEditPosName] = useState('')
   const [editPosCode, setEditPosCode] = useState('')
   const [editPosNote, setEditPosNote] = useState('')
+  const [receiptTpl, setReceiptTpl] = useState<ReceiptTemplate>(DEFAULT_RECEIPT_TEMPLATE)
   const [deletePosId, setDeletePosId] = useState<string | null>(null)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
@@ -1509,6 +1517,7 @@ export default function CashierModule({
     setEditPosName(point.name || '')
     setEditPosCode(point.code || '')
     setEditPosNote(point.note || '')
+    setReceiptTpl(loadReceiptTemplate())
     if (isKakapoDesktop()) {
       const desk = getKakapoDesktop()
       void Promise.all([
@@ -1559,6 +1568,7 @@ export default function CashierModule({
         code: editPosCode.trim(),
         note: editPosNote.trim(),
       })
+      saveReceiptTemplate(receiptTpl)
       if (isKakapoDesktop()) {
         const desk = getKakapoDesktop()
         const printers = deskPrinters.length
@@ -1671,11 +1681,11 @@ export default function CashierModule({
         items: [{ productId: 0, productName: 'Тест печати XP-58C', qty: 1, price: 1, lineTotal: 1 }],
       }
       await printPosReceipt(sample, {
-        storeName: 'KAKAPO',
+        template: receiptTpl,
         posLabel: editPosName || 'Касса',
         cashierName: settings.cashierName,
       })
-      showToast('Чек напечатан', xp)
+      showToast('Чек напечатан', `${xp} · ${receiptTpl.lang === 'tg' ? 'Тоҷикӣ' : 'RU'}`)
     } catch (e) {
       showToast('Печать', e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -2545,13 +2555,61 @@ export default function CashierModule({
   async function doPrintSale(sale: PosSale) {
     try {
       await printPosReceipt(sale, {
-        storeName: 'KAKAPO',
+        template: loadReceiptTemplate(),
         posLabel: activePosPoint?.name || activePosPoint?.code || undefined,
         cashierName: sale.cashierName || settings.cashierName,
       })
     } catch (e) {
       showToast('Печать', e instanceof Error ? e.message : 'Не удалось напечатать чек')
     }
+  }
+
+  const receiptPreviewHtml = useMemo(() => {
+    const sample: PosSale = {
+      id: 'PREVIEW',
+      number: 42,
+      orderId: 'ORD-42',
+      createdAtIso: new Date().toISOString(),
+      cashierName: settings.cashierName || 'Кассир',
+      paymentMethod: 'cash',
+      total: 25.5,
+      paidCash: 25.5,
+      paidCard: 0,
+      debtAdded: 0,
+      cashReceived: 30,
+      changeGiven: 4.5,
+      clientName: receiptTpl.lang === 'tg' ? 'Ализода' : 'Иванов',
+      items: [
+        {
+          productId: 1,
+          productName: receiptTpl.lang === 'tg' ? 'Нони гарм' : 'Хлеб белый',
+          qty: 2,
+          price: 3.5,
+          lineTotal: 7,
+        },
+        {
+          productId: 2,
+          productName: receiptTpl.lang === 'tg' ? 'Шир 1л' : 'Молоко 1л',
+          qty: 1,
+          price: 18.5,
+          lineTotal: 18.5,
+        },
+      ],
+    }
+    return buildPosReceiptHtml(sample, {
+      template: receiptTpl,
+      posLabel: editPosName || 'Касса',
+      cashierName: settings.cashierName,
+      paperWidthMm: 58,
+    })
+  }, [receiptTpl, editPosName, settings.cashierName])
+
+  function patchReceiptTpl(patch: Partial<ReceiptTemplate>) {
+    setReceiptTpl(prev => ({ ...prev, ...patch }))
+  }
+
+  function setReceiptLang(lang: ReceiptLang) {
+    setReceiptTpl(prev => ({ ...prev, lang }))
   }
 
   async function confirmCreditNote() {
@@ -3317,7 +3375,7 @@ export default function CashierModule({
             <div className="pos-settings-top">
               <div style={{ minWidth: 0 }}>
                 <h2>Настройки точки продаж</h2>
-                <p>Касса · принтер XP-58C · весы CAS</p>
+                <p>Касса · чек · принтер XP-58C · весы CAS</p>
               </div>
               <div className="pos-settings-top-actions">
                 <button
@@ -3368,7 +3426,7 @@ export default function CashierModule({
 
                 <div className="pos-settings-card">
                   <h3>Принтер чеков · XP-58C</h3>
-                  <p className="hint">Лента 58 мм · печать через RAW ESC/POS</p>
+                  <p className="hint">Лента 58 мм · RU: RAW ESC/POS · Тоҷикӣ: Unicode</p>
                   {isKakapoDesktop() ? (
                     <>
                       {!deskPrinters.length ? (
@@ -3434,6 +3492,100 @@ export default function CashierModule({
                       Откройте программу KAKAPO Касса (desktop), чтобы выбрать принтер.
                     </div>
                   )}
+                </div>
+
+                <div className="pos-settings-card span-all">
+                  <h3>Шаблон чека</h3>
+                  <p className="hint">
+                    Язык подписей на чеке. Тоҷикӣ печатается через Unicode (буквы ғқҳҷӯӣ).
+                  </p>
+                  <div className="receipt-tpl-grid">
+                    <div className="receipt-tpl-form">
+                      <div className="pos-settings-field">
+                        <span className="gate-label">Язык чека</span>
+                        <div className="receipt-lang-toggle" role="group" aria-label="Язык чека">
+                          <button
+                            type="button"
+                            className={receiptTpl.lang === 'ru' ? 'on' : ''}
+                            onClick={() => setReceiptLang('ru')}
+                          >
+                            Русский
+                          </button>
+                          <button
+                            type="button"
+                            className={receiptTpl.lang === 'tg' ? 'on' : ''}
+                            onClick={() => setReceiptLang('tg')}
+                          >
+                            Тоҷикӣ
+                          </button>
+                        </div>
+                      </div>
+                      <div className="pos-settings-field">
+                        <span className="gate-label">Название магазина</span>
+                        <input
+                          className="gate-input"
+                          value={receiptTpl.storeName}
+                          onChange={e => patchReceiptTpl({ storeName: e.target.value })}
+                          placeholder="KAKAPO"
+                        />
+                      </div>
+                      <div className="pos-settings-field">
+                        <span className="gate-label">Адрес</span>
+                        <input
+                          className="gate-input"
+                          value={receiptTpl.storeAddress}
+                          onChange={e => patchReceiptTpl({ storeAddress: e.target.value })}
+                          placeholder={receiptTpl.lang === 'tg' ? 'кӯчаи …' : 'ул. …'}
+                        />
+                      </div>
+                      <div className="pos-settings-field">
+                        <span className="gate-label">Телефон</span>
+                        <input
+                          className="gate-input"
+                          value={receiptTpl.storePhone}
+                          onChange={e => patchReceiptTpl({ storePhone: e.target.value })}
+                          placeholder="+992 …"
+                        />
+                      </div>
+                      <div className="pos-settings-field">
+                        <span className="gate-label">Подзаголовок</span>
+                        <input
+                          className="gate-input"
+                          value={receiptTpl.headerText}
+                          onChange={e => patchReceiptTpl({ headerText: e.target.value })}
+                          placeholder={receiptTpl.lang === 'tg' ? 'мағоза · хазина' : 'магазин · касса'}
+                        />
+                      </div>
+                      <div className="pos-settings-field">
+                        <span className="gate-label">Текст «спасибо»</span>
+                        <input
+                          className="gate-input"
+                          value={receiptTpl.footerThanks}
+                          onChange={e => patchReceiptTpl({ footerThanks: e.target.value })}
+                          placeholder={receiptTpl.lang === 'tg' ? 'Ташаккур барои харид!' : 'Спасибо за покупку!'}
+                        />
+                      </div>
+                      <div className="pos-settings-field">
+                        <span className="gate-label">Нижняя строка</span>
+                        <input
+                          className="gate-input"
+                          value={receiptTpl.footerNote}
+                          onChange={e => patchReceiptTpl({ footerNote: e.target.value })}
+                          placeholder={receiptTpl.lang === 'tg' ? 'Чекро то санҷиши мол нигоҳ доред' : 'Сохраняйте чек до проверки товара'}
+                        />
+                      </div>
+                    </div>
+                    <div className="receipt-tpl-preview-wrap">
+                      <span className="gate-label">Предпросмотр · 58 мм</span>
+                      <div className="receipt-tpl-preview">
+                        <iframe
+                          title="Предпросмотр чека"
+                          srcDoc={receiptPreviewHtml}
+                          sandbox=""
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="pos-settings-card span-all">
