@@ -35,8 +35,9 @@ function esc(s: string) {
     .replace(/"/g, '&quot;')
 }
 
-function money(n: number, currency: string) {
-  return `${(Math.round(n * 100) / 100).toFixed(2)} ${currency}`
+function money(n: number, currency: string, opts?: { upperCurrency?: boolean }) {
+  const cur = opts?.upperCurrency ? String(currency).toUpperCase() : currency
+  return `${(Math.round(n * 100) / 100).toFixed(2)} ${cur}`
 }
 
 function shortMoney(n: number) {
@@ -203,45 +204,46 @@ export function buildPosReceiptHtml(
   .tag{text-align:${template.storeAlign};font-weight:${w.strong};font-size:${smallSize}px;margin-top:3px}
   .muted{color:#111;font-size:${smallSize}px;line-height:${lineHeight};font-weight:${w.base}}
   .center{text-align:${template.storeAlign}}
-  .sep{height:0;border:0;border-top:2px ${separator} #000;margin:${blockGap}px 0}
+  .sep{
+    height:0;border:0;margin:${blockGap}px 0;
+    border-top:2px ${separator === 'solid' ? 'solid' : separator === 'dashed' ? 'dashed' : 'dotted'} #000;
+  }
   .doc-title{
     background:${titleBg};color:${titleColor};text-align:${template.titleAlign};
-    font-size:${bannerSize + 2}px;font-weight:${w.black};padding:8px 2px;margin:${blockGap}px 0;
-    letter-spacing:${Math.max(0.02, Number(letterEm) + 0.03)}em;text-transform:${titleCase};
-    border-top:2px solid #000;border-bottom:2px solid #000;
+    font-size:${bannerSize + 1}px;font-weight:${w.black};padding:7px 2px;margin:6px 0 ${blockGap}px;
+    letter-spacing:0.06em;text-transform:${titleCase};
   }
   .meta-row,.sum-row,.item-calc{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}
-  .meta-row{font-size:${smallSize}px;margin:3px 0;font-weight:${w.base}}
-  .meta-row span{color:#111;font-weight:${w.base}}
+  .meta-row{font-size:${smallSize}px;margin:2px 0;font-weight:${w.base}}
+  .meta-row span{color:#000;font-weight:${w.base}}
   .meta-row b{font-weight:${valueWeight};text-align:right;word-break:break-word}
-  .customer{border:2px solid #000;border-radius:4px;padding:${blockPad}px;margin:${blockGap}px 0}
+  .customer{border:2px solid #000;border-radius:0;padding:${blockPad}px;margin:${blockGap}px 0}
   .customer-title{font-size:${smallSize}px;font-weight:${w.black};text-transform:uppercase;margin-bottom:3px}
   .customer-name{font-weight:${w.black};font-size:${fontSize}px}
-  .item{padding:${blockPad}px 0;border-bottom:2px ${separator} #000}
+  .item{padding:${Math.max(2, blockPad - 1)}px 0}
   .item-name{font-weight:${w.black};word-break:break-word;font-size:${fontSize}px}
   .item-name em{display:block;font-style:normal;font-size:${smallSize}px;font-weight:${w.strong};color:#000;margin-top:2px}
-  .item-calc{font-family:${fontFamily};margin-top:4px;font-size:${fontSize}px;font-weight:${w.strong}}
-  .item-calc b{font-size:${fontSize + 1}px;white-space:nowrap;font-weight:${valueWeight}}
-  .sum-row{font-size:${fontSize}px;margin:4px 0;font-weight:${w.strong}}
+  .item-calc{font-family:${fontFamily};margin-top:3px;font-size:${fontSize}px;font-weight:${w.base}}
+  .item-calc b{font-size:${fontSize}px;white-space:nowrap;font-weight:${valueWeight}}
+  .sum-row{font-size:${fontSize}px;margin:3px 0;font-weight:${w.strong}}
   .sum-row b{font-weight:${valueWeight};white-space:nowrap}
   .sum-row.debt b{border-bottom:2px solid #000}
   .sum-row.change b{font-size:${fontSize + 2}px}
   .total{
     display:flex;justify-content:space-between;gap:6px;align-items:flex-end;
-    font-size:${totalSize}px;font-weight:${w.black};margin:${blockGap}px 0 6px;text-transform:uppercase;
-    letter-spacing:${Math.max(0.01, Number(letterEm) + 0.01)}em;
+    font-size:${totalSize}px;font-weight:${w.black};margin:${blockGap}px 0 4px;text-transform:uppercase;
+    letter-spacing:0.02em;
   }
   .total span:last-child{white-space:nowrap}
-  .note{font-size:${smallSize}px;margin-top:8px;color:#000;white-space:pre-wrap;border-top:2px ${separator} #000;padding-top:6px;font-weight:${w.base}}
-  .foot{text-align:${template.footerAlign};font-size:${smallSize}px;margin-top:12px;color:#000;font-weight:${w.base}}
-  .thanks{font-weight:${w.black};font-size:${fontSize + 2}px;margin-bottom:4px}
+  .note{font-size:${smallSize}px;margin-top:8px;color:#000;white-space:pre-wrap;border-top:2px ${separator === 'solid' ? 'solid' : separator === 'dashed' ? 'dashed' : 'dotted'} #000;padding-top:6px;font-weight:${w.base}}
+  .foot{text-align:${template.footerAlign};font-size:${smallSize}px;margin-top:10px;color:#000;font-weight:${w.base}}
+  .thanks{font-weight:${w.black};font-size:${fontSize + 1}px;margin-bottom:3px}
   @media print{body{padding:${padMm}mm;width:${paperWidthMm}mm}.receipt{page-break-inside:avoid}}
 </style></head><body>
   <div class="receipt">
     <div class="shop">${store}</div>
     <div class="tag">${headerText}</div>
     ${contactParts.length ? `<div class="center muted">${contactParts.join('<br>')}</div>` : ''}
-    <hr class="sep"/>
     <div class="doc-title">${esc(titleBanner)}</div>
     ${metaRow(L.orderNo, orderNo)}
     ${sale.number ? metaRow(L.receiptNo, `№${sale.number}`) : ''}
@@ -256,7 +258,7 @@ export function buildPosReceiptHtml(
     ${subtotal > total + 0.001 ? moneyRow(L.goods, subtotal, L.currency) : ''}
     ${discount > 0.001 ? moneyRow(L.discount, -discount, L.currency) : ''}
     ${bonusSpent > 0.001 ? moneyRow(L.bonus, -bonusSpent, L.currency) : ''}
-    <div class="total"><span>${esc(L.total)}</span><span>${money(total, L.currency)}</span></div>
+    <div class="total"><span>${esc(L.total)}</span><span>${money(total, L.currency, { upperCurrency: true })}</span></div>
     <div class="sum-row"><span>${esc(L.payment)}</span><b>${esc(payLabel(sale, L))}</b></div>
     ${extras.filter(Boolean).join('')}
     ${Number(sale.bonusEarned) > 0.001 ? `<div class="sum-row"><span>${esc(L.bonusEarned)}</span><b>${Math.floor(Number(sale.bonusEarned))}</b></div>` : ''}
@@ -322,6 +324,7 @@ export async function printPosReceipt(
 
     const html = buildPosReceiptHtml(sale, { ...printOpts, paperWidthMm })
     const pageHeightMm = Math.max(300, Math.min(1200, 130 + (sale.items || []).length * 16))
+    // Всегда HTML-растр = печать как предпросмотр / эталонный чек (чёрная плашка, Arial).
     await desktop.printHtml(html, {
       role: 'receipt',
       printerName,
@@ -330,10 +333,8 @@ export async function printPosReceipt(
       pageHeightMm,
       receiptLang: template.lang,
       receiptDensity: template.printDensity,
-      receiptPrintMode: template.printMode,
+      receiptPrintMode: 'raster',
       receiptPaddingMm: template.paddingMm,
-      // Всегда ESC/POS RAW (GDI на XP-58C часто крутит пустую ленту).
-      // Таджикские ғқҳҷӯӣ desktop сворачивает в ближайшие CP866.
       sale,
       storeName: texts.storeName,
       storeAddress: texts.storeAddress || undefined,

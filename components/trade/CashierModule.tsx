@@ -42,6 +42,7 @@ import { buildPosReceiptHtml, printPosReceipt } from '@/lib/printPosReceipt'
 import {
   DEFAULT_RECEIPT_TEMPLATE,
   loadReceiptTemplate,
+  normalizeReceiptTemplate,
   saveReceiptTemplate,
   type ReceiptTemplate,
 } from '@/lib/receiptTemplate'
@@ -2612,18 +2613,20 @@ export default function CashierModule({
   }
 
   async function saveReceiptDesign() {
-    saveReceiptTemplate(receiptTpl)
+    const next = normalizeReceiptTemplate({ ...receiptTpl, printMode: 'raster', schemaVersion: 3 })
+    setReceiptTpl(next)
+    saveReceiptTemplate(next)
     const desk = getKakapoDesktop()
     if (desk) {
       const current = await desk.getPrinterSettings().catch(() => null)
       await desk.savePrinterSettings({
         ...(current || {}),
-        receiptDensity: receiptTpl.printDensity,
-        receiptPrintMode: receiptTpl.printMode,
+        receiptDensity: next.printDensity,
+        receiptPrintMode: 'raster',
       }).catch(() => undefined)
     }
     setReceiptEditorOpen(false)
-    showToast('Дизайн чека', 'Сохранено')
+    showToast('Дизайн чека', 'Сохранено · печать как предпросмотр')
   }
 
   async function confirmCreditNote() {

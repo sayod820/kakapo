@@ -69,7 +69,7 @@ const DEFAULT_LABELS = {
   goods: 'Товары',
   discount: 'Скидка',
   bonus: 'Бонусами',
-  total: 'ИТОГ',
+  total: 'ИТОГО',
   payment: 'Оплата',
   cash: 'Наличные',
   cardPay: 'Карта',
@@ -79,7 +79,7 @@ const DEFAULT_LABELS = {
   bonusEarned: 'Начислено бонусов',
   note: 'Примечание',
   thanks: 'Спасибо за покупку!',
-  keepReceipt: 'Сохраняйте чек',
+  keepReceipt: 'Сохраняйте чек до проверки товара',
   payCash: 'Наличные',
   payCard: 'Карта',
   payCredit: 'В долг',
@@ -178,13 +178,13 @@ function packEscPosLines(lines, opts = {}) {
 }
 
 /**
- * Нативный шрифт XP-58C (как старая касса) — чётко.
- * «ТОВАРНЫЙ ЧЕК» — чёрный на белом (без инверсии).
+ * Нативный шрифт XP-58C — запасной путь.
+ * Основной режим: raster HTML (дизайн как на эталоне).
  */
 function buildEscPosReceipt(sale, opts = {}) {
   const width = opts.paperWidthMm === 80 ? 48 : 32
   const L = mergeLabels(opts.labels)
-  const store = clip(String(opts.storeName || 'KAKAPO').trim() || 'KAKAPO', width)
+  const store = clip(String(opts.storeName || 'КАКАПО').trim() || 'КАКАПО', width)
   const header = clip(String(opts.headerText || L.shopTag).trim() || L.shopTag, width)
   const thanks = clip(String(opts.footerThanks || L.thanks).trim() || L.thanks, width)
   const footNote = clip(String(opts.footerNote || L.keepReceipt).trim() || L.keepReceipt, width)
@@ -193,12 +193,12 @@ function buildEscPosReceipt(sale, opts = {}) {
   const when = sale.createdAtIso
     ? new Date(sale.createdAtIso).toLocaleString('ru-RU', {
       day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    }).replace(',', '')
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
     : new Date().toLocaleString('ru-RU', {
       day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    }).replace(',', '')
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
 
   const items = sale.items || []
   const goodsTotal = Number(sale.orderGoodsTotal)
@@ -230,12 +230,11 @@ function buildEscPosReceipt(sale, opts = {}) {
   cmd(FS, 0x2E)
   cmd(ESC, 0x52, 0x00)
   cmd(ESC, 0x74, 17)
-  cmd(ESC, 0x4D, 0x00) // Font A (12×24) — основной, не Font B
-  cmd(GS, 0x42, 0x00) // white-on-black OFF
-  // Средняя плотность печати (не max) — меньше заливка внутренних просветов цифр
+  cmd(ESC, 0x4D, 0x00) // Font A (12×24)
+  cmd(GS, 0x42, 0x00)
   pushDensity(cmd, opts.density)
 
-  // магазин — жирный, обычный размер (без double width/height — иначе цифры/буквы плывут)
+  // КАКАПО — жирный, по центру
   cmd(ESC, 0x61, 1)
   cmd(ESC, 0x45, 1)
   txt(store)
@@ -244,10 +243,12 @@ function buildEscPosReceipt(sale, opts = {}) {
   if (opts.storeAddress) txt(opts.storeAddress)
   if (opts.storePhone) txt(opts.storePhone)
 
-  // ТОВАРНЫЙ ЧЕК — чёрный на белом, жирный, без увеличения
+  // ТОВАРНЫЙ ЧЕК — белый на чёрном (как эталон)
+  cmd(GS, 0x42, 0x01)
   cmd(ESC, 0x45, 1)
   txt(titleBanner)
   cmd(ESC, 0x45, 0)
+  cmd(GS, 0x42, 0x00)
 
   cmd(ESC, 0x61, 0)
   txt(padLine(clip(L.orderNo, 14), clip(receiptNo(sale), 16), width))
@@ -267,48 +268,46 @@ function buildEscPosReceipt(sale, opts = {}) {
     const qty = Number(it.qty) || 0
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
+    cmd(ESC, 0x45, 1)
     wrapName(`${idx + 1}. ${it.productName || `#${it.productId}`}`, width).forEach(n => txt(n))
-    txt(rightAlign(`${money(price)} x ${qtyText(qty)} = ${money(sum)}`, width))
-    sep()
+    cmd(ESC, 0x45, 0)
+    txt(padLine(`${qtyText(qty)} x ${money(price)}`, `${money(sum)} ${L.currency}`, width))
   })
 
   if (!items.length) {
     txt(L.noItems)
-    sep()
   }
+  sep()
 
   if (subtotal > total + 0.001) txt(padLine(L.goods, money(subtotal), width))
   if (discount > 0.001) txt(padLine(L.discount, `-${money(discount)}`, width))
   if (bonusSpent > 0.001) txt(padLine(L.bonus, `-${money(bonusSpent)}`, width))
 
-  const payAmt = (Number(sale.paidCash) || 0) > 0.001
-    ? Number(sale.paidCash)
-    : ((Number(sale.paidCard) || 0) > 0.001 ? Number(sale.paidCard) : total)
-  txt(padLine(payLabel(sale, L), money(payAmt), width))
-  if ((Number(sale.paidCard) || 0) > 0.001 && (Number(sale.paidCash) || 0) > 0.001) {
-    txt(padLine(L.cardPay, money(sale.paidCard), width))
-  }
-  if ((Number(sale.debtAdded) || 0) > 0.001) txt(padLine(L.credit, money(sale.debtAdded), width))
-  if ((Number(sale.cashReceived) || 0) > 0.001) txt(padLine(L.cashReceived, money(sale.cashReceived), width))
-  if ((Number(sale.changeGiven) || 0) > 0.001) txt(padLine(L.change, money(sale.changeGiven), width))
-
-  // ИТОГ — жирный, без double height (на XP-58C увеличение заливает цифры)
+  // ИТОГО — жирный
   cmd(ESC, 0x45, 1)
-  txt(padLine(clip(L.total, 10), money(total), width))
+  txt(padLine(clip(L.total, 10), `${money(total)} ${String(L.currency || 'сом').toUpperCase()}`, width))
+  cmd(ESC, 0x45, 0)
+
+  cmd(ESC, 0x45, 1)
+  txt(padLine(L.payment, payLabel(sale, L), width))
+  if ((Number(sale.paidCash) || 0) > 0.001) txt(padLine(L.cash, `${money(sale.paidCash)} ${L.currency}`, width))
+  if ((Number(sale.paidCard) || 0) > 0.001) txt(padLine(L.cardPay, `${money(sale.paidCard)} ${L.currency}`, width))
+  if ((Number(sale.debtAdded) || 0) > 0.001) txt(padLine(L.credit, `${money(sale.debtAdded)} ${L.currency}`, width))
+  if ((Number(sale.cashReceived) || 0) > 0.001) txt(padLine(L.cashReceived, `${money(sale.cashReceived)} ${L.currency}`, width))
+  if ((Number(sale.changeGiven) || 0) > 0.001) txt(padLine(L.change, `${money(sale.changeGiven)} ${L.currency}`, width))
   cmd(ESC, 0x45, 0)
 
   if (sale.note) {
     sep()
     txt(`${L.note}: ${sale.note}`)
   }
-  if (cashier) txt(clip(`Продавец: _______(${cashier})`, width))
 
+  sep()
   cmd(ESC, 0x61, 1)
   cmd(ESC, 0x45, 1)
   txt(thanks)
   cmd(ESC, 0x45, 0)
   txt(footNote)
-  txt(store)
 
   chunks.push(encodeCp866('\n\n\n'))
   cmd(GS, 0x56, 0x01)

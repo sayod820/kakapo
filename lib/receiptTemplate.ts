@@ -5,7 +5,7 @@ export type ReceiptFont = 'arial' | 'arial-narrow' | 'tahoma' | 'verdana' | 'tim
 export type ReceiptFontWeight = 'normal' | 'medium' | 'bold' | 'black'
 
 export type ReceiptTemplate = {
-  schemaVersion: 2
+  schemaVersion: 3
   lang: ReceiptLang
   storeName: string
   storeAddress: string
@@ -31,7 +31,7 @@ export type ReceiptTemplate = {
   contentWidthPct: number
   /** Плотность растровой печати: 1–5 */
   printDensity: number
-  /** text = нативный шрифт принтера (чётко), raster = как предпросмотр */
+  /** text = нативный шрифт принтера; raster = точный HTML-дизайн (как на фото) */
   printMode: 'text' | 'raster'
   storeAlign: ReceiptAlign
   titleAlign: ReceiptAlign
@@ -98,9 +98,9 @@ export const RECEIPT_FONT_OPTIONS: { id: ReceiptFont; label: string }[] = [
 ]
 
 export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   lang: 'ru',
-  storeName: 'KAKAPO',
+  storeName: 'КАКАПО',
   storeAddress: '',
   storePhone: '',
   headerText: '',
@@ -108,8 +108,8 @@ export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
   footerNote: '',
   fontScale: 100,
   fontFamily: 'arial',
-  fontWeight: 'bold',
-  lineHeightPct: 135,
+  fontWeight: 'black',
+  lineHeightPct: 130,
   letterSpacing: 0,
   paddingMm: 1,
   contentWidthPct: 100,
@@ -148,7 +148,7 @@ const LABELS_RU: ReceiptLabels = {
   goods: 'Товары',
   discount: 'Скидка',
   bonus: 'Бонусами',
-  total: 'ИТОГ',
+  total: 'ИТОГО',
   payment: 'Оплата',
   cash: 'Наличные',
   cardPay: 'Карта',
@@ -236,12 +236,16 @@ function asSep(v: unknown): ReceiptSeparator {
 
 export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<ReceiptTemplate>
-  const legacy = p.schemaVersion !== 2
+  const ver = Number(p.schemaVersion) || 0
+  const legacy = ver < 3
   const lang: ReceiptLang = p.lang === 'tg' ? 'tg' : 'ru'
+  let storeName = String(p.storeName ?? DEFAULT_RECEIPT_TEMPLATE.storeName).trim() || 'КАКАПО'
+  // Старый латинский дефолт → кириллица как на эталонном чеке
+  if (legacy && /^kakapo$/i.test(storeName)) storeName = 'КАКАПО'
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     lang,
-    storeName: String(p.storeName ?? DEFAULT_RECEIPT_TEMPLATE.storeName).trim() || 'KAKAPO',
+    storeName,
     storeAddress: String(p.storeAddress ?? '').trim(),
     storePhone: String(p.storePhone ?? '').trim(),
     headerText: String(p.headerText ?? '').trim(),
@@ -249,12 +253,13 @@ export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
     footerNote: String(p.footerNote ?? '').trim(),
     fontScale: Math.max(80, Math.min(140, Math.round(Number(p.fontScale) || 100))),
     fontFamily: asFont(p.fontFamily),
-    fontWeight: asWeight(p.fontWeight),
-    lineHeightPct: Math.max(110, Math.min(160, Math.round(Number(p.lineHeightPct) || 135))),
+    fontWeight: legacy ? 'black' : asWeight(p.fontWeight),
+    lineHeightPct: Math.max(110, Math.min(160, Math.round(Number(p.lineHeightPct) || 130))),
     letterSpacing: Math.max(0, Math.min(80, Math.round(Number(p.letterSpacing) || 0))),
     paddingMm: Math.max(0, Math.min(6, Math.round((Number(p.paddingMm ?? DEFAULT_RECEIPT_TEMPLATE.paddingMm)) * 10) / 10 || 0)),
     contentWidthPct: Math.max(88, Math.min(100, Math.round(Number(p.contentWidthPct ?? DEFAULT_RECEIPT_TEMPLATE.contentWidthPct) || 100))),
     printDensity: Math.max(1, Math.min(5, Math.round(Number(legacy ? 2 : p.printDensity) || 2))),
+    // v3: всегда растр = печать как предпросмотр (чёрная плашка, Arial, дизайн)
     printMode: legacy ? 'raster' : (p.printMode === 'text' ? 'text' : 'raster'),
     storeAlign: asAlign(p.storeAlign),
     titleAlign: asAlign(p.titleAlign),
@@ -293,7 +298,7 @@ export function resolveReceiptTexts(template: ReceiptTemplate) {
   const labels = receiptLabels(template.lang)
   return {
     labels,
-    storeName: template.storeName || 'KAKAPO',
+    storeName: template.storeName || 'КАКАПО',
     storeAddress: template.storeAddress,
     storePhone: template.storePhone,
     headerText: template.headerText || labels.shopTag,

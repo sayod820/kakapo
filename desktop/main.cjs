@@ -29,10 +29,10 @@ const DEFAULT_SETTINGS = {
   scaleHost: '',
   scalePort: 20304,
   scaleDept: 1,
-  /** Плотность чека 1–5 (3 = средняя, без заливки цифр). XP-58C @ 203 DPI */
-  receiptDensity: 3,
-  /** text = нативный шрифт (чётко), raster = HTML-шаблон */
-  receiptPrintMode: 'text',
+  /** Плотность чека 1–5 (2 = чётко, без заливки цифр). XP-58C @ 203 DPI */
+  receiptDensity: 2,
+  /** raster = HTML-дизайн как в предпросмотре; text = нативный ESC/POS */
+  receiptPrintMode: 'raster',
 }
 
 function loadConfig() {
@@ -55,7 +55,7 @@ function savePrinterSettings(next) {
   const cur = loadPrinterSettings()
   const port = Number(next.scalePort ?? cur.scalePort) || 20304
   const density = Math.max(1, Math.min(5, Math.round(Number(next.receiptDensity ?? cur.receiptDensity) || 3)))
-  const modeRaw = next.receiptPrintMode ?? cur.receiptPrintMode ?? 'text'
+  const modeRaw = next.receiptPrintMode ?? cur.receiptPrintMode ?? 'raster'
   const merged = {
     printerName: String(next.printerName ?? cur.printerName ?? ''),
     paperWidthMm: Number(next.paperWidthMm) === 80 ? 80 : 58,
@@ -65,7 +65,7 @@ function savePrinterSettings(next) {
     scalePort: port > 0 && port < 65536 ? port : 20304,
     scaleDept: Math.max(1, Math.min(99, Number(next.scaleDept ?? cur.scaleDept) || 1)),
     receiptDensity: density,
-    receiptPrintMode: modeRaw === 'raster' ? 'raster' : 'text',
+    receiptPrintMode: modeRaw === 'text' ? 'text' : 'raster',
   }
   fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(merged, null, 2), 'utf8')
   return merged
@@ -488,11 +488,11 @@ function printHtml(html, options = {}) {
     const density = resolveReceiptDensity(options)
     const mode = options.receiptPrintMode === 'raster' || options.receiptPrintMode === 'text'
       ? options.receiptPrintMode
-      : (settings.receiptPrintMode === 'raster' ? 'raster' : 'text')
+      : (settings.receiptPrintMode === 'text' ? 'text' : 'raster')
     const opts = { ...options, receiptDensity: density }
 
-    // text = нативный шрифт принтера (чётко, как старая касса)
-    // raster = HTML-шаблон (может мылить цифры при высокой плотности)
+    // raster = HTML-шаблон как в предпросмотре (чёрная плашка, Arial)
+    // text = нативный шрифт принтера (без дизайна)
     const tryText = async () => {
       if (opts.sale && typeof opts.sale === 'object') {
         return printReceiptEscPos(opts.sale, opts)

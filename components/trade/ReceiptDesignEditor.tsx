@@ -118,12 +118,12 @@ export default function ReceiptDesignEditor({
             <div className="receipt-editor-title">Печать XP-58C</div>
             <Field label="Режим">
               <select className="gate-input" value={value.printMode} onChange={e => onChange({ printMode: e.target.value === 'text' ? 'text' : 'raster' })}>
-                <option value="raster">Точный дизайн из предпросмотра</option>
-                <option value="text">Нативный ESC/POS — максимально чётко</option>
+                <option value="raster">Дизайн как на фото (HTML-растр) — рекомендуется</option>
+                <option value="text">Только нативный шрифт принтера (без плашки)</option>
               </select>
             </Field>
             <Range label={`Плотность · ${value.printDensity}/5${value.printDensity >= 4 ? ' · темнее' : ' · без заливки цифр'}`} min={1} max={5} step={1} value={value.printDensity} onChange={n => onChange({ printDensity: n })} />
-            <div className="pos-settings-status ok">Font A · CP866 · 203 DPI · 384 dots · anti-alias OFF</div>
+            <div className="pos-settings-status ok">Печать = предпросмотр · Arial · чёрная плашка · 203 DPI</div>
           </section>
 
           <section className="receipt-editor-box">
