@@ -58,10 +58,6 @@ export type KakapoDesktopApi = {
   getPrinterSettings: () => Promise<DesktopPrinterSettings>
   savePrinterSettings: (data: Partial<DesktopPrinterSettings>) => Promise<DesktopPrinterSettings>
   printHtml: (html: string, options?: DesktopPrintOptions) => Promise<{ ok: boolean }>
-  getReceiptTemplate?: () => Promise<Record<string, unknown>>
-  saveReceiptTemplate?: (data: Record<string, unknown>) => Promise<Record<string, unknown>>
-  openReceiptEditor?: () => Promise<{ ok: boolean }>
-  closeReceiptEditor?: () => Promise<{ ok: boolean }>
   printReceipt?: (payload: {
     sale: unknown
     printerName?: string

@@ -17,16 +17,13 @@ const { buildEscPosReceipt, buildEscPosFromReceiptHtml, buildDemoReceiptSale } =
 const {
   DEFAULT_RECEIPT_TEMPLATE,
   normalizeReceiptTemplate,
-  mergeTemplateOpts,
 } = require('./receiptTemplate.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
-const TEMPLATE_PATH = () => path.join(app.getPath('userData'), 'receipt-template.json')
 
 let mainWindow = null
 let printWindow = null
-let receiptEditorWindow = null
 
 const DEFAULT_SETTINGS = {
   printerName: '',
@@ -80,55 +77,7 @@ function savePrinterSettings(next) {
   return merged
 }
 
-function loadReceiptTemplate() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(TEMPLATE_PATH(), 'utf8'))
-    return normalizeReceiptTemplate(raw)
-  } catch {
-    return normalizeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE)
-  }
-}
-
-function saveReceiptTemplate(data) {
-  const tpl = normalizeReceiptTemplate(data)
-  fs.writeFileSync(TEMPLATE_PATH(), JSON.stringify(tpl, null, 2), 'utf8')
-  return tpl
-}
-
-function openReceiptEditor() {
-  if (receiptEditorWindow && !receiptEditorWindow.isDestroyed()) {
-    receiptEditorWindow.focus()
-    return
-  }
-  receiptEditorWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    minWidth: 1000,
-    minHeight: 700,
-    title: 'Шаблон чека — KAKAPO',
-    backgroundColor: '#0b0f14',
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  })
-  receiptEditorWindow.loadFile(path.join(__dirname, 'receipt-editor.html'))
-  receiptEditorWindow.on('closed', () => {
-    receiptEditorWindow = null
-  })
-}
-
-function closeReceiptEditor() {
-  if (receiptEditorWindow && !receiptEditorWindow.isDestroyed()) {
-    receiptEditorWindow.close()
-  }
-}
-
 function buildAppMenu() {
-  // Без пункта «Шаблон чека» в меню — редактор только в настройках /trade
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
       label: 'KAKAPO',
@@ -138,6 +87,28 @@ function buildAppMenu() {
     { role: 'viewMenu' },
     { role: 'windowMenu' },
   ]))
+}
+
+/** Удаляет старую настройку шаблона из удалённого /trade без ожидания его деплоя. */
+function removeReceiptTemplateUi() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  void mainWindow.webContents.executeJavaScript(`
+    (function () {
+      if (window.__kakapoReceiptTemplateRemoved) return;
+      window.__kakapoReceiptTemplateRemoved = true;
+      try { localStorage.removeItem('kakapo_trade_receipt_store'); } catch {}
+      const clean = () => {
+        document.querySelectorAll('.receipt-tpl-fs').forEach(el => el.remove());
+        document.querySelectorAll('h1,h2,h3,h4').forEach(h => {
+          if ((h.textContent || '').trim().toLowerCase() !== 'шаблон чека') return;
+          const card = h.closest('.pos-settings-card') || h.parentElement;
+          if (card) card.remove();
+        });
+      };
+      clean();
+      new MutationObserver(clean).observe(document.documentElement, { childList: true, subtree: true });
+    })();
+  `).catch(() => undefined)
 }
 
 function createWindow() {
@@ -164,6 +135,7 @@ function createWindow() {
 
   const url = String(config.tradeUrl || 'http://localhost:3000/trade').trim()
   mainWindow.loadURL(url)
+  mainWindow.webContents.on('did-finish-load', removeReceiptTemplateUi)
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
     shell.openExternal(openUrl)
@@ -569,16 +541,12 @@ async function printReceiptEscPos(html, options = {}) {
     }
   }
 
-  // Шаблон с диска кассы — база; pos/кассир из продажи
-  const storeOpts = mergeTemplateOpts({
-    storeName: options.storeName,
-    storePhone: options.storePhone,
-    subtitle: options.subtitle,
-    footerThanks: options.footerThanks,
-    footerNote: options.footerNote,
+  // Формат чека фиксирован: пользовательских настроек и шаблонов нет.
+  const storeOpts = {
+    ...normalizeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE),
     posLabel: options.posLabel,
     cashierName: options.cashierName,
-  }, loadReceiptTemplate())
+  }
 
   let raw
   if (sale && typeof sale === 'object') {
@@ -660,23 +628,6 @@ app.whenReady().then(() => {
 
   ipcMain.handle('desktop:savePrinterSettings', (_e, data) => savePrinterSettings(data || {}))
 
-  ipcMain.handle('desktop:getReceiptTemplate', () => ({
-    template: loadReceiptTemplate(),
-    defaults: DEFAULT_RECEIPT_TEMPLATE,
-  }))
-
-  ipcMain.handle('desktop:saveReceiptTemplate', (_e, data) => saveReceiptTemplate(data || {}))
-
-  ipcMain.handle('desktop:openReceiptEditor', () => {
-    openReceiptEditor()
-    return { ok: true }
-  })
-
-  ipcMain.handle('desktop:closeReceiptEditor', () => {
-    closeReceiptEditor()
-    return { ok: true }
-  })
-
   ipcMain.handle('desktop:printHtml', async (_e, html, options) => {
     const opts = options || {}
     if (opts.role === 'label') {
@@ -687,13 +638,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle('desktop:printReceipt', async (_e, payload) => {
     const p = payload && typeof payload === 'object' ? payload : {}
-    const tpl = loadReceiptTemplate()
     return printHtml('', {
       role: 'receipt',
       printerName: p.printerName,
       paperWidthMm: 58,
       sale: p.sale,
-      ...mergeTemplateOpts(p, tpl),
+      ...normalizeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE),
       posLabel: p.posLabel,
       cashierName: p.cashierName,
     })

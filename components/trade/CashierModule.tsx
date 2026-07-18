@@ -39,15 +39,9 @@ import { useProductPhotos } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import {
-  loadReceiptStore,
   printPosReceipt,
   buildDemoReceiptSale,
-  buildPosReceiptHtml,
-  saveReceiptStore,
-  type ReceiptStoreConfig,
-  DEFAULT_RECEIPT_STORE,
 } from '@/lib/printPosReceipt'
-import ReceiptTemplateEditor from '@/components/trade/ReceiptTemplateEditor'
 import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
@@ -479,8 +473,6 @@ export default function CashierModule({
   const [editPosName, setEditPosName] = useState('')
   const [editPosCode, setEditPosCode] = useState('')
   const [editPosNote, setEditPosNote] = useState('')
-  const [receiptStore, setReceiptStore] = useState<ReceiptStoreConfig>(DEFAULT_RECEIPT_STORE)
-  const [receiptTplOpen, setReceiptTplOpen] = useState(false)
   const [deletePosId, setDeletePosId] = useState<string | null>(null)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
@@ -1520,7 +1512,6 @@ export default function CashierModule({
     setEditPosName(point.name || '')
     setEditPosCode(point.code || '')
     setEditPosNote(point.note || '')
-    setReceiptStore(loadReceiptStore())
     if (isKakapoDesktop()) {
       const desk = getKakapoDesktop()
       void Promise.all([
@@ -1571,7 +1562,6 @@ export default function CashierModule({
         code: editPosCode.trim(),
         note: editPosNote.trim(),
       })
-      saveReceiptStore(receiptStore)
       if (isKakapoDesktop()) {
         const desk = getKakapoDesktop()
         const printers = deskPrinters.length
@@ -1670,7 +1660,6 @@ export default function CashierModule({
       })
       const sample = buildDemoReceiptSale()
       await printPosReceipt(sample, {
-        ...receiptStore,
         posLabel: editPosName || 'Саунаи Курботу',
         cashierName: sample.cashierName,
       })
@@ -2543,12 +2532,10 @@ export default function CashierModule({
 
   async function doPrintSale(sale: PosSale) {
     try {
-      const store = loadReceiptStore()
       const posPoint = sale.posId
         ? posPoints.find(p => p.id === sale.posId)
         : activePosPoint
       await printPosReceipt(sale, {
-        ...store,
         posLabel: posPoint?.name || posPoint?.code || activePosPoint?.name || activePosPoint?.code || undefined,
         cashierName: sale.cashierName || settings.cashierName,
       })
@@ -3462,39 +3449,6 @@ export default function CashierModule({
                 </div>
 
                 <div className="pos-settings-card span-all">
-                  <h3>Шаблон чека</h3>
-                  <p className="hint">Что на экране — то и печатает · XP‑58C · 58 мм</p>
-                  <div className="pos-settings-row-btns">
-                    <button
-                      type="button"
-                      className="btn-pay"
-                      onClick={() => {
-                        const desk = getKakapoDesktop()
-                        if (desk && typeof desk.openReceiptEditor === 'function') {
-                          void desk.openReceiptEditor().catch(() => setReceiptTplOpen(true))
-                          return
-                        }
-                        setReceiptTplOpen(true)
-                      }}
-                    >
-                      Редактировать
-                    </button>
-                  </div>
-                  <div className="receipt-tpl-mini-wrap">
-                    <iframe
-                      title="Превью шаблона чека"
-                      className="receipt-tpl-mini"
-                      srcDoc={buildPosReceiptHtml(buildDemoReceiptSale(), {
-                        ...receiptStore,
-                        posLabel: editPosName || 'Саунаи Курботу',
-                        cashierName: 'Азиза М.',
-                      })}
-                      sandbox=""
-                    />
-                  </div>
-                </div>
-
-                <div className="pos-settings-card span-all">
                   <h3>Весы CAS</h3>
                   <p className="hint">CL-3000 / CL-5000 · выгрузка PLU по сети</p>
                   {isKakapoDesktop() ? (
@@ -3617,32 +3571,6 @@ export default function CashierModule({
               </div>
             </div>
           </div>
-        )}
-
-        {receiptTplOpen && (
-          <ReceiptTemplateEditor
-            initial={receiptStore}
-            posLabel={editPosName || 'Саунаи Курботу'}
-            onCancel={() => setReceiptTplOpen(false)}
-            onSave={cfg => {
-              setReceiptStore(cfg)
-              saveReceiptStore(cfg)
-              const desk = getKakapoDesktop()
-              if (desk && typeof desk.saveReceiptTemplate === 'function') {
-                void desk.saveReceiptTemplate(cfg).catch(() => undefined)
-              }
-              setReceiptTplOpen(false)
-              showToast('Шаблон чека', 'Сохранено')
-            }}
-            onTestPrint={async cfg => {
-              await printPosReceipt(buildDemoReceiptSale(), {
-                ...cfg,
-                posLabel: editPosName || 'Саунаи Курботу',
-                cashierName: 'Азиза М.',
-              })
-              showToast('Чек напечатан', 'Тест шаблона')
-            }}
-          />
         )}
 
         {deletePosId && (
