@@ -329,12 +329,16 @@ export async function printPosReceipt(
       }).catch(() => undefined)
     }
 
-    const html = buildPosReceiptHtml(sale, printOpts)
-    await desktop.printHtml(html, {
+    await desktop.printHtml('', {
       role: 'receipt',
       printerName,
       paperWidthMm,
       pageWidthMm: paperWidthMm,
+      sale,
+      storeName: printOpts.storeName,
+      storePhone: printOpts.storePhone,
+      posLabel: opts?.posLabel,
+      cashierName: opts?.cashierName || sale.cashierName,
     })
     return
   }

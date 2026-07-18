@@ -30,6 +30,12 @@ export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
   gapMm?: number
   /** Копии одной этикетки (TSPL PRINT n) — без паузы между листами */
   copies?: number
+  /** Данные продажи для ESC/POS чека (обязательно для role=receipt) */
+  sale?: unknown
+  storeName?: string
+  storePhone?: string
+  posLabel?: string
+  cashierName?: string
 }
 
 export type DesktopLabelBatchItem = {

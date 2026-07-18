@@ -13,7 +13,7 @@ const {
   buildMultiLabelTspl,
   printRawWindows,
 } = require('./tsplLabel.cjs')
-const { buildEscPosRaster } = require('./escposReceipt.cjs')
+const { buildEscPosReceipt } = require('./escposReceipt.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
@@ -71,11 +71,6 @@ function savePrinterSettings(next) {
   }
   fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(merged, null, 2), 'utf8')
   return merged
-}
-
-/** Порог B/W для растра — фиксированный средний */
-function receiptMonoThreshold() {
-  return 124
 }
 
 function createWindow() {
@@ -471,156 +466,45 @@ function printHtml(html, options = {}) {
     return Promise.resolve({ ok: true, queued: true })
   }
 
+  // Чек: только ESC/POS текст (CP866). HTML на принтер НЕ отправляем —
+  // XP-58C печатает сырой HTML как «мусор».
   return (async () => {
     try {
-      const res = await printReceiptHtmlRaster(html, options)
-      logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, h: res.height })
+      const res = await printReceiptEscPos(options)
+      logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode })
       return res
-    } catch (errRaster) {
-      const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
-      logPrintDebug('receipt raster fail', { error: msgR })
-      throw new Error(`Печать чека не удалась: ${msgR}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logPrintDebug('receipt escpos fail', { error: msg })
+      throw new Error(`Печать чека не удалась: ${msg}`)
     }
   })()
 }
 
-/** 58 мм ESC/POS: 384 точки @ 203 DPI */
-function receiptRasterWidthDots(paperWidthMm) {
-  return Number(paperWidthMm) === 80 ? 576 : 384
-}
-
-/** Не перебиваем CSS шаблона — только ширина ленты и anti-alias off */
-function wrapReceiptHtmlForRaster(html, widthPx) {
-  const inject = `<meta name="color-scheme" content="light only"><style>
-:root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important;margin:0!important;}
-html,body{
-  width:${widthPx}px!important;max-width:${widthPx}px!important;min-width:${widthPx}px!important;
-  overflow:hidden!important;height:auto!important;
-}
-body{
-  -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
-  -webkit-font-smoothing:none!important;font-smooth:never!important;
-  text-rendering:optimizeSpeed!important;
-}
-*{
-  -webkit-font-smoothing:none!important;font-smooth:never!important;
-  text-rendering:optimizeSpeed!important;
-}
-</style>`
-  const s = String(html || '')
-  if (/<head[^>]*>/i.test(s)) {
-    return s.replace(/<head([^>]*)>/i, `<head$1>${inject}`)
+async function printReceiptEscPos(options = {}) {
+  const sale = options.sale
+  if (!sale || typeof sale !== 'object') {
+    throw new Error('Нет данных продажи для печати чека (sale)')
   }
-  return `<!DOCTYPE html><html><head>${inject}</head><body>${s}</body></html>`
-}
-
-function trimMonoTrailingWhite(mono, keepPad = 12) {
-  if (!mono || !Buffer.isBuffer(mono.data) || mono.height < 20) return mono
-  const { data, widthBytes, height } = mono
-  let last = height - 1
-  while (last > 40) {
-    let rowHasInk = false
-    const rowStart = last * widthBytes
-    for (let i = 0; i < widthBytes; i++) {
-      if (data[rowStart + i]) { rowHasInk = true; break }
-    }
-    if (rowHasInk) break
-    last -= 1
-  }
-  const newH = Math.min(height, Math.max(80, last + 1 + keepPad))
-  if (newH >= height) return mono
-  return {
-    ...mono,
-    height: newH,
-    data: data.subarray(0, widthBytes * newH),
-  }
-}
-
-async function captureReceiptMono(html, widthDots) {
-  const wPx = Math.max(192, Math.round(widthDots))
-  destroyPrintWindow()
-  printWindow = new BrowserWindow({
-    show: false,
-    width: wPx,
-    height: 900,
-    useContentSize: true,
-    enableLargerThanScreen: true,
-    backgroundColor: '#ffffff',
-    webPreferences: {
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-      zoomFactor: 1,
-    },
-  })
-  const win = printWindow
-  const tmpFile = path.join(os.tmpdir(), `kakapo-receipt-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
-  fs.writeFileSync(tmpFile, wrapReceiptHtmlForRaster(html, wPx), 'utf8')
-
-  const prevTheme = nativeTheme.themeSource
-  nativeTheme.themeSource = 'light'
-  try {
-    await win.loadFile(tmpFile)
-    try { win.webContents.setZoomFactor(1) } catch { /* ignore */ }
-    await waitForPrintRender(win.webContents)
-    await new Promise(r => setTimeout(r, 120))
-
-    const measured = await win.webContents.executeJavaScript(`
-      (function () {
-        document.documentElement.style.cssText = 'width:${wPx}px;margin:0;padding:0;background:#fff;';
-        document.body.style.cssText = 'width:${wPx}px;max-width:${wPx}px;margin:0;padding:0;box-sizing:border-box;background:#fff;color:#000;';
-        const el = document.querySelector('.receipt') || document.body;
-        const h = Math.ceil(Math.max(
-          el.scrollHeight || 0,
-          el.getBoundingClientRect().height || 0,
-          document.body.scrollHeight || 0
-        ));
-        return Math.max(100, Math.min(1600, h + 4));
-      })()
-    `)
-    const hPx = Math.max(100, Math.round(Number(measured) || 400))
-    try { win.setContentSize(wPx, hPx) } catch { /* ignore */ }
-    await new Promise(r => setTimeout(r, 60))
-
-    let img = await win.webContents.capturePage({ x: 0, y: 0, width: wPx, height: hPx })
-    const sz = img.getSize()
-    if (sz.width !== wPx || sz.height !== hPx) {
-      img = img.resize({ width: wPx, height: hPx, quality: 'nearest' })
-    }
-    const size = img.getSize()
-    const bgra = img.toBitmap()
-    const threshold = receiptMonoThreshold()
-    logPrintDebug('receipt raster capture', { wPx, hPx, threshold, dpi: 203 })
-    const mono = monoFromBgra(bgra, size.width, size.height, wPx, hPx, threshold)
-    return trimMonoTrailingWhite(mono, 10)
-  } finally {
-    nativeTheme.themeSource = prevTheme
-    try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
-    destroyPrintWindow()
-  }
-}
-
-async function printReceiptHtmlRaster(html, options = {}) {
-  const settings = loadPrinterSettings()
   const printerName = await ensureReceiptPrinterName(options.printerName)
-  const paperWidthMm = printerNameMatches(printerName, XP_RECEIPT_HINTS)
-    ? 58
-    : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
-  const widthDots = receiptRasterWidthDots(paperWidthMm)
-
-  const mono = await captureReceiptMono(html, widthDots)
-  if (!mono || !mono.data || mono.height < 40) {
-    throw new Error('Пустой снимок чека')
+  const raw = buildEscPosReceipt(sale, {
+    storeName: options.storeName,
+    storePhone: options.storePhone,
+    posLabel: options.posLabel,
+    cashierName: options.cashierName,
+  })
+  // Защита: никогда не слать HTML
+  const asAscii = raw.toString('latin1')
+  if (/<!DOCTYPE|<html/i.test(asAscii)) {
+    throw new Error('Внутренняя ошибка: HTML попал в RAW-буфер')
   }
-  const raw = buildEscPosRaster(mono, { cut: true })
   await printRawWindows(printerName, raw)
   return {
     ok: true,
     printerName,
     role: 'receipt',
-    mode: 'escpos-raster',
-    pageWidthMm: paperWidthMm,
-    height: mono.height,
+    mode: 'escpos-text-cp866',
+    pageWidthMm: 58,
   }
 }
 
@@ -676,8 +560,12 @@ app.whenReady().then(() => {
   ipcMain.handle('desktop:savePrinterSettings', (_e, data) => savePrinterSettings(data || {}))
 
   ipcMain.handle('desktop:printHtml', async (_e, html, options) => {
-    if (!html || typeof html !== 'string') throw new Error('Пустой документ печати')
-    return printHtml(html, options || {})
+    const opts = options || {}
+    // Чек: достаточно sale. Этикетка: нужен html.
+    if (opts.role === 'label' || (!opts.sale && (!html || typeof html !== 'string'))) {
+      if (!html || typeof html !== 'string') throw new Error('Пустой документ печати')
+    }
+    return printHtml(html || '', opts)
   })
 
   ipcMain.handle('desktop:printLabelsBatch', async (_e, items, options) => {
