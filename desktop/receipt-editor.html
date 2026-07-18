@@ -32,11 +32,11 @@
     .section { margin-bottom: 16px; }
     .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; margin-bottom: 8px; }
     label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 3px; }
-    input[type="text"] {
+    input[type="text"], input[type="number"], select {
       width: 100%; padding: 6px 8px; margin-bottom: 8px;
       background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #e6edf3; font-size: 13px;
     }
-    input[type="text"]:focus { outline: none; border-color: #58a6ff; }
+    input[type="text"]:focus, input[type="number"]:focus, select:focus { outline: none; border-color: #58a6ff; }
     .checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
     .checkbox-grid label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c9d1d9; margin: 0; cursor: pointer; }
     .checkbox-grid input { accent-color: #238636; }
@@ -126,7 +126,26 @@
       { key: 'footerThanks', section: 'footer', label: 'Благодарность' },
       { key: 'footerNote', section: 'footer', label: 'Примечание' },
     ]
+    const PRINT_FIELDS = [
+      { key: 'printFont', label: 'Размер шрифта', type: 'select', options: [
+        ['small', 'Мелкий — как на фото (рекомендуется)'],
+        ['normal', 'Обычный'],
+        ['large', 'Крупный'],
+      ] },
+      { key: 'charsPerLine', label: 'Символов в строке (42 для мелкого)', type: 'number', min: 24, max: 48 },
+      { key: 'lineSpacing', label: 'Высота строки (16–48)', type: 'number', min: 16, max: 48 },
+      { key: 'leftMarginDots', label: 'Левое поле, точек (0 = от края)', type: 'number', min: 0, max: 96 },
+      { key: 'printWidthDots', label: 'Ширина печати (384 = весь рулон)', type: 'number', min: 240, max: 384 },
+    ]
     const BOOL_FIELDS = [
+      { key: 'showStoreName', label: 'Название магазина' },
+      { key: 'showSubtitle', label: 'Подзаголовок' },
+      { key: 'showStorePhone', label: 'Телефон магазина' },
+      { key: 'showDocTitle', label: 'Заголовок чека' },
+      { key: 'showItems', label: 'Список товаров' },
+      { key: 'showSubtotal', label: 'Сумма до скидки' },
+      { key: 'showFooterThanks', label: 'Благодарность' },
+      { key: 'showFooterNote', label: 'Примечание внизу' },
       { key: 'showOrderNo', label: 'Номер заказа' },
       { key: 'showReceiptNo', label: 'Номер чека' },
       { key: 'showDate', label: 'Дата' },
@@ -145,7 +164,13 @@
       { key: 'showCashGiven', label: 'Дал клиент' },
       { key: 'showChange', label: 'Сдача' },
     ]
-    const SECTION_TITLES = { header: 'Шапка', labels: 'Подписи полей', footer: 'Футер', show: 'Отображение полей' }
+    const SECTION_TITLES = {
+      print: 'Печать и размер',
+      header: 'Шапка',
+      labels: 'Подписи полей',
+      footer: 'Футер',
+      show: 'Отключение ненужных строк',
+    }
 
     let template = {}
     let defaults = {}
@@ -181,7 +206,8 @@
 
     function buildPreviewHtml(tpl) {
       const cur = tpl.currency || 'сом'
-      const w = 32
+      const w = Math.max(24, Math.min(48, Number(tpl.charsPerLine) || 42))
+      const fontPx = tpl.printFont === 'large' ? 15 : (tpl.printFont === 'normal' ? 13 : 11)
       const when = '18.07.2026 14:32'
       const subtotal = 175
       const discount = 17.5
@@ -192,11 +218,11 @@
       const kv = (l, v) => { if (v) lines.push(`<div class="kv"><span>${esc(l)}</span><span>${esc(v)}</span></div>`) }
       const center = (t, bold) => lines.push(`<div class="c${bold ? ' bold' : ''}">${esc(t)}</div>`)
 
-      center(tpl.storeName, true)
-      center(tpl.subtitle)
-      if (tpl.storePhone) center(tpl.storePhone)
+      if (tpl.showStoreName) center(tpl.storeName, true)
+      if (tpl.showSubtitle) center(tpl.subtitle)
+      if (tpl.showStorePhone && tpl.storePhone) center(tpl.storePhone)
       sep()
-      center(tpl.docTitle, true)
+      if (tpl.showDocTitle) center(tpl.docTitle, true)
       sep()
       if (tpl.showOrderNo) kv(tpl.labelOrderNo, 'ORD-1047')
       if (tpl.showReceiptNo) kv(tpl.labelReceiptNo, '№128')
@@ -206,17 +232,19 @@
       if (tpl.showClient) kv(tpl.labelClient, 'Рустам А.')
       if (tpl.showClientPhone) kv(tpl.labelClientPhone, '+992 900 12 34 56')
       sep()
-      lines.push(`<div class="kv"><span>Шампунь Head&Shoulders</span><span>${fmt(85, cur)}</span></div>`)
-      lines.push('<div class="detail">400мл</div>')
-      lines.push('<div class="qty">1 x 85.00</div>')
-      lines.push(`<div class="kv"><span>Мыло Dove 100г</span><span>${fmt(36, cur)}</span></div>`)
-      lines.push('<div class="qty">2 x 18.00</div>')
-      lines.push(`<div class="kv"><span>Зубная паста Colgate</span><span>${fmt(42, cur)}</span></div>`)
-      lines.push('<div class="qty">1 x 42.00</div>')
-      lines.push(`<div class="kv"><span>Хлеб белый</span><span>${fmt(12, cur)}</span></div>`)
-      lines.push('<div class="qty">2 x 6.00</div>')
+      if (tpl.showItems) {
+        lines.push(`<div class="kv"><span>Шампунь Head&Shoulders</span><span>${fmt(85, cur)}</span></div>`)
+        lines.push('<div class="detail">400мл</div>')
+        lines.push('<div class="qty">1 x 85.00</div>')
+        lines.push(`<div class="kv"><span>Мыло Dove 100г</span><span>${fmt(36, cur)}</span></div>`)
+        lines.push('<div class="qty">2 x 18.00</div>')
+        lines.push(`<div class="kv"><span>Зубная паста Colgate</span><span>${fmt(42, cur)}</span></div>`)
+        lines.push('<div class="qty">1 x 42.00</div>')
+        lines.push(`<div class="kv"><span>Хлеб белый</span><span>${fmt(12, cur)}</span></div>`)
+        lines.push('<div class="qty">2 x 6.00</div>')
+      }
       sep()
-      kv(tpl.labelSum, fmt(subtotal, cur))
+      if (tpl.showSubtotal) kv(tpl.labelSum, fmt(subtotal, cur))
       if (tpl.showDiscount) kv(`${tpl.labelDiscount} ${discountPct}%`, `-${fmt(discount, cur)}`)
       if (tpl.showBonusEarned) kv(tpl.labelBonusEarned, '+15')
       if (tpl.showBonusSpent) kv(tpl.labelBonusSpent, `-${fmt(10, cur)}`)
@@ -232,11 +260,11 @@
         kv(tpl.labelBonusBalance, '245 -> 250')
       }
       sep()
-      center(tpl.footerThanks, true)
-      center(tpl.footerNote)
+      if (tpl.showFooterThanks) center(tpl.footerThanks, true)
+      if (tpl.showFooterNote) center(tpl.footerNote)
 
       return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-        body { margin: 0; padding: 8px 6px; font-family: 'Courier New', Courier, monospace; font-size: 11px; line-height: 1.35; color: #000; width: ${w}ch; }
+        body { margin: 0; padding: 8px 0; font-family: 'Courier New', Courier, monospace; font-size: ${fontPx}px; line-height: 1.35; color: #000; width: ${w}ch; }
         .c { text-align: center; }
         .bold { font-weight: bold; }
         .big { font-size: 13px; }
@@ -250,6 +278,10 @@
 
     function readForm() {
       const out = { ...template }
+      for (const f of PRINT_FIELDS) {
+        const el = document.getElementById('f_' + f.key)
+        if (el) out[f.key] = f.type === 'number' ? Number(el.value) : el.value
+      }
       for (const f of TEXT_FIELDS) {
         const el = document.getElementById('f_' + f.key)
         if (el) out[f.key] = el.value
@@ -306,9 +338,9 @@
 
     function buildForm() {
       const panel = document.getElementById('formPanel')
-      const sections = { header: [], labels: [], footer: [], show: [] }
+      const sections = { print: PRINT_FIELDS, header: [], labels: [], footer: [], show: [] }
       for (const f of TEXT_FIELDS) sections[f.section].push(f)
-      for (const sec of ['header', 'labels', 'footer', 'show']) {
+      for (const sec of ['print', 'header', 'labels', 'footer', 'show']) {
         const div = document.createElement('div')
         div.className = 'section'
         div.innerHTML = `<h2>${SECTION_TITLES[sec]}</h2>`
@@ -321,6 +353,18 @@
             grid.appendChild(lbl)
           }
           div.appendChild(grid)
+        } else if (sec === 'print') {
+          for (const f of PRINT_FIELDS) {
+            const wrap = document.createElement('div')
+            if (f.type === 'select') {
+              wrap.innerHTML = `<label for="f_${f.key}">${esc(f.label)}</label>
+                <select id="f_${f.key}">${f.options.map(o => `<option value="${o[0]}">${esc(o[1])}</option>`).join('')}</select>`
+            } else {
+              wrap.innerHTML = `<label for="f_${f.key}">${esc(f.label)}</label>
+                <input type="number" id="f_${f.key}" min="${f.min}" max="${f.max}">`
+            }
+            div.appendChild(wrap)
+          }
         } else {
           for (const f of sections[sec]) {
             const wrap = document.createElement('div')
@@ -331,7 +375,7 @@
         }
         panel.appendChild(div)
       }
-      panel.querySelectorAll('input').forEach(el => {
+      panel.querySelectorAll('input, select').forEach(el => {
         el.addEventListener('input', updatePreview)
         el.addEventListener('change', updatePreview)
       })
@@ -339,6 +383,10 @@
 
     function fillForm(tpl) {
       template = { ...tpl }
+      for (const f of PRINT_FIELDS) {
+        const el = document.getElementById('f_' + f.key)
+        if (el) el.value = tpl[f.key] != null ? tpl[f.key] : ''
+      }
       for (const f of TEXT_FIELDS) {
         const el = document.getElementById('f_' + f.key)
         if (el) el.value = tpl[f.key] != null ? tpl[f.key] : ''

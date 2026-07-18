@@ -164,13 +164,13 @@ function docTitle(sale, tpl) {
 
 /**
  * Макет 1:1 с дизайн-макетом 58 мм.
- * Ширина 32 символа (Font A), CP866.
- * После любого увеличения шрифта — полный ESC @ (иначе XP-58C залипает на ширине 16).
+ * По умолчанию используется мелкий Font B (42 символа): он совпадает
+ * с размером макета и не выглядит огромным на бумаге 58 мм.
  */
 function buildEscPosReceipt(sale, opts = {}) {
   const tpl = normalizeReceiptTemplate(opts)
   const currency = tpl.currency
-  const width = 32
+  const width = tpl.charsPerLine
   const store = tpl.storeName
   const phone = tpl.storePhone
   const subtitle = tpl.subtitle
@@ -213,14 +213,17 @@ function buildEscPosReceipt(sale, opts = {}) {
   const sep = () => txt('-'.repeat(width))
   const lines = (arr) => { for (const line of arr) txt(line) }
 
-  /** Полный сброс принтера + CP866 + Font A (обязательно после крупного текста). */
+  /** Полный сброс, область печати от края до края, CP866 и выбранный шрифт. */
   const boot = (align = 0) => {
     cmd(ESC, 0x40)
     cmd(FS, 0x2E)
     cmd(ESC, 0x52, 0x00)
     cmd(ESC, 0x74, 17) // CP866
-    cmd(ESC, 0x4D, 0x00) // Font A
-    cmd(GS, 0x21, 0x00) // normal size
+    cmd(GS, 0x4C, tpl.leftMarginDots & 0xff, (tpl.leftMarginDots >> 8) & 0xff)
+    cmd(GS, 0x57, tpl.printWidthDots & 0xff, (tpl.printWidthDots >> 8) & 0xff)
+    cmd(ESC, 0x33, tpl.lineSpacing)
+    cmd(ESC, 0x4D, tpl.printFont === 'small' ? 0x01 : 0x00)
+    cmd(GS, 0x21, tpl.printFont === 'large' ? 0x01 : 0x00)
     cmd(ESC, 0x45, 0) // bold off
     cmd(GS, 0x42, 0x00) // reverse off
     cmd(ESC, 0x61, align) // 0 left / 1 center
@@ -228,17 +231,21 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   boot(1)
 
-  // Шапка как на превью: обычный размер, только жирный (без двойной ширины/высоты)
-  cmd(ESC, 0x45, 1)
-  txt(store)
-  cmd(ESC, 0x45, 0)
-  txt(subtitle)
-  if (phone) txt(phone)
+  // Даже название и ИТОГ не увеличиваем по ширине: только жирный.
+  if (tpl.showStoreName) {
+    cmd(ESC, 0x45, 1)
+    txt(store)
+    cmd(ESC, 0x45, 0)
+  }
+  if (tpl.showSubtitle) txt(subtitle)
+  if (tpl.showStorePhone && phone) txt(phone)
 
   sep()
-  cmd(ESC, 0x45, 1)
-  txt(docTitle(sale, tpl))
-  cmd(ESC, 0x45, 0)
+  if (tpl.showDocTitle) {
+    cmd(ESC, 0x45, 1)
+    txt(docTitle(sale, tpl))
+    cmd(ESC, 0x45, 0)
+  }
   sep()
 
   cmd(ESC, 0x61, 0)
@@ -256,7 +263,7 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   sep()
 
-  items.forEach((it) => {
+  if (tpl.showItems) items.forEach((it) => {
     const qty = Number(it.qty) || 0
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
@@ -277,11 +284,11 @@ function buildEscPosReceipt(sale, opts = {}) {
     txt(`${qtyText(qty)} x ${money(price)}`)
   })
 
-  if (!items.length) txt('Нет позиций')
+  if (tpl.showItems && !items.length) txt('Нет позиций')
 
   sep()
 
-  lines(kvLines(tpl.labelSum, fmt(subtotal), width))
+  if (tpl.showSubtotal) lines(kvLines(tpl.labelSum, fmt(subtotal), width))
   if (tpl.showDiscount && discount > 0.001) {
     const discLabel = `${tpl.labelDiscount}${discountPct > 0 ? ` ${discountPct}%` : ''}`
     lines(kvLines(discLabel, `-${fmt(discount)}`, width))
@@ -333,10 +340,14 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   sep()
   cmd(ESC, 0x61, 1)
-  cmd(ESC, 0x45, 1)
-  for (const line of wrapName(footerThanks, width)) txt(line)
-  cmd(ESC, 0x45, 0)
-  for (const line of wrapName(footerNote, width)) txt(line)
+  if (tpl.showFooterThanks) {
+    cmd(ESC, 0x45, 1)
+    for (const line of wrapName(footerThanks, width)) txt(line)
+    cmd(ESC, 0x45, 0)
+  }
+  if (tpl.showFooterNote) {
+    for (const line of wrapName(footerNote, width)) txt(line)
+  }
 
   // Запас бумаги, чтобы футер не обрезался ножом
   chunks.push(encodeCp866('\n\n\n\n'))

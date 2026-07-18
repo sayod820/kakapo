@@ -6,6 +6,14 @@
  */
 
 const DEFAULT_RECEIPT_TEMPLATE = {
+  // Физическая печать XP-58C. Font B даёт мелкий шрифт и 42 символа
+  // в строке — размер ближе всего к макету на экране.
+  printFont: 'small',
+  charsPerLine: 42,
+  lineSpacing: 24,
+  leftMarginDots: 0,
+  printWidthDots: 384,
+
   storeName: 'КАКАПО',
   storePhone: '+992 112 373 333',
   subtitle: 'магазин - касса',
@@ -37,6 +45,14 @@ const DEFAULT_RECEIPT_TEMPLATE = {
   footerThanks: 'Спасибо за покупку!',
   footerNote: 'Сохраняйте чек до проверки товара',
 
+  showStoreName: true,
+  showSubtitle: true,
+  showStorePhone: true,
+  showDocTitle: true,
+  showItems: true,
+  showSubtotal: true,
+  showFooterThanks: true,
+  showFooterNote: true,
   showOrderNo: true,
   showReceiptNo: true,
   showDate: true,
@@ -68,10 +84,24 @@ function asStr(v, fallback) {
   return s || fallback
 }
 
+function asInt(v, fallback, min, max) {
+  const n = Math.round(Number(v))
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(min, Math.min(max, n))
+}
+
 function normalizeReceiptTemplate(raw) {
   const p = raw && typeof raw === 'object' ? raw : {}
   const d = DEFAULT_RECEIPT_TEMPLATE
   return {
+    printFont: ['small', 'normal', 'large'].includes(p.printFont)
+      ? p.printFont
+      : d.printFont,
+    charsPerLine: asInt(p.charsPerLine, d.charsPerLine, 24, 48),
+    lineSpacing: asInt(p.lineSpacing, d.lineSpacing, 16, 48),
+    leftMarginDots: asInt(p.leftMarginDots, d.leftMarginDots, 0, 96),
+    printWidthDots: asInt(p.printWidthDots, d.printWidthDots, 240, 384),
+
     storeName: asStr(p.storeName, d.storeName),
     storePhone: String(p.storePhone != null ? p.storePhone : d.storePhone).trim(),
     subtitle: asStr(p.subtitle, d.subtitle),
@@ -103,6 +133,14 @@ function normalizeReceiptTemplate(raw) {
     footerThanks: asStr(p.footerThanks, d.footerThanks),
     footerNote: asStr(p.footerNote, d.footerNote),
 
+    showStoreName: asBool(p.showStoreName, d.showStoreName),
+    showSubtitle: asBool(p.showSubtitle, d.showSubtitle),
+    showStorePhone: asBool(p.showStorePhone, d.showStorePhone),
+    showDocTitle: asBool(p.showDocTitle, d.showDocTitle),
+    showItems: asBool(p.showItems, d.showItems),
+    showSubtotal: asBool(p.showSubtotal, d.showSubtotal),
+    showFooterThanks: asBool(p.showFooterThanks, d.showFooterThanks),
+    showFooterNote: asBool(p.showFooterNote, d.showFooterNote),
     showOrderNo: asBool(p.showOrderNo, d.showOrderNo),
     showReceiptNo: asBool(p.showReceiptNo, d.showReceiptNo),
     showDate: asBool(p.showDate, d.showDate),
