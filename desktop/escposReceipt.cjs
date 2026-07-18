@@ -85,26 +85,27 @@ function padLine(left, right, width) {
   return l + ' '.repeat(space) + r
 }
 
-/** Перенос только по пробелам / дефису / & — никогда посередине слова. */
+/** Перенос строго по словам; длинное одиночное слово сокращаем, но не разрываем. */
 function wrapName(name, width) {
   const s = String(name || '').trim() || 'Товар'
   if (s.length <= width) return [s]
+  const words = s.split(/\s+/).filter(Boolean)
   const lines = []
-  let rest = s
-  while (rest.length > width) {
-    let cut = -1
-    for (let i = Math.min(width, rest.length - 1); i >= Math.min(8, width); i--) {
-      const ch = rest[i]
-      if (ch === ' ' || ch === '-' || ch === '&') {
-        cut = ch === ' ' ? i : i + 1
-        break
-      }
+  let line = ''
+  for (const rawWord of words) {
+    const word = rawWord.length <= width
+      ? rawWord
+      : `${rawWord.slice(0, Math.max(1, width - 1))}.`
+    if (!line) {
+      line = word
+    } else if (line.length + 1 + word.length <= width) {
+      line += ` ${word}`
+    } else {
+      lines.push(line)
+      line = word
     }
-    if (cut < 1) cut = width
-    lines.push(rest.slice(0, cut).trim())
-    rest = rest.slice(cut).trim()
   }
-  if (rest) lines.push(rest)
+  if (line) lines.push(line)
   return lines
 }
 
@@ -121,6 +122,24 @@ function nameAmountLines(name, amount, width, currency) {
   for (const line of nameLines) out.push(line)
   out.push(padLine('', right, width))
   return out
+}
+
+/**
+ * Позиция 58 мм / Font A:
+ *   название (1+ строк по словам)
+ *     кол-во x цена             сумма
+ * Расчёт и сумма всегда остаются одной компактной строкой.
+ */
+function itemReceiptLines(name, qty, price, amount) {
+  const width = 32
+  const titleLines = wrapName(name, width)
+  const right = money(amount)
+  const rawLeft = `  ${qtyText(qty)} x ${money(price)}`
+  const maxLeft = Math.max(1, width - right.length - 1)
+  const left = rawLeft.length <= maxLeft
+    ? rawLeft
+    : `${rawLeft.slice(0, Math.max(1, maxLeft - 1))}.`
+  return [...titleLines, padLine(left, right, width)]
 }
 
 /** «Шампунь Head&Shoulders 400мл» → имя + отдельная строка объёма (как на макете). */
@@ -180,7 +199,8 @@ function docTitle(sale, tpl) {
 function buildEscPosReceipt(sale, opts = {}) {
   const tpl = normalizeReceiptTemplate(opts)
   const currency = tpl.currency
-  const width = tpl.charsPerLine
+  // Макет 58 мм фиксирован на Font A: ровно 32 символа в строке.
+  const width = 32
   const store = tpl.storeName
   const phone = tpl.storePhone
   const subtitle = tpl.subtitle
@@ -306,24 +326,19 @@ function buildEscPosReceipt(sale, opts = {}) {
   sep()
 
   if (tpl.showItems) {
-    setStyle({ size: tpl.sizeItems, bold: tpl.boldItems })
+    // Для позиций всегда Font A / 32 символа: так название и расчёт не разъезжаются.
+    setStyle({ size: 'normal', bold: tpl.boldItems })
     items.forEach((it) => {
       const qty = Number(it.qty) || 0
       const price = Number(it.price) || 0
       const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
       const fullName = String(it.productName || `#${it.productId}`).trim()
-      const parts = splitNameDetail(fullName)
-      const right = fmt(sum)
-      const maxLeft = Math.max(8, width - right.length - 1)
-      const useDetail = parts.detail && parts.name.length <= maxLeft && fullName.length > maxLeft
-      lines(nameAmountLines(useDetail ? parts.name : fullName, sum, width, currency))
-      if (useDetail) txt(parts.detail)
-      txt(`${qtyText(qty)} x ${money(price)}`)
+      lines(itemReceiptLines(fullName, qty, price, sum))
     })
   }
 
   if (tpl.showItems && !items.length) {
-    setStyle({ size: tpl.sizeItems, bold: tpl.boldItems })
+    setStyle({ size: 'normal', bold: tpl.boldItems })
     txt('Нет позиций')
   }
 

@@ -7,19 +7,19 @@
 
 const DEFAULT_RECEIPT_TEMPLATE = {
   // Базовый шрифт тела чека. small = Font B (42 симв.), normal = Font A (32 симв.)
-  printFont: 'small',
-  charsPerLine: 42,
-  lineSpacing: 20,
+  printFont: 'normal',
+  charsPerLine: 32,
+  lineSpacing: 24,
 
   // Размер отдельных блоков: small | normal | tall (tall = выше, без уширения)
   sizeStoreName: 'normal',
-  sizeSubtitle: 'small',
-  sizePhone: 'small',
+  sizeSubtitle: 'normal',
+  sizePhone: 'normal',
   sizeDocTitle: 'normal',
-  sizeBody: 'small',
-  sizeItems: 'small',
+  sizeBody: 'normal',
+  sizeItems: 'normal',
   sizeTotal: 'normal',
-  sizeFooter: 'small',
+  sizeFooter: 'normal',
 
   // Жирный / обычный
   boldStoreName: true,

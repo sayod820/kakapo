@@ -231,9 +231,9 @@ const TEXT_IDS = [
 ]
 
 const FULL_TEMPLATE = {
-  printFont: 'small', charsPerLine: 42, lineSpacing: 20,
-  sizeStoreName: 'normal', sizeSubtitle: 'small', sizePhone: 'small', sizeDocTitle: 'normal',
-  sizeBody: 'small', sizeItems: 'small', sizeTotal: 'normal', sizeFooter: 'small',
+  printFont: 'normal', charsPerLine: 32, lineSpacing: 24,
+  sizeStoreName: 'normal', sizeSubtitle: 'normal', sizePhone: 'normal', sizeDocTitle: 'normal',
+  sizeBody: 'normal', sizeItems: 'normal', sizeTotal: 'normal', sizeFooter: 'normal',
   boldStoreName: true, boldSubtitle: false, boldPhone: false, boldDocTitle: true,
   boldBody: false, boldItems: false, boldTotal: true, boldChange: true,
   boldFooterThanks: true, boldFooterNote: false,
@@ -266,23 +266,25 @@ function fmt(n,c){ return `${money(n)} ${c||'сом'}` }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
 function pad(l,r,w){ const a=String(l||''),b=String(r||''); return a+' '.repeat(Math.max(1,w-a.length-b.length))+b }
 function wrap(name,w){
-  const s=String(name||'').trim()||'Товар'; if(s.length<=w) return [s]
-  const out=[]; let rest=s
-  while(rest.length>w){
-    let cut=-1
-    for(let i=Math.min(w,rest.length-1);i>=Math.min(8,w);i--){
-      const ch=rest[i]; if(ch===' '||ch==='-'||ch==='&'){ cut=ch===' '?i:i+1; break }
-    }
-    if(cut<1) cut=w
-    out.push(rest.slice(0,cut).trim()); rest=rest.slice(cut).trim()
+  const s=String(name||'').trim()||'Товар'
+  if(s.length<=w) return [s]
+  const out=[]; let line=''
+  for(const raw of s.split(/\s+/).filter(Boolean)){
+    const word=raw.length<=w?raw:`${raw.slice(0,Math.max(1,w-1))}.`
+    if(!line) line=word
+    else if(line.length+1+word.length<=w) line+=' '+word
+    else { out.push(line); line=word }
   }
-  if(rest) out.push(rest); return out
+  if(line) out.push(line)
+  return out
 }
-function nameAmt(name,amount,w,cur){
-  const right=fmt(amount,cur); const max=Math.max(8,w-right.length-1)
-  const lines=wrap(name,w)
-  if(lines.length===1 && lines[0].length<=max) return [pad(lines[0],right,w)]
-  return [...lines, pad('',right,w)]
+function itemLines(name,qty,price,amount){
+  const w=32
+  const right=money(amount)
+  const rawLeft=`  ${qty} x ${money(price)}`
+  const maxLeft=Math.max(1,w-right.length-1)
+  const left=rawLeft.length<=maxLeft?rawLeft:`${rawLeft.slice(0,Math.max(1,maxLeft-1))}.`
+  return [...wrap(name,w),pad(left,right,w)]
 }
 function cls(size,bold){ return `ln ${size==='tall'?'tall':size==='normal'?'normal':'small'}${bold?' bold':''}` }
 
@@ -294,7 +296,7 @@ const DEMO_ITEMS = [
 ]
 
 function buildPreview(tpl){
-  const w = tpl.printFont==='small' ? 42 : 32
+  const w = 32
   const cur = tpl.currency||'сом'
   const base = tpl.printFont==='small' ? 10.5 : 12.5
   const out=[]
@@ -326,8 +328,9 @@ function buildPreview(tpl){
   sep()
   if(tpl.showItems){
     for(const it of DEMO_ITEMS){
-      for(const line of nameAmt(it.productName,it.lineTotal,w,cur)) push(line,tpl.sizeItems,tpl.boldItems,false)
-      push(`${it.qty} x ${money(it.price)}`,tpl.sizeItems,tpl.boldItems,false)
+      for(const line of itemLines(it.productName,it.qty,it.price,it.lineTotal)) {
+        push(line,'normal',tpl.boldItems,false)
+      }
     }
   }
   sep()
@@ -413,11 +416,11 @@ function refresh(){
   const tpl = current() || draft
   if(codeMode && codeErr) setStatus('JSON: '+codeErr, false)
   const iframe=document.getElementById('preview')
-  const w=tpl.printFont==='small'?42:32
-  iframe.style.width = Math.round(w*(tpl.printFont==='small'?6.5:7.6)+20)+'px'
+  const w=32
+  iframe.style.width = Math.round(w*7.6+20)+'px'
   iframe.srcdoc=buildPreview(tpl)
   document.getElementById('legFont').textContent = tpl.printFont==='small'?'Мелкий':'Обычный'
-  document.getElementById('legWidth').textContent = String(w)
+  document.getElementById('legWidth').textContent = '32 (Font A)'
   const showKeys=[].concat(...Object.values(SHOW_GROUPS).map(g=>g.map(x=>x[0])))
   document.getElementById('legShow').textContent = showKeys.filter(k=>tpl[k]!==false).length+' / '+showKeys.length
   const boldKeys=['boldStoreName','boldDocTitle','boldTotal','boldChange','boldFooterThanks','boldItems','boldBody']
