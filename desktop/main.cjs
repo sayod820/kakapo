@@ -484,71 +484,19 @@ function printHtml(html, options = {}) {
   }
 
   return (async () => {
-    const settings = loadPrinterSettings()
     const density = resolveReceiptDensity(options)
-    const mode = options.receiptPrintMode === 'raster' || options.receiptPrintMode === 'text'
-      ? options.receiptPrintMode
-      : (settings.receiptPrintMode === 'text' ? 'text' : 'raster')
     const opts = { ...options, receiptDensity: density }
 
-    // raster = HTML-шаблон как в предпросмотре (чёрная плашка, Arial)
-    // text = нативный шрифт принтера (без дизайна)
-    const tryText = async () => {
-      if (opts.sale && typeof opts.sale === 'object') {
-        return printReceiptEscPos(opts.sale, opts)
-      }
-      return printReceiptHtmlAsEscPos(html, opts)
-    }
-    const tryRaster = async () => printReceiptHtmlRaster(html, opts)
-
-    if (mode === 'text') {
-      try {
-        const res = await tryText()
-        logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode, density })
-        return res
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        logPrintDebug('receipt escpos fail, try raster', { error: msg, density })
-        try {
-          const res = await tryRaster()
-          logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, density, h: res.height })
-          return res
-        } catch (errRaster) {
-          const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
-          try {
-            const res = await printReceiptHtmlFallback(html, opts)
-            logPrintDebug('receipt gdi ok', { printer: res.printerName })
-            return res
-          } catch (err2) {
-            const msg2 = err2 instanceof Error ? err2.message : String(err2)
-            throw new Error(`Печать чека не удалась. RAW: ${msg}. Raster: ${msgR}. GDI: ${msg2}`)
-          }
-        }
-      }
-    }
-
+    // Только HTML-растр = тот же дизайн/шрифт, что в предпросмотре.
+    // ESC/POS text и GDI дают «чужой» шрифт и длинную ленту — отключены.
     try {
-      const res = await tryRaster()
+      const res = await printReceiptHtmlRaster(html, opts)
       logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, density, h: res.height })
       return res
     } catch (errRaster) {
       const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
-      logPrintDebug('receipt raster fail, try text escpos', { error: msgR, density })
-      try {
-        const res = await tryText()
-        logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode, density })
-        return res
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        try {
-          const res = await printReceiptHtmlFallback(html, opts)
-          logPrintDebug('receipt gdi ok', { printer: res.printerName })
-          return res
-        } catch (err2) {
-          const msg2 = err2 instanceof Error ? err2.message : String(err2)
-          throw new Error(`Печать чека не удалась. Raster: ${msgR}. RAW: ${msg}. GDI: ${msg2}`)
-        }
-      }
+      logPrintDebug('receipt raster fail', { error: msgR, density })
+      throw new Error(`Печать дизайна чека не удалась (растр): ${msgR}`)
     }
   })()
 }
@@ -560,22 +508,24 @@ function receiptRasterWidthDots(paperWidthMm) {
 
 function wrapReceiptHtmlForRaster(html, widthPx, paddingMm = 1) {
   const pad = Math.max(0, Math.min(6, Number(paddingMm) || 0))
-  // Не перебиваем размеры/шрифты из HTML-шаблона — печать = предпросмотр.
-  // Только: ширина ленты, поля контейнера, белый заголовок, без antialias.
+  const padPx = Math.round(pad * (203 / 25.4))
+  // Фиксируем ширину ленты 384px @ 203 DPI и Arial — как эталонный чек.
   const inject = `<meta name="color-scheme" content="light only"><style>
 :root,html,body{color-scheme:light only!important;background:#fff!important;color:#000!important;margin:0!important;}
-html,body{width:${widthPx}px!important;max-width:${widthPx}px!important;overflow:hidden!important;}
-body{
-  padding:${pad}mm!important;box-sizing:border-box!important;
-  -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
-  -webkit-font-smoothing:none!important;-moz-osx-font-smoothing:unset!important;
-  font-smooth:never!important;text-rendering:optimizeSpeed!important;
+html,body{
+  width:${widthPx}px!important;max-width:${widthPx}px!important;min-width:${widthPx}px!important;
+  overflow:hidden!important;height:auto!important;
 }
-.receipt{max-width:100%!important;margin-left:auto!important;margin-right:auto!important;}
-.doc-title,.black{border-radius:0!important;}
+body{
+  padding:${padPx}px!important;box-sizing:border-box!important;
+  font-family:Arial,'Helvetica Neue',sans-serif!important;
+  -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
+  -webkit-font-smoothing:none!important;font-smooth:never!important;
+  text-rendering:optimizeSpeed!important;
+}
+.receipt{width:100%!important;max-width:100%!important;margin:0!important;}
+.doc-title{border-radius:0!important;}
 .muted,.meta-row span,.foot{color:#000!important;}
-/* Чуть развести штрихи цифр — меньше заливка 8/0/3/6 */
-.item-calc,.sum-row,.total,.meta-row b{letter-spacing:.04em!important;}
 *{
   color-scheme:light only!important;
   -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
@@ -588,6 +538,29 @@ body{
     return s.replace(/<head([^>]*)>/i, `<head$1>${inject}`)
   }
   return `<!DOCTYPE html><html><head>${inject}</head><body>${s}</body></html>`
+}
+
+/** Обрезает белый хвост растра — иначе чек получается длинным. */
+function trimMonoTrailingWhite(mono, keepPad = 12) {
+  if (!mono || !Buffer.isBuffer(mono.data) || mono.height < 20) return mono
+  const { data, widthBytes, height } = mono
+  let last = height - 1
+  while (last > 40) {
+    let rowHasInk = false
+    const rowStart = last * widthBytes
+    for (let i = 0; i < widthBytes; i++) {
+      if (data[rowStart + i]) { rowHasInk = true; break }
+    }
+    if (rowHasInk) break
+    last -= 1
+  }
+  const newH = Math.min(height, Math.max(80, last + 1 + keepPad))
+  if (newH >= height) return mono
+  return {
+    ...mono,
+    height: newH,
+    data: data.subarray(0, widthBytes * newH),
+  }
 }
 
 async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
@@ -619,28 +592,26 @@ async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
     await waitForPrintRender(win.webContents)
     await new Promise(r => setTimeout(r, 120))
 
-    const padCss = `${Math.max(0, Math.min(6, Number(paddingMm) || 0))}mm`
+    const padCss = `${Math.max(0, Math.round((Number(paddingMm) || 0) * (203 / 25.4)))}px`
     const measured = await win.webContents.executeJavaScript(`
       (function () {
         document.documentElement.style.cssText = 'width:${wPx}px;margin:0;padding:0;background:#fff;';
-        document.body.style.cssText = 'width:${wPx}px;max-width:${wPx}px;margin:0;padding:${padCss};box-sizing:border-box;background:#fff;color:#000;';
+        document.body.style.cssText = 'width:${wPx}px;max-width:${wPx}px;margin:0;padding:${padCss};box-sizing:border-box;background:#fff;color:#000;font-family:Arial,sans-serif;';
         const el = document.querySelector('.receipt') || document.body;
         const h = Math.ceil(Math.max(
           el.scrollHeight || 0,
           el.getBoundingClientRect().height || 0,
-          document.body.scrollHeight || 0,
-          document.documentElement.scrollHeight || 0
+          document.body.scrollHeight || 0
         ));
-        return Math.max(120, Math.min(2400, h + 8));
+        return Math.max(100, Math.min(1600, h + 4));
       })()
     `)
-    const hPx = Math.max(120, Math.round(Number(measured) || 400))
+    const hPx = Math.max(100, Math.round(Number(measured) || 400))
     try { win.setContentSize(wPx, hPx) } catch { /* ignore */ }
     await new Promise(r => setTimeout(r, 60))
 
     let img = await win.webContents.capturePage({ x: 0, y: 0, width: wPx, height: hPx })
     const sz = img.getSize()
-    // Не используем quality:'best' — размывает края цифр. Подгоняем nearest при расхождении.
     if (sz.width !== wPx || sz.height !== hPx) {
       img = img.resize({ width: wPx, height: hPx, quality: 'nearest' })
     }
@@ -649,7 +620,8 @@ async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
     const level = resolveReceiptDensity({ receiptDensity: density })
     const threshold = receiptMonoThreshold(level)
     logPrintDebug('receipt raster capture', { wPx, hPx, density: level, threshold, dpi: 203 })
-    return monoFromBgra(bgra, size.width, size.height, wPx, hPx, threshold)
+    const mono = monoFromBgra(bgra, size.width, size.height, wPx, hPx, threshold)
+    return trimMonoTrailingWhite(mono, 10)
   } finally {
     nativeTheme.themeSource = prevTheme
     try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }

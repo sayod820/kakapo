@@ -363,7 +363,7 @@ function buildEscPosRaster(mono, opts = {}) {
   cmd(GS, 0x76, 0x30, 0x00, xL, xH, yL, yH)
   chunks.push(src.subarray(0, widthBytes * height))
   cmd(ESC, 0x61, 0)
-  chunks.push(Buffer.from('\n\n\n', 'ascii'))
+  chunks.push(Buffer.from('\n', 'ascii'))
   if (opts.cut !== false) cmd(GS, 0x56, 0x01)
   return Buffer.concat(chunks)
 }

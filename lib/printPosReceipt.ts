@@ -158,13 +158,16 @@ export function buildPosReceiptHtml(
 
   const scale = template.fontScale / 100
   const px = (n: number) => Math.max(8, Math.round(n * scale))
-  const fontSize = px(paperWidthMm === 58 ? 16 : 15)
-  const smallSize = px(paperWidthMm === 58 ? 13 : 12)
-  const titleSize = px(paperWidthMm === 58 ? 28 : 24)
-  const totalSize = px(paperWidthMm === 58 ? 22 : 20)
-  const bannerSize = px(paperWidthMm === 58 ? 15 : 14)
-  const blockPad = template.compact ? 3 : 7
-  const blockGap = template.compact ? 4 : 9
+  // Ширина ленты в точках @ 203 DPI — HTML и растр 1:1 (не mm→px браузера).
+  const tapePx = paperWidthMm === 80 ? 576 : 384
+  // Размеры под 384px / 58 мм — как на эталонном чеке
+  const fontSize = px(paperWidthMm === 58 ? 22 : 20)
+  const smallSize = px(paperWidthMm === 58 ? 18 : 16)
+  const titleSize = px(paperWidthMm === 58 ? 36 : 32)
+  const totalSize = px(paperWidthMm === 58 ? 28 : 24)
+  const bannerSize = px(paperWidthMm === 58 ? 20 : 18)
+  const blockPad = template.compact ? 4 : 8
+  const blockGap = template.compact ? 6 : 10
   const separator = template.separatorStyle
   const fontFamily = receiptFontCss(template.fontFamily)
   const w = receiptWeightCss(template.fontWeight)
@@ -172,6 +175,7 @@ export function buildPosReceiptHtml(
   const lineHeight = (template.lineHeightPct / 100).toFixed(2)
   const letterEm = (template.letterSpacing / 100).toFixed(2)
   const padMm = template.paddingMm
+  const padPx = Math.round(padMm * (203 / 25.4))
   const contentPct = template.contentWidthPct
   const shopCase = template.shopUppercase ? 'uppercase' : 'none'
   const titleCase = template.titleUppercase ? 'uppercase' : 'none'
@@ -188,7 +192,7 @@ export function buildPosReceiptHtml(
   :root{color-scheme:light only}
   body{
     font-family:${fontFamily};background:#fff;color:#000;
-    padding:${padMm}mm;width:${paperWidthMm}mm;max-width:100%;
+    padding:${padPx}px;width:${tapePx}px;max-width:${tapePx}px;
     -webkit-print-color-adjust:exact;print-color-adjust:exact;
     -webkit-font-smoothing:none;font-smooth:never;
   }
@@ -199,46 +203,45 @@ export function buildPosReceiptHtml(
   }
   .shop{
     text-align:${template.storeAlign};font-weight:${w.black};font-size:${titleSize}px;
-    letter-spacing:${Math.max(0.02, Number(letterEm) + 0.04)}em;line-height:1.08;text-transform:${shopCase};
+    letter-spacing:0.04em;line-height:1.05;text-transform:${shopCase};
   }
-  .tag{text-align:${template.storeAlign};font-weight:${w.strong};font-size:${smallSize}px;margin-top:3px}
-  .muted{color:#111;font-size:${smallSize}px;line-height:${lineHeight};font-weight:${w.base}}
+  .tag{text-align:${template.storeAlign};font-weight:${w.strong};font-size:${smallSize}px;margin-top:4px}
+  .muted{color:#000;font-size:${smallSize}px;line-height:${lineHeight};font-weight:${w.base}}
   .center{text-align:${template.storeAlign}}
   .sep{
     height:0;border:0;margin:${blockGap}px 0;
-    border-top:2px ${separator === 'solid' ? 'solid' : separator === 'dashed' ? 'dashed' : 'dotted'} #000;
+    border-top:3px ${separator === 'solid' ? 'solid' : separator === 'dashed' ? 'dashed' : 'dotted'} #000;
   }
   .doc-title{
     background:${titleBg};color:${titleColor};text-align:${template.titleAlign};
-    font-size:${bannerSize + 1}px;font-weight:${w.black};padding:7px 2px;margin:6px 0 ${blockGap}px;
-    letter-spacing:0.06em;text-transform:${titleCase};
+    font-size:${bannerSize}px;font-weight:${w.black};padding:8px 2px;margin:8px 0 ${blockGap}px;
+    letter-spacing:0.08em;text-transform:${titleCase};
   }
-  .meta-row,.sum-row,.item-calc{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}
-  .meta-row{font-size:${smallSize}px;margin:2px 0;font-weight:${w.base}}
+  .meta-row,.sum-row,.item-calc{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+  .meta-row{font-size:${smallSize}px;margin:3px 0;font-weight:${w.base}}
   .meta-row span{color:#000;font-weight:${w.base}}
   .meta-row b{font-weight:${valueWeight};text-align:right;word-break:break-word}
   .customer{border:2px solid #000;border-radius:0;padding:${blockPad}px;margin:${blockGap}px 0}
   .customer-title{font-size:${smallSize}px;font-weight:${w.black};text-transform:uppercase;margin-bottom:3px}
   .customer-name{font-weight:${w.black};font-size:${fontSize}px}
-  .item{padding:${Math.max(2, blockPad - 1)}px 0}
+  .item{padding:${Math.max(2, blockPad - 2)}px 0}
   .item-name{font-weight:${w.black};word-break:break-word;font-size:${fontSize}px}
   .item-name em{display:block;font-style:normal;font-size:${smallSize}px;font-weight:${w.strong};color:#000;margin-top:2px}
-  .item-calc{font-family:${fontFamily};margin-top:3px;font-size:${fontSize}px;font-weight:${w.base}}
+  .item-calc{font-family:${fontFamily};margin-top:4px;font-size:${fontSize}px;font-weight:${w.base}}
   .item-calc b{font-size:${fontSize}px;white-space:nowrap;font-weight:${valueWeight}}
-  .sum-row{font-size:${fontSize}px;margin:3px 0;font-weight:${w.strong}}
+  .sum-row{font-size:${fontSize}px;margin:4px 0;font-weight:${w.strong}}
   .sum-row b{font-weight:${valueWeight};white-space:nowrap}
   .sum-row.debt b{border-bottom:2px solid #000}
   .sum-row.change b{font-size:${fontSize + 2}px}
   .total{
-    display:flex;justify-content:space-between;gap:6px;align-items:flex-end;
-    font-size:${totalSize}px;font-weight:${w.black};margin:${blockGap}px 0 4px;text-transform:uppercase;
+    display:flex;justify-content:space-between;gap:8px;align-items:flex-end;
+    font-size:${totalSize}px;font-weight:${w.black};margin:${blockGap}px 0 6px;text-transform:uppercase;
     letter-spacing:0.02em;
   }
   .total span:last-child{white-space:nowrap}
-  .note{font-size:${smallSize}px;margin-top:8px;color:#000;white-space:pre-wrap;border-top:2px ${separator === 'solid' ? 'solid' : separator === 'dashed' ? 'dashed' : 'dotted'} #000;padding-top:6px;font-weight:${w.base}}
+  .note{font-size:${smallSize}px;margin-top:8px;color:#000;white-space:pre-wrap;border-top:3px ${separator === 'solid' ? 'solid' : separator === 'dashed' ? 'dashed' : 'dotted'} #000;padding-top:6px;font-weight:${w.base}}
   .foot{text-align:${template.footerAlign};font-size:${smallSize}px;margin-top:10px;color:#000;font-weight:${w.base}}
-  .thanks{font-weight:${w.black};font-size:${fontSize + 1}px;margin-bottom:3px}
-  @media print{body{padding:${padMm}mm;width:${paperWidthMm}mm}.receipt{page-break-inside:avoid}}
+  .thanks{font-weight:${w.black};font-size:${fontSize}px;margin-bottom:4px}
 </style></head><body>
   <div class="receipt">
     <div class="shop">${store}</div>
@@ -323,14 +326,11 @@ export async function printPosReceipt(
     }
 
     const html = buildPosReceiptHtml(sale, { ...printOpts, paperWidthMm })
-    const pageHeightMm = Math.max(300, Math.min(1200, 130 + (sale.items || []).length * 16))
-    // Всегда HTML-растр = печать как предпросмотр / эталонный чек (чёрная плашка, Arial).
     await desktop.printHtml(html, {
       role: 'receipt',
       printerName,
       paperWidthMm,
       pageWidthMm: paperWidthMm,
-      pageHeightMm,
       receiptLang: template.lang,
       receiptDensity: template.printDensity,
       receiptPrintMode: 'raster',
