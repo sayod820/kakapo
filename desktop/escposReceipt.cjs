@@ -155,8 +155,9 @@ function docTitle(sale) {
 }
 
 /**
- * Макет 1:1 с дизайн-макетом 58 мм (2-я фото).
- * Ширина 32 символа (Font A), кодовая страница CP866.
+ * Макет 1:1 с дизайн-макетом 58 мм.
+ * Ширина 32 символа (Font A), CP866.
+ * После любого увеличения шрифта — полный ESC @ (иначе XP-58C залипает на ширине 16).
  */
 function buildEscPosReceipt(sale, opts = {}) {
   const width = 32
@@ -196,43 +197,38 @@ function buildEscPosReceipt(sale, opts = {}) {
   const cmd = (...b) => chunks.push(Buffer.from(b))
   const txt = (s) => chunks.push(encodeCp866(`${String(s)}\n`))
   const sep = () => txt('-'.repeat(width))
-  // XP-58C и клоны: размер только через GS! (одиночный источник истины).
-  // ESC! ("select print mode") на многих клонах перезаписывает весь байт режима целиком
-  // и сбивает жирность/размер, выставленные отдельными командами — поэтому не используем её вовсе.
-  const resetSize = () => {
-    cmd(GS, 0x21, 0x00)
-    cmd(ESC, 0x4D, 0x00)
-    cmd(ESC, 0x45, 0)
-  }
   const lines = (arr) => { for (const line of arr) txt(line) }
 
-  // Init + CP866 (page 17)
-  cmd(ESC, 0x40)
-  cmd(FS, 0x2E)
-  cmd(ESC, 0x52, 0x00)
-  cmd(ESC, 0x74, 17)
-  resetSize()
-  cmd(GS, 0x42, 0x00)
-  cmd(ESC, 0x61, 1) // center
+  /** Полный сброс принтера + CP866 + Font A (обязательно после крупного текста). */
+  const boot = (align = 0) => {
+    cmd(ESC, 0x40)
+    cmd(FS, 0x2E)
+    cmd(ESC, 0x52, 0x00)
+    cmd(ESC, 0x74, 17) // CP866
+    cmd(ESC, 0x4D, 0x00) // Font A
+    cmd(GS, 0x21, 0x00) // normal size
+    cmd(ESC, 0x45, 0) // bold off
+    cmd(GS, 0x42, 0x00) // reverse off
+    cmd(ESC, 0x61, align) // 0 left / 1 center
+  }
 
-  // Header: крупный КАКАПО (только высота — ширина остаётся 32)
+  boot(1)
+
+  // —— Шапка: крупный КАКАПО (двойная ширина+высота), затем полный reboot ——
   cmd(ESC, 0x45, 1)
-  cmd(GS, 0x21, 0x10)
+  cmd(GS, 0x21, 0x11)
   txt(store)
-  resetSize()
-  cmd(ESC, 0x61, 1)
+  boot(1)
   txt('магазин - касса')
   if (phone) txt(phone)
 
   sep()
   cmd(ESC, 0x45, 1)
   txt(docTitle(sale))
-  resetSize()
-  cmd(ESC, 0x61, 1)
+  cmd(ESC, 0x45, 0)
   sep()
 
-  cmd(ESC, 0x61, 0) // left
-  resetSize()
+  cmd(ESC, 0x61, 0)
   lines(kvLines('Номер заказа', orderNo(sale), width))
   if (sale.number != null) lines(kvLines('Номер чека', `№${sale.number}`, width))
   lines(kvLines('Дата', when, width))
@@ -252,7 +248,6 @@ function buildEscPosReceipt(sale, opts = {}) {
     const maxLeft = Math.max(8, width - right.length - 1)
     let detail = ''
     let title = fullName
-    // Объём на отдельную строку только если полное имя не влезает (как шампунь на макете)
     if (fullName.length > maxLeft) {
       const parts = splitNameDetail(fullName)
       if (parts.detail && parts.name.length <= maxLeft) {
@@ -280,17 +275,18 @@ function buildEscPosReceipt(sale, opts = {}) {
     lines(kvLines('Списано бонусов', `-${moneySom(bonusSpent)}`, width))
   }
 
-  // ИТОГ — жирный + выше высота (без двойной ширины)
+  // ИТОГ — жирный + выше высота, потом полный reboot (чтобы не сломать оплату/футер)
   cmd(ESC, 0x45, 1)
   cmd(GS, 0x21, 0x10)
   txt(padLine('ИТОГ', moneySom(total), width))
-  resetSize()
+  boot(0)
 
   sep()
 
   lines(kvLines('Оплата', payLabel(sale), width))
   if ((Number(sale.paidCash) || 0) > 0.001) lines(kvLines('Наличные', moneySom(sale.paidCash), width))
   if ((Number(sale.paidCard) || 0) > 0.001) {
+    // Ровно 32 символа на макете: «Картой (Visa ****4821)» + «97.50 сом»
     lines(kvLines(cardLineLabel(sale), moneySom(sale.paidCard), width))
   }
   if ((Number(sale.debtAdded) || 0) > 0.001) lines(kvLines('В долг', moneySom(sale.debtAdded), width))
@@ -298,7 +294,7 @@ function buildEscPosReceipt(sale, opts = {}) {
   if ((Number(sale.changeGiven) || 0) > 0.001) {
     cmd(ESC, 0x45, 1)
     txt(padLine('Сдача', moneySom(sale.changeGiven), width))
-    resetSize()
+    cmd(ESC, 0x45, 0)
   }
 
   const balBefore = sale.bonusBalanceBefore
@@ -316,13 +312,13 @@ function buildEscPosReceipt(sale, opts = {}) {
   cmd(ESC, 0x61, 1)
   cmd(ESC, 0x45, 1)
   txt('Спасибо за покупку!')
-  resetSize()
-  cmd(ESC, 0x61, 1)
+  cmd(ESC, 0x45, 0)
   txt('Сохраняйте чек до проверки')
   txt('товара')
 
-  chunks.push(encodeCp866('\n\n\n'))
-  cmd(GS, 0x56, 0x01) // partial cut
+  // Запас бумаги, чтобы футер не обрезался ножом
+  chunks.push(encodeCp866('\n\n\n\n'))
+  cmd(GS, 0x56, 0x01)
   return Buffer.concat(chunks)
 }
 
