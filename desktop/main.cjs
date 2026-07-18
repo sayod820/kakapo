@@ -528,7 +528,7 @@ body{
   return `<!DOCTYPE html><html><head>${inject}</head><body>${s}</body></html>`
 }
 
-async function captureReceiptMono(html, widthDots) {
+async function captureReceiptMono(html, widthDots, density = 4) {
   const wPx = Math.max(192, Math.round(widthDots))
   destroyPrintWindow()
   printWindow = new BrowserWindow({
@@ -583,8 +583,10 @@ async function captureReceiptMono(html, widthDots) {
     }
     const size = img.getSize()
     const bgra = img.toBitmap()
-    // чуть контрастнее порог — чёрная плашка «ТОВАРНЫЙ ЧЕК» и жирный текст
-    return monoFromBgra(bgra, size.width, size.height, wPx, hPx, 148)
+    const level = Math.max(1, Math.min(5, Math.round(Number(density) || 4)))
+    // Ниже = тоньше/резче, выше = темнее/толще.
+    const threshold = 108 + level * 12
+    return monoFromBgra(bgra, size.width, size.height, wPx, hPx, threshold)
   } finally {
     nativeTheme.themeSource = prevTheme
     try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
@@ -600,7 +602,7 @@ async function printReceiptHtmlRaster(html, options = {}) {
     : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
   const widthDots = receiptRasterWidthDots(paperWidthMm)
 
-  const mono = await captureReceiptMono(html, widthDots)
+  const mono = await captureReceiptMono(html, widthDots, options.receiptDensity)
   if (!mono || !mono.data || mono.height < 40) {
     throw new Error('Пустой снимок чека')
   }

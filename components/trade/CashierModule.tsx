@@ -3520,6 +3520,108 @@ export default function CashierModule({
                           </button>
                         </div>
                       </div>
+                      <div className="receipt-editor-box">
+                        <div className="receipt-editor-title">Дизайн печати</div>
+                        <div className="pos-settings-field">
+                          <span className="gate-label">Размер шрифта · {receiptTpl.fontScale}%</span>
+                          <input
+                            className="receipt-editor-range"
+                            type="range"
+                            min="85"
+                            max="125"
+                            step="5"
+                            value={receiptTpl.fontScale}
+                            onChange={e => patchReceiptTpl({ fontScale: Number(e.target.value) })}
+                          />
+                        </div>
+                        <div className="pos-settings-field">
+                          <span className="gate-label">Чёткость / насыщенность · {receiptTpl.printDensity}/5</span>
+                          <input
+                            className="receipt-editor-range"
+                            type="range"
+                            min="1"
+                            max="5"
+                            step="1"
+                            value={receiptTpl.printDensity}
+                            onChange={e => patchReceiptTpl({ printDensity: Number(e.target.value) })}
+                          />
+                        </div>
+                        <div className="receipt-editor-two">
+                          <div className="pos-settings-field">
+                            <span className="gate-label">Название</span>
+                            <select
+                              className="gate-input"
+                              value={receiptTpl.storeAlign}
+                              onChange={e => patchReceiptTpl({ storeAlign: e.target.value === 'left' ? 'left' : 'center' })}
+                            >
+                              <option value="center">По центру</option>
+                              <option value="left">Слева</option>
+                            </select>
+                          </div>
+                          <div className="pos-settings-field">
+                            <span className="gate-label">Разделители</span>
+                            <select
+                              className="gate-input"
+                              value={receiptTpl.separatorStyle}
+                              onChange={e => patchReceiptTpl({ separatorStyle: e.target.value === 'solid' ? 'solid' : 'dotted' })}
+                            >
+                              <option value="dotted">Точками</option>
+                              <option value="solid">Сплошные</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="receipt-editor-checks">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={receiptTpl.compact}
+                              onChange={e => patchReceiptTpl({ compact: e.target.checked })}
+                            />
+                            Компактно
+                          </label>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={receiptTpl.showCustomer}
+                              onChange={e => patchReceiptTpl({ showCustomer: e.target.checked })}
+                            />
+                            Клиент
+                          </label>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={receiptTpl.showCashier}
+                              onChange={e => patchReceiptTpl({ showCashier: e.target.checked })}
+                            />
+                            Кассир
+                          </label>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={receiptTpl.showFooter}
+                              onChange={e => patchReceiptTpl({ showFooter: e.target.checked })}
+                            />
+                            Низ чека
+                          </label>
+                        </div>
+                        <button
+                          type="button"
+                          className="receipt-editor-reset"
+                          onClick={() => setReceiptTpl(prev => ({
+                            ...prev,
+                            fontScale: 100,
+                            printDensity: 4,
+                            storeAlign: 'center',
+                            separatorStyle: 'dotted',
+                            compact: false,
+                            showCustomer: true,
+                            showCashier: true,
+                            showFooter: true,
+                          }))}
+                        >
+                          Сбросить дизайн
+                        </button>
+                      </div>
                       <div className="pos-settings-field">
                         <span className="gate-label">Название магазина</span>
                         <input

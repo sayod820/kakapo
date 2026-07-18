@@ -32,6 +32,8 @@ export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
   copies?: number
   /** Язык чека (для логов / подписей) */
   receiptLang?: 'ru' | 'tg'
+  /** Плотность растра чека: 1–5 */
+  receiptDensity?: number
   /** @deprecated GDI на XP-58C ненадёжен — не использовать */
   forceGdi?: boolean
   /** Данные продажи для ESC/POS RAW */

@@ -153,11 +153,16 @@ export function buildPosReceiptHtml(
   const clientBits = [sale.clientPhone, sale.cardNum ? `${L.cardSuffix} ${String(sale.cardNum).slice(-4)}` : ''].filter(Boolean)
   if (clientBits.length) customer.push(`<div class="muted">${esc(clientBits.join(' · '))}</div>`)
 
-  const fontSize = paperWidthMm === 58 ? 16 : 15
-  const smallSize = paperWidthMm === 58 ? 13 : 12
-  const titleSize = paperWidthMm === 58 ? 28 : 24
-  const totalSize = paperWidthMm === 58 ? 22 : 20
-  const bannerSize = paperWidthMm === 58 ? 15 : 14
+  const scale = template.fontScale / 100
+  const px = (n: number) => Math.max(8, Math.round(n * scale))
+  const fontSize = px(paperWidthMm === 58 ? 16 : 15)
+  const smallSize = px(paperWidthMm === 58 ? 13 : 12)
+  const titleSize = px(paperWidthMm === 58 ? 28 : 24)
+  const totalSize = px(paperWidthMm === 58 ? 22 : 20)
+  const bannerSize = px(paperWidthMm === 58 ? 15 : 14)
+  const blockPad = template.compact ? 4 : 7
+  const blockGap = template.compact ? 5 : 9
+  const separator = template.separatorStyle === 'solid' ? 'solid' : 'dotted'
   const htmlLang = template.lang === 'tg' ? 'tg' : 'ru'
 
   return `<!DOCTYPE html><html lang="${htmlLang}"><head><meta charset="utf-8"><title>${esc(titleBanner)} ${esc(receiptTitle(sale))}</title>
@@ -166,11 +171,11 @@ export function buildPosReceiptHtml(
   :root{color-scheme:light only}
   body{font-family:Arial,'Helvetica Neue',sans-serif;background:#fff;color:#000;padding:8px;width:${paperWidthMm}mm;max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .receipt{font-size:${fontSize}px;line-height:1.35;font-weight:700}
-  .shop{text-align:center;font-weight:900;font-size:${titleSize}px;letter-spacing:.6px;line-height:1.08;text-transform:uppercase}
-  .tag{text-align:center;font-weight:800;font-size:${smallSize}px;margin-top:3px}
+  .shop{text-align:${template.storeAlign};font-weight:900;font-size:${titleSize}px;letter-spacing:.6px;line-height:1.08;text-transform:uppercase}
+  .tag{text-align:${template.storeAlign};font-weight:800;font-size:${smallSize}px;margin-top:3px}
   .muted{color:#111;font-size:${smallSize}px;line-height:1.3;font-weight:700}
-  .center{text-align:center}
-  .sep{height:0;border:0;border-top:2px dotted #000;margin:9px 0}
+  .center{text-align:${template.storeAlign}}
+  .sep{height:0;border:0;border-top:2px ${separator} #000;margin:${blockGap}px 0}
   .doc-title{
     background:#fff;color:#000;text-align:center;
     font-size:${bannerSize + 2}px;font-weight:900;padding:8px 4px;margin:8px 0 7px;
@@ -181,10 +186,10 @@ export function buildPosReceiptHtml(
   .meta-row{font-size:${smallSize}px;margin:3px 0;font-weight:700}
   .meta-row span{color:#111;font-weight:700}
   .meta-row b{font-weight:900;text-align:right;word-break:break-word}
-  .customer{border:2px solid #000;border-radius:5px;padding:7px;margin:8px 0}
+  .customer{border:2px solid #000;border-radius:5px;padding:${blockPad}px;margin:${blockGap}px 0}
   .customer-title{font-size:${smallSize}px;font-weight:900;text-transform:uppercase;margin-bottom:3px}
   .customer-name{font-weight:900;font-size:${fontSize}px}
-  .item{padding:7px 0;border-bottom:2px dotted #000}
+  .item{padding:${blockPad}px 0;border-bottom:2px ${separator} #000}
   .item-name{font-weight:900;word-break:break-word;font-size:${fontSize}px}
   .item-name em{display:block;font-style:normal;font-size:${smallSize}px;font-weight:800;color:#000;margin-top:2px}
   .item-calc{font-family:Arial,'Helvetica Neue',sans-serif;margin-top:4px;font-size:${fontSize}px;font-weight:800}
@@ -210,9 +215,9 @@ export function buildPosReceiptHtml(
     ${sale.number ? metaRow(L.receiptNo, `№${sale.number}`) : ''}
     ${metaRow(L.date, when)}
     ${pos ? metaRow(L.pos, pos) : ''}
-    ${cashier ? metaRow(L.cashier, cashier) : ''}
+    ${template.showCashier && cashier ? metaRow(L.cashier, cashier) : ''}
     ${sale.shiftId ? metaRow(L.shift, sale.shiftId.slice(-6)) : ''}
-    ${customer.length ? `<div class="customer"><div class="customer-title">${esc(L.client)}</div>${customer.join('')}</div>` : ''}
+    ${template.showCustomer && customer.length ? `<div class="customer"><div class="customer-title">${esc(L.client)}</div>${customer.join('')}</div>` : ''}
     <hr class="sep"/>
     ${lines || `<div class="item">${esc(L.noItems)}</div>`}
     <hr class="sep"/>
@@ -224,11 +229,11 @@ export function buildPosReceiptHtml(
     ${extras.filter(Boolean).join('')}
     ${Number(sale.bonusEarned) > 0.001 ? `<div class="sum-row"><span>${esc(L.bonusEarned)}</span><b>${Math.floor(Number(sale.bonusEarned))}</b></div>` : ''}
     ${sale.note ? `<div class="note">${esc(L.note)}: ${esc(sale.note)}</div>` : ''}
-    <hr class="sep"/>
+    ${template.showFooter ? `<hr class="sep"/>
     <div class="foot">
       <div class="thanks">${footerThanks}</div>
       <div>${footerNote}</div>
-    </div>
+    </div>` : ''}
   </div>
 </body></html>`
 }
@@ -292,6 +297,7 @@ export async function printPosReceipt(
       pageWidthMm: paperWidthMm,
       pageHeightMm,
       receiptLang: template.lang,
+      receiptDensity: template.printDensity,
       // Всегда ESC/POS RAW (GDI на XP-58C часто крутит пустую ленту).
       // Таджикские ғқҳҷӯӣ desktop сворачивает в ближайшие CP866.
       sale,

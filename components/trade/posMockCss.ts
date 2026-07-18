@@ -309,6 +309,33 @@ export const POS_MOCK_CSS = `
     border-color:var(--accent);background:rgba(31,215,96,.12);color:var(--accent);
   }
   .pos-root[data-theme="light"] .receipt-lang-toggle button.on{background:rgba(18,155,69,.1);}
+  .receipt-editor-box{
+    margin:4px 0 16px;padding:15px;border-radius:14px;
+    background:var(--surface2);border:1px solid var(--border);
+  }
+  .receipt-editor-title{
+    margin-bottom:13px;font-size:12px;font-weight:900;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--t1);
+  }
+  .receipt-editor-box .pos-settings-field{margin-bottom:13px;}
+  .receipt-editor-range{
+    width:100%;height:5px;accent-color:var(--accent);cursor:pointer;
+  }
+  .receipt-editor-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .receipt-editor-checks{
+    display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:2px;
+  }
+  .receipt-editor-checks label{
+    display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:var(--t2);
+    cursor:pointer;
+  }
+  .receipt-editor-checks input{width:16px;height:16px;accent-color:var(--accent);}
+  .pos-root button.receipt-editor-reset{
+    width:100%;margin-top:14px;padding:9px 11px;border-radius:10px;
+    border:1px solid var(--border);background:var(--surface);color:var(--t2);
+    font-size:11.5px;font-weight:800;
+  }
+  .pos-root button.receipt-editor-reset:hover{border-color:var(--accent);color:var(--accent);}
   .receipt-tpl-preview-wrap .gate-label{display:block;margin-bottom:8px;}
   .receipt-tpl-preview{
     width:100%;max-width:240px;height:min(520px,62vh);border-radius:12px;overflow:hidden;

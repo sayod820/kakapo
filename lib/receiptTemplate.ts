@@ -1,4 +1,6 @@
 export type ReceiptLang = 'ru' | 'tg'
+export type ReceiptAlign = 'left' | 'center'
+export type ReceiptSeparator = 'dotted' | 'solid'
 
 export type ReceiptTemplate = {
   lang: ReceiptLang
@@ -11,6 +13,16 @@ export type ReceiptTemplate = {
   footerThanks: string
   /** Нижняя подсказка; пусто = из словаря */
   footerNote: string
+  /** Масштаб всех шрифтов: 85–125% */
+  fontScale: number
+  /** Плотность растровой печати: 1–5 */
+  printDensity: number
+  storeAlign: ReceiptAlign
+  separatorStyle: ReceiptSeparator
+  compact: boolean
+  showCustomer: boolean
+  showCashier: boolean
+  showFooter: boolean
 }
 
 export type ReceiptLabels = {
@@ -59,6 +71,14 @@ export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
   headerText: '',
   footerThanks: '',
   footerNote: '',
+  fontScale: 100,
+  printDensity: 4,
+  storeAlign: 'center',
+  separatorStyle: 'dotted',
+  compact: false,
+  showCustomer: true,
+  showCashier: true,
+  showFooter: true,
 }
 
 const LABELS_RU: ReceiptLabels = {
@@ -140,6 +160,8 @@ export function receiptLabels(lang: ReceiptLang): ReceiptLabels {
 export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<ReceiptTemplate>
   const lang: ReceiptLang = p.lang === 'tg' ? 'tg' : 'ru'
+  const fontScale = Math.max(85, Math.min(125, Math.round(Number(p.fontScale) || 100)))
+  const printDensity = Math.max(1, Math.min(5, Math.round(Number(p.printDensity) || 4)))
   return {
     lang,
     storeName: String(p.storeName ?? DEFAULT_RECEIPT_TEMPLATE.storeName).trim() || 'KAKAPO',
@@ -148,6 +170,14 @@ export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
     headerText: String(p.headerText ?? '').trim(),
     footerThanks: String(p.footerThanks ?? '').trim(),
     footerNote: String(p.footerNote ?? '').trim(),
+    fontScale,
+    printDensity,
+    storeAlign: p.storeAlign === 'left' ? 'left' : 'center',
+    separatorStyle: p.separatorStyle === 'solid' ? 'solid' : 'dotted',
+    compact: p.compact === true,
+    showCustomer: p.showCustomer !== false,
+    showCashier: p.showCashier !== false,
+    showFooter: p.showFooter !== false,
   }
 }
 
