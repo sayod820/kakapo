@@ -328,6 +328,7 @@ export async function printPosReceipt(
       pageHeightMm,
       receiptLang: template.lang,
       receiptDensity: template.printDensity,
+      receiptPrintMode: template.printMode,
       receiptPaddingMm: template.paddingMm,
       // Всегда ESC/POS RAW (GDI на XP-58C часто крутит пустую ленту).
       // Таджикские ғқҳҷӯӣ desktop сворачивает в ближайшие CP866.

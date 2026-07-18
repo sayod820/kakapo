@@ -29,6 +29,10 @@ const DEFAULT_SETTINGS = {
   scaleHost: '',
   scalePort: 20304,
   scaleDept: 1,
+  /** Плотность чека 1–5 (3 = средняя, без заливки цифр). XP-58C @ 203 DPI */
+  receiptDensity: 3,
+  /** text = нативный шрифт (чётко), raster = HTML-шаблон */
+  receiptPrintMode: 'text',
 }
 
 function loadConfig() {
@@ -50,6 +54,8 @@ function loadPrinterSettings() {
 function savePrinterSettings(next) {
   const cur = loadPrinterSettings()
   const port = Number(next.scalePort ?? cur.scalePort) || 20304
+  const density = Math.max(1, Math.min(5, Math.round(Number(next.receiptDensity ?? cur.receiptDensity) || 3)))
+  const modeRaw = next.receiptPrintMode ?? cur.receiptPrintMode ?? 'text'
   const merged = {
     printerName: String(next.printerName ?? cur.printerName ?? ''),
     paperWidthMm: Number(next.paperWidthMm) === 80 ? 80 : 58,
@@ -58,9 +64,30 @@ function savePrinterSettings(next) {
     scaleHost: String(next.scaleHost ?? cur.scaleHost ?? '').trim(),
     scalePort: port > 0 && port < 65536 ? port : 20304,
     scaleDept: Math.max(1, Math.min(99, Number(next.scaleDept ?? cur.scaleDept) || 1)),
+    receiptDensity: density,
+    receiptPrintMode: modeRaw === 'raster' ? 'raster' : 'text',
   }
   fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(merged, null, 2), 'utf8')
   return merged
+}
+
+/** Плотность 1–5: из опций печати или printer-settings.json */
+function resolveReceiptDensity(options = {}) {
+  const fromOpt = Number(options.receiptDensity)
+  if (Number.isFinite(fromOpt) && fromOpt >= 1 && fromOpt <= 5) return Math.round(fromOpt)
+  const fromSettings = Number(loadPrinterSettings().receiptDensity)
+  if (Number.isFinite(fromSettings) && fromSettings >= 1 && fromSettings <= 5) return Math.round(fromSettings)
+  return 3
+}
+
+/**
+ * Порог B/W для растра.
+ * Ниже порог → меньше чёрного → просветы в 8/0/3/6 остаются.
+ * density 3 ≈ 124 (средняя). density 5 ≈ 140 (не max-заливка).
+ */
+function receiptMonoThreshold(density) {
+  const level = Math.max(1, Math.min(5, Math.round(Number(density) || 3)))
+  return 100 + level * 8
 }
 
 function createWindow() {
@@ -457,28 +484,64 @@ function printHtml(html, options = {}) {
   }
 
   return (async () => {
-    // Печать = тот же HTML-шаблон, что в предпросмотре (растр)
-    try {
-      const res = await printReceiptHtmlRaster(html, options)
-      logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, h: res.height })
-      return res
-    } catch (errRaster) {
-      const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
-      logPrintDebug('receipt raster fail, try text escpos', { error: msgR })
+    const settings = loadPrinterSettings()
+    const density = resolveReceiptDensity(options)
+    const mode = options.receiptPrintMode === 'raster' || options.receiptPrintMode === 'text'
+      ? options.receiptPrintMode
+      : (settings.receiptPrintMode === 'raster' ? 'raster' : 'text')
+    const opts = { ...options, receiptDensity: density }
+
+    // text = нативный шрифт принтера (чётко, как старая касса)
+    // raster = HTML-шаблон (может мылить цифры при высокой плотности)
+    const tryText = async () => {
+      if (opts.sale && typeof opts.sale === 'object') {
+        return printReceiptEscPos(opts.sale, opts)
+      }
+      return printReceiptHtmlAsEscPos(html, opts)
+    }
+    const tryRaster = async () => printReceiptHtmlRaster(html, opts)
+
+    if (mode === 'text') {
       try {
-        if (options.sale && typeof options.sale === 'object') {
-          const res = await printReceiptEscPos(options.sale, options)
-          logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode })
-          return res
-        }
-        const res = await printReceiptHtmlAsEscPos(html, options)
-        logPrintDebug('receipt escpos-html ok', { printer: res.printerName, mode: res.mode })
+        const res = await tryText()
+        logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode, density })
         return res
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        logPrintDebug('receipt escpos fail, try gdi', { error: msg })
+        logPrintDebug('receipt escpos fail, try raster', { error: msg, density })
         try {
-          const res = await printReceiptHtmlFallback(html, options)
+          const res = await tryRaster()
+          logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, density, h: res.height })
+          return res
+        } catch (errRaster) {
+          const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
+          try {
+            const res = await printReceiptHtmlFallback(html, opts)
+            logPrintDebug('receipt gdi ok', { printer: res.printerName })
+            return res
+          } catch (err2) {
+            const msg2 = err2 instanceof Error ? err2.message : String(err2)
+            throw new Error(`Печать чека не удалась. RAW: ${msg}. Raster: ${msgR}. GDI: ${msg2}`)
+          }
+        }
+      }
+    }
+
+    try {
+      const res = await tryRaster()
+      logPrintDebug('receipt raster ok', { printer: res.printerName, mode: res.mode, density, h: res.height })
+      return res
+    } catch (errRaster) {
+      const msgR = errRaster instanceof Error ? errRaster.message : String(errRaster)
+      logPrintDebug('receipt raster fail, try text escpos', { error: msgR, density })
+      try {
+        const res = await tryText()
+        logPrintDebug('receipt escpos ok', { printer: res.printerName, mode: res.mode, density })
+        return res
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        try {
+          const res = await printReceiptHtmlFallback(html, opts)
           logPrintDebug('receipt gdi ok', { printer: res.printerName })
           return res
         } catch (err2) {
@@ -505,19 +568,19 @@ html,body{width:${widthPx}px!important;max-width:${widthPx}px!important;overflow
 body{
   padding:${pad}mm!important;box-sizing:border-box!important;
   -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
-  -webkit-font-smoothing:none!important;font-smooth:never!important;
-  text-rendering:geometricPrecision!important;
+  -webkit-font-smoothing:none!important;-moz-osx-font-smoothing:unset!important;
+  font-smooth:never!important;text-rendering:optimizeSpeed!important;
 }
 .receipt{max-width:100%!important;margin-left:auto!important;margin-right:auto!important;}
-.doc-title,.black{
-  background:#fff!important;color:#000!important;
-  border-radius:0!important;
-}
+.doc-title,.black{background:#fff!important;color:#000!important;border-radius:0!important;}
 .muted,.meta-row span,.foot{color:#000!important;}
+/* Чуть развести штрихи цифр — меньше заливка 8/0/3/6 */
+.item-calc,.sum-row,.total,.meta-row b{letter-spacing:.04em!important;}
 *{
   color-scheme:light only!important;
   -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
   -webkit-font-smoothing:none!important;font-smooth:never!important;
+  text-rendering:optimizeSpeed!important;
 }
 </style>`
   const s = String(html || '')
@@ -577,13 +640,15 @@ async function captureReceiptMono(html, widthDots, density = 4, paddingMm = 1) {
 
     let img = await win.webContents.capturePage({ x: 0, y: 0, width: wPx, height: hPx })
     const sz = img.getSize()
+    // Не используем quality:'best' — размывает края цифр. Подгоняем nearest при расхождении.
     if (sz.width !== wPx || sz.height !== hPx) {
-      img = img.resize({ width: wPx, height: hPx, quality: 'best' })
+      img = img.resize({ width: wPx, height: hPx, quality: 'nearest' })
     }
     const size = img.getSize()
     const bgra = img.toBitmap()
-    const level = Math.max(1, Math.min(5, Math.round(Number(density) || 4)))
-    const threshold = 108 + level * 12
+    const level = resolveReceiptDensity({ receiptDensity: density })
+    const threshold = receiptMonoThreshold(level)
+    logPrintDebug('receipt raster capture', { wPx, hPx, density: level, threshold, dpi: 203 })
     return monoFromBgra(bgra, size.width, size.height, wPx, hPx, threshold)
   } finally {
     nativeTheme.themeSource = prevTheme
@@ -599,12 +664,13 @@ async function printReceiptHtmlRaster(html, options = {}) {
     ? 58
     : (Number(options.pageWidthMm ?? options.paperWidthMm ?? settings.paperWidthMm) === 80 ? 80 : 58)
   const widthDots = receiptRasterWidthDots(paperWidthMm)
+  const density = resolveReceiptDensity(options)
 
-  const mono = await captureReceiptMono(html, widthDots, options.receiptDensity, options.receiptPaddingMm)
+  const mono = await captureReceiptMono(html, widthDots, density, options.receiptPaddingMm)
   if (!mono || !mono.data || mono.height < 40) {
     throw new Error('Пустой снимок чека')
   }
-  const raw = buildEscPosRaster(mono, { cut: true })
+  const raw = buildEscPosRaster(mono, { cut: true, density })
   await printRawWindows(printerName, raw)
   return {
     ok: true,
@@ -613,6 +679,7 @@ async function printReceiptHtmlRaster(html, options = {}) {
     mode: 'escpos-raster',
     pageWidthMm: paperWidthMm,
     height: mono.height,
+    density,
   }
 }
 
@@ -678,6 +745,7 @@ async function printReceiptEscPos(sale, options = {}) {
     footerNote: options.footerNote,
     labels: options.labels,
     paperWidthMm,
+    density: resolveReceiptDensity(options),
   })
   await printRawWindows(printerName, raw)
   return {

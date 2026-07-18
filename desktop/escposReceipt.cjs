@@ -230,21 +230,21 @@ function buildEscPosReceipt(sale, opts = {}) {
   cmd(FS, 0x2E)
   cmd(ESC, 0x52, 0x00)
   cmd(ESC, 0x74, 17)
-  cmd(ESC, 0x4D, 0x00)
+  cmd(ESC, 0x4D, 0x00) // Font A (12×24) — основной, не Font B
   cmd(GS, 0x42, 0x00) // white-on-black OFF
+  // Средняя плотность печати (не max) — меньше заливка внутренних просветов цифр
+  pushDensity(cmd, opts.density)
 
-  // магазин
+  // магазин — жирный, обычный размер (без double width/height — иначе цифры/буквы плывут)
   cmd(ESC, 0x61, 1)
   cmd(ESC, 0x45, 1)
-  cmd(ESC, 0x21, 0x10) // double height
   txt(store)
-  cmd(ESC, 0x21, 0x00)
   cmd(ESC, 0x45, 0)
   txt(header)
   if (opts.storeAddress) txt(opts.storeAddress)
   if (opts.storePhone) txt(opts.storePhone)
 
-  // ТОВАРНЫЙ ЧЕК — чёрный на белом
+  // ТОВАРНЫЙ ЧЕК — чёрный на белом, жирный, без увеличения
   cmd(ESC, 0x45, 1)
   txt(titleBanner)
   cmd(ESC, 0x45, 0)
@@ -292,11 +292,9 @@ function buildEscPosReceipt(sale, opts = {}) {
   if ((Number(sale.cashReceived) || 0) > 0.001) txt(padLine(L.cashReceived, money(sale.cashReceived), width))
   if ((Number(sale.changeGiven) || 0) > 0.001) txt(padLine(L.change, money(sale.changeGiven), width))
 
-  // ИТОГ — жирный, двойная высота
+  // ИТОГ — жирный, без double height (на XP-58C увеличение заливает цифры)
   cmd(ESC, 0x45, 1)
-  cmd(ESC, 0x21, 0x10)
   txt(padLine(clip(L.total, 10), money(total), width))
-  cmd(ESC, 0x21, 0x00)
   cmd(ESC, 0x45, 0)
 
   if (sale.note) {
@@ -336,6 +334,18 @@ function buildEscPosFromReceiptHtml(html, opts = {}) {
   return packEscPosLines(text, opts)
 }
 
+/**
+ * Плотность печати для Xprinter/ESC-POS.
+ * GS ( K fn=49 (0x31): m=0..8, где выше = темнее.
+ * Маппим UI 1–5 → принтер 2–5 (середина, без max=8).
+ */
+function pushDensity(cmd, density) {
+  const level = Math.max(1, Math.min(5, Math.round(Number(density) || 3)))
+  const m = Math.min(5, Math.max(2, level + 1)) // 1→2 … 5→5
+  // GS ( K pL pH fn m
+  cmd(GS, 0x28, 0x4B, 0x02, 0x00, 0x31, m)
+}
+
 function buildEscPosRaster(mono, opts = {}) {
   const height = Math.max(1, Number(mono?.height) || 0)
   const widthBytes = Math.max(1, Number(mono?.widthBytes) || Math.ceil((Number(mono?.width) || 8) / 8))
@@ -345,14 +355,17 @@ function buildEscPosRaster(mono, opts = {}) {
   const yL = height & 0xff
   const yH = (height >> 8) & 0xff
   const chunks = []
-  chunks.push(Buffer.from([ESC, 0x40]))
-  chunks.push(Buffer.from([FS, 0x2E]))
-  chunks.push(Buffer.from([ESC, 0x61, 1]))
-  chunks.push(Buffer.from([GS, 0x76, 0x30, 0x00, xL, xH, yL, yH]))
+  const cmd = (...b) => chunks.push(Buffer.from(b))
+  cmd(ESC, 0x40)
+  cmd(FS, 0x2E)
+  pushDensity(cmd, opts.density)
+  cmd(ESC, 0x61, 1)
+  // GS v 0 — raster 1:1 под 384 dots @ 203 DPI (58 мм)
+  cmd(GS, 0x76, 0x30, 0x00, xL, xH, yL, yH)
   chunks.push(src.subarray(0, widthBytes * height))
-  chunks.push(Buffer.from([ESC, 0x61, 0]))
+  cmd(ESC, 0x61, 0)
   chunks.push(Buffer.from('\n\n\n', 'ascii'))
-  if (opts.cut !== false) chunks.push(Buffer.from([GS, 0x56, 0x01]))
+  if (opts.cut !== false) cmd(GS, 0x56, 0x01)
   return Buffer.concat(chunks)
 }
 

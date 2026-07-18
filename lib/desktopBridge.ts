@@ -20,6 +20,10 @@ export type DesktopPrinterSettings = {
   scalePort: number
   /** Отдел на весах */
   scaleDept: number
+  /** Плотность чека 1–5 (по умолчанию 3) */
+  receiptDensity?: number
+  /** Режим печати чека */
+  receiptPrintMode?: 'text' | 'raster'
 }
 
 export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
@@ -34,6 +38,8 @@ export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
   receiptLang?: 'ru' | 'tg'
   /** Плотность растра чека: 1–5 */
   receiptDensity?: number
+  /** text = нативный шрифт (чётко), raster = HTML-шаблон */
+  receiptPrintMode?: 'text' | 'raster'
   /** Поля чека в мм (0 = от края до края) */
   receiptPaddingMm?: number
   /** @deprecated GDI на XP-58C ненадёжен — не использовать */

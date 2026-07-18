@@ -1588,6 +1588,8 @@ export default function CashierModule({
           scaleHost: deskScaleHost.trim(),
           scalePort: Number(deskScalePort) || 20304,
           scaleDept: Number(deskScaleDept) || 1,
+          receiptDensity: receiptTpl.printDensity,
+          receiptPrintMode: receiptTpl.printMode,
         })
         setDeskPrinterName(printerName)
         setDeskPaperMm(XP58C_RECEIPT_MM)
@@ -3631,7 +3633,23 @@ export default function CashierModule({
                           />
                         </div>
                         <div className="pos-settings-field">
-                          <span className="gate-label">Чёткость печати · {receiptTpl.printDensity}/5</span>
+                          <span className="gate-label">Режим печати</span>
+                          <select
+                            className="gate-input"
+                            value={receiptTpl.printMode}
+                            onChange={e => patchReceiptTpl({
+                              printMode: e.target.value === 'raster' ? 'raster' : 'text',
+                            })}
+                          >
+                            <option value="text">Нативный шрифт — чётко (рекомендуется)</option>
+                            <option value="raster">Как предпросмотр (HTML-растр)</option>
+                          </select>
+                        </div>
+                        <div className="pos-settings-field">
+                          <span className="gate-label">
+                            Плотность · {receiptTpl.printDensity}/5
+                            {receiptTpl.printDensity >= 5 ? ' · макс. может заливать 8/0/3' : receiptTpl.printDensity <= 2 ? ' · светлее' : ' · норма'}
+                          </span>
                           <input
                             className="receipt-editor-range"
                             type="range"

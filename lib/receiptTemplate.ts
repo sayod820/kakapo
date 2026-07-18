@@ -30,6 +30,8 @@ export type ReceiptTemplate = {
   contentWidthPct: number
   /** Плотность растровой печати: 1–5 */
   printDensity: number
+  /** text = нативный шрифт принтера (чётко), raster = как предпросмотр */
+  printMode: 'text' | 'raster'
   storeAlign: ReceiptAlign
   titleAlign: ReceiptAlign
   footerAlign: ReceiptAlign
@@ -107,7 +109,8 @@ export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplate = {
   letterSpacing: 0,
   paddingMm: 1,
   contentWidthPct: 100,
-  printDensity: 4,
+  printDensity: 3,
+  printMode: 'text',
   storeAlign: 'center',
   titleAlign: 'center',
   footerAlign: 'center',
@@ -244,7 +247,8 @@ export function normalizeReceiptTemplate(raw: unknown): ReceiptTemplate {
     letterSpacing: Math.max(0, Math.min(80, Math.round(Number(p.letterSpacing) || 0))),
     paddingMm: Math.max(0, Math.min(6, Math.round((Number(p.paddingMm ?? DEFAULT_RECEIPT_TEMPLATE.paddingMm)) * 10) / 10 || 0)),
     contentWidthPct: Math.max(88, Math.min(100, Math.round(Number(p.contentWidthPct ?? DEFAULT_RECEIPT_TEMPLATE.contentWidthPct) || 100))),
-    printDensity: Math.max(1, Math.min(5, Math.round(Number(p.printDensity) || 4))),
+    printDensity: Math.max(1, Math.min(5, Math.round(Number(p.printDensity) || 3))),
+    printMode: p.printMode === 'raster' ? 'raster' : 'text',
     storeAlign: asAlign(p.storeAlign),
     titleAlign: asAlign(p.titleAlign),
     footerAlign: asAlign(p.footerAlign),
