@@ -128,14 +128,11 @@
     ]
     const PRINT_FIELDS = [
       { key: 'printFont', label: 'Размер шрифта', type: 'select', options: [
-        ['small', 'Мелкий — как на фото (рекомендуется)'],
-        ['normal', 'Обычный'],
-        ['large', 'Крупный'],
+        ['small', 'Мелкий Font B — 42 символа (рекомендуется)'],
+        ['normal', 'Обычный Font A — 32 символа'],
+        ['large', 'Крупный (жирнее, 32 символа)'],
       ] },
-      { key: 'charsPerLine', label: 'Символов в строке (42 для мелкого)', type: 'number', min: 24, max: 48 },
       { key: 'lineSpacing', label: 'Высота строки (16–48)', type: 'number', min: 16, max: 48 },
-      { key: 'leftMarginDots', label: 'Левое поле, точек (0 = от края)', type: 'number', min: 0, max: 96 },
-      { key: 'printWidthDots', label: 'Ширина печати (384 = весь рулон)', type: 'number', min: 240, max: 384 },
     ]
     const BOOL_FIELDS = [
       { key: 'showStoreName', label: 'Название магазина' },
@@ -206,8 +203,8 @@
 
     function buildPreviewHtml(tpl) {
       const cur = tpl.currency || 'сом'
-      const w = Math.max(24, Math.min(48, Number(tpl.charsPerLine) || 42))
-      const fontPx = tpl.printFont === 'large' ? 15 : (tpl.printFont === 'normal' ? 13 : 11)
+      const w = tpl.printFont === 'small' ? 42 : 32
+      const fontPx = tpl.printFont === 'large' ? 14 : (tpl.printFont === 'normal' ? 12 : 10)
       const when = '18.07.2026 14:32'
       const subtotal = 175
       const discount = 17.5

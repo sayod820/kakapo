@@ -85,14 +85,22 @@ function padLine(left, right, width) {
   return l + ' '.repeat(space) + r
 }
 
+/** Перенос только по пробелам / дефису / & — никогда посередине слова. */
 function wrapName(name, width) {
   const s = String(name || '').trim() || 'Товар'
   if (s.length <= width) return [s]
   const lines = []
   let rest = s
   while (rest.length > width) {
-    let cut = rest.lastIndexOf(' ', width)
-    if (cut < 8) cut = width
+    let cut = -1
+    for (let i = Math.min(width, rest.length - 1); i >= Math.min(8, width); i--) {
+      const ch = rest[i]
+      if (ch === ' ' || ch === '-' || ch === '&') {
+        cut = ch === ' ' ? i : i + 1
+        break
+      }
+    }
+    if (cut < 1) cut = width
     lines.push(rest.slice(0, cut).trim())
     rest = rest.slice(cut).trim()
   }
@@ -100,16 +108,18 @@ function wrapName(name, width) {
   return lines
 }
 
-/** Имя + сумма справа (как на макете); перенос только по пробелам. */
+/** Имя + сумма справа; если не влезает — имя целиком, сумма отдельной строкой справа. */
 function nameAmountLines(name, amount, width, currency) {
   const right = moneyWithCurrency(amount, currency)
   const maxLeft = Math.max(8, width - right.length - 1)
-  const lines = wrapName(name, maxLeft)
+  const nameLines = wrapName(name, width)
   const out = []
-  lines.forEach((line, i) => {
-    if (i === lines.length - 1) out.push(padLine(line, right, width))
-    else out.push(line)
-  })
+  if (nameLines.length === 1 && nameLines[0].length <= maxLeft) {
+    out.push(padLine(nameLines[0], right, width))
+    return out
+  }
+  for (const line of nameLines) out.push(line)
+  out.push(padLine('', right, width))
   return out
 }
 
@@ -164,13 +174,14 @@ function docTitle(sale, tpl) {
 
 /**
  * Макет 1:1 с дизайн-макетом 58 мм.
- * По умолчанию используется мелкий Font B (42 символа): он совпадает
- * с размером макета и не выглядит огромным на бумаге 58 мм.
+ * XP-58C: НЕ шлём GS L / GS W — на этой модели они сужают печать до ~16 символов
+ * и ломают слова посередине. Font B (мелкий) = 42 кол., Font A = 32 кол.
  */
 function buildEscPosReceipt(sale, opts = {}) {
   const tpl = normalizeReceiptTemplate(opts)
   const currency = tpl.currency
-  const width = tpl.charsPerLine
+  // Ширина строго по шрифту, иначе принтер сам режет строку посередине слова
+  const width = tpl.printFont === 'small' ? 42 : 32
   const store = tpl.storeName
   const phone = tpl.storePhone
   const subtitle = tpl.subtitle
@@ -209,33 +220,49 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   const chunks = []
   const cmd = (...b) => chunks.push(Buffer.from(b))
-  const txt = (s) => chunks.push(encodeCp866(`${String(s)}\n`))
+  const txt = (s) => {
+    // Страховка: никогда не слать строку длиннее ширины принтера
+    const raw = String(s == null ? '' : s)
+    if (raw.length <= width) {
+      chunks.push(encodeCp866(`${raw}\n`))
+      return
+    }
+    for (const part of wrapName(raw, width)) {
+      chunks.push(encodeCp866(`${part}\n`))
+    }
+  }
   const sep = () => txt('-'.repeat(width))
   const lines = (arr) => { for (const line of arr) txt(line) }
 
-  /** Полный сброс, область печати от края до края, CP866 и выбранный шрифт. */
+  /** Сброс XP-58C: CP866 + шрифт. Без GS L/W (ломают ширину на 16 символов). */
   const boot = (align = 0) => {
-    cmd(ESC, 0x40)
+    cmd(ESC, 0x40) // init
     cmd(FS, 0x2E)
     cmd(ESC, 0x52, 0x00)
     cmd(ESC, 0x74, 17) // CP866
-    cmd(GS, 0x4C, tpl.leftMarginDots & 0xff, (tpl.leftMarginDots >> 8) & 0xff)
-    cmd(GS, 0x57, tpl.printWidthDots & 0xff, (tpl.printWidthDots >> 8) & 0xff)
     cmd(ESC, 0x33, tpl.lineSpacing)
+    cmd(ESC, 0x21, 0x00) // ESC ! — сброс стиля
+    cmd(GS, 0x21, 0x00) // GS ! — без увеличения (иначе 16 символов)
+    cmd(ESC, 0x4D, tpl.printFont === 'small' ? 0x01 : 0x00) // Font B / A
+    cmd(ESC, 0x45, 0)
+    cmd(GS, 0x42, 0x00)
+    cmd(ESC, 0x61, align)
+  }
+
+  const normalSize = () => {
+    cmd(ESC, 0x21, 0x00)
+    cmd(GS, 0x21, 0x00)
     cmd(ESC, 0x4D, tpl.printFont === 'small' ? 0x01 : 0x00)
-    cmd(GS, 0x21, tpl.printFont === 'large' ? 0x01 : 0x00)
-    cmd(ESC, 0x45, 0) // bold off
-    cmd(GS, 0x42, 0x00) // reverse off
-    cmd(ESC, 0x61, align) // 0 left / 1 center
   }
 
   boot(1)
 
-  // Даже название и ИТОГ не увеличиваем по ширине: только жирный.
+  // Шапка: только жирный, без увеличения размера
   if (tpl.showStoreName) {
     cmd(ESC, 0x45, 1)
     txt(store)
     cmd(ESC, 0x45, 0)
+    normalSize()
   }
   if (tpl.showSubtitle) txt(subtitle)
   if (tpl.showStorePhone && phone) txt(phone)
@@ -245,6 +272,7 @@ function buildEscPosReceipt(sale, opts = {}) {
     cmd(ESC, 0x45, 1)
     txt(docTitle(sale, tpl))
     cmd(ESC, 0x45, 0)
+    normalSize()
   }
   sep()
 
@@ -268,19 +296,13 @@ function buildEscPosReceipt(sale, opts = {}) {
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
     const fullName = String(it.productName || `#${it.productId}`).trim()
+    const parts = splitNameDetail(fullName)
     const right = fmt(sum)
     const maxLeft = Math.max(8, width - right.length - 1)
-    let detail = ''
-    let title = fullName
-    if (fullName.length > maxLeft) {
-      const parts = splitNameDetail(fullName)
-      if (parts.detail && parts.name.length <= maxLeft) {
-        title = parts.name
-        detail = parts.detail
-      }
-    }
-    lines(nameAmountLines(title, sum, width, currency))
-    if (detail) txt(detail)
+    // Объём отдельной строкой только если имя без него реально короче
+    const useDetail = parts.detail && parts.name.length <= maxLeft && fullName.length > maxLeft
+    lines(nameAmountLines(useDetail ? parts.name : fullName, sum, width, currency))
+    if (useDetail) txt(parts.detail)
     txt(`${qtyText(qty)} x ${money(price)}`)
   })
 
@@ -300,10 +322,10 @@ function buildEscPosReceipt(sale, opts = {}) {
     lines(kvLines(tpl.labelBonusSpent, `-${fmt(bonusSpent)}`, width))
   }
 
-  // ИТОГ — только жирный, обычный размер (как на экране)
   cmd(ESC, 0x45, 1)
   txt(padLine(tpl.labelTotal, fmt(total), width))
   cmd(ESC, 0x45, 0)
+  normalSize()
 
   sep()
 
@@ -312,7 +334,6 @@ function buildEscPosReceipt(sale, opts = {}) {
     lines(kvLines(tpl.labelCash, fmt(sale.paidCash), width))
   }
   if (tpl.showCard && (Number(sale.paidCard) || 0) > 0.001) {
-    // Ровно 32 символа на макете: «Картой (Visa ****4821)» + «97.50 сом»
     lines(kvLines(cardLineLabel(sale, tpl.labelCard), fmt(sale.paidCard), width))
   }
   if (tpl.showDebt && (Number(sale.debtAdded) || 0) > 0.001) {
@@ -325,6 +346,7 @@ function buildEscPosReceipt(sale, opts = {}) {
     cmd(ESC, 0x45, 1)
     txt(padLine(tpl.labelChange, fmt(sale.changeGiven), width))
     cmd(ESC, 0x45, 0)
+    normalSize()
   }
 
   const balBefore = sale.bonusBalanceBefore
@@ -344,6 +366,7 @@ function buildEscPosReceipt(sale, opts = {}) {
     cmd(ESC, 0x45, 1)
     for (const line of wrapName(footerThanks, width)) txt(line)
     cmd(ESC, 0x45, 0)
+    normalSize()
   }
   if (tpl.showFooterNote) {
     for (const line of wrapName(footerNote, width)) txt(line)

@@ -6,13 +6,10 @@
  */
 
 const DEFAULT_RECEIPT_TEMPLATE = {
-  // Физическая печать XP-58C. Font B даёт мелкий шрифт и 42 символа
-  // в строке — размер ближе всего к макету на экране.
+  // XP-58C: Font B = мелкий (42 символа). Не трогаем GS L/W — ломают ширину.
   printFont: 'small',
   charsPerLine: 42,
   lineSpacing: 24,
-  leftMarginDots: 0,
-  printWidthDots: 384,
 
   storeName: 'КАКАПО',
   storePhone: '+992 112 373 333',
@@ -93,14 +90,15 @@ function asInt(v, fallback, min, max) {
 function normalizeReceiptTemplate(raw) {
   const p = raw && typeof raw === 'object' ? raw : {}
   const d = DEFAULT_RECEIPT_TEMPLATE
+  const printFont = ['small', 'normal', 'large'].includes(p.printFont)
+    ? p.printFont
+    : d.printFont
+  // Ширина жёстко связана со шрифтом — иначе XP-58C режет слова
+  const charsPerLine = printFont === 'small' ? 42 : 32
   return {
-    printFont: ['small', 'normal', 'large'].includes(p.printFont)
-      ? p.printFont
-      : d.printFont,
-    charsPerLine: asInt(p.charsPerLine, d.charsPerLine, 24, 48),
+    printFont,
+    charsPerLine,
     lineSpacing: asInt(p.lineSpacing, d.lineSpacing, 16, 48),
-    leftMarginDots: asInt(p.leftMarginDots, d.leftMarginDots, 0, 96),
-    printWidthDots: asInt(p.printWidthDots, d.printWidthDots, 240, 384),
 
     storeName: asStr(p.storeName, d.storeName),
     storePhone: String(p.storePhone != null ? p.storePhone : d.storePhone).trim(),
