@@ -171,7 +171,12 @@ export function buildPosReceiptHtml(
   .muted{color:#111;font-size:${smallSize}px;line-height:1.3;font-weight:700}
   .center{text-align:center}
   .sep{height:0;border:0;border-top:2px dotted #000;margin:9px 0}
-  .doc-title{background:#fff;color:#000;text-align:center;font-size:${bannerSize + 2}px;font-weight:900;padding:6px 4px;margin:8px 0 7px;letter-spacing:.03em;border:0;border-bottom:2px solid #000;border-top:2px solid #000}
+  .doc-title{
+    background:#fff;color:#000;text-align:center;
+    font-size:${bannerSize + 2}px;font-weight:900;padding:8px 4px;margin:8px 0 7px;
+    letter-spacing:.04em;text-transform:uppercase;
+    border-top:2px solid #000;border-bottom:2px solid #000;
+  }
   .meta-row,.sum-row,.item-calc{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
   .meta-row{font-size:${smallSize}px;margin:3px 0;font-weight:700}
   .meta-row span{color:#111;font-weight:700}

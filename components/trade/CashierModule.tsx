@@ -3426,7 +3426,7 @@ export default function CashierModule({
 
                 <div className="pos-settings-card">
                   <h3>Принтер чеков · XP-58C</h3>
-                  <p className="hint">Лента 58 мм · нативный шрифт принтера (чётко, как старая касса)</p>
+                  <p className="hint">Лента 58 мм · печать = предпросмотр (ТОВАРНЫЙ ЧЕК: чёрный текст на белом)</p>
                   {isKakapoDesktop() ? (
                     <>
                       {!deskPrinters.length ? (
@@ -3497,7 +3497,7 @@ export default function CashierModule({
                 <div className="pos-settings-card span-all">
                   <h3>Шаблон чека</h3>
                   <p className="hint">
-                    Язык и тексты шаблона. На принтер уходит тот же дизайн, что в предпросмотре справа.
+                    Печать идёт точь-в-точь как предпросмотр справа. «ТОВАРНЫЙ ЧЕК» — белый фон, чёрный текст.
                   </p>
                   <div className="receipt-tpl-grid">
                     <div className="receipt-tpl-form">
