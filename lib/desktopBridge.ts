@@ -64,6 +64,8 @@ export type KakapoDesktopApi = {
     storeName?: string
     storePhone?: string
     subtitle?: string
+    showSubtitle?: boolean
+    showStorePhone?: boolean
     footerThanks?: string
     footerNote?: string
     posLabel?: string

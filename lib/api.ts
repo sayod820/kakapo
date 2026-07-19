@@ -589,9 +589,9 @@ export const api = {
   updateCashier: (id: string, data: Partial<PosCashier>) =>
     request<PosCashier>(`/cashiers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getPosPoints: () => request<PosPoint[]>('/pos/points'),
-  createPosPoint: (data: { name: string; code?: string; note?: string }) =>
+  createPosPoint: (data: { name: string; code?: string; note?: string; receiptPhone?: string }) =>
     request<PosPoint>('/pos/points', { method: 'POST', body: JSON.stringify(data) }),
-  updatePosPoint: (id: string, data: Partial<Pick<PosPoint, 'name' | 'code' | 'note' | 'active'>>) =>
+  updatePosPoint: (id: string, data: Partial<Pick<PosPoint, 'name' | 'code' | 'note' | 'receiptPhone' | 'active'>>) =>
     request<PosPoint>(`/pos/points/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePosPoint: (id: string) =>
     request<{ id: string }>(`/pos/points/${encodeURIComponent(id)}`, { method: 'DELETE' }),

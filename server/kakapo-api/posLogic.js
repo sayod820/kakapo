@@ -78,6 +78,7 @@ export function createPosPoint(db, data = {}) {
     name,
     code,
     note: String(data.note || '').trim(),
+    receiptPhone: String(data.receiptPhone || '').trim(),
     active: data.active !== false,
     createdAtIso: nowIso(),
   }
@@ -96,6 +97,7 @@ export function updatePosPoint(db, id, data = {}) {
   }
   if (data.code != null) row.code = String(data.code).trim()
   if (data.note != null) row.note = String(data.note).trim()
+  if (data.receiptPhone != null) row.receiptPhone = String(data.receiptPhone).trim()
   if (data.active != null) row.active = !!data.active
   return row
 }

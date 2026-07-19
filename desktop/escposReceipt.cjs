@@ -293,7 +293,7 @@ function buildEscPosReceipt(sale, opts = {}) {
     setStyle({ size: tpl.sizeStoreName, bold: tpl.boldStoreName })
     txt(store)
   }
-  if (tpl.showSubtitle) {
+  if (tpl.showSubtitle && subtitle) {
     setStyle({ size: tpl.sizeSubtitle, bold: tpl.boldSubtitle })
     txt(subtitle)
   }
@@ -328,12 +328,13 @@ function buildEscPosReceipt(sale, opts = {}) {
   if (tpl.showItems) {
     // Для позиций всегда Font A / 32 символа: так название и расчёт не разъезжаются.
     setStyle({ size: 'normal', bold: tpl.boldItems })
-    items.forEach((it) => {
+    items.forEach((it, idx) => {
       const qty = Number(it.qty) || 0
       const price = Number(it.price) || 0
       const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
       const fullName = String(it.productName || `#${it.productId}`).trim()
       lines(itemReceiptLines(fullName, qty, price, sum))
+      if (idx < items.length - 1) txt('')
     })
   }
 
@@ -357,10 +358,12 @@ function buildEscPosReceipt(sale, opts = {}) {
     lines(kvLines(tpl.labelBonusSpent, `-${fmt(bonusSpent)}`, width))
   }
 
+  setStyle({ size: tpl.sizeBody, bold: false })
+  txt('='.repeat(width))
   setStyle({ size: tpl.sizeTotal, bold: tpl.boldTotal })
   txt(padLine(tpl.labelTotal, fmt(total), width))
-
-  sep()
+  setStyle({ size: tpl.sizeBody, bold: false })
+  txt('='.repeat(width))
 
   setStyle({ size: tpl.sizeBody, bold: tpl.boldBody })
   if (tpl.showPay) lines(kvLines(tpl.labelPay, payLabel(sale, tpl), width))
@@ -399,13 +402,17 @@ function buildEscPosReceipt(sale, opts = {}) {
     setStyle({ size: tpl.sizeFooter, bold: tpl.boldFooterThanks })
     for (const line of wrapName(footerThanks, width)) txt(line)
   }
-  if (tpl.showFooterNote) {
+  if (tpl.showFooterNote && footerNote) {
     setStyle({ size: tpl.sizeFooter, bold: tpl.boldFooterNote })
     for (const line of wrapName(footerNote, width)) txt(line)
   }
 
-  chunks.push(encodeCp866('\n\n\n\n'))
-  cmd(GS, 0x56, 0x01)
+  // XP-58C без автоотрезчика удерживает последние строки внутри тракта.
+  // Сначала завершаем текст, затем отдельной ESC-командой подаём бумагу:
+  // так футер не остаётся и не выходит в начале следующего чека.
+  chunks.push(encodeCp866('\n\n'))
+  cmd(ESC, 0x64, 0x06) // ESC d 6 — подать 6 строк после полного чека
+  cmd(GS, 0x56, 0x01) // на моделях с отрезчиком — резать только после подачи
   return Buffer.concat(chunks)
 }
 

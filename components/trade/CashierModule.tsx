@@ -41,6 +41,13 @@ import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import {
   printPosReceipt,
   buildDemoReceiptSale,
+  buildPosReceiptHtml,
+  DEFAULT_RECEIPT_STORE,
+  loadReceiptStore,
+  normalizeReceiptStore,
+  RECEIPT_TOGGLE_FIELDS,
+  saveReceiptStore,
+  type ReceiptStoreConfig,
 } from '@/lib/printPosReceipt'
 import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
@@ -63,6 +70,18 @@ const FAV_KEY = 'kakapo_pos_favorites'
 type ThemeName = 'dark' | 'light'
 type PayMethod = 'cash' | 'card' | 'credit' | 'balance' | 'mixed'
 type PosSettings = { cashierId: string; cashierName: string; initials: string }
+
+const RECEIPT_EDITOR_TEXT_FIELDS: Array<{
+  key: 'docTitle' | 'docTitleReturn' | 'docTitlePartial' | 'currency' | 'footerThanks' | 'footerNote'
+  label: string
+}> = [
+  { key: 'docTitle', label: 'Заголовок обычного чека' },
+  { key: 'docTitleReturn', label: 'Заголовок возврата' },
+  { key: 'docTitlePartial', label: 'Заголовок частичного возврата' },
+  { key: 'currency', label: 'Валюта' },
+  { key: 'footerThanks', label: 'Строка «Спасибо»' },
+  { key: 'footerNote', label: 'Примечание внизу' },
+]
 
 type CartLine = {
   key: string
@@ -473,6 +492,7 @@ export default function CashierModule({
   const [editPosName, setEditPosName] = useState('')
   const [editPosCode, setEditPosCode] = useState('')
   const [editPosNote, setEditPosNote] = useState('')
+  const [editReceiptPhone, setEditReceiptPhone] = useState('')
   const [deletePosId, setDeletePosId] = useState<string | null>(null)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
@@ -531,7 +551,19 @@ export default function CashierModule({
   const [deskScaleDept, setDeskScaleDept] = useState('1')
   const [deskPrintBusy, setDeskPrintBusy] = useState(false)
   const [deskCasBusy, setDeskCasBusy] = useState(false)
+  const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
+  const [receiptTemplateDraft, setReceiptTemplateDraft] = useState<ReceiptStoreConfig>(() => ({
+    ...DEFAULT_RECEIPT_STORE,
+  }))
   const [qtyEditDraftKey, setQtyEditDraftKey] = useState<string | null>(null)
+
+  const receiptPreviewHtml = useMemo(() => buildPosReceiptHtml(buildDemoReceiptSale(), {
+    ...receiptTemplateDraft,
+    storeName: editPosName.trim() || 'КАКАПО',
+    storePhone: editReceiptPhone.trim(),
+    subtitle: '',
+    posLabel: editPosName.trim() || 'Касса №1',
+  }), [receiptTemplateDraft, editPosName, editReceiptPhone])
 
   const refresh = useCallback(async () => {
     await Promise.all([syncPosFromApi(), syncClientsFromApi(), syncCardsFromApi(), fetchProducts()])
@@ -680,7 +712,7 @@ export default function CashierModule({
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
-    || histOpen || payPickOpen || creditNoteOpen || !!printAskSale
+    || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!printAskSale
     || !!dashMenuPosId
 
   function focusProductSearch() {
@@ -708,7 +740,7 @@ export default function CashierModule({
     activeTicketId,
     catModalOpen, clientOpen, clientScanOpen, discOpen, discPickOpen,
     qtyEditOpen, cashOpen, splitCardOpen, topupOpen, repayOpen,
-    histOpen, payPickOpen, creditNoteOpen, printAskSale,
+    histOpen, payPickOpen, creditNoteOpen, receiptTemplateOpen, printAskSale,
   ])
 
   useEffect(() => {
@@ -1512,6 +1544,7 @@ export default function CashierModule({
     setEditPosName(point.name || '')
     setEditPosCode(point.code || '')
     setEditPosNote(point.note || '')
+    setEditReceiptPhone(point.receiptPhone || '')
     if (isKakapoDesktop()) {
       const desk = getKakapoDesktop()
       void Promise.all([
@@ -1561,6 +1594,7 @@ export default function CashierModule({
         name,
         code: editPosCode.trim(),
         note: editPosNote.trim(),
+        receiptPhone: editReceiptPhone.trim(),
       })
       if (isKakapoDesktop()) {
         const desk = getKakapoDesktop()
@@ -1659,11 +1693,58 @@ export default function CashierModule({
         paperWidthMm: XP58C_RECEIPT_MM,
       })
       const sample = buildDemoReceiptSale()
+      const storeName = editPosName.trim() || 'КАКАПО'
+      const storePhone = editReceiptPhone.trim()
       await printPosReceipt(sample, {
-        posLabel: editPosName || 'Саунаи Курботу',
+        storeName,
+        storePhone,
+        subtitle: '',
+        posLabel: storeName,
         cashierName: sample.cashierName,
       })
       showToast('Чек напечатан', xp)
+    } catch (e) {
+      showToast('Печать', e instanceof Error ? e.message : 'Ошибка')
+    } finally {
+      setDeskPrintBusy(false)
+    }
+  }
+
+  function openReceiptTemplateEditor() {
+    setReceiptTemplateDraft(loadReceiptStore())
+    setReceiptTemplateOpen(true)
+  }
+
+  function saveReceiptTemplateEditor() {
+    const next = normalizeReceiptStore(receiptTemplateDraft)
+    saveReceiptStore(next)
+    setReceiptTemplateDraft(next)
+    setReceiptTemplateOpen(false)
+    showToast('Шаблон чека', 'Настройки сохранены')
+  }
+
+  function resetReceiptTemplateEditor() {
+    setReceiptTemplateDraft({ ...DEFAULT_RECEIPT_STORE })
+  }
+
+  async function testReceiptTemplateDraft() {
+    const desk = getKakapoDesktop()
+    if (!desk) {
+      showToast('Печать', 'Запустите KAKAPO Касса (desktop)')
+      return
+    }
+    setDeskPrintBusy(true)
+    try {
+      const sample = buildDemoReceiptSale()
+      await printPosReceipt(sample, {
+        ...normalizeReceiptStore(receiptTemplateDraft),
+        storeName: editPosName.trim() || 'КАКАПО',
+        storePhone: editReceiptPhone.trim(),
+        subtitle: '',
+        posLabel: editPosName.trim() || 'Касса №1',
+        cashierName: sample.cashierName,
+      })
+      showToast('Тестовый чек', 'Шаблон отправлен на XP-58C')
     } catch (e) {
       showToast('Печать', e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -2535,7 +2616,12 @@ export default function CashierModule({
       const posPoint = sale.posId
         ? posPoints.find(p => p.id === sale.posId)
         : activePosPoint
+      const storeName = String(posPoint?.name || activePosPoint?.name || '').trim() || 'КАКАПО'
+      const storePhone = String(posPoint?.receiptPhone || activePosPoint?.receiptPhone || '').trim()
       await printPosReceipt(sale, {
+        storeName,
+        storePhone,
+        subtitle: '',
         posLabel: posPoint?.name || posPoint?.code || activePosPoint?.name || activePosPoint?.code || undefined,
         cashierName: sale.cashierName || settings.cashierName,
       })
@@ -3347,7 +3433,7 @@ export default function CashierModule({
               <div className="pos-settings-wrap">
                 <div className="pos-settings-card">
                   <h3>Касса</h3>
-                  <p className="hint">Название видно в списке точек и на чеке</p>
+                  <p className="hint">Название видно в списке точек и в шапке чека</p>
                   <div className="pos-settings-field">
                     <span className="gate-label">Название</span>
                     <input
@@ -3356,6 +3442,16 @@ export default function CashierModule({
                       onChange={e => setEditPosName(e.target.value)}
                       placeholder="Магазин · Ленина 42"
                       autoFocus
+                    />
+                  </div>
+                  <div className="pos-settings-field">
+                    <span className="gate-label">Телефон на чеке</span>
+                    <input
+                      className="gate-input"
+                      value={editReceiptPhone}
+                      onChange={e => setEditReceiptPhone(e.target.value)}
+                      placeholder="+992 112 373 333"
+                      inputMode="tel"
                     />
                   </div>
                   <div className="pos-settings-field">
@@ -3380,7 +3476,7 @@ export default function CashierModule({
 
                 <div className="pos-settings-card">
                   <h3>Принтер чеков · XP-58C</h3>
-                  <p className="hint">Лента 58 мм · печать = предпросмотр (ТОВАРНЫЙ ЧЕК: чёрный текст на белом)</p>
+                  <p className="hint">Лента 58 мм · ESC/POS · шапка: название + телефон</p>
                   {isKakapoDesktop() ? (
                     <>
                       {!deskPrinters.length ? (
@@ -3438,6 +3534,13 @@ export default function CashierModule({
                           onClick={() => void testReceiptPrinter()}
                         >
                           {deskPrintBusy ? 'Печатаем…' : '🖨 Тест чека'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-switch-till"
+                          onClick={openReceiptTemplateEditor}
+                        >
+                          Редактор шаблона
                         </button>
                       </div>
                     </>
@@ -3565,6 +3668,174 @@ export default function CashierModule({
                   className="btn-switch-till"
                   disabled={busy}
                   onClick={() => { setEditPosId(null); setMsg('') }}
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {receiptTemplateOpen && (
+          <div
+            className="pos-settings-fs receipt-tpl-fs"
+            style={{ zIndex: 8200 }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Редактор шаблона чека"
+          >
+            <div className="pos-settings-top">
+              <div style={{ minWidth: 0 }}>
+                <h2>Редактор шаблона чека XP-58C</h2>
+                <p>Лента 58 мм · живой предпросмотр · настройки сохраняются на этой кассе</p>
+              </div>
+              <div className="pos-settings-top-actions">
+                <button
+                  type="button"
+                  className="btn-switch-till"
+                  onClick={() => setReceiptTemplateOpen(false)}
+                >
+                  ← Назад
+                </button>
+              </div>
+            </div>
+
+            <div className="pos-settings-scroll">
+              <div
+                className="pos-settings-wrap"
+                style={{ gridTemplateColumns: 'minmax(340px, 1fr) minmax(340px, 460px)' }}
+              >
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <div className="pos-settings-card">
+                    <h3>Интервал печати</h3>
+                    <p className="hint">
+                      Межстрочный интервал: {receiptTemplateDraft.lineSpacing} точек
+                    </p>
+                    <input
+                      type="range"
+                      min={16}
+                      max={48}
+                      step={1}
+                      value={receiptTemplateDraft.lineSpacing}
+                      onChange={e => setReceiptTemplateDraft(prev => ({
+                        ...prev,
+                        lineSpacing: Number(e.target.value),
+                      }))}
+                      style={{ width: '100%' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--t2)' }}>
+                      <span>Плотно</span>
+                      <span>Обычно: 24</span>
+                      <span>Свободно</span>
+                    </div>
+                  </div>
+
+                  <div className="pos-settings-card">
+                    <h3>Тексты чека</h3>
+                    <p className="hint">
+                      Название и телефон магазина задаются выше в настройках точки.
+                    </p>
+                    {RECEIPT_EDITOR_TEXT_FIELDS.map(field => (
+                      <div className="pos-settings-field" key={field.key}>
+                        <span className="gate-label">{field.label}</span>
+                        <input
+                          className="gate-input"
+                          value={receiptTemplateDraft[field.key]}
+                          onChange={e => setReceiptTemplateDraft(prev => ({
+                            ...prev,
+                            [field.key]: e.target.value,
+                          }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pos-settings-card">
+                    <h3>Показывать на чеке</h3>
+                    <p className="hint">Отключите ненужные строки, чтобы чек был короче.</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8 }}>
+                      {RECEIPT_TOGGLE_FIELDS.map(field => (
+                        <label
+                          key={field.key}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            minHeight: 38,
+                            padding: '7px 9px',
+                            border: '1px solid var(--border)',
+                            borderRadius: 10,
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            fontWeight: 700,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={Boolean(receiptTemplateDraft[field.key])}
+                            onChange={e => setReceiptTemplateDraft(prev => ({
+                              ...prev,
+                              [field.key]: e.target.checked,
+                            }))}
+                          />
+                          <span>{field.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pos-settings-card" style={{ position: 'sticky', top: 0 }}>
+                  <h3>Предпросмотр</h3>
+                  <p className="hint">Фактическая печать идёт текстом ESC/POS на 32 символа.</p>
+                  <div
+                    style={{
+                      background: '#d8d8d8',
+                      borderRadius: 12,
+                      padding: 12,
+                      display: 'flex',
+                      justifyContent: 'center',
+                      maxHeight: '68vh',
+                      overflow: 'auto',
+                    }}
+                  >
+                    <iframe
+                      title="Предпросмотр чека"
+                      srcDoc={receiptPreviewHtml}
+                      style={{
+                        width: 384,
+                        minWidth: 384,
+                        height: 760,
+                        border: 0,
+                        background: '#fff',
+                        borderRadius: 4,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="pos-settings-actions">
+              <div className="pos-settings-actions-inner" style={{ flexWrap: 'wrap' }}>
+                <button type="button" className="btn-gate" onClick={saveReceiptTemplateEditor}>
+                  Сохранить шаблон
+                </button>
+                <button
+                  type="button"
+                  className="btn-switch-till"
+                  disabled={deskPrintBusy || !deskPrinterName}
+                  onClick={() => void testReceiptTemplateDraft()}
+                >
+                  {deskPrintBusy ? 'Печатаем…' : 'Тест на XP-58C'}
+                </button>
+                <button type="button" className="btn-switch-till" onClick={resetReceiptTemplateEditor}>
+                  Сбросить
+                </button>
+                <button
+                  type="button"
+                  className="btn-switch-till"
+                  onClick={() => setReceiptTemplateOpen(false)}
                 >
                   Отмена
                 </button>

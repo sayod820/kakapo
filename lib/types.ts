@@ -152,6 +152,8 @@ export interface PosPoint {
   /** Подпись, напр. «Касса №1 · KAKAPO» */
   code?: string
   note?: string
+  /** Телефон на товарном чеке (шапка XP-58C) */
+  receiptPhone?: string
   active: boolean
   createdAtIso?: string
 }

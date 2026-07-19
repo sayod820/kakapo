@@ -12,14 +12,14 @@ const DEFAULT_RECEIPT_TEMPLATE = {
   lineSpacing: 24,
 
   // Размер отдельных блоков: small | normal | tall (tall = выше, без уширения)
-  sizeStoreName: 'normal',
-  sizeSubtitle: 'normal',
+  sizeStoreName: 'tall',
+  sizeSubtitle: 'small',
   sizePhone: 'normal',
   sizeDocTitle: 'normal',
   sizeBody: 'normal',
   sizeItems: 'normal',
-  sizeTotal: 'normal',
-  sizeFooter: 'normal',
+  sizeTotal: 'tall',
+  sizeFooter: 'small',
 
   // Жирный / обычный
   boldStoreName: true,
@@ -35,7 +35,7 @@ const DEFAULT_RECEIPT_TEMPLATE = {
 
   storeName: 'КАКАПО',
   storePhone: '+992 112 373 333',
-  subtitle: 'магазин - касса',
+  subtitle: '',
   docTitle: 'ТОВАРНЫЙ ЧЕК',
   docTitleReturn: 'ВОЗВРАТНЫЙ ЧЕК',
   docTitlePartial: 'ЧЕК - ЧАСТИЧНЫЙ ВОЗВРАТ',
@@ -65,7 +65,7 @@ const DEFAULT_RECEIPT_TEMPLATE = {
   footerNote: 'Сохраняйте чек до проверки товара',
 
   showStoreName: true,
-  showSubtitle: true,
+  showSubtitle: false,
   showStorePhone: true,
   showDocTitle: true,
   showItems: true,
@@ -156,7 +156,7 @@ function normalizeReceiptTemplate(raw) {
 
     storeName: asStr(p.storeName, d.storeName),
     storePhone: String(p.storePhone != null ? p.storePhone : d.storePhone).trim(),
-    subtitle: asStr(p.subtitle, d.subtitle),
+    subtitle: String(p.subtitle != null ? p.subtitle : d.subtitle).trim(),
     docTitle: asStr(p.docTitle, d.docTitle),
     docTitleReturn: asStr(p.docTitleReturn, d.docTitleReturn),
     docTitlePartial: asStr(p.docTitlePartial, d.docTitlePartial),

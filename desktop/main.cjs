@@ -89,28 +89,6 @@ function buildAppMenu() {
   ]))
 }
 
-/** Удаляет старую настройку шаблона из удалённого /trade без ожидания его деплоя. */
-function removeReceiptTemplateUi() {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  void mainWindow.webContents.executeJavaScript(`
-    (function () {
-      if (window.__kakapoReceiptTemplateRemoved) return;
-      window.__kakapoReceiptTemplateRemoved = true;
-      try { localStorage.removeItem('kakapo_trade_receipt_store'); } catch {}
-      const clean = () => {
-        document.querySelectorAll('.receipt-tpl-fs').forEach(el => el.remove());
-        document.querySelectorAll('h1,h2,h3,h4').forEach(h => {
-          if ((h.textContent || '').trim().toLowerCase() !== 'шаблон чека') return;
-          const card = h.closest('.pos-settings-card') || h.parentElement;
-          if (card) card.remove();
-        });
-      };
-      clean();
-      new MutationObserver(clean).observe(document.documentElement, { childList: true, subtree: true });
-    })();
-  `).catch(() => undefined)
-}
-
 function createWindow() {
   const config = loadConfig()
   const winCfg = config.window || {}
@@ -135,7 +113,6 @@ function createWindow() {
 
   const url = String(config.tradeUrl || 'http://localhost:3000/trade').trim()
   mainWindow.loadURL(url)
-  mainWindow.webContents.on('did-finish-load', removeReceiptTemplateUi)
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
     shell.openExternal(openUrl)
@@ -541,9 +518,9 @@ async function printReceiptEscPos(html, options = {}) {
     }
   }
 
-  // Формат чека фиксирован: пользовательских настроек и шаблонов нет.
+  // Формат 58 мм: дефолт + сохранённый редактор шаблона из Trade.
   const storeOpts = {
-    ...normalizeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE),
+    ...normalizeReceiptTemplate({ ...DEFAULT_RECEIPT_TEMPLATE, ...options }),
     posLabel: options.posLabel,
     cashierName: options.cashierName,
   }
@@ -643,7 +620,7 @@ app.whenReady().then(() => {
       printerName: p.printerName,
       paperWidthMm: 58,
       sale: p.sale,
-      ...normalizeReceiptTemplate(DEFAULT_RECEIPT_TEMPLATE),
+      ...normalizeReceiptTemplate({ ...DEFAULT_RECEIPT_TEMPLATE, ...p }),
       posLabel: p.posLabel,
       cashierName: p.cashierName,
     })

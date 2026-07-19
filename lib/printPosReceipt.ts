@@ -5,6 +5,8 @@ import { pickReceiptPrinter, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 const STORE_KEY = 'kakapo_trade_receipt_store'
 
 export type ReceiptStoreConfig = {
+  /** Межстрочный интервал ESC/POS в точках (XP-58C: 16–48). */
+  lineSpacing: number
   storeName: string
   storePhone: string
   subtitle: string
@@ -36,6 +38,14 @@ export type ReceiptStoreConfig = {
   footerThanks: string
   footerNote: string
 
+  showStoreName: boolean
+  showSubtitle: boolean
+  showStorePhone: boolean
+  showDocTitle: boolean
+  showItems: boolean
+  showSubtotal: boolean
+  showFooterThanks: boolean
+  showFooterNote: boolean
   showOrderNo: boolean
   showReceiptNo: boolean
   showDate: boolean
@@ -56,9 +66,10 @@ export type ReceiptStoreConfig = {
 }
 
 export const DEFAULT_RECEIPT_STORE: ReceiptStoreConfig = {
+  lineSpacing: 24,
   storeName: 'КАКАПО',
   storePhone: '+992 112 373 333',
-  subtitle: 'магазин - касса',
+  subtitle: '',
   docTitle: 'ТОВАРНЫЙ ЧЕК',
   docTitleReturn: 'ВОЗВРАТНЫЙ ЧЕК',
   docTitlePartial: 'ЧЕК - ЧАСТИЧНЫЙ ВОЗВРАТ',
@@ -87,6 +98,14 @@ export const DEFAULT_RECEIPT_STORE: ReceiptStoreConfig = {
   footerThanks: 'Спасибо за покупку!',
   footerNote: 'Сохраняйте чек до проверки товара',
 
+  showStoreName: true,
+  showSubtitle: false,
+  showStorePhone: true,
+  showDocTitle: true,
+  showItems: true,
+  showSubtotal: true,
+  showFooterThanks: true,
+  showFooterNote: true,
   showOrderNo: true,
   showReceiptNo: true,
   showDate: true,
@@ -140,6 +159,14 @@ export const RECEIPT_TEXT_FIELDS: Array<{ key: keyof ReceiptStoreConfig; label: 
 
 /** Флаги показа блоков. */
 export const RECEIPT_TOGGLE_FIELDS: Array<{ key: keyof ReceiptStoreConfig; label: string }> = [
+  { key: 'showStoreName', label: 'Название магазина' },
+  { key: 'showSubtitle', label: 'Подзаголовок' },
+  { key: 'showStorePhone', label: 'Телефон магазина' },
+  { key: 'showDocTitle', label: 'Заголовок документа' },
+  { key: 'showItems', label: 'Список товаров' },
+  { key: 'showSubtotal', label: 'Сумма до скидок' },
+  { key: 'showFooterThanks', label: 'Строка «спасибо»' },
+  { key: 'showFooterNote', label: 'Примечание внизу' },
   { key: 'showOrderNo', label: 'Номер заказа' },
   { key: 'showReceiptNo', label: 'Номер чека' },
   { key: 'showDate', label: 'Дата' },
@@ -174,11 +201,18 @@ function bool(v: unknown, fallback: boolean): boolean {
 export function normalizeReceiptStore(p?: Partial<ReceiptStoreConfig> | null): ReceiptStoreConfig {
   const d = DEFAULT_RECEIPT_STORE
   const o = p || {}
-  const out = {} as ReceiptStoreConfig
+  const rawSpacing = Math.round(Number(o.lineSpacing))
+  const out = {
+    lineSpacing: Number.isFinite(rawSpacing)
+      ? Math.max(16, Math.min(48, rawSpacing))
+      : d.lineSpacing,
+  } as ReceiptStoreConfig
   for (const f of RECEIPT_TEXT_FIELDS) {
-    // телефон может быть пустым — не форсим дефолт
-    if (f.key === 'storePhone') {
-      out.storePhone = String((o as Record<string, unknown>).storePhone ?? d.storePhone).trim()
+    // телефон и подзаголовок могут быть пустыми — минимальная шапка
+    if (f.key === 'storePhone' || f.key === 'subtitle') {
+      ;(out as Record<string, unknown>)[f.key] = String(
+        (o as Record<string, unknown>)[f.key] ?? d[f.key],
+      ).trim()
     } else {
       ;(out as Record<string, unknown>)[f.key] = str((o as Record<string, unknown>)[f.key], String(d[f.key]))
     }
@@ -321,6 +355,7 @@ export function buildDemoReceiptSale(): PosSale {
 export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): string {
   const tpl = resolveTemplateOpts(opts)
   const cur = tpl.currency
+  const previewLineHeight = Math.max(1.05, Math.min(2, (tpl.lineSpacing / 24) * 1.35))
   const m = (n: number) => money(n, cur)
   const storeName = esc(tpl.storeName)
   const storePhone = esc(tpl.storePhone)
@@ -363,7 +398,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     ? Math.round((discount / subtotal) * 100)
     : 0
 
-  const itemHtml = items.map(it => {
+  const itemHtml = tpl.showItems ? items.map(it => {
     const qty = Number(it.qty) || 0
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
@@ -385,7 +420,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     ${detail ? `<div class="item-qty">${esc(detail)}</div>` : ''}
     <div class="item-qty">${qtyText(qty)} x ${shortMoney(price)}</div>
   </div>`
-  }).join('\n')
+  }).join('\n') : ''
 
   const balBefore = sale.bonusBalanceBefore
   const balAfter = sale.bonusBalanceAfter
@@ -403,7 +438,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   ].filter(Boolean).join('\n  ')
 
   const totals = [
-    row(tpl.labelSum, m(subtotal)),
+    tpl.showSubtotal ? row(tpl.labelSum, m(subtotal)) : '',
     tpl.showDiscount && discount > 0.001
       ? `<div class="row"><span>${esc(tpl.labelDiscount)}${discountPct > 0 ? ` ${discountPct}%` : ''}</span><span>-${m(discount)}</span></div>`
       : '',
@@ -453,7 +488,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     font-family:'Courier New',Courier,monospace;
     font-weight:500;
     font-size:13px;
-    line-height:1.35;
+    line-height:${previewLineHeight};
     color:#000;
   }
   .center{text-align:center}
@@ -467,26 +502,27 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   .item-name{flex:1;word-break:break-word}
   .item-qty{color:#000;font-size:12px}
   .totals .row{margin:3px 0}
-  .grand-total{font-size:17px;font-weight:800;margin:6px 0}
+  .grand-total{font-size:17px;font-weight:800;margin:6px 0;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0}
   .footer{margin-top:10px}
+  .item{margin-bottom:6px}
 </style>
 </head>
 <body>
 <script type="application/json" id="kakapo-sale">${saleJson}</script>
 <div class="receipt">
-  <div class="center title">${storeName}</div>
-  <div class="center sub">${subtitle}</div>
-  ${storePhone ? `<div class="center sub">${storePhone}</div>` : ''}
+  ${tpl.showStoreName ? `<div class="center title">${storeName}</div>` : ''}
+  ${tpl.showSubtitle && subtitle ? `<div class="center sub">${subtitle}</div>` : ''}
+  ${tpl.showStorePhone && storePhone ? `<div class="center sub">${storePhone}</div>` : ''}
 
   <div class="line"></div>
-  <div class="center bold">${esc(docTitleOf(sale, tpl))}</div>
+  ${tpl.showDocTitle ? `<div class="center bold">${esc(docTitleOf(sale, tpl))}</div>` : ''}
   <div class="line"></div>
 
   ${meta}
 
   <div class="line"></div>
 
-  ${itemHtml || '<div class="item"><div class="item-row"><span class="item-name">Нет позиций</span><span></span></div></div>'}
+  ${itemHtml || (tpl.showItems ? '<div class="item"><div class="item-row"><span class="item-name">Нет позиций</span><span></span></div></div>' : '')}
 
   <div class="line"></div>
 
@@ -508,8 +544,8 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   <div class="line"></div>
 
   <div class="center footer">
-    <div class="bold">${footerThanks}</div>
-    <div class="sub">${footerNote}</div>
+    ${tpl.showFooterThanks ? `<div class="bold">${footerThanks}</div>` : ''}
+    ${tpl.showFooterNote ? `<div class="sub">${footerNote}</div>` : ''}
   </div>
 </div>
 </body>
