@@ -101,7 +101,7 @@ export const usePosStore = create<PosStore>((set) => ({
         api.getPosFinanceSummary(),
         api.getPosReport(),
       ])
-      set({
+      const snapshot = {
         cashiers,
         posPoints,
         shifts,
@@ -115,11 +115,24 @@ export const usePosStore = create<PosStore>((set) => ({
         expiry,
         financeSummary,
         report,
-        apiReady: true,
-        apiSyncing: false,
-        apiError: '',
-      })
+      }
+      set({ ...snapshot, apiReady: true, apiSyncing: false, apiError: '' })
+      try {
+        const { cacheData } = await import('./offline')
+        void cacheData('pos_snapshot', snapshot)
+      } catch { /* кэш недоступен */ }
     } catch (e) {
+      // нет связи — при первом запуске поднимаем данные из офлайн-кэша
+      if (!alreadyReady) {
+        try {
+          const { readCachedData } = await import('./offline')
+          const cached = await readCachedData<Partial<PosStore>>('pos_snapshot')
+          if (cached) {
+            set({ ...cached, apiReady: true, apiSyncing: false, apiError: '' })
+            return
+          }
+        } catch { /* нет кэша */ }
+      }
       set({
         apiReady: alreadyReady || true,
         apiSyncing: false,

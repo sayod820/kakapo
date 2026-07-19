@@ -27,6 +27,16 @@ let mainWindow = null
 let printWindow = null
 let allowMainWindowClose = false
 
+// Разрешаем service worker при загрузке интерфейса с http-сервера (иначе касса не открывается офлайн).
+// Service worker требует «безопасный контекст»; помечаем origin кассы как доверенный.
+try {
+  const bootCfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
+  const tradeOrigin = new URL(String(bootCfg.tradeUrl || '')).origin
+  if (tradeOrigin && tradeOrigin.startsWith('http://')) {
+    app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', tradeOrigin)
+  }
+} catch { /* origin не распознан — офлайн-оболочка недоступна */ }
+
 const DEFAULT_SETTINGS = {
   printerName: '',
   paperWidthMm: 58,

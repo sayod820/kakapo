@@ -6,6 +6,17 @@ import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 type Props = { children: React.ReactNode; mode?: 'all' | 'assembler' | 'courier' | 'catalog' }
 
 export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
+  // Регистрируем service worker — интерфейс открывается офлайн после первого онлайн-визита
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    const onLoad = () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => { /* не поддерживается */ })
+    }
+    if (document.readyState === 'complete') onLoad()
+    else window.addEventListener('load', onLoad, { once: true })
+    return () => window.removeEventListener('load', onLoad)
+  }, [])
+
   useEffect(() => {
     if (!USE_API) return
     clearAppDataLocalCacheOnce()

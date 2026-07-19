@@ -361,9 +361,24 @@ export const useCardStore = create<CardStore>((set, get) => ({
       }
       set({ cards: merged, hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
       emitCrmSync()
+      try {
+        const { cacheData } = await import('./offline')
+        void cacheData('cards', merged)
+      } catch { /* кэш недоступен */ }
     } catch (e) {
       console.error(e)
       const msg = e instanceof Error ? e.message : 'Не удалось загрузить карты'
+      // нет связи и нет данных в памяти — берём из офлайн-кэша
+      if (!prev.length) {
+        try {
+          const { readCachedData } = await import('./offline')
+          const cached = await readCachedData<AdminCard[]>('cards')
+          if (cached && cached.length) {
+            set({ cards: cached.map(c => normalizeCard(c)), hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
+            return
+          }
+        } catch { /* нет кэша */ }
+      }
       set({ cards: prev, hydrated: true, apiReady: true, apiSyncing: false, apiError: msg })
     }
   },

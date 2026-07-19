@@ -206,9 +206,24 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       const clients = filterVisibleClients(merged)
       set({ clients, hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
       emitCrmSync()
+      try {
+        const { cacheData } = await import('./offline')
+        void cacheData('clients', clients)
+      } catch { /* кэш недоступен */ }
     } catch (e) {
       console.error(e)
       const msg = e instanceof Error ? e.message : 'Не удалось загрузить клиентов'
+      // нет связи и нет данных в памяти — берём из офлайн-кэша
+      if (!prev.length) {
+        try {
+          const { readCachedData } = await import('./offline')
+          const cached = await readCachedData<AdminClient[]>('clients')
+          if (cached && cached.length) {
+            set({ clients: filterVisibleClients(cached.map(c => normalizeClient(c))), hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
+            return
+          }
+        } catch { /* нет кэша */ }
+      }
       set({ clients: prev, hydrated: true, apiReady: true, apiSyncing: false, apiError: msg })
     }
   },

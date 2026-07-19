@@ -92,6 +92,14 @@ export function readCachedClients(): Promise<AdminClient[] | null> {
   return kvGet<AdminClient[]>(KEY_CLIENTS)
 }
 
+/** Универсальный кэш данных вкладок (клиенты, карты, POS-снимок и т.д.) */
+export function cacheData<T>(key: string, data: T): Promise<void> {
+  return kvSet(`data_${key}`, data)
+}
+export function readCachedData<T>(key: string): Promise<T | null> {
+  return kvGet<T>(`data_${key}`)
+}
+
 // ── Очередь чеков ──
 function lsQueueRead(): PendingSale[] {
   try {
