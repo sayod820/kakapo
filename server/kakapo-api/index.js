@@ -2797,6 +2797,41 @@ app.patch('/cards/:num', (req, res) => {
   res.json(card)
 })
 
+/** Наличное пополнение баланса клиента одновременно увеличивает остаток открытой кассы. */
+app.post('/cards/:num/cash-topup', (req, res) => {
+  try {
+    const num = decodeURIComponent(req.params.num).toUpperCase()
+    const card = findCardByNum(num)
+    if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+    const cash = Math.round((Number(req.body?.cash) || 0) * 100) / 100
+    const credit = Math.max(0, Math.floor(Number(req.body?.credit) || 0))
+    if (!(cash > 0) || !(credit > 0)) {
+      return res.status(400).json({ detail: 'Укажите сумму пополнения' })
+    }
+
+    const move = createFinanceMove(db, {
+      type: 'deposit',
+      amount: cash,
+      note: String(req.body?.note || `Пополнение баланса · ${card.client || card.phone || card.num}`),
+      reason: 'Пополнение баланса клиента',
+      createdBy: req.body?.cashierName,
+      cashierId: req.body?.cashierId,
+      cashierName: req.body?.cashierName,
+      shiftId: req.body?.shiftId,
+      posId: req.body?.posId,
+    })
+
+    card.bonus = Math.max(0, Number(card.bonus) || 0) + credit
+    card.posCashBonus = Math.max(0, Number(card.posCashBonus) || 0) + credit
+    syncClientFromCardRow(card)
+    persist()
+    broadcastPosUpdate({ kind: 'client-cash-topup', id: move.id })
+    res.json({ card, financeMove: move })
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось пополнить баланс' })
+  }
+})
+
 app.get('/reviews', (req, res) => {
   let list = db.reviews || []
   if (req.query.restId) {

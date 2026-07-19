@@ -3355,6 +3355,10 @@ export default function CashierModule({
 
   async function submitTopup() {
     if (!client) return
+    if (!activeShift) {
+      showToast('Смена закрыта', 'Сначала откройте смену')
+      return
+    }
     const cash = Number(topupBuf) || 0
     if (cash <= 0) return
     // Вся сумма на баланс + % бонус по порогам
@@ -3364,13 +3368,15 @@ export default function CashierModule({
     if (credit <= 0) return
     setBusy(true)
     try {
-      const summary = loyaltySummaryForClient(client, cards)
       if (!client.card) throw new Error('У клиента нет карты')
-      const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
-      const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-      await api.updateCard(client.card, {
-        bonus: (Number(summary.bonus) || 0) + credit,
-        posCashBonus: prevPos + credit,
+      await api.cashTopupCard(client.card, {
+        cash,
+        credit,
+        note: `Пополнение баланса · ${client.name}`,
+        cashierId: settings.cashierId || activeShift.cashierId,
+        cashierName: settings.cashierName || activeShift.cashierName,
+        shiftId: activeShift.id,
+        posId: activeShift.posId || activePosPoint?.id,
       })
       if (client.phone) recordBalanceTopup(client.phone, cash, credit, 'Пополнение баланса')
       await refresh()

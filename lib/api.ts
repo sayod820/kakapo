@@ -550,6 +550,18 @@ export const api = {
     request<AdminCard>('/cards/ensure', { method: 'POST', body: JSON.stringify(data) }),
   updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean; allowBonusDecrease?: boolean }) =>
     request<AdminCard>(`/cards/${encodeURIComponent(num.trim())}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  cashTopupCard: (num: string, data: {
+    cash: number
+    credit: number
+    note?: string
+    cashierId?: string
+    cashierName?: string
+    shiftId: string
+    posId?: string
+  }) => request<{ card: AdminCard; financeMove: FinanceMove }>(
+    `/cards/${encodeURIComponent(num.trim())}/cash-topup`,
+    { method: 'POST', body: JSON.stringify(data) },
+  ),
 
   // ── Отзывы ──
   getReviews: (filter?: string | { restId?: string; productId?: string | number }) =>
