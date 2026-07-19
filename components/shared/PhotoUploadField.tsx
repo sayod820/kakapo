@@ -145,7 +145,7 @@ export default function PhotoUploadField({
               Нажмите сюда · галерея или файл
             </span>
             <span style={{ fontSize: 10, color: '#3D6645' }}>
-              Сервер сам сделает WebP · без лимита размера
+              Сервер сохранит как WebP · без обрезки
             </span>
           </div>
         )}
@@ -231,7 +231,7 @@ export default function PhotoUploadField({
       />
 
       <div style={{ marginTop: 6, fontSize: 10, color: '#3D6645' }}>
-        Одно фото · любой размер · сервер обрежет и сохранит как WebP
+        Одно фото · любой размер · сервер только конвертирует в WebP
       </div>
       {err && <div style={{ marginTop: 5, fontSize: 11, color: '#FF4545' }}>⚠️ {err}</div>}
     </div>
