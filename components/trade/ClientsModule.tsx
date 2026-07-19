@@ -535,7 +535,7 @@ export default function ClientsModule() {
         level: loyaltyForm.level,
         levelTermDays: loyaltyForm.levelTermDays,
         vip: loyaltyForm.vip,
-        debtEnabled: loyaltyForm.debtEnabled,
+        debtEnabled: (Number(client.debt) || 0) > 0 || loyaltyForm.debtEnabled,
         debtLimit: Number(loyaltyForm.debtLimit) || 0,
       })
       closeLoyaltyForm()
@@ -896,11 +896,21 @@ export default function ClientsModule() {
                 <span style={{ fontSize: 13, fontWeight: 700 }}>⭐ VIP-статус</span>
                 <input type="checkbox" checked={loyaltyForm.vip} onChange={e => setLoyaltyForm(prev => ({ ...prev, vip: e.target.checked }))} />
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>💳 Раздел долга</span>
-                <input type="checkbox" checked={loyaltyForm.debtEnabled} onChange={e => setLoyaltyForm(prev => ({ ...prev, debtEnabled: e.target.checked }))} />
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)', cursor: (Number(loyaltyClient?.debt) || 0) > 0 ? 'not-allowed' : 'pointer' }}>
+                <span>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>💳 Раздел долга</span>
+                  {(Number(loyaltyClient?.debt) || 0) > 0 && (
+                    <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Нельзя выключить до погашения долга</span>
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={(Number(loyaltyClient?.debt) || 0) > 0 || loyaltyForm.debtEnabled}
+                  disabled={(Number(loyaltyClient?.debt) || 0) > 0}
+                  onChange={e => setLoyaltyForm(prev => ({ ...prev, debtEnabled: e.target.checked }))}
+                />
               </label>
-              {loyaltyForm.debtEnabled && (
+              {((Number(loyaltyClient?.debt) || 0) > 0 || loyaltyForm.debtEnabled) && (
                 <div className="k-field" style={{ marginTop: 12 }}>
                   <label>Лимит долга (сом, 0 = из программы)</label>
                   <input className="k-inp" type="text" inputMode="decimal" value={loyaltyForm.debtLimit} onChange={e => setLoyaltyForm(prev => ({ ...prev, debtLimit: sanitizeDecimalInput(e.target.value) }))} placeholder="0" />

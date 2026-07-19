@@ -58,6 +58,10 @@ function unlinkCardsLocal(linked: AdminCard[]) {
   }))
 }
 
+function isDebtDeleteBlock(error: unknown): boolean {
+  return error instanceof Error && /долг|погас/i.test(error.message)
+}
+
 async function remoteMoveToRecovery(clientId: string, phone: string): Promise<void> {
   if (!USE_API) return
 
@@ -67,7 +71,8 @@ async function remoteMoveToRecovery(clientId: string, phone: string): Promise<vo
     try {
       await api.moveClientToRecovery(serverId, phone)
       return
-    } catch {
+    } catch (error) {
+      if (isDebtDeleteBlock(error)) throw error
       try {
         await legacyMoveToRecoveryOnServer(serverId, phone)
         return
@@ -79,7 +84,8 @@ async function remoteMoveToRecovery(clientId: string, phone: string): Promise<vo
     try {
       await api.moveClientToRecoveryByPhone(phone)
       return
-    } catch {
+    } catch (error) {
+      if (isDebtDeleteBlock(error)) throw error
       await legacyMoveToRecoveryOnServer(clientId, phone)
       return
     }
@@ -97,6 +103,12 @@ export async function moveClientToRecovery(clientId: string, phone?: string): Pr
   const targetPhone = (phone || client?.phone || '').trim()
   if (!targetPhone && !clientId) throw new Error('Клиент не найден')
 
+  // Сначала сервер подтверждает удаление. Если есть долг или нет связи,
+  // локальная сессия и профиль остаются нетронутыми.
+  if (USE_API) {
+    await remoteMoveToRecovery(clientId, targetPhone)
+  }
+
   const linked = cardsForClient(client, targetPhone, useCardStore.getState().cards)
   unlinkCardsLocal(linked)
 
@@ -109,7 +121,6 @@ export async function moveClientToRecovery(clientId: string, phone?: string): Pr
   })
 
   if (USE_API) {
-    await remoteMoveToRecovery(clientId, targetPhone)
     await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
   }
 

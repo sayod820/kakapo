@@ -48,6 +48,7 @@ import {
   debtHistoryTotals,
   splitDebtHistoryBySettlement,
   buildDebtOrderBalances,
+  type DebtHistoryEntry,
   type DebtOrderBalance,
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
@@ -3084,17 +3085,17 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                   disabled={deleting}
                   onClick={async () => {
                     const snapshot = user;
-                    clearClientSession();
-                    setUser?.(null);
-                    setConfirmDelete(false);
                     setDeleting(true);
                     try {
                       await deleteClientAccount(snapshot);
+                      clearClientSession();
+                      setUser?.(null);
+                      setConfirmDelete(false);
                       showToast?.("Аккаунт удалён");
                     } catch (e) {
                       console.error(e);
-                      const msg = e instanceof Error ? e.message : '';
-                      showToast?.(msg.includes('Сервер') ? msg : 'Аккаунт удалён локально');
+                      const msg = e instanceof Error ? e.message : 'Не удалось удалить аккаунт';
+                      showToast?.(msg);
                     } finally {
                       setDeleting(false);
                     }
@@ -3116,11 +3117,26 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
           </div>
         </div>
           ) : (
-            <div onClick={() => setConfirmDelete(true)} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
+            <div
+              onClick={() => {
+                const debt = Math.max(0, Number(user?.debt) || 0)
+                if (debt > 0.001) {
+                  showToast?.(`Сначала погасите долг ${debt.toLocaleString()} ЅМ`)
+                  return
+                }
+                setConfirmDelete(true)
+              }}
+              style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer", opacity:(Number(user?.debt) || 0) > 0.001 ? .65 : 1 }}
+            >
               <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.08)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <Ic n="trash" s={16} c="var(--red)"/>
+                <Ic n={(Number(user?.debt) || 0) > 0.001 ? "card" : "trash"} s={16} c="var(--red)"/>
       </div>
-              <div style={{ flex:1, fontSize:13, fontWeight:700, color:"var(--red)" }}>Удалить аккаунт</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:"var(--red)" }}>Удалить аккаунт</div>
+                {(Number(user?.debt) || 0) > 0.001 && (
+                  <div style={{ fontSize:10, color:"var(--t3)", marginTop:2 }}>Недоступно, пока есть долг</div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -4400,8 +4416,48 @@ function VipDebtSection({
 
   const history = useMemo(() => {
     if (!phone) return []
-    return loadDebtHistory(phone).sort((a, b) => (b.ts || 0) - (a.ts || 0))
-  }, [phone, creditUsed, histTick])
+    const key = phoneDigits(phone)
+    const fromServer: DebtHistoryEntry[] = apiOrders
+      .filter(order =>
+        phoneDigits(order.client?.phone || '') === key
+        && (Number(order.creditAmount) || 0) > 0,
+      )
+      .map(order => {
+        const ts = Date.parse(order.createdAtIso || order.createdAt || '') || Date.now()
+        const when = new Date(ts)
+        const note = String(order.comment || '').trim()
+        const isPos = order.channel === 'pos'
+        const defaultNote = note === 'Покупка в магазине' ? '' : note
+        return {
+          id: `SERVER-DEBT-${order.id}`,
+          orderId: order.id,
+          date: when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }),
+          time: when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+          ts,
+          desc: defaultNote
+            ? `${isPos ? 'Касса' : `Заказ ${order.id}`} · ${defaultNote}`
+            : (isPos ? `Касса · чек ${order.id}` : `Заказ ${order.id}`),
+          amount: -Math.abs(Number(order.creditAmount) || 0),
+          type: 'debt' as const,
+          itemsSummary: (order.items || [])
+            .slice(0, 5)
+            .map(item => `${item.name} ×${item.qty}`)
+            .join(', '),
+        }
+      })
+
+    // Старые локальные записи и серверные чеки объединяем без дублей.
+    const merged = [...fromServer, ...loadDebtHistory(phone)]
+    const seenOrders = new Set<string>()
+    return merged
+      .filter(row => {
+        if (!row.orderId) return true
+        if (seenOrders.has(row.orderId)) return false
+        seenOrders.add(row.orderId)
+        return true
+      })
+      .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+  }, [phone, creditUsed, histTick, apiOrders])
 
   const unpaidOrders = useMemo(
     () => buildDebtOrderBalances(history).unpaid,
@@ -4460,7 +4516,7 @@ function VipDebtSection({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
-              {b.orderId || 'Заказ в долг'}
+              {b.desc || b.orderId || 'Заказ в долг'}
             </span>
             <span style={{
               fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
@@ -4470,6 +4526,11 @@ function VipDebtSection({
               {b.partial ? 'частично' : 'не оплачен'}
             </span>
           </div>
+          {b.orderId && b.desc && (
+            <div style={{ fontSize: 10, color: 'var(--gd)', marginBottom: 3 }}>
+              Чек {b.orderId}
+            </div>
+          )}
           {b.itemsSummary && (
             <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {b.itemsSummary}
@@ -4540,7 +4601,7 @@ function VipDebtSection({
                 ? (h.desc || 'Покупка в магазине')
                 : isPay
                   ? (h.desc || 'Погашение через поддержку')
-                  : (h.orderId || 'Заказ в долг')}
+                  : (h.desc || h.orderId || 'Заказ в долг')}
             </span>
             {isPurchase && (
               <span style={{
@@ -4770,6 +4831,7 @@ function VipDebtSection({
               {[
                 { l: 'Дата', v: hist.date },
                 { l: 'Время', v: hist.time || '—' },
+                ...(hist.desc ? [{ l: 'Заметка', v: hist.desc, c: 'var(--gd)' }] : []),
                 ...(balance?.partial ? [
                   { l: 'Сумма заказа', v: `${originalAmt.toLocaleString()} ЅМ` },
                   { l: 'Уже оплачено', v: `${paidAmt.toLocaleString()} ЅМ`, c: 'var(--gr)' },
@@ -4869,10 +4931,14 @@ function VipDebtSection({
 
 const DebtsPage = ({ go, user }) => {
   const apiOrders = useOrders(s => s.orders);
+  const fetchOrders = useOrders(s => s.fetchOrders);
   const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
+  useEffect(() => {
+    if (USE_API) void fetchOrders().catch(() => {})
+  }, [fetchOrders])
   const loyalty = useMemo(
     () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, loyaltyLockFromRecord(user, user?.level)),
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil, loyaltyCfgTick],
@@ -4935,9 +5001,10 @@ const VIPPage = ({ go, user, setUser }) => {
     debtLimit: user?.debtLimit,
     debtEnabled: user?.debtEnabled,
   }), [user?.level, user?.vip, user?.debtLimit, user?.debtEnabled, loyalty.isVip, loyaltyCfgTick]);
-  const debtSectionOn = user?.levelAssignMode === 'manual'
-    ? !!user?.debtEnabled
-    : (qualifiesForDebtSection(user?.level, user?.vip) || !!user?.debtEnabled);
+  const debtSectionOn = creditUsed > 0
+    || (user?.levelAssignMode === 'manual'
+      ? !!user?.debtEnabled
+      : (qualifiesForDebtSection(user?.level, user?.vip) || !!user?.debtEnabled));
   const creditPct = creditLimit > 0 ? Math.min(100, Math.round((creditUsed / creditLimit) * 100)) : 0;
   const cardLabel = user?.card
     ? user.card.replace(/^КАКАПО-/, "•••• •••• •••• ")

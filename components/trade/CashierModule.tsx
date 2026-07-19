@@ -3127,6 +3127,24 @@ export default function CashierModule({
               ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
             }
           } catch { /* ignore */ }
+          // Если офлайн-чек выдан в долг — сразу включаем раздел долга локально.
+          // После восстановления сети сервер подтвердит те же значения из очереди.
+          if (debtAdded > 0.001 && client) {
+            const nextDebt = Math.round(((Number(client.debt) || 0) + debtAdded) * 100) / 100
+            useClientStore.getState().updateClient(
+              client.id,
+              { debt: nextDebt, debtEnabled: true },
+              { skipApi: true },
+            )
+            if (client.card) {
+              const currentCard = cards.find(c => cardNumsMatch(c.num, client.card))
+              useCardStore.getState().updateCardLoyalty(
+                client.card,
+                { debt: Math.round(((Number(currentCard?.debt) || 0) + debtAdded) * 100) / 100, debtEnabled: true },
+                { skipApi: true },
+              )
+            }
+          }
           created = {
             ...(salePayload as unknown as PosSale),
             id: salePayload.clientRef,

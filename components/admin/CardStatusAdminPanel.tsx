@@ -26,8 +26,8 @@ import { loyaltyStatsFromOrders } from '@/lib/clientCrm'
 import { useCards, useCardStore } from '@/lib/cardStore'
 import { useClients, useClientStore } from '@/lib/clientStore'
 
-const Tog = ({ on, set }: { on: boolean; set: () => void }) => (
-  <div onClick={set} style={{ width: 44, height: 24, borderRadius: 12, background: on ? '#1FD760' : '#1D3822', position: 'relative', cursor: 'pointer', transition: 'background .2s', flexShrink: 0 }}>
+const Tog = ({ on, set, disabled = false, title }: { on: boolean; set: () => void; disabled?: boolean; title?: string }) => (
+  <div title={title} onClick={() => { if (!disabled) set() }} style={{ width: 44, height: 24, borderRadius: 12, background: on ? '#1FD760' : '#1D3822', position: 'relative', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? .65 : 1, transition: 'background .2s', flexShrink: 0 }}>
     <div style={{ position: 'absolute', top: 3, left: on ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'white', transition: 'left .2s' }} />
   </div>
 )
@@ -540,6 +540,7 @@ export default function CardStatusAdminPanel() {
                   ? qualifiesAutoVip(autoStats.spent, autoStats.orderCount, client?.reviews ?? 0)
                   : false
                 const autoDebtOn = isAuto && qualifiesForDebtSection(autoLevel, st.vip || autoVipEligible)
+                const hasDebt = Math.max(Number(card.debt) || 0, Number(client?.debt) || 0) > 0
                 return (
                   <tr key={card.num}>
                     <td>
@@ -654,7 +655,12 @@ export default function CardStatusAdminPanel() {
                           {autoDebtOn ? '✓ авто' : '—'}
                         </div>
                       ) : (
-                        <Tog on={st.debtEnabled} set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled, levelAssignMode: 'manual' })} />
+                        <Tog
+                          on={hasDebt || st.debtEnabled}
+                          disabled={hasDebt}
+                          title={hasDebt ? 'Нельзя выключить до полного погашения долга' : undefined}
+                          set={() => !st.saving && applyStatus(card.num, { debtEnabled: !st.debtEnabled, levelAssignMode: 'manual' })}
+                        />
                       )}
                     </td>
                     <td style={{ fontSize: 11, fontWeight: 700, minWidth: 72 }}>

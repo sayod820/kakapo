@@ -1806,6 +1806,30 @@ function normalizePhoneDigits(phone) {
   return String(phone || '').replace(/\D/g, '').slice(-9)
 }
 
+function clientOutstandingDebt(client) {
+  if (!client) return 0
+  const phone = normalizePhoneDigits(client.phone)
+  const linkedCards = (db.cards || []).filter(card =>
+    (card.clientId && card.clientId === client.id)
+    || (client.card && card.num === client.card)
+    || (phone && normalizePhoneDigits(card.phone) === phone),
+  )
+  return Math.max(
+    0,
+    Number(client.debt) || 0,
+    ...linkedCards.map(card => Number(card.debt) || 0),
+  )
+}
+
+function rejectDeleteWithDebt(res, clients) {
+  const debt = Math.max(0, ...(clients || []).map(clientOutstandingDebt))
+  if (debt <= 0.001) return false
+  res.status(409).json({
+    detail: `Нельзя удалить аккаунт: сначала погасите долг ${debt.toLocaleString('ru-RU')} ЅМ`,
+  })
+  return true
+}
+
 const PURGED_NOTE = 'kakapo-purged'
 
 function ensureDeletedPhoneKeys() {
@@ -1947,7 +1971,7 @@ function normalizeClientRow(raw) {
     levelValidUntil: raw.levelValidUntil === null ? undefined : (raw.levelValidUntil || undefined),
     vipUntil: raw.vipUntil === null ? undefined : (raw.vipUntil || undefined),
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
-    debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
+    debtEnabled: (Number(raw.debt) || 0) > 0 || raw.debtEnabled === true || debtFromNote(raw.note),
     accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
     deletedAt: raw.deletedAt || undefined,
     recoveryExpiresAt: raw.recoveryExpiresAt || undefined,
@@ -2026,10 +2050,14 @@ app.patch('/clients/:id', (req, res) => {
   const c = (db.clients || []).find(x => x.id === req.params.id)
   if (!c) return res.status(404).json({ detail: 'Клиент не найден' })
   if (req.body && req.body.purge === true) {
+    if (rejectDeleteWithDebt(res, [c])) return
     removeClientAndUnlinkCards(c)
     return res.json({ ok: true })
   }
   const { purge, allowBonusDecrease, ...patch } = req.body || {}
+  if (patch.debtEnabled === false && (Number(c.debt) || 0) > 0.001) {
+    return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
+  }
   if (patch.bonus != null && !allowBonusDecrease) {
     const next = Number(patch.bonus) || 0
     const prev = Number(c.bonus) || 0
@@ -2128,6 +2156,8 @@ app.post('/clients/purge-account', (req, res) => {
   const phone = req.body?.phone || ''
   if (!normalizePhoneDigits(phone)) return res.status(400).json({ detail: 'Укажите телефон' })
   runAccountLifecycleMaintenance()
+  const clients = (db.clients || []).filter(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
+  if (rejectDeleteWithDebt(res, clients)) return
   const result = purgeClientProfilesForPhone(phone, { rememberDeleted: false })
   res.json({ ok: true, ...result })
 })
@@ -2136,6 +2166,7 @@ app.post('/clients/:id/recovery', (req, res) => {
   if (!db.clients) db.clients = []
   const client = db.clients.find(x => x.id === req.params.id)
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  if (rejectDeleteWithDebt(res, [client])) return
   moveClientToRecoveryRecord(client)
   res.json(client)
 })
@@ -2159,6 +2190,7 @@ app.post('/clients/recovery-by-phone', (req, res) => {
   const digits = normalizePhoneDigits(req.body?.phone || '')
   const client = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  if (rejectDeleteWithDebt(res, [client])) return
   moveClientToRecoveryRecord(client)
   res.json(client)
 })
@@ -2167,6 +2199,8 @@ app.post('/clients/delete-by-phone', (req, res) => {
   const phone = req.body?.phone || ''
   if (!normalizePhoneDigits(phone)) return res.status(400).json({ detail: 'Укажите телефон' })
   runAccountLifecycleMaintenance()
+  const clients = (db.clients || []).filter(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
+  if (rejectDeleteWithDebt(res, clients)) return
   const result = purgeClientProfilesForPhone(phone, { rememberDeleted: false })
   res.json({ ok: true, ...result })
 })
@@ -2200,6 +2234,7 @@ app.post('/clients/:id/delete', (req, res) => {
     if (digits) rememberDeletedPhone(digits)
     return res.json({ ok: true })
   }
+  if (rejectDeleteWithDebt(res, [client])) return
   removeClientAndUnlinkCards(client)
   res.json({ ok: true })
 })
@@ -2209,6 +2244,7 @@ app.delete('/clients/by-phone/:phone', (req, res) => {
   const digits = normalizePhoneDigits(decodeURIComponent(req.params.phone))
   const client = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  if (rejectDeleteWithDebt(res, [client])) return
   removeClientAndUnlinkCards(client)
   res.json({ ok: true })
 })
@@ -2217,6 +2253,7 @@ app.delete('/clients/:id', (req, res) => {
   if (!db.clients) db.clients = []
   const client = db.clients.find(x => x.id === req.params.id)
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  if (rejectDeleteWithDebt(res, [client])) return
   removeClientAndUnlinkCards(client)
   res.json({ ok: true })
 })
@@ -2383,7 +2420,7 @@ function normalizeCardRow(raw) {
     issued: raw.issued || new Date().toISOString().slice(0, 10),
     note: raw.note || '',
     vip: !!raw.vip || vipFromNote(raw.note),
-    debtEnabled: raw.debtEnabled === true || debtFromNote(raw.note),
+    debtEnabled: (Number(raw.debt) || 0) > 0 || raw.debtEnabled === true || debtFromNote(raw.note),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     levelLockedPeriod: raw.levelLockedPeriod === null ? undefined : (raw.levelLockedPeriod || undefined),
     levelAssignMode: raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined),
@@ -2684,6 +2721,9 @@ app.patch('/cards/:num', (req, res) => {
     const body = { ...req.body }
     const allowDecrease = body.allowBonusDecrease === true
     delete body.allowBonusDecrease
+    if (body.debtEnabled === false && (Number(card.debt) || 0) > 0.001) {
+      return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
+    }
     if (body.bonus != null && !allowDecrease) {
       const next = Number(body.bonus) || 0
       const prev = Number(card.bonus) || 0

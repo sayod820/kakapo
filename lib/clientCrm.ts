@@ -235,12 +235,13 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
     vip: !!raw.vip || vipFromNote(raw.note),
-    debtEnabled: raw.levelAssignMode === 'manual'
+    debtEnabled: (Number(raw.debt) || 0) > 0
+      || (raw.levelAssignMode === 'manual'
       ? (raw.debtEnabled === true || debtFromNote(raw.note))
       : (qualifiesForDebtSection(level, !!raw.vip || vipFromNote(raw.note))
         || raw.debtEnabled === true
         || debtFromNote(raw.note)
-        || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0))),
+        || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && (Number(raw.debtLimit) || 0) > 0))),
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,

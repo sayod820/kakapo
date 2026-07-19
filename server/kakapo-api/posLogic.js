@@ -1212,9 +1212,15 @@ export function createPosSale(db, data = {}) {
   }
   if (debtAdded > 0) {
     const client = getClientById(db, data.clientId) || null
-    if (client) client.debt = round2((Number(client.debt) || 0) + debtAdded)
+    if (client) {
+      client.debt = round2((Number(client.debt) || 0) + debtAdded)
+      client.debtEnabled = true
+    }
     const card = getCardByNum(db, data.cardNum)
-    if (card) card.debt = round2((Number(card.debt) || 0) + debtAdded)
+    if (card) {
+      card.debt = round2((Number(card.debt) || 0) + debtAdded)
+      card.debtEnabled = true
+    }
   }
   db.posSales.unshift(sale)
   const baseLed = {

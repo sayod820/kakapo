@@ -39,17 +39,18 @@ export interface AdminCard {
 
 
 export function cardHasDebtSection(
-  card: Pick<AdminCard, 'debtEnabled' | 'debt' | 'debtLimit' | 'level' | 'vip' | 'note'>,
-  client?: Pick<AdminClient, 'debtEnabled' | 'debt' | 'debtLimit' | 'level' | 'vip' | 'note'>,
+  card?: Partial<Pick<AdminCard, 'debtEnabled' | 'debt' | 'debtLimit' | 'level' | 'vip' | 'note' | 'levelAssignMode'>> | null,
+  client?: Partial<Pick<AdminClient, 'debtEnabled' | 'debt' | 'debtLimit' | 'level' | 'vip' | 'note' | 'levelAssignMode'>> | null,
 ): boolean {
-  return resolveDebtEnabled(card, client)
+  return resolveDebtEnabled(card || undefined, client || undefined)
 }
 
 /** Явное значение переключателя «Раздел долга» — карта или клиент, плюс маркер в note */
 export function resolveDebtEnabled(
-  card?: Pick<AdminCard, 'debtEnabled' | 'note' | 'level' | 'vip' | 'levelAssignMode'>,
-  client?: Pick<AdminClient, 'debtEnabled' | 'note' | 'level' | 'vip' | 'levelAssignMode'>,
+  card?: Partial<Pick<AdminCard, 'debtEnabled' | 'debt' | 'note' | 'level' | 'vip' | 'levelAssignMode'>>,
+  client?: Partial<Pick<AdminClient, 'debtEnabled' | 'debt' | 'note' | 'level' | 'vip' | 'levelAssignMode'>>,
 ): boolean {
+  if ((Number(card?.debt) || 0) > 0 || (Number(client?.debt) || 0) > 0) return true
   const mode = card?.levelAssignMode ?? client?.levelAssignMode ?? inferLevelAssignMode(card, client)
   const level = (card?.level || client?.level || '') as ClientLevel | ''
   const vip = !!(card?.vip ?? client?.vip) || vipFromNote(card?.note) || vipFromNote(client?.note)
@@ -129,12 +130,13 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     issued: raw.issued,
     note: raw.note || '',
     vip,
-    debtEnabled: levelAssignMode === 'manual'
+    debtEnabled: (Number(raw.debt) || 0) > 0
+      || (levelAssignMode === 'manual'
       ? (raw.debtEnabled === true || debtFromNote(raw.note))
       : (qualifiesForDebtSection(level, vip)
         || raw.debtEnabled === true
         || debtFromNote(raw.note)
-        || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && ((Number(raw.debt) || 0) > 0 || (Number(raw.debtLimit) || 0) > 0))),
+        || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && (Number(raw.debtLimit) || 0) > 0))),
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     levelLockedPeriod: raw.levelLockedPeriod === null ? undefined : (raw.levelLockedPeriod || undefined),
     levelAssignMode,

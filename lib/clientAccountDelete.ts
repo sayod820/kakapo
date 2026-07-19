@@ -194,6 +194,16 @@ export async function deleteClientAccount(user: StoreUser): Promise<void> {
   let clientId = user.clientId
   const local = findLocalClient(clientId || '', phone)
   if (local) clientId = local.id
+  const linkedCards = cardsForClient(local, phone, useCardStore.getState().cards)
+  const outstandingDebt = Math.max(
+    0,
+    Number(user.debt) || 0,
+    Number(local?.debt) || 0,
+    ...linkedCards.map(card => Number(card.debt) || 0),
+  )
+  if (outstandingDebt > 0.001) {
+    throw new Error(`Нельзя удалить аккаунт: сначала погасите долг ${outstandingDebt.toLocaleString('ru-RU')} ЅМ`)
+  }
 
   if (!clientId && USE_API) {
     try {
