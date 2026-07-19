@@ -3920,7 +3920,9 @@ export default function CashierModule({
                                   if (!desk) return
                                   setDeskCasBusy(true)
                                   try {
+                                    // Монитор веса занимает порт — освобождаем перед выгрузкой PLU
                                     await ensureCasWeightMonitor(false)
+                                    await new Promise(r => setTimeout(r, 400))
                                     const printerName = deskPrinterName || pickReceiptPrinter(deskPrinters) || ''
                                     await desk.savePrinterSettings({
                                       ...(await desk.getPrinterSettings()),
@@ -3941,6 +3943,9 @@ export default function CashierModule({
                                         barcode: productBarcodes(p)[0] || '',
                                         department: Number(deskScaleDept) || 1,
                                       }))
+                                    if (!items.length) {
+                                      throw new Error('Нет весовых товаров с PLU для выгрузки')
+                                    }
                                     const res = await desk.syncCasPlu({
                                       host: deskScaleHost.trim(),
                                       port: Number(deskScalePort) || 20304,
@@ -3951,7 +3956,9 @@ export default function CashierModule({
                                   } catch (e) {
                                     showToast('CAS', e instanceof Error ? e.message : 'Ошибка связи с весами')
                                   } finally {
-                                    if (deskScaleLiveWeight) void ensureCasWeightMonitor(true)
+                                    if (deskScaleLiveWeight && deskScaleHost.trim()) {
+                                      await ensureCasWeightMonitor(true)
+                                    }
                                     setDeskCasBusy(false)
                                   }
                                 })()

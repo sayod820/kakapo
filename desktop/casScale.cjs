@@ -202,6 +202,10 @@ async function downloadPlu(socket, scaleId, item) {
   }
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 /**
  * @param {{ host: string, port?: number, scaleId?: number, clearAll?: boolean, items: { plu: number, name: string, price: number, barcode?: string, department?: number }[] }} opts
  */
@@ -214,7 +218,30 @@ async function syncCasPlu(opts) {
   if (!host) throw new Error('Укажите IP весов CAS')
   if (!items.length) throw new Error('Нет товаров с PLU для выгрузки')
 
-  const socket = await tcpConnect(host, port)
+  // CAS принимает одно TCP-соединение: пауза монитора веса на время выгрузки PLU.
+  const resumeMonitor = weightMonitor.running
+  const resumeHost = weightMonitor.host || host
+  const resumePort = weightMonitor.port || port
+  if (resumeMonitor) {
+    await weightMonitor.stop()
+    await sleep(500)
+  }
+
+  let socket
+  try {
+    socket = await tcpConnect(host, port, 8000)
+  } catch (e) {
+    if (resumeMonitor) {
+      try { await weightMonitor.start({ host: resumeHost, port: resumePort }) } catch { /* ignore */ }
+    }
+    const msg = e instanceof Error ? e.message : String(e)
+    throw new Error(
+      /ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|timeout|Таймаут/i.test(msg)
+        ? `Нет связи с весами ${host}:${port}. Проверьте кабель/IP и что весы включены.`
+        : msg,
+    )
+  }
+
   try {
     if (opts.clearAll) {
       const plu = Buffer.alloc(6, 0)
@@ -232,7 +259,11 @@ async function syncCasPlu(opts) {
     }
     return { ok: true, count: ok, host, port }
   } finally {
-    socket.destroy()
+    try { socket.destroy() } catch { /* ignore */ }
+    if (resumeMonitor) {
+      await sleep(300)
+      try { await weightMonitor.start({ host: resumeHost, port: resumePort }) } catch { /* ignore */ }
+    }
   }
 }
 
@@ -451,11 +482,15 @@ class CasWeightMonitor {
     return { ok: true, host: this.host, port: this.port, running: true }
   }
 
-  stop() {
+  async stop() {
     this.running = false
     if (this.timer) {
       clearTimeout(this.timer)
       this.timer = null
+    }
+    const waitStart = Date.now()
+    while (this.busy && Date.now() - waitStart < 2000) {
+      await sleep(30)
     }
     this.destroySocket()
     this.emit({ connected: false, running: false, weightKg: this.lastEmitKg || 0, grams: Math.round((this.lastEmitKg || 0) * 1000) })
