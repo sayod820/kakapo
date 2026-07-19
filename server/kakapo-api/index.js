@@ -355,6 +355,13 @@ function broadcastProduct(product) {
   }
 }
 
+function broadcastRestaurant(restaurant) {
+  const msg = JSON.stringify({ event: 'restaurant_update', restaurant })
+  for (const ws of clients) {
+    if (ws.readyState === 1) ws.send(msg)
+  }
+}
+
 function broadcastPosUpdate(payload = {}) {
   const msg = JSON.stringify({ event: 'pos_update', payload })
   for (const ws of clients) {
@@ -1189,6 +1196,7 @@ app.patch('/restaurants/:id/toggle', (req, res) => {
   if (r.blocked) return res.status(403).json({ detail: 'Ресторан заблокирован' })
   r.open = !r.open
   persist()
+  broadcastRestaurant(r)
   res.json(r)
 })
 app.patch('/restaurants/:id', (req, res) => {
@@ -1208,11 +1216,29 @@ app.patch('/restaurants/:id', (req, res) => {
     }))
     const nextPhotos = new Set(menu.map(item => item.photo).filter(Boolean))
     r.menu = menu
+    const changedOrders = []
+    for (const order of (db.orders || [])) {
+      let changed = false
+      for (const item of (order.items || [])) {
+        const itemRestId = String(item.restId || order.restId || '')
+        if (itemRestId !== String(r.id)) continue
+        const dish = menu.find(m =>
+          (Number(item.id) > 0 && Number(m.id) === Number(item.id))
+          || String(m.name || '').trim() === String(item.name || '').trim()
+        )
+        if (!dish || item.photo === dish.photo) continue
+        item.photo = dish.photo
+        changed = true
+      }
+      if (changed) changedOrders.push(order)
+    }
     for (const oldUrl of oldPhotos) {
       if (!nextPhotos.has(oldUrl)) deleteManagedRestaurantPhoto(oldUrl)
     }
+    for (const order of changedOrders) broadcast('order_update', order)
   }
   persist()
+  broadcastRestaurant(r)
   res.json(r)
 })
 app.patch('/restaurants/:id/block', (req, res) => {
@@ -1226,6 +1252,7 @@ app.patch('/restaurants/:id/block', (req, res) => {
   const pu = db.pickups.find(p => p.id === pickupId)
   if (pu) pu.active = !blocked
   persist()
+  broadcastRestaurant(r)
   res.json(r)
 })
 app.post('/restaurants/:id/payout', (req, res) => {

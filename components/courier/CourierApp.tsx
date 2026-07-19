@@ -12,6 +12,7 @@ import { DEMO_COURIER_ORDERS } from '@/lib/demoOrders'
 import { buildCourierStats, COURIER_NAME, formatSm } from '@/lib/courierStats'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { useOrders, USE_API } from '@/lib/store'
+import { resolvePhotoUrl } from '@/lib/productPhotos'
 import { mapOrdersForCourier, mapOrdersForCourierMap, mapSingleOrderForCourier, isCourierMapOrder, isCourierFullyReadyOrder, courierMapStatusLabel, courierWaitingBanner } from '@/lib/orderUiMap'
 import {
   normalizeOrder,
@@ -1611,7 +1612,7 @@ function CourierAppInner() {
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
                         {selected.items.map((it: any,i: number)=>(
                           <span key={i} style={{ padding:'4px 9px', borderRadius:8, fontSize:11, background:'#091508', border:'1px solid #162B1A', color:'#8FB897', display:'inline-flex', alignItems:'center', gap:5 }}>
-                            {it.photo ? <img src={it.photo} alt="" style={{width:16,height:16,borderRadius:4,objectFit:'contain'}}/> : it.e} {it.n} ×{it.q}
+                            {it.photo ? <img src={resolvePhotoUrl(it.photo)} alt="" style={{width:16,height:16,borderRadius:4,objectFit:'cover'}}/> : it.e} {it.n} ×{it.q}
                           </span>
                         ))}
                       </div>
@@ -1812,7 +1813,7 @@ function CourierAppInner() {
                     {active.items.map((it: any,i: number)=>(
                       <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13 }}>
                         <span style={{ color:'#EBF5ED', display:'inline-flex', alignItems:'center', gap:6 }}>
-                          {it.photo ? <img src={it.photo} alt="" style={{width:20,height:20,borderRadius:5,objectFit:'contain'}}/> : it.e} {it.n} <span style={{ color:'#3D6645' }}>×{it.q}</span>
+                          {it.photo ? <img src={resolvePhotoUrl(it.photo)} alt="" style={{width:20,height:20,borderRadius:5,objectFit:'cover'}}/> : it.e} {it.n} <span style={{ color:'#3D6645' }}>×{it.q}</span>
                         </span>
                         <span style={{ fontWeight:700, color:'#8FB897' }}>{(it.p*it.q).toFixed(2)} ЅМ</span>
                       </div>

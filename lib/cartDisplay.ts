@@ -13,6 +13,7 @@ type CartLine = {
   id: string
   qty: number
   e?: string
+  photo?: string
   name: string
   price: number
   isRest: boolean
@@ -49,6 +50,7 @@ export function buildCartLineItems(
     qty: cart[id],
     isRest: true,
     restId: cartMeta[id]?.restId,
+    photo: cartMeta[id]?.photo,
   }))
 
   return [...prodItems, ...restItems]

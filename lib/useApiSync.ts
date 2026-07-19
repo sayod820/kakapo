@@ -57,6 +57,19 @@ export function useApiSync(mode: SyncMode = 'all') {
       if (mode === 'pos') void syncPosFromApi()
       return
     }
+    if (msg.event === 'restaurant_update') {
+      const incoming = msg.restaurant
+      if (incoming?.id) {
+        useRestaurants.setState(s => ({
+          restaurants: s.restaurants.some(r => r.id === incoming.id)
+            ? s.restaurants.map(r => r.id === incoming.id ? { ...r, ...incoming } : r)
+            : [...s.restaurants, incoming],
+          loaded: true,
+        }))
+      }
+      void useRestaurants.getState().fetchRestaurants()
+      return
+    }
     if (msg.event === 'category_update') {
       window.dispatchEvent(new CustomEvent('kakapo:categories'))
       if (msg.category?.deleted) void useProducts.getState().fetchProducts()

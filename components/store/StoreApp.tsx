@@ -4,7 +4,7 @@ import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
 import { hydrateCourierStores, usePickups } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
-import { useProductPhotos, resolveProductPhoto, resolveOrderItemPhoto } from "@/lib/productPhotos";
+import { useProductPhotos, resolveProductPhoto, resolveOrderItemPhoto, resolvePhotoUrl } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
 import { productCatSlug } from "@/lib/enrichCatalog";
 import { productRatingUi, restaurantCuisineLabel, restaurantRatingLabel, restaurantReviewsLabel } from "@/lib/catalogUi";
@@ -1260,12 +1260,12 @@ function ClientReviewBlock({ review, orderId, embedded, restaurants = [], showOr
 /** Повтор заказа — товары и блюда в корзину */
 function fillCartFromOrder(
   orderId: string,
-  clientOrder: { items?: { e?: string; name: string; qty?: number; price: number; art?: string; id?: number; product_id?: number; source?: string; restId?: string }[] },
+  clientOrder: { items?: { e?: string; name: string; qty?: number; price: number; art?: string; id?: number; product_id?: number; source?: string; restId?: string; photo?: string }[] },
   ctx: {
     apiOrders: import('@/lib/types').Order[];
     prods: { id: number; art?: string; name: string; price: number; e?: string }[];
-    restaurants: { id: string; menu?: { id: number; name: string; price: number; e: string }[] }[];
-    onAdd: (id: string | number, price?: number, name?: string, emoji?: string, restId?: string) => void;
+    restaurants: { id: string; menu?: { id: number; name: string; price: number; e: string; photo?: string }[] }[];
+    onAdd: (id: string | number, price?: number, name?: string, emoji?: string, restId?: string, silent?: boolean, photo?: string) => void;
     onClearCart: () => void;
   },
 ): number {
@@ -1285,13 +1285,13 @@ function fillCartFromOrder(
       const menuItem = rest?.menu?.find(m => m.name === it.name);
       if (rest && menuItem) {
         for (let i = 0; i < qty; i++) {
-          onAdd(`R${rest.id}_${menuItem.id}`, menuItem.price, menuItem.name, menuItem.e, rest.id);
+          onAdd(`R${rest.id}_${menuItem.id}`, menuItem.price, menuItem.name, menuItem.e, rest.id, false, menuItem.photo);
         }
         added += qty;
       } else if (restId) {
         const cartId = `R${restId}_repeat_${String(it.name).replace(/\s+/g, '_').slice(0, 24)}`;
         for (let i = 0; i < qty; i++) {
-          onAdd(cartId, it.price, it.name, it.e || '🍽', restId);
+          onAdd(cartId, it.price, it.name, it.e || '🍽', restId, false, it.photo);
         }
         added += qty;
       }
@@ -2355,6 +2355,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             price: Number(p.price) || 0,
             source: 'restaurant',
             restId: p.restId,
+            photo: resolvePhotoUrl(p.photo as string | undefined),
             ...(menuId ? { id: menuId } : {}),
             cartLineId: String(p.id),
           }
@@ -6381,7 +6382,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const displayMenu = isAllView ? r.menu : r.menu.filter(item => item.cat === activeCat);
   const sectionTitle = isAllView ? 'Все блюда' : activeCat;
 
-  const addItem  = (item) => onAdd && onAdd(`R${r.id}_${item.id}`, item.price, item.name, item.e, r.id);
+  const addItem  = (item) => onAdd && onAdd(`R${r.id}_${item.id}`, item.price, item.name, item.e, r.id, false, item.photo);
   const rmItem   = (item) => onRm  && onRm(`R${r.id}_${item.id}`);
   const getQty   = (item) => (cart||{})[`R${r.id}_${item.id}`]||0;
 
@@ -6467,8 +6468,10 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           const disc = item.old ? Math.round((1-item.price/item.old)*100) : 0;
           return (
             <div key={item.id} style={{display:'flex',gap:12,padding:'14px',background:'var(--l2)',border:`1px solid ${item.inStock?'var(--b1)':'rgba(255,69,69,.2)'}`,borderRadius:16,animation:`fadeUp .4s ease ${i*.05}s both`,opacity:item.inStock?1:.6}}>
-              <div style={{width:80,height:80,borderRadius:14,background:'var(--l3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40,flexShrink:0,position:'relative'}}>
-                {item.e}
+              <div style={{width:80,height:80,borderRadius:14,background:'var(--l3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40,flexShrink:0,position:'relative',overflow:'hidden'}}>
+                {resolvePhotoUrl(item.photo)
+                  ? <img src={resolvePhotoUrl(item.photo)} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                  : item.e}
                 {item.popular&&<div style={{position:'absolute',top:-4,right:-4,padding:'2px 6px',borderRadius:7,background:'var(--red)',fontSize:8,fontWeight:800,color:'white'}}>ХИТ</div>}
                 {disc>0&&<div style={{position:'absolute',bottom:-4,left:-4,padding:'2px 6px',borderRadius:7,background:'var(--org)',fontSize:8,fontWeight:800,color:'white'}}>-{disc}%</div>}
                 {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'white'}}>Стоп</div>}
@@ -6896,7 +6899,7 @@ function KakapoAppInner() {
     wishMutatedByUserRef.current = true;
   }, []);
 
-  const addItem = useCallback((id, price, name, emoji, restId, silent) => {
+  const addItem = useCallback((id, price, name, emoji, restId, silent, photo) => {
     markCartTouched();
     const p = prods.find(x => x.id == id);
     if (p && !restId) {
@@ -6923,7 +6926,7 @@ function KakapoAppInner() {
     }
     setCart(c => ({ ...c, [id]: (c[id]||0) + 1 }));
     if (name) {
-      setCartMeta(m => ({ ...m, [id]: { price, name, emoji: emoji || '🍽', restId } }));
+      setCartMeta(m => ({ ...m, [id]: { price, name, emoji: emoji || '🍽', restId, photo: resolvePhotoUrl(photo) } }));
       if (!silent) showToast(`${emoji || '🍽'} ${name} в корзине`);
     }
   }, [showToast, prods, apiPromos, markCartTouched]);

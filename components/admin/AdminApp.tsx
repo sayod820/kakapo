@@ -139,7 +139,7 @@ import type { CourierWalletTx } from '@/lib/courierWalletTx'
 import { formatWalletTxTime, getLocalCourierWalletTransactions, walletTxLabel } from '@/lib/courierWalletTx'
 import { restIdToPickupId } from '@/lib/pickups'
 import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
-import { useProductPhotos } from '@/lib/productPhotos'
+import { useProductPhotos, resolvePhotoUrl } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import ProductImage from '@/components/shared/ProductImage'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
@@ -728,7 +728,9 @@ function OrderDetailModal({ order, onClose, onStatusChange, onCourierChange, onA
             {(order.itemsDetailed || []).map((it, i) => (
               <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 10px', background:'#0C1C0F', borderRadius:10, border:'1px solid #162B1A' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <span>{it.e || '📦'}</span>
+                  {resolvePhotoUrl(it.photoThumb || it.photo)
+                    ? <img src={resolvePhotoUrl(it.photoThumb || it.photo)} alt="" style={{width:28,height:28,borderRadius:7,objectFit:'cover',flexShrink:0}}/>
+                    : <span>{it.e || '📦'}</span>}
                   <div>
                     <div style={{ fontSize:12, fontWeight:600 }}>{it.name}</div>
                     <div style={{ fontSize:10, color:'#3D6645' }}>{it.qty} шт · {it.source === 'restaurant' ? 'ресторан' : 'магазин'}</div>

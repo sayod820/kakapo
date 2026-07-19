@@ -4,7 +4,13 @@ import { api } from './api'
 import { USE_API } from './config'
 import { normalizeClient, phonesMatch, type AdminClient } from './clientCrm'
 
-export type ClientCartMeta = Record<string, { emoji?: string; name?: string; price?: number; restId?: string }>
+export type ClientCartMeta = Record<string, {
+  emoji?: string
+  name?: string
+  price?: number
+  restId?: string
+  photo?: string
+}>
 
 export type CartBundle = {
   cart: Record<string, number>

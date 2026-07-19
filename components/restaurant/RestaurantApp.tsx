@@ -9,6 +9,7 @@ import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { enrichRestaurants } from '@/lib/enrichCatalog'
 import { api } from '@/lib/api'
+import { resolvePhotoUrl } from '@/lib/productPhotos'
 import { sortReviewsNewestFirst, avgReviewRating } from '@/lib/clientReviews'
 import { useWebSocket } from '@/lib/ws'
 import type { Review } from '@/lib/types'
@@ -789,7 +790,9 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
                   {o.items.map((it,j)=>(
                     <div key={j} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:j<o.items.length-1?'1px solid #162B1A':'none'}}>
                       <div style={{display:'flex',alignItems:'center',gap:8}}>
-                        <span style={{fontSize:18,width:24}}>{it.e}</span>
+                        {resolvePhotoUrl(it.photo)
+                          ? <img src={resolvePhotoUrl(it.photo)} alt="" style={{width:24,height:24,borderRadius:6,objectFit:'cover',flexShrink:0}}/>
+                          : <span style={{fontSize:18,width:24}}>{it.e}</span>}
                         <span style={{fontSize:13,fontWeight:600}}>{it.name}</span>
                         <span style={{fontSize:11,color:'#3D6645'}}>× {it.qty}</span>
                       </div>
@@ -1216,7 +1219,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                   position:'relative',overflow:'hidden',border:'1px solid #162B1A',
                 }}>
                   {(item as { photo?: string }).photo
-                    ? <img src={(item as { photo?: string }).photo} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                    ? <img src={resolvePhotoUrl((item as { photo?: string }).photo)} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
                     : <span style={{fontSize:30}}>{item.e}</span>
                   }
                   {!item.inStock && (
@@ -1300,7 +1303,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                     display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0,
                   }}>
                     {photo
-                      ? <img src={photo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                      ? <img src={resolvePhotoUrl(photo)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                       : <span style={{fontSize:28}}>{emoji}</span>
                     }
                   </div>
@@ -1350,7 +1353,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>📷 Фото (необязательно)</div>
                 {photo ? (
                   <div style={{position:'relative',width:'100%',height:160,borderRadius:14,overflow:'hidden',border:'1px solid #162B1A'}}>
-                    <img src={photo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                    <img src={resolvePhotoUrl(photo)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                     <button type="button" onClick={() => { setPhoto(''); setPhotoFile(null) }} className="btn"
                       style={{position:'absolute',top:8,right:8,width:32,height:32,borderRadius:'50%',background:'rgba(0,0,0,.75)',border:'1px solid rgba(255,255,255,.2)',color:'white',fontSize:14}}>
                       ✕

@@ -1,6 +1,6 @@
 'use client';
 import { create } from 'zustand';
-import { USE_API } from './config';
+import { getApiUrl, USE_API } from './config';
 import { persistAppDataLocally } from './localCache';
 
 const PHOTOS_KEY = 'kakapo-product-photos';
@@ -55,6 +55,16 @@ export const useProductPhotos = create<ProductPhotosStore>((set, get) => ({
   getPhoto: (id) => get().photos[id],
 }));
 
+/** Единый URL фото для клиента, кассы, админа, курьера и сборщика. */
+export function resolvePhotoUrl(value?: string | null): string | undefined {
+  const url = String(value || '').trim()
+  if (!url) return undefined
+  if (/^(?:https?:|data:|blob:)/i.test(url)) return url
+  if (url.startsWith('/api/kakapo/')) return url
+  if (url.startsWith('/uploads/')) return `${getApiUrl()}${url}`
+  return url.startsWith('/') ? url : `/${url}`
+}
+
 /** URL фото товара: серверное → локальный fallback (демо без API) */
 export function resolveProductPhoto(
   product: { id?: number; photo?: string | null; photoThumb?: string | null } | null | undefined,
@@ -66,9 +76,9 @@ export function resolveProductPhoto(
     ? opts.getPhoto(product.id)
     : undefined
   if (preferThumb) {
-    return product.photoThumb || product.photo || local || undefined
+    return resolvePhotoUrl(product.photoThumb || product.photo || local)
   }
-  return product.photo || product.photoThumb || local || undefined
+  return resolvePhotoUrl(product.photo || product.photoThumb || local)
 }
 
 /** Иконка/фото для строки заказа: сначала поля item, иначе живой каталог */
@@ -77,9 +87,9 @@ export function resolveOrderItemPhoto(
   products?: Array<{ id: number; photo?: string | null; photoThumb?: string | null }>,
 ) {
   const fromItem = item.photoThumb || item.photo
-  if (fromItem) return fromItem
+  if (fromItem) return resolvePhotoUrl(fromItem)
   const pid = Number(item.product_id ?? item.id)
   if (!pid || !products?.length) return undefined
   const p = products.find(x => x.id === pid)
-  return p ? (p.photoThumb || p.photo || undefined) : undefined
+  return p ? resolvePhotoUrl(p.photoThumb || p.photo) : undefined
 }

@@ -12,6 +12,7 @@ import AssemblerLoginPage from '@/components/assembler/AssemblerLoginPage'
 import { useAssemblerTeam, hydrateAssemblerTeamStore, useAssemblerTeamStore } from '@/lib/assemblerTeamStore'
 import type { AdminAssembler } from '@/lib/assemblerTeam'
 import type { Product } from '@/lib/types'
+import { resolvePhotoUrl } from '@/lib/productPhotos'
 import { canAssemblerSeeOrder, isAssemblerOrderClaimed, orderHasAssemblerAssignment } from '@/lib/assemblerTeam'
 import { loadAssemblerSession, saveAssemblerSession, clearAssemblerSession, type AssemblerSession } from '@/lib/assemblerSession'
 // ─── КАКАПО Assembler App ────────────────────────
@@ -600,7 +601,7 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
               return (
               <div key={j} style={{display:'flex',alignItems:'center',gap:5,padding:'4px 9px',borderRadius:9,background:item.done?'rgba(155,109,255,.12)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,position:'relative'}}>
                 {photo
-                  ? <img src={photo} alt="" style={{width:18,height:18,borderRadius:4,objectFit:'contain',flexShrink:0}}/>
+                  ? <img src={resolvePhotoUrl(photo)} alt="" style={{width:18,height:18,borderRadius:4,objectFit:'contain',flexShrink:0}}/>
                   : <span style={{fontSize:14}}>{item.e}</span>}
                 <span style={{fontSize:11,fontWeight:600,color:item.done?'#9B6DFF':'#8FB897',textDecoration:item.done?'line-through':'none'}}>{item.name.split(' ')[0]}</span>
                 {item.done&&<span style={{fontSize:10,color:'#9B6DFF'}}>✓</span>}
@@ -1046,7 +1047,7 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
             style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:isCancelled || isHandoffStage ?'default':'pointer',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
             <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s',overflow:'hidden'}}>
               {(item.photoThumb || item.photo)
-                ? <img src={item.photoThumb || item.photo} alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
+                ? <img src={resolvePhotoUrl(item.photoThumb || item.photo)} alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
                 : item.e}
               {item.done&&(
                 <div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(155,109,255,.4)',display:'flex',alignItems:'center',justifyContent:'center',animation:'fadeIn .2s ease'}}>
@@ -1223,7 +1224,7 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
                 <div key={item.id} style={{padding:'12px 14px',borderRadius:14,background:'#091508',border:'1px solid #162B1A'}}>
                   <div style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:10}}>
                     {(item.photoThumb || item.photo)
-                      ? <img src={item.photoThumb || item.photo} alt="" style={{width:28,height:28,borderRadius:8,objectFit:'contain',flexShrink:0}}/>
+                      ? <img src={resolvePhotoUrl(item.photoThumb || item.photo)} alt="" style={{width:28,height:28,borderRadius:8,objectFit:'contain',flexShrink:0}}/>
                       : <span style={{fontSize:24}}>{item.e}</span>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{item.name}</div>
