@@ -537,6 +537,9 @@ export default function CashierModule({
     debtAmt?: number
   } | null>(null)
   const [printAskSale, setPrintAskSale] = useState<PosSale | null>(null)
+  const printChoiceLockedRef = useRef(false)
+  const printingSaleIdsRef = useRef(new Set<string>())
+  const [printingSaleId, setPrintingSaleId] = useState<string | null>(null)
   const [deskPrinters, setDeskPrinters] = useState<DesktopPrinter[]>([])
   const [deskPrinterName, setDeskPrinterName] = useState('')
   const [deskPaperMm, setDeskPaperMm] = useState<58 | 80>(XP58C_RECEIPT_MM)
@@ -2625,6 +2628,40 @@ export default function CashierModule({
     }
   }
 
+  async function printSaleOnce(sale: PosSale) {
+    const key = String(sale.id || sale.orderId || sale.number || 'sale')
+    if (printingSaleIdsRef.current.has(key)) return
+    printingSaleIdsRef.current.add(key)
+    setPrintingSaleId(key)
+    try {
+      await doPrintSale(sale)
+    } finally {
+      printingSaleIdsRef.current.delete(key)
+      setPrintingSaleId(cur => cur === key ? null : cur)
+    }
+  }
+
+  function finishSalePrintChoice(shouldPrint: boolean) {
+    const sale = printAskSale
+    if (!sale || printChoiceLockedRef.current) return
+
+    // Блокировка ставится синхронно до перерисовки: быстрые повторные клики
+    // не смогут отправить несколько одинаковых заданий на XP-58C.
+    printChoiceLockedRef.current = true
+    setPrintAskSale(null)
+    afterSaleTicketReset()
+
+    if (shouldPrint) {
+      void printSaleOnce(sale).finally(() => {
+        printChoiceLockedRef.current = false
+      })
+    } else {
+      window.setTimeout(() => {
+        printChoiceLockedRef.current = false
+      }, 0)
+    }
+  }
+
   async function confirmCreditNote() {
     if (!creditPending) return
     const note = creditNoteBuf.trim()
@@ -2837,13 +2874,13 @@ export default function CashierModule({
         'Чек проведён',
         `${parts.length ? parts.join(' · ') : (methodPay === 'balance' ? `Бонусы −${spend} ⭐` : 'Карта')}${debtRepayNote}`,
       )
-      afterSaleTicketReset()
       setCashOpen(false)
       setSplitCardOpen(false)
       setPayPickOpen(false)
       setCreditNoteOpen(false)
       setCreditNoteBuf('')
       setCreditPending(null)
+      printChoiceLockedRef.current = false
       setPrintAskSale({
         ...created,
         orderGoodsTotal: created.orderGoodsTotal ?? Math.round(subtotalGross * 100) / 100,
@@ -4878,7 +4915,7 @@ export default function CashierModule({
       )}
 
       {printAskSale && (
-        <div className="overlay" onClick={() => setPrintAskSale(null)}>
+        <div className="overlay">
           <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
             <h3>Чек проведён</h3>
             <div className="pay-breakdown" style={{ marginBottom: 14 }}>
@@ -4898,16 +4935,14 @@ export default function CashierModule({
               <button
                 type="button"
                 className="btn-cancel"
-                onClick={() => setPrintAskSale(null)}
+                onClick={() => finishSalePrintChoice(false)}
               >
                 Нет
               </button>
               <button
                 type="button"
                 className="btn-confirm"
-                onClick={() => {
-                  void doPrintSale(printAskSale).finally(() => setPrintAskSale(null))
-                }}
+                onClick={() => finishSalePrintChoice(true)}
               >
                 🖨 Печатать
               </button>
@@ -6140,10 +6175,22 @@ export default function CashierModule({
                   <button
                     type="button"
                     className="action-chip ac-topup"
-                    disabled={busy}
-                    onClick={() => void doPrintSale(receiptDetail)}
+                    disabled={
+                      busy
+                      || printingSaleId === String(
+                        receiptDetail.id || receiptDetail.orderId || receiptDetail.number || 'sale',
+                      )
+                    }
+                    onClick={() => void printSaleOnce(receiptDetail)}
                   >
-                    <span className="ic-wrap">🖨</span><span>Печать</span>
+                    <span className="ic-wrap">🖨</span>
+                    <span>
+                      {printingSaleId === String(
+                        receiptDetail.id || receiptDetail.orderId || receiptDetail.number || 'sale',
+                      )
+                        ? 'Печатаем…'
+                        : 'Печатать чек'}
+                    </span>
                   </button>
                   <button
                     type="button"
