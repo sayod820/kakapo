@@ -567,14 +567,12 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** После снятия товара держим пик веса — промежуточные 0.250 и т.п. не попадают */
-  const SCALE_HOLD_MS = 1500
-  /** Падение больше 2 г = снятие, не обновляем вниз */
-  const SCALE_DROP_KG = 0.002
-  const scaleHoldUntilRef = useRef(0)
+  /** Вес попадает в поле только после 500 мс одинаковых показаний */
+  const SCALE_STABLE_MS = 500
+  const SCALE_STABLE_DELTA_KG = 0.0005
   const lastHeldKgRef = useRef(0)
-  const scaleSawZeroRef = useRef(false)
-  const scaleHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scaleCandidateKgRef = useRef(0)
+  const scaleCandidateSinceRef = useRef(0)
   const [scaleHolding, setScaleHolding] = useState(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
   const [receiptTemplateDraft, setReceiptTemplateDraft] = useState<ReceiptStoreConfig>(() => ({
@@ -776,21 +774,11 @@ export default function CashierModule({
     }).catch(() => undefined)
   }, [])
 
-  /** Живой вес CAS → поле в окне «Ввод веса» (как в старой кассе) */
+  /** В окно попадает только остановившийся вес; движение и снятие игнорируются. */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
     if (!desk?.onCasWeight) return
-
-    const beginHold = (now: number) => {
-      scaleHoldUntilRef.current = now + SCALE_HOLD_MS
-      setScaleHolding(true)
-      if (scaleHoldTimerRef.current) clearTimeout(scaleHoldTimerRef.current)
-      scaleHoldTimerRef.current = setTimeout(() => {
-        scaleHoldTimerRef.current = null
-        setScaleHolding(false)
-      }, SCALE_HOLD_MS)
-    }
 
     const off = desk.onCasWeight(payload => {
       setCasWeight(payload)
@@ -798,47 +786,36 @@ export default function CashierModule({
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
       const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
       const now = Date.now()
-      const prev = lastHeldKgRef.current
 
-      // Пока удержание — в окно ничего не пишем (остаётся пик, напр. 0.255)
-      if (now < scaleHoldUntilRef.current) return
-
-      // Платформа пустая
+      // Ноль при снятии не заменяет уже зафиксированный вес.
       if (!(kg > 0.0005)) {
-        if (prev > 0.0005) {
-          scaleSawZeroRef.current = true
-          beginHold(now)
-        }
-        return
-      }
-
-      // Новый цикл после нуля — принимаем новый товар
-      if (scaleSawZeroRef.current) {
-        scaleSawZeroRef.current = false
-        lastHeldKgRef.current = kg
-        setQtyEditMode('qty')
-        setQtyEditBuf(kg.toFixed(3))
+        scaleCandidateKgRef.current = 0
+        scaleCandidateSinceRef.current = 0
         setScaleHolding(false)
         return
       }
 
-      // Снятие: вес просел (0.255 → 0.250) — оставляем пик, не даём «случайному» попасть
-      if (prev > 0.0005 && kg < prev - SCALE_DROP_KG) {
-        beginHold(now)
+      const candidate = scaleCandidateKgRef.current
+      if (!(candidate > 0) || Math.abs(candidate - kg) > SCALE_STABLE_DELTA_KG) {
+        // Вес движется: начинаем подтверждение заново, поле не меняем.
+        scaleCandidateKgRef.current = kg
+        scaleCandidateSinceRef.current = now
+        setScaleHolding(true)
         return
       }
 
-      // Рост или тот же вес (±2 г) — берём максимум (пик)
-      const next = Math.max(prev, kg)
-      lastHeldKgRef.current = next
+      if (now - scaleCandidateSinceRef.current < SCALE_STABLE_MS) {
+        setScaleHolding(true)
+        return
+      }
+
+      // Несколько одинаковых показаний подряд: фиксируем точное значение весов.
+      lastHeldKgRef.current = kg
       setQtyEditMode('qty')
-      setQtyEditBuf(next.toFixed(3))
+      setQtyEditBuf(kg.toFixed(3))
       setScaleHolding(false)
     })
-    return () => {
-      off()
-      if (scaleHoldTimerRef.current) clearTimeout(scaleHoldTimerRef.current)
-    }
+    return () => { off() }
   }, [])
 
   useEffect(() => () => {
@@ -2388,25 +2365,11 @@ export default function CashierModule({
       && !!deskScaleHost.trim()
   }
 
-  function applyScaleKgToModal(kg: number) {
-    const w = Math.round((Number(kg) || 0) * 1000) / 1000
-    if (!(w > 0.0005)) return
-    lastHeldKgRef.current = w
-    scaleHoldUntilRef.current = 0
-    scaleSawZeroRef.current = false
-    setScaleHolding(false)
-    setQtyEditMode('qty')
-    setQtyEditBuf(w.toFixed(3))
-  }
-
   function startWeightModalMonitor() {
     qtyEditIsWeightRef.current = true
-    scaleHoldUntilRef.current = 0
-    scaleSawZeroRef.current = false
-    setScaleHolding(false)
-    if (casWeight.weightKg > 0.0005) {
-      applyScaleKgToModal(casWeight.weightKg)
-    }
+    scaleCandidateKgRef.current = 0
+    scaleCandidateSinceRef.current = 0
+    setScaleHolding(true)
     if (!liveWeightEnabled()) return
     void (async () => {
       await ensureCasWeightMonitor(true)
@@ -2427,7 +2390,7 @@ export default function CashierModule({
           raw: res.raw,
           ts: res.ts,
         })
-        if (res.weightKg > 0.0005) applyScaleKgToModal(res.weightKg)
+        // Не переносим одиночное чтение в поле: ждём стабильные события монитора.
       } catch {
         /* монитор продолжит опрос */
       }
@@ -2436,14 +2399,10 @@ export default function CashierModule({
 
   function stopWeightModalMonitor() {
     qtyEditIsWeightRef.current = false
-    scaleHoldUntilRef.current = 0
     lastHeldKgRef.current = 0
-    scaleSawZeroRef.current = false
+    scaleCandidateKgRef.current = 0
+    scaleCandidateSinceRef.current = 0
     setScaleHolding(false)
-    if (scaleHoldTimerRef.current) {
-      clearTimeout(scaleHoldTimerRef.current)
-      scaleHoldTimerRef.current = null
-    }
     if (!editPosId) void ensureCasWeightMonitor(false)
   }
 
@@ -4867,7 +4826,7 @@ export default function CashierModule({
                   : isWeight
                     ? (liveWeightEnabled()
                       ? (scaleHolding
-                        ? 'Вес зафиксирован · можно сохранить'
+                        ? 'Весы движутся · ждём остановки…'
                         : (casWeight.connected
                           ? ((casWeight.grams || 0) > 0
                             ? `Весы: ${casWeight.grams} г · ${(casWeight.weightKg || 0).toFixed(3)} кг`
