@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import dynamic from 'next/dynamic'
+import ClientAddressEditorSheet from '@/components/store/ClientAddressEditorSheet'
 import {
   findStoreClientByPhone,
   formatTjPhone,
@@ -16,11 +16,14 @@ import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 import { registerClientAccount } from '@/lib/clientCardSync'
 import { recoveryExpiresAtIso, isRecoveryExpired } from '@/lib/clientAccountLifecycle'
 import { getRegistrationWelcomeBonus, subscribeLoyaltyStatusConfig, syncLoyaltyStatusConfigFromApi } from '@/lib/loyaltyStatusConfig'
-import { formatClientAddressLine, setRegistrationDefaultAddress, ensureClientDefaultAddress } from '@/lib/clientAddresses'
+import {
+  formatClientAddressLine,
+  setRegistrationDefaultAddress,
+  ensureClientDefaultAddress,
+  type ClientSavedAddress,
+} from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
 import { setCurrentClientPhone, resetClientNotificationsForAccount } from '@/lib/clientNotifications'
-
-const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
 
 const DEMO_OTP = '1234'
 
@@ -81,13 +84,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const [reg, setReg] = useState({ firstName: '', lastName: '', email: '' })
   const [savedAddr, setSavedAddr] = useState<RegAddress>(emptyRegAddress())
   const [showAddrSheet, setShowAddrSheet] = useState(false)
-  const [draftStreet, setDraftStreet] = useState('')
-  const [draftApt, setDraftApt] = useState('')
-  const [draftFloor, setDraftFloor] = useState('')
-  const [draftEnt, setDraftEnt] = useState('')
-  const [draftCoords, setDraftCoords] = useState<{ lat: number; lng: number } | null>(null)
-  const [mapOpen, setMapOpen] = useState(false)
-  const [addrErr, setAddrErr] = useState('')
+  const [addrSheetSession, setAddrSheetSession] = useState(0)
   const [err, setErr] = useState('')
   const [load, setLoad] = useState(false)
   const [cd, setCd] = useState(0)
@@ -187,8 +184,6 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
       setReg({ firstName: '', lastName: '', email: '' })
       setSavedAddr(emptyRegAddress())
       setShowAddrSheet(false)
-      setMapOpen(false)
-      setAddrErr('')
       setStep('register')
     }, 450)
   }
@@ -240,42 +235,23 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const setRegField = (key: keyof typeof reg, val: string) => setReg(r => ({ ...r, [key]: val }))
 
   const openAddrSheet = () => {
-    if (savedAddr.saved) {
-      setDraftStreet(savedAddr.street)
-      setDraftApt(savedAddr.apt)
-      setDraftFloor(savedAddr.floor)
-      setDraftEnt(savedAddr.ent)
-      setDraftCoords(savedAddr.coords)
-    } else {
-      setDraftStreet('')
-      setDraftApt('')
-      setDraftFloor('')
-      setDraftEnt('')
-      setDraftCoords(null)
-    }
-    setMapOpen(false)
-    setAddrErr('')
+    setAddrSheetSession(s => s + 1)
     setShowAddrSheet(true)
   }
 
   const closeAddrSheet = () => {
     setShowAddrSheet(false)
-    setMapOpen(false)
-    setAddrErr('')
   }
 
-  const saveAddrInSheet = () => {
-    if (!draftCoords) { setAddrErr('Укажите точку на карте'); setMapOpen(true); return }
-    if (!draftStreet.trim()) { setAddrErr('Укажите улицу и дом'); return }
+  const saveAddressFromEditor = (entry: ClientSavedAddress) => {
     setSavedAddr({
-      street: draftStreet.trim(),
-      apt: draftApt.trim(),
-      floor: draftFloor.trim(),
-      ent: draftEnt.trim(),
-      coords: draftCoords,
+      street: entry.street.trim(),
+      apt: entry.apt.trim(),
+      floor: entry.floor.trim(),
+      ent: entry.ent.trim(),
+      coords: entry.lat != null && entry.lng != null ? { lat: entry.lat, lng: entry.lng } : null,
       saved: true,
     })
-    closeAddrSheet()
     setErr('')
   }
 
@@ -703,111 +679,28 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
         </div>
       </div>
 
-      {showAddrSheet && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 400, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div onClick={closeAddrSheet} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.82)', backdropFilter: 'blur(8px)' }} />
-          <div style={{
-            position: 'relative', zIndex: 1, width: '100%', maxWidth: 480,
-            background: '#091508', borderTop: '1px solid #162B1A',
-            borderRadius: '24px 24px 0 0',
-            padding: '20px 16px calc(28px + env(safe-area-inset-bottom, 0px))',
-            maxHeight: '92vh', overflowY: 'auto', overflowX: 'hidden',
-            animation: 'slSlideUp .4s cubic-bezier(.16,1,.3,1)',
-          }}>
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: '#1D3822', margin: '0 auto 18px' }} />
-            <div className="sl-ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 6, color: '#EBF5ED' }}>Адрес доставки</div>
-            <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 16, lineHeight: 1.45 }}>
-              Сначала укажите точку на карте, затем заполните дом, квартиру, этаж и подъезд
-            </div>
-
-            {addrErr && (
-              <div style={{
-                padding: '10px 12px', borderRadius: 12, marginBottom: 12,
-                background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.28)',
-                fontSize: 12, color: '#FF6969', textAlign: 'center',
-              }}>⚠️ {addrErr}</div>
-            )}
-
-            {!mapOpen ? (
-              <button type="button" onClick={() => setMapOpen(true)} className="sl-btn"
-                style={{
-                  width: '100%', marginBottom: 14, padding: '14px', borderRadius: 14,
-                  background: draftCoords ? 'rgba(31,215,96,.12)' : 'rgba(31,215,96,.08)',
-                  border: `1.5px solid ${draftCoords ? 'rgba(31,215,96,.45)' : 'rgba(31,215,96,.35)'}`,
-                  color: draftCoords ? '#1FD760' : '#8FB897',
-                  fontSize: 13, fontWeight: 700, textAlign: 'left',
-                }}>
-                {draftCoords ? '✓ Точка выбрана · изменить на карте' : '🗺 Указать точку на карте *'}
-              </button>
-            ) : (
-              <div style={{ marginBottom: 14 }}>
-                <button type="button" onClick={() => setMapOpen(false)} className="sl-btn"
-                  style={{ marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', fontSize: 11, fontWeight: 700 }}>
-                  ← Назад к полям
-                </button>
-                <AddressMapPicker
-                  key={`reg-map-${draftCoords?.lat ?? 'new'}-${draftCoords?.lng ?? 'new'}`}
-                  initial={draftCoords}
-                  variant="admin"
-                  hint="Нажмите на карту и подтвердите точку"
-                  mapHeight={210}
-                  onSelect={({ lat, lng, address }) => {
-                    setDraftCoords({ lat, lng })
-                    setDraftStreet(address)
-                    setMapOpen(false)
-                    setAddrErr('')
-                  }}
-                />
-              </div>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div>
-                {fieldLabel('Улица, дом *')}
-                <input className="sl-inp" value={draftStreet} onChange={e => setDraftStreet(e.target.value)}
-                  placeholder="ул. Ленина, 42"
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div>
-                  {fieldLabel('Квартира')}
-                  <input className="sl-inp" value={draftApt} onChange={e => setDraftApt(e.target.value)}
-                    placeholder="15"
-                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
-                </div>
-                <div>
-                  {fieldLabel('Этаж')}
-                  <input className="sl-inp" value={draftFloor} onChange={e => setDraftFloor(e.target.value)}
-                    placeholder="3"
-                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
-                </div>
-                <div style={{ gridColumn: '1 / -1' }}>
-                  {fieldLabel('Подъезд')}
-                  <input className="sl-inp" value={draftEnt} onChange={e => setDraftEnt(e.target.value)}
-                    placeholder="2"
-                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
-                </div>
-              </div>
-            </div>
-
-            {!draftCoords && (
-              <div style={{ marginTop: 10, fontSize: 11, color: '#FFB800', fontWeight: 600 }}>
-                ⚠️ Укажите точку на карте — курьер увидит ваш дом
-              </div>
-            )}
-
-            <button type="button" onClick={saveAddrInSheet} className="sl-btn sl-ub"
-              style={{
-                width: '100%', marginTop: 16, padding: '14px', borderRadius: 15,
-                background: 'linear-gradient(135deg,#17B34E,#1FD760)',
-                border: 'none', color: '#030B05', fontSize: 14, fontWeight: 800,
-                opacity: draftStreet.trim() && draftCoords ? 1 : 0.55,
-              }}>
-              📍 Сохранить адрес
-            </button>
-          </div>
-        </div>
-      )}
+      <ClientAddressEditorSheet
+        open={showAddrSheet}
+        onClose={closeAddrSheet}
+        onSaved={saveAddressFromEditor}
+        clientPhone={formatTjPhone(phone)}
+        editEntry={savedAddr.saved ? {
+          id: 1,
+          label: '🏠 Дом',
+          street: savedAddr.street,
+          apt: savedAddr.apt,
+          floor: savedAddr.floor,
+          ent: savedAddr.ent,
+          comment: '',
+          def: true,
+          lat: savedAddr.coords?.lat,
+          lng: savedAddr.coords?.lng,
+        } : null}
+        sessionKey={addrSheetSession}
+        title="Адрес при регистрации"
+        confirmLabel="✓ Сохранить адрес"
+        persistOnSave={false}
+      />
     </div>
   )
 }

@@ -20,6 +20,8 @@ type Props = {
   sessionKey?: number
   title?: string
   confirmLabel?: string
+  /** При регистрации клиент ещё не создан — возвращаем адрес без записи в хранилище. */
+  persistOnSave?: boolean
 }
 
 const LABELS = ['🏠 Дом', '💼 Работа', '📍 Другое'] as const
@@ -66,6 +68,7 @@ export default function ClientAddressEditorSheet({
   sessionKey = 0,
   title,
   confirmLabel = '✓ Подтвердить и вернуться к заказу',
+  persistOnSave = true,
 }: Props) {
   const [mapStreet, setMapStreet] = useState('')
   const [house, setHouse] = useState('')
@@ -131,7 +134,7 @@ export default function ClientAddressEditorSheet({
     const fullStreet = buildFullStreet()
     if (!fullStreet || !coords || !clientPhone.trim()) return
 
-    const list = loadClientAddresses(clientPhone)
+    const list = persistOnSave ? loadClientAddresses(clientPhone) : []
     let saved: ClientSavedAddress
 
     if (editEntry) {
@@ -146,8 +149,10 @@ export default function ClientAddressEditorSheet({
         lat: coords.lat,
         lng: coords.lng,
       }
-      const next = list.map(a => (a.id === editEntry.id ? saved : a))
-      saveClientAddresses(next, clientPhone)
+      if (persistOnSave) {
+        const next = list.map(a => (a.id === editEntry.id ? saved : a))
+        saveClientAddresses(next, clientPhone)
+      }
     } else {
       saved = {
         id: Date.now(),
@@ -161,7 +166,7 @@ export default function ClientAddressEditorSheet({
         lat: coords.lat,
         lng: coords.lng,
       }
-      saveClientAddresses([...list, saved], clientPhone)
+      if (persistOnSave) saveClientAddresses([...list, saved], clientPhone)
     }
 
     onSaved(saved)
