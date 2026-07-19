@@ -203,9 +203,6 @@ export default function TradeLoginPage({
             <button type="submit" className="tl-btn" disabled={busy || !employeeId}>
               {busy ? 'Входим…' : 'Войти'}
             </button>
-            <div className="tl-hint">
-              Пароль выдаёт админ. Пример по умолчанию: Админ магазина / 1234
-            </div>
           </>
         )}
         {err && !directory.length && <div className="tl-err" style={{ marginTop: 12 }}>{err}</div>}
