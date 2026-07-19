@@ -762,9 +762,23 @@ export const useProducts = create<ProductsStore>((set, get) => ({
       return
     }
     try {
-      set({ products: ensureArray<Product>(await api.getProducts(), 'products'), loaded: true })
+      const products = ensureArray<Product>(await api.getProducts(), 'products')
+      set({ products, loaded: true })
+      try {
+        const { cacheProducts } = await import('./offline')
+        void cacheProducts(products)
+      } catch { /* кэш недоступен */ }
     } catch (e) {
       console.error(e)
+      // нет связи — грузим из офлайн-кэша, чтобы касса продолжала работать
+      try {
+        const { readCachedProducts } = await import('./offline')
+        const cached = await readCachedProducts()
+        if (cached && cached.length) {
+          set({ products: cached, loaded: true })
+          return
+        }
+      } catch { /* нет кэша */ }
       set({ loaded: true })
     }
   },

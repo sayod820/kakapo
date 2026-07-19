@@ -1,7 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { api } from '@/lib/api'
+import { api, isNetworkError } from '@/lib/api'
+import { useOfflineSync } from '@/lib/offlineSync'
+import { newClientRef, isOnline } from '@/lib/offline'
 import { USE_API } from '@/lib/config'
 import { loyaltySummaryForClient } from '@/lib/clientCardSync'
 import {
@@ -412,6 +414,11 @@ export default function CashierModule({
   const fetchProducts = useProducts(s => s.fetchProducts)
   const clients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
+  const netOnline = useOfflineSync(s => s.online)
+  const netPending = useOfflineSync(s => s.pending)
+  const netSyncing = useOfflineSync(s => s.syncing)
+  const startNetSync = useOfflineSync(s => s.start)
+  const flushNetQueue = useOfflineSync(s => s.flush)
   const shifts = usePosStore(s => s.shifts)
   const posPoints = usePosStore(s => s.posPoints)
   const cashiers = usePosStore(s => s.cashiers)
@@ -654,6 +661,7 @@ export default function CashierModule({
 
   useEffect(() => { void hydrate() }, [hydrate])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { startNetSync() }, [startNetSync])
 
   /** Автообновление статуса кассы (смена открыта/закрыта, продажи) */
   useEffect(() => {
@@ -3045,6 +3053,18 @@ export default function CashierModule({
       cardPaid = payable
     }
 
+    // ── Офлайн: карта и бонусы недоступны (нужен онлайн-терминал/сервер) ──
+    if (!isOnline()) {
+      if (cardPaid > 0.001 || apiMethod === 'card') {
+        showToast('Нет связи', 'Оплата картой недоступна офлайн. Проведите наличными или в долг.')
+        return
+      }
+      if (spend > 0) {
+        showToast('Нет связи', 'Списание бонусов недоступно офлайн.')
+        return
+      }
+    }
+
     setBusy(true)
     setMsg('')
     try {
@@ -3058,7 +3078,9 @@ export default function CashierModule({
       const bonusBalanceAfter = bonusBalanceBefore != null
         ? Math.max(0, bonusBalanceBefore - spend + earnedBonusPreview)
         : undefined
-      const created = await api.createPosSale({
+      const salePayload = {
+        clientRef: newClientRef(),
+        createdAtIso: new Date().toISOString(),
         cashierId: activeShift.cashierId,
         shiftId: activeShift.id,
         posId: activeShift.posId || activePosPoint?.id,
@@ -3087,8 +3109,39 @@ export default function CashierModule({
           receiptId: l.receiptId || undefined,
           preferRetailPrice: l.preferRetailPrice != null ? l.preferRetailPrice : undefined,
         })),
-      })
-      if (client?.phone) {
+      }
+      let created: PosSale & { orderId?: string; _offline?: boolean }
+      try {
+        created = await api.createPosSale(salePayload)
+      } catch (e) {
+        if (isNetworkError(e)) {
+          // нет связи — сохраняем чек в очередь и продолжаем работать
+          await useOfflineSync.getState().queueSale(salePayload)
+          // локально списываем остатки, чтобы не продать в минус до синхронизации
+          try {
+            const ps = useProducts.getState()
+            for (const l of cart) {
+              const p = ps.products.find(x => x.id === l.productId)
+              if (!p) continue
+              const dec = l.weightKg != null ? l.weightKg : l.qty
+              ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
+            }
+          } catch { /* ignore */ }
+          created = {
+            ...(salePayload as unknown as PosSale),
+            id: salePayload.clientRef,
+            orderId: salePayload.clientRef,
+            total,
+            _offline: true,
+          }
+        } else {
+          throw e
+        }
+      }
+      if (created._offline) {
+        showToast('Офлайн-чек сохранён', 'Отправится автоматически при появлении связи')
+      }
+      if (!created._offline && client?.phone) {
         const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
         const purchaseAmt = Math.round((afterDisc - debtAdded) * 100) / 100
         if (purchaseAmt > 0.001) {
@@ -3117,7 +3170,7 @@ export default function CashierModule({
         earnedBonus = calcCashDepositBonus(cashPaid)
       }
       // Бонусы и кэшбэк по заказу начисляет API через loyalty; здесь — только кэшбэк занал (posCashBonus)
-      if (client?.card && USE_API && earnedBonus > 0) {
+      if (!created._offline && client?.card && USE_API && earnedBonus > 0) {
         try {
           const cardRow = cards.find(c => client.card && cardNumsMatch(c.num, client.card))
           const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
@@ -3131,7 +3184,7 @@ export default function CashierModule({
             recordBalanceTopup(client.phone, cashPaid, earnedBonus, apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)')
           }
         } catch { /* ignore */ }
-      } else if (client?.card && USE_API && spend > 0 && !created?.orderId) {
+      } else if (!created._offline && client?.card && USE_API && spend > 0 && !created?.orderId) {
         try {
           const base = Number(loyalty?.bonus) || 0
           const cardRow = cards.find(c => client.card && cardNumsMatch(c.num, client.card))
@@ -3144,10 +3197,10 @@ export default function CashierModule({
           })
         } catch { /* ignore */ }
       }
-      await refresh()
+      if (!created._offline) await refresh()
       const debtRepay = currentPayDebtAmt()
       let debtRepayNote = ''
-      if (debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
+      if (!created._offline && debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
         try {
           const method: 'cash' | 'card' = cashPaid > 0.001 ? 'cash' : 'card'
           await applyDebtRepayAfterSale(debtRepay, method)
@@ -4380,8 +4433,39 @@ export default function CashierModule({
         <div className="topbar">
           <div className="top-loc">
             <b>{activePosPoint?.name || 'Точка продаж'}</b>
-            <div className="dot-row"><span className="d" />{activePosPoint?.code || 'Онлайн'}</div>
+            <div className="dot-row">
+              <span
+                className="d"
+                style={{ background: netOnline ? undefined : '#e11d48' }}
+              />
+              {netOnline
+                ? (netPending > 0
+                    ? (netSyncing ? 'Синхронизация…' : `Онлайн · ${netPending} в очереди`)
+                    : (activePosPoint?.code || 'Онлайн'))
+                : `Офлайн${netPending > 0 ? ` · ${netPending} чек. ждут` : ''}`}
+            </div>
           </div>
+          {(!netOnline || netPending > 0) && (
+            <button
+              type="button"
+              className="net-sync-chip"
+              onClick={() => { void flushNetQueue() }}
+              disabled={netSyncing || !netOnline}
+              title={netOnline ? 'Отправить чеки на сервер' : 'Нет связи — чеки уйдут автоматически'}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', borderRadius: 999,
+                border: `1px solid ${netOnline ? 'var(--line, #d7e0d9)' : '#e11d48'}`,
+                background: netOnline ? 'var(--card2, #eef3ef)' : 'rgba(225,29,72,0.12)',
+                color: netOnline ? 'var(--fg, #16321f)' : '#e11d48',
+                fontSize: 12, fontWeight: 700, cursor: netOnline ? 'pointer' : 'default',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span style={{ fontSize: 13 }}>{netOnline ? '⟳' : '⚠'}</span>
+              {netSyncing ? 'Синхронизация…' : (netOnline ? `Отправить (${netPending})` : `Офлайн · ${netPending}`)}
+            </button>
+          )}
 
           <div className="searchpill">
             <span className="ic" aria-hidden>

@@ -1111,6 +1111,12 @@ export function listPosSales(db) {
 
 export function createPosSale(db, data = {}) {
   ensurePosCollections(db)
+  // Защита от дублей при офлайн-синхронизации: чек с тем же clientRef не создаём повторно
+  const clientRef = data.clientRef ? String(data.clientRef).trim() : ''
+  if (clientRef) {
+    const existing = (db.posSales || []).find(s => s.clientRef === clientRef)
+    if (existing) return existing
+  }
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (!rawItems.length) throw new Error('Добавьте товары в продажу')
   const rows = consumeStock(db, rawItems)
@@ -1159,11 +1165,15 @@ export function createPosSale(db, data = {}) {
   // Один счётчик с онлайн-заказами: K-4864 …
   const orderId = nextOrderId(db)
 
+  const offlineIso = clientRef && data.createdAtIso && !Number.isNaN(Date.parse(data.createdAtIso))
+    ? new Date(data.createdAtIso).toISOString()
+    : nowIso()
   const sale = {
     id: nextId('SALE'),
     number: nextPosSaleNumber(db),
     orderId,
-    createdAtIso: nowIso(),
+    clientRef: clientRef || undefined,
+    createdAtIso: offlineIso,
     cashierId: cashier?.id || '',
     cashierName: cashier?.name || '',
     shiftId: shift?.id || '',

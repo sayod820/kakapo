@@ -1498,6 +1498,12 @@ app.get('/pos/sales', (_req, res) => {
 app.post('/pos/sales', (req, res) => {
   try {
     const body = req.body || {}
+    // Идемпотентность офлайн-синхронизации: если чек с таким clientRef уже проведён — возвращаем его
+    const clientRef = body.clientRef ? String(body.clientRef).trim() : ''
+    if (clientRef) {
+      const dup = (db.posSales || []).find(s => s.clientRef === clientRef)
+      if (dup) return res.json(dup)
+    }
     const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
     if (bonusSpendReq > 0) {
       const phone = String(body.clientPhone || '').trim()

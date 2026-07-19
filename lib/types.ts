@@ -456,6 +456,8 @@ export interface PosSaleReturn {
 
 export interface PosSale {
   id: string
+  /** Идемпотентный ключ офлайн-чека (для защиты от дублей при синхронизации) */
+  clientRef?: string
   /** Сквозной номер чека (№1, №2…) */
   number?: number
   createdAtIso: string

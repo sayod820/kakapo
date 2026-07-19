@@ -31,6 +31,19 @@ import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
 
+// ── Сетевые ошибки (нет связи / таймаут) для офлайн-режима ──
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NetworkError'
+  }
+}
+
+/** true, если ошибка вызвана отсутствием связи с сервером (а не ответом сервера) */
+export function isNetworkError(e: unknown): boolean {
+  return e instanceof NetworkError
+}
+
 // ── Хранение токена ──
 let _token: string | null = null
 export const setToken = (t: string | null) => {
@@ -106,7 +119,7 @@ const RETRY_DELAY_MS = 5000
 
 function withTimeout<T>(promise: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Сервер не отвечает. Попробуйте ещё раз.')), ms)
+    const timer = setTimeout(() => reject(new NetworkError('Сервер не отвечает. Попробуйте ещё раз.')), ms)
     promise.then(
       v => { clearTimeout(timer); resolve(v) },
       e => { clearTimeout(timer); reject(e) },
@@ -151,15 +164,15 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
   try {
     res = await withTimeout(fetch(url, { ...options, headers }), timeoutMs)
   } catch (e) {
-    const timedOut = e instanceof Error && e.message.includes('Сервер не отвечает')
+    const timedOut = e instanceof NetworkError || (e instanceof Error && e.message.includes('Сервер не отвечает'))
     if (timedOut && attempt < MAX_ATTEMPTS - 1) {
       await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
       return requestUrl<T>(url, options, attempt + 1, timeoutMs)
     }
     if (timedOut) {
-      throw new Error('Сервер не отвечает. Подождите немного и обновите страницу.')
+      throw new NetworkError('Сервер не отвечает. Подождите немного и обновите страницу.')
     }
-    throw new Error('Нет связи с сервером. Проверьте интернет.')
+    throw new NetworkError('Нет связи с сервером. Проверьте интернет.')
   }
 
   if (!res.ok) {
@@ -617,6 +630,8 @@ export const api = {
     request<PosShift>(`/pos/shifts/${id}/close`, { method: 'PATCH', body: JSON.stringify(data) }),
   getPosSales: () => request<PosSale[]>('/pos/sales'),
   createPosSale: (data: {
+    clientRef?: string
+    createdAtIso?: string
     cashierId?: string
     shiftId?: string
     posId?: string
