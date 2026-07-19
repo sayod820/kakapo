@@ -563,6 +563,8 @@ export default function CashierModule({
   const [layerPickGroups, setLayerPickGroups] = useState<PriceLayerGroup[]>([])
   const [layerPickWeightKg, setLayerPickWeightKg] = useState<number | undefined>(undefined)
   const [layerPickBusy, setLayerPickBusy] = useState(false)
+  /** На телефоне: товары или чек (полноэкранные панели) */
+  const [posMobPanel, setPosMobPanel] = useState<'shop' | 'cart'>('shop')
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [topupOpen, setTopupOpen] = useState(false)
   const [topupBuf, setTopupBuf] = useState('')
@@ -2712,6 +2714,7 @@ export default function CashierModule({
       selectedLineKey: null,
     }))
     setDiscLineKey(null)
+    setPosMobPanel('shop')
   }
 
   function addTicket() {
@@ -2778,6 +2781,7 @@ export default function CashierModule({
   }
 
   function afterSaleTicketReset() {
+    setPosMobPanel('shop')
     setTickets(prev => {
       if (prev.length <= 1) {
         return prev.map(t => t.id !== activeTicketId ? t : {
@@ -3194,6 +3198,7 @@ export default function CashierModule({
       return
     }
     if (!cart.length) return
+    setPosMobPanel('cart')
     const zeroWeight = cart.find(l => l.weightKg != null && !(l.weightKg > 0.0005))
     if (zeroWeight) {
       showToast('Нет веса', `Укажите вес для «${zeroWeight.name}»`)
@@ -4371,7 +4376,7 @@ export default function CashierModule({
   return (
     <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
       <style>{POS_MOCK_CSS}</style>
-      <div className="app">
+      <div className="app" data-mob-panel={posMobPanel}>
         <div className="topbar">
           <div className="top-loc">
             <b>{activePosPoint?.name || 'Точка продаж'}</b>
@@ -4832,6 +4837,39 @@ export default function CashierModule({
             <span>🖨</span><span>Оплатить</span>
           </button>
         </div>
+
+        <nav className="pos-mob-switch" aria-label="Панели кассы">
+          <button
+            type="button"
+            className={posMobPanel === 'shop' ? 'on' : ''}
+            onClick={() => setPosMobPanel('shop')}
+          >
+            <span className="pms-ic">📦</span>
+            <span>Товары</span>
+          </button>
+          <button
+            type="button"
+            className={posMobPanel === 'cart' ? 'on' : ''}
+            onClick={() => setPosMobPanel('cart')}
+          >
+            <span className="pms-ic">🧾</span>
+            <span>Чек</span>
+            {cart.length > 0 && (
+              <span className="pms-badge">{cart.length > 99 ? '99+' : cart.length}</span>
+            )}
+            {total > 0.001 && (
+              <span className="pms-sum">{total.toFixed(0)}</span>
+            )}
+          </button>
+          <button
+            type="button"
+            className="pms-pay"
+            disabled={!cart.length || busy}
+            onClick={startPay}
+          >
+            Оплата
+          </button>
+        </nav>
       </div>
 
       {catModalOpen && (
