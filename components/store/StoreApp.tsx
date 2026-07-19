@@ -2844,11 +2844,17 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
   const profileTierId = profileLoyalty.isVip ? 'vip' : profileLoyalty.isBasicClient ? 'basic' : profileLoyalty.tier.id
   const cardAccent = profileCardAccent(profileTheme);
 
+  const debtNow = Math.max(0, Number(user?.debt) || 0)
   const menuItems = [
     {
       icon: "crown", l: loyalty.isVip ? "VIP профиль" : "VIP программа", c: "var(--gd)", to: "vip",
       s: loyalty.isVip ? "Привилегии и кредитный лимит" : loyalty.isBasicClient ? "Нет привилегий · путь к VIP" : `Выполнено ${loyalty.vipDoneCount} из 3 условий`,
       badge: loyalty.isVip ? "VIP" : undefined,
+    },
+    {
+      icon: "card", l: "Долги", c: debtNow > 0 ? "var(--red)" : "var(--gd)", to: "debts",
+      s: debtNow > 0 ? `Сейчас ${debtNow.toLocaleString()} ЅМ` : "История и кредитный лимит",
+      badge: debtNow > 0 ? "долг" : undefined,
     },
     {
       icon: "bag", l: "Мои заказы", c: "var(--gr)", to: "orders",
@@ -3055,8 +3061,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
         </div>
               <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
                 {item.badge ? (
-                  <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(255,69,69,.12)" : item.icon === "crown" ? "rgba(255,184,0,.12)" : "rgba(59,142,240,.12)", color:item.icon === "bell" ? "var(--red)" : item.icon === "crown" ? "var(--gd)" : "var(--blue)", border:`1px solid ${item.icon === "bell" ? "rgba(255,69,69,.25)" : item.icon === "crown" ? "rgba(255,184,0,.3)" : "rgba(59,142,240,.25)"}` }}>
-                    {item.icon === "bell" ? String(item.badge) : item.badge === "VIP" ? "VIP" : "ответ"}
+                  <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(255,69,69,.12)" : item.icon === "crown" ? "rgba(255,184,0,.12)" : item.icon === "card" ? "rgba(255,69,69,.12)" : "rgba(59,142,240,.12)", color:item.icon === "bell" || item.icon === "card" ? "var(--red)" : item.icon === "crown" ? "var(--gd)" : "var(--blue)", border:`1px solid ${item.icon === "bell" || item.icon === "card" ? "rgba(255,69,69,.25)" : item.icon === "crown" ? "rgba(255,184,0,.3)" : "rgba(59,142,240,.25)"}` }}>
+                    {item.icon === "bell" ? String(item.badge) : item.badge === "VIP" ? "VIP" : item.badge === "долг" ? "долг" : "ответ"}
                   </span>
                 ) : null}
                 <Ic n="arr" s={14} c="var(--t3)"/>
@@ -4861,6 +4867,52 @@ function VipDebtSection({
   )
 }
 
+const DebtsPage = ({ go, user }) => {
+  const apiOrders = useOrders(s => s.orders);
+  const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0);
+  const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
+  const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
+  useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
+  const loyalty = useMemo(
+    () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, loyaltyLockFromRecord(user, user?.level)),
+    [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil, loyaltyCfgTick],
+  );
+  const creditUsed = Math.max(0, Number(user?.debt) || 0);
+  const creditLimit = useMemo(() => resolveEffectiveDebtLimit({
+    level: user?.level,
+    vip: loyalty.isVip || user?.vip,
+    debtLimit: user?.debtLimit,
+    debtEnabled: user?.debtEnabled,
+  }), [user?.level, user?.vip, user?.debtLimit, user?.debtEnabled, loyalty.isVip, loyaltyCfgTick]);
+
+  return (
+    <div data-store-page style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
+      <header data-store-header style={{ position: 'sticky', top: 0, zIndex: 40, background: 'var(--bg)', borderBottom: '1px solid var(--b1)' }}>
+        <div style={{ padding: '14px 18px 13px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => go('profile')} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--l3)', border: '1px solid var(--b1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Ic n="arrL" s={17} c="var(--t2)" />
+          </button>
+          <div style={{ flex: 1 }}>
+            <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Долги</div>
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>История и текущий баланс</div>
+          </div>
+        </div>
+      </header>
+      <div style={{ padding: '16px 18px 110px' }}>
+        <VipDebtSection
+          phone={user?.phone}
+          cardNum={user?.card}
+          creditUsed={creditUsed}
+          creditLimit={creditLimit}
+          apiOrders={apiOrders}
+          loyaltyProfile={user ? { level: loyalty.level, vip: loyalty.isVip } : null}
+        />
+      </div>
+      <Nav page="profile" go={go} user={user} />
+    </div>
+  );
+};
+
 const VIPPage = ({ go, user, setUser }) => {
   const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0);
   const apiOrders = useOrders(s => s.orders);
@@ -5052,18 +5104,19 @@ const VIPPage = ({ go, user, setUser }) => {
           </>) : (
             <div style={{ fontSize:12, color:"var(--t3)", lineHeight:1.6 }}>Кредитный лимит назначается администратором в разделе «Карты».</div>
           )}
+          <button
+            type="button"
+            className="btn"
+            onClick={() => go("debts")}
+            style={{
+              width: "100%", marginTop: creditLimit > 0 ? 0 : 12, padding: "12px", borderRadius: 12,
+              background: "rgba(255,184,0,.1)", border: "1px solid rgba(255,184,0,.28)",
+              color: "var(--gd)", fontSize: 13, fontWeight: 800,
+            }}
+          >
+            Открыть раздел «Долги» →
+          </button>
                 </div>
-        )}
-
-        {debtSectionOn && (
-          <VipDebtSection
-            phone={user?.phone}
-            cardNum={user?.card}
-            creditUsed={creditUsed}
-            creditLimit={creditLimit}
-            apiOrders={apiOrders}
-            loyaltyProfile={user ? { level: loyalty.level, vip: loyalty.isVip } : null}
-          />
         )}
 
         {isVip ? (
@@ -6878,6 +6931,7 @@ function KakapoAppInner() {
       case "wishlist":         return <WishlistPage      {...shared}/>;
       case "faq":              return <FAQPage           {...shared}/>;
       case "vip":              return <VIPPage           {...shared} setUser={setUser}/>;
+      case "debts":            return <DebtsPage         {...shared}/>;
       case "about":            return <AboutPage         {...shared}/>;
       case "restaurants":      return <RestaurantsPage   go={go} cart={cart} onAdd={addItem}/>;
       case "restaurant":       return <RestaurantPage    go={go} params={params} cart={cart} onAdd={addItem} onRm={rmItem}/>;
