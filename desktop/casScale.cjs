@@ -126,11 +126,15 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
   })
 }
 
-/** Ответ веса готов: есть W=число и терминатор поля (точка / P= / перевод строки). */
+/** Ответ веса готов: есть W=число и терминатор поля. */
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  // Важно: не считать кадр готовым по «концу буфера» — иначе W=0.25 из W=0.255 обрежется.
-  return /W\s*=\s*-?\d+(?:\.\d+)?\s*(?:\.|\r|\n|,|;|P\s*=)/i.test(text)
+  // CAS часто шлёт W=0,255. (запятая) или W=0.255.P=
+  // Терминатор после числа: точка-разделитель полей, CR/LF, P=, ; 
+  // Не путать с десятичной запятой внутри числа.
+  return /W\s*=\s*-?\d+[.,]\d+\s*(?:\.(?:\s|$|[A-Za-z])|\r|\n|;|P\s*=)/i.test(text)
+    || /W\s*=\s*-?\d+\s*(?:\.(?:\s|$|[A-Za-z])|\r|\n|;|P\s*=)/i.test(text)
+    || /(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d+/i.test(text)
 }
 
 function writeAndReadWeight(socket, timeoutMs = 900) {
@@ -232,52 +236,80 @@ async function syncCasPlu(opts) {
   }
 }
 
-/** Разбор ответа R45F04 / W45… с полями W= и P=. */
+/**
+ * Разбор ответа R45F04 / W45… или CAS stream ST,NT,…
+ * Важно: русские CAS часто шлют десятичную запятую: W=0,255.
+ */
 function parseWeightResponse(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  // Берём именно поле веса W=…, не заголовок W45…
-  const wMatch = text.match(/(?:^|[^A-Za-z0-9])W\s*=\s*(-?\d+(?:\.\d+)?)/i)
-    || text.match(/W\s*=\s*(-?\d+(?:\.\d+)?)/i)
-  const pMatch = text.match(/(?:^|[^A-Za-z0-9])P\s*=\s*(-?\d+(?:\.\d+)?)/i)
-    || text.match(/P\s*=\s*(-?\d+(?:\.\d+)?)/i)
-  if (!wMatch) {
+  const raw = text.slice(0, 240)
+
+  let wToken = null
+  let fromHex = false
+
+  // 1) Hex-граммы: W=00FF. (буквы A–F) — до десятичного разбора
+  const hex = text.match(/(?:^|[^A-Za-z0-9])W\s*=\s*([0-9A-Fa-f]{2,8})\s*\./)
+  if (hex && /[A-Fa-f]/.test(hex[1])) {
+    const gramsHex = parseInt(hex[1], 16)
+    if (Number.isFinite(gramsHex)) {
+      wToken = String(gramsHex / 1000)
+      fromHex = true
+    }
+  }
+
+  // 2) Поле W=… с точкой или запятой (русские CAS: W=0,255.)
+  if (!wToken) {
+    const wEq = text.match(/(?:^|[^A-Za-z0-9])W\s*=\s*(-?\d+[.,]\d+|-?\d+)/i)
+    if (wEq) wToken = wEq[1]
+  }
+
+  // 3) Поток ST,NT,+  0.255kg
+  if (!wToken) {
+    const stream = text.match(/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,\s*[+\-]?\s*(-?\d+[.,]\d+|-?\d+)\s*(?:kg|г|g)?/i)
+    if (stream) wToken = stream[1]
+  }
+
+  const pMatch = text.match(/(?:^|[^A-Za-z0-9])P\s*=\s*(-?\d+[.,]\d+|-?\d+)/i)
+
+  if (!wToken) {
     return {
       ok: false,
       weightKg: 0,
       grams: 0,
       price: null,
-      raw: text.slice(0, 200),
-      error: 'Нет поля W= в ответе весов',
+      raw,
+      error: 'Нет поля веса в ответе весов',
     }
   }
 
-  const rawW = String(wMatch[1] || '').trim()
+  const rawW = String(wToken).trim().replace(',', '.')
   let weightKg = Number(rawW)
   if (!Number.isFinite(weightKg)) weightKg = 0
 
-  if (rawW.includes('.')) {
-    // Уже килограммы с десятичной частью: W=0.255
-    weightKg = weightKg
-  } else {
-    // Целое без точки: CAS часто шлёт граммы (255 или 0255) → кг
-    // Значения 1..99 без точки тоже считаем граммами на торговых весах (до 100 кг редко целыми).
+  if (!fromHex && !rawW.includes('.')) {
+    // Целое без дробной части: граммы (255 → 0.255 кг)
     if (Math.abs(weightKg) >= 1 && Math.abs(weightKg) < 100000) {
       weightKg = weightKg / 1000
     }
   }
 
+  // Точность как на дисплее CAS: 1 г
   weightKg = Math.round(weightKg * 1000) / 1000
   if (weightKg < 0) weightKg = 0
-  // Отсечь мусор от обрезанного пакета / перегруза
-  if (weightKg > 150) weightKg = 0
+  if (weightKg > 150) {
+    return { ok: false, weightKg: 0, grams: 0, price: null, raw, error: 'Вес вне диапазона' }
+  }
 
   const grams = Math.round(weightKg * 1000)
   let price = null
-  if (pMatch && Number.isFinite(Number(pMatch[1]))) {
-    let pv = Number(pMatch[1])
-    // Цена иногда в копейках без точки
-    if (!String(pMatch[1]).includes('.') && pv >= 100) pv = pv / 100
-    price = pv
+  if (pMatch) {
+    let pv = Number(String(pMatch[1]).replace(',', '.'))
+    if (Number.isFinite(pv)) {
+      if (!String(pMatch[1]).includes('.') && !String(pMatch[1]).includes(',') && pv >= 100) {
+        pv = pv / 100
+      }
+      price = pv
+    }
   }
 
   return {
@@ -285,50 +317,62 @@ function parseWeightResponse(buf) {
     weightKg,
     grams,
     price,
-    raw: text.slice(0, 200),
+    raw,
+    display: weightKg.toFixed(3),
     stable: true,
   }
 }
 
+function toWeightResult(parsed, host, port) {
+  return {
+    ok: true,
+    host,
+    port,
+    weightKg: parsed.weightKg,
+    grams: parsed.grams,
+    price: parsed.price,
+    raw: parsed.raw,
+    display: parsed.display || parsed.weightKg.toFixed(3),
+    connected: true,
+    ts: Date.now(),
+  }
+}
+
 /**
- * Однократное чтение веса (для теста связи).
+ * Однократное чтение веса.
+ * Если монитор уже держит TCP — читаем через него (у CAS часто 1 соединение).
  * @param {{ host: string, port?: number, timeoutMs?: number }} opts
  */
 async function readLiveWeight(opts) {
-  const host = String(opts.host || '').trim()
-  const port = Number(opts.port) || 20304
+  const host = String(opts.host || weightMonitor.host || '').trim()
+  const port = Number(opts.port || weightMonitor.port) || 20304
   const timeoutMs = Number(opts.timeoutMs) || 4000
   if (!host) throw new Error('Укажите IP весов CAS')
+
+  if (weightMonitor.running) {
+    const snap = await weightMonitor.readOnce()
+    return toWeightResult(snap, host, port)
+  }
 
   const socket = await tcpConnect(host, port, timeoutMs)
   try {
     const resp = await writeAndReadWeight(socket, timeoutMs)
     const parsed = parseWeightResponse(resp)
     if (!parsed.ok) throw new Error(parsed.error || 'Не удалось разобрать вес')
-    return {
-      ok: true,
-      host,
-      port,
-      weightKg: parsed.weightKg,
-      grams: parsed.grams,
-      price: parsed.price,
-      raw: parsed.raw,
-      connected: true,
-      ts: Date.now(),
-    }
+    return toWeightResult(parsed, host, port)
   } finally {
     socket.destroy()
   }
 }
 
 /**
- * Фоновый монитор веса: опрос ~10 Гц, реконнект при обрыве.
+ * Фоновый монитор веса: опрос ~10 Гц, одно TCP-соединение.
  */
 class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
-    this.intervalMs = 100
+    this.intervalMs = 120
     this.socket = null
     this.timer = null
     this.busy = false
@@ -339,6 +383,7 @@ class CasWeightMonitor {
     this.stableCount = 0
     this.lastRawKg = null
     this.lastEmitKg = null
+    this.lastParsed = null
   }
 
   setListener(fn) {
@@ -367,18 +412,42 @@ class CasWeightMonitor {
     const port = Number(opts.port) || 20304
     if (!host) throw new Error('Укажите IP весов CAS')
 
+    const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(80, Math.min(500, Number(opts.intervalMs) || 100))
+    this.intervalMs = Math.max(80, Math.min(500, Number(opts.intervalMs) || 120))
     this.running = true
     this.lastError = ''
-    this.stableCount = 0
-    this.lastRawKg = null
-    this.lastEmitKg = null
 
-    await this.ensureSocket()
-    this.schedule(0)
-    this.emit({ connected: this.connected, weightKg: 0, grams: 0, error: '' })
+    if (!same) {
+      this.stableCount = 0
+      await this.ensureSocket()
+    }
+
+    // Сразу читаем текущий вес (товар уже на платформе → не показываем 0)
+    try {
+      const snap = await this.readOnce()
+      this.emit({
+        connected: true,
+        weightKg: snap.weightKg,
+        grams: snap.grams,
+        price: snap.price,
+        stable: true,
+        error: '',
+        raw: snap.raw,
+        display: snap.display,
+      })
+    } catch (e) {
+      this.lastError = e instanceof Error ? e.message : String(e)
+      this.emit({
+        connected: this.connected,
+        weightKg: this.lastEmitKg || 0,
+        grams: Math.round((this.lastEmitKg || 0) * 1000),
+        error: this.lastError,
+      })
+    }
+
+    this.schedule(this.intervalMs)
     return { ok: true, host: this.host, port: this.port, running: true }
   }
 
@@ -389,7 +458,7 @@ class CasWeightMonitor {
       this.timer = null
     }
     this.destroySocket()
-    this.emit({ connected: false, running: false, weightKg: 0, grams: 0 })
+    this.emit({ connected: false, running: false, weightKg: this.lastEmitKg || 0, grams: Math.round((this.lastEmitKg || 0) * 1000) })
     return { ok: true, running: false }
   }
 
@@ -428,22 +497,44 @@ class CasWeightMonitor {
     }, delay == null ? this.intervalMs : delay)
   }
 
+  async readOnce() {
+    // Ждём освобождения текущего опроса, чтобы не слать 2 команды сразу
+    const started = Date.now()
+    while (this.busy && Date.now() - started < 1500) {
+      await new Promise(r => setTimeout(r, 20))
+    }
+    this.busy = true
+    try {
+      const socket = await this.ensureSocket()
+      const resp = await writeAndReadWeight(socket, 1200)
+      const parsed = parseWeightResponse(resp)
+      if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
+      this.connected = true
+      this.lastError = ''
+      this.lastEmitKg = parsed.weightKg
+      this.lastParsed = parsed
+      this.lastRawKg = parsed.weightKg
+      return parsed
+    } finally {
+      this.busy = false
+    }
+  }
+
   async tick() {
     if (!this.running) return
     if (this.busy) {
-      // Не пропускаем цикл надолго — следующий опрос сразу после текущего
       this.schedule(this.intervalMs)
       return
     }
     this.busy = true
     try {
       const socket = await this.ensureSocket()
-      const resp = await writeAndReadWeight(socket, 800)
+      const resp = await writeAndReadWeight(socket, 900)
       const parsed = parseWeightResponse(resp)
       if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
 
       const kg = parsed.weightKg
-      if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.001) {
+      if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.0005) {
         this.stableCount += 1
       } else {
         this.stableCount = 0
@@ -454,6 +545,7 @@ class CasWeightMonitor {
       this.connected = true
       this.lastError = ''
       this.lastEmitKg = kg
+      this.lastParsed = parsed
       this.emit({
         connected: true,
         weightKg: kg,
@@ -462,6 +554,7 @@ class CasWeightMonitor {
         stable,
         error: '',
         raw: parsed.raw,
+        display: parsed.display,
       })
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)

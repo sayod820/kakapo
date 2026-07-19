@@ -777,12 +777,10 @@ export default function CashierModule({
       if (!deskScaleLiveWeightRef.current) return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
       const kg = Number(payload.weightKg) || 0
-      // Мгновенно обновляем любое положительное значение (не ждём «стабильно»)
-      // 0 кг = сняли с весов → оставляем последнее положительное в окне
+      // Мгновенно: цифры с весов → в окно. 0 = сняли → оставляем последнее.
       if (kg > 0.0005) {
-        const w = Math.round(kg * 1000) / 1000
         setQtyEditMode('qty')
-        setQtyEditBuf(String(w))
+        setQtyEditBuf((Math.round(kg * 1000) / 1000).toFixed(3))
       }
     })
     return () => { off() }
@@ -2335,9 +2333,45 @@ export default function CashierModule({
       && !!deskScaleHost.trim()
   }
 
+  function applyScaleKgToModal(kg: number) {
+    const w = Math.round((Number(kg) || 0) * 1000) / 1000
+    if (!(w > 0.0005)) return
+    setQtyEditMode('qty')
+    // Как на дисплее CAS: три знака (0.255 кг = 255 г)
+    setQtyEditBuf(w.toFixed(3))
+  }
+
   function startWeightModalMonitor() {
     qtyEditIsWeightRef.current = true
-    if (liveWeightEnabled()) void ensureCasWeightMonitor(true)
+    // Если вес уже был считан — сразу показать (товар уже на платформе)
+    if (casWeight.weightKg > 0.0005) {
+      applyScaleKgToModal(casWeight.weightKg)
+    }
+    if (!liveWeightEnabled()) return
+    void (async () => {
+      await ensureCasWeightMonitor(true)
+      const desk = getKakapoDesktop()
+      if (!desk?.readCasWeight) return
+      try {
+        const res = await desk.readCasWeight({
+          host: deskScaleHost.trim(),
+          port: Number(deskScalePort) || 20304,
+        })
+        setCasWeight({
+          connected: true,
+          weightKg: res.weightKg,
+          grams: res.grams,
+          price: res.price,
+          stable: true,
+          error: '',
+          raw: res.raw,
+          ts: res.ts,
+        })
+        if (res.weightKg > 0.0005) applyScaleKgToModal(res.weightKg)
+      } catch {
+        /* монитор продолжит опрос */
+      }
+    })()
   }
 
   function stopWeightModalMonitor() {
@@ -3816,7 +3850,10 @@ export default function CashierModule({
                                       error: '',
                                       ts: res.ts,
                                     })
-                                    showToast('CAS', `Вес: ${res.grams} г (${res.weightKg.toFixed(3)} кг)`)
+                                    showToast(
+                                      'CAS',
+                                      `Вес: ${res.grams} г (${res.weightKg.toFixed(3)} кг)${res.raw ? ` · ${String(res.raw).slice(0, 40)}` : ''}`,
+                                    )
                                     if (deskScaleLiveWeight) void ensureCasWeightMonitor(true)
                                   } catch (e) {
                                     const msg = e instanceof Error ? e.message : 'Ошибка связи с весами'
