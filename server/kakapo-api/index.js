@@ -2804,7 +2804,7 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     const card = findCardByNum(num)
     if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
     const cash = Math.round((Number(req.body?.cash) || 0) * 100) / 100
-    const credit = Math.max(0, Math.floor(Number(req.body?.credit) || 0))
+    const credit = Math.max(0, Math.round((Number(req.body?.credit) || 0) * 100) / 100)
     if (!(cash > 0) || !(credit > 0)) {
       return res.status(400).json({ detail: 'Укажите сумму пополнения' })
     }
@@ -2821,8 +2821,8 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       posId: req.body?.posId,
     })
 
-    card.bonus = Math.max(0, Number(card.bonus) || 0) + credit
-    card.posCashBonus = Math.max(0, Number(card.posCashBonus) || 0) + credit
+    card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + credit) * 100) / 100
+    card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + credit) * 100) / 100
     syncClientFromCardRow(card)
     persist()
     broadcastPosUpdate({ kind: 'client-cash-topup', id: move.id })

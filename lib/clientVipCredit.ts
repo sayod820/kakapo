@@ -383,7 +383,7 @@ export function loadBalanceTopups(phone: string): BalanceTopupEntry[] {
 
 export function recordBalanceTopup(phone: string, cash: number, bonus: number, desc = 'Пополнение баланса'): void {
   const cashAmt = Math.max(0, Math.round(cash * 100) / 100)
-  const bonusAmt = Math.max(0, Math.floor(bonus))
+  const bonusAmt = Math.max(0, Math.round(bonus * 100) / 100)
   if (!phone.trim() || cashAmt <= 0) return
   const prev = loadBalanceTopups(phone)
   const now = new Date()
@@ -402,8 +402,8 @@ export function recordBalanceTopup(phone: string, cash: number, bonus: number, d
 
 /** Сколько ⭐ реально должно быть на балансе по записи истории кассы. */
 export function topupBalanceCredit(t: Pick<BalanceTopupEntry, 'cash' | 'bonus' | 'desc'>): number {
-  const cash = Math.max(0, Math.floor(Number(t.cash) || 0))
-  const bonus = Math.max(0, Math.floor(Number(t.bonus) || 0))
+  const cash = Math.max(0, Math.round((Number(t.cash) || 0) * 100) / 100)
+  const bonus = Math.max(0, Math.round((Number(t.bonus) || 0) * 100) / 100)
   const desc = String(t.desc || '')
   // Кэшбэк % за оплату/погашение — только bonus
   if (desc.includes('Оплата наличными') || desc.includes('Погашение долга')) return bonus

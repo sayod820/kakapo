@@ -299,6 +299,10 @@ function initialsOf(name: string) {
   return name.split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || 'K'
 }
 
+function fmtBonus(value: number | string | null | undefined) {
+  return (Math.round((Number(value) || 0) * 100) / 100).toFixed(2)
+}
+
 /** Ожидаемые наличные в кассе: старт + продажи нал + внесено − снято/расходы */
 function expectedTillCash(shift: {
   openingCash?: number
@@ -1196,9 +1200,11 @@ export default function CashierModule({
       for (const t of loadBalanceTopups(client.phone)) {
         const credited = topupBalanceCredit(t)
         const isTopup = !t.desc || String(t.desc).includes('Пополнение')
-        const cash = Math.floor(Number(t.cash) || 0)
-        const storedBonus = Math.floor(Number(t.bonus) || 0)
-        const percentPart = isTopup && cash > 0 && storedBonus < cash ? storedBonus : Math.max(0, storedBonus - cash)
+        const cash = Math.round((Number(t.cash) || 0) * 100) / 100
+        const storedBonus = Math.round((Number(t.bonus) || 0) * 100) / 100
+        const percentPart = Math.round((
+          isTopup && cash > 0 && storedBonus < cash ? storedBonus : Math.max(0, storedBonus - cash)
+        ) * 100) / 100
         rows.push({
           id: `topup-${t.id}`,
           ts: t.ts || 0,
@@ -1206,9 +1212,9 @@ export default function CashierModule({
           title: isTopup ? 'Пополнение баланса' : (t.desc || 'Начисление наличными'),
           sub: isTopup
             ? (percentPart > 0
-              ? `+${cash.toLocaleString('ru-RU')} ⭐ сумма · +${percentPart.toLocaleString('ru-RU')} ⭐ бонус %`
-              : `+${credited.toLocaleString('ru-RU')} ⭐ на баланс`)
-            : (credited > 0 ? `+${credited.toLocaleString('ru-RU')} ⭐ на баланс` : 'Без зачисления'),
+              ? `+${fmtBonus(cash)} ⭐ сумма · +${fmtBonus(percentPart)} ⭐ бонус %`
+              : `+${fmtBonus(credited)} ⭐ на баланс`)
+            : (credited > 0 ? `+${fmtBonus(credited)} ⭐ на баланс` : 'Без зачисления'),
           amount: Number(t.cash) || 0,
           tone: 'topup',
         })
@@ -3362,9 +3368,9 @@ export default function CashierModule({
     const cash = Number(topupBuf) || 0
     if (cash <= 0) return
     // Вся сумма на баланс + % бонус по порогам
-    const principal = Math.max(0, Math.floor(cash))
+    const principal = Math.max(0, Math.round(cash * 100) / 100)
     const percentBonus = calcCashDepositBonus(cash)
-    const credit = principal + percentBonus
+    const credit = Math.round((principal + percentBonus) * 100) / 100
     if (credit <= 0) return
     setBusy(true)
     try {
@@ -3384,8 +3390,8 @@ export default function CashierModule({
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
-      const extra = percentBonus > 0 ? ` · +${percentBonus.toLocaleString('ru-RU')} ⭐ бонус` : ''
-      showToast('Баланс пополнен', `${client.name}: +${principal.toLocaleString('ru-RU')} ⭐${extra}`)
+      const extra = percentBonus > 0 ? ` · +${fmtBonus(percentBonus)} ⭐ бонус` : ''
+      showToast('Баланс пополнен', `${client.name}: +${fmtBonus(principal)} ⭐${extra}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
     } finally {
@@ -4441,9 +4447,9 @@ export default function CashierModule({
   const cashSaleBonus = client?.card && total > 0 ? calcCashDepositBonus(total) : 0
   const cashSaleTier = client?.card && total > 0 ? cashDepositTierForAmount(total) : null
   const topupCash = Number(topupBuf) || 0
-  const topupPrincipal = Math.max(0, Math.floor(topupCash))
+  const topupPrincipal = Math.max(0, Math.round(topupCash * 100) / 100)
   const topupPercentBonus = calcCashDepositBonus(topupCash)
-  const topupCredit = topupPrincipal + topupPercentBonus
+  const topupCredit = Math.round((topupPrincipal + topupPercentBonus) * 100) / 100
   const topupTier = cashDepositTierForAmount(topupCash)
   const repayAmount = Number(repayBuf) || 0
   const repayRemain = Math.max(0, clientDebt - repayAmount)
@@ -4817,7 +4823,7 @@ export default function CashierModule({
               <div className="ph">{client ? client.phone : 'Нажмите чтобы выбрать клиента'}</div>
               {client && loyalty && (
                 <div className="client-bonus">
-                  ⭐ {Number(loyalty.bonus || 0).toLocaleString('ru-RU')} бон.
+                  ⭐ {fmtBonus(loyalty.bonus)} бон.
                   {clientDebt > 0 ? <> · <span className="debt">долг {fmtMoney(clientDebt)}</span></> : null}
                   {debtLimit > 0 ? <> · лимит {fmtMoney(availableDebt)}</> : null}
                   {usedBonus > 0 ? <> · <span className="used">−{usedBonus.toFixed(0)} бон.</span></> : null}
@@ -5215,7 +5221,7 @@ export default function CashierModule({
                   <b>{client.name}</b>
                   <span>{client.card || client.phone || 'без карты'}</span>
                 </div>
-                <div className="pay-client-bonus">⭐ {(Number(loyalty.bonus) || 0).toLocaleString('ru-RU')}</div>
+                <div className="pay-client-bonus">⭐ {fmtBonus(loyalty.bonus)}</div>
               </div>
             ) : (
               <button
@@ -5597,7 +5603,7 @@ export default function CashierModule({
                     <div className="av">{initialsOf(c.name)}</div>
                     <div className="ci">
                       <b>{c.name}</b>
-                      <span>{c.phone} · {c.card || 'без карты'} · ⭐ {sum.bonus}</span>
+                      <span>{c.phone} · {c.card || 'без карты'} · ⭐ {fmtBonus(sum.bonus)}</span>
                     </div>
                     <span className="pick-mark" aria-hidden>{selected ? '✓' : ''}</span>
                   </button>
@@ -6130,10 +6136,10 @@ export default function CashierModule({
             )}
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено</span><b className="mono">{topupCash.toFixed(2)}</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Сумма на баланс</span><b className="mono">+{topupPrincipal.toLocaleString('ru-RU')} ⭐</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус %</span><b className="mono">+{topupPercentBonus.toLocaleString('ru-RU')} ⭐</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Сумма на баланс</span><b className="mono">+{fmtBonus(topupPrincipal)} ⭐</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус %</span><b className="mono">+{fmtBonus(topupPercentBonus)} ⭐</b></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', color: 'var(--gd)' }}>
-                <span>Итого на карту</span><b className="mono">+{topupCredit.toLocaleString('ru-RU')} ⭐</b>
+                <span>Итого на карту</span><b className="mono">+{fmtBonus(topupCredit)} ⭐</b>
               </div>
               <div style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 8 }}>
                 {topupTier ? cashDepositTierLabel(topupTier) : 'Ниже порога — только сумма без % бонуса'}
@@ -6238,7 +6244,7 @@ export default function CashierModule({
                 <div className="client-kpis">
                   <div className="client-kpi">
                     <div className="l">Баланс (бонусы)</div>
-                    <div className="v" style={{ color: 'var(--gd)' }}>⭐ {clientProfileStats.bonus}</div>
+                    <div className="v" style={{ color: 'var(--gd)' }}>⭐ {fmtBonus(clientProfileStats.bonus)}</div>
                   </div>
                   <div className="client-kpi">
                     <div className="l">Долг сейчас</div>

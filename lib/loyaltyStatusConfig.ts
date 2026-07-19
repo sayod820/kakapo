@@ -437,7 +437,7 @@ export function calcCashDepositBonus(cashAmount: number, cfg = loadLoyaltyStatus
   const tier = cashDepositTierForAmount(cashAmount, cfg)
   if (!tier) return 0
   const cash = Math.max(0, Number(cashAmount) || 0)
-  return Math.floor(cash * tier.bonusPercent / 100)
+  return Math.round(cash * tier.bonusPercent) / 100
 }
 
 export function getLoyaltyTierById(id: LoyaltyTierId, cfg = loadLoyaltyStatusConfig()): LoyaltyTierConfig | undefined {
