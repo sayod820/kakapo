@@ -567,10 +567,13 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** После снятия товара держим вес в окне, чтобы не перебило чужим/нулевым */
+  /** После снятия товара держим пик веса — промежуточные 0.250 и т.п. не попадают */
   const SCALE_HOLD_MS = 1500
+  /** Падение больше 2 г = снятие, не обновляем вниз */
+  const SCALE_DROP_KG = 0.002
   const scaleHoldUntilRef = useRef(0)
   const lastHeldKgRef = useRef(0)
+  const scaleSawZeroRef = useRef(false)
   const scaleHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [scaleHolding, setScaleHolding] = useState(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
@@ -778,38 +781,59 @@ export default function CashierModule({
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
     if (!desk?.onCasWeight) return
+
+    const beginHold = (now: number) => {
+      scaleHoldUntilRef.current = now + SCALE_HOLD_MS
+      setScaleHolding(true)
+      if (scaleHoldTimerRef.current) clearTimeout(scaleHoldTimerRef.current)
+      scaleHoldTimerRef.current = setTimeout(() => {
+        scaleHoldTimerRef.current = null
+        setScaleHolding(false)
+      }, SCALE_HOLD_MS)
+    }
+
     const off = desk.onCasWeight(payload => {
       setCasWeight(payload)
       if (!deskScaleLiveWeightRef.current) return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
       const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
       const now = Date.now()
+      const prev = lastHeldKgRef.current
 
-      // Задержка после снятия: 1.5 с вес стоит, новый/чужой не попадает
+      // Пока удержание — в окно ничего не пишем (остаётся пик, напр. 0.255)
       if (now < scaleHoldUntilRef.current) return
 
-      if (kg > 0.0005) {
+      // Платформа пустая
+      if (!(kg > 0.0005)) {
+        if (prev > 0.0005) {
+          scaleSawZeroRef.current = true
+          beginHold(now)
+        }
+        return
+      }
+
+      // Новый цикл после нуля — принимаем новый товар
+      if (scaleSawZeroRef.current) {
+        scaleSawZeroRef.current = false
         lastHeldKgRef.current = kg
         setQtyEditMode('qty')
         setQtyEditBuf(kg.toFixed(3))
-        if (scaleHoldTimerRef.current) {
-          clearTimeout(scaleHoldTimerRef.current)
-          scaleHoldTimerRef.current = null
-        }
         setScaleHolding(false)
         return
       }
 
-      // Сняли с весов (0) — фиксируем последний вес на SCALE_HOLD_MS
-      if (lastHeldKgRef.current > 0.0005) {
-        scaleHoldUntilRef.current = now + SCALE_HOLD_MS
-        setScaleHolding(true)
-        if (scaleHoldTimerRef.current) clearTimeout(scaleHoldTimerRef.current)
-        scaleHoldTimerRef.current = setTimeout(() => {
-          scaleHoldTimerRef.current = null
-          setScaleHolding(false)
-        }, SCALE_HOLD_MS)
+      // Снятие: вес просел (0.255 → 0.250) — оставляем пик, не даём «случайному» попасть
+      if (prev > 0.0005 && kg < prev - SCALE_DROP_KG) {
+        beginHold(now)
+        return
       }
+
+      // Рост или тот же вес (±2 г) — берём максимум (пик)
+      const next = Math.max(prev, kg)
+      lastHeldKgRef.current = next
+      setQtyEditMode('qty')
+      setQtyEditBuf(next.toFixed(3))
+      setScaleHolding(false)
     })
     return () => {
       off()
@@ -2369,6 +2393,7 @@ export default function CashierModule({
     if (!(w > 0.0005)) return
     lastHeldKgRef.current = w
     scaleHoldUntilRef.current = 0
+    scaleSawZeroRef.current = false
     setScaleHolding(false)
     setQtyEditMode('qty')
     setQtyEditBuf(w.toFixed(3))
@@ -2377,8 +2402,8 @@ export default function CashierModule({
   function startWeightModalMonitor() {
     qtyEditIsWeightRef.current = true
     scaleHoldUntilRef.current = 0
+    scaleSawZeroRef.current = false
     setScaleHolding(false)
-    // Если вес уже был считан — сразу показать (товар уже на платформе)
     if (casWeight.weightKg > 0.0005) {
       applyScaleKgToModal(casWeight.weightKg)
     }
@@ -2413,6 +2438,7 @@ export default function CashierModule({
     qtyEditIsWeightRef.current = false
     scaleHoldUntilRef.current = 0
     lastHeldKgRef.current = 0
+    scaleSawZeroRef.current = false
     setScaleHolding(false)
     if (scaleHoldTimerRef.current) {
       clearTimeout(scaleHoldTimerRef.current)
@@ -4841,7 +4867,7 @@ export default function CashierModule({
                   : isWeight
                     ? (liveWeightEnabled()
                       ? (scaleHolding
-                        ? 'Вес удержан 1.5 с · можно сохранить'
+                        ? 'Вес зафиксирован · можно сохранить'
                         : (casWeight.connected
                           ? ((casWeight.grams || 0) > 0
                             ? `Весы: ${casWeight.grams} г · ${(casWeight.weightKg || 0).toFixed(3)} кг`
