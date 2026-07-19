@@ -766,11 +766,28 @@ export default function CashierModule({
     const desk = getKakapoDesktop()
     if (!desk) return
     void desk.getPrinterSettings().then(settings => {
-      setDeskScaleMode(settings?.scaleMode === 'none' ? 'none' : 'plu-label')
-      setDeskScaleHost(settings?.scaleHost || '')
-      setDeskScalePort(String(settings?.scalePort || 20304))
+      const mode = settings?.scaleMode === 'none' ? 'none' : 'plu-label'
+      const host = String(settings?.scaleHost || '').trim()
+      const port = Number(settings?.scalePort) || 20304
+      const live = settings?.scaleLiveWeight !== false
+      setDeskScaleMode(mode)
+      setDeskScaleHost(host)
+      setDeskScalePort(String(port))
       setDeskScaleDept(String(settings?.scaleDept || 1))
-      setDeskScaleLiveWeight(settings?.scaleLiveWeight !== false)
+      setDeskScaleLiveWeight(live)
+
+      // IP/порт сохраняются один раз. При каждом запуске кассы связь поднимается сама.
+      if (mode !== 'none' && live && host && desk.startCasWeight) {
+        casMonitorWantedRef.current = true
+        void desk.startCasWeight({ host, port }).catch(e => {
+          setCasWeight(prev => ({
+            ...prev,
+            connected: false,
+            running: false,
+            error: e instanceof Error ? e.message : 'Нет связи с весами',
+          }))
+        })
+      }
     }).catch(() => undefined)
   }, [])
 
@@ -2403,7 +2420,7 @@ export default function CashierModule({
     scaleCandidateKgRef.current = 0
     scaleCandidateSinceRef.current = 0
     setScaleHolding(false)
-    if (!editPosId) void ensureCasWeightMonitor(false)
+    // TCP-соединение оставляем активным: следующему товару вес доступен сразу.
   }
 
   function pushProductToCart(p: Product, weightKg?: number, layer?: ProductStockLayer) {
@@ -4371,6 +4388,20 @@ export default function CashierModule({
                   <b>{settings.cashierName}</b>
                   <span>Смена открыта</span>
                 </div>
+                <button
+                  type="button"
+                  className="account-menu-item"
+                  onClick={() => {
+                    setCashierMenuOpen(false)
+                    setPosSurface('dashboard')
+                  }}
+                >
+                  <span className="ami-ic">🏪</span>
+                  <span>
+                    <b>Вход в торговую точку</b>
+                    <i>Выбрать кассу или вернуться к точкам продаж</i>
+                  </span>
+                </button>
                 <button
                   type="button"
                   className="account-menu-item"
