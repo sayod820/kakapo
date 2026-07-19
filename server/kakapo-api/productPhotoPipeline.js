@@ -79,8 +79,8 @@ export async function processAndSaveProductPhoto(input, opts = {}) {
   if (!Buffer.isBuffer(input) || input.length < 32) {
     throw new Error('Пустой файл изображения')
   }
-  if (input.length > 12 * 1024 * 1024) {
-    throw new Error('Файл слишком большой (макс. 12 МБ)')
+  if (input.length > 200 * 1024 * 1024) {
+    throw new Error('Файл слишком большой (макс. 200 МБ)')
   }
 
   let pipeline = sharp(input, { failOn: 'none', animated: false }).rotate()

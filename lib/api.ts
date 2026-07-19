@@ -337,7 +337,7 @@ export const api = {
       '/products/photo',
       { method: 'POST', body: fd },
       0,
-      120_000,
+      300_000,
     )
   },
 

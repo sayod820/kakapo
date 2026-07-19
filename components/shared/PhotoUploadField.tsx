@@ -4,8 +4,7 @@ import { useRef, useState, type CSSProperties, type ChangeEvent } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 
-const MAX_BYTES = 12 * 1024 * 1024
-const ACCEPT = 'image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,image/gif,image/bmp'
+const ACCEPT = 'image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,image/gif,image/bmp,image/*'
 
 interface Props {
   value: string
@@ -16,7 +15,7 @@ interface Props {
   height?: number
 }
 
-type Stage = 'idle' | 'bg' | 'upload' | 'done'
+type Stage = 'idle' | 'upload' | 'done'
 
 export default function PhotoUploadField({
   value,
@@ -24,35 +23,14 @@ export default function PhotoUploadField({
   onThumbChange,
   productId,
   label = 'Фото товара',
-  height = 180,
+  height = 200,
 }: Props) {
   const [err, setErr] = useState('')
   const [stage, setStage] = useState<Stage>('idle')
-  const [progress, setProgress] = useState(0)
   const galleryRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
-  const busy = stage === 'bg' || stage === 'upload'
-
-  async function removeBg(file: File): Promise<Blob> {
-    setStage('bg')
-    setProgress(0)
-    try {
-      const { removeBackground } = await import('@imgly/background-removal')
-      const blob = await removeBackground(file, {
-        device: 'cpu',
-        proxyToWorker: false,
-        output: { format: 'image/png', quality: 0.92 },
-        progress: (_key, current, total) => {
-          if (total > 0) setProgress(Math.round((current / total) * 100))
-        },
-      })
-      return blob instanceof Blob ? blob : new Blob([blob], { type: 'image/png' })
-    } catch {
-      // Если модель не загрузилась — отправляем оригинал, сервер всё равно обрежет и сделает WebP
-      return file
-    }
-  }
+  const busy = stage === 'upload'
 
   async function blobToDataUrl(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -66,38 +44,32 @@ export default function PhotoUploadField({
   async function processOne(file: File) {
     if (busy) return
     setErr('')
-    if (!file.type.startsWith('image/') && !/\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(file.name)) {
+    if (!file.type.startsWith('image/') && !/\.(jpe?g|png|webp|heic|heif|gif|bmp|tiff?)$/i.test(file.name)) {
       setErr('Нужен файл изображения')
-      return
-    }
-    if (file.size > MAX_BYTES) {
-      setErr('Файл слишком большой (макс. 12 МБ)')
       return
     }
 
     try {
-      const cleaned = await removeBg(file)
       setStage('upload')
-      setProgress(0)
 
       if (USE_API) {
-        const result = await api.uploadProductPhoto(cleaned, {
+        const result = await api.uploadProductPhoto(file, {
           productId: productId && productId > 0 ? productId : undefined,
           replaceUrl: value || undefined,
-          fileName: (file.name.replace(/\.[^.]+$/, '') || 'photo') + '.png',
+          fileName: file.name || 'photo.jpg',
         })
         onChange(result.url)
         onThumbChange?.(result.thumbUrl)
       } else {
-        const dataUrl = await blobToDataUrl(cleaned)
+        const dataUrl = await blobToDataUrl(file)
         onChange(dataUrl)
         onThumbChange?.(dataUrl)
       }
       setStage('done')
-      setTimeout(() => setStage('idle'), 800)
+      setTimeout(() => setStage('idle'), 700)
     } catch (e) {
       setStage('idle')
-      setErr(e instanceof Error ? e.message : 'Не удалось обработать фото')
+      setErr(e instanceof Error ? e.message : 'Не удалось загрузить фото')
     }
   }
 
@@ -115,23 +87,27 @@ export default function PhotoUploadField({
     setStage('idle')
   }
 
-  const stageLabel =
-    stage === 'bg' ? `Удаление фона… ${progress ? `${progress}%` : ''}`
-      : stage === 'upload' ? 'Сохранение WebP…'
-        : stage === 'done' ? 'Готово'
-          : ''
+  function openGallery() {
+    if (!busy) galleryRef.current?.click()
+  }
 
   return (
     <div>
       <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 7, fontWeight: 700 }}>{label}</div>
-      <div
+      <button
+        type="button"
+        onClick={openGallery}
+        disabled={busy}
         style={{
           position: 'relative',
+          display: 'block',
           width: '100%',
           height,
+          padding: 0,
           borderRadius: 14,
           overflow: 'hidden',
-          border: '1px solid #162B1A',
+          border: value ? '1px solid #162B1A' : '2px dashed #1FD760',
+          cursor: busy ? 'wait' : 'pointer',
           background:
             'linear-gradient(45deg,#0a160c 25%,transparent 25%),linear-gradient(-45deg,#0a160c 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#0a160c 75%),linear-gradient(-45deg,transparent 75%,#0a160c 75%)',
           backgroundSize: '16px 16px',
@@ -148,7 +124,7 @@ export default function PhotoUploadField({
               height: '100%',
               objectFit: 'contain',
               display: 'block',
-              imageRendering: 'auto',
+              pointerEvents: 'none',
             }}
           />
         ) : (
@@ -160,13 +136,16 @@ export default function PhotoUploadField({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 6,
-              pointerEvents: 'none',
+              gap: 8,
             }}
           >
-            <span style={{ fontSize: 13, color: '#8FB897', fontWeight: 700 }}>Одно фото товара</span>
-            <span style={{ fontSize: 10, color: '#3D6645', textAlign: 'center', padding: '0 16px' }}>
-              Фон уберётся автоматически · WebP высокого качества
+            <span style={{ fontSize: 28, lineHeight: 1 }}>📷</span>
+            <span style={{ fontSize: 14, color: '#1FD760', fontWeight: 800 }}>Добавить фото</span>
+            <span style={{ fontSize: 11, color: '#8FB897', textAlign: 'center', padding: '0 16px' }}>
+              Нажмите сюда · галерея или файл
+            </span>
+            <span style={{ fontSize: 10, color: '#3D6645' }}>
+              Сервер сам сделает WebP · без лимита размера
             </span>
           </div>
         )}
@@ -182,27 +161,29 @@ export default function PhotoUploadField({
               alignItems: 'center',
               justifyContent: 'center',
               gap: 10,
-              padding: 16,
             }}
           >
-            <div style={{ fontSize: 13, color: '#EBF5ED', fontWeight: 700 }}>{stageLabel}</div>
+            <div style={{ fontSize: 13, color: '#EBF5ED', fontWeight: 700 }}>Обработка WebP…</div>
             <div style={{ width: '70%', height: 6, borderRadius: 99, background: '#162B1A', overflow: 'hidden' }}>
-              <div
-                style={{
-                  height: '100%',
-                  width: `${stage === 'upload' ? 70 : Math.max(8, progress)}%`,
-                  background: '#1FD760',
-                  transition: 'width .25s ease',
-                }}
-              />
+              <div style={{ height: '100%', width: '65%', background: '#1FD760' }} />
             </div>
           </div>
         )}
 
         {value && !busy && (
-          <button
-            type="button"
-            onClick={clearPhoto}
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={e => {
+              e.stopPropagation()
+              clearPhoto()
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation()
+                clearPhoto()
+              }
+            }}
             title="Удалить фото"
             style={{
               position: 'absolute',
@@ -222,36 +203,18 @@ export default function PhotoUploadField({
             }}
           >
             ✕
-          </button>
+          </span>
         )}
-      </div>
+      </button>
 
       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => galleryRef.current?.click()}
-          className="ab"
-          style={btnStyle(busy)}
-        >
+        <button type="button" disabled={busy} onClick={openGallery} style={btnStyle(busy)}>
           Галерея
         </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => fileRef.current?.click()}
-          className="ab"
-          style={btnStyle(busy)}
-        >
+        <button type="button" disabled={busy} onClick={() => fileRef.current?.click()} style={btnStyle(busy)}>
           Файл
         </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => cameraRef.current?.click()}
-          className="ab"
-          style={btnStyle(busy)}
-        >
+        <button type="button" disabled={busy} onClick={() => cameraRef.current?.click()} style={btnStyle(busy)}>
           Камера
         </button>
       </div>
@@ -268,7 +231,7 @@ export default function PhotoUploadField({
       />
 
       <div style={{ marginTop: 6, fontSize: 10, color: '#3D6645' }}>
-        Только одно фото · JPG / PNG / WebP · до 12 МБ
+        Одно фото · любой размер · сервер обрежет и сохранит как WebP
       </div>
       {err && <div style={{ marginTop: 5, fontSize: 11, color: '#FF4545' }}>⚠️ {err}</div>}
     </div>

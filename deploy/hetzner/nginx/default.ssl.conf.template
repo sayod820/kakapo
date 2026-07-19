@@ -22,7 +22,7 @@ server {
     ssl_session_timeout 1d;
     ssl_protocols TLSv1.2 TLSv1.3;
 
-    client_max_body_size 20m;
+    client_max_body_size 200m;
 
     location /health {
         set $api_upstream http://api:8000;

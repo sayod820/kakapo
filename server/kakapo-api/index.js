@@ -265,9 +265,10 @@ app.use('/uploads', express.static(UPLOAD_ROOT, {
 
 const photoUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024, files: 1 },
+  // Практически без лимита: сервер сам сожмёт в WebP (защита от OOM — 200 МБ)
+  limits: { fileSize: 200 * 1024 * 1024, files: 1 },
   fileFilter(_req, file, cb) {
-    const ok = /^image\/(jpeg|jpg|png|webp|heic|heif|gif|bmp|tiff)$/i.test(file.mimetype)
+    const ok = /^image\//i.test(file.mimetype)
       || /\.(jpe?g|png|webp|heic|heif|gif|bmp|tiff?)$/i.test(file.originalname || '')
     cb(ok ? null : new Error('Нужен файл изображения (JPG, PNG, WebP…)'), ok)
   },
@@ -278,7 +279,7 @@ app.post('/products/photo', (req, res) => {
   photoUpload.single('photo')(req, res, async err => {
     if (err) {
       const msg = err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
-        ? 'Файл слишком большой (макс. 12 МБ)'
+        ? 'Файл слишком большой (макс. 200 МБ)'
         : (err.message || 'Ошибка загрузки')
       return res.status(400).json({ detail: msg })
     }

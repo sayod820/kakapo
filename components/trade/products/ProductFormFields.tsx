@@ -53,6 +53,15 @@ export default function ProductFormFields({
 
   return (
     <div className="k-grid2">
+      <div className="k-field" style={{ gridColumn: '1 / -1' }}>
+        <PhotoUploadField
+          value={form.photo}
+          productId={productId}
+          onChange={photo => setForm({ ...form, photo })}
+          onThumbChange={photoThumb => setForm({ ...form, photoThumb })}
+          height={220}
+        />
+      </div>
       <div className="k-field">
         <label>Название *</label>
         <input className="k-inp" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
@@ -170,15 +179,6 @@ export default function ProductFormFields({
           </div>
         </div>
       )}
-      <div className="k-field" style={{ gridColumn: '1 / -1' }}>
-        <PhotoUploadField
-          value={form.photo}
-          productId={productId}
-          onChange={photo => setForm({ ...form, photo })}
-          onThumbChange={photoThumb => setForm({ ...form, photoThumb })}
-          height={200}
-        />
-      </div>
       <div className="k-field" style={{ gridColumn: '1 / -1' }}>
         <label>Описание</label>
         <textarea className="k-ta" value={form.desc} onChange={e => setForm({ ...form, desc: e.target.value })} />
