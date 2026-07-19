@@ -567,6 +567,12 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
+  /** После снятия товара держим вес в окне, чтобы не перебило чужим/нулевым */
+  const SCALE_HOLD_MS = 1500
+  const scaleHoldUntilRef = useRef(0)
+  const lastHeldKgRef = useRef(0)
+  const scaleHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [scaleHolding, setScaleHolding] = useState(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
   const [receiptTemplateDraft, setReceiptTemplateDraft] = useState<ReceiptStoreConfig>(() => ({
     ...DEFAULT_RECEIPT_STORE,
@@ -776,14 +782,39 @@ export default function CashierModule({
       setCasWeight(payload)
       if (!deskScaleLiveWeightRef.current) return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
-      const kg = Number(payload.weightKg) || 0
-      // Мгновенно: цифры с весов → в окно. 0 = сняли → оставляем последнее.
+      const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
+      const now = Date.now()
+
+      // Задержка после снятия: 1.5 с вес стоит, новый/чужой не попадает
+      if (now < scaleHoldUntilRef.current) return
+
       if (kg > 0.0005) {
+        lastHeldKgRef.current = kg
         setQtyEditMode('qty')
-        setQtyEditBuf((Math.round(kg * 1000) / 1000).toFixed(3))
+        setQtyEditBuf(kg.toFixed(3))
+        if (scaleHoldTimerRef.current) {
+          clearTimeout(scaleHoldTimerRef.current)
+          scaleHoldTimerRef.current = null
+        }
+        setScaleHolding(false)
+        return
+      }
+
+      // Сняли с весов (0) — фиксируем последний вес на SCALE_HOLD_MS
+      if (lastHeldKgRef.current > 0.0005) {
+        scaleHoldUntilRef.current = now + SCALE_HOLD_MS
+        setScaleHolding(true)
+        if (scaleHoldTimerRef.current) clearTimeout(scaleHoldTimerRef.current)
+        scaleHoldTimerRef.current = setTimeout(() => {
+          scaleHoldTimerRef.current = null
+          setScaleHolding(false)
+        }, SCALE_HOLD_MS)
       }
     })
-    return () => { off() }
+    return () => {
+      off()
+      if (scaleHoldTimerRef.current) clearTimeout(scaleHoldTimerRef.current)
+    }
   }, [])
 
   useEffect(() => () => {
@@ -2336,13 +2367,17 @@ export default function CashierModule({
   function applyScaleKgToModal(kg: number) {
     const w = Math.round((Number(kg) || 0) * 1000) / 1000
     if (!(w > 0.0005)) return
+    lastHeldKgRef.current = w
+    scaleHoldUntilRef.current = 0
+    setScaleHolding(false)
     setQtyEditMode('qty')
-    // Как на дисплее CAS: три знака (0.255 кг = 255 г)
     setQtyEditBuf(w.toFixed(3))
   }
 
   function startWeightModalMonitor() {
     qtyEditIsWeightRef.current = true
+    scaleHoldUntilRef.current = 0
+    setScaleHolding(false)
     // Если вес уже был считан — сразу показать (товар уже на платформе)
     if (casWeight.weightKg > 0.0005) {
       applyScaleKgToModal(casWeight.weightKg)
@@ -2376,7 +2411,13 @@ export default function CashierModule({
 
   function stopWeightModalMonitor() {
     qtyEditIsWeightRef.current = false
-    // Оставляем монитор только если в настройках явно нужен статус — на кассе останавливаем
+    scaleHoldUntilRef.current = 0
+    lastHeldKgRef.current = 0
+    setScaleHolding(false)
+    if (scaleHoldTimerRef.current) {
+      clearTimeout(scaleHoldTimerRef.current)
+      scaleHoldTimerRef.current = null
+    }
     if (!editPosId) void ensureCasWeightMonitor(false)
   }
 
@@ -4799,13 +4840,15 @@ export default function CashierModule({
                   ? 'Количество = сумма ÷ цена (например 3 ÷ 6 = 0.5)'
                   : isWeight
                     ? (liveWeightEnabled()
-                      ? (casWeight.connected
-                        ? ((casWeight.grams || 0) > 0
-                          ? `Весы: ${casWeight.grams} г · ${(casWeight.weightKg || 0).toFixed(3)} кг`
-                          : 'Весы подключены · положите товар на весы')
-                        : (casWeight.error
-                          ? `Весы: ${casWeight.error}`
-                          : 'Ожидание весов… Можно ввести вес вручную'))
+                      ? (scaleHolding
+                        ? 'Вес удержан 1.5 с · можно сохранить'
+                        : (casWeight.connected
+                          ? ((casWeight.grams || 0) > 0
+                            ? `Весы: ${casWeight.grams} г · ${(casWeight.weightKg || 0).toFixed(3)} кг`
+                            : 'Весы подключены · положите товар на весы')
+                          : (casWeight.error
+                            ? `Весы: ${casWeight.error}`
+                            : 'Ожидание весов… Можно ввести вес вручную')))
                       : 'Введите вес с клавиатуры — сумма посчитается сама')
                     : 'Введите количество с клавиатуры — сумма посчитается сама'}
               </div>
