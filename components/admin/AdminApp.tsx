@@ -1457,7 +1457,7 @@ function ProductsPage() {
                   <td>
                     <div style={{display:'flex',alignItems:'center',gap:10}}>
                       <div style={{width:44,height:44,borderRadius:11,flexShrink:0,overflow:'hidden'}}>
-                        <ProductImage product={p} preferThumb getPhoto={getPhoto} size={44} radius={11} />
+                        <ProductImage product={p} preferThumb getPhoto={getPhoto} size={44} radius={11} plate="dark" />
                       </div>
                     <div>
                         <div style={{fontWeight:700,fontSize:13,lineHeight:1.25}}>{p.name}</div>

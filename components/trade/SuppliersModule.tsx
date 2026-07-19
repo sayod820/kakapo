@@ -321,7 +321,7 @@ export default function SuppliersModule() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 900, fontSize: 15 }}>{s.name}</span>
                       {s.category && (
-                        <span className="k-badge" style={{ background: '#1a2430', color: 'var(--blue)' }}>{s.category}</span>
+                        <span className="k-badge k-badge-cat">{s.category}</span>
                       )}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -483,7 +483,7 @@ export default function SuppliersModule() {
                 <div>
                   <b>{detailSupplier.name}</b>
                   {detailSupplier.category && (
-                    <span className="k-badge" style={{ marginLeft: 8, background: '#1a2430', color: 'var(--blue)' }}>{detailSupplier.category}</span>
+                    <span className="k-badge k-badge-cat" style={{ marginLeft: 8 }}>{detailSupplier.category}</span>
                   )}
                 </div>
               </div>

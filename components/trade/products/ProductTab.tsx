@@ -326,7 +326,7 @@ export default function ProductTab({
                       <td><span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 800 }}>{p.art}</span></td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <ProductImage product={p} preferThumb getPhoto={getPhoto} size={44} radius={10} />
+                          <ProductImage product={p} preferThumb getPhoto={getPhoto} size={44} radius={10} plate="theme" />
                           <div>
                             <div style={{ fontWeight: 800 }}>{p.name}</div>
                             {(() => {
@@ -338,12 +338,12 @@ export default function ProductTab({
                                 </div>
                               )
                             })()}
-                            {bulkHint && <div style={{ fontSize: 10, color: '#FF8C00' }}>{bulkHint}</div>}
+                            {bulkHint && <div style={{ fontSize: 10, color: 'var(--gold)' }}>{bulkHint}</div>}
                           </div>
                         </div>
                       </td>
                       <td>
-                        <span className="k-badge" style={{ background: '#1a2430', color: 'var(--blue)' }}>{catLabel}</span>
+                        <span className="k-badge k-badge-cat">{catLabel}</span>
                       </td>
                       <td className="num" style={{ color: 'var(--green)', fontWeight: 900 }}>{money(p.price)}</td>
                       <td className="num">{money(p.costPrice)}</td>

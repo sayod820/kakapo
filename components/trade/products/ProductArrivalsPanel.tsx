@@ -312,7 +312,7 @@ export default function ProductArrivalsPanel({
                         <td>{i + 1}</td>
                         <td>
                           <span className="k-badge" style={{
-                            background: layer.isActive ? 'rgba(31,215,96,.2)' : '#1a2430',
+                            background: layer.isActive ? 'var(--green-d)' : 'var(--badge-cat-bg)',
                             color: layer.isActive ? 'var(--green)' : 'var(--muted)',
                           }}>
                             {layer.isActive ? '● Активная' : `Очередь ${layer.queueIndex + 1}`}
@@ -321,7 +321,7 @@ export default function ProductArrivalsPanel({
                         <td className="num" style={{ fontWeight: 800 }}>{layer.remainingQty}</td>
                         <td className="num">{money(layer.costPrice)}</td>
                         <td className="num" style={{ color: 'var(--green)' }}>{money(layer.retailPrice)}</td>
-                        <td style={{ fontSize: 11, color: '#FF8C00' }}>{bulkSummary(layer)}</td>
+                        <td style={{ fontSize: 11, color: 'var(--gold)' }}>{bulkSummary(layer)}</td>
                         <td style={{ fontSize: 11, color: 'var(--muted)' }}>{formatDate(layer.createdAtIso)}</td>
                         <td>
                           <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
@@ -342,7 +342,7 @@ export default function ProductArrivalsPanel({
                       </tr>
                       {editId === layer.receiptId && (
                         <tr>
-                          <td colSpan={8} style={{ background: '#0e1712', padding: 12 }}>
+                          <td colSpan={8} style={{ background: 'var(--card2)', padding: 12 }}>
                             <div className="k-grid2" style={{ marginBottom: 10 }}>
                               <div className="k-field">
                                 <label>Закупочная</label>

@@ -19,8 +19,8 @@ type Props = {
   alt?: string
   size?: number | 'fill'
   radius?: number
-  /** Тёмный фон как в теме; light — только если явно нужно */
-  plate?: 'light' | 'dark' | 'none'
+  /** Тёмный / светлый / без фона / по теме (--photo-plate) */
+  plate?: 'light' | 'dark' | 'none' | 'theme'
   emojiSize?: number
   style?: CSSProperties
   className?: string
@@ -28,7 +28,7 @@ type Props = {
 
 /**
  * Единый показ фото товара: contain + отступы, без обрезки.
- * По умолчанию тёмный фон темы — без белых пластин.
+ * plate=theme — фон из --photo-plate (светлая/тёмная тема Trade).
  */
 export default function ProductImage({
   product,
@@ -37,7 +37,7 @@ export default function ProductImage({
   alt,
   size = 'fill',
   radius = 12,
-  plate = 'dark',
+  plate = 'theme',
   emojiSize,
   style,
   className,
@@ -59,7 +59,11 @@ export default function ProductImage({
         ? 'linear-gradient(160deg,#f3f7f4 0%,#e6eee8 100%)'
         : plate === 'dark'
           ? 'linear-gradient(145deg,#121f16,#0c1610)'
-          : 'transparent',
+          : plate === 'none'
+            ? 'transparent'
+            : 'var(--photo-plate, #0c1610)',
+    border: plate === 'none' ? undefined : '1px solid var(--border, transparent)',
+    boxSizing: 'border-box',
     ...style,
   }
 
