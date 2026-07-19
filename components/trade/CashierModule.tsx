@@ -563,10 +563,10 @@ export default function CashierModule({
     stable: false,
     error: '',
   })
-  const [weighingLineKey, setWeighingLineKey] = useState<string | null>(null)
-  const weighingLineKeyRef = useRef<string | null>(null)
   const deskScaleLiveWeightRef = useRef(true)
   const casMonitorWantedRef = useRef(false)
+  const qtyEditOpenRef = useRef(false)
+  const qtyEditIsWeightRef = useRef(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
   const [receiptTemplateDraft, setReceiptTemplateDraft] = useState<ReceiptStoreConfig>(() => ({
     ...DEFAULT_RECEIPT_STORE,
@@ -749,6 +749,10 @@ export default function CashierModule({
     deskScaleLiveWeightRef.current = deskScaleLiveWeight
   }, [deskScaleLiveWeight])
 
+  useEffect(() => {
+    qtyEditOpenRef.current = qtyEditOpen
+  }, [qtyEditOpen])
+
   /** Загрузить настройки весов при старте desktop-кассы */
   useEffect(() => {
     if (!isKakapoDesktop()) return
@@ -763,25 +767,25 @@ export default function CashierModule({
     }).catch(() => undefined)
   }, [])
 
-  /** Подписка на живой вес CAS из Electron */
+  /** Живой вес CAS → поле в окне «Ввод веса» (как в старой кассе) */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
     if (!desk?.onCasWeight) return
     const off = desk.onCasWeight(payload => {
       setCasWeight(payload)
-      const key = weighingLineKeyRef.current
-      if (!key || !deskScaleLiveWeightRef.current) return
+      if (!deskScaleLiveWeightRef.current) return
+      if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
       if (!payload.stable) return
       const kg = Number(payload.weightKg) || 0
-      // 0 кг = товар сняли → удерживаем последнее положительное значение
-      if (kg > 0.0005) applyLiveWeightToLine(key, kg)
+      // 0 кг = сняли с весов → оставляем последнее положительное в окне
+      if (kg > 0.0005) {
+        const w = Math.round(kg * 1000) / 1000
+        setQtyEditMode('qty')
+        setQtyEditBuf(String(w))
+      }
     })
-    return () => {
-      off()
-    }
-    // applyLiveWeightToLine стабилен по замыканию setCart
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { off() }
   }, [])
 
   useEffect(() => () => {
@@ -2298,15 +2302,6 @@ export default function CashierModule({
     return receiptId ? `${productId}::${receiptId}` : String(productId)
   }
 
-  function setActiveWeighingLine(key: string | null) {
-    weighingLineKeyRef.current = key
-    setWeighingLineKey(key)
-  }
-
-  function lockActiveWeighing() {
-    setActiveWeighingLine(null)
-  }
-
   async function ensureCasWeightMonitor(want: boolean) {
     const desk = getKakapoDesktop()
     if (!desk) return
@@ -2333,21 +2328,22 @@ export default function CashierModule({
     }
   }
 
-  function applyLiveWeightToLine(key: string, weightKg: number) {
-    const w = Math.max(0, Math.round(weightKg * 1000) / 1000)
-    if (!(w > 0.0005)) return
-    setCart(prev => prev.map(l => {
-      if (l.key !== key || l.weightKg == null) return l
-      const maxW = l.stock > 0 ? l.stock : w
-      return { ...l, weightKg: Math.min(w, maxW), qty: 1 }
-    }))
-  }
-
   function liveWeightEnabled() {
     return deskScaleLiveWeightRef.current
       && deskScaleLiveWeight
       && isKakapoDesktop()
       && !!deskScaleHost.trim()
+  }
+
+  function startWeightModalMonitor() {
+    qtyEditIsWeightRef.current = true
+    if (liveWeightEnabled()) void ensureCasWeightMonitor(true)
+  }
+
+  function stopWeightModalMonitor() {
+    qtyEditIsWeightRef.current = false
+    // Оставляем монитор только если в настройках явно нужен статус — на кассе останавливаем
+    if (!editPosId) void ensureCasWeightMonitor(false)
   }
 
   function pushProductToCart(p: Product, weightKg?: number, layer?: ProductStockLayer) {
@@ -2366,8 +2362,6 @@ export default function CashierModule({
     const supplierName = layer?.supplierName || undefined
 
     if (isWeighted(p) && weightKg == null) {
-      // Фиксируем предыдущую весовую строку перед новой
-      lockActiveWeighing()
       const key = cartLineKey(p.id, receiptId, 0)
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
@@ -2388,30 +2382,18 @@ export default function CashierModule({
         supplierName,
       }])
       setSelectedLineKey(key)
-      setLayerPickOpen(false)
-      setLayerPickProduct(null)
-
-      if (liveWeightEnabled()) {
-        setActiveWeighingLine(key)
-        void ensureCasWeightMonitor(true)
-        setQtyEditDraftKey(null)
-        setQtyEditOpen(false)
-        setQtyEditKey(null)
-        setQtyEditPad(false)
-        return
-      }
-
       setQtyEditDraftKey(key)
       setQtyEditKey(key)
       setQtyEditMode('qty')
       setQtyEditBuf('')
       setQtyEditPad(false)
       setQtyEditOpen(true)
+      startWeightModalMonitor()
+      setLayerPickOpen(false)
+      setLayerPickProduct(null)
       return
     }
 
-    // Другой товар → фиксируем предыдущий живой вес
-    lockActiveWeighing()
     setCart(prev => {
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
@@ -2495,6 +2477,10 @@ export default function CashierModule({
     setQtyEditBuf(line.weightKg != null ? String(line.weightKg) : String(line.qty))
     setQtyEditPad(false)
     setQtyEditOpen(true)
+    if (line.weightKg != null) startWeightModalMonitor()
+    else {
+      qtyEditIsWeightRef.current = false
+    }
   }
 
   function closeQtyEdit(discardDraft = true) {
@@ -2505,6 +2491,7 @@ export default function CashierModule({
     setQtyEditOpen(false)
     setQtyEditKey(null)
     setQtyEditPad(false)
+    stopWeightModalMonitor()
   }
 
   function resolveQtyEdit(line: CartLine, mode: 'qty' | 'sum', raw: string) {
@@ -2539,6 +2526,7 @@ export default function CashierModule({
     setQtyEditOpen(false)
     setQtyEditKey(null)
     setQtyEditPad(false)
+    stopWeightModalMonitor()
     window.setTimeout(focusProductSearch, 40)
   }
 
@@ -2548,12 +2536,10 @@ export default function CashierModule({
   }
 
   function removeLine(key: string) {
-    if (weighingLineKeyRef.current === key) lockActiveWeighing()
     setCart(prev => prev.filter(l => l.key !== key))
   }
 
   function clearCart() {
-    lockActiveWeighing()
     setTickets(prev => prev.map(t => t.id !== activeTicketId ? t : {
       ...t,
       cart: [],
@@ -3045,18 +3031,10 @@ export default function CashierModule({
       return
     }
     if (!cart.length) return
-    // Фиксируем вес активной строки перед оплатой
-    lockActiveWeighing()
     const zeroWeight = cart.find(l => l.weightKg != null && !(l.weightKg > 0.0005))
     if (zeroWeight) {
-      showToast('Нет веса', `Взвесьте «${zeroWeight.name}» или укажите вес вручную`)
-      setSelectedLineKey(zeroWeight.key)
-      if (liveWeightEnabled()) {
-        setActiveWeighingLine(zeroWeight.key)
-        void ensureCasWeightMonitor(true)
-      } else {
-        openQtyEdit(zeroWeight)
-      }
+      showToast('Нет веса', `Укажите вес для «${zeroWeight.name}»`)
+      openQtyEdit(zeroWeight)
       return
     }
     setBonusUsed(0)
@@ -3792,7 +3770,7 @@ export default function CashierModule({
                                 const on = e.target.checked
                                 setDeskScaleLiveWeight(on)
                                 if (!on) {
-                                  lockActiveWeighing()
+                                  qtyEditIsWeightRef.current = false
                                   void ensureCasWeightMonitor(false)
                                 } else if (deskScaleHost.trim()) {
                                   void ensureCasWeightMonitor(true)
@@ -4576,22 +4554,11 @@ export default function CashierModule({
               const gross = lineGross(line)
               const net = lineNet(line)
               const lineDisc = Number(line.discPct) || 0
-              const isWeighing = weighingLineKey === line.key
-              const liveG = isWeighing ? (casWeight.grams || 0) : 0
-              const heldKg = line.weightKg != null ? line.weightKg : null
               return (
                 <div
                   key={line.key}
-                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''} ${isWeighing ? 'weighing' : ''}`}
-                  onClick={() => {
-                    setSelectedLineKey(line.key)
-                    if (line.weightKg != null && liveWeightEnabled()) {
-                      setActiveWeighingLine(line.key)
-                      void ensureCasWeightMonitor(true)
-                    } else {
-                      lockActiveWeighing()
-                    }
-                  }}
+                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''}`}
+                  onClick={() => setSelectedLineKey(line.key)}
                 >
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
@@ -4600,19 +4567,10 @@ export default function CashierModule({
                       {line.art ? <span>арт. {line.art}</span> : null}
                       {line.barcode ? <span>ш/к {line.barcode}</span> : null}
                       <span>
-                        {heldKg != null
-                          ? `${heldKg.toFixed(3)} кг · ${line.price.toFixed(2)} ЅМ/${line.unit}`
+                        {line.weightKg != null
+                          ? `${line.weightKg.toFixed(3)} кг · ${line.price.toFixed(2)} ЅМ/${line.unit}`
                           : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
                       </span>
-                      {isWeighing ? (
-                        <span className={`line-scale ${casWeight.connected ? 'ok' : 'warn'}`}>
-                          {casWeight.connected
-                            ? (liveG > 0
-                              ? `весы ${liveG} г`
-                              : (heldKg && heldKg > 0 ? 'удержан вес' : 'положите товар'))
-                            : (casWeight.error ? `весы: ${casWeight.error}` : 'весы: нет связи')}
-                        </span>
-                      ) : null}
                       {line.receiptId ? (
                         <span className="line-batch">
                           партия {line.costPrice != null ? `зак. ${line.costPrice.toFixed(2)}` : ''}
@@ -4636,7 +4594,7 @@ export default function CashierModule({
                       className="qty-btn"
                       onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
                     >
-                      {(heldKg && heldKg > 0) ? `${heldKg.toFixed(3)} кг` : (isWeighing ? '… кг' : '0 кг')}
+                      {line.weightKg.toFixed(3)} кг
                     </button>
                   )}
                   <div className="price">
@@ -4778,7 +4736,11 @@ export default function CashierModule({
                   }}
                 >
                   <span className="l">{isWeight ? 'Вес' : 'Кол-во'}</span>
-                  <b className={qtyEditMode === 'qty' ? 'live' : ''}>{previewQty > 0 ? fmtQty(previewQty) : '—'}</b>
+                  <b className={qtyEditMode === 'qty' ? 'live' : ''}>
+                    {previewQty > 0
+                      ? fmtQty(previewQty)
+                      : (isWeight && liveWeightEnabled() && casWeight.connected ? '…' : '—')}
+                  </b>
                   <span className="u">{unit}</span>
                 </button>
                 <button
@@ -4798,7 +4760,17 @@ export default function CashierModule({
               <div className="qty-edit-hint">
                 {qtyEditMode === 'sum'
                   ? 'Количество = сумма ÷ цена (например 3 ÷ 6 = 0.5)'
-                  : `Введите ${isWeight ? 'вес' : 'количество'} с клавиатуры — сумма посчитается сама`}
+                  : isWeight
+                    ? (liveWeightEnabled()
+                      ? (casWeight.connected
+                        ? ((casWeight.grams || 0) > 0
+                          ? `Весы: ${casWeight.grams} г · положите товар — вес обновится сам`
+                          : 'Весы подключены · положите товар на весы')
+                        : (casWeight.error
+                          ? `Весы: ${casWeight.error}`
+                          : 'Ожидание весов… Можно ввести вес вручную'))
+                      : 'Введите вес с клавиатуры — сумма посчитается сама')
+                    : 'Введите количество с клавиатуры — сумма посчитается сама'}
               </div>
 
               <div className={`kp-display qty-edit-input ${qtyEditMode}`}>
@@ -4882,7 +4854,9 @@ export default function CashierModule({
 
               <div className="modal-card-actions">
                 <button type="button" className="btn-cancel" onClick={() => closeQtyEdit()}>Отмена</button>
-                <button type="button" className="btn-confirm" disabled={previewQty <= 0 || overStock} onClick={applyQtyEdit}>Применить</button>
+                <button type="button" className="btn-confirm" disabled={previewQty <= 0 || overStock} onClick={applyQtyEdit}>
+                  {isWeight ? 'Сохранить' : 'Применить'}
+                </button>
               </div>
             </div>
           </div>
