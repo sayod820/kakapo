@@ -1137,12 +1137,16 @@ export const POS_MOCK_CSS = `
   .pos-root[data-theme="light"] .pos-search:focus-within,
   .pos-root[data-theme="light"] .modal-input:focus,
   .pos-root[data-theme="light"] .modal-card-input:focus{box-shadow:0 0 0 3px rgba(18,155,69,.12);}
-  .client-result{padding:11px;border-radius:15px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer;width:100%;text-align:left;}
+  .client-result{padding:11px;border-radius:15px;background:var(--surface2);border:1.5px solid var(--border);display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer;width:100%;text-align:left;transition:border-color .15s,background .15s,box-shadow .15s;}
   .client-result:hover{border-color:var(--accent);}
+  .client-result.on{border-color:var(--accent);background:rgba(31,215,96,.14);box-shadow:0 0 0 2px rgba(31,215,96,.22);}
+  .pos-root[data-theme="light"] .client-result.on{background:rgba(18,155,69,.12);box-shadow:0 0 0 2px rgba(18,155,69,.18);}
   .client-result .av{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,var(--accent2),var(--accent));display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:12px;color:var(--bg);flex-shrink:0;}
-  .client-result .ci{flex:1;line-height:1.25;}
+  .client-result .ci{flex:1;line-height:1.25;min-width:0;}
   .client-result .ci b{font-size:12.5px;display:block;}
   .client-result .ci span{font-size:10px;color:var(--t2);}
+  .client-result .pick-mark{margin-left:auto;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;color:transparent;background:transparent;}
+  .client-result.on .pick-mark{border-color:var(--accent);background:var(--accent);color:#05210D;}
   .tier-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:7px;font-size:9px;font-weight:800;}
   .modal-card-actions,.modal-actions{display:flex;gap:8px;}
   .modal-card-actions button,.modal-actions button{flex:1;padding:12px;border-radius:14px;font-weight:800;font-size:12px;}

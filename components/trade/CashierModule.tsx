@@ -5585,13 +5585,15 @@ export default function CashierModule({
             <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
               {clientHits.map(c => {
                 const sum = loyaltySummaryForClient(c, cards)
+                const selected = clientPick?.id === c.id
                 return (
-                  <button key={c.id} type="button" className={`client-result ${clientPick?.id === c.id ? 'on' : ''}`} onClick={() => setClientPick(c)}>
+                  <button key={c.id} type="button" className={`client-result ${selected ? 'on' : ''}`} onClick={() => setClientPick(c)}>
                     <div className="av">{initialsOf(c.name)}</div>
-                    <div>
-                      <b style={{ fontSize: 12.5, display: 'block' }}>{c.name}</b>
-                      <span style={{ fontSize: 10, color: 'var(--t2)' }}>{c.phone} · {c.card || 'без карты'} · ⭐ {sum.bonus}</span>
+                    <div className="ci">
+                      <b>{c.name}</b>
+                      <span>{c.phone} · {c.card || 'без карты'} · ⭐ {sum.bonus}</span>
                     </div>
+                    <span className="pick-mark" aria-hidden>{selected ? '✓' : ''}</span>
                   </button>
                 )
               })}
