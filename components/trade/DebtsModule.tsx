@@ -152,10 +152,10 @@ function paymentMethodLabel(method: string, partial: boolean): string {
 }
 
 function DebtStatusBadge({ overLimit, debt, unpaidCount }: { overLimit: boolean; debt: number; unpaidCount: number }) {
-  if (overLimit) return <span className="k-badge" style={{ background: '#2a1420', color: 'var(--red)' }}>⚠ Превышен лимит</span>
-  if (debt > 0 && unpaidCount > 0) return <span className="k-badge" style={{ background: '#2a2414', color: 'var(--gold)' }}>В долгу · {unpaidCount} зак.</span>
-  if (debt > 0) return <span className="k-badge" style={{ background: '#2a2414', color: 'var(--gold)' }}>В долгу</span>
-  return <span className="k-badge" style={{ background: '#122018', color: 'var(--green)' }}>Без долга</span>
+  if (overLimit) return <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>⚠ Превышен лимит</span>
+  if (debt > 0 && unpaidCount > 0) return <span className="k-badge" style={{ background: 'var(--badge-debt-bg)', color: 'var(--gold)' }}>В долгу · {unpaidCount} зак.</span>
+  if (debt > 0) return <span className="k-badge" style={{ background: 'var(--badge-debt-bg)', color: 'var(--gold)' }}>В долгу</span>
+  return <span className="k-badge" style={{ background: 'var(--badge-debt-ok)', color: 'var(--green)' }}>Без долга</span>
 }
 
 function PartialBar({ paid, total }: { paid: number; total: number }) {
@@ -166,7 +166,7 @@ function PartialBar({ paid, total }: { paid: number; total: number }) {
         <span>Оплачено {fmtMoney(paid)}</span>
         <span>{pct}%</span>
       </div>
-      <div style={{ height: 6, borderRadius: 999, background: '#1a241c', overflow: 'hidden' }}>
+      <div style={{ height: 6, borderRadius: 999, background: 'var(--card2)', overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', borderRadius: 999, background: 'linear-gradient(90deg, var(--green), #14b24f)' }} />
       </div>
     </div>
@@ -313,7 +313,7 @@ export default function DebtsModule() {
       </div>
 
       {apiError && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>
           {apiError}
         </div>
       )}
@@ -375,7 +375,7 @@ export default function DebtsModule() {
                 style={{
                   marginBottom: 10,
                   overflow: 'hidden',
-                  border: c.overLimit ? '1px solid #5a2030' : debt > 0 ? '1px solid #5a4020' : undefined,
+                  border: c.overLimit ? '1px solid var(--border-debt-over)' : debt > 0 ? '1px solid var(--border-debt)' : undefined,
                 }}
               >
                 <div
@@ -391,7 +391,7 @@ export default function DebtsModule() {
                       <DebtStatusBadge overLimit={c.overLimit} debt={debt} unpaidCount={c.unpaidCount} />
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`} onClick={e => e.stopPropagation()} style={{ color: 'inherit', textDecoration: 'none' }}>📞 {c.phone}</a>}
+                      {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`} onClick={e => e.stopPropagation()} style={{ color: 'inherit', textDecoration: 'none' }}><span style={{ color: 'var(--muted)' }}>☎</span> {c.phone}</a>}
                       {c.card ? <span>💳 {c.card}{cardStatus ? ` · ${cardStatus.l}` : ''}</span> : <span style={{ color: 'var(--gold)' }}>⚠ без карты</span>}
                     </div>
                     {c.debtLimit > 0 && (
@@ -465,7 +465,7 @@ export default function DebtsModule() {
                 </div>
                 {detailClient.phone && (
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
-                    📞 {detailClient.phone}
+                    <span style={{ color: 'var(--muted)' }}>☎</span> {detailClient.phone}
                     {detailClient.card && <span> · 💳 {detailClient.card}</span>}
                   </div>
                 )}
@@ -494,7 +494,7 @@ export default function DebtsModule() {
                     {inlineDebt.saving ? '…' : inlineDebt.action === 'repay' ? 'Провести' : 'Начислить'}
                   </button>
                 </div>
-                {inlineDebt.msg && <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{inlineDebt.msg}</div>}
+                {inlineDebt.msg && <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>{inlineDebt.msg}</div>}
               </div>
 
               <div className="k-subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>

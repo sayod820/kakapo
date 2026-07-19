@@ -199,7 +199,7 @@ function LoyaltyMiniCard({ client, cards }: { client: EnrichedClient; cards: Adm
           <span style={{ fontSize: 20 }}>{summary.vip ? '⭐' : '💳'}</span>
           <span style={{ fontWeight: 900, fontSize: 16 }}>{summary.card || 'Без карты'}</span>
           <span className="k-badge" style={{ background: `${color}22`, color }}>{levelLabel(summary.level)}</span>
-          {summary.vip && <span className="k-badge" style={{ background: '#2a1a40', color: 'var(--purple)' }}>VIP</span>}
+          {summary.vip && <span className="k-badge" style={{ background: 'var(--badge-vip-bg)', color: 'var(--purple)' }}>VIP</span>}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 12 }}>
           <div>
@@ -575,7 +575,7 @@ export default function ClientsModule() {
       </div>
 
       {apiError && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>
           {apiError}
         </div>
       )}
@@ -653,7 +653,7 @@ export default function ClientsModule() {
                 style={{
                   marginBottom: 10,
                   overflow: 'hidden',
-                  border: overLimit ? '1px solid #5a2030' : debt > 0 ? '1px solid #5a4020' : c.blocked ? '1px solid #3a2030' : undefined,
+                  border: overLimit ? '1px solid var(--border-debt-over)' : debt > 0 ? '1px solid var(--border-debt)' : c.blocked ? '1px solid var(--border-debt-over)' : undefined,
                 }}
               >
                 <div
@@ -666,12 +666,12 @@ export default function ClientsModule() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 900, fontSize: 15 }}>{c.name}</span>
                       <span className="k-badge" style={{ background: `${levelColor}22`, color: levelColor }}>{levelLabel(c.level)}</span>
-                      {c.vip && <span className="k-badge" style={{ background: '#2a1a40', color: 'var(--purple)' }}>VIP</span>}
-                      {c.blocked && <span className="k-badge" style={{ background: '#2a1420', color: 'var(--red)' }}>Блок</span>}
-                      {overLimit && <span className="k-badge" style={{ background: '#2a1420', color: 'var(--red)' }}>⚠ Лимит</span>}
+                      {c.vip && <span className="k-badge" style={{ background: 'var(--badge-vip-bg)', color: 'var(--purple)' }}>VIP</span>}
+                      {c.blocked && <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>Блок</span>}
+                      {overLimit && <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>⚠ Лимит</span>}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`} onClick={e => e.stopPropagation()} style={{ color: 'inherit', textDecoration: 'none' }}>📞 {c.phone}</a>}
+                      {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`} onClick={e => e.stopPropagation()} style={{ color: 'inherit', textDecoration: 'none' }}><span style={{ color: 'var(--muted)' }}>☎</span> {c.phone}</a>}
                       {c.card ? <span>💳 {c.card}{cardStatus ? ` · ${cardStatus.l}` : ''}</span> : <span style={{ color: 'var(--gold)' }}>⚠ без карты</span>}
                       {c.lastLabel && <span>· {c.lastLabel}</span>}
                     </div>
@@ -767,7 +767,7 @@ export default function ClientsModule() {
                 <input type="checkbox" checked={form.blocked} onChange={e => setForm(prev => ({ ...prev, blocked: e.target.checked }))} />
                 Заблокировать клиента
               </label>
-              {form.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{form.msg}</div>}
+              {form.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>{form.msg}</div>}
             </div>
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
               <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={form.saving} onClick={() => void submitForm()}>
@@ -842,7 +842,7 @@ export default function ClientsModule() {
                 <label>Комментарий</label>
                 <input className="k-inp" value={cashForm.note} onChange={e => setCashForm(prev => ({ ...prev, note: e.target.value }))} placeholder="Например: предоплата, пополнение…" />
               </div>
-              {cashForm.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{cashForm.msg}</div>}
+              {cashForm.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>{cashForm.msg}</div>}
             </div>
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
               <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={cashForm.saving || cashBonusPreview <= 0} onClick={() => void submitCash()}>
@@ -906,7 +906,7 @@ export default function ClientsModule() {
                   <input className="k-inp" type="text" inputMode="decimal" value={loyaltyForm.debtLimit} onChange={e => setLoyaltyForm(prev => ({ ...prev, debtLimit: sanitizeDecimalInput(e.target.value) }))} placeholder="0" />
                 </div>
               )}
-              {loyaltyForm.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{loyaltyForm.msg}</div>}
+              {loyaltyForm.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>{loyaltyForm.msg}</div>}
             </div>
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
               <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={loyaltyForm.saving} onClick={() => void submitLoyalty()}>
@@ -948,7 +948,7 @@ export default function ClientsModule() {
               {detailTab === 'overview' && (
                 <>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                    {detailClient.phone && <a href={`tel:${detailClient.phone.replace(/\s/g, '')}`} style={{ color: 'inherit' }}>📞 {detailClient.phone}</a>}
+                    {detailClient.phone && <a href={`tel:${detailClient.phone.replace(/\s/g, '')}`} style={{ color: 'inherit' }}><span style={{ color: 'var(--muted)' }}>☎</span> {detailClient.phone}</a>}
                     {detailClient.email && <span>✉ {detailClient.email}</span>}
                     {detailClient.addr && <span>📍 {detailClient.addr}</span>}
                     {detailClient.note && <span>💬 {detailClient.note}</span>}

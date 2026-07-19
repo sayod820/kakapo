@@ -42,6 +42,10 @@ const CSS = `
     --hover:#0e1712; --tbl-line:#16241b; --nav-hover:#111d15; --scroll:#1e2f24;
     --photo-plate:#0c1610; --badge-cat-bg:#1a2430; --badge-cat-fg:#3B8EF0;
     --badge-stock-ok:#12351E; --badge-stock-low:#2a2414; --badge-stock-no:#2a1420;
+    --badge-debt-bg:#2a2414; --badge-debt-ok:#122018; --badge-warn-bg:#2a1420; --badge-vip-bg:#2a1a40;
+    --border-debt:#5a4020; --border-debt-over:#5a2030;
+    --alert-error-bg:#2a1420; --alert-error-border:#5a2030;
+    --alert-warn-bg:#2a2414; --alert-warn-border:#5a4020;
     display:flex;min-height:100vh;background:var(--bg);color:var(--text);
     font-family:'Nunito',system-ui,-apple-system,sans-serif;font-size:14px;
   }
@@ -52,6 +56,10 @@ const CSS = `
     --hover:#EAF1EC; --tbl-line:#D0DDD4; --nav-hover:#EAF1EC; --scroll:#BCCBBF;
     --photo-plate:#E8F0EA; --badge-cat-bg:#E8EEF8; --badge-cat-fg:#2563EB;
     --badge-stock-ok:#D6F0DF; --badge-stock-low:#FEF3C7; --badge-stock-no:#FEE2E2;
+    --badge-debt-bg:#FEF3C7; --badge-debt-ok:#D6F0DF; --badge-warn-bg:#FEE2E2; --badge-vip-bg:#EDE9FE;
+    --border-debt:#F0D9A8; --border-debt-over:#FECACA;
+    --alert-error-bg:#FEE2E2; --alert-error-border:#FECACA;
+    --alert-warn-bg:#FEF3C7; --alert-warn-border:#F0D9A8;
   }
   .k-trade button{font-family:inherit}
   .k-trade ::-webkit-scrollbar{width:8px;height:8px}
