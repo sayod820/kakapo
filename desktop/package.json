@@ -23,10 +23,12 @@
       "tsplLabel.cjs",
       "escposReceipt.cjs",
       "receiptTemplate.cjs",
+      "icon.png",
       "config.json",
       "package.json"
     ],
     "win": {
+      "icon": "icon.png",
       "target": [
         "nsis"
       ],

@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog } = require('electron')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -20,10 +20,12 @@ const {
 } = require('./receiptTemplate.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
+const APP_ICON_PATH = path.join(__dirname, 'icon.png')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
 
 let mainWindow = null
 let printWindow = null
+let allowMainWindowClose = false
 
 const DEFAULT_SETTINGS = {
   printerName: '',
@@ -114,6 +116,7 @@ function createWindow() {
     minHeight: 700,
     fullscreen: !!winCfg.fullscreen,
     title: 'KAKAPO Касса',
+    icon: APP_ICON_PATH,
     backgroundColor: '#030B05',
     autoHideMenuBar: true,
     webPreferences: {
@@ -136,8 +139,28 @@ function createWindow() {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 
+  mainWindow.on('close', event => {
+    if (allowMainWindowClose) return
+    event.preventDefault()
+    const answer = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      title: 'Закрыть KAKAPO Касса?',
+      message: 'Вы действительно хотите выйти из приложения?',
+      detail: 'Открытые несохранённые действия могут быть потеряны.',
+      buttons: ['Выйти', 'Отмена'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    })
+    if (answer === 0) {
+      allowMainWindowClose = true
+      mainWindow.close()
+    }
+  })
+
   mainWindow.on('closed', () => {
     mainWindow = null
+    allowMainWindowClose = false
   })
 }
 
