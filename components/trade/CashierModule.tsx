@@ -50,7 +50,12 @@ import {
   saveReceiptStore,
   type ReceiptStoreConfig,
 } from '@/lib/printPosReceipt'
-import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/desktopBridge'
+import {
+  getKakapoDesktop,
+  isKakapoDesktop,
+  type CasWeightEvent,
+  type DesktopPrinter,
+} from '@/lib/desktopBridge'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
 import type { Category, PosSale, Product, ProductStockLayer } from '@/lib/types'
@@ -547,8 +552,21 @@ export default function CashierModule({
   const [deskScaleHost, setDeskScaleHost] = useState('')
   const [deskScalePort, setDeskScalePort] = useState('20304')
   const [deskScaleDept, setDeskScaleDept] = useState('1')
+  const [deskScaleLiveWeight, setDeskScaleLiveWeight] = useState(true)
   const [deskPrintBusy, setDeskPrintBusy] = useState(false)
   const [deskCasBusy, setDeskCasBusy] = useState(false)
+  const [deskCasTestBusy, setDeskCasTestBusy] = useState(false)
+  const [casWeight, setCasWeight] = useState<CasWeightEvent>({
+    connected: false,
+    weightKg: 0,
+    grams: 0,
+    stable: false,
+    error: '',
+  })
+  const [weighingLineKey, setWeighingLineKey] = useState<string | null>(null)
+  const weighingLineKeyRef = useRef<string | null>(null)
+  const deskScaleLiveWeightRef = useRef(true)
+  const casMonitorWantedRef = useRef(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
   const [receiptTemplateDraft, setReceiptTemplateDraft] = useState<ReceiptStoreConfig>(() => ({
     ...DEFAULT_RECEIPT_STORE,
@@ -725,6 +743,50 @@ export default function CashierModule({
 
   useEffect(() => () => {
     if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
+  }, [])
+
+  useEffect(() => {
+    deskScaleLiveWeightRef.current = deskScaleLiveWeight
+  }, [deskScaleLiveWeight])
+
+  /** Загрузить настройки весов при старте desktop-кассы */
+  useEffect(() => {
+    if (!isKakapoDesktop()) return
+    const desk = getKakapoDesktop()
+    if (!desk) return
+    void desk.getPrinterSettings().then(settings => {
+      setDeskScaleMode(settings?.scaleMode === 'none' ? 'none' : 'plu-label')
+      setDeskScaleHost(settings?.scaleHost || '')
+      setDeskScalePort(String(settings?.scalePort || 20304))
+      setDeskScaleDept(String(settings?.scaleDept || 1))
+      setDeskScaleLiveWeight(settings?.scaleLiveWeight !== false)
+    }).catch(() => undefined)
+  }, [])
+
+  /** Подписка на живой вес CAS из Electron */
+  useEffect(() => {
+    if (!isKakapoDesktop()) return
+    const desk = getKakapoDesktop()
+    if (!desk?.onCasWeight) return
+    const off = desk.onCasWeight(payload => {
+      setCasWeight(payload)
+      const key = weighingLineKeyRef.current
+      if (!key || !deskScaleLiveWeightRef.current) return
+      if (!payload.stable) return
+      const kg = Number(payload.weightKg) || 0
+      // 0 кг = товар сняли → удерживаем последнее положительное значение
+      if (kg > 0.0005) applyLiveWeightToLine(key, kg)
+    })
+    return () => {
+      off()
+    }
+    // applyLiveWeightToLine стабилен по замыканию setCart
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => () => {
+    const desk = getKakapoDesktop()
+    void desk?.stopCasWeight?.()
   }, [])
 
   /** Поиск всегда в фокусе на экране кассы (сканер / ввод), пока нет модалок */
@@ -1555,6 +1617,7 @@ export default function CashierModule({
           scaleHost: '',
           scalePort: 20304,
           scaleDept: 1,
+          scaleLiveWeight: true,
         })),
       ]).then(([printers, settings]) => {
         const list = printers || []
@@ -1569,6 +1632,7 @@ export default function CashierModule({
         setDeskScaleHost(settings?.scaleHost || '')
         setDeskScalePort(String(settings?.scalePort || 20304))
         setDeskScaleDept(String(settings?.scaleDept || 1))
+        setDeskScaleLiveWeight(settings?.scaleLiveWeight !== false)
         if (name && desk) {
           void desk.savePrinterSettings({
             ...settings,
@@ -1610,9 +1674,15 @@ export default function CashierModule({
           scaleHost: deskScaleHost.trim(),
           scalePort: Number(deskScalePort) || 20304,
           scaleDept: Number(deskScaleDept) || 1,
+          scaleLiveWeight: deskScaleLiveWeight,
         })
         setDeskPrinterName(printerName)
         setDeskPaperMm(XP58C_RECEIPT_MM)
+        if (deskScaleLiveWeight && deskScaleHost.trim()) {
+          void ensureCasWeightMonitor(true)
+        } else {
+          void ensureCasWeightMonitor(false)
+        }
       }
       await refresh()
       setEditPosId(null)
@@ -2228,6 +2298,58 @@ export default function CashierModule({
     return receiptId ? `${productId}::${receiptId}` : String(productId)
   }
 
+  function setActiveWeighingLine(key: string | null) {
+    weighingLineKeyRef.current = key
+    setWeighingLineKey(key)
+  }
+
+  function lockActiveWeighing() {
+    setActiveWeighingLine(null)
+  }
+
+  async function ensureCasWeightMonitor(want: boolean) {
+    const desk = getKakapoDesktop()
+    if (!desk) return
+    casMonitorWantedRef.current = want
+    try {
+      if (!want) {
+        await desk.stopCasWeight?.()
+        setCasWeight(prev => ({ ...prev, connected: false, running: false, weightKg: 0, grams: 0, error: '' }))
+        return
+      }
+      const host = deskScaleHost.trim()
+      if (!host || !desk.startCasWeight) return
+      await desk.startCasWeight({
+        host,
+        port: Number(deskScalePort) || 20304,
+      })
+    } catch (e) {
+      setCasWeight(prev => ({
+        ...prev,
+        connected: false,
+        running: false,
+        error: e instanceof Error ? e.message : 'Нет связи с весами',
+      }))
+    }
+  }
+
+  function applyLiveWeightToLine(key: string, weightKg: number) {
+    const w = Math.max(0, Math.round(weightKg * 1000) / 1000)
+    if (!(w > 0.0005)) return
+    setCart(prev => prev.map(l => {
+      if (l.key !== key || l.weightKg == null) return l
+      const maxW = l.stock > 0 ? l.stock : w
+      return { ...l, weightKg: Math.min(w, maxW), qty: 1 }
+    }))
+  }
+
+  function liveWeightEnabled() {
+    return deskScaleLiveWeightRef.current
+      && deskScaleLiveWeight
+      && isKakapoDesktop()
+      && !!deskScaleHost.trim()
+  }
+
   function pushProductToCart(p: Product, weightKg?: number, layer?: ProductStockLayer) {
     const stockTotal = Number(p.stock) || 0
     if (stockTotal <= 0) return
@@ -2244,6 +2366,8 @@ export default function CashierModule({
     const supplierName = layer?.supplierName || undefined
 
     if (isWeighted(p) && weightKg == null) {
+      // Фиксируем предыдущую весовую строку перед новой
+      lockActiveWeighing()
       const key = cartLineKey(p.id, receiptId, 0)
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
@@ -2264,17 +2388,30 @@ export default function CashierModule({
         supplierName,
       }])
       setSelectedLineKey(key)
+      setLayerPickOpen(false)
+      setLayerPickProduct(null)
+
+      if (liveWeightEnabled()) {
+        setActiveWeighingLine(key)
+        void ensureCasWeightMonitor(true)
+        setQtyEditDraftKey(null)
+        setQtyEditOpen(false)
+        setQtyEditKey(null)
+        setQtyEditPad(false)
+        return
+      }
+
       setQtyEditDraftKey(key)
       setQtyEditKey(key)
       setQtyEditMode('qty')
       setQtyEditBuf('')
       setQtyEditPad(false)
       setQtyEditOpen(true)
-      setLayerPickOpen(false)
-      setLayerPickProduct(null)
       return
     }
 
+    // Другой товар → фиксируем предыдущий живой вес
+    lockActiveWeighing()
     setCart(prev => {
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
@@ -2411,10 +2548,12 @@ export default function CashierModule({
   }
 
   function removeLine(key: string) {
+    if (weighingLineKeyRef.current === key) lockActiveWeighing()
     setCart(prev => prev.filter(l => l.key !== key))
   }
 
   function clearCart() {
+    lockActiveWeighing()
     setTickets(prev => prev.map(t => t.id !== activeTicketId ? t : {
       ...t,
       cart: [],
@@ -2906,6 +3045,20 @@ export default function CashierModule({
       return
     }
     if (!cart.length) return
+    // Фиксируем вес активной строки перед оплатой
+    lockActiveWeighing()
+    const zeroWeight = cart.find(l => l.weightKg != null && !(l.weightKg > 0.0005))
+    if (zeroWeight) {
+      showToast('Нет веса', `Взвесьте «${zeroWeight.name}» или укажите вес вручную`)
+      setSelectedLineKey(zeroWeight.key)
+      if (liveWeightEnabled()) {
+        setActiveWeighingLine(zeroWeight.key)
+        void ensureCasWeightMonitor(true)
+      } else {
+        openQtyEdit(zeroWeight)
+      }
+      return
+    }
     setBonusUsed(0)
     setAmountPad(false)
     setCashBuf('')
@@ -3585,7 +3738,7 @@ export default function CashierModule({
 
                 <div className="pos-settings-card span-all">
                   <h3>Весы CAS</h3>
-                  <p className="hint">CL-3000 / CL-5000 · выгрузка PLU по сети</p>
+                  <p className="hint">CL-3000 / CL-5000 · выгрузка PLU и живой вес по TCP/IP</p>
                   {isKakapoDesktop() ? (
                     <>
                       <div className="pos-settings-field">
@@ -3595,7 +3748,7 @@ export default function CashierModule({
                           value={deskScaleMode}
                           onChange={e => setDeskScaleMode(e.target.value === 'none' ? 'none' : 'plu-label')}
                         >
-                          <option value="plu-label">CAS · выгрузка PLU по сети</option>
+                          <option value="plu-label">CAS · сеть TCP/IP</option>
                           <option value="none">Нет / вручную на кассе</option>
                         </select>
                       </div>
@@ -3608,7 +3761,7 @@ export default function CashierModule({
                                 className="gate-input"
                                 value={deskScaleHost}
                                 onChange={e => setDeskScaleHost(e.target.value)}
-                                placeholder="192.168.1.50"
+                                placeholder="192.168.1.10"
                               />
                             </div>
                             <div className="pos-settings-field">
@@ -3630,7 +3783,75 @@ export default function CashierModule({
                               />
                             </div>
                           </div>
+
+                          <label className="pos-settings-check">
+                            <input
+                              type="checkbox"
+                              checked={deskScaleLiveWeight}
+                              onChange={e => {
+                                const on = e.target.checked
+                                setDeskScaleLiveWeight(on)
+                                if (!on) {
+                                  lockActiveWeighing()
+                                  void ensureCasWeightMonitor(false)
+                                } else if (deskScaleHost.trim()) {
+                                  void ensureCasWeightMonitor(true)
+                                }
+                              }}
+                            />
+                            <span>Живой вес в POS</span>
+                          </label>
+
+                          <div className={`pos-settings-status ${casWeight.connected ? 'ok' : 'warn'}`}>
+                            {casWeight.connected
+                              ? `Связь OK · ${casWeight.grams || 0} г (${(casWeight.weightKg || 0).toFixed(3)} кг)${casWeight.stable ? ' · стабильно' : ''}`
+                              : (casWeight.error
+                                ? `Нет связи: ${casWeight.error}`
+                                : 'Нет связи с весами')}
+                            <div className="pos-settings-net-hint">
+                              Прямой кабель: на кассовом ПК нужен статический IPv4 <b>192.168.1.2/24</b>
+                              (весы обычно <b>192.168.1.10:20304</b>). Приложение не меняет настройки Windows.
+                            </div>
+                          </div>
+
                           <div className="pos-settings-row-btns">
+                            <button
+                              type="button"
+                              className="btn-switch-till"
+                              disabled={deskCasTestBusy || !deskScaleHost.trim()}
+                              onClick={() => {
+                                void (async () => {
+                                  const desk = getKakapoDesktop()
+                                  if (!desk?.readCasWeight) return
+                                  setDeskCasTestBusy(true)
+                                  try {
+                                    const res = await desk.readCasWeight({
+                                      host: deskScaleHost.trim(),
+                                      port: Number(deskScalePort) || 20304,
+                                    })
+                                    setCasWeight({
+                                      connected: true,
+                                      weightKg: res.weightKg,
+                                      grams: res.grams,
+                                      price: res.price,
+                                      stable: true,
+                                      error: '',
+                                      ts: res.ts,
+                                    })
+                                    showToast('CAS', `Вес: ${res.grams} г (${res.weightKg.toFixed(3)} кг)`)
+                                    if (deskScaleLiveWeight) void ensureCasWeightMonitor(true)
+                                  } catch (e) {
+                                    const msg = e instanceof Error ? e.message : 'Ошибка связи с весами'
+                                    setCasWeight(prev => ({ ...prev, connected: false, error: msg }))
+                                    showToast('CAS', msg)
+                                  } finally {
+                                    setDeskCasTestBusy(false)
+                                  }
+                                })()
+                              }}
+                            >
+                              {deskCasTestBusy ? 'Чтение…' : 'Тест связи / вес'}
+                            </button>
                             <button
                               type="button"
                               className="btn-switch-till"
@@ -3641,6 +3862,7 @@ export default function CashierModule({
                                   if (!desk) return
                                   setDeskCasBusy(true)
                                   try {
+                                    await ensureCasWeightMonitor(false)
                                     const printerName = deskPrinterName || pickReceiptPrinter(deskPrinters) || ''
                                     await desk.savePrinterSettings({
                                       ...(await desk.getPrinterSettings()),
@@ -3650,6 +3872,7 @@ export default function CashierModule({
                                       scaleHost: deskScaleHost.trim(),
                                       scalePort: Number(deskScalePort) || 20304,
                                       scaleDept: Number(deskScaleDept) || 1,
+                                      scaleLiveWeight: deskScaleLiveWeight,
                                     })
                                     const items = products
                                       .filter(p => isWeighted(p) && Number(p.plu) > 0)
@@ -3670,6 +3893,7 @@ export default function CashierModule({
                                   } catch (e) {
                                     showToast('CAS', e instanceof Error ? e.message : 'Ошибка связи с весами')
                                   } finally {
+                                    if (deskScaleLiveWeight) void ensureCasWeightMonitor(true)
                                     setDeskCasBusy(false)
                                   }
                                 })()
@@ -4352,11 +4576,22 @@ export default function CashierModule({
               const gross = lineGross(line)
               const net = lineNet(line)
               const lineDisc = Number(line.discPct) || 0
+              const isWeighing = weighingLineKey === line.key
+              const liveG = isWeighing ? (casWeight.grams || 0) : 0
+              const heldKg = line.weightKg != null ? line.weightKg : null
               return (
                 <div
                   key={line.key}
-                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''}`}
-                  onClick={() => setSelectedLineKey(line.key)}
+                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''} ${isWeighing ? 'weighing' : ''}`}
+                  onClick={() => {
+                    setSelectedLineKey(line.key)
+                    if (line.weightKg != null && liveWeightEnabled()) {
+                      setActiveWeighingLine(line.key)
+                      void ensureCasWeightMonitor(true)
+                    } else {
+                      lockActiveWeighing()
+                    }
+                  }}
                 >
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
@@ -4365,10 +4600,19 @@ export default function CashierModule({
                       {line.art ? <span>арт. {line.art}</span> : null}
                       {line.barcode ? <span>ш/к {line.barcode}</span> : null}
                       <span>
-                        {line.weightKg != null
-                          ? `${line.weightKg.toFixed(3)} кг · ${line.price.toFixed(2)} ЅМ/${line.unit}`
+                        {heldKg != null
+                          ? `${heldKg.toFixed(3)} кг · ${line.price.toFixed(2)} ЅМ/${line.unit}`
                           : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
                       </span>
+                      {isWeighing ? (
+                        <span className={`line-scale ${casWeight.connected ? 'ok' : 'warn'}`}>
+                          {casWeight.connected
+                            ? (liveG > 0
+                              ? `весы ${liveG} г`
+                              : (heldKg && heldKg > 0 ? 'удержан вес' : 'положите товар'))
+                            : (casWeight.error ? `весы: ${casWeight.error}` : 'весы: нет связи')}
+                        </span>
+                      ) : null}
                       {line.receiptId ? (
                         <span className="line-batch">
                           партия {line.costPrice != null ? `зак. ${line.costPrice.toFixed(2)}` : ''}
@@ -4392,7 +4636,7 @@ export default function CashierModule({
                       className="qty-btn"
                       onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
                     >
-                      {line.weightKg.toFixed(3)} кг
+                      {(heldKg && heldKg > 0) ? `${heldKg.toFixed(3)} кг` : (isWeighing ? '… кг' : '0 кг')}
                     </button>
                   )}
                   <div className="price">

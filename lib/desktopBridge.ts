@@ -20,6 +20,8 @@ export type DesktopPrinterSettings = {
   scalePort: number
   /** Отдел на весах */
   scaleDept: number
+  /** Живой вес в POS по TCP */
+  scaleLiveWeight?: boolean
 }
 
 export type DesktopPrintOptions = Partial<DesktopPrinterSettings> & {
@@ -49,6 +51,20 @@ export type CasPluItem = {
   price: number
   barcode?: string
   department?: number
+}
+
+export type CasWeightEvent = {
+  connected: boolean
+  running?: boolean
+  host?: string
+  port?: number
+  weightKg: number
+  grams: number
+  price?: number | null
+  stable?: boolean
+  error?: string
+  raw?: string
+  ts?: number
 }
 
 export type KakapoDesktopApi = {
@@ -83,6 +99,35 @@ export type KakapoDesktopApi = {
     clearAll?: boolean
     items: CasPluItem[]
   }) => Promise<{ ok: boolean; count: number; host: string; port: number }>
+  startCasWeight?: (payload?: {
+    host?: string
+    port?: number
+    intervalMs?: number
+  }) => Promise<{ ok: boolean; host: string; port: number; running: boolean }>
+  stopCasWeight?: () => Promise<{ ok: boolean; running: boolean }>
+  readCasWeight?: (payload?: {
+    host?: string
+    port?: number
+    timeoutMs?: number
+  }) => Promise<{
+    ok: boolean
+    host: string
+    port: number
+    weightKg: number
+    grams: number
+    price: number | null
+    raw?: string
+    connected: boolean
+    ts: number
+  }>
+  getCasWeightStatus?: () => Promise<{
+    running: boolean
+    connected: boolean
+    host: string
+    port: number
+    error: string
+  }>
+  onCasWeight?: (handler: (payload: CasWeightEvent) => void) => () => void
 }
 
 declare global {

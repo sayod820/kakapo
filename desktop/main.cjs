@@ -5,7 +5,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const { syncCasPlu } = require('./casScale.cjs')
+const { syncCasPlu, readLiveWeight, weightMonitor } = require('./casScale.cjs')
 const {
   mmToDots,
   monoFromBgra,
@@ -33,6 +33,8 @@ const DEFAULT_SETTINGS = {
   scaleHost: '',
   scalePort: 20304,
   scaleDept: 1,
+  /** Живой вес в POS по TCP */
+  scaleLiveWeight: true,
 }
 
 function loadConfig() {
@@ -55,6 +57,7 @@ function loadPrinterSettings() {
       scaleHost: String(raw.scaleHost || ''),
       scalePort: Number(raw.scalePort) || 20304,
       scaleDept: Number(raw.scaleDept) || 1,
+      scaleLiveWeight: raw.scaleLiveWeight !== false,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -72,9 +75,19 @@ function savePrinterSettings(next) {
     scaleHost: String(next.scaleHost ?? cur.scaleHost ?? '').trim(),
     scalePort: port > 0 && port < 65536 ? port : 20304,
     scaleDept: Math.max(1, Math.min(99, Number(next.scaleDept ?? cur.scaleDept) || 1)),
+    scaleLiveWeight: next.scaleLiveWeight != null ? !!next.scaleLiveWeight : cur.scaleLiveWeight !== false,
   }
   fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(merged, null, 2), 'utf8')
   return merged
+}
+
+function broadcastCasWeight(payload) {
+  const wins = BrowserWindow.getAllWindows()
+  for (const win of wins) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('desktop:casWeight', payload)
+    }
+  }
 }
 
 function buildAppMenu() {
@@ -648,11 +661,38 @@ app.whenReady().then(() => {
     })
   })
 
+  weightMonitor.setListener(payload => broadcastCasWeight(payload))
+
+  ipcMain.handle('desktop:startCasWeight', async (_e, payload) => {
+    const settings = loadPrinterSettings()
+    const host = String(payload?.host || settings.scaleHost || '').trim()
+    const port = Number(payload?.port || settings.scalePort) || 20304
+    return weightMonitor.start({ host, port, intervalMs: payload?.intervalMs })
+  })
+
+  ipcMain.handle('desktop:stopCasWeight', async () => weightMonitor.stop())
+
+  ipcMain.handle('desktop:readCasWeight', async (_e, payload) => {
+    const settings = loadPrinterSettings()
+    const host = String(payload?.host || settings.scaleHost || '').trim()
+    const port = Number(payload?.port || settings.scalePort) || 20304
+    return readLiveWeight({ host, port, timeoutMs: payload?.timeoutMs })
+  })
+
+  ipcMain.handle('desktop:getCasWeightStatus', () => ({
+    running: weightMonitor.running,
+    connected: weightMonitor.connected,
+    host: weightMonitor.host,
+    port: weightMonitor.port,
+    error: weightMonitor.lastError || '',
+  }))
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', () => {
+  try { weightMonitor.stop() } catch { /* ignore */ }
   if (process.platform !== 'darwin') app.quit()
 })

@@ -2,13 +2,15 @@
 
 /**
  * TCP-протокол CAS CL-3000 / CL-5000 (семейство CL).
- * Логика по открытому описанию: https://github.com/alexesDev/cas
+ * PLU: https://github.com/alexesDev/cas
+ * Живой вес: CAS Network Manual — R45F04,00\\n → W=… P=…
  */
 
 const net = require('net')
 const iconv = require('iconv-lite')
 
 const PLU_SIZE = 148
+const WEIGHT_CMD = Buffer.from('R45F04,00\n', 'ascii')
 
 function checksum(data) {
   let sum = 0
@@ -51,7 +53,6 @@ function buildPluBuffer(item) {
   buf.writeUInt32LE(plu, 2)
   buf[6] = 1 // PLUType: вес
   nameToCp1251(item.name || `PLU ${plu}`, 40).copy(buf, 7)
-  // Name2 / Name3 zero
   buf.writeUInt16LE(1, 92) // GroupNumber
   buf.writeUInt16LE(1, 94) // LabelNumber
   buf[100] = 1 // UnitWeightNumber (kg)
@@ -63,7 +64,10 @@ function buildPluBuffer(item) {
 
 function tcpConnect(host, port, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host, port }, () => resolve(socket))
+    const socket = net.createConnection({ host, port }, () => {
+      socket.setTimeout(0)
+      resolve(socket)
+    })
     socket.setTimeout(timeoutMs)
     socket.once('error', reject)
     socket.once('timeout', () => {
@@ -73,28 +77,46 @@ function tcpConnect(host, port, timeoutMs = 5000) {
   })
 }
 
-function writeAndRead(socket, packet, timeoutMs = 5000) {
+function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
   return new Promise((resolve, reject) => {
     const chunks = []
+    let settled = false
+    let settleTimer = null
     const timer = setTimeout(() => {
       cleanup()
-      reject(new Error('Нет ответа от весов CAS'))
+      if (!settled) {
+        settled = true
+        reject(new Error('Нет ответа от весов CAS'))
+      }
     }, timeoutMs)
+
+    function finish() {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(Buffer.concat(chunks))
+    }
 
     function onData(d) {
       chunks.push(d)
       const buf = Buffer.concat(chunks)
-      if (buf.length >= 2) {
-        cleanup()
-        resolve(buf)
+      if (buf.length >= minBytes) {
+        clearTimeout(timer)
+        if (settleTimer) clearTimeout(settleTimer)
+        // Короткая пауза, чтобы собрать полный ответ веса.
+        settleTimer = setTimeout(finish, 40)
       }
     }
     function onErr(e) {
+      if (settled) return
+      settled = true
       cleanup()
       reject(e)
     }
     function cleanup() {
       clearTimeout(timer)
+      if (settleTimer) clearTimeout(settleTimer)
+      settleTimer = null
       socket.off('data', onData)
       socket.off('error', onErr)
     }
@@ -129,7 +151,6 @@ async function syncCasPlu(opts) {
   const socket = await tcpConnect(host, port)
   try {
     if (opts.clearAll) {
-      // Erase all: dept=0, plu=0
       const plu = Buffer.alloc(6, 0)
       const packet = encodePacket(scaleId >>> 0, 'WL', plu)
       const resp = await writeAndRead(socket, packet)
@@ -149,4 +170,239 @@ async function syncCasPlu(opts) {
   }
 }
 
-module.exports = { syncCasPlu }
+/** Разбор ответа R45F04 / W45… с полями W= и P=. */
+function parseWeightResponse(buf) {
+  const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
+  const wMatch = text.match(/W\s*=\s*(-?\d+(?:\.\d+)?)/i)
+  const pMatch = text.match(/P\s*=\s*(-?\d+(?:\.\d+)?)/i)
+  if (!wMatch) {
+    return {
+      ok: false,
+      weightKg: 0,
+      grams: 0,
+      price: null,
+      raw: text.slice(0, 200),
+      error: 'Нет поля W= в ответе весов',
+    }
+  }
+
+  let weightKg = Number(wMatch[1])
+  if (!Number.isFinite(weightKg)) weightKg = 0
+
+  // Если значение выглядит как граммы (целое ≥ 100 без десятичной части): 1250 → 1.25 кг
+  const rawW = wMatch[1]
+  if (!rawW.includes('.') && Math.abs(weightKg) >= 100 && Math.abs(weightKg) < 100000) {
+    weightKg = weightKg / 1000
+  }
+
+  weightKg = Math.round(weightKg * 1000) / 1000
+  if (weightKg < 0) weightKg = 0
+  const grams = Math.round(weightKg * 1000)
+  const price = pMatch && Number.isFinite(Number(pMatch[1])) ? Number(pMatch[1]) : null
+
+  return {
+    ok: true,
+    weightKg,
+    grams,
+    price,
+    raw: text.slice(0, 200),
+    stable: true,
+  }
+}
+
+/**
+ * Однократное чтение веса (для теста связи).
+ * @param {{ host: string, port?: number, timeoutMs?: number }} opts
+ */
+async function readLiveWeight(opts) {
+  const host = String(opts.host || '').trim()
+  const port = Number(opts.port) || 20304
+  const timeoutMs = Number(opts.timeoutMs) || 4000
+  if (!host) throw new Error('Укажите IP весов CAS')
+
+  const socket = await tcpConnect(host, port, timeoutMs)
+  try {
+    const resp = await writeAndRead(socket, WEIGHT_CMD, timeoutMs, 4)
+    const parsed = parseWeightResponse(resp)
+    if (!parsed.ok) throw new Error(parsed.error || 'Не удалось разобрать вес')
+    return {
+      ok: true,
+      host,
+      port,
+      weightKg: parsed.weightKg,
+      grams: parsed.grams,
+      price: parsed.price,
+      raw: parsed.raw,
+      connected: true,
+      ts: Date.now(),
+    }
+  } finally {
+    socket.destroy()
+  }
+}
+
+/**
+ * Фоновый монитор веса: опрос ~4 Гц, реконнект при обрыве.
+ */
+class CasWeightMonitor {
+  constructor() {
+    this.host = ''
+    this.port = 20304
+    this.intervalMs = 280
+    this.socket = null
+    this.timer = null
+    this.busy = false
+    this.running = false
+    this.onUpdate = null
+    this.lastError = ''
+    this.connected = false
+    this.stableCount = 0
+    this.lastRawKg = null
+  }
+
+  setListener(fn) {
+    this.onUpdate = typeof fn === 'function' ? fn : null
+  }
+
+  emit(partial) {
+    if (!this.onUpdate) return
+    this.onUpdate({
+      connected: this.connected,
+      host: this.host,
+      port: this.port,
+      running: this.running,
+      weightKg: 0,
+      grams: 0,
+      price: null,
+      stable: false,
+      error: '',
+      ts: Date.now(),
+      ...partial,
+    })
+  }
+
+  async start(opts = {}) {
+    const host = String(opts.host || '').trim()
+    const port = Number(opts.port) || 20304
+    if (!host) throw new Error('Укажите IP весов CAS')
+
+    this.host = host
+    this.port = port
+    this.intervalMs = Math.max(200, Math.min(1000, Number(opts.intervalMs) || 280))
+    this.running = true
+    this.lastError = ''
+    this.stableCount = 0
+    this.lastRawKg = null
+
+    await this.ensureSocket()
+    this.schedule()
+    this.emit({ connected: this.connected, weightKg: 0, grams: 0, error: '' })
+    return { ok: true, host: this.host, port: this.port, running: true }
+  }
+
+  stop() {
+    this.running = false
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+    this.destroySocket()
+    this.emit({ connected: false, running: false, weightKg: 0, grams: 0 })
+    return { ok: true, running: false }
+  }
+
+  destroySocket() {
+    if (this.socket) {
+      try { this.socket.destroy() } catch { /* ignore */ }
+      this.socket = null
+    }
+    this.connected = false
+  }
+
+  async ensureSocket() {
+    if (this.socket && !this.socket.destroyed) return this.socket
+    this.destroySocket()
+    const socket = await tcpConnect(this.host, this.port, 4000)
+    socket.on('error', () => {
+      this.connected = false
+      this.destroySocket()
+    })
+    socket.on('close', () => {
+      this.connected = false
+      this.socket = null
+    })
+    this.socket = socket
+    this.connected = true
+    this.lastError = ''
+    return socket
+  }
+
+  schedule() {
+    if (!this.running) return
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      void this.tick()
+    }, this.intervalMs)
+  }
+
+  async tick() {
+    if (!this.running || this.busy) {
+      this.schedule()
+      return
+    }
+    this.busy = true
+    try {
+      const socket = await this.ensureSocket()
+      const resp = await writeAndRead(socket, WEIGHT_CMD, 2500, 4)
+      const parsed = parseWeightResponse(resp)
+      if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
+
+      const kg = parsed.weightKg
+      let stable = false
+      if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.002) {
+        this.stableCount += 1
+      } else {
+        this.stableCount = 0
+      }
+      this.lastRawKg = kg
+      // 2 одинаковых опроса ≈ стабильно
+      stable = this.stableCount >= 1 || kg === 0
+
+      this.connected = true
+      this.lastError = ''
+      this.emit({
+        connected: true,
+        weightKg: kg,
+        grams: parsed.grams,
+        price: parsed.price,
+        stable,
+        error: '',
+        raw: parsed.raw,
+      })
+    } catch (e) {
+      this.lastError = e instanceof Error ? e.message : String(e)
+      this.connected = false
+      this.destroySocket()
+      this.emit({
+        connected: false,
+        weightKg: 0,
+        grams: 0,
+        stable: false,
+        error: this.lastError,
+      })
+    } finally {
+      this.busy = false
+      this.schedule()
+    }
+  }
+}
+
+const weightMonitor = new CasWeightMonitor()
+
+module.exports = {
+  syncCasPlu,
+  readLiveWeight,
+  parseWeightResponse,
+  weightMonitor,
+  CasWeightMonitor,
+}
