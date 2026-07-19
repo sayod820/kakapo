@@ -316,22 +316,24 @@ export function updateProductStockLayer(db, receiptId, productId, patch = {}) {
   return listProductStockLayers(db, productId)
 }
 
-function consumeReceiptBalances(db, productId, qty, preferReceiptId = '') {
+function consumeReceiptBalances(db, productId, qty, preferReceiptId = '', preferRetailPrice = null) {
   let left = round2(qty)
   let cogs = 0
+  const retailKey = preferRetailPrice != null && Number.isFinite(Number(preferRetailPrice))
+    ? round2(preferRetailPrice)
+    : null
+
   const receipts = (db.stockReceipts || [])
-    .filter(r => Array.isArray(r.items) && r.items.some(i => Number(i.productId) === Number(productId) && Number(i.remainingQty) > 0))
+    .filter(r => Array.isArray(r.items) && r.items.some(i => {
+      if (Number(i.productId) !== Number(productId)) return false
+      if (!(Number(i.remainingQty) > 0)) return false
+      if (retailKey == null) return true
+      return round2(i.retailPrice) === retailKey
+    }))
     .sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
 
-  const ordered = preferReceiptId
-    ? [
-        ...receipts.filter(r => r.id === preferReceiptId),
-        ...receipts.filter(r => r.id !== preferReceiptId),
-      ]
-    : receipts
-
-  if (preferReceiptId) {
-    const target = receipts.find(r => r.id === preferReceiptId)
+  if (preferReceiptId && retailKey == null) {
+    const target = (db.stockReceipts || []).find(r => r.id === preferReceiptId)
     if (!target) throw new Error('Выбранная партия не найдена')
     const item = (target.items || []).find(i => Number(i.productId) === Number(productId))
     const rem = round2(item?.remainingQty)
@@ -340,11 +342,29 @@ function consumeReceiptBalances(db, productId, qty, preferReceiptId = '') {
     }
   }
 
+  if (retailKey != null) {
+    const pool = round2(receipts.reduce((s, r) => {
+      const item = (r.items || []).find(i => Number(i.productId) === Number(productId))
+      return s + (Number(item?.remainingQty) || 0)
+    }, 0))
+    if (!(pool >= left)) {
+      throw new Error(`По цене ${retailKey.toFixed(2)} осталось ${pool} — нужно ${left}`)
+    }
+  }
+
+  const ordered = preferReceiptId && retailKey == null
+    ? [
+        ...receipts.filter(r => r.id === preferReceiptId),
+        ...receipts.filter(r => r.id !== preferReceiptId),
+      ]
+    : receipts
+
   for (const receipt of ordered) {
     for (const item of receipt.items || []) {
       if (Number(item.productId) !== Number(productId)) continue
       if (left <= 0) break
-      if (preferReceiptId && receipt.id !== preferReceiptId) continue
+      if (preferReceiptId && retailKey == null && receipt.id !== preferReceiptId) continue
+      if (retailKey != null && round2(item.retailPrice) !== retailKey) continue
       const take = Math.min(Number(item.remainingQty) || 0, left)
       if (!(take > 0)) continue
       const unitCost = Number(item.costPrice) || 0
@@ -353,8 +373,10 @@ function consumeReceiptBalances(db, productId, qty, preferReceiptId = '') {
       left = round2(left - take)
     }
   }
-  if (preferReceiptId && left > 0.0001) {
-    throw new Error('Недостаточно остатка в выбранной партии')
+  if ((preferReceiptId || retailKey != null) && left > 0.0001) {
+    throw new Error(retailKey != null
+      ? 'Недостаточно остатка по выбранной цене'
+      : 'Недостаточно остатка в выбранной партии')
   }
   syncProductPricingFromActiveLayer(db, productId)
   return cogs
@@ -384,11 +406,14 @@ function consumeStock(db, items) {
     if (!(qty > 0)) throw new Error(`Некорректное количество для ${product.name}`)
     if (round2(product.stock) < qty) throw new Error(`Недостаточно остатка: ${product.name}`)
     const receiptId = String(raw.receiptId || '').trim()
-    return { product, qty, cogs: 0, receiptId }
+    const preferRetailPrice = raw.preferRetailPrice != null && Number.isFinite(Number(raw.preferRetailPrice))
+      ? round2(raw.preferRetailPrice)
+      : null
+    return { product, qty, cogs: 0, receiptId, preferRetailPrice }
   })
   for (const row of normalized) {
     row.product.stock = round2((Number(row.product.stock) || 0) - row.qty)
-    row.cogs = consumeReceiptBalances(db, row.product.id, row.qty, row.receiptId)
+    row.cogs = consumeReceiptBalances(db, row.product.id, row.qty, row.receiptId, row.preferRetailPrice)
   }
   return normalized
 }

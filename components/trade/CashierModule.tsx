@@ -96,10 +96,55 @@ type CartLine = {
   barcode?: string
   weightKg?: number
   discPct?: number
-  /** Партия прихода (если кассир выбрал вручную) */
+  /** Партия прихода (если кассир выбрал вручную одну партию) */
   receiptId?: string
+  /** Цена группы партий: списание FIFO только среди приходов с этой розничной ценой */
+  preferRetailPrice?: number
   costPrice?: number
   supplierName?: string
+}
+
+type PriceLayerGroup = {
+  key: string
+  retailPrice: number
+  costPrice: number
+  remainingQty: number
+  layers: ProductStockLayer[]
+  isFifo: boolean
+  oldest: ProductStockLayer
+}
+
+/** Партии с одной ценой продажи → один пункт; списание потом FIFO по дате внутри группы */
+function groupStockLayersByRetail(layers: ProductStockLayer[], productPrice = 0): PriceLayerGroup[] {
+  const map = new Map<string, ProductStockLayer[]>()
+  for (const layer of layers) {
+    const retail = Math.round((Number(layer.retailPrice) || productPrice || 0) * 100) / 100
+    const k = retail.toFixed(2)
+    const arr = map.get(k) || []
+    arr.push(layer)
+    map.set(k, arr)
+  }
+  const groups: PriceLayerGroup[] = []
+  for (const [k, arr] of map) {
+    const sorted = [...arr].sort((a, b) =>
+      String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')),
+    )
+    const oldest = sorted[0]
+    groups.push({
+      key: k,
+      retailPrice: Number(k),
+      costPrice: Number(oldest.costPrice) || 0,
+      remainingQty: Math.round(arr.reduce((s, l) => s + (Number(l.remainingQty) || 0), 0) * 1000) / 1000,
+      layers: sorted,
+      isFifo: arr.some(l => l.isActive),
+      oldest,
+    })
+  }
+  groups.sort((a, b) => {
+    if (a.isFifo !== b.isFifo) return a.isFifo ? -1 : 1
+    return a.retailPrice - b.retailPrice
+  })
+  return groups
 }
 
 type PosTicket = {
@@ -515,7 +560,7 @@ export default function CashierModule({
   const [tillSupplierId, setTillSupplierId] = useState('')
   const [layerPickOpen, setLayerPickOpen] = useState(false)
   const [layerPickProduct, setLayerPickProduct] = useState<Product | null>(null)
-  const [layerPickLayers, setLayerPickLayers] = useState<ProductStockLayer[]>([])
+  const [layerPickGroups, setLayerPickGroups] = useState<PriceLayerGroup[]>([])
   const [layerPickWeightKg, setLayerPickWeightKg] = useState<number | undefined>(undefined)
   const [layerPickBusy, setLayerPickBusy] = useState(false)
   const accountMenuRef = useRef<HTMLDivElement>(null)
@@ -2324,16 +2369,22 @@ export default function CashierModule({
     try {
       const layers = await api.getProductStockLayers(p.id)
       const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
-      // Несколько партий — кассир сам выбирает, с какой цены продавать
-      if (open.length > 1) {
+      const groups = groupStockLayersByRetail(open, Number(p.price) || 0)
+      // Несколько разных цен — кассир выбирает цену; внутри цены списание FIFO
+      if (groups.length > 1) {
         setLayerPickProduct(p)
-        setLayerPickLayers(open)
+        setLayerPickGroups(groups)
         setLayerPickWeightKg(weightKg)
         setLayerPickOpen(true)
         return
       }
-      if (open.length === 1) {
-        pushProductToCart(p, weightKg, open[0])
+      if (groups.length === 1) {
+        pushProductToCart(p, weightKg, undefined, {
+          preferRetailPrice: groups[0].retailPrice,
+          stock: groups[0].remainingQty,
+          costPrice: groups[0].costPrice,
+          supplierName: groups[0].oldest.supplierName,
+        })
         return
       }
       pushProductToCart(p, weightKg)
@@ -2344,8 +2395,9 @@ export default function CashierModule({
     }
   }
 
-  function cartLineKey(productId: number, receiptId?: string, weightKg?: number) {
+  function cartLineKey(productId: number, receiptId?: string, weightKg?: number, preferRetailPrice?: number) {
     if (weightKg != null) return `${productId}-w-${Date.now()}`
+    if (preferRetailPrice != null) return `${productId}::p${preferRetailPrice.toFixed(2)}`
     return receiptId ? `${productId}::${receiptId}` : String(productId)
   }
 
@@ -2423,23 +2475,45 @@ export default function CashierModule({
     // TCP-соединение оставляем активным: следующему товару вес доступен сразу.
   }
 
-  function pushProductToCart(p: Product, weightKg?: number, layer?: ProductStockLayer) {
+  function pushProductToCart(
+    p: Product,
+    weightKg?: number,
+    layer?: ProductStockLayer,
+    opts?: {
+      preferRetailPrice?: number
+      stock?: number
+      costPrice?: number
+      supplierName?: string
+    },
+  ) {
     const stockTotal = Number(p.stock) || 0
     if (stockTotal <= 0) return
-    const layerStock = layer ? Number(layer.remainingQty) || 0 : stockTotal
+    const preferRetailPrice = opts?.preferRetailPrice
+    const layerStock = opts?.stock != null
+      ? Number(opts.stock) || 0
+      : (layer ? Number(layer.remainingQty) || 0 : stockTotal)
     if (layer && !(layerStock > 0)) {
       showToast('Партия пуста', 'Выберите другую партию')
       return
     }
-    const price = layer
-      ? (Number(layer.retailPrice) > 0 ? Number(layer.retailPrice) : Number(p.price) || 0)
-      : Number(p.price) || 0
-    const receiptId = layer?.receiptId
-    const costPrice = layer ? Number(layer.costPrice) || 0 : undefined
-    const supplierName = layer?.supplierName || undefined
+    if (preferRetailPrice != null && !(layerStock > 0)) {
+      showToast('Нет остатка', 'По этой цене товар закончился')
+      return
+    }
+    const price = preferRetailPrice != null
+      ? preferRetailPrice
+      : (layer
+        ? (Number(layer.retailPrice) > 0 ? Number(layer.retailPrice) : Number(p.price) || 0)
+        : Number(p.price) || 0)
+    // При выборе цены — не фиксируем одну партию, списание FIFO внутри цены
+    const receiptId = preferRetailPrice != null ? undefined : layer?.receiptId
+    const costPrice = opts?.costPrice != null
+      ? opts.costPrice
+      : (layer ? Number(layer.costPrice) || 0 : undefined)
+    const supplierName = opts?.supplierName || layer?.supplierName || undefined
 
     if (isWeighted(p) && weightKg == null) {
-      const key = cartLineKey(p.id, receiptId, 0)
+      const key = cartLineKey(p.id, receiptId, 0, preferRetailPrice)
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
       setCart(prev => [...prev, {
@@ -2455,6 +2529,7 @@ export default function CashierModule({
         barcode,
         weightKg: 0,
         receiptId,
+        preferRetailPrice,
         costPrice,
         supplierName,
       }])
@@ -2468,6 +2543,7 @@ export default function CashierModule({
       startWeightModalMonitor()
       setLayerPickOpen(false)
       setLayerPickProduct(null)
+      setLayerPickGroups([])
       return
     }
 
@@ -2476,7 +2552,7 @@ export default function CashierModule({
       const barcode = productBarcodes(p)[0] || ''
       if (weightKg != null) {
         return [...prev, {
-          key: cartLineKey(p.id, receiptId, weightKg),
+          key: cartLineKey(p.id, receiptId, weightKg, preferRetailPrice),
           productId: p.id,
           name: p.name,
           emoji: p.e || '📦',
@@ -2488,6 +2564,7 @@ export default function CashierModule({
           barcode,
           weightKg,
           receiptId,
+          preferRetailPrice,
           costPrice,
           supplierName,
         }]
@@ -2495,7 +2572,8 @@ export default function CashierModule({
       const idx = prev.findIndex(l =>
         l.productId === p.id
         && l.weightKg == null
-        && (l.receiptId || '') === (receiptId || ''),
+        && (l.receiptId || '') === (receiptId || '')
+        && (l.preferRetailPrice ?? null) === (preferRetailPrice ?? null),
       )
       if (idx >= 0) {
         const next = [...prev]
@@ -2504,7 +2582,7 @@ export default function CashierModule({
         return next
       }
       return [...prev, {
-        key: cartLineKey(p.id, receiptId),
+        key: cartLineKey(p.id, receiptId, undefined, preferRetailPrice),
         productId: p.id,
         name: p.name,
         emoji: p.e || '📦',
@@ -2515,18 +2593,25 @@ export default function CashierModule({
         art,
         barcode,
         receiptId,
+        preferRetailPrice,
         costPrice,
         supplierName,
       }]
     })
     setLayerPickOpen(false)
     setLayerPickProduct(null)
+    setLayerPickGroups([])
     window.setTimeout(focusProductSearch, 0)
   }
 
-  function pickStockLayer(layer: ProductStockLayer) {
+  function pickPriceGroup(group: PriceLayerGroup) {
     if (!layerPickProduct) return
-    pushProductToCart(layerPickProduct, layerPickWeightKg, layer)
+    pushProductToCart(layerPickProduct, layerPickWeightKg, undefined, {
+      preferRetailPrice: group.retailPrice,
+      stock: group.remainingQty,
+      costPrice: group.costPrice,
+      supplierName: group.oldest.supplierName,
+    })
   }
 
   function setQty(key: string, qty: number) {
@@ -2996,6 +3081,7 @@ export default function CashierModule({
           qty: l.weightKg != null ? Math.round(l.weightKg * 1000) / 1000 : l.qty,
           price: l.price,
           receiptId: l.receiptId || undefined,
+          preferRetailPrice: l.preferRetailPrice != null ? l.preferRetailPrice : undefined,
         })),
       })
       if (client?.phone) {
@@ -4672,7 +4758,13 @@ export default function CashierModule({
                           ? `${line.weightKg.toFixed(3)} кг · ${line.price.toFixed(2)} ЅМ/${line.unit}`
                           : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
                       </span>
-                      {line.receiptId ? (
+                      {line.preferRetailPrice != null ? (
+                        <span className="line-batch">
+                          цена {line.preferRetailPrice.toFixed(2)}
+                          {line.costPrice != null ? ` · зак. ${line.costPrice.toFixed(2)}` : ''}
+                          {' · FIFO'}
+                        </span>
+                      ) : line.receiptId ? (
                         <span className="line-batch">
                           партия {line.costPrice != null ? `зак. ${line.costPrice.toFixed(2)}` : ''}
                           {line.supplierName ? ` · ${line.supplierName}` : ''}
@@ -5691,41 +5783,43 @@ export default function CashierModule({
       {layerPickOpen && layerPickProduct && (
         <div className="overlay" onClick={() => !layerPickBusy && setLayerPickOpen(false)}>
           <div className="modal-card layer-pick-card" onClick={e => e.stopPropagation()}>
-            <h3>Выберите партию</h3>
+            <h3>Выберите цену</h3>
             <div className="layer-pick-hint">
               <b>{layerPickProduct.name}</b>
-              <span>Несколько приходов с разными ценами — укажите, с какой партии продавать</span>
+              <span>Одинаковые цены объединены. Списание — с самого старого прихода (FIFO)</span>
             </div>
             <div className="layer-pick-list">
-              {layerPickLayers.map(layer => {
-                const retail = Number(layer.retailPrice) || Number(layerPickProduct.price) || 0
-                const cost = Number(layer.costPrice) || 0
-                const rem = Number(layer.remainingQty) || 0
-                const when = layer.createdAtIso
-                  ? new Date(layer.createdAtIso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })
+              {layerPickGroups.map(group => {
+                const when = group.oldest.createdAtIso
+                  ? new Date(group.oldest.createdAtIso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })
                   : '—'
+                const batches = group.layers.length
                 return (
                   <button
-                    key={layer.receiptId}
+                    key={group.key}
                     type="button"
-                    className={`layer-pick-item ${layer.isActive ? 'active' : ''}`}
-                    disabled={layerPickBusy || rem <= 0}
-                    onClick={() => pickStockLayer(layer)}
+                    className={`layer-pick-item ${group.isFifo ? 'active' : ''}`}
+                    disabled={layerPickBusy || group.remainingQty <= 0}
+                    onClick={() => pickPriceGroup(group)}
                   >
                     <div className="lpi-top">
-                      <span className="lpi-price">{retail.toFixed(2)} ЅМ</span>
-                      {layer.isActive ? <span className="lpi-badge">FIFO</span> : null}
+                      <span className="lpi-price">{group.retailPrice.toFixed(2)} ЅМ</span>
+                      {group.isFifo ? <span className="lpi-badge">FIFO</span> : null}
                     </div>
                     <div className="lpi-row">
                       <span>Закуп</span>
-                      <b>{cost.toFixed(2)} ЅМ</b>
+                      <b>{group.costPrice.toFixed(2)} ЅМ</b>
                     </div>
                     <div className="lpi-row">
-                      <span>Остаток партии</span>
-                      <b>{rem} {displaySellUnit(layerPickProduct)}</b>
+                      <span>Остаток</span>
+                      <b>{group.remainingQty} {displaySellUnit(layerPickProduct)}</b>
                     </div>
                     <div className="lpi-row muted">
-                      <span>{when}{layer.supplierName ? ` · ${layer.supplierName}` : ''}</span>
+                      <span>
+                        с {when}
+                        {batches > 1 ? ` · ${batches} прихода` : ''}
+                        {group.oldest.supplierName ? ` · ${group.oldest.supplierName}` : ''}
+                      </span>
                     </div>
                   </button>
                 )
