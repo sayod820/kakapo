@@ -27,9 +27,9 @@ type ProductStockAgg = {
 }
 
 function stockBadge(stock: number) {
-  if (stock <= 0) return { c: 'var(--red)', bg: '#2a1420', l: 'Нет' }
-  if (stock <= 5) return { c: 'var(--gold)', bg: '#2a2414', l: 'Мало' }
-  return { c: 'var(--green)', bg: 'var(--green-d)', l: 'Есть' }
+  if (stock <= 0) return { c: 'var(--red)', bg: 'var(--badge-stock-no)', l: 'Нет' }
+  if (stock <= 5) return { c: 'var(--gold)', bg: 'var(--badge-stock-low)', l: 'Мало' }
+  return { c: 'var(--green)', bg: 'var(--badge-stock-ok)', l: 'Есть' }
 }
 
 function round2(n: number) {

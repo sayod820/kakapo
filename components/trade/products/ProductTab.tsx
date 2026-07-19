@@ -349,7 +349,7 @@ export default function ProductTab({
                       <td className="num">{money(p.costPrice)}</td>
                       <td style={{ color: 'var(--muted)' }}>{p.unit}{isWeighted(p) ? ' ⚖️' : ''}</td>
                       <td className="num" style={{ fontWeight: 800, color: sc.c }}>{p.stock}</td>
-                      <td><span className="k-badge" style={{ background: sc.c + '22', color: sc.c }}>{sc.l}</span></td>
+                      <td><span className="k-badge" style={{ background: sc.bg, color: sc.c }}>{sc.l}</span></td>
                       <td onClick={e => e.stopPropagation()}>
                         <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12, color: 'var(--red)' }} onClick={() => onDeleteProduct(p.id, p.name)}>✕</button>
                       </td>

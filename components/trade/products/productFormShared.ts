@@ -75,9 +75,9 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
 }
 
 export function stockStatus(stock: number) {
-  if (stock <= 0) return { c: 'var(--red)', l: 'Нет' }
-  if (stock <= 5) return { c: 'var(--gold)', l: 'Мало' }
-  return { c: 'var(--green)', l: 'Есть' }
+  if (stock <= 0) return { c: 'var(--red)', bg: 'var(--badge-stock-no)', l: 'Нет' }
+  if (stock <= 5) return { c: 'var(--gold)', bg: 'var(--badge-stock-low)', l: 'Мало' }
+  return { c: 'var(--green)', bg: 'var(--badge-stock-ok)', l: 'Есть' }
 }
 
 export function buildProductPayload(

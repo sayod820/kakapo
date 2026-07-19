@@ -41,6 +41,7 @@ const CSS = `
     --green:#1FD760; --green-d:#12351E; --blue:#3B8EF0; --purple:#9B6DFF; --red:#FF5A5A; --gold:#FFB800;
     --hover:#0e1712; --tbl-line:#16241b; --nav-hover:#111d15; --scroll:#1e2f24;
     --photo-plate:#0c1610; --badge-cat-bg:#1a2430; --badge-cat-fg:#3B8EF0;
+    --badge-stock-ok:#12351E; --badge-stock-low:#2a2414; --badge-stock-no:#2a1420;
     display:flex;min-height:100vh;background:var(--bg);color:var(--text);
     font-family:'Nunito',system-ui,-apple-system,sans-serif;font-size:14px;
   }
@@ -50,6 +51,7 @@ const CSS = `
     --green:#129B45; --green-d:#D6F0DF; --blue:#2563EB; --purple:#7C3AED; --red:#DC2626; --gold:#D97706;
     --hover:#EAF1EC; --tbl-line:#D0DDD4; --nav-hover:#EAF1EC; --scroll:#BCCBBF;
     --photo-plate:#E8F0EA; --badge-cat-bg:#E8EEF8; --badge-cat-fg:#2563EB;
+    --badge-stock-ok:#D6F0DF; --badge-stock-low:#FEF3C7; --badge-stock-no:#FEE2E2;
   }
   .k-trade button{font-family:inherit}
   .k-trade ::-webkit-scrollbar{width:8px;height:8px}
