@@ -71,7 +71,7 @@ export default function WarehouseNewProductModal({
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
             Товар создаётся как в разделе «Товары». Цену продажи укажите в строке прихода.
           </div>
-          <ProductFormFields form={form} setForm={setForm} categories={categories} />
+                  <ProductFormFields form={form} setForm={setForm} categories={categories} productId={null} />
           {msg && (
             <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
               {msg}

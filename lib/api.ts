@@ -138,10 +138,12 @@ async function requestApp<T>(path: string, options: RequestInit = {}, attempt = 
 }
 
 async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string> || {}),
   }
+  if (isFormData) delete headers['Content-Type']
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
@@ -325,6 +327,19 @@ export const api = {
   createProduct: (data: any) => request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: number, data: any) => request<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProduct: (id: number) => request(`/products/${id}`, { method: 'DELETE' }),
+  /** Одно фото: сервер обрезает, WebP 1200×1200 + thumb. Старое удаляется после успеха. */
+  uploadProductPhoto: (file: Blob, opts?: { productId?: number; replaceUrl?: string; fileName?: string }) => {
+    const fd = new FormData()
+    fd.append('photo', file, opts?.fileName || 'photo.png')
+    if (opts?.productId != null && opts.productId > 0) fd.append('productId', String(opts.productId))
+    if (opts?.replaceUrl) fd.append('replaceUrl', opts.replaceUrl)
+    return request<{ url: string; thumbUrl: string; width: number; height: number; bytes: number }>(
+      '/products/photo',
+      { method: 'POST', body: fd },
+      0,
+      120_000,
+    )
+  },
 
   // ── Категории ──
   getCategories: (parent_id?: number) =>

@@ -25,6 +25,7 @@ export type ProductForm = {
   brand: string
   desc: string
   photo: string
+  photoThumb: string
   sellType: SellType
   weightStep: string
   unitGrams: string
@@ -35,7 +36,7 @@ export type ProductForm = {
 export function emptyForm(): ProductForm {
   return {
     name: '', art: '', e: '📦', catId: 'veg',
-    unit: 'шт', barcodes: [], plu: '', brand: '', desc: '', photo: '', sellType: 'piece',
+    unit: 'шт', barcodes: [], plu: '', brand: '', desc: '', photo: '', photoThumb: '', sellType: 'piece',
     weightStep: '1', unitGrams: '1000', hot: false, organic: false,
   }
 }
@@ -52,6 +53,7 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     brand: p.brand || '',
     desc: p.desc || '',
     photo: p.photo || photo || '',
+    photoThumb: p.photoThumb || '',
     sellType: p.sellType || 'piece',
     weightStep: String(p.weightStep || 1),
     unitGrams: String(p.unitGrams || 1000),
@@ -93,6 +95,7 @@ export function buildProductPayload(
     brand: data.brand || undefined,
     desc: data.desc || undefined,
     photo: data.photo || undefined,
+    photoThumb: data.photoThumb || undefined,
     sellType: data.sellType,
     hot: data.hot,
     organic: data.organic,

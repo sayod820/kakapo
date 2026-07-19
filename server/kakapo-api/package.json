@@ -10,6 +10,12 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "multer": "^2.2.0",
+    "sharp": "^0.33.5",
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "@img/sharp-linux-x64": "0.33.5",
+    "@img/sharp-win32-x64": "0.33.5"
   }
 }

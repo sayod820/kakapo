@@ -3,6 +3,13 @@ import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
 import { loadDb, scheduleSaveDb, flushDb, getDbStats } from './db.js'
+import {
+  ensureUploadDirs,
+  processAndSaveProductPhoto,
+  deleteManagedProductPhoto,
+  UPLOAD_ROOT,
+} from './productPhotoPipeline.js'
+import multer from 'multer'
 import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
 import { ensureMarketCategories } from './marketCategoriesSeed.js'
 import {
@@ -246,6 +253,62 @@ app.use(cors({
     : CORS_ORIGINS,
 }))
 app.use(express.json({ limit: '2mb' }))
+
+ensureUploadDirs()
+app.use('/uploads', express.static(UPLOAD_ROOT, {
+  maxAge: '30d',
+  fallthrough: true,
+  setHeaders(res) {
+    res.setHeader('Cache-Control', 'public, max-age=2592000, immutable')
+  },
+}))
+
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024, files: 1 },
+  fileFilter(_req, file, cb) {
+    const ok = /^image\/(jpeg|jpg|png|webp|heic|heif|gif|bmp|tiff)$/i.test(file.mimetype)
+      || /\.(jpe?g|png|webp|heic|heif|gif|bmp|tiff?)$/i.test(file.originalname || '')
+    cb(ok ? null : new Error('Нужен файл изображения (JPG, PNG, WebP…)'), ok)
+  },
+})
+
+/** Одно фото товара: обработка → WebP → удаление старого */
+app.post('/products/photo', (req, res) => {
+  photoUpload.single('photo')(req, res, async err => {
+    if (err) {
+      const msg = err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
+        ? 'Файл слишком большой (макс. 12 МБ)'
+        : (err.message || 'Ошибка загрузки')
+      return res.status(400).json({ detail: msg })
+    }
+    try {
+      if (!req.file?.buffer?.length) {
+        return res.status(400).json({ detail: 'Выберите фото' })
+      }
+      const productId = req.body?.productId ? Number(req.body.productId) : undefined
+      const replaceUrl = req.body?.replaceUrl ? String(req.body.replaceUrl) : ''
+      const result = await processAndSaveProductPhoto(req.file.buffer, {
+        productId: Number.isFinite(productId) ? productId : undefined,
+        replaceUrl: replaceUrl || undefined,
+      })
+      if (productId && Number.isFinite(productId) && productId > 0) {
+        const p = db.products.find(x => x.id === productId)
+        if (p) {
+          const prev = p.photo
+          p.photo = result.url
+          p.photoThumb = result.thumbUrl
+          persist()
+          broadcastProduct(p)
+          if (prev && prev !== result.url) deleteManagedProductPhoto(prev)
+        }
+      }
+      res.json(result)
+    } catch (e) {
+      res.status(400).json({ detail: e?.message || 'Не удалось обработать фото' })
+    }
+  })
+})
 
 const clients = new Set()
 
@@ -548,6 +611,8 @@ app.post('/products', (req, res) => {
     organic: !!req.body.organic, sellType: req.body.sellType || 'piece',
     unitGrams: req.body.unitGrams, weightStep: req.body.weightStep, minWeight: req.body.minWeight,
     old: req.body.old ?? null,
+    photo: req.body.photo ? String(req.body.photo) : undefined,
+    photoThumb: req.body.photoThumb ? String(req.body.photoThumb) : undefined,
     bulkPricing: Array.isArray(req.body.bulkPricing) ? req.body.bulkPricing : undefined,
   }
   db.products.push(p)
@@ -600,6 +665,8 @@ app.patch('/stock/layers/:receiptId/:productId', (req, res) => {
 })
 app.delete('/products/:id', (req, res) => {
   const id = Number(req.params.id)
+  const existing = db.products.find(x => x.id === id)
+  if (existing?.photo) deleteManagedProductPhoto(existing.photo)
   db.products = db.products.filter(x => x.id !== id)
   persist()
   broadcastProduct({ id, deleted: true })

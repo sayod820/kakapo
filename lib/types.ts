@@ -109,6 +109,8 @@ export interface Product {
   organic?: boolean
   discount?: number
   photo?: string
+  /** Миниатюра WebP (списки / касса) */
+  photoThumb?: string
   desc?: string
   brand?: string
   country?: string

@@ -206,7 +206,7 @@ export default function ProductTab({
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
                     Общий товар KAKAPO — изменения видны в магазине, админке и кассе.
                   </div>
-                  <ProductFormFields form={form} setForm={setForm} categories={categories} />
+                  <ProductFormFields form={form} setForm={setForm} categories={categories} productId={isNew ? null : selectedId} />
                 </>
               ) : (
                 <div className="k-empty">Выберите товар слева или нажмите «+ Новый»</div>

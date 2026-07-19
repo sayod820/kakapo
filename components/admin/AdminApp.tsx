@@ -1566,7 +1566,7 @@ function ProductsPage() {
               <button onClick={()=>setEditP(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <PhotoUploadField value={ePhoto} onChange={setEPhoto} height={120} />
+              <PhotoUploadField value={ePhoto} onChange={setEPhoto} productId={editP?.id} height={160} />
               <div>
                 <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div>
                 <textarea className="ai" value={editForm.desc} onChange={e=>setEditForm(f=>({...f,desc:e.target.value}))} rows={3} placeholder="Подробное описание для клиента..." style={{resize:'vertical',minHeight:72}}/>

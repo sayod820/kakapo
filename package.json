@@ -15,6 +15,7 @@
     "desktop:dist": "npm run dist --prefix desktop"
   },
   "dependencies": {
+    "@imgly/background-removal": "^1.7.0",
     "clsx": "^2.1.1",
     "jsbarcode": "^3.12.3",
     "leaflet": "^1.9.4",

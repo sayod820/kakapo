@@ -63,7 +63,7 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
           animation: animDelay ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both` : undefined }}>
         <div style={{ width:62, height:62, borderRadius:16, background:(p as any).gradient ?? '#0C1C0F', display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, flexShrink:0, position:'relative', overflow:'hidden' }}>
           {(p as any).photo
-            ? <img src={(p as any).photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'cover', borderRadius:16, display:'block' }}/>
+            ? <img src={(p as any).photoThumb || (p as any).photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'contain', borderRadius:16, display:'block', background:'#0a160c' }}/>
             : ((p as any).emoji ?? p.e)
           }
           {disc>0 && <div style={{ position:'absolute', top:-4, left:-4, borderRadius:8, background:'var(--red)', padding:'1px 5px', fontSize:9, fontWeight:800, color:'white', zIndex:2 }}>-{disc}%</div>}
@@ -106,7 +106,7 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
       {/* Image */}
       <div style={{ height:110, background:(p as any).gradient ?? '#0C1C0F', display:'flex', alignItems:'center', justifyContent:'center', fontSize:48, animation:(p as any).isHot?'float 3s ease-in-out infinite':undefined, overflow:'hidden', position:'relative' }}>
         {(p as any).photo
-          ? <img src={(p as any).photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }}/>
+          ? <img src={(p as any).photoThumb || (p as any).photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'contain', display:'block', background:'#0a160c' }}/>
           : ((p as any).emoji ?? p.e)
         }
       </div>

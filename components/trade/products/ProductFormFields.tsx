@@ -5,15 +5,18 @@ import { categorySlug } from '@/lib/useCategories'
 import type { Category } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'
+import PhotoUploadField from '@/components/shared/PhotoUploadField'
 
 export default function ProductFormFields({
   form,
   setForm,
   categories,
+  productId,
 }: {
   form: ProductForm
   setForm: (f: ProductForm) => void
   categories: Category[]
+  productId?: number | null
 }) {
   const roots = categories.filter(c => c.parent_id == null)
   const children = (parentId: number) => categories.filter(c => Number(c.parent_id) === parentId)
@@ -168,8 +171,13 @@ export default function ProductFormFields({
         </div>
       )}
       <div className="k-field" style={{ gridColumn: '1 / -1' }}>
-        <label>Фото (URL)</label>
-        <input className="k-inp" value={form.photo} onChange={e => setForm({ ...form, photo: e.target.value })} placeholder="https://…" />
+        <PhotoUploadField
+          value={form.photo}
+          productId={productId}
+          onChange={photo => setForm({ ...form, photo })}
+          onThumbChange={photoThumb => setForm({ ...form, photoThumb })}
+          height={200}
+        />
       </div>
       <div className="k-field" style={{ gridColumn: '1 / -1' }}>
         <label>Описание</label>
