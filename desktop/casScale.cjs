@@ -103,7 +103,6 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
       if (buf.length >= minBytes) {
         clearTimeout(timer)
         if (settleTimer) clearTimeout(settleTimer)
-        // Короткая пауза, чтобы собрать полный ответ веса.
         settleTimer = setTimeout(finish, 40)
       }
     }
@@ -124,6 +123,69 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
     socket.on('data', onData)
     socket.on('error', onErr)
     socket.write(packet)
+  })
+}
+
+/** Ответ веса готов: есть W=число и терминатор поля (точка / P= / перевод строки). */
+function isWeightFrameComplete(buf) {
+  const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
+  // Важно: не считать кадр готовым по «концу буфера» — иначе W=0.25 из W=0.255 обрежется.
+  return /W\s*=\s*-?\d+(?:\.\d+)?\s*(?:\.|\r|\n|,|;|P\s*=)/i.test(text)
+}
+
+function writeAndReadWeight(socket, timeoutMs = 900) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let settled = false
+    let settleTimer = null
+    const timer = setTimeout(() => {
+      if (settled) return
+      const buf = Buffer.concat(chunks)
+      if (buf.length > 0 && /W\s*=/i.test(buf.toString('latin1'))) {
+        settled = true
+        cleanup()
+        resolve(buf)
+        return
+      }
+      cleanup()
+      settled = true
+      reject(new Error('Нет ответа от весов CAS'))
+    }, timeoutMs)
+
+    function finish() {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(Buffer.concat(chunks))
+    }
+
+    function onData(d) {
+      chunks.push(d)
+      const buf = Buffer.concat(chunks)
+      if (isWeightFrameComplete(buf)) {
+        clearTimeout(timer)
+        if (settleTimer) clearTimeout(settleTimer)
+        // Чуть подождать хвост P=…, но не тормозить UI
+        settleTimer = setTimeout(finish, 15)
+      }
+    }
+    function onErr(e) {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(e)
+    }
+    function cleanup() {
+      clearTimeout(timer)
+      if (settleTimer) clearTimeout(settleTimer)
+      settleTimer = null
+      socket.off('data', onData)
+      socket.off('error', onErr)
+    }
+
+    socket.on('data', onData)
+    socket.on('error', onErr)
+    socket.write(WEIGHT_CMD)
   })
 }
 
@@ -173,8 +235,11 @@ async function syncCasPlu(opts) {
 /** Разбор ответа R45F04 / W45… с полями W= и P=. */
 function parseWeightResponse(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  const wMatch = text.match(/W\s*=\s*(-?\d+(?:\.\d+)?)/i)
-  const pMatch = text.match(/P\s*=\s*(-?\d+(?:\.\d+)?)/i)
+  // Берём именно поле веса W=…, не заголовок W45…
+  const wMatch = text.match(/(?:^|[^A-Za-z0-9])W\s*=\s*(-?\d+(?:\.\d+)?)/i)
+    || text.match(/W\s*=\s*(-?\d+(?:\.\d+)?)/i)
+  const pMatch = text.match(/(?:^|[^A-Za-z0-9])P\s*=\s*(-?\d+(?:\.\d+)?)/i)
+    || text.match(/P\s*=\s*(-?\d+(?:\.\d+)?)/i)
   if (!wMatch) {
     return {
       ok: false,
@@ -186,19 +251,34 @@ function parseWeightResponse(buf) {
     }
   }
 
-  let weightKg = Number(wMatch[1])
+  const rawW = String(wMatch[1] || '').trim()
+  let weightKg = Number(rawW)
   if (!Number.isFinite(weightKg)) weightKg = 0
 
-  // Если значение выглядит как граммы (целое ≥ 100 без десятичной части): 1250 → 1.25 кг
-  const rawW = wMatch[1]
-  if (!rawW.includes('.') && Math.abs(weightKg) >= 100 && Math.abs(weightKg) < 100000) {
-    weightKg = weightKg / 1000
+  if (rawW.includes('.')) {
+    // Уже килограммы с десятичной частью: W=0.255
+    weightKg = weightKg
+  } else {
+    // Целое без точки: CAS часто шлёт граммы (255 или 0255) → кг
+    // Значения 1..99 без точки тоже считаем граммами на торговых весах (до 100 кг редко целыми).
+    if (Math.abs(weightKg) >= 1 && Math.abs(weightKg) < 100000) {
+      weightKg = weightKg / 1000
+    }
   }
 
   weightKg = Math.round(weightKg * 1000) / 1000
   if (weightKg < 0) weightKg = 0
+  // Отсечь мусор от обрезанного пакета / перегруза
+  if (weightKg > 150) weightKg = 0
+
   const grams = Math.round(weightKg * 1000)
-  const price = pMatch && Number.isFinite(Number(pMatch[1])) ? Number(pMatch[1]) : null
+  let price = null
+  if (pMatch && Number.isFinite(Number(pMatch[1]))) {
+    let pv = Number(pMatch[1])
+    // Цена иногда в копейках без точки
+    if (!String(pMatch[1]).includes('.') && pv >= 100) pv = pv / 100
+    price = pv
+  }
 
   return {
     ok: true,
@@ -222,7 +302,7 @@ async function readLiveWeight(opts) {
 
   const socket = await tcpConnect(host, port, timeoutMs)
   try {
-    const resp = await writeAndRead(socket, WEIGHT_CMD, timeoutMs, 4)
+    const resp = await writeAndReadWeight(socket, timeoutMs)
     const parsed = parseWeightResponse(resp)
     if (!parsed.ok) throw new Error(parsed.error || 'Не удалось разобрать вес')
     return {
@@ -242,13 +322,13 @@ async function readLiveWeight(opts) {
 }
 
 /**
- * Фоновый монитор веса: опрос ~4 Гц, реконнект при обрыве.
+ * Фоновый монитор веса: опрос ~10 Гц, реконнект при обрыве.
  */
 class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
-    this.intervalMs = 280
+    this.intervalMs = 100
     this.socket = null
     this.timer = null
     this.busy = false
@@ -258,6 +338,7 @@ class CasWeightMonitor {
     this.connected = false
     this.stableCount = 0
     this.lastRawKg = null
+    this.lastEmitKg = null
   }
 
   setListener(fn) {
@@ -288,14 +369,15 @@ class CasWeightMonitor {
 
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(200, Math.min(1000, Number(opts.intervalMs) || 280))
+    this.intervalMs = Math.max(80, Math.min(500, Number(opts.intervalMs) || 100))
     this.running = true
     this.lastError = ''
     this.stableCount = 0
     this.lastRawKg = null
+    this.lastEmitKg = null
 
     await this.ensureSocket()
-    this.schedule()
+    this.schedule(0)
     this.emit({ connected: this.connected, weightKg: 0, grams: 0, error: '' })
     return { ok: true, host: this.host, port: this.port, running: true }
   }
@@ -322,7 +404,8 @@ class CasWeightMonitor {
   async ensureSocket() {
     if (this.socket && !this.socket.destroyed) return this.socket
     this.destroySocket()
-    const socket = await tcpConnect(this.host, this.port, 4000)
+    const socket = await tcpConnect(this.host, this.port, 3000)
+    socket.setNoDelay(true)
     socket.on('error', () => {
       this.connected = false
       this.destroySocket()
@@ -337,39 +420,40 @@ class CasWeightMonitor {
     return socket
   }
 
-  schedule() {
+  schedule(delay) {
     if (!this.running) return
     if (this.timer) clearTimeout(this.timer)
     this.timer = setTimeout(() => {
       void this.tick()
-    }, this.intervalMs)
+    }, delay == null ? this.intervalMs : delay)
   }
 
   async tick() {
-    if (!this.running || this.busy) {
-      this.schedule()
+    if (!this.running) return
+    if (this.busy) {
+      // Не пропускаем цикл надолго — следующий опрос сразу после текущего
+      this.schedule(this.intervalMs)
       return
     }
     this.busy = true
     try {
       const socket = await this.ensureSocket()
-      const resp = await writeAndRead(socket, WEIGHT_CMD, 2500, 4)
+      const resp = await writeAndReadWeight(socket, 800)
       const parsed = parseWeightResponse(resp)
       if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
 
       const kg = parsed.weightKg
-      let stable = false
-      if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.002) {
+      if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.001) {
         this.stableCount += 1
       } else {
         this.stableCount = 0
       }
       this.lastRawKg = kg
-      // 2 одинаковых опроса ≈ стабильно
-      stable = this.stableCount >= 1 || kg === 0
+      const stable = this.stableCount >= 1 || kg === 0
 
       this.connected = true
       this.lastError = ''
+      this.lastEmitKg = kg
       this.emit({
         connected: true,
         weightKg: kg,
@@ -385,14 +469,14 @@ class CasWeightMonitor {
       this.destroySocket()
       this.emit({
         connected: false,
-        weightKg: 0,
-        grams: 0,
+        weightKg: this.lastEmitKg || 0,
+        grams: Math.round((this.lastEmitKg || 0) * 1000),
         stable: false,
         error: this.lastError,
       })
     } finally {
       this.busy = false
-      this.schedule()
+      this.schedule(this.intervalMs)
     }
   }
 }

@@ -776,8 +776,8 @@ export default function CashierModule({
       setCasWeight(payload)
       if (!deskScaleLiveWeightRef.current) return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
-      if (!payload.stable) return
       const kg = Number(payload.weightKg) || 0
+      // Мгновенно обновляем любое положительное значение (не ждём «стабильно»)
       // 0 кг = сняли с весов → оставляем последнее положительное в окне
       if (kg > 0.0005) {
         const w = Math.round(kg * 1000) / 1000
@@ -4764,7 +4764,7 @@ export default function CashierModule({
                     ? (liveWeightEnabled()
                       ? (casWeight.connected
                         ? ((casWeight.grams || 0) > 0
-                          ? `Весы: ${casWeight.grams} г · положите товар — вес обновится сам`
+                          ? `Весы: ${casWeight.grams} г · ${(casWeight.weightKg || 0).toFixed(3)} кг`
                           : 'Весы подключены · положите товар на весы')
                         : (casWeight.error
                           ? `Весы: ${casWeight.error}`
