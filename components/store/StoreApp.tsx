@@ -1334,7 +1334,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
         {hasBulkPricing(p) && <span className="bdg" style={{ background:"rgba(255,140,0,.12)", color:"#FF8C00", border:"1px solid rgba(255,140,0,.28)", fontSize:8 }}>ОПТ</span>}
       </div>
       <div style={{ height:110, flexShrink:0, position:"relative", overflow:"hidden" }}>
-        <ProductImage product={p} preferThumb getPhoto={() => localPhoto} plate="light" style={{ height:110, borderRadius:0 }} emojiSize={44} />
+        <ProductImage product={p} preferThumb getPhoto={() => localPhoto} style={{ height:110, borderRadius:0 }} emojiSize={44} />
       </div>
       <div style={{ padding:"10px 10px 10px", flex:1, display:"flex", flexDirection:"column", gap:3, minHeight:0 }}>
         <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:32, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{p.name}</div>
@@ -1769,7 +1769,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
       </div>
       <div style={{ height:300, position:"relative", overflow:"hidden" }}>
         {photo
-          ? <ProductImage product={p} preferThumb={false} getPhoto={() => localPhoto} plate="light" style={{ height:300, borderRadius:0 }} />
+          ? <ProductImage product={p} preferThumb={false} getPhoto={() => localPhoto} style={{ height:300, borderRadius:0 }} />
           : <div style={{ height:300, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center" }}>
               <div style={{ fontSize:120, filter:"drop-shadow(0 20px 40px rgba(0,0,0,.5))", animation:"float 3s ease-in-out infinite", position:"relative", zIndex:1 }}>{p.e}</div>
             </div>
@@ -3790,7 +3790,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
       }}
     >
       <div style={{ height: 88, flexShrink: 0, position: "relative", overflow: "hidden" }}>
-        <ProductImage product={p} preferThumb plate="light" style={{ height: 88, borderRadius: 0 }} emojiSize={40} />
+        <ProductImage product={p} preferThumb style={{ height: 88, borderRadius: 0 }} emojiSize={40} />
         <div className="ub" style={{ position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 8, background: "var(--red)", fontSize: 10, fontWeight: 900, color: "#fff", zIndex: 1 }}>−{disc}%</div>
                     </div>
       <div style={{ padding: "10px 11px 11px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>

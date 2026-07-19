@@ -19,7 +19,7 @@ type Props = {
   alt?: string
   size?: number | 'fill'
   radius?: number
-  /** Светлая подложка — фото одинаково читаются на тёмном UI кассы/магазина */
+  /** Тёмный фон как в теме; light — только если явно нужно */
   plate?: 'light' | 'dark' | 'none'
   emojiSize?: number
   style?: CSSProperties
@@ -27,8 +27,8 @@ type Props = {
 }
 
 /**
- * Единый показ фото товара: contain, отступы, светлая пластина.
- * Без cover — упаковка не обрезается и не «теряется» на тёмном фоне.
+ * Единый показ фото товара: contain + отступы, без обрезки.
+ * По умолчанию тёмный фон темы — без белых пластин.
  */
 export default function ProductImage({
   product,
@@ -37,7 +37,7 @@ export default function ProductImage({
   alt,
   size = 'fill',
   radius = 12,
-  plate = 'light',
+  plate = 'dark',
   emojiSize,
   style,
   className,
@@ -75,7 +75,7 @@ export default function ProductImage({
             objectFit: 'contain',
             objectPosition: 'center',
             display: 'block',
-            padding: fill ? 8 : 6,
+            padding: fill ? 6 : 4,
             boxSizing: 'border-box',
           }}
         />

@@ -116,7 +116,7 @@ export default function PhotoUploadField({
           overflow: 'hidden',
           border: value ? '1px solid #162B1A' : '2px dashed #1FD760',
           cursor: busy ? 'wait' : 'pointer',
-          background: 'linear-gradient(160deg,#f3f7f4 0%,#e6eee8 100%)',
+          background: 'linear-gradient(145deg,#121f16,#0c1610)',
         }}
       >
         {value ? (
@@ -147,11 +147,11 @@ export default function PhotoUploadField({
             }}
           >
             <span style={{ fontSize: 28, lineHeight: 1 }}>📷</span>
-            <span style={{ fontSize: 14, color: '#0C1C0F', fontWeight: 800 }}>Добавить фото</span>
-            <span style={{ fontSize: 11, color: '#3D6645', textAlign: 'center', padding: '0 16px' }}>
+            <span style={{ fontSize: 14, color: '#1FD760', fontWeight: 800 }}>Добавить фото</span>
+            <span style={{ fontSize: 11, color: '#8FB897', textAlign: 'center', padding: '0 16px' }}>
               Нажмите сюда · галерея или файл
             </span>
-            <span style={{ fontSize: 10, color: '#5a7a62' }}>
+            <span style={{ fontSize: 10, color: '#3D6645' }}>
               Сервер сохранит как WebP · без обрезки
             </span>
           </div>
