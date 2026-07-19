@@ -788,13 +788,18 @@ export const useProducts = create<ProductsStore>((set, get) => ({
         })
         set(s => ({ products: [...s.products, { ...p, old: null, discount: 0 }] }))
         return { ...p, old: null, discount: 0 }
-      } catch (e) { console.error(e); return null }
+      } catch (e) {
+        console.error(e)
+        throw e instanceof Error ? e : new Error('Не удалось сохранить товар')
+      }
     }
     if (data.id) {
       get().updateProduct(data.id, data as Partial<Product>)
       return get().products.find(p => p.id === data.id) || null
     }
-    const p = { ...data, id: Date.now() } as Product
+    const { allocateProductCodes } = await import('@/lib/productCodes')
+    const codes = allocateProductCodes(get().products, { art: data.art, plu: data.plu })
+    const p = { ...data, ...codes, id: Date.now() } as Product
     get().addProduct(p)
     return p
   },

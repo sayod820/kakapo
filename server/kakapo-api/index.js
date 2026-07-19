@@ -37,6 +37,7 @@ import {
   findClientByPhone,
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
+import { allocateProductCodes, nextFreeProductCode } from './productCodes.js'
 import { createReviewRecord, updateRestaurantRating, updateStoreRating, deleteReviewRecords } from './reviewLogic.js'
 import { normalizeLevelAssignMode, inferLevelAssignMode, isLevelLocked, loyaltyLockRecord } from './loyaltyLock.js'
 import {
@@ -597,43 +598,72 @@ app.post('/auth/login', (req, res) => {
 })
 
 app.get('/products', (_req, res) => res.json(db.products))
+app.get('/products/next-codes', (_req, res) => {
+  const next = nextFreeProductCode(db.products)
+  res.json({ next, art: String(next), plu: next <= 9999 ? String(next) : '' })
+})
 app.post('/products', (req, res) => {
-  const id = ++db._seq.product
-  const p = {
-    id, art: req.body.art || `KAK-${String(id).padStart(4, '0')}`, e: req.body.e || '📦',
-    name: req.body.name, price: req.body.price || 0, costPrice: req.body.costPrice ?? null, cat: req.body.cat || '', catId: req.body.catId || '',
-    unit: req.body.unit || 'шт', stock: req.body.stock || 0, hot: !!req.body.hot,
-    desc: req.body.desc, brand: req.body.brand, country: req.body.country,
-    barcode: req.body.barcode ? String(req.body.barcode).trim() : undefined,
-    barcodes: Array.isArray(req.body.barcodes)
-      ? [...new Set(req.body.barcodes.map(b => String(b).trim()).filter(Boolean))]
-      : undefined,
-    plu: req.body.plu ? String(req.body.plu).trim() : undefined,
-    organic: !!req.body.organic, sellType: req.body.sellType || 'piece',
-    unitGrams: req.body.unitGrams, weightStep: req.body.weightStep, minWeight: req.body.minWeight,
-    old: req.body.old ?? null,
-    photo: req.body.photo ? String(req.body.photo) : undefined,
-    photoThumb: req.body.photoThumb ? String(req.body.photoThumb) : undefined,
-    bulkPricing: Array.isArray(req.body.bulkPricing) ? req.body.bulkPricing : undefined,
+  try {
+    const id = ++db._seq.product
+    const codes = allocateProductCodes(db.products, {
+      art: req.body.art,
+      plu: req.body.plu,
+    })
+    const p = {
+      id,
+      art: codes.art,
+      e: req.body.e || '📦',
+      name: req.body.name, price: req.body.price || 0, costPrice: req.body.costPrice ?? null, cat: req.body.cat || '', catId: req.body.catId || '',
+      unit: req.body.unit || 'шт', stock: req.body.stock || 0, hot: !!req.body.hot,
+      desc: req.body.desc, brand: req.body.brand, country: req.body.country,
+      barcode: req.body.barcode ? String(req.body.barcode).trim() : undefined,
+      barcodes: Array.isArray(req.body.barcodes)
+        ? [...new Set(req.body.barcodes.map(b => String(b).trim()).filter(Boolean))]
+        : undefined,
+      plu: codes.plu,
+      organic: !!req.body.organic, sellType: req.body.sellType || 'piece',
+      unitGrams: req.body.unitGrams, weightStep: req.body.weightStep, minWeight: req.body.minWeight,
+      old: req.body.old ?? null,
+      photo: req.body.photo ? String(req.body.photo) : undefined,
+      photoThumb: req.body.photoThumb ? String(req.body.photoThumb) : undefined,
+      bulkPricing: Array.isArray(req.body.bulkPricing) ? req.body.bulkPricing : undefined,
+    }
+    db.products.push(p)
+    persist()
+    broadcastProduct(p)
+    res.json(p)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось создать товар' })
   }
-  db.products.push(p)
-  persist()
-  broadcastProduct(p)
-  res.json(p)
 })
 app.patch('/products/:id', (req, res) => {
   const p = db.products.find(x => x.id === Number(req.params.id))
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
-  const previousPhoto = p.photo
-  Object.assign(p, req.body)
-  persist()
-  broadcastProduct(p)
-  if (Object.prototype.hasOwnProperty.call(req.body, 'photo')
-      && previousPhoto
-      && previousPhoto !== p.photo) {
-    deleteManagedProductPhoto(previousPhoto)
+  try {
+    const previousPhoto = p.photo
+    const body = { ...req.body }
+    const artTouched = Object.prototype.hasOwnProperty.call(body, 'art')
+    const pluTouched = Object.prototype.hasOwnProperty.call(body, 'plu')
+    if (artTouched || pluTouched) {
+      const codes = allocateProductCodes(db.products, {
+        art: artTouched ? body.art : p.art,
+        plu: pluTouched ? body.plu : p.plu,
+      }, p.id)
+      body.art = codes.art
+      body.plu = codes.plu
+    }
+    Object.assign(p, body)
+    persist()
+    broadcastProduct(p)
+    if (Object.prototype.hasOwnProperty.call(req.body, 'photo')
+        && previousPhoto
+        && previousPhoto !== p.photo) {
+      deleteManagedProductPhoto(previousPhoto)
+    }
+    res.json(p)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить товар' })
   }
-  res.json(p)
 })
 
 app.get('/products/:id/stock-layers', (req, res) => {

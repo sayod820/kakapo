@@ -1332,26 +1332,33 @@ function ProductsPage() {
 
   const addProd = async () => {
     if(!nName||!nPrice) return;
-    const newId = Math.max(0, ...prods.map(p=>p.id))+1;
-    const nextArt = 'KAK-'+String(newId).padStart(4,'0');
-    const product = {
-      id:newId, art:nArt||nextArt, e:nEmoji, name:nName, price:Number(nPrice),
-      costPrice: nCostPrice ? Number(nCostPrice) : null,
-      cat:CATS_LIST.find(c=>c.id===nCat)?.name||nCat, catId:nCat,
-      unit:nUnit||'шт', stock:Number(nStock)||0, hot:false, organic:nOrganic,
-      desc:nDesc||undefined, sellType:nSellType,
-      ...(nSellType==='weight' ? {
-        weightStep:Number(nWeightStep)||100,
-        minWeight:Number(nWeightStep)||100,
-        unitGrams:Number(nUnitGrams)||1000,
-      } : {}),
-      photo:nPhoto||undefined,
-      photoThumb:nPhotoThumb||undefined,
-      bulkPricing: serializeBulkPricing(nBulkPricing),
-    };
-    const saved = await saveProduct(product);
-    if (saved && nPhoto) setPhoto(saved.id, nPhoto);
-    closeAddModal();
+    try {
+      const { nextFreeProductCode } = await import('@/lib/productCodes');
+      const next = nextFreeProductCode(prods);
+      const code = String(next);
+      const product = {
+        art: nArt.trim() || code,
+        e:nEmoji, name:nName, price:Number(nPrice),
+        costPrice: nCostPrice ? Number(nCostPrice) : null,
+        cat:CATS_LIST.find(c=>c.id===nCat)?.name||nCat, catId:nCat,
+        unit:nUnit||'шт', stock:Number(nStock)||0, hot:false, organic:nOrganic,
+        desc:nDesc||undefined, sellType:nSellType,
+        plu: code,
+        ...(nSellType==='weight' ? {
+          weightStep:Number(nWeightStep)||100,
+          minWeight:Number(nWeightStep)||100,
+          unitGrams:Number(nUnitGrams)||1000,
+        } : {}),
+        photo:nPhoto||undefined,
+        photoThumb:nPhotoThumb||undefined,
+        bulkPricing: serializeBulkPricing(nBulkPricing),
+      };
+      const saved = await saveProduct(product);
+      if (saved && nPhoto) setPhoto(saved.id, nPhoto);
+      closeAddModal();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось сохранить товар');
+    }
   };
 
   const saveEdit = async () => {
@@ -1473,12 +1480,12 @@ function ProductsPage() {
                     </div>
                   </td>
                   <td onClick={e=>e.stopPropagation()}>
-                    <div onClick={()=>saveProduct({ ...p, hot: !p.hot })} style={{width:36,height:20,borderRadius:10,background:p.hot?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
+                    <div onClick={()=>void saveProduct({ ...p, hot: !p.hot }).catch(()=>{})} style={{width:36,height:20,borderRadius:10,background:p.hot?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
                       <div style={{position:'absolute',top:2,left:p.hot?17:2,width:16,height:16,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
                     </div>
                   </td>
                   <td onClick={e=>e.stopPropagation()}>
-                    <div onClick={()=>saveProduct({ ...p, organic: !p.organic })} style={{width:36,height:20,borderRadius:10,background:p.organic?'#34D399':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
+                    <div onClick={()=>void saveProduct({ ...p, organic: !p.organic }).catch(()=>{})} style={{width:36,height:20,borderRadius:10,background:p.organic?'#34D399':'#1D3822',position:'relative',cursor:'pointer',flexShrink:0}}>
                       <div style={{position:'absolute',top:2,left:p.organic?17:2,width:16,height:16,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
                     </div>
                   </td>
@@ -1513,7 +1520,7 @@ function ProductsPage() {
               <div style={{display:'grid',gridTemplateColumns:'72px 1fr 1fr',gap:12}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div><input className="ai" value={nEmoji} onChange={e=>setNEmoji(e.target.value)} style={{textAlign:'center',fontSize:24,height:48}}/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div><input className="ai" value={nName} onChange={e=>setNName(e.target.value)} placeholder="Название товара"/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Артикул</div><input className="ai" value={nArt} onChange={e=>setNArt(e.target.value)} placeholder="KAK-XXXX (авто)"/></div>
+                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Артикул</div><input className="ai" value={nArt} onChange={e=>setNArt(e.target.value.replace(/\D/g,''))} placeholder="Авто (свободный номер)"/></div>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Цена (ЅМ) *</div><input className="ai" value={nPrice} onChange={e=>setNPrice(e.target.value)} type="number" placeholder="0.00"/></div>

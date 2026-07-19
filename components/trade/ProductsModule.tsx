@@ -10,6 +10,7 @@ import LabelsTab from '@/components/trade/products/LabelsTab'
 import {
   buildProductPayload,
   emptyForm,
+  emptyFormWithNextCodes,
   formFromProduct,
   type ProductForm,
 } from '@/components/trade/products/productFormShared'
@@ -118,7 +119,8 @@ export default function ProductsModule({
     formLoadedForId.current = null
     setSelectedId(null)
     setIsNew(true)
-    setForm(catId ? { ...emptyForm(), catId } : emptyForm())
+    const base = emptyFormWithNextCodes(products)
+    setForm(catId ? { ...base, catId } : base)
     setFormDirty(false)
     setSub('product')
   }

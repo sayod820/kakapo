@@ -1,5 +1,6 @@
 import { categorySlug, findCategoryName } from '@/lib/useCategories'
 import { normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
+import { nextFreeProductCode, parseProductCodeNum } from '@/lib/productCodes'
 import type { Category, Product, SellType } from '@/lib/types'
 
 export function money(n: number | undefined | null) {
@@ -41,6 +42,17 @@ export function emptyForm(): ProductForm {
   }
 }
 
+/** Форма нового товара с уже подставленными свободными артикулом и PLU */
+export function emptyFormWithNextCodes(products: Product[]): ProductForm {
+  const next = nextFreeProductCode(products)
+  const code = String(next)
+  return {
+    ...emptyForm(),
+    art: code,
+    plu: next <= 9999 ? code : '',
+  }
+}
+
 export function formFromProduct(p: Product, photo?: string): ProductForm {
   return {
     name: p.name,
@@ -74,8 +86,12 @@ export function buildProductPayload(
   existing?: Product | null,
   categories: Category[] = [],
 ) {
-  const id = existing?.id ?? Math.max(0, ...products.map(p => p.id)) + 1
-  const art = data.art.trim() || `KAK-${String(id).padStart(4, '0')}`
+  const next = nextFreeProductCode(products, existing?.id)
+  const art = data.art.trim() || String(next)
+  const artNum = parseProductCodeNum(art)
+  const pluRaw = data.plu.trim()
+  const plu = pluRaw
+    || (artNum != null && artNum <= 9999 ? String(artNum) : (next <= 9999 ? String(next) : undefined))
   const { barcode, barcodes } = normalizeBarcodes(data.barcodes)
   return {
     ...(existing || {}),
@@ -91,7 +107,7 @@ export function buildProductPayload(
     stock: existing?.stock ?? 0,
     barcode: barcode || undefined,
     barcodes: barcodes.length ? barcodes : undefined,
-    plu: data.plu.trim() || undefined,
+    plu: plu || undefined,
     brand: data.brand || undefined,
     desc: data.desc || undefined,
     photo: data.photo || null,

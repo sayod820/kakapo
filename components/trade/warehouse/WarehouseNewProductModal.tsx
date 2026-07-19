@@ -6,7 +6,7 @@ import { useProducts } from '@/lib/store'
 import { useCategories } from '@/lib/useCategories'
 import type { Product } from '@/lib/types'
 import ProductFormFields from '@/components/trade/products/ProductFormFields'
-import { buildProductPayload, emptyForm, type ProductForm } from '@/components/trade/products/productFormShared'
+import { buildProductPayload, emptyFormWithNextCodes, type ProductForm } from '@/components/trade/products/productFormShared'
 
 export default function WarehouseNewProductModal({
   open,
@@ -29,10 +29,11 @@ export default function WarehouseNewProductModal({
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    if (open) {
-      setForm({ ...emptyForm(), name: initialName })
-      setMsg('')
-    }
+    if (!open) return
+    setForm({ ...emptyFormWithNextCodes(products), name: initialName })
+    setMsg('')
+    // products только при открытии — не сбрасывать форму при фоновом обновлении списка
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialName])
 
   if (!open) return null

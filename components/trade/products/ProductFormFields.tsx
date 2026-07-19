@@ -68,7 +68,16 @@ export default function ProductFormFields({
       </div>
       <div className="k-field">
         <label>Артикул</label>
-        <input className="k-inp" value={form.art} onChange={e => setForm({ ...form, art: e.target.value })} placeholder="KAK-0001" />
+        <input
+          className="k-inp"
+          value={form.art}
+          onChange={e => setForm({ ...form, art: e.target.value.replace(/\D/g, '') })}
+          placeholder="Авто"
+          inputMode="numeric"
+        />
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+          Ставится сам · после удаления номер снова свободен
+        </div>
       </div>
       <div className="k-field">
         <label>Эмодзи / иконка</label>
@@ -159,7 +168,7 @@ export default function ProductFormFields({
           inputMode="numeric"
         />
         <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-          Код на весах для весового товара
+          Код на весах · тот же номер, что артикул (1–9999)
         </div>
       </div>
       <div className="k-field">
