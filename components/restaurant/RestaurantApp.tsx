@@ -131,6 +131,7 @@ function RestaurantAppInner() {
   const restaurantsLoaded = useRestaurants(s => s.loaded);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
+  const updateRestaurantApi = useRestaurants(s => s.updateRestaurant);
   const [session, setSession] = useState<RestaurantSession | null>(() => loadRestaurantSession());
   const [rest, setRest] = useState<(typeof DEMO_RESTAURANTS)[0] | null>(null);
   const [menu, setMenu] = useState<(typeof DEMO_RESTAURANTS)[0]['menu']>([]);
@@ -332,11 +333,17 @@ function RestaurantAppInner() {
   };
 
   const addDish = (dish) => {
-    setMenu(m => [...m, {...dish, id: Date.now()}]);
+    const next = [...menu, { ...dish, id: Date.now() }];
+    setMenu(next);
+    setRest(r => r ? { ...r, menu: next } : r);
+    if (USE_API && rest) void updateRestaurantApi(rest.id, { menu: next });
   };
 
   const removeDish = (id) => {
-    setMenu(m => m.filter(dish => dish.id !== id));
+    const next = menu.filter(dish => dish.id !== id);
+    setMenu(next);
+    setRest(r => r ? { ...r, menu: next } : r);
+    if (USE_API && rest) void updateRestaurantApi(rest.id, { menu: next });
   };
 
   const addCategory = (name: string) => {
@@ -895,6 +902,8 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
   const [cat, setCat] = useState(rest?.categories[0] || '')
   const [emoji, setEmoji] = useState('🍽')
   const [photo, setPhoto] = useState('')
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
   const [photoErr, setPhotoErr] = useState('')
   const [formErr, setFormErr] = useState('')
 
@@ -906,7 +915,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
   const defaultCat = categories[0] || ''
   const stopCount = menu.filter(m => !m.inStock).length
   const priceNum = Number(price)
-  const canSave = name.trim().length > 0 && priceNum > 0
+  const canSave = name.trim().length > 0 && priceNum > 0 && !photoBusy
   const availableSuggestions = CATEGORY_SUGGESTIONS.filter(s => !categories.includes(s))
 
   useEffect(() => {
@@ -925,6 +934,8 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
     setCat(target)
     setEmoji('🍽')
     setPhoto('')
+    setPhotoFile(null)
+    setPhotoBusy(false)
     setPhotoErr('')
     setFormErr('')
   }
@@ -979,20 +990,37 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 5 * 1024 * 1024) { setPhotoErr('Файл слишком большой (макс. 5 МБ)'); return }
+    if (file.size > 200 * 1024 * 1024) { setPhotoErr('Файл слишком большой (макс. 200 МБ)'); return }
     setPhotoErr('')
+    setPhotoFile(file)
     const reader = new FileReader()
     reader.onload = (ev) => setPhoto(ev.target?.result as string)
     reader.readAsDataURL(file)
   }
 
-  const save = () => {
+  const save = async () => {
     if (!name.trim()) { setFormErr('Укажите название блюда'); return }
     if (!priceNum || priceNum <= 0) { setFormErr('Укажите цену больше 0'); return }
-    onAdd({ e: emoji, name: name.trim(), desc: desc.trim(), price: priceNum, cat, inStock: true, popular: false, photo })
-    setShowAdd(false)
-    resetForm(isAllView ? defaultCat : activeCat)
-    if (cat !== activeCat && cat !== ALL_MENU_CAT) setActiveCat(cat)
+    setFormErr('')
+    setPhotoBusy(true)
+    try {
+      let savedPhoto = photo
+      if (photoFile && USE_API) {
+        const uploaded = await api.uploadRestaurantPhoto(photoFile, {
+          restaurantId: rest?.id,
+          fileName: photoFile.name,
+        })
+        savedPhoto = uploaded.url
+      }
+      onAdd({ e: emoji, name: name.trim(), desc: desc.trim(), price: priceNum, cat, inStock: true, popular: false, photo: savedPhoto })
+      setShowAdd(false)
+      resetForm(isAllView ? defaultCat : activeCat)
+      if (cat !== activeCat && cat !== ALL_MENU_CAT) setActiveCat(cat)
+    } catch (e) {
+      setPhotoErr(e instanceof Error ? e.message : 'Не удалось обработать фото')
+    } finally {
+      setPhotoBusy(false)
+    }
   }
 
   return (
@@ -1323,7 +1351,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 {photo ? (
                   <div style={{position:'relative',width:'100%',height:160,borderRadius:14,overflow:'hidden',border:'1px solid #162B1A'}}>
                     <img src={photo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                    <button type="button" onClick={() => setPhoto('')} className="btn"
+                    <button type="button" onClick={() => { setPhoto(''); setPhotoFile(null) }} className="btn"
                       style={{position:'absolute',top:8,right:8,width:32,height:32,borderRadius:'50%',background:'rgba(0,0,0,.75)',border:'1px solid rgba(255,255,255,.2)',color:'white',fontSize:14}}>
                       ✕
                     </button>
@@ -1337,7 +1365,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                     <span style={{fontSize:22}}>📷</span>
                     <div style={{textAlign:'left'}}>
                       <div style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Загрузить фото</div>
-                      <div style={{fontSize:10,color:'#3D6645'}}>JPG, PNG · до 5 МБ</div>
+                      <div style={{fontSize:10,color:'#3D6645'}}>JPG, PNG и другие · автоматически WebP</div>
                     </div>
                     <input type="file" accept="image/*" onChange={handlePhoto} style={{display:'none'}}/>
                   </label>
@@ -1391,7 +1419,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                   fontFamily:'Nunito',fontWeight:800,fontSize:15,
                   boxShadow:canSave ? '0 8px 24px rgba(31,215,96,.35)' : 'none',
                 }}>
-                ✓ Добавить в «{cat}»
+                {photoBusy ? 'Конвертируем фото в WebP…' : `✓ Добавить в «${cat}»`}
               </button>
             </div>
           </div>

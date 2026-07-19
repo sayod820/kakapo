@@ -2846,17 +2846,22 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
   const cardAccent = profileCardAccent(profileTheme);
 
   const debtNow = Math.max(0, Number(user?.debt) || 0)
+  // Раздел «Долги» в профиле только если: есть долг из магазина, админ включил раздел, или статус (VIP) сам открывает долг
+  const debtSectionOn = debtNow > 0.001
+    || (user?.levelAssignMode === 'manual'
+      ? !!user?.debtEnabled
+      : (qualifiesForDebtSection(user?.level, user?.vip) || !!user?.debtEnabled))
   const menuItems = [
     {
       icon: "crown", l: loyalty.isVip ? "VIP профиль" : "VIP программа", c: "var(--gd)", to: "vip",
       s: loyalty.isVip ? "Привилегии и кредитный лимит" : loyalty.isBasicClient ? "Нет привилегий · путь к VIP" : `Выполнено ${loyalty.vipDoneCount} из 3 условий`,
       badge: loyalty.isVip ? "VIP" : undefined,
     },
-    {
+    ...(debtSectionOn ? [{
       icon: "card", l: "Долги", c: debtNow > 0 ? "var(--red)" : "var(--gd)", to: "debts",
       s: debtNow > 0 ? `Сейчас ${debtNow.toLocaleString()} ЅМ` : "История и кредитный лимит",
       badge: debtNow > 0 ? "долг" : undefined,
-    },
+    }] : []),
     {
       icon: "bag", l: "Мои заказы", c: "var(--gr)", to: "orders",
       s: orderCount ? ruCount(orderCount, "заказ", "заказа", "заказов") : "Пока нет заказов",
@@ -4950,6 +4955,16 @@ const DebtsPage = ({ go, user }) => {
     debtLimit: user?.debtLimit,
     debtEnabled: user?.debtEnabled,
   }), [user?.level, user?.vip, user?.debtLimit, user?.debtEnabled, loyalty.isVip, loyaltyCfgTick]);
+  const debtSectionOn = creditUsed > 0.001
+    || (user?.levelAssignMode === 'manual'
+      ? !!user?.debtEnabled
+      : (qualifiesForDebtSection(user?.level, user?.vip) || !!user?.debtEnabled))
+
+  useEffect(() => {
+    if (!debtSectionOn) go('profile')
+  }, [debtSectionOn, go])
+
+  if (!debtSectionOn) return null
 
   return (
     <div data-store-page style={{ minHeight: '100dvh', background: 'var(--bg)' }}>

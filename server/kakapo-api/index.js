@@ -9,6 +9,10 @@ import {
   deleteManagedProductPhoto,
   UPLOAD_ROOT,
 } from './productPhotoPipeline.js'
+import {
+  processAndSaveRestaurantPhoto,
+  deleteManagedRestaurantPhoto,
+} from './restaurantPhotoPipeline.js'
 import multer from 'multer'
 import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
 import { ensureMarketCategories } from './marketCategoriesSeed.js'
@@ -308,6 +312,29 @@ app.post('/products/photo', (req, res) => {
       res.json(result)
     } catch (e) {
       res.status(400).json({ detail: e?.message || 'Не удалось обработать фото' })
+    }
+  })
+})
+
+/** Фото блюда: любое изображение → WebP, старый управляемый файл удаляется. */
+app.post('/restaurants/photo', (req, res) => {
+  photoUpload.single('photo')(req, res, async err => {
+    if (err) {
+      const msg = err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
+        ? 'Файл слишком большой (макс. 200 МБ)'
+        : (err.message || 'Ошибка загрузки')
+      return res.status(400).json({ detail: msg })
+    }
+    try {
+      if (!req.file?.buffer?.length) return res.status(400).json({ detail: 'Выберите фото' })
+      const result = await processAndSaveRestaurantPhoto(req.file.buffer, {
+        restaurantId: req.body?.restaurantId,
+        dishId: req.body?.dishId,
+        replaceUrl: req.body?.replaceUrl ? String(req.body.replaceUrl) : undefined,
+      })
+      res.json(result)
+    } catch (e) {
+      res.status(400).json({ detail: e?.message || 'Не удалось обработать фото блюда' })
     }
   })
 })
@@ -1169,6 +1196,21 @@ app.patch('/restaurants/:id', (req, res) => {
   if (!r) return res.status(404).json({ detail: 'Не найдено' })
   for (const k of ['name', 'cuisine', 'address', 'phone', 'email', 'open', 'blocked', 'hours']) {
     if (req.body[k] !== undefined) r[k] = req.body[k]
+  }
+  if (Array.isArray(req.body.menu)) {
+    const oldPhotos = new Set((r.menu || []).map(item => item?.photo).filter(Boolean))
+    const menu = req.body.menu.map((item, index) => ({
+      ...item,
+      id: Number(item?.id) || Date.now() + index,
+      name: String(item?.name || '').trim(),
+      price: Math.max(0, Number(item?.price) || 0),
+      photo: item?.photo ? String(item.photo) : undefined,
+    }))
+    const nextPhotos = new Set(menu.map(item => item.photo).filter(Boolean))
+    r.menu = menu
+    for (const oldUrl of oldPhotos) {
+      if (!nextPhotos.has(oldUrl)) deleteManagedRestaurantPhoto(oldUrl)
+    }
   }
   persist()
   res.json(r)

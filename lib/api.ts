@@ -405,6 +405,20 @@ export const api = {
   toggleRestaurant: (id: string) => request(`/restaurants/${id}/toggle`, { method: 'PATCH' }),
   updateRestaurant: (id: string, data: Partial<Restaurant>) =>
     request<Restaurant>(`/restaurants/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  uploadRestaurantPhoto: (
+    file: Blob,
+    opts?: { restaurantId?: string; dishId?: number | string; replaceUrl?: string; fileName?: string },
+  ) => {
+    const fd = new FormData()
+    fd.append('photo', file, opts?.fileName || 'dish-photo.jpg')
+    if (opts?.restaurantId) fd.append('restaurantId', opts.restaurantId)
+    if (opts?.dishId != null) fd.append('dishId', String(opts.dishId))
+    if (opts?.replaceUrl) fd.append('replaceUrl', opts.replaceUrl)
+    return request<{ url: string; width: number; height: number; bytes: number }>(
+      '/restaurants/photo',
+      { method: 'POST', body: fd },
+    )
+  },
   blockRestaurant: (id: string, blocked: boolean) =>
     request<Restaurant>(`/restaurants/${id}/block`, { method: 'PATCH', body: JSON.stringify({ blocked }) }),
   createPayout: (restId: string, data: { method?: string; note?: string; amount?: number }) =>
