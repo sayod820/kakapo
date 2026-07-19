@@ -3,7 +3,8 @@
 /**
  * Обработка фото товара:
  * — автоповорот по EXIF
- * — обрезка однотонных полей (trim)
+ * — удаление фона на сервере (rembg / U^2-Net), если доступно
+ * — обрезка полей (прозрачных после rembg, иначе однотонных)
  * — центрирование в квадрате 1200×1200 с полями
  * — WebP высокого качества + миниатюра 400×400
  * — удаление старых файлов uploads
@@ -14,6 +15,7 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
 import { basename, extname, join } from 'path'
 import sharp from 'sharp'
 import { DATA_DIR } from './db.js'
+import { removeBackground, isRembgAvailable } from './removeBg.js'
 
 export const UPLOAD_ROOT = join(DATA_DIR, 'uploads')
 export const PRODUCT_UPLOAD_DIR = join(UPLOAD_ROOT, 'products')
@@ -83,18 +85,32 @@ export async function processAndSaveProductPhoto(input, opts = {}) {
     throw new Error('Файл слишком большой (макс. 200 МБ)')
   }
 
-  let pipeline = sharp(input, { failOn: 'none', animated: false }).rotate()
+  // Нормализуем вход в PNG (с автоповоротом по EXIF) для rembg
+  const normalizedPng = await sharp(input, { failOn: 'none', animated: false })
+    .rotate()
+    .png()
+    .toBuffer()
 
-  // Убрать однотонные поля (белый стол / студия) — товар ближе к кадру
+  // Удаление фона на сервере (rembg). Если недоступно — работаем по оригиналу.
+  let bgRemoved = false
+  let workingBuffer = normalizedPng
+  if (opts.removeBg !== false && (await isRembgAvailable())) {
+    const cut = await removeBackground(normalizedPng)
+    if (cut && cut.length > 64) {
+      workingBuffer = cut
+      bgRemoved = true
+    }
+  }
+
+  let pipeline = sharp(workingBuffer, { failOn: 'none', animated: false })
+
+  // После вырезания фона обрезаем прозрачные поля; иначе — однотонные (белый стол/студия)
   try {
-    pipeline = pipeline.trim({
-      background: undefined,
-      threshold: 18,
-      lineArt: false,
-    })
+    pipeline = bgRemoved
+      ? pipeline.trim({ threshold: 0 })
+      : pipeline.trim({ background: undefined, threshold: 18, lineArt: false })
   } catch {
-    // trim может падать на уже «чистых» PNG — продолжаем
-    pipeline = sharp(input, { failOn: 'none', animated: false }).rotate()
+    pipeline = sharp(workingBuffer, { failOn: 'none', animated: false })
   }
 
   const meta = await pipeline.metadata()
@@ -155,5 +171,6 @@ export async function processAndSaveProductPhoto(input, opts = {}) {
     width: PRODUCT_PHOTO_SIZE,
     height: PRODUCT_PHOTO_SIZE,
     bytes: square.length,
+    bgRemoved,
   }
 }
