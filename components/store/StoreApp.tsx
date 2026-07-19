@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import { hydrateCourierStores, usePickups } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos, resolveProductPhoto, resolveOrderItemPhoto } from "@/lib/productPhotos";
-import ProductImage from "@/components/shared/ProductImage";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
 import { productCatSlug } from "@/lib/enrichCatalog";
 import { productRatingUi, restaurantCuisineLabel, restaurantRatingLabel, restaurantReviewsLabel } from "@/lib/catalogUi";
@@ -1321,6 +1320,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const bulkHint = formatBulkPricingHint(p);
   const [pop, setPop] = useState(false);
   const localPhoto = useProductPhotos(s => s.photos[p.id]);
+  const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto: () => localPhoto });
   const add = e => { e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 300); onAdd(p.id); };
   return (
     <div className="card" style={{ display:"flex", flexDirection:"column", height:"100%", cursor:"default", position:"relative" }} onClick={() => go("product", { id:p.id })}>
@@ -1333,8 +1333,11 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
         {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.12)", color:"#34D399", border:"1px solid rgba(52,211,153,.28)" }}>🌿</span>}
         {hasBulkPricing(p) && <span className="bdg" style={{ background:"rgba(255,140,0,.12)", color:"#FF8C00", border:"1px solid rgba(255,140,0,.28)", fontSize:8 }}>ОПТ</span>}
       </div>
-      <div style={{ height:110, flexShrink:0, position:"relative", overflow:"hidden" }}>
-        <ProductImage product={p} preferThumb getPhoto={() => localPhoto} style={{ height:110, borderRadius:0 }} emojiSize={44} />
+      <div style={{ height:110, flexShrink:0, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
+        {photo
+          ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding:6, boxSizing:"border-box", animation:"float 3.2s ease-in-out infinite" }}/>
+          : p.e
+        }
       </div>
       <div style={{ padding:"10px 10px 10px", flex:1, display:"flex", flexDirection:"column", gap:3, minHeight:0 }}>
         <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:32, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{p.name}</div>
@@ -1615,9 +1618,11 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
               const rating = productRatingUi(p, catalogReady);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product", { id:p.id })}>
-                  <div style={{ width:60, height:60, borderRadius:14, flexShrink:0, position:"relative", overflow:"hidden" }}>
-                    <ProductImage product={p} preferThumb size={60} radius={14} emojiSize={26} />
-                    {disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white", zIndex:1 }}>-{disc}%</div>}
+                  <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                    {resolveProductPhoto(p, { preferThumb: true })
+                      ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block" }}/>
+                      : p.e}
+                    {disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc}%</div>}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:1 }}>{p.name}</div>
@@ -1767,12 +1772,10 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           </button>
         </div>
       </div>
-      <div style={{ height:300, position:"relative", overflow:"hidden" }}>
+      <div style={{ height:300, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
         {photo
-          ? <ProductImage product={p} preferThumb={false} getPhoto={() => localPhoto} style={{ height:300, borderRadius:0 }} />
-          : <div style={{ height:300, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center" }}>
-              <div style={{ fontSize:120, filter:"drop-shadow(0 20px 40px rgba(0,0,0,.5))", animation:"float 3s ease-in-out infinite", position:"relative", zIndex:1 }}>{p.e}</div>
-            </div>
+          ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding:16, boxSizing:"border-box", animation:"float 3.5s ease-in-out infinite", filter:"drop-shadow(0 16px 28px rgba(0,0,0,.45))" }}/>
+          : <div style={{ fontSize:120, filter:"drop-shadow(0 20px 40px rgba(0,0,0,.5))", animation:"float 3s ease-in-out infinite", position:"relative", zIndex:1 }}>{p.e}</div>
         }
         <div style={{ position:"absolute", bottom:18, left:18, display:"flex", gap:6 }}>
           {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.18)", color:"#34D399", border:"1px solid rgba(52,211,153,.35)" }}>🌿 Органик</span>}
@@ -1866,8 +1869,10 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
             <div className="hscroll">
               {related.map(rp => (
                 <div key={rp.id} className="card" style={{ width:140, flexShrink:0, cursor:"pointer" }} onClick={() => go("product", { id:rp.id })}>
-                  <div style={{ height:80, overflow:"hidden" }}>
-                    <ProductImage product={rp} preferThumb style={{ height:80, borderRadius:0 }} emojiSize={32} />
+                  <div style={{ height:80, background:rp.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:36, overflow:"hidden" }}>
+                    {resolveProductPhoto(rp, { preferThumb: true })
+                      ? <img src={resolveProductPhoto(rp, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block", animation:"float 3s ease-in-out infinite" }}/>
+                      : <span style={{ animation:"float 3s ease-in-out infinite" }}>{rp.e}</span>}
                   </div>
                   <div style={{ padding:"9px 10px 8px" }}>
                     <div style={{ fontSize:11, fontWeight:700, lineHeight:1.3, marginBottom:3 }}>{rp.name}</div>
@@ -1956,9 +1961,11 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               const unitPrice = cartUnitPrice(p, p.qty, !!p.isRest);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"13px" }}>
-                  <div style={{ width:62, height:62, borderRadius:15, flexShrink:0, position:"relative", overflow:"hidden" }}>
-                    <ProductImage product={p} preferThumb size={62} radius={15} emojiSize={28} />
-                    {disc2>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white", zIndex:1 }}>-{disc2}%</div>}
+                  <div style={{ width:62, height:62, borderRadius:15, background:p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                    {resolveProductPhoto(p, { preferThumb: true })
+                      ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block" }}/>
+                      : p.e}
+                    {disc2>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc2}%</div>}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:2 }}>{p.name}</div>
@@ -3772,6 +3779,7 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
 
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
   const qty = cart[p.id] || 0;
+  const photo = resolveProductPhoto(p, { preferThumb: true });
                 return (
     <div
       onClick={() => go("product", { id: p.id })}
@@ -3789,8 +3797,10 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
         flexDirection: "column",
       }}
     >
-      <div style={{ height: 88, flexShrink: 0, position: "relative", overflow: "hidden" }}>
-        <ProductImage product={p} preferThumb style={{ height: 88, borderRadius: 0 }} emojiSize={40} />
+      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: p.grad || "rgba(255,69,69,.06)", overflow: "hidden" }}>
+        {photo
+          ? <img src={photo} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", display: "block", padding: 6, boxSizing: "border-box", animation: "float 3s ease-in-out infinite" }} />
+          : <span style={{ animation: "float 3s ease-in-out infinite" }}>{p.e}</span>}
         <div className="ub" style={{ position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 8, background: "var(--red)", fontSize: 10, fontWeight: 900, color: "#fff", zIndex: 1 }}>−{disc}%</div>
                     </div>
       <div style={{ padding: "10px 11px 11px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -4170,9 +4180,11 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
                 const rating = productRatingUi(p, catalogReady);
                 return (
                   <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product",{id:p.id})}>
-                    <div style={{ width:60, height:60, borderRadius:14, flexShrink:0, position:"relative", overflow:"hidden" }}>
-                      <ProductImage product={p} preferThumb size={60} radius={14} emojiSize={26} />
-                      {disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white", zIndex:1 }}>-{disc}%</div>}
+                    <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                      {resolveProductPhoto(p, { preferThumb: true })
+                        ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block" }}/>
+                        : p.e}
+                      {disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc}%</div>}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:13, fontWeight:700, marginBottom:1 }}>{p.name}</div>

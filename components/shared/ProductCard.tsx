@@ -1,11 +1,11 @@
 'use client';
 import { useState } from 'react';
 import { useRouter }  from 'next/navigation';
-import { Heart, Plus, Star } from 'lucide-react';
+import { Heart, Plus } from 'lucide-react';
 import { useCart, useWish, useToast } from '@/lib/store';
 import type { Product } from '@/lib/types';
 import { ROUTES } from '@/lib/routes';
-import ProductImage from '@/components/shared/ProductImage';
+import { resolveProductPhoto } from '@/lib/productPhotos';
 
 interface Props {
   product:   Product;
@@ -23,13 +23,16 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
   const qty    = items[p.id] || 0;
   const wished = isWished(p.id);
   const disc   = p.oldPrice ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
+  const emoji  = (p as any).emoji ?? p.e ?? '📦';
+  const photo  = resolveProductPhoto({ ...p, e: emoji }, { preferThumb: true });
+  const grad   = (p as any).grad || 'linear-gradient(145deg,#0D2A0D,#1A4A1A)';
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
     setPop(true);
     setTimeout(() => setPop(false), 320);
     addItem(p.id);
-    show(`${p.emoji}  ${p.name} в корзине`);
+    show(`${emoji}  ${p.name} в корзине`);
   };
 
   const handleWish = (e: React.MouseEvent) => {
@@ -62,8 +65,10 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
       <div className="kakapo-card" onClick={() => router.push(ROUTES.product(p.id))}
         style={{ display:'flex', alignItems:'center', gap:12, padding:'12px', cursor:'pointer',
           animation: animDelay ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both` : undefined }}>
-        <div style={{ width:62, height:62, borderRadius:16, flexShrink:0, position:'relative', overflow:'hidden' }}>
-          <ProductImage product={{ ...p, e: (p as any).emoji ?? p.e }} preferThumb size={62} radius={16} emojiSize={28} />
+        <div style={{ width:62, height:62, borderRadius:16, background:grad, display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, flexShrink:0, position:'relative', overflow:'hidden' }}>
+          {photo
+            ? <img src={photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'contain', padding:4, boxSizing:'border-box', display:'block' }}/>
+            : emoji}
           {disc>0 && <div style={{ position:'absolute', top:-4, left:-4, borderRadius:8, background:'var(--red)', padding:'1px 5px', fontSize:9, fontWeight:800, color:'white', zIndex:2 }}>-{disc}%</div>}
         </div>
         <div style={{ flex:1, minWidth:0 }}>
@@ -86,7 +91,6 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
     );
   }
 
-  /* Grid */
   return (
     <div className="kakapo-card" onClick={() => router.push(ROUTES.product(p.id))}
       style={{ display:'flex', flexDirection:'column', cursor:'pointer', position:'relative',
@@ -99,8 +103,10 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
         {p.isNew  && <span className="badge badge-green">NEW</span>}
         {p.isOrganic && <span className="badge" style={{ background:'rgba(52,211,153,.12)', color:'#34D399', border:'1px solid rgba(52,211,153,.28)' }}>🌿</span>}
       </div>
-      <div style={{ height:110, overflow:'hidden', position:'relative' }}>
-        <ProductImage product={{ ...p, e: (p as any).emoji ?? p.e }} preferThumb style={{ height:110, borderRadius:0 }} emojiSize={44} />
+      <div style={{ height:110, background:grad, display:'flex', alignItems:'center', justifyContent:'center', fontSize:48, animation:p.isHot?'float 3s ease-in-out infinite':undefined, overflow:'hidden', position:'relative' }}>
+        {photo
+          ? <img src={photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'contain', padding:6, boxSizing:'border-box', display:'block', animation:'float 3.2s ease-in-out infinite' }}/>
+          : emoji}
       </div>
       <div style={{ padding:'10px 10px 8px', flex:1, display:'flex', flexDirection:'column', gap:3 }}>
         <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:32, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.name}</div>
