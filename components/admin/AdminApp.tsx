@@ -141,6 +141,7 @@ import { restIdToPickupId } from '@/lib/pickups'
 import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
 import { useProductPhotos } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
+import ProductImage from '@/components/shared/ProductImage'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
 import { formatBulkPricingHint, hasBulkPricing, normalizeBulkPricing } from '@/lib/productBulkPricing'
 import { isProductPromo, productPromoLabel, stripProductSaleFields } from '@/lib/productPromos'
@@ -1448,12 +1449,9 @@ function ProductsPage() {
                   <td><span className="ub" style={{fontSize:11,color:'#FFB800',letterSpacing:.5}}>{p.art}</span></td>
                   <td>
                     <div style={{display:'flex',alignItems:'center',gap:10}}>
-                      <div style={{width:40,height:40,borderRadius:10,background:'#162B1A',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0,overflow:'hidden',border:'1px solid #1E3522'}}>
-                        {(p.photoThumb || p.photo || getPhoto(p.id))
-                          ? <img src={p.photoThumb || p.photo || getPhoto(p.id)} alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
-                          : p.e
-                        }
-                    </div>
+                      <div style={{width:44,height:44,borderRadius:11,flexShrink:0,overflow:'hidden'}}>
+                        <ProductImage product={p} preferThumb getPhoto={getPhoto} size={44} radius={11} />
+                      </div>
                     <div>
                         <div style={{fontWeight:700,fontSize:13,lineHeight:1.25}}>{p.name}</div>
                         {p.desc && <div style={{fontSize:10,color:'#3D6645',marginTop:2,maxWidth:220,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.desc}</div>}

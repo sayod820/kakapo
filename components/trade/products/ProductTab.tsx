@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import ProductFormFields from './ProductFormFields'
+import ProductImage from '@/components/shared/ProductImage'
 import ProductArrivalsPanel from './ProductArrivalsPanel'
 import { money, stockStatus } from './productFormShared'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
@@ -165,7 +166,7 @@ export default function ProductTab({
                   className={`k-product-pick ${selectedId === p.id && !isNew ? 'active' : ''}`}
                   onClick={() => onSelect(p.id)}
                 >
-                  <span className="pe">{p.e || '📦'}</span>
+                  <ProductImage product={p} preferThumb getPhoto={getPhoto} size={36} radius={9} emojiSize={18} />
                   <span className="pi">
                     <b>{p.name}</b>
                     <span>{p.art} · {money(p.price)}</span>
@@ -318,7 +319,6 @@ export default function ProductTab({
               <tbody>
                 {filtered.map(p => {
                   const sc = stockStatus(Number(p.stock) || 0)
-                  const photo = p.photoThumb || p.photo || getPhoto(p.id)
                   const bulkHint = formatBulkPricingHint(p)
                   const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
                   return (
@@ -326,9 +326,7 @@ export default function ProductTab({
                       <td><span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 800 }}>{p.art}</span></td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#0e1712', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden', flexShrink: 0 }}>
-                            {photo ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : (p.e || '📦')}
-                          </div>
+                          <ProductImage product={p} preferThumb getPhoto={getPhoto} size={44} radius={10} />
                           <div>
                             <div style={{ fontWeight: 800 }}>{p.name}</div>
                             {(() => {

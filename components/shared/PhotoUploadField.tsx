@@ -116,11 +116,7 @@ export default function PhotoUploadField({
           overflow: 'hidden',
           border: value ? '1px solid #162B1A' : '2px dashed #1FD760',
           cursor: busy ? 'wait' : 'pointer',
-          background:
-            'linear-gradient(45deg,#0a160c 25%,transparent 25%),linear-gradient(-45deg,#0a160c 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#0a160c 75%),linear-gradient(-45deg,transparent 75%,#0a160c 75%)',
-          backgroundSize: '16px 16px',
-          backgroundPosition: '0 0,0 8px,8px -8px,-8px 0',
-          backgroundColor: '#0C1C0F',
+          background: 'linear-gradient(160deg,#f3f7f4 0%,#e6eee8 100%)',
         }}
       >
         {value ? (
@@ -131,7 +127,10 @@ export default function PhotoUploadField({
               width: '100%',
               height: '100%',
               objectFit: 'contain',
+              objectPosition: 'center',
               display: 'block',
+              padding: 10,
+              boxSizing: 'border-box',
               pointerEvents: 'none',
             }}
           />
@@ -148,11 +147,11 @@ export default function PhotoUploadField({
             }}
           >
             <span style={{ fontSize: 28, lineHeight: 1 }}>📷</span>
-            <span style={{ fontSize: 14, color: '#1FD760', fontWeight: 800 }}>Добавить фото</span>
-            <span style={{ fontSize: 11, color: '#8FB897', textAlign: 'center', padding: '0 16px' }}>
+            <span style={{ fontSize: 14, color: '#0C1C0F', fontWeight: 800 }}>Добавить фото</span>
+            <span style={{ fontSize: 11, color: '#3D6645', textAlign: 'center', padding: '0 16px' }}>
               Нажмите сюда · галерея или файл
             </span>
-            <span style={{ fontSize: 10, color: '#3D6645' }}>
+            <span style={{ fontSize: 10, color: '#5a7a62' }}>
               Сервер сохранит как WebP · без обрезки
             </span>
           </div>

@@ -5,6 +5,7 @@ import { Heart, Plus, Star } from 'lucide-react';
 import { useCart, useWish, useToast } from '@/lib/store';
 import type { Product } from '@/lib/types';
 import { ROUTES } from '@/lib/routes';
+import ProductImage from '@/components/shared/ProductImage';
 
 interface Props {
   product:   Product;
@@ -61,11 +62,8 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
       <div className="kakapo-card" onClick={() => router.push(ROUTES.product(p.id))}
         style={{ display:'flex', alignItems:'center', gap:12, padding:'12px', cursor:'pointer',
           animation: animDelay ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both` : undefined }}>
-        <div style={{ width:62, height:62, borderRadius:16, background:(p as any).gradient ?? '#0C1C0F', display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, flexShrink:0, position:'relative', overflow:'hidden' }}>
-          {(p as any).photo
-            ? <img src={(p as any).photoThumb || (p as any).photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'contain', borderRadius:16, display:'block', background:'#0a160c' }}/>
-            : ((p as any).emoji ?? p.e)
-          }
+        <div style={{ width:62, height:62, borderRadius:16, flexShrink:0, position:'relative', overflow:'hidden' }}>
+          <ProductImage product={{ ...p, e: (p as any).emoji ?? p.e }} preferThumb size={62} radius={16} emojiSize={28} />
           {disc>0 && <div style={{ position:'absolute', top:-4, left:-4, borderRadius:8, background:'var(--red)', padding:'1px 5px', fontSize:9, fontWeight:800, color:'white', zIndex:2 }}>-{disc}%</div>}
         </div>
         <div style={{ flex:1, minWidth:0 }}>
@@ -93,40 +91,32 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
     <div className="kakapo-card" onClick={() => router.push(ROUTES.product(p.id))}
       style={{ display:'flex', flexDirection:'column', cursor:'pointer', position:'relative',
         animation: animDelay ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both` : undefined }}>
-      {/* Wish */}
       <button onClick={handleWish} style={{ position:'absolute', top:8, right:8, zIndex:3, width:28, height:28, borderRadius:'50%', background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', border:'none', cursor:'pointer' }}>
         <Heart size={13} color={wished?'#FF4545':'rgba(255,255,255,.5)'} fill={wished?'#FF4545':'none'} strokeWidth={2}/>
       </button>
-      {/* Badges */}
       <div style={{ position:'absolute', top:8, left:8, display:'flex', flexDirection:'column', gap:3, zIndex:3 }}>
         {disc>0   && <span className="badge badge-red">−{disc}%</span>}
         {p.isNew  && <span className="badge badge-green">NEW</span>}
         {p.isOrganic && <span className="badge" style={{ background:'rgba(52,211,153,.12)', color:'#34D399', border:'1px solid rgba(52,211,153,.28)' }}>🌿</span>}
       </div>
-      {/* Image */}
-      <div style={{ height:110, background:(p as any).gradient ?? '#0C1C0F', display:'flex', alignItems:'center', justifyContent:'center', fontSize:48, animation:(p as any).isHot?'float 3s ease-in-out infinite':undefined, overflow:'hidden', position:'relative' }}>
-        {(p as any).photo
-          ? <img src={(p as any).photoThumb || (p as any).photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'contain', display:'block', background:'#0a160c' }}/>
-          : ((p as any).emoji ?? p.e)
-        }
+      <div style={{ height:110, overflow:'hidden', position:'relative' }}>
+        <ProductImage product={{ ...p, e: (p as any).emoji ?? p.e }} preferThumb style={{ height:110, borderRadius:0 }} emojiSize={44} />
       </div>
-      {/* Info */}
       <div style={{ padding:'10px 10px 8px', flex:1, display:'flex', flexDirection:'column', gap:3 }}>
-        <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:30 }}>{p.name}</div>
+        <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:32, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.name}</div>
         <div style={{ fontSize:10, color:'var(--t3)' }}>{p.unit}</div>
         <Stars r={p.rating}/>
         <div style={{ display:'flex', alignItems:'baseline', gap:5, marginTop:2 }}>
           <span style={{ fontFamily:'Unbounded, sans-serif', fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:'var(--gd)', marginLeft:2 }}>ЅМ</span></span>
           {p.oldPrice && <span style={{ fontSize:10, color:'var(--t3)', textDecoration:'line-through' }}>{p.oldPrice.toFixed(2)}</span>}
         </div>
-      </div>
-      {/* CTA */}
-      <div style={{ padding:'0 10px 10px' }}>
-        {qty === 0 ? (
-          <button onClick={handleAdd} style={{ width:'100%', padding:'9px', fontSize:12, borderRadius:12, background:'linear-gradient(135deg,var(--gr2),var(--gr))', border:'none', color:'white', display:'flex', alignItems:'center', justifyContent:'center', gap:4, cursor:'pointer', fontFamily:'Nunito, sans-serif', fontWeight:700, animation:popped?'cartPop .32s ease':undefined }}>
-            <Plus size={12} color="white" strokeWidth={2.5}/>В корзину
-          </button>
-        ) : <QtyControl/>}
+        <div style={{ marginTop:'auto', paddingTop:6 }}>
+          {qty === 0 ? (
+            <button onClick={handleAdd} style={{ width:'100%', padding:'9px', borderRadius:12, background:'linear-gradient(135deg,var(--gr2),var(--gr))', border:'none', color:'white', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:5, cursor:'pointer', animation:popped?'cartPop .32s ease':undefined }}>
+              <Plus size={14} color="white" strokeWidth={2.5}/> В корзину
+            </button>
+          ) : <QtyControl/>}
+        </div>
       </div>
     </div>
   );

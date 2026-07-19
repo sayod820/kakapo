@@ -36,6 +36,7 @@ import {
 } from '@/lib/loyaltyStatusConfig'
 import { filterProductsBySearch, pickProductBySearch, productBarcodes, productSearchScore } from '@/lib/productBarcodes'
 import { useProductPhotos } from '@/lib/productPhotos'
+import ProductImage from '@/components/shared/ProductImage'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import {
@@ -4545,7 +4546,6 @@ export default function CashierModule({
               <div className="p-grid">
                 {visibleProducts.map(p => {
                   const stock = Number(p.stock) || 0
-                  const photo = p.photoThumb || p.photo || getPhoto(p.id)
                   const weighted = isWeighted(p)
                   const sellUnit = displaySellUnit(p)
                   const stockUnit = stockUnitLabel(p)
@@ -4575,7 +4575,13 @@ export default function CashierModule({
                         {isFav ? '★' : '☆'}
                       </span>
                       <div className="p-photo">
-                        {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
+                        <ProductImage
+                          product={p}
+                          preferThumb
+                          getPhoto={getPhoto}
+                          plate="none"
+                          style={{ width: '100%', height: '100%', borderRadius: 0, background: 'transparent' }}
+                        />
                         {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
                       </div>
                       <div className="p-name">{p.name}</div>
