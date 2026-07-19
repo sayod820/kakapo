@@ -132,7 +132,7 @@ function normalizeReceiptTemplate(raw) {
   return {
     printFont,
     charsPerLine,
-    lineSpacing: asInt(p.lineSpacing, d.lineSpacing, 16, 48),
+    lineSpacing: asInt(p.lineSpacing, d.lineSpacing, 16, 64),
 
     sizeStoreName: asSize(p.sizeStoreName, d.sizeStoreName),
     sizeSubtitle: asSize(p.sizeSubtitle, d.sizeSubtitle),

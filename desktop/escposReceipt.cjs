@@ -249,8 +249,19 @@ function buildEscPosReceipt(sale, opts = {}) {
       chunks.push(encodeCp866(`${part}\n`))
     }
   }
+  /** XP-58C часто сбрасывает ESC 3 после ESC ! / ESC M — повторяем после каждой смены стиля. */
+  const applyLineSpacing = () => {
+    const n = Math.max(16, Math.min(64, Number(tpl.lineSpacing) || 24))
+    cmd(ESC, 0x33, n)
+  }
+
   const sep = () => {
     setStyle({ size: tpl.sizeBody, bold: false })
+    txt('-'.repeat(width))
+  }
+  /** Тонкая чёрточка между товарами — чтобы позиции читались отдельно. */
+  const itemSep = () => {
+    setStyle({ size: 'small', bold: false })
     txt('-'.repeat(width))
   }
   const lines = (arr) => { for (const line of arr) txt(line) }
@@ -272,6 +283,7 @@ function buildEscPosReceipt(sale, opts = {}) {
     cmd(ESC, 0x21, n)
     cmd(ESC, 0x4D, font === 'small' ? 0x01 : 0x00)
     cmd(ESC, 0x45, bold ? 1 : 0)
+    applyLineSpacing()
   }
 
   const boot = (align = 0) => {
@@ -279,7 +291,7 @@ function buildEscPosReceipt(sale, opts = {}) {
     cmd(FS, 0x2E)
     cmd(ESC, 0x52, 0x00)
     cmd(ESC, 0x74, 17) // CP866
-    cmd(ESC, 0x33, tpl.lineSpacing)
+    applyLineSpacing()
     cmd(GS, 0x21, 0x00)
     cmd(ESC, 0x21, 0x00)
     setStyle({ size: tpl.sizeBody, bold: false })
@@ -327,14 +339,14 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   if (tpl.showItems) {
     // Для позиций всегда Font A / 32 символа: так название и расчёт не разъезжаются.
-    setStyle({ size: 'normal', bold: tpl.boldItems })
     items.forEach((it, idx) => {
+      setStyle({ size: 'normal', bold: tpl.boldItems })
       const qty = Number(it.qty) || 0
       const price = Number(it.price) || 0
       const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
       const fullName = String(it.productName || `#${it.productId}`).trim()
       lines(itemReceiptLines(fullName, qty, price, sum))
-      if (idx < items.length - 1) txt('')
+      if (idx < items.length - 1) itemSep()
     })
   }
 

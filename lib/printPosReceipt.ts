@@ -204,7 +204,7 @@ export function normalizeReceiptStore(p?: Partial<ReceiptStoreConfig> | null): R
   const rawSpacing = Math.round(Number(o.lineSpacing))
   const out = {
     lineSpacing: Number.isFinite(rawSpacing)
-      ? Math.max(16, Math.min(48, rawSpacing))
+      ? Math.max(16, Math.min(64, rawSpacing))
       : d.lineSpacing,
   } as ReceiptStoreConfig
   for (const f of RECEIPT_TEXT_FIELDS) {
@@ -398,7 +398,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     ? Math.round((discount / subtotal) * 100)
     : 0
 
-  const itemHtml = tpl.showItems ? items.map(it => {
+  const itemHtml = tpl.showItems ? items.map((it, idx) => {
     const qty = Number(it.qty) || 0
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
@@ -412,6 +412,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
       name = vol[1].trim()
       detail = vol[2].trim()
     }
+    const sep = idx < items.length - 1 ? '<div class="item-sep">--------------------------------</div>' : ''
     return `<div class="item">
     <div class="item-row">
       <span class="item-name">${esc(name)}</span>
@@ -419,7 +420,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     </div>
     ${detail ? `<div class="item-qty">${esc(detail)}</div>` : ''}
     <div class="item-qty">${qtyText(qty)} x ${shortMoney(price)}</div>
-  </div>`
+  </div>${sep}`
   }).join('\n') : ''
 
   const balBefore = sale.bonusBalanceBefore
@@ -504,7 +505,8 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   .totals .row{margin:3px 0}
   .grand-total{font-size:17px;font-weight:800;margin:6px 0;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0}
   .footer{margin-top:10px}
-  .item{margin-bottom:6px}
+  .item{margin-bottom:2px;padding-bottom:2px}
+  .item-sep{margin:4px 0;font-size:11px;letter-spacing:0;color:#000;white-space:pre}
 </style>
 </head>
 <body>

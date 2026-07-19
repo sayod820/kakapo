@@ -45,6 +45,7 @@ import {
   DEFAULT_RECEIPT_STORE,
   loadReceiptStore,
   normalizeReceiptStore,
+  RECEIPT_TEXT_FIELDS,
   RECEIPT_TOGGLE_FIELDS,
   saveReceiptStore,
   type ReceiptStoreConfig,
@@ -71,17 +72,11 @@ type ThemeName = 'dark' | 'light'
 type PayMethod = 'cash' | 'card' | 'credit' | 'balance' | 'mixed'
 type PosSettings = { cashierId: string; cashierName: string; initials: string }
 
-const RECEIPT_EDITOR_TEXT_FIELDS: Array<{
-  key: 'docTitle' | 'docTitleReturn' | 'docTitlePartial' | 'currency' | 'footerThanks' | 'footerNote'
-  label: string
-}> = [
-  { key: 'docTitle', label: 'Заголовок обычного чека' },
-  { key: 'docTitleReturn', label: 'Заголовок возврата' },
-  { key: 'docTitlePartial', label: 'Заголовок частичного возврата' },
-  { key: 'currency', label: 'Валюта' },
-  { key: 'footerThanks', label: 'Строка «Спасибо»' },
-  { key: 'footerNote', label: 'Примечание внизу' },
-]
+const RECEIPT_HEADER_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f =>
+  f.group === 'Шапка' && f.key !== 'storeName' && f.key !== 'storePhone' && f.key !== 'subtitle',
+)
+const RECEIPT_LABEL_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f => f.group === 'Подписи полей')
+const RECEIPT_FOOTER_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f => f.group === 'Футер')
 
 type CartLine = {
   key: string
@@ -3710,11 +3705,17 @@ export default function CashierModule({
                     <h3>Интервал печати</h3>
                     <p className="hint">
                       Межстрочный интервал: {receiptTemplateDraft.lineSpacing} точек
+                      {' · '}
+                      {receiptTemplateDraft.lineSpacing <= 22
+                        ? 'плотно'
+                        : receiptTemplateDraft.lineSpacing >= 40
+                          ? 'свободно'
+                          : 'обычно'}
                     </p>
                     <input
                       type="range"
                       min={16}
-                      max={48}
+                      max={64}
                       step={1}
                       value={receiptTemplateDraft.lineSpacing}
                       onChange={e => setReceiptTemplateDraft(prev => ({
@@ -3724,23 +3725,63 @@ export default function CashierModule({
                       style={{ width: '100%' }}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--t2)' }}>
-                      <span>Плотно</span>
-                      <span>Обычно: 24</span>
-                      <span>Свободно</span>
+                      <span>16 плотно</span>
+                      <span>24</span>
+                      <span>64 свободно</span>
                     </div>
+                    <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
+                      Сохраните шаблон и нажмите «Тест на XP-58C», чтобы проверить интервал на бумаге.
+                    </p>
                   </div>
 
                   <div className="pos-settings-card">
-                    <h3>Тексты чека</h3>
+                    <h3>Заголовки чека</h3>
                     <p className="hint">
-                      Название и телефон магазина задаются выше в настройках точки.
+                      Название и телефон магазина задаются в настройках точки.
                     </p>
-                    {RECEIPT_EDITOR_TEXT_FIELDS.map(field => (
+                    {RECEIPT_HEADER_TEXT_FIELDS.map(field => (
                       <div className="pos-settings-field" key={field.key}>
                         <span className="gate-label">{field.label}</span>
                         <input
                           className="gate-input"
-                          value={receiptTemplateDraft[field.key]}
+                          value={String(receiptTemplateDraft[field.key] ?? '')}
+                          onChange={e => setReceiptTemplateDraft(prev => ({
+                            ...prev,
+                            [field.key]: e.target.value,
+                          }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pos-settings-card">
+                    <h3>Подписи полей</h3>
+                    <p className="hint">
+                      Эти названия постоянно стоят на чеке — «Дата», «Касса», «ИТОГ» и т.д. Можно переименовать.
+                    </p>
+                    {RECEIPT_LABEL_TEXT_FIELDS.map(field => (
+                      <div className="pos-settings-field" key={field.key}>
+                        <span className="gate-label">{field.label}</span>
+                        <input
+                          className="gate-input"
+                          value={String(receiptTemplateDraft[field.key] ?? '')}
+                          onChange={e => setReceiptTemplateDraft(prev => ({
+                            ...prev,
+                            [field.key]: e.target.value,
+                          }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pos-settings-card">
+                    <h3>Низ чека</h3>
+                    {RECEIPT_FOOTER_TEXT_FIELDS.map(field => (
+                      <div className="pos-settings-field" key={field.key}>
+                        <span className="gate-label">{field.label}</span>
+                        <input
+                          className="gate-input"
+                          value={String(receiptTemplateDraft[field.key] ?? '')}
                           onChange={e => setReceiptTemplateDraft(prev => ({
                             ...prev,
                             [field.key]: e.target.value,
