@@ -307,9 +307,13 @@ function Clock() {
 function TradeAppInner({
   session,
   onLogout,
+  theme,
+  onThemeChange,
 }: {
   session: TradeEmployeeSession
   onLogout: () => void
+  theme: TradeTheme
+  onThemeChange: (theme: TradeTheme) => void
 }) {
   useApiSync('pos')
   const allowedNav = useMemo(
@@ -323,15 +327,9 @@ function TradeAppInner({
   const [search, setSearch] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
-  const [theme, setTheme] = useState<TradeTheme>('dark')
-
-  useEffect(() => {
-    setTheme(loadTradeTheme())
-  }, [])
 
   function applyTheme(next: TradeTheme) {
-    setTheme(next)
-    saveTradeTheme(next)
+    onThemeChange(next)
   }
 
   useEffect(() => {
@@ -537,13 +535,24 @@ function TradeAppInner({
 function TradeAppGate() {
   const [session, setSession] = useState<TradeEmployeeSession | null>(null)
   const [ready, setReady] = useState(false)
-  const [theme, setTheme] = useState<TradeTheme>('dark')
+  const [theme, setTheme] = useState<TradeTheme>(() => loadTradeTheme())
 
   useEffect(() => {
     setSession(loadTradeEmployeeSession())
     setTheme(loadTradeTheme())
     setReady(true)
   }, [])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.documentElement.style.background = theme === 'light' ? '#F3F7F4' : '#070C09'
+    document.body.style.background = theme === 'light' ? '#F3F7F4' : '#070C09'
+  }, [theme])
+
+  function applyTheme(next: TradeTheme) {
+    setTheme(next)
+    saveTradeTheme(next)
+  }
 
   if (!ready) {
     return (
@@ -559,6 +568,8 @@ function TradeAppGate() {
       <div className="k-trade" data-theme={theme} style={{ minHeight: '100vh', display: 'block' }}>
         <style>{CSS}</style>
         <TradeLoginPage
+          theme={theme}
+          onThemeChange={applyTheme}
           onSuccess={s => {
             saveTradeEmployeeSession(s)
             setSession(s)
@@ -571,6 +582,8 @@ function TradeAppGate() {
   return (
     <TradeAppInner
       session={session}
+      theme={theme}
+      onThemeChange={applyTheme}
       onLogout={() => {
         clearTradeEmployeeSession()
         setSession(null)
