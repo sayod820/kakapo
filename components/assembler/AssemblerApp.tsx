@@ -595,13 +595,18 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
 
           {/* Items preview */}
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
-            {order.items.slice(0,5).map((item,j)=>(
+            {order.items.slice(0,5).map((item,j)=>{
+              const photo = item.photoThumb || item.photo
+              return (
               <div key={j} style={{display:'flex',alignItems:'center',gap:5,padding:'4px 9px',borderRadius:9,background:item.done?'rgba(155,109,255,.12)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,position:'relative'}}>
-                <span style={{fontSize:14}}>{item.e}</span>
+                {photo
+                  ? <img src={photo} alt="" style={{width:18,height:18,borderRadius:4,objectFit:'contain',flexShrink:0}}/>
+                  : <span style={{fontSize:14}}>{item.e}</span>}
                 <span style={{fontSize:11,fontWeight:600,color:item.done?'#9B6DFF':'#8FB897',textDecoration:item.done?'line-through':'none'}}>{item.name.split(' ')[0]}</span>
                 {item.done&&<span style={{fontSize:10,color:'#9B6DFF'}}>✓</span>}
               </div>
-            ))}
+              )
+            })}
             {order.items.length>5&&<span style={{fontSize:11,color:'#3D6645',alignSelf:'center'}}>+{order.items.length-5} ещё</span>}
           </div>
 
@@ -798,6 +803,8 @@ type EditOrderItem = {
   qty: number
   unit: string
   price: number
+  photo?: string | null
+  photoThumb?: string | null
   done?: boolean
 }
 
@@ -811,6 +818,8 @@ function productToEditItem(p: Product, qty = 1, id?: number): EditOrderItem {
     qty,
     unit: p.unit,
     price: p.price,
+    photo: p.photo,
+    photoThumb: p.photoThumb,
     done: false,
   };
 }
@@ -1035,8 +1044,10 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
         {order.items.map((item,i)=>(
           <div key={item.id} onClick={() => !isCancelled && !isHandoffStage && onToggle(order.id, item.id)}
             style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:isCancelled || isHandoffStage ?'default':'pointer',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
-            <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s'}}>
-              {item.e}
+            <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s',overflow:'hidden'}}>
+              {(item.photoThumb || item.photo)
+                ? <img src={item.photoThumb || item.photo} alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
+                : item.e}
               {item.done&&(
                 <div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(155,109,255,.4)',display:'flex',alignItems:'center',justifyContent:'center',animation:'fadeIn .2s ease'}}>
                   <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{animation:'checkPop .3s ease'}}><polyline points="20 6 9 17 4 12"/></svg>
@@ -1211,7 +1222,9 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
               {editItems.map(item => (
                 <div key={item.id} style={{padding:'12px 14px',borderRadius:14,background:'#091508',border:'1px solid #162B1A'}}>
                   <div style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:10}}>
-                    <span style={{fontSize:24}}>{item.e}</span>
+                    {(item.photoThumb || item.photo)
+                      ? <img src={item.photoThumb || item.photo} alt="" style={{width:28,height:28,borderRadius:8,objectFit:'contain',flexShrink:0}}/>
+                      : <span style={{fontSize:24}}>{item.e}</span>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{item.name}</div>
                       <div style={{fontSize:10,color:'#8FB897'}}>{item.art} · {item.unit} · {item.price.toFixed(2)} ЅМ</div>

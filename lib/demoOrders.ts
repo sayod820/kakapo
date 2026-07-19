@@ -32,7 +32,7 @@ export interface DemoCourierOrder {
   /** Стоимость доставки, зафиксированная при оформлении — не меняется по факту маршрута */
   deliveryFee?: number;
   deliveryFeeLocked?: boolean;
-  items: { e: string; n: string; q: number; p: number; source?: string }[];
+  items: { e: string; n: string; q: number; p: number; source?: string; photo?: string }[];
   /** waiting — ещё не собирается; preparing — готовится; ready — можно забирать */
   mapStatus?: 'waiting' | 'preparing' | 'ready';
   /** market | restaurant | mixed — для подписей и цветов на карте */

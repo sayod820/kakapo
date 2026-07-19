@@ -10,6 +10,7 @@ interface Props {
   value: string
   onChange: (photo: string) => void
   onThumbChange?: (thumb: string) => void
+  onUploaded?: (photo: string, thumb: string) => void
   productId?: number | null
   label?: string
   height?: number
@@ -21,6 +22,7 @@ export default function PhotoUploadField({
   value,
   onChange,
   onThumbChange,
+  onUploaded,
   productId,
   label = 'Фото товара',
   height = 200,
@@ -58,12 +60,18 @@ export default function PhotoUploadField({
           replaceUrl: value || undefined,
           fileName: file.name || 'photo.jpg',
         })
-        onChange(result.url)
-        onThumbChange?.(result.thumbUrl)
+        if (onUploaded) onUploaded(result.url, result.thumbUrl)
+        else {
+          onChange(result.url)
+          onThumbChange?.(result.thumbUrl)
+        }
       } else {
         const dataUrl = await blobToDataUrl(file)
-        onChange(dataUrl)
-        onThumbChange?.(dataUrl)
+        if (onUploaded) onUploaded(dataUrl, dataUrl)
+        else {
+          onChange(dataUrl)
+          onThumbChange?.(dataUrl)
+        }
       }
       setStage('done')
       setTimeout(() => setStage('idle'), 700)

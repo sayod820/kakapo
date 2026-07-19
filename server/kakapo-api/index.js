@@ -624,9 +624,15 @@ app.post('/products', (req, res) => {
 app.patch('/products/:id', (req, res) => {
   const p = db.products.find(x => x.id === Number(req.params.id))
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
+  const previousPhoto = p.photo
   Object.assign(p, req.body)
   persist()
   broadcastProduct(p)
+  if (Object.prototype.hasOwnProperty.call(req.body, 'photo')
+      && previousPhoto
+      && previousPhoto !== p.photo) {
+    deleteManagedProductPhoto(previousPhoto)
+  }
   res.json(p)
 })
 

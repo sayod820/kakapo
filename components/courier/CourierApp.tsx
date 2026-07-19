@@ -1609,7 +1609,11 @@ function CourierAppInner() {
                       </div>
                       {/* состав */}
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
-                        {selected.items.map((it: any,i: number)=><span key={i} style={{ padding:'4px 9px', borderRadius:8, fontSize:11, background:'#091508', border:'1px solid #162B1A', color:'#8FB897' }}>{it.e} {it.n} ×{it.q}</span>)}
+                        {selected.items.map((it: any,i: number)=>(
+                          <span key={i} style={{ padding:'4px 9px', borderRadius:8, fontSize:11, background:'#091508', border:'1px solid #162B1A', color:'#8FB897', display:'inline-flex', alignItems:'center', gap:5 }}>
+                            {it.photo ? <img src={it.photo} alt="" style={{width:16,height:16,borderRadius:4,objectFit:'contain'}}/> : it.e} {it.n} ×{it.q}
+                          </span>
+                        ))}
                       </div>
                       {/* оплата */}
                       <div style={{ background:'rgba(31,215,96,.07)', border:'1.5px solid rgba(31,215,96,.35)', borderRadius:14, padding:'13px 15px', marginBottom:16 }}>
@@ -1807,7 +1811,9 @@ function CourierAppInner() {
                   <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                     {active.items.map((it: any,i: number)=>(
                       <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13 }}>
-                        <span style={{ color:'#EBF5ED' }}>{it.e} {it.n} <span style={{ color:'#3D6645' }}>×{it.q}</span></span>
+                        <span style={{ color:'#EBF5ED', display:'inline-flex', alignItems:'center', gap:6 }}>
+                          {it.photo ? <img src={it.photo} alt="" style={{width:20,height:20,borderRadius:5,objectFit:'contain'}}/> : it.e} {it.n} <span style={{ color:'#3D6645' }}>×{it.q}</span>
+                        </span>
                         <span style={{ fontWeight:700, color:'#8FB897' }}>{(it.p*it.q).toFixed(2)} ЅМ</span>
                       </div>
                     ))}

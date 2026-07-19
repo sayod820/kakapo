@@ -1243,6 +1243,7 @@ function ProductsPage() {
   const [nUnit,   setNUnit]   = useState('');
   const [nEmoji,  setNEmoji]  = useState('📦');
   const [nPhoto,  setNPhoto]  = useState('');
+  const [nPhotoThumb, setNPhotoThumb] = useState('');
   const [nStock,  setNStock]  = useState('');
   const [nOrganic,setNOrganic]= useState(false);
   const [nSellType,setNSellType]=useState('piece');
@@ -1252,11 +1253,13 @@ function ProductsPage() {
   const [nBulkPricing, setNBulkPricing] = useState([]);
   const [editForm,setEditForm]=useState(null);
   const [ePhoto,  setEPhoto]  = useState('');
+  const [ePhotoThumb, setEPhotoThumb] = useState('');
 
   useEffect(() => { hydrate(); }, [hydrate]);
   useEffect(() => {
     if (!editP) { setEditForm(null); return; }
     setEPhoto(editP.photo || getPhoto(editP.id) || '');
+    setEPhotoThumb(editP.photoThumb || '');
     setEditForm({
       name: editP.name,
       art: editP.art,
@@ -1320,7 +1323,7 @@ function ProductsPage() {
 
   const resetAddForm = () => {
     setNName(''); setNArt(''); setNPrice(''); setNCostPrice(''); setNUnit(''); setNStock('');
-    setNEmoji('📦'); setNPhoto(''); setNOrganic(false); setNSellType('piece');
+    setNEmoji('📦'); setNPhoto(''); setNPhotoThumb(''); setNOrganic(false); setNSellType('piece');
     setNWeightStep('100'); setNUnitGrams('1000'); setNDesc(''); setNBulkPricing([]);
   };
 
@@ -1342,6 +1345,7 @@ function ProductsPage() {
         unitGrams:Number(nUnitGrams)||1000,
       } : {}),
       photo:nPhoto||undefined,
+      photoThumb:nPhotoThumb||undefined,
       bulkPricing: serializeBulkPricing(nBulkPricing),
     };
     const saved = await saveProduct(product);
@@ -1361,7 +1365,8 @@ function ProductsPage() {
       stock: Number(editForm.stock),
       catId: editForm.catId,
       cat: CATS_LIST.find(c=>c.id===editForm.catId)?.name || editP.cat,
-      photo: ePhoto || undefined,
+      photo: ePhoto || null,
+      photoThumb: ePhotoThumb || null,
       sellType: editForm.sellType || 'piece',
       ...(editForm.sellType === 'weight' ? {
         weightStep: Number(editForm.weightStep) || 100,
@@ -1444,8 +1449,8 @@ function ProductsPage() {
                   <td>
                     <div style={{display:'flex',alignItems:'center',gap:10}}>
                       <div style={{width:40,height:40,borderRadius:10,background:'#162B1A',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0,overflow:'hidden',border:'1px solid #1E3522'}}>
-                        {(p.photo || getPhoto(p.id))
-                          ? <img src={p.photo || getPhoto(p.id)} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                        {(p.photoThumb || p.photo || getPhoto(p.id))
+                          ? <img src={p.photoThumb || p.photo || getPhoto(p.id)} alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
                           : p.e
                         }
                     </div>
@@ -1502,7 +1507,11 @@ function ProductsPage() {
               <button onClick={closeAddModal} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <PhotoUploadField value={nPhoto} onChange={setNPhoto} />
+              <PhotoUploadField
+                value={nPhoto}
+                onChange={photo => { setNPhoto(photo); if (!photo) setNPhotoThumb(''); }}
+                onUploaded={(photo, thumb) => { setNPhoto(photo); setNPhotoThumb(thumb); }}
+              />
               <div style={{display:'grid',gridTemplateColumns:'72px 1fr 1fr',gap:12}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Emoji</div><input className="ai" value={nEmoji} onChange={e=>setNEmoji(e.target.value)} style={{textAlign:'center',fontSize:24,height:48}}/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Название *</div><input className="ai" value={nName} onChange={e=>setNName(e.target.value)} placeholder="Название товара"/></div>
@@ -1566,7 +1575,13 @@ function ProductsPage() {
               <button onClick={()=>setEditP(null)} className="ab" style={{background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <PhotoUploadField value={ePhoto} onChange={setEPhoto} productId={editP?.id} height={160} />
+              <PhotoUploadField
+                value={ePhoto}
+                onChange={photo => { setEPhoto(photo); if (!photo) setEPhotoThumb(''); }}
+                onUploaded={(photo, thumb) => { setEPhoto(photo); setEPhotoThumb(thumb); }}
+                productId={editP?.id}
+                height={160}
+              />
               <div>
                 <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Описание</div>
                 <textarea className="ai" value={editForm.desc} onChange={e=>setEditForm(f=>({...f,desc:e.target.value}))} rows={3} placeholder="Подробное описание для клиента..." style={{resize:'vertical',minHeight:72}}/>

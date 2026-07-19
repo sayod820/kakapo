@@ -15,6 +15,8 @@ export interface OrderItem {
   qty: number
   unit: string
   price: number
+  photo?: string | null
+  photoThumb?: string | null
   done?: boolean // для сборщика
   source?: 'market' | 'restaurant'
   restId?: string
@@ -108,9 +110,9 @@ export interface Product {
   hot: boolean
   organic?: boolean
   discount?: number
-  photo?: string
+  photo?: string | null
   /** Миниатюра WebP (списки / касса) */
-  photoThumb?: string
+  photoThumb?: string | null
   desc?: string
   brand?: string
   country?: string

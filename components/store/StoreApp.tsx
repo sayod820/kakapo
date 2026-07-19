@@ -4,7 +4,7 @@ import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
 import { hydrateCourierStores, usePickups } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
-import { useProductPhotos } from "@/lib/productPhotos";
+import { useProductPhotos, resolveProductPhoto, resolveOrderItemPhoto } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
 import { productCatSlug } from "@/lib/enrichCatalog";
 import { productRatingUi, restaurantCuisineLabel, restaurantRatingLabel, restaurantReviewsLabel } from "@/lib/catalogUi";
@@ -1319,7 +1319,8 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const bulkHint = formatBulkPricingHint(p);
   const [pop, setPop] = useState(false);
-  const photo = useProductPhotos(s => s.photos[p.id]);
+  const localPhoto = useProductPhotos(s => s.photos[p.id]);
+  const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto: () => localPhoto });
   const add = e => { e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 300); onAdd(p.id); };
   return (
     <div className="card" style={{ display:"flex", flexDirection:"column", height:"100%", cursor:"default", position:"relative" }} onClick={() => go("product", { id:p.id })}>
@@ -1334,7 +1335,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
       </div>
       <div style={{ height:110, flexShrink:0, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
         {photo
-          ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/>
+          ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/>
           : p.e
         }
       </div>
@@ -1617,8 +1618,11 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
               const rating = productRatingUi(p, catalogReady);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product", { id:p.id })}>
-                  <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative" }}>
-                    {p.e}{disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc}%</div>}
+                  <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                    {resolveProductPhoto(p, { preferThumb: true })
+                      ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/>
+                      : p.e}
+                    {disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc}%</div>}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:1 }}>{p.name}</div>
@@ -1715,7 +1719,8 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const [storeReviews, setStoreReviews] = useState<Review[]>([]);
   const [storeRevCount, setStoreRevCount] = useState<number | null>(null);
   const [revLoading, setRevLoading] = useState(false);
-  const photo = useProductPhotos(s => s.photos[p.id]);
+  const localPhoto = useProductPhotos(s => s.photos[p.id]);
+  const photo = resolveProductPhoto(p, { preferThumb: false, getPhoto: () => localPhoto });
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const pCat = productCatSlug(p);
   const related = prods.filter(x => productCatSlug(x) === pCat && x.id !== p.id).slice(0, 4);
@@ -1769,7 +1774,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
       </div>
       <div style={{ height:300, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
         {photo
-          ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}/>
+          ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/>
           : <div style={{ fontSize:120, filter:"drop-shadow(0 20px 40px rgba(0,0,0,.5))", animation:"float 3s ease-in-out infinite", position:"relative", zIndex:1 }}>{p.e}</div>
         }
         <div style={{ position:"absolute", bottom:18, left:18, display:"flex", gap:6 }}>
@@ -1864,7 +1869,11 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
             <div className="hscroll">
               {related.map(rp => (
                 <div key={rp.id} className="card" style={{ width:140, flexShrink:0, cursor:"pointer" }} onClick={() => go("product", { id:rp.id })}>
-                  <div style={{ height:80, background:rp.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:36 }}>{rp.e}</div>
+                  <div style={{ height:80, background:rp.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:36, overflow:"hidden" }}>
+                    {resolveProductPhoto(rp, { preferThumb: true })
+                      ? <img src={resolveProductPhoto(rp, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/>
+                      : rp.e}
+                  </div>
                   <div style={{ padding:"9px 10px 8px" }}>
                     <div style={{ fontSize:11, fontWeight:700, lineHeight:1.3, marginBottom:3 }}>{rp.name}</div>
                     <div style={{ fontSize:10, color:"var(--t3)", marginBottom:5 }}>{rp.unit}</div>
@@ -1952,8 +1961,11 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               const unitPrice = cartUnitPrice(p, p.qty, !!p.isRest);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"13px" }}>
-                  <div style={{ width:62, height:62, borderRadius:15, background:p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative" }}>
-                    {p.e}{disc2>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc2}%</div>}
+                  <div style={{ width:62, height:62, borderRadius:15, background:p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                    {resolveProductPhoto(p, { preferThumb: true })
+                      ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/>
+                      : p.e}
+                    {disc2>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc2}%</div>}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:700, marginBottom:2 }}>{p.name}</div>
@@ -3420,13 +3432,18 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
         <ClientOrderContactsBlock contacts={selectedContacts} pickups={pickups} />
         <div className="card" style={{ marginBottom:14, overflow:"hidden" }}>
           <div style={{ padding:"13px 15px", borderBottom:"1px solid var(--b1)", fontSize:13, fontWeight:800 }}>Состав заказа</div>
-          {selected.items.map((item,i) => (
+          {selected.items.map((item,i) => {
+            const photo = resolveOrderItemPhoto(item, prods)
+            return (
             <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 15px", borderBottom:i<selected.items.length-1?"1px solid var(--b1)":"none" }}>
-              <div style={{ width:42, height:42, borderRadius:11, background:"var(--l3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{item.e}</div>
+              <div style={{ width:42, height:42, borderRadius:11, background:"var(--l3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0, overflow:"hidden" }}>
+                {photo ? <img src={photo} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/> : item.e}
+              </div>
               <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600 }}>{item.name}</div><div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>× {item.qty}</div></div>
               <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
             </div>
-          ))}
+            )
+          })}
         </div>
         <div className="card" style={{ padding:"15px", marginBottom:14 }}>
           <div style={{ display:"flex", justifyContent:"space-between", padding:"8px 0" }}>
@@ -3762,6 +3779,7 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
 
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
   const qty = cart[p.id] || 0;
+  const photo = resolveProductPhoto(p, { preferThumb: true });
                 return (
     <div
       onClick={() => go("product", { id: p.id })}
@@ -3779,8 +3797,10 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
         flexDirection: "column",
       }}
     >
-      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: p.grad || "rgba(255,69,69,.06)" }}>
-                      {p.e}
+      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: p.grad || "rgba(255,69,69,.06)", overflow: "hidden" }}>
+        {photo
+          ? <img src={photo} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+          : p.e}
         <div className="ub" style={{ position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 8, background: "var(--red)", fontSize: 10, fontWeight: 900, color: "#fff" }}>−{disc}%</div>
                     </div>
       <div style={{ padding: "10px 11px 11px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -4160,8 +4180,11 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
                 const rating = productRatingUi(p, catalogReady);
                 return (
                   <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product",{id:p.id})}>
-                    <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative" }}>
-                      {p.e}{disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc}%</div>}
+                    <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                      {resolveProductPhoto(p, { preferThumb: true })
+                        ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/>
+                        : p.e}
+                      {disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc}%</div>}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:13, fontWeight:700, marginBottom:1 }}>{p.name}</div>
@@ -4334,6 +4357,7 @@ function VipDebtSection({
   apiOrders?: import('@/lib/types').Order[]
   loyaltyProfile?: { level?: string; vip?: boolean } | null
 }) {
+  const { prods } = useLiveCatalog()
   const [tab, setTab] = useState<DebtTab>('all')
   const [histTick, setHistTick] = useState(0)
   const [payDetail, setPayDetail] = useState<import('@/lib/clientVipCredit').DebtHistoryEntry | null>(null)
@@ -4738,16 +4762,21 @@ function VipDebtSection({
 
             <div className="card" style={{ overflow: 'hidden', marginBottom: 16 }}>
               <div style={{ padding: '12px 15px', borderBottom: '1px solid var(--b1)', fontSize: 13, fontWeight: 800 }}>Состав заказа</div>
-              {order?.items?.length ? order.items.map((item, i) => (
+              {order?.items?.length ? order.items.map((item, i) => {
+                const photo = resolveOrderItemPhoto(item, prods)
+                return (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 15px', borderBottom: i < order.items.length - 1 ? '1px solid var(--b1)' : 'none' }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--l3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{item.e}</div>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--l3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0, overflow: 'hidden' }}>
+                    {photo ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}/> : item.e}
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>× {item.qty}</div>
                   </div>
                   <span className="ub" style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></span>
                 </div>
-              )) : (
+                )
+              }) : (
                 <div style={{ padding: '14px 15px', fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>
                   {hist.itemsSummary || 'Состав заказа недоступен'}
                 </div>

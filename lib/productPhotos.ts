@@ -55,6 +55,31 @@ export const useProductPhotos = create<ProductPhotosStore>((set, get) => ({
   getPhoto: (id) => get().photos[id],
 }));
 
-export function resolveProductPhoto(product: { id: number; photo?: string }, getPhoto: (id: number) => string | undefined) {
-  return product.photo || getPhoto(product.id);
+/** URL фото товара: серверное → локальный fallback (демо без API) */
+export function resolveProductPhoto(
+  product: { id?: number; photo?: string | null; photoThumb?: string | null } | null | undefined,
+  opts?: { preferThumb?: boolean; getPhoto?: (id: number) => string | undefined },
+) {
+  if (!product) return undefined
+  const preferThumb = opts?.preferThumb !== false
+  const local = typeof product.id === 'number' && opts?.getPhoto
+    ? opts.getPhoto(product.id)
+    : undefined
+  if (preferThumb) {
+    return product.photoThumb || product.photo || local || undefined
+  }
+  return product.photo || product.photoThumb || local || undefined
+}
+
+/** Иконка/фото для строки заказа: сначала поля item, иначе живой каталог */
+export function resolveOrderItemPhoto(
+  item: { id?: number; product_id?: number; photo?: string | null; photoThumb?: string | null; e?: string },
+  products?: Array<{ id: number; photo?: string | null; photoThumb?: string | null }>,
+) {
+  const fromItem = item.photoThumb || item.photo
+  if (fromItem) return fromItem
+  const pid = Number(item.product_id ?? item.id)
+  if (!pid || !products?.length) return undefined
+  const p = products.find(x => x.id === pid)
+  return p ? (p.photoThumb || p.photo || undefined) : undefined
 }

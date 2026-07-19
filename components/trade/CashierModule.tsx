@@ -4545,7 +4545,7 @@ export default function CashierModule({
               <div className="p-grid">
                 {visibleProducts.map(p => {
                   const stock = Number(p.stock) || 0
-                  const photo = p.photo || getPhoto(p.id)
+                  const photo = p.photoThumb || p.photo || getPhoto(p.id)
                   const weighted = isWeighted(p)
                   const sellUnit = displaySellUnit(p)
                   const stockUnit = stockUnitLabel(p)

@@ -58,7 +58,7 @@ export default function ProductFormFields({
           value={form.photo}
           productId={productId}
           onChange={photo => setForm({ ...form, photo })}
-          onThumbChange={photoThumb => setForm({ ...form, photoThumb })}
+          onUploaded={(photo, photoThumb) => setForm({ ...form, photo, photoThumb })}
           height={220}
         />
       </div>

@@ -38,6 +38,21 @@ export function useApiSync(mode: SyncMode = 'all') {
       return
     }
     if (msg.event === 'product_update') {
+      const incoming = msg.product
+      if (incoming?.id && incoming.deleted) {
+        useProducts.setState(s => ({
+          products: s.products.filter(p => p.id !== Number(incoming.id)),
+        }))
+      } else if (incoming?.id && (incoming.name || Object.prototype.hasOwnProperty.call(incoming, 'photo'))) {
+        useProducts.setState(s => {
+          const exists = s.products.some(p => p.id === Number(incoming.id))
+          return {
+            products: exists
+              ? s.products.map(p => p.id === Number(incoming.id) ? { ...p, ...incoming } : p)
+              : [...s.products, incoming],
+          }
+        })
+      }
       void useProducts.getState().fetchProducts()
       if (mode === 'pos') void syncPosFromApi()
       return

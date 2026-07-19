@@ -318,7 +318,7 @@ export default function ProductTab({
               <tbody>
                 {filtered.map(p => {
                   const sc = stockStatus(Number(p.stock) || 0)
-                  const photo = p.photo || getPhoto(p.id)
+                  const photo = p.photoThumb || p.photo || getPhoto(p.id)
                   const bulkHint = formatBulkPricingHint(p)
                   const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
                   return (
@@ -327,7 +327,7 @@ export default function ProductTab({
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{ width: 40, height: 40, borderRadius: 10, background: '#0e1712', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, overflow: 'hidden', flexShrink: 0 }}>
-                            {photo ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (p.e || '📦')}
+                            {photo ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : (p.e || '📦')}
                           </div>
                           <div>
                             <div style={{ fontWeight: 800 }}>{p.name}</div>

@@ -139,6 +139,8 @@ export function orderItemFromProduct(p: Partial<Product>, qty: number) {
       : Number(effectiveUnitPrice(p, qty).toFixed(2)),
     source: 'market' as const,
     ...(p.art ? { art: p.art } : {}),
+    ...(p.photo ? { photo: p.photo } : {}),
+    ...(p.photoThumb ? { photoThumb: p.photoThumb } : {}),
   }
 }
 
