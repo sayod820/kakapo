@@ -195,7 +195,7 @@ const CSS = `
     .k-hide-desk{display:block}
     .k-trade{flex-direction:column}
     .k-side{
-      position:fixed;left:0;top:0;z-index:200;width:min(280px,88vw);height:100vh;
+      position:fixed;left:0;top:0;z-index:200;width:min(280px,88vw);height:100vh;height:100dvh;
       transform:translateX(-105%);transition:transform .25s ease;box-shadow:none
     }
     .k-side.open{transform:translateX(0);box-shadow:8px 0 32px rgba(0,0,0,.55)}
@@ -209,7 +209,7 @@ const CSS = `
       border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);
       cursor:pointer;font-size:20px;flex-shrink:0
     }
-    .k-main{width:100%;height:auto;min-height:100vh;padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
+    .k-main{width:100%;height:auto;min-height:100vh;min-height:100dvh;padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
     .k-top{padding:10px 12px;gap:8px;flex-wrap:wrap}
     .k-search{max-width:none;min-width:0;order:3;flex:1 1 100%}
     .k-user .who{display:none}
@@ -254,10 +254,18 @@ const CSS = `
     .k-bottom-nav button.menu-btn{color:var(--text)}
   }
 
+  @media (max-width:600px){
+    .k-kpis{grid-template-columns:1fr 1fr}
+    .k-receipt-summary{grid-template-columns:1fr}
+    .k-theme-toggle{order:2}
+    .k-user{padding:4px}
+  }
+
   @media (max-width:480px){
     .k-kpis{grid-template-columns:1fr 1fr}
     .k-receipt-summary{grid-template-columns:1fr 1fr}
     .k-mob-menu-btn{width:38px;height:38px}
+    .k-body{padding:10px}
   }
 `
 

@@ -332,8 +332,8 @@ export const POS_MOCK_CSS = `
   .gate-input::placeholder{color:var(--t3);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(31,215,96,.25);}
 
-  /* Касса: товары слева, чек справа (как было) */
-  .app{display:grid;grid-template-columns:1fr minmax(720px,780px);grid-template-rows:64px 1fr;height:100%;}
+  /* Касса: товары слева, чек справа */
+  .app{display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,min(42vw,480px));grid-template-rows:64px 1fr;height:100%;height:100dvh;}
 
   .topbar{grid-column:1/3;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--surface);border-bottom:1px solid var(--border);}
   .top-meta{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:4px 0;margin-left:auto;}
@@ -1185,12 +1185,27 @@ export const POS_MOCK_CSS = `
   .z-stat .v{font-family:'JetBrains Mono';font-size:17px;font-weight:800;}
   .pos-err{margin-top:10px;padding:10px 12px;border-radius:10px;font-size:12px;background:rgba(255,69,69,.1);border:1px solid rgba(255,69,69,.3);color:var(--red);}
 
+  @media(max-width:1200px){
+    .app{grid-template-columns:minmax(0,1fr) minmax(300px,38vw);}
+    .searchpill{flex:0 1 220px;width:auto;max-width:min(260px,28vw);min-width:140px;}
+    .top-clock .tm{font-size:15px;}
+  }
+
   @media(max-width:900px){
     .app{grid-template-columns:1fr;grid-template-rows:auto auto auto;min-height:100%;overflow:auto;height:auto;}
     .topbar{grid-column:1;flex-wrap:wrap;height:auto;padding:10px 12px;gap:8px;}
     .top-loc{order:0;}
     .top-meta{margin-left:0;width:100%;justify-content:space-between;order:2;}
     .searchpill{flex:1 1 100%;max-width:none;min-width:0;width:100%;order:1;}
-    .cart{border-left:none;border-top:1px solid var(--border);max-height:55vh;}
+    .cart{border-left:none;border-top:1px solid var(--border);max-height:45vh;}
+    .products{min-height:42vh;}
+  }
+
+  @media(max-width:600px){
+    .top-clock{display:none;}
+    .pos-root button.btn-switch-till span:not(.sw-ic){display:none;}
+    .pos-root button.btn-switch-till{padding:9px 10px;}
+    .cart{max-height:40vh;}
+    .gate-card{width:min(100%,420px);margin:12px;padding:20px 16px;}
   }
 `

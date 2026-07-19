@@ -102,6 +102,26 @@ const CSS = `
   --b1:#162B1A;--b2:#1D3822;
   --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
   --red:#FF4545;--blue:#3B8EF0;--sky:#00D4C8;--pur:#9B6DFF;--org:#FF7D3B;--gd2:#E89E00;
+  --store-w:480px;
+}
+@media (min-width:600px){:root{--store-w:640px;}}
+@media (min-width:900px){:root{--store-w:920px;}}
+@media (min-width:1200px){:root{--store-w:1100px;}}
+.store-shell{width:100%;max-width:var(--store-w);margin:0 auto;min-height:100vh;min-height:100dvh;overflow-x:clip;}
+.store-nav{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:var(--store-w);z-index:200;
+}
+.store-fixed-bar{left:50%!important;transform:translateX(-50%)!important;width:100%!important;max-width:var(--store-w)!important;}
+.store-prod-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+@media (min-width:600px){.store-prod-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}}
+@media (min-width:900px){.store-prod-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}}
+@media (min-width:1200px){.store-prod-grid{grid-template-columns:repeat(5,minmax(0,1fr));}}
+@media (min-width:900px){
+  .store-desktop-pad{padding-left:20px!important;padding-right:20px!important;}
+  .inp,.chip,.btn{font-size:14px;}
+}
+@media (max-width:480px){
+  .inp{font-size:16px;min-height:44px;}
 }
 html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
 .ub{font-family:'Unbounded',sans-serif;}
@@ -274,13 +294,12 @@ const Nav = ({ page, go, user: userProp }) => {
   const syncedUser = userProp ?? loadStoreUser()
   const { isVip } = resolveUserVip(syncedUser)
   return (
-  <nav style={{
-    position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480,
+  <nav className="store-nav" style={{
     background: isVip ? "rgba(10,8,2,.97)" : "rgba(3,11,5,.97)",
     backdropFilter:"blur(26px)",
     borderTop: isVip ? "1px solid rgba(255,184,0,.35)" : "1px solid var(--b1)",
     boxShadow: isVip ? "0 -4px 24px rgba(255,184,0,.12)" : "none",
-    padding:"8px 18px calc(16px + env(safe-area-inset-bottom, 0px))", display:"flex", justifyContent:"space-around", zIndex:200,
+    padding:"8px 18px calc(16px + env(safe-area-inset-bottom, 0px))", display:"flex", justifyContent:"space-around",
   }}>
     {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => {
       const on = page === item.id
@@ -721,7 +740,7 @@ function countClientOrders(apiOrders: import('@/lib/types').Order[], user?: Stor
 function vipPageShell(isVip: boolean) {
   return {
     minHeight: '100vh' as const,
-    maxWidth: 480,
+    maxWidth:'var(--store-w)',
     margin: '0 auto' as const,
     background: isVip
       ? 'radial-gradient(ellipse 100% 35% at 50% 0%, rgba(255,184,0,.09) 0%, transparent 50%), var(--bg)'
@@ -739,7 +758,7 @@ function profilePageShell(theme: TierTheme, tierId: string) {
   const glow = tierTopGlowMap(loadLoyaltyStatusConfig())[tierId] || tierTopGlowMap(loadLoyaltyStatusConfig()).bronze
   return {
     minHeight: '100vh' as const,
-    maxWidth: 480,
+    maxWidth:'var(--store-w)',
     margin: '0 auto' as const,
     background: `radial-gradient(ellipse 100% 38% at 50% -2%, ${glow} 0%, transparent 52%), var(--bg)`,
   }
@@ -1392,7 +1411,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % BANNERS.length), 4000); return () => clearInterval(t); }, []);
   const b = BANNERS[bi];
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <Header go={go} cart={cart} user={vipUser}/>
       <div style={{ padding:"14px 18px 100px" }}>
         <HomeVipWelcome user={vipUser} go={go}/>
@@ -1453,7 +1472,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🔥 Хиты продаж</div>
           <button onClick={() => go("hot")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20, alignItems:"stretch" }}>
+        <div className="store-prod-grid" style={{ marginBottom:20, alignItems:"stretch" }}>
           {prods.filter(p => p.hot).slice(0,4).map((p,i) => (
             <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both`, height:"100%" }}>
               <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
@@ -1476,7 +1495,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 const CatalogPage = ({ go, cart, user }) => {
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   return (
-  <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+  <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart} user={user}/>
     <div style={{ padding:"16px 18px 100px" }}>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
@@ -1549,13 +1568,13 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   else if (isHotHits) items = [...items].sort((a,b) => (b.r || 0) - (a.r || 0));
   if (USE_API && !catalogReady) {
     return (
-      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", color:"var(--t3)", fontSize:13 }}>
+      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", color:"var(--t3)", fontSize:13 }}>
         Загрузка каталога…
       </div>
     );
   }
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
         <div style={{ padding:"13px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go(isHotHits ? "home" : "catalog")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -1608,7 +1627,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
             <button className="btn" onClick={() => isHotHits ? go("home") : setSearch("")} style={{ padding:"12px 24px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>{isHotHits ? "На главную" : "Сбросить"}</button>
           </div>
         ) : view === "grid" ? (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"stretch" }}>
+          <div className="store-prod-grid" style={{ alignItems:"stretch" }}>
             {items.map((p,i) => <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both`, height:"100%" }}><PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/></div>)}
           </div>
         ) : (
@@ -1709,7 +1728,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const p = prods.find(x => x.id == params?.id);
   if (!catalogReady || !p) {
     return (
-      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", padding:"40px 18px", color:"var(--t2)" }}>
+      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", padding:"40px 18px", color:"var(--t2)" }}>
         Загрузка товара...
       </div>
     );
@@ -1759,8 +1778,8 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   }, [tab]);
   const storeRevLabel = storeRevCount == null ? '…' : String(storeRevCount);
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
-      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:100, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
         <button onClick={() => go("catalog")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"rgba(3,11,5,.75)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={18} c="var(--t1)"/></button>
         <div style={{ display:"flex", gap:8 }}>
           <button onClick={() => onWish(p.id)} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"rgba(3,11,5,.75)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -1890,7 +1909,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           </div>
         )}
       </div>
-      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px 24px" }}>
+      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px 24px" }}>
         <div style={{ display:"flex", gap:10, alignItems:"center" }}>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div>
@@ -1933,7 +1952,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
   const totalSaved = Math.round((bulkSaved + saleSaved) * 100) / 100;
   const tqty  = items.length;
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -2010,7 +2029,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
             </div>
       )}
       {items.length > 0 && (
-        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:210, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(14px + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:210, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(14px + env(safe-area-inset-bottom, 0px))" }}>
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             {retailSub > sub && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--t3)", marginBottom:6 }}>
@@ -2412,7 +2431,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   };
 
   if (step === "ok") return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px 24px", textAlign:"center" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px 24px", textAlign:"center" }}>
       <div style={{ width:90, height:90, borderRadius:"50%", background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 0 60px rgba(31,215,96,.5)", marginBottom:24, animation:"successPop .6s cubic-bezier(.16,1,.3,1)" }}>
         <Ic n="check" s={44} c="white" w={2.5}/>
       </div>
@@ -2440,7 +2459,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   );
 
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -2601,7 +2620,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       </div>
         )}
     </div>
-      <div ref={checkoutFooterRef} style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px calc(28px + env(safe-area-inset-bottom, 0px))" }}>
+      <div ref={checkoutFooterRef} style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px calc(28px + env(safe-area-inset-bottom, 0px))" }}>
         {addrReady && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0 }}>
@@ -2681,13 +2700,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 
 function StoreSessionBoot() {
   return (
-    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }} />
+    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }} />
   );
 }
 
 function CartPageBoot({ go }: { go: (p: string) => void }) {
   return (
-    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
       <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.96)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
@@ -2798,7 +2817,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
   if (!sessionReady) return <StoreSessionBoot />;
 
   if (!user) return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
       <div style={{ fontSize:60, marginBottom:16, animation:"float 3s ease-in-out infinite" }}>👤</div>
       <div className="ub" style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Войдите в аккаунт</div>
       <div style={{ fontSize:13, color:"var(--t2)", marginBottom:24, lineHeight:1.6 }}>Войдите по номеру телефона — бонусы, заказы и персональные предложения</div>
@@ -3162,7 +3181,7 @@ function OrderReviewModal({
   return (
     <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
       <div onClick={onClose} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
-      <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:480, maxHeight:"88vh", overflowY:"auto", background:"var(--l1)", borderTop:"1px solid var(--b1)", borderRadius:"24px 24px 0 0", padding:"20px 20px 36px", animation:"slideUp .4s cubic-bezier(.16,1,.3,1)" }}>
+      <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:'var(--store-w)', maxHeight:"88vh", overflowY:"auto", background:"var(--l1)", borderTop:"1px solid var(--b1)", borderRadius:"24px 24px 0 0", padding:"20px 20px 36px", animation:"slideUp .4s cubic-bezier(.16,1,.3,1)" }}>
         <div style={{ width:40, height:4, borderRadius:2, background:"var(--b2)", margin:"0 auto 16px" }}/>
         <div style={{ fontSize:16, fontWeight:800, textAlign:"center", marginBottom:4 }}>Оцените заказ</div>
         <div style={{ fontSize:12, color:"var(--t2)", textAlign:"center", marginBottom:16 }}>Заказ {order.id}</div>
@@ -3369,7 +3388,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   };
 
   if (selected) return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => setSelected(null)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -3505,7 +3524,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   );
 
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -3667,7 +3686,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
 
   if (!user) {
   return (
-      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
         <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Войдите, чтобы видеть отзывы</div>
         <button onClick={() => go("auth")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white" }}>Войти</button>
@@ -3679,7 +3698,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
   const withReplies = reviews.filter(r => r.adminReply || r.restReply).length;
 
   return (
-    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
       <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.96)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -3911,7 +3930,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
 
   if (promosBoot) {
     return (
-      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
         <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
           <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
@@ -3935,7 +3954,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   if (activeGroup) {
     const { cat, items } = activeGroup;
     return (
-      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+      <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
         <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
           <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
             <button onClick={() => setSelectedCat(null)} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -3957,7 +3976,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
               <button onClick={() => setSelectedCat(null)} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "var(--l2)", border: "1px solid var(--b1)", color: "var(--t2)", fontSize: 13 }}>← Назад к акциям</button>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "stretch" }}>
+            <div className="store-prod-grid" style={{ alignItems: "stretch" }}>
               {items.map((p, i) => (
                 <div key={p.id} style={{ animation: `fadeUp .4s cubic-bezier(.16,1,.3,1) ${Math.min(i, 8) * .04}s both`, height: "100%" }}>
                   <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[p.id]} go={go}/>
@@ -3973,7 +3992,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   }
 
   return (
-    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth: 480, margin: "0 auto" }}>
+    <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
       <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
@@ -4071,7 +4090,7 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const totalQtyNum = sumCartUnits(cart, prods);
 
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
@@ -4102,7 +4121,7 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             </button>
           </div>
         ) : (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"stretch" }}>
+          <div className="store-prod-grid" style={{ alignItems:"stretch" }}>
             {items.map((p, i) => (
               <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i * .04}s both`, height:"100%" }}>
                 <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
@@ -4130,7 +4149,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -4220,7 +4239,7 @@ const FAQPage = ({ go }) => {
   const items = useMemo(() => FAQ(), []);
   const filtered = items.filter(f => q==="" || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase()));
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -4329,7 +4348,7 @@ function DebtBottomSheet({ onClose, children }: { onClose: () => void; children:
     <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
       <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
       <div style={{
-        position: 'relative', zIndex: 1, width: '100%', maxWidth: 480,
+        position: 'relative', zIndex: 1, width: '100%', maxWidth:'var(--store-w)',
         background: 'var(--l1)', borderTop: '1px solid var(--b1)',
         borderRadius: '24px 24px 0 0', padding: '20px 20px 36px',
         maxHeight: '88vh', overflowY: 'auto',
@@ -4892,7 +4911,7 @@ const VIPPage = ({ go, user, setUser }) => {
     <div data-store-page style={{
       minHeight:"100vh",
       background:"var(--bg)",
-      maxWidth:480, margin:"0 auto",
+      maxWidth:'var(--store-w)', margin:"0 auto",
     }}>
       <header style={{
         position:"sticky", top:0, zIndex:100,
@@ -5134,7 +5153,7 @@ const AboutPage = ({ go, user }) => {
   };
 
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -5420,7 +5439,7 @@ const NotifPage = ({go, user}) => {
   };
 
   return (
-    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -5650,7 +5669,7 @@ const AddressesPage = ({ go, user }) => {
   };
 
   return (
-    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -5692,7 +5711,7 @@ const AddressesPage = ({ go, user }) => {
         </div>
       </div>
       {showAdd && mapOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 320, display: 'flex', flexDirection: 'column', background: 'var(--bg)', maxWidth: 480, margin: '0 auto', left: 0, right: 0, height: '100dvh', overflow: 'hidden' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 320, display: 'flex', flexDirection: 'column', background: 'var(--bg)', maxWidth:'var(--store-w)', margin: '0 auto', left: 0, right: 0, height: '100dvh', overflow: 'hidden' }}>
           <header style={{ flexShrink: 0, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--b1)', background: 'rgba(3,11,5,.96)' }}>
             <button
               type="button"
@@ -5768,7 +5787,7 @@ const AddressesPage = ({ go, user }) => {
       {showAdd && !mapOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={resetForm} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
-          <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 16px calc(40px + env(safe-area-inset-bottom, 0px))', maxHeight: '92vh', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
+          <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth:'var(--store-w)', background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 16px calc(40px + env(safe-area-inset-bottom, 0px))', maxHeight: '92vh', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
             <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 18px' }} />
             <div className="ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 16 }}>{editId != null ? 'Изменить адрес' : 'Новый адрес'}</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -5841,7 +5860,7 @@ const ReferralPage = ({ go, user }) => {
   };
 
   return (
-    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -5949,7 +5968,7 @@ const ChatPage = ({ go, user }) => {
   };
 
   return (
-    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto',display:'flex',flexDirection:'column'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
@@ -6019,7 +6038,7 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
   });
 
   return (
-    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:40,height:40,borderRadius:12,background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'var(--bg)',animation:'glow 3s ease-in-out infinite',boxShadow:'0 4px 16px rgba(31,215,96,.4)',flexShrink:0}}>K</div>
@@ -6120,7 +6139,7 @@ function PublicReviewsSheet({
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
       <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
-      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 20px 36px', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
+      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth:'var(--store-w)', maxHeight: '88vh', overflowY: 'auto', background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 20px 36px', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 16px' }} />
         <div style={{ fontSize: 16, fontWeight: 800, textAlign: 'center', marginBottom: 4 }}>{title}</div>
         {subtitle && <div style={{ fontSize: 12, color: 'var(--t2)', textAlign: 'center', marginBottom: 14 }}>{subtitle}</div>}
@@ -6232,7 +6251,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   const getQty   = (item) => (cart||{})[`R${r.id}_${item.id}`]||0;
 
   return (
-    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
+    <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
 
       {/* Sticky header — back + name + cart + categories */}
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
@@ -6377,7 +6396,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
   );
 };
 const Page404 = ({ go }) => (
-  <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:480, margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center", position:"relative", overflow:"hidden" }}>
+  <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center", position:"relative", overflow:"hidden" }}>
     <div style={{ position:"absolute", inset:0, opacity:.03, background:"repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(31,215,96,1) 28px,rgba(31,215,96,1) 29px),repeating-linear-gradient(90deg,transparent,transparent 28px,rgba(31,215,96,1) 28px,rgba(31,215,96,1) 29px)" }}/>
     <div style={{ position:"relative", zIndex:2 }}>
       <div className="ub" style={{ fontSize:96, fontWeight:900, lineHeight:1, marginBottom:8, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>404</div>
@@ -6874,7 +6893,7 @@ function KakapoAppInner() {
     <>
       <style>{CSS}</style>
       <Toast msg={toast} isVip={isVipUser}/>
-      <div className={isVipUser ? 'store-vip' : undefined} style={{ maxWidth:480, margin:"0 auto", minHeight:"100vh", overflowX:"clip" }}>
+      <div className={`store-shell${isVipUser ? ' store-vip' : ''}`}>
         {render()}
       </div>
     </>

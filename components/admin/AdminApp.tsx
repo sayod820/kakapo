@@ -238,8 +238,8 @@ const CSS = `
   html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
   .ub{font-family:'Unbounded',sans-serif;}
   .btn{cursor:pointer;border:none;transition:all .18s;}.btn:active{transform:scale(.97);}
-  .ac{background:#091508;border:1px solid #162B1A;border-radius:14px;overflow:hidden;}
-  .at{width:100%;border-collapse:collapse;}
+  .ac{background:#091508;border:1px solid #162B1A;border-radius:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .at{width:100%;border-collapse:collapse;min-width:560px;}
   .at th{padding:9px 14px;text-align:left;font-size:10px;font-weight:800;color:#3D6645;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #162B1A;}
   .at td{padding:11px 14px;border-bottom:1px solid rgba(22,43,26,.4);font-size:13px;vertical-align:middle;}
   .at tr:last-child td{border-bottom:none;}
@@ -261,6 +261,61 @@ const CSS = `
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
   @keyframes ping{0%{transform:scale(1);opacity:1;}100%{transform:scale(2);opacity:0;}}
   ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:#06100A;}::-webkit-scrollbar-thumb{background:#1D3822;border-radius:2px;}
+
+  .admin-shell{display:flex;min-height:100vh;min-height:100dvh;background:#030B05;font-family:Nunito,sans-serif;}
+  .admin-sidebar{width:205px;flex-shrink:0;background:#06100A;border-right:1px solid #162B1A;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;height:100dvh;overflow-y:auto;z-index:120;}
+  .admin-overlay{display:none;}
+  .admin-mob-btn{display:none;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;border:1px solid #162B1A;background:#0C1C0F;color:#EBF5ED;cursor:pointer;font-size:20px;flex-shrink:0;}
+  .admin-bottom-nav{display:none;}
+  .admin-main-wrap{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .admin-header{padding:12px 24px;border-bottom:1px solid #162B1A;background:rgba(3,11,5,.95);backdrop-filter:blur(16px);display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;flex-shrink:0;}
+  .admin-content{flex:1;padding:22px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+  .admin-app-badges{display:flex;gap:6px;flex-wrap:wrap;}
+  .admin-tbl-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .admin-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
+  .admin-grid-2{display:grid;gap:14px;grid-template-columns:repeat(2,minmax(0,1fr));}
+  .admin-grid-3{display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr));}
+  .admin-grid-4{display:grid;gap:14px;grid-template-columns:repeat(4,minmax(0,1fr));}
+
+  @media (max-width:1100px){
+    .admin-grid-4{grid-template-columns:repeat(2,minmax(0,1fr));}
+    .admin-grid-3{grid-template-columns:repeat(2,minmax(0,1fr));}
+  }
+  @media (max-width:1024px){
+    .admin-sidebar{
+      position:fixed;left:0;top:0;transform:translateX(-105%);transition:transform .25s ease;
+      width:min(280px,88vw);height:100vh;height:100dvh;box-shadow:none;border-right:1px solid #162B1A;
+    }
+    .admin-sidebar.open{transform:translateX(0);box-shadow:8px 0 32px rgba(0,0,0,.55);}
+    .admin-overlay{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:110;opacity:0;pointer-events:none;transition:opacity .25s;}
+    .admin-overlay.open{opacity:1;pointer-events:auto;}
+    .admin-mob-btn{display:flex;}
+    .admin-content{padding:14px;}
+    .admin-header{padding:10px 14px;gap:8px;}
+    .admin-app-badges{display:none;}
+    .admin-main-wrap{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px));}
+    .admin-bottom-nav{
+      display:flex;position:fixed;bottom:0;left:0;right:0;z-index:100;
+      background:#06100A;border-top:1px solid #162B1A;
+      padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));gap:2px;
+    }
+    .admin-bottom-nav button{
+      flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+      border:none;background:transparent;color:#3D6645;padding:6px 2px;border-radius:10px;
+      font-size:9px;font-weight:800;cursor:pointer;min-height:52px;font-family:Nunito,sans-serif;
+    }
+    .admin-bottom-nav button.active{color:#1FD760;background:rgba(31,215,96,.12);}
+    .admin-bottom-nav button .ic{font-size:18px;line-height:1;}
+    .amod{align-items:flex-end;padding:0;}
+    .amodbox{max-width:100%;max-height:92vh;max-height:92dvh;border-radius:18px 18px 0 0;margin-top:auto;}
+    .admin-grid-2,.admin-grid-3,.admin-grid-4{grid-template-columns:1fr 1fr;}
+  }
+  @media (max-width:600px){
+    .admin-content{padding:10px;}
+    .admin-grid-2,.admin-grid-3,.admin-grid-4,.admin-grid{grid-template-columns:1fr;}
+    .at th,.at td{padding:8px 10px;font-size:12px;}
+    .ai,.ab{font-size:16px;min-height:44px;}
+  }
 `;
 
 /* ── DATA ──────────────────────────────────────────── */
@@ -433,6 +488,7 @@ function Layout({page,setPage,children,title,subtitle}) {
   const apiOrders = useOrders(s => s.orders);
   const storedCards = useCards();
   const clients = useClients();
+  const [menuOpen, setMenuOpen] = useState(false);
   const orders = useMemo(
     () => (USE_API ? mapOrdersForAdmin(apiOrders) : ALL_ORDERS),
     [apiOrders],
@@ -442,20 +498,39 @@ function Layout({page,setPage,children,title,subtitle}) {
     () => mergeCardsWithClients(storedCards, clients).filter(c => c.status === 'active' && cardHasDebtSection(c) && c.debt > 0).length,
     [storedCards, clients],
   );
+
+  const goPage = (id) => {
+    setPage(id);
+    setMenuOpen(false);
+  };
+
+  const bottomItems = [
+    { id: 'dashboard', icon: '📊', l: 'Главная' },
+    { id: 'orders', icon: '📦', l: 'Заказы' },
+    { id: 'products', icon: '🥦', l: 'Товары' },
+    { id: 'clients', icon: '👥', l: 'Клиенты' },
+    { id: 'menu', icon: '☰', l: 'Меню' },
+  ];
+
   return (
-    <div style={{display:'flex',minHeight:'100vh',background:'#030B05',fontFamily:'Nunito,sans-serif'}}>
+    <div className="admin-shell">
       <style>{CSS}</style>
-      <aside style={{width:205,flexShrink:0,background:'#06100A',borderRight:'1px solid #162B1A',display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto'}}>
+      <div className={`admin-overlay${menuOpen ? ' open' : ''}`} onClick={() => setMenuOpen(false)} />
+      <aside className={`admin-sidebar${menuOpen ? ' open' : ''}`}>
         <div style={{padding:'16px 14px',borderBottom:'1px solid #162B1A',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
           <div style={{width:40,height:40,borderRadius:13,background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:16,fontWeight:900,color:'#030B05',flexShrink:0}}>K</div>
-          <div><div className="ub" style={{fontSize:14,fontWeight:900,color:'#1FD760'}}>КАКАПО</div><div style={{fontSize:9,color:'#3D6645'}}>Admin · г. Яван</div></div>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="ub" style={{fontSize:14,fontWeight:900,color:'#1FD760'}}>КАКАПО</div>
+            <div style={{fontSize:9,color:'#3D6645'}}>Admin · г. Яван</div>
+          </div>
+          <button type="button" className="admin-mob-btn" onClick={() => setMenuOpen(false)} aria-label="Закрыть" style={{width:34,height:34,fontSize:16}}>✕</button>
         </div>
         <nav style={{flex:1,padding:'8px',display:'flex',flexDirection:'column',gap:0}}>
           {NAV_GROUPS.map(g=>(
             <div key={g.g} style={{marginBottom:4}}>
               <div style={{fontSize:9,fontWeight:800,color:'#3D6645',textTransform:'uppercase',letterSpacing:1,padding:'6px 10px 3px'}}>{g.g}</div>
               {g.items.map(n=>(
-                <button key={n.id} onClick={()=>setPage(n.id)} className="btn"
+                <button key={n.id} type="button" onClick={()=>goPage(n.id)} className="btn"
                   style={{display:'flex',alignItems:'center',gap:9,padding:'9px 11px',borderRadius:10,background:page===n.id?'rgba(31,215,96,.14)':'transparent',border:`1px solid ${page===n.id?'rgba(31,215,96,.22)':'transparent'}`,color:page===n.id?'#1FD760':'#8FB897',fontSize:13,fontWeight:600,textAlign:'left',cursor:'pointer',width:'100%',position:'relative'}}>
                   <span style={{fontSize:16,flexShrink:0}}>{n.icon}</span>{n.l}
                   {n.id==='orders'&&newOrders>0&&<span style={{marginLeft:'auto',minWidth:18,height:18,padding:'0 5px',borderRadius:999,background:'#FF4545',fontSize:9,fontWeight:900,color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{newOrders > 99 ? '99+' : newOrders}</span>}
@@ -471,20 +546,34 @@ function Layout({page,setPage,children,title,subtitle}) {
           🛵 Курьеры · 🛒 Сборщики
         </div>
       </aside>
-      <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
-        <div style={{padding:'12px 24px',borderBottom:'1px solid #162B1A',background:'rgba(3,11,5,.95)',backdropFilter:'blur(16px)',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,zIndex:50,flexShrink:0}}>
-          <div style={{flex:1}}>
+      <div className="admin-main-wrap">
+        <div className="admin-header">
+          <button type="button" className="admin-mob-btn" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
+          <div style={{flex:1,minWidth:0}}>
             <div className="ub" style={{fontSize:16,fontWeight:900}}>{title}</div>
             {subtitle&&<div style={{fontSize:11,color:'#8FB897',marginTop:1}}>{subtitle}</div>}
           </div>
-          <div style={{display:'flex',gap:6}}>
+          <div className="admin-app-badges">
             {page !== 'settings' && [{l:'Магазин',c:'#1FD760'},{l:'Рестораны',c:'#FF8C00'},{l:'Курьеры',c:'#3B8EF0'},{l:'Сборщики',c:'#9B6DFF'}].map((a,i)=>(
               <span key={i} style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:`${a.c}14`,color:a.c,border:`1px solid ${a.c}28`}}>{a.l}</span>
             ))}
           </div>
         </div>
-        <main style={{flex:1,padding:22,overflowY:'auto'}}>{children}</main>
+        <main className="admin-content">{children}</main>
       </div>
+      <nav className="admin-bottom-nav">
+        {bottomItems.map(item => (
+          <button
+            key={item.id}
+            type="button"
+            className={item.id === 'menu' ? (menuOpen ? 'active' : '') : (page === item.id ? 'active' : '')}
+            onClick={() => item.id === 'menu' ? setMenuOpen(v => !v) : goPage(item.id)}
+          >
+            <span className="ic">{item.icon}</span>
+            {item.l}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
