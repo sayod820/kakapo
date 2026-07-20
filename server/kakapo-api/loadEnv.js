@@ -36,5 +36,5 @@ export function getGeminiApiKey() {
 
 export function getGeminiModel() {
   loadLocalEnv()
-  return String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim()
+  return String(process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim()
 }

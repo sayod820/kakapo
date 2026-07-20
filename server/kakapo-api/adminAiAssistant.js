@@ -297,7 +297,11 @@ const SYSTEM_INSTRUCTION = `Ты бизнес-ассистент владель�
 async function callGemini(prompt, snapshot) {
   const apiKey = getGeminiApiKey()
   if (!apiKey) {
-    const err = new Error('Нет GEMINI_API_KEY. Добавьте ключ в server/kakapo-api/.env')
+    const err = new Error(
+      process.env.NODE_ENV === 'production'
+        ? 'Нет GEMINI_API_KEY на сервере. Добавьте в deploy/hetzner/.env и перезапустите API (bash deploy/hetzner/set-gemini-key.sh)'
+        : 'Нет GEMINI_API_KEY. Добавьте ключ в server/kakapo-api/.env',
+    )
     err.status = 503
     throw err
   }

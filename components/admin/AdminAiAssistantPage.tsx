@@ -20,11 +20,17 @@ const FALLBACK_QUICK: QuickPrompt[] = [
 
 type HistItem = { id: string; title: string; answer: string; at: string }
 
+function isLocalDevHost(): boolean {
+  if (typeof window === 'undefined') return false
+  const h = window.location.hostname
+  return h === 'localhost' || h === '127.0.0.1'
+}
+
 export default function AdminAiAssistantPage() {
   const [quick, setQuick] = useState<QuickPrompt[]>(FALLBACK_QUICK)
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [statusError, setStatusError] = useState('')
-  const [model, setModel] = useState('gemini-2.0-flash')
+  const [model, setModel] = useState('gemini-2.5-flash')
   const [prompt, setPrompt] = useState('')
   const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState(false)
@@ -37,7 +43,7 @@ export default function AdminAiAssistantPage() {
     try {
       const st = await api.getAdminAiStatus()
       setConfigured(!!st.configured)
-      setModel(st.model || 'gemini-2.0-flash')
+      setModel(st.model || 'gemini-2.5-flash')
       if (st.quickPrompts?.length) setQuick(st.quickPrompts)
     } catch (e) {
       setConfigured(null)
@@ -150,9 +156,22 @@ export default function AdminAiAssistantPage() {
           background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.3)',
           fontSize: 12, color: '#FFB800', fontWeight: 700, lineHeight: 1.5,
         }}>
-          Добавьте ключ в <code style={{ color: '#EBF5ED' }}>server/kakapo-api/.env</code>:
-          <div style={{ marginTop: 6, fontFamily: 'monospace', color: '#EBF5ED' }}>GEMINI_API_KEY=ваш_ключ</div>
-          Затем перезапустите API-сервер. Ключ берите в Google AI Studio (бесплатно).
+          {isLocalDevHost() ? (
+            <>
+              Локально (ПК): добавьте ключ в <code style={{ color: '#EBF5ED' }}>server/kakapo-api/.env</code>:
+              <div style={{ marginTop: 6, fontFamily: 'monospace', color: '#EBF5ED' }}>GEMINI_API_KEY=ваш_ключ</div>
+              Затем перезапустите API: <code style={{ color: '#EBF5ED' }}>npm run dev --prefix server/kakapo-api</code>
+            </>
+          ) : (
+            <>
+              На сервере: ключ в <code style={{ color: '#EBF5ED' }}>deploy/hetzner/.env</code> (не в .env на ПК).
+              <div style={{ marginTop: 6, fontFamily: 'monospace', color: '#EBF5ED' }}>GEMINI_API_KEY=AIzaSy...</div>
+              <div style={{ marginTop: 6, color: '#EBF5ED', fontWeight: 600 }}>
+                SSH на сервер → <code style={{ color: '#EBF5ED' }}>cd /opt/kakapo && git pull && bash deploy/hetzner/set-gemini-key.sh</code>
+              </div>
+            </>
+          )}
+          <div style={{ marginTop: 6 }}>Ключ: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style={{ color: '#1FD760' }}>Google AI Studio</a> (бесплатно, формат AIzaSy...)</div>
         </div>
       )}
 
