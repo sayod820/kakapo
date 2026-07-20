@@ -29,6 +29,41 @@ function daysAgoIso(days) {
   return new Date(Date.now() - days * 864e5).toISOString()
 }
 
+function orderHasStatus(order, statuses) {
+  return !!order && statuses.includes(String(order.status || ''))
+}
+
+function collectOrderRestIds(order) {
+  const ids = new Set()
+  if (order?.restId) ids.add(String(order.restId))
+  for (const rid of order?.restIds || []) {
+    if (rid) ids.add(String(rid))
+  }
+  for (const it of order?.items || []) {
+    if (it?.restId) ids.add(String(it.restId))
+  }
+  if (order?.restParts && typeof order.restParts === 'object') {
+    for (const rid of Object.keys(order.restParts)) {
+      if (rid) ids.add(String(rid))
+    }
+  }
+  return [...ids]
+}
+
+function countRestaurantActivePart(order, restId) {
+  const rid = String(restId)
+  if (!collectOrderRestIds(order).includes(rid)) return null
+  const partStatus = order?.restParts?.[rid]
+  if (partStatus === 'done') return 'ready'
+  if (partStatus === 'cooking') return 'cooking'
+  if (partStatus === 'new') return 'new'
+  const status = String(order?.status || '')
+  if (status === 'cooking') return 'cooking'
+  if (['ready', 'assembler_done', 'courier_picked', 'delivering'].includes(status)) return 'ready'
+  if (status === 'new') return 'new'
+  return null
+}
+
 /** Краткая сводка для ИИ — без телефонов/адресов/секретов */
 export function buildAdminAiSnapshot(db) {
   const products = db.products || []
@@ -116,15 +151,66 @@ export function buildAdminAiSnapshot(db) {
     .slice(0, 10)
 
   const activeOrders = orders.filter(o => !['delivered', 'cancelled'].includes(o.status))
+  const todayOrders = orders.filter(o => inToday(o.createdAtIso))
+  const deliveredTodayOrders = orders.filter(o => inToday(o.deliveredAtIso) && o.status === 'delivered')
   const byStatus = {}
   for (const o of activeOrders) {
     byStatus[o.status] = (byStatus[o.status] || 0) + 1
   }
 
+  const courierStats = couriers.map(c => {
+    const name = String(c.name || '').trim()
+    const assigned = orders.filter(o => String(o?.courier?.name || '').trim() === name)
+    const activeAssigned = assigned.filter(o => orderHasStatus(o, ['assembler_done', 'ready', 'courier_picked', 'delivering']))
+    const createdTodayAssigned = assigned.filter(o => inToday(o.createdAtIso))
+    const deliveredTodayAssigned = assigned.filter(o => inToday(o.deliveredAtIso) && o.status === 'delivered')
+    const readyWaitingPickup = assigned.filter(o => orderHasStatus(o, ['assembler_done', 'ready']))
+    return {
+      name: c.name,
+      status: c.status,
+      rating: c.rating,
+      activeNow: activeAssigned.length,
+      waitingPickupNow: readyWaitingPickup.length,
+      ordersTodayCreated: createdTodayAssigned.length,
+      deliveredToday: deliveredTodayAssigned.length,
+      ordersTotal: Number(c.orders) || 0,
+    }
+  })
+
+  const assemblerStats = assemblers.map(a => {
+    const name = String(a.name || '').trim()
+    const assigned = orders.filter(o => String(o?.assembler?.name || '').trim() === name)
+    const activeAssigned = assigned.filter(o => {
+      const st = String(o.status || '')
+      if (['new', 'assembling'].includes(st)) return true
+      return st === 'ready' && String(o.marketStatus || '') !== 'done'
+    })
+    const completedTodayAssigned = assigned.filter(o => inToday(o.createdAtIso) && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(String(o.status || '')))
+    const createdTodayAssigned = assigned.filter(o => inToday(o.createdAtIso))
+    return {
+      name: a.name,
+      status: a.status,
+      rating: a.rating,
+      activeNow: activeAssigned.length,
+      ordersTodayCreated: createdTodayAssigned.length,
+      completedToday: completedTodayAssigned.length,
+      ordersTotal: Number(a.ordersTotal || a.orders) || 0,
+    }
+  })
+
   const restStats = restaurants.map(r => {
     const menu = r.menu || []
     const stop = menu.filter(m => m.inStock === false).length
     const withPhoto = menu.filter(m => m.photo).length
+    const relatedOrders = orders.filter(o => collectOrderRestIds(o).includes(String(r.id)))
+    const todayRelatedOrders = relatedOrders.filter(o => inToday(o.createdAtIso))
+    const activeRelatedOrders = relatedOrders.filter(o => !['delivered', 'cancelled'].includes(String(o.status || '')))
+    const deliveredToday = relatedOrders.filter(o => inToday(o.deliveredAtIso) && o.status === 'delivered')
+    const queue = { new: 0, cooking: 0, ready: 0 }
+    for (const o of activeRelatedOrders) {
+      const stage = countRestaurantActivePart(o, r.id)
+      if (stage && queue[stage] != null) queue[stage] += 1
+    }
     return {
       name: r.name,
       open: r.open !== false && !r.blocked,
@@ -134,6 +220,10 @@ export function buildAdminAiSnapshot(db) {
       withPhoto,
       rating: r.rating,
       revenueMonth: r.revenueMonth,
+      ordersTodayCreated: todayRelatedOrders.length,
+      deliveredToday: deliveredToday.length,
+      activeNow: activeRelatedOrders.length,
+      queue,
     }
   })
 
@@ -183,7 +273,8 @@ export function buildAdminAiSnapshot(db) {
     deliveryOrders: {
       active: activeOrders.length,
       byStatus,
-      today: orders.filter(o => inToday(o.createdAtIso)).length,
+      todayCreated: todayOrders.length,
+      deliveredToday: deliveredTodayOrders.length,
     },
     restaurants: restStats,
     couriers: {
@@ -191,21 +282,16 @@ export function buildAdminAiSnapshot(db) {
       available: couriers.filter(c => c.status === 'available').length,
       busy: couriers.filter(c => c.status === 'busy').length,
       offline: couriers.filter(c => c.status === 'offline').length,
-      list: couriers.slice(0, 20).map(c => ({
-        name: c.name,
-        status: c.status,
-        rating: c.rating,
-        orders: c.orders,
-        today: c.today,
-      })),
+      activeAssignedNow: courierStats.reduce((s, c) => s + c.activeNow, 0),
+      waitingPickupNow: courierStats.reduce((s, c) => s + c.waitingPickupNow, 0),
+      deliveredToday: courierStats.reduce((s, c) => s + c.deliveredToday, 0),
+      list: courierStats.slice(0, 20),
     },
     assemblers: {
       total: assemblers.length,
-      list: assemblers.slice(0, 20).map(a => ({
-        name: a.name,
-        status: a.status,
-        orders: a.orders,
-      })),
+      activeAssignedNow: assemblerStats.reduce((s, a) => s + a.activeNow, 0),
+      completedToday: assemblerStats.reduce((s, a) => s + a.completedToday, 0),
+      list: assemblerStats.slice(0, 20),
     },
   }
 }
@@ -286,6 +372,8 @@ export const AI_QUICK_PROMPTS = [
 const SYSTEM_INSTRUCTION = `Ты бизнес-ассистент владельца сети КАКАПО (г. Яван, Таджикистан).
 Приложения: магазин/касса, клиенты, курьеры, сборщики, рестораны.
 Отвечай на русском, коротко и по делу.
+Для курьеров, сборщиков и ресторанов считай текущую активность только по полям activeNow, ordersTodayCreated, deliveredToday, completedToday и queue. Исторические поля ordersTotal/week/rating не называй как активность за сегодня.
+Если ordersTodayCreated=0 и deliveredToday=0, прямо скажи, что сегодня реальных заказов/действий не было или данных мало.
 Формат ответа:
 1) Краткий вердикт (2–4 предложения)
 2) Проблемы / риски (маркированный список)
