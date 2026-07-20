@@ -16,6 +16,11 @@ const backendUrl = resolveBackendUrl()
 const nextConfig = {
   reactStrictMode: true,
   images: { unoptimized: true },
+  async redirects() {
+    return [
+      { source: '/store', destination: '/', permanent: false },
+    ]
+  },
   async rewrites() {
     return [
       {

@@ -5,7 +5,7 @@
  * Важно: при ошибке сети НЕ подставляем главную (/) на чужой URL (например /admin),
  * иначе кажется, что «админка не открывается», а показывается портал.
  */
-const VERSION = 'kakapo-shell-v2'
+const VERSION = 'kakapo-shell-v3'
 const PAGE_CACHE = `pages-${VERSION}`
 const STATIC_CACHE = `static-${VERSION}`
 

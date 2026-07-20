@@ -39,7 +39,7 @@ done
 echo "==> Ожидание Next.js..."
 for i in $(seq 1 60); do
   if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T web node -e \
-    "fetch('http://127.0.0.1:3000/store').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null; then
+    "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null; then
     echo "   Web готов (${i}с)"
     break
   fi
@@ -66,8 +66,9 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T api node -e "fe
 
 echo ""
 echo "✅ Готово. Приложения:"
-echo "   /store       — магазин"
+echo "   /            — магазин (клиент)"
 echo "   /admin       — админка"
+echo "   /trade       — торговля / касса"
 echo "   /courier     — курьер"
 echo "   /restaurant  — ресторан"
 echo "   /assembler   — сборщик"

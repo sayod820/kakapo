@@ -21,9 +21,9 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T api node -e \
   || echo "API недоступен"
 
 echo ""
-echo "==> Web /store (внутри контейнера)"
+echo "==> Web / (магазин)"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T web node -e \
-  "fetch('http://127.0.0.1:3000/store').then(r=>console.log('status',r.status)).catch(e=>console.error('FAIL',e))" \
+  "fetch('http://127.0.0.1:3000/').then(r=>console.log('status',r.status)).catch(e=>console.error('FAIL',e))" \
   || echo "Web недоступен"
 
 echo ""

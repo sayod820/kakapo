@@ -211,7 +211,7 @@ export function formatSm(n: number): string {
 
 export const TAB_CONNECTIONS: Record<TariffTab, { href: string; label: string; desc: string }[]> = {
   shop: [
-    { href: '/store', label: 'Магазин клиента', desc: 'Клиент видит стоимость доставки при оформлении' },
+    { href: '/', label: 'Магазин клиента', desc: 'Клиент видит стоимость доставки при оформлении' },
     { href: '/admin?p=orders', label: 'Заказы магазина', desc: 'Статус и deliveryFee в заказах' },
   ],
   restaurants: [

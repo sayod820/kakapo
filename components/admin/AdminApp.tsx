@@ -6952,7 +6952,7 @@ function FinancePage() {
             <div className="ac" style={{ padding: 16 }}>
               <div className="ub" style={{ fontSize: 13, fontWeight: 800, marginBottom: 12 }}>Связанные приложения</div>
               {[
-                { href: '/store', icon: '🛒', label: 'Магазин — заказы клиентов' },
+                { href: '/', icon: '🛒', label: 'Магазин — заказы клиентов' },
                 { href: '/restaurant', icon: '🍽', label: 'Кабинет ресторана — выручка' },
                 { href: '/courier', icon: '🛵', label: 'Курьер — доставки' },
                 { href: '/assembler', icon: '📦', label: 'Сборщик — сбор заказов' },

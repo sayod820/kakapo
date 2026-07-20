@@ -9,7 +9,7 @@
 | Приложение | Ссылка |
 |---|---|
 | Портал | https://kakappo.shop |
-| Магазин | https://kakappo.shop/store |
+| Магазин | https://kakappo.shop/ |
 | Админ | https://kakappo.shop/admin |
 | Торговля / касса | https://kakappo.shop/trade |
 | Курьер | https://kakappo.shop/courier |

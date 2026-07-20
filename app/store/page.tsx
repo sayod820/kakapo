@@ -1,9 +1,14 @@
 'use client'
-import dynamic from 'next/dynamic'
-import ClientErrorBoundary from '@/components/shared/ClientErrorBoundary'
-const App = dynamic(() => import('@/components/store/StoreApp'), {
-  ssr: false,
-  loading: () => (
+
+import { useEffect } from 'react'
+
+/** Старый путь /store — редирект на главную (магазин клиента) */
+export default function StoreRedirectPage() {
+  useEffect(() => {
+    window.location.replace('/')
+  }, [])
+
+  return (
     <div style={{
       minHeight: '100vh',
       display: 'flex',
@@ -14,14 +19,7 @@ const App = dynamic(() => import('@/components/store/StoreApp'), {
       fontFamily: 'Nunito, sans-serif',
       fontSize: 14,
     }}>
-      Загрузка магазина…
+      Переход в магазин…
     </div>
-  ),
-})
-export default function Page() {
-  return (
-    <ClientErrorBoundary title="Магазин временно недоступен">
-      <App />
-    </ClientErrorBoundary>
   )
 }

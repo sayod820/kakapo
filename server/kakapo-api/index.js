@@ -643,9 +643,11 @@ h1{color:#1FD760}a{color:#1FD760}code{background:#0C1C0F;padding:2px 8px;border-
 <h1>✅ КАКАПО Backend работает</h1>
 <p>Это <strong>API сервер</strong>, не интерфейс приложения.</p>
 <p>Откройте <strong>frontend</strong> (в другом терминале: <code>npm run dev</code>):</p>
-<p><a href="http://localhost:3000">http://localhost:3000</a> — портал</p>
+<p><a href="http://localhost:3000">http://localhost:3000</a> — магазин клиента</p>
 <ul>
-<li><a href="http://localhost:3000/store">Магазин</a></li>
+<li><a href="http://localhost:3000/">Магазин</a></li>
+<li><a href="http://localhost:3000/admin">Админка</a></li>
+<li><a href="http://localhost:3000/trade">Торговля</a></li>
 <li><a href="http://localhost:3000/assembler">Сборщик</a></li>
 <li><a href="http://localhost:3000/courier">Курьер</a></li>
 <li><a href="http://localhost:3000/restaurant">Ресторан</a></li>

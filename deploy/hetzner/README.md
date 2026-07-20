@@ -96,7 +96,7 @@ bash deploy/hetzner/deploy.sh
 
 После SSL откройте:
 
-- https://kakappo.shop/store — магазин
+- https://kakappo.shop/ — магазин (клиент)
 - https://kakappo.shop/admin — админка
 - https://kakappo.shop/courier — курьер
 - https://kakappo.shop/restaurant — ресторан
@@ -184,4 +184,4 @@ cp deploy/hetzner/.env.example deploy/hetzner/.env
 docker compose -f deploy/hetzner/docker-compose.yml --env-file deploy/hetzner/.env up -d --build
 ```
 
-Откройте http://localhost/store
+Откройте http://localhost/
