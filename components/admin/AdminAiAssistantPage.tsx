@@ -23,6 +23,7 @@ type HistItem = { id: string; title: string; answer: string; at: string }
 export default function AdminAiAssistantPage() {
   const [quick, setQuick] = useState<QuickPrompt[]>(FALLBACK_QUICK)
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const [statusError, setStatusError] = useState('')
   const [model, setModel] = useState('gemini-2.0-flash')
   const [prompt, setPrompt] = useState('')
   const [answer, setAnswer] = useState('')
@@ -31,21 +32,22 @@ export default function AdminAiAssistantPage() {
   const [hist, setHist] = useState<HistItem[]>([])
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const st = await api.getAdminAiStatus()
-        if (cancelled) return
-        setConfigured(!!st.configured)
-        setModel(st.model || 'gemini-2.0-flash')
-        if (st.quickPrompts?.length) setQuick(st.quickPrompts)
-      } catch {
-        if (!cancelled) setConfigured(false)
-      }
-    })()
-    return () => { cancelled = true }
+  const refreshStatus = useCallback(async () => {
+    setStatusError('')
+    try {
+      const st = await api.getAdminAiStatus()
+      setConfigured(!!st.configured)
+      setModel(st.model || 'gemini-2.0-flash')
+      if (st.quickPrompts?.length) setQuick(st.quickPrompts)
+    } catch (e) {
+      setConfigured(null)
+      setStatusError(e instanceof Error ? e.message : 'Не удалось связаться с API')
+    }
   }, [])
+
+  useEffect(() => {
+    void refreshStatus()
+  }, [refreshStatus])
 
   const ask = useCallback(async (opts: { prompt?: string; quickId?: string; title?: string }) => {
     const text = String(opts.prompt || '').trim()
@@ -114,11 +116,35 @@ export default function AdminAiAssistantPage() {
             {configured != null && (
               <> · Gemini: <b style={{ color: configured ? '#1FD760' : '#FF4545' }}>{configured ? `готов (${model})` : 'нет ключа'}</b></>
             )}
+            {configured == null && statusError && (
+              <> · API: <b style={{ color: '#FF4545' }}>нет связи</b></>
+            )}
           </div>
         </div>
+        <button
+          type="button"
+          className="ab"
+          onClick={() => void refreshStatus()}
+          style={{ padding: '8px 12px', background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', flexShrink: 0 }}
+        >
+          Обновить
+        </button>
       </div>
 
-      {configured === false && (
+      {statusError && (
+        <div style={{
+          marginBottom: 14, padding: '12px 14px', borderRadius: 12,
+          background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.3)',
+          fontSize: 12, color: '#FF8080', fontWeight: 700, lineHeight: 1.5,
+        }}>
+          Не удалось связаться с backend API: {statusError}
+          <div style={{ marginTop: 6, color: '#EBF5ED', fontWeight: 600 }}>
+            Запустите API: <code>npm run dev --prefix server/kakapo-api</code> или <code>npm run dev:all</code>
+          </div>
+        </div>
+      )}
+
+      {configured === false && !statusError && (
         <div style={{
           marginBottom: 14, padding: '12px 14px', borderRadius: 12,
           background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.3)',

@@ -5,9 +5,9 @@ Set-Location $Root
 Write-Host "=== KAKAPO локальный запуск ===" -ForegroundColor Green
 
 Write-Host "Backend..."
-Set-Location (Join-Path $Root "server")
-if (-not (Test-Path "node_modules")) { npm install }
-Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "npm run dev" -WorkingDirectory (Join-Path $Root "server") -WindowStyle Normal
+$ApiDir = Join-Path $Root "server\kakapo-api"
+if (-not (Test-Path (Join-Path $ApiDir "node_modules"))) { npm install --prefix $ApiDir }
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "npm run dev" -WorkingDirectory $ApiDir -WindowStyle Normal
 
 Start-Sleep -Seconds 3
 

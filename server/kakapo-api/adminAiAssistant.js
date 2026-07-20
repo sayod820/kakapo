@@ -5,34 +5,7 @@
  * Ключ: GEMINI_API_KEY в server/kakapo-api/.env
  */
 
-import { existsSync, readFileSync } from 'fs'
-import { dirname, join } from 'path'
-import { fileURLToPath } from 'url'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
-function loadLocalEnv() {
-  const path = join(__dirname, '.env')
-  if (!existsSync(path)) return
-  try {
-    for (const raw of readFileSync(path, 'utf8').split(/\r?\n/)) {
-      const line = raw.trim()
-      if (!line || line.startsWith('#')) continue
-      const i = line.indexOf('=')
-      if (i <= 0) continue
-      const key = line.slice(0, i).trim()
-      let val = line.slice(i + 1).trim()
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1)
-      }
-      if (!key) continue
-      // Ключи Gemini всегда перечитываем из файла (после правки .env без полного рестарта)
-      if (key.startsWith('GEMINI_') || process.env[key] == null || process.env[key] === '') {
-        process.env[key] = val
-      }
-    }
-  } catch { /* ignore */ }
-}
+import { getGeminiApiKey, getGeminiModel, loadLocalEnv } from './loadEnv.js'
 
 loadLocalEnv()
 
@@ -322,14 +295,14 @@ const SYSTEM_INSTRUCTION = `Ты бизнес-ассистент владель�
 Не проси пароли и не раскрывай персональные данные.`
 
 async function callGemini(prompt, snapshot) {
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim()
+  const apiKey = getGeminiApiKey()
   if (!apiKey) {
     const err = new Error('Нет GEMINI_API_KEY. Добавьте ключ в server/kakapo-api/.env')
     err.status = 503
     throw err
   }
 
-  const model = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim()
+  const model = getGeminiModel()
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
 
   const body = {
@@ -392,16 +365,15 @@ export async function askAdminAi(db, { prompt, quickId } = {}) {
     quickId: quickId || null,
     answer,
     generatedAt: snapshot.generatedAt,
-    model: String(process.env.GEMINI_MODEL || 'gemini-2.0-flash'),
+    model: getGeminiModel(),
   }
 }
 
 export function getAdminAiStatus() {
-  loadLocalEnv()
-  const hasKey = !!String(process.env.GEMINI_API_KEY || '').trim()
+  const hasKey = !!getGeminiApiKey()
   return {
     configured: hasKey,
-    model: String(process.env.GEMINI_MODEL || 'gemini-2.0-flash'),
+    model: getGeminiModel(),
     quickPrompts: AI_QUICK_PROMPTS.map(({ id, label, icon, shortcut }) => ({ id, label, icon, shortcut })),
   }
 }

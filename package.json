@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:backend": "npm run dev --prefix server",
+    "dev:backend": "npm run dev --prefix server/kakapo-api",
     "dev:all": "powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1",
     "build": "next build",
     "start": "next start",

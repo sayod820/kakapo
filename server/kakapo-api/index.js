@@ -132,6 +132,9 @@ import {
   askAdminAi,
   getAdminAiStatus,
 } from './adminAiAssistant.js'
+import { getGeminiApiKey, getGeminiModel, loadLocalEnv } from './loadEnv.js'
+
+loadLocalEnv()
 
 function financeTruthQuery(req) {
   return {
@@ -3160,6 +3163,8 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.error('\n⚠️  ВНИМАНИЕ: DATA_DIR не на постоянном диске — база может обнуляться при деплое!')
     console.error('   Hetzner/Docker: volume kakapo-data → /data (DATA_DIR=/data)\n')
   }
-  console.log(`   Health: http://0.0.0.0:${PORT}/health\n`)
+  console.log(`   Health: http://0.0.0.0:${PORT}/health`)
+  const geminiKey = getGeminiApiKey()
+  console.log(`   Gemini ИИ: ${geminiKey ? `готов (${getGeminiModel()})` : 'нет GEMINI_API_KEY в .env / переменных окружения'}\n`)
   setImmediate(() => runLoyaltyBackfill())
 })
