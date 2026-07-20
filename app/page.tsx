@@ -1,5 +1,4 @@
 'use client'
-import Link from 'next/link'
 
 const APPS = [
   { href:'/store',      icon:'🛒', title:'Магазин',            desc:'Клиентское приложение',       sub:'Товары · Рестораны · Бонусы · Корзина',  color:'#1FD760', bg:'linear-gradient(135deg,#061A0C,#0F3020)', border:'rgba(31,215,96,.3)' },
@@ -13,17 +12,16 @@ const APPS = [
 export default function PortalPage() {
   return (
     <div style={{ minHeight:'100vh', background:'#030B05', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'24px', fontFamily:'Nunito, sans-serif' }}>
-      {/* Logo */}
       <div style={{ textAlign:'center', marginBottom:40 }}>
         <div style={{ width:72, height:72, borderRadius:22, background:'linear-gradient(135deg,#0F8A3A,#1FD760)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Unbounded, sans-serif', fontSize:30, fontWeight:900, color:'#030B05', margin:'0 auto 16px', boxShadow:'0 8px 32px rgba(31,215,96,.4)' }}>K</div>
         <div style={{ fontFamily:'Unbounded, sans-serif', fontSize:26, fontWeight:900, background:'linear-gradient(135deg,#1FD760,#FFB800)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text', marginBottom:6 }}>КАКАПО</div>
         <div style={{ fontSize:13, color:'#8FB897' }}>Супермаркет + Маркетплейс · г. Яван, Таджикистан</div>
       </div>
 
-      {/* Apps grid */}
+      {/* Обычные <a> — полная перезагрузка, без soft-nav / битого SW-кэша */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:14, width:'100%', maxWidth:520 }}>
         {APPS.map((app,i) => (
-          <Link key={i} href={app.href} style={{ textDecoration:'none', gridColumn:app.full?'span 2':undefined }}>
+          <a key={i} href={app.href} style={{ textDecoration:'none', gridColumn:app.full?'span 2':undefined }}>
             <div style={{ padding:'20px', borderRadius:20, background:app.bg, border:`1.5px solid ${app.border}`, cursor:'pointer', display:'flex', gap:app.full?16:undefined, alignItems:app.full?'center':undefined, transition:'transform .2s, box-shadow .2s' }}>
               <div style={{ fontSize:app.full?36:42, marginBottom:app.full?0:12 }}>{app.icon}</div>
               <div style={{ flex:app.full?1:undefined }}>
@@ -33,11 +31,10 @@ export default function PortalPage() {
               </div>
               {app.full&&<div style={{ fontSize:20, color:app.color, opacity:.7 }}>→</div>}
             </div>
-          </Link>
+          </a>
         ))}
       </div>
 
-      {/* Info */}
       <div style={{ marginTop:32, padding:'16px 20px', borderRadius:14, background:'rgba(31,215,96,.04)', border:'1px solid rgba(31,215,96,.12)', maxWidth:520, width:'100%' }}>
         <div style={{ fontFamily:'Unbounded, sans-serif', fontSize:11, fontWeight:800, color:'#1FD760', marginBottom:10 }}>ДЕМО-ДОСТУПЫ</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
