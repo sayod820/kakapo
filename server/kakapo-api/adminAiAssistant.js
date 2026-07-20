@@ -25,7 +25,11 @@ function loadLocalEnv() {
       if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1)
       }
-      if (key && process.env[key] == null) process.env[key] = val
+      if (!key) continue
+      // Ключи Gemini всегда перечитываем из файла (после правки .env без полного рестарта)
+      if (key.startsWith('GEMINI_') || process.env[key] == null || process.env[key] === '') {
+        process.env[key] = val
+      }
     }
   } catch { /* ignore */ }
 }
