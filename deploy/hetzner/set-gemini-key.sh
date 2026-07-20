@@ -23,7 +23,7 @@ if [[ -z "$KEY" ]]; then
   exit 1
 fi
 
-MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
+MODEL="${GEMINI_MODEL:-gemini-3.5-flash}"
 
 touch "$ENV_FILE"
 if grep -q '^GEMINI_API_KEY=' "$ENV_FILE"; then

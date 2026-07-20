@@ -30,7 +30,7 @@ export default function AdminAiAssistantPage() {
   const [quick, setQuick] = useState<QuickPrompt[]>(FALLBACK_QUICK)
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [statusError, setStatusError] = useState('')
-  const [model, setModel] = useState('gemini-2.5-flash')
+  const [model, setModel] = useState('gemini-3.5-flash')
   const [prompt, setPrompt] = useState('')
   const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState(false)
@@ -43,7 +43,7 @@ export default function AdminAiAssistantPage() {
     try {
       const st = await api.getAdminAiStatus()
       setConfigured(!!st.configured)
-      setModel(st.model || 'gemini-2.5-flash')
+      setModel(st.model || 'gemini-3.5-flash')
       if (st.quickPrompts?.length) setQuick(st.quickPrompts)
     } catch (e) {
       setConfigured(null)
