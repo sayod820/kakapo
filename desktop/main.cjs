@@ -22,6 +22,8 @@ const {
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const APP_ICON_PATH = path.join(__dirname, 'icon.png')
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
+const USER_CONFIG_PATH = () => path.join(app.getPath('userData'), 'config.json')
+const DEFAULT_TRADE_URL = 'https://kakappo.shop/trade'
 
 let mainWindow = null
 let printWindow = null
@@ -30,8 +32,8 @@ let allowMainWindowClose = false
 // Разрешаем service worker при загрузке интерфейса с http-сервера (иначе касса не открывается офлайн).
 // Service worker требует «безопасный контекст»; помечаем origin кассы как доверенный.
 try {
-  const bootCfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
-  const tradeOrigin = new URL(String(bootCfg.tradeUrl || '')).origin
+  const bootCfg = loadConfigSync()
+  const tradeOrigin = new URL(String(bootCfg.tradeUrl || DEFAULT_TRADE_URL)).origin
   if (tradeOrigin && tradeOrigin.startsWith('http://')) {
     app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', tradeOrigin)
   }
@@ -49,12 +51,37 @@ const DEFAULT_SETTINGS = {
   scaleLiveWeight: true,
 }
 
-function loadConfig() {
+/** Конфиг рядом с приложением + переопределение из userData */
+function loadConfigSync() {
+  let base = { tradeUrl: DEFAULT_TRADE_URL, window: { width: 1360, height: 900 } }
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
-  } catch {
-    return { tradeUrl: 'http://localhost:3000/trade', window: { width: 1360, height: 900 } }
+    base = { ...base, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) }
+  } catch { /* packaged default */ }
+  try {
+    if (typeof app !== 'undefined' && app.getPath) {
+      const userCfg = path.join(app.getPath('userData'), 'config.json')
+      if (fs.existsSync(userCfg)) {
+        base = { ...base, ...JSON.parse(fs.readFileSync(userCfg, 'utf8')) }
+      }
+    }
+  } catch { /* ignore */ }
+  const rawUrl = String(base.tradeUrl || '')
+  if (/46\.225\.92\.161|46\.255\.92\.161/.test(rawUrl) || !rawUrl.trim()) {
+    base.tradeUrl = DEFAULT_TRADE_URL
   }
+  return base
+}
+
+function loadConfig() {
+  return loadConfigSync()
+}
+
+function saveUserConfig(patch) {
+  const cur = loadConfig()
+  const next = { ...cur, ...patch }
+  fs.mkdirSync(path.dirname(USER_CONFIG_PATH()), { recursive: true })
+  fs.writeFileSync(USER_CONFIG_PATH(), JSON.stringify(next, null, 2), 'utf8')
+  return next
 }
 
 function loadPrinterSettings() {
@@ -106,18 +133,92 @@ function buildAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
       label: 'KAKAPO',
-      submenu: [{ role: 'quit', label: 'Выход' }],
+      submenu: [
+        {
+          label: 'Сменить адрес сервера…',
+          click: () => {
+            if (!mainWindow) return
+            const cur = loadConfig().tradeUrl || DEFAULT_TRADE_URL
+            const win = mainWindow
+            // простой prompt через dialog не умеет input — открываем html
+            win.webContents.executeJavaScript(
+              `window.prompt('Адрес кассы (URL)', ${JSON.stringify(cur)})`,
+            ).then(next => {
+              const url = String(next || '').trim()
+              if (!url) return
+              try { new URL(url) } catch {
+                dialog.showErrorBox('Ошибка', 'Некорректный URL')
+                return
+              }
+              saveUserConfig({ tradeUrl: url })
+              win.loadURL(url)
+            }).catch(() => {})
+          },
+        },
+        {
+          label: 'Открыть в браузере',
+          click: () => {
+            const url = loadConfig().tradeUrl || DEFAULT_TRADE_URL
+            shell.openExternal(url)
+          },
+        },
+        { type: 'separator' },
+        { role: 'quit', label: 'Выход' },
+      ],
     },
     { role: 'editMenu' },
-    { role: 'viewMenu' },
+    {
+      label: 'Вид',
+      submenu: [
+        { role: 'reload', label: 'Обновить' },
+        { role: 'forceReload', label: 'Жёсткое обновление' },
+        { role: 'toggleDevTools', label: 'DevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
     { role: 'windowMenu' },
   ]))
+}
+
+function showLoadErrorPage(win, url, errorCode, errorDescription) {
+  const html = `<!doctype html><html><head><meta charset="utf-8"/>
+<title>КАКАПО Касса</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#030B05;color:#EBF5ED;font-family:Segoe UI,system-ui,sans-serif;padding:24px}
+.card{max-width:520px;background:#0C1C0F;border:1px solid #162B1A;border-radius:16px;padding:24px}
+h1{margin:0 0 10px;font-size:18px;color:#1FD760}
+p{margin:8px 0;color:#8FB897;font-size:13px;line-height:1.5;word-break:break-all}
+code{color:#FFB800}
+button{margin-top:14px;margin-right:8px;padding:10px 14px;border-radius:10px;border:none;
+background:#1FD760;color:#030B05;font-weight:700;cursor:pointer}
+button.sec{background:#162B1A;color:#EBF5ED}
+</style></head><body><div class="card">
+<h1>Не удалось открыть кассу</h1>
+<p>Адрес: <code>${String(url).replace(/</g, '')}</code></p>
+<p>Ошибка ${errorCode}: ${String(errorDescription || '').replace(/</g, '')}</p>
+<p>Проверьте интернет и что сайт открывается в браузере:<br/>
+<code>https://kakappo.shop/trade</code></p>
+<button onclick="location.reload()">Повторить</button>
+<button class="sec" onclick="location.href='https://kakappo.shop/trade'">Открыть kakappo.shop</button>
+</div></body></html>`
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
 }
 
 function createWindow() {
   const config = loadConfig()
   const winCfg = config.window || {}
   const isDev = process.argv.includes('--dev')
+
+  // Сохраняем актуальный URL в userData (чинит старые установщики с IP)
+  try {
+    saveUserConfig({ tradeUrl: config.tradeUrl || DEFAULT_TRADE_URL })
+  } catch { /* ignore */ }
 
   mainWindow = new BrowserWindow({
     width: Number(winCfg.width) || 1360,
@@ -128,7 +229,8 @@ function createWindow() {
     title: 'KAKAPO Касса',
     icon: APP_ICON_PATH,
     backgroundColor: '#030B05',
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -137,8 +239,37 @@ function createWindow() {
     },
   })
 
-  const url = String(config.tradeUrl || 'http://localhost:3000/trade').trim()
-  mainWindow.loadURL(url)
+  const url = String(config.tradeUrl || DEFAULT_TRADE_URL).trim() || DEFAULT_TRADE_URL
+
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
+  })
+
+  // Если страница долго не грузится — всё равно показать окно
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show()
+    }
+  }, 4000)
+
+  mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || !mainWindow || mainWindow.isDestroyed()) return
+    // -3 = aborted (навигация отменена) — игнор
+    if (errorCode === -3) return
+    console.error('[kakapo-desktop] load fail', errorCode, errorDescription, validatedURL)
+    showLoadErrorPage(mainWindow, validatedURL || url, errorCode, errorDescription)
+    if (!mainWindow.isVisible()) mainWindow.show()
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[kakapo-desktop] loaded', mainWindow?.webContents.getURL())
+  })
+
+  mainWindow.loadURL(url).catch(err => {
+    console.error('[kakapo-desktop] loadURL', err)
+    showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
+  })
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
     shell.openExternal(openUrl)
