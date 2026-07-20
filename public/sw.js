@@ -1,10 +1,16 @@
 /* KAKAPO — service worker для офлайн-запуска интерфейса
  * Кэширует оболочку приложения (HTML, JS, CSS), чтобы касса открывалась без интернета.
  * Данные (товары, клиенты, чеки) кэшируются отдельно в IndexedDB — API здесь не кэшируем.
+ *
+ * Важно: при ошибке сети НЕ подставляем главную (/) на чужой URL (например /admin),
+ * иначе кажется, что «админка не открывается», а показывается портал.
  */
-const VERSION = 'kakapo-shell-v1'
+const VERSION = 'kakapo-shell-v2'
 const PAGE_CACHE = `pages-${VERSION}`
 const STATIC_CACHE = `static-${VERSION}`
+
+/** Офлайн-fallback только для кассы/торговли — там это осознанно нужно */
+const OFFLINE_SHELLS = ['/trade', '/pos']
 
 self.addEventListener('install', () => {
   self.skipWaiting()
@@ -38,7 +44,7 @@ self.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/api/')) return
 
   if (req.mode === 'navigate') {
-    event.respondWith(networkFirst(req))
+    event.respondWith(networkFirst(req, url.pathname))
     return
   }
   if (isStaticAsset(url)) {
@@ -46,7 +52,7 @@ self.addEventListener('fetch', event => {
   }
 })
 
-async function networkFirst(req) {
+async function networkFirst(req, pathname) {
   const cache = await caches.open(PAGE_CACHE)
   try {
     const res = await fetch(req)
@@ -57,13 +63,30 @@ async function networkFirst(req) {
   } catch {
     const cached = await cache.match(req, { ignoreSearch: true })
     if (cached) return cached
-    const fallback =
-      (await cache.match('/trade', { ignoreSearch: true })) ||
-      (await cache.match('/pos', { ignoreSearch: true })) ||
-      (await cache.match('/', { ignoreSearch: true }))
-    if (fallback) return fallback
+
+    // Только для кассы: запасной офлайн-шелл. Для /admin и др. — не подменяем порталом.
+    if (OFFLINE_SHELLS.some(p => pathname === p || pathname.startsWith(`${p}/`))) {
+      for (const shell of OFFLINE_SHELLS) {
+        const fallback = await cache.match(shell, { ignoreSearch: true })
+        if (fallback) return fallback
+      }
+    }
+
     return new Response(
-      '<h1>Нет соединения</h1><p>Откройте приложение один раз при интернете, чтобы оно работало офлайн.</p>',
+      `<!doctype html><html lang="ru"><meta charset="utf-8"/>
+<title>Нет связи</title>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+font-family:system-ui,sans-serif;background:#030B05;color:#EBF5ED;text-align:center;padding:24px">
+<div>
+  <div style="font-size:28px;margin-bottom:12px">⚠️</div>
+  <h1 style="font-size:18px;margin:0 0 8px">Нет соединения с сервером</h1>
+  <p style="font-size:13px;color:#8FB897;max-width:360px;line-height:1.5;margin:0 0 16px">
+    Страница «${pathname}» недоступна офлайн. Проверьте интернет или что контейнеры на сервере запущены, затем обновите страницу.
+  </p>
+  <button onclick="location.reload()" style="padding:10px 16px;border:0;border-radius:10px;
+  background:#1FD760;color:#030B05;font-weight:700;cursor:pointer">Обновить</button>
+</div>
+</body></html>`,
       { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
     )
   }
