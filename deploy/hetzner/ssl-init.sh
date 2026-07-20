@@ -24,10 +24,11 @@ CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@${DOMAIN}}"
 
 cd "$REPO_ROOT"
 
-echo "==> Certbot для $DOMAIN"
+echo "==> Certbot для $DOMAIN (+ www)"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm certbot certonly \
   --webroot -w /var/www/certbot \
   -d "$DOMAIN" \
+  -d "www.$DOMAIN" \
   --email "$CERTBOT_EMAIL" \
   --agree-tos \
   --no-eff-email \

@@ -12,7 +12,7 @@
 |--------|----------------|
 | Сервер | Hetzner **CX22** (2 vCPU, 4 GB) или CX32 |
 | ОС | Ubuntu 22.04 / 24.04 |
-| Домен | Например `kakapo.tj` → A-запись на IP сервера |
+| Домен | Например `kakappo.shop` → A-запись на IP сервера |
 | Репозиторий | `github.com/sayod820/kakapo` |
 
 ---
@@ -48,11 +48,11 @@ nano deploy/hetzner/.env
 Заполните `.env`:
 
 ```env
-DOMAIN=kakapo.tj
-PUBLIC_URL=https://kakapo.tj
-WS_URL=wss://kakapo.tj
-CORS_ORIGINS=https://kakapo.tj
-CERTBOT_EMAIL=admin@kakapo.tj
+DOMAIN=kakappo.shop
+PUBLIC_URL=https://kakappo.shop
+WS_URL=wss://kakappo.shop
+CORS_ORIGINS=https://kakappo.shop,https://www.kakappo.shop
+CERTBOT_EMAIL=admin@kakappo.shop
 ```
 
 Первичная установка (Docker, firewall, запуск):
@@ -96,11 +96,13 @@ bash deploy/hetzner/deploy.sh
 
 После SSL откройте:
 
-- https://kakapo.tj/store — магазин
-- https://kakapo.tj/admin — админка
-- https://kakapo.tj/courier — курьер
-- https://kakapo.tj/restaurant — ресторан
-- https://kakapo.tj/assembler — сборщик
+- https://kakappo.shop/store — магазин
+- https://kakappo.shop/admin — админка
+- https://kakappo.shop/courier — курьер
+- https://kakappo.shop/restaurant — ресторан
+- https://kakappo.shop/assembler — сборщик
+- https://kakappo.shop/trade — торговля / касса
+- https://kakappo.shop/pos — POS
 
 ---
 

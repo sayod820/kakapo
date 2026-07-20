@@ -58,7 +58,8 @@ export default function PortalPage() {
 
       <div style={{ marginTop:20, fontSize:10, color:'#1D3822', textAlign:'center', lineHeight:1.8 }}>
         КАКАПО v2.0 · Next.js 14 · TypeScript · Zustand<br/>
-        kakapo.tj · г. Яван, Таджикистан
+        <a href="https://kakappo.shop" style={{ color:'#3D6645', textDecoration:'none' }}>kakappo.shop</a>
+        {' · '}г. Яван, Таджикистан
       </div>
     </div>
   )
