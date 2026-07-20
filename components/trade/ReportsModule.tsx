@@ -14,6 +14,7 @@ import {
   REPORT_TABS,
   SALE_STATUS_OPTS,
   aggregateSales,
+  buildProductInsights,
   cashierStats,
   dailyBreakdown,
   defaultPosId,
@@ -69,6 +70,7 @@ export default function ReportsModule() {
   const [statusFilter, setStatusFilter] = useState<SaleStatusFilter>('all')
   const [q, setQ] = useState('')
   const [tab, setTab] = useState<ReportTab>('overview')
+  const [productView, setProductView] = useState<'top' | 'unsold' | 'dead' | 'categories' | 'suppliers'>('top')
   const [showHelp, setShowHelp] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
@@ -114,6 +116,10 @@ export default function ReportsModule() {
   const filteredAgg = useMemo(() => aggregateSales(periodSales), [periodSales])
   const productsById = useMemo(() => new Map(products.map(p => [Number(p.id), p])), [products])
   const productRows = useMemo(() => topProducts(periodSalesAll, productsById, 100), [periodSalesAll, productsById])
+  const productInsights = useMemo(
+    () => buildProductInsights(products, periodSalesAll, periodReceipts),
+    [products, periodSalesAll, periodReceipts],
+  )
   const cogs = useMemo(() => sumCogs(productRows), [productRows])
   const purchaseCost = useMemo(() => sumReceiptCost(periodReceipts), [periodReceipts])
   const purchasePaid = useMemo(() => sumReceiptPaid(periodReceipts), [periodReceipts])
@@ -214,10 +220,35 @@ export default function ReportsModule() {
   }
 
   function exportProducts() {
+    if (productView === 'categories') {
+      downloadCsv(
+        `kakapo-categories-${periodLabel}.csv`,
+        ['Категория', 'Товаров', 'Продавались', 'Не продавались', 'Кол-во', 'Выручка', 'Себест', 'Прибыль', 'Остаток'],
+        productInsights.categories.map(r => [
+          r.cat, r.products, r.soldProducts, r.unsoldProducts, r.qty, r.revenue, r.cogs, r.profit, r.stock,
+        ]),
+      )
+      return
+    }
+    if (productView === 'suppliers') {
+      downloadCsv(
+        `kakapo-product-suppliers-${periodLabel}.csv`,
+        ['Поставщик', 'Товаров', 'Приходов', 'Закуп', 'Оплачено', 'Долг', 'Продано', 'Выручка', 'Себест', 'Прибыль'],
+        productInsights.suppliers.map(r => [
+          r.name, r.products, r.receipts, r.suppliedCost, r.paid, r.debt, r.soldQty, r.revenue, r.cogs, r.profit,
+        ]),
+      )
+      return
+    }
+    const rows = productView === 'top'
+      ? productInsights.top
+      : productView === 'dead'
+        ? productInsights.deadStock
+        : productInsights.unsold
     downloadCsv(
-      `kakapo-products-${periodLabel}.csv`,
-      ['Товар', 'Кол-во', 'Выручка', 'Себест', 'Маржа'],
-      productRows.map(r => [r.productName, r.qty, r.revenue, r.cogs, round2(r.revenue - r.cogs)]),
+      `kakapo-products-${productView}-${periodLabel}.csv`,
+      ['Товар', 'Категория', 'Поставщик', 'Остаток', 'Цена', 'Кол-во', 'Выручка', 'Себест', 'Прибыль'],
+      rows.map(r => [r.productName, r.cat, r.supplierName, r.stock, r.price, r.qty, r.revenue, r.cogs, r.profit]),
     )
   }
 
@@ -1052,7 +1083,10 @@ export default function ReportsModule() {
       {tab === 'products' && (
         <>
           <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Позиций</div><div className="kv">{productRows.length}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Всего товаров</div><div className="kv">{productInsights.all.length}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Продавались</div><div className="kv" style={{ color: 'var(--green)' }}>{productInsights.top.length}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Не продавались</div><div className="kv" style={{ color: 'var(--gold)' }}>{productInsights.unsold.length}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Лежат на складе без продаж</div><div className="kv" style={{ color: 'var(--red)' }}>{productInsights.deadStock.length}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Выручка</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Себестоимость</div><div className="kv">{fmtMoney(dbProfit?.cogs ?? cogs)}</div></div>
             <div className="k-kpi k-statcard">
@@ -1061,43 +1095,241 @@ export default function ReportsModule() {
                 {fmtMoney(dbProfit?.profit ?? round2(salesAgg.revenue - cogs))}
               </div>
             </div>
+            <div className="k-kpi k-statcard"><div className="kl">Категорий</div><div className="kv">{productInsights.categories.length}</div></div>
           </div>
-          <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h">
-              <b>Товары</b>
-              <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
-            </div>
-            {!productRows.length ? <div className="k-empty">Нет продаж</div> : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Товар</th>
-                      <th>Кол-во</th>
-                      <th>Выручка</th>
-                      <th>Себест.</th>
-                      <th>Прибыль</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {productRows.map((r, i) => (
-                      <tr key={r.productId}>
-                        <td>{i + 1}</td>
-                        <td style={{ fontWeight: 800 }}>{r.productName}</td>
-                        <td>{r.qty}</td>
-                        <td>{fmtMoney(r.revenue)}</td>
-                        <td>{fmtMoney(r.cogs)}</td>
-                        <td style={{ color: r.revenue - r.cogs >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>
-                          {fmtMoney(r.revenue - r.cogs)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {([
+              { id: 'top', label: 'Хорошо продаются' },
+              { id: 'unsold', label: 'Не продавались' },
+              { id: 'dead', label: 'Залежались' },
+              { id: 'categories', label: 'Категории' },
+              { id: 'suppliers', label: 'Поставщики +/−' },
+            ] as const).map(v => (
+              <button
+                key={v.id}
+                type="button"
+                className={`k-subtab ${productView === v.id ? 'active' : ''}`}
+                style={{ padding: '7px 12px', fontSize: 12 }}
+                onClick={() => setProductView(v.id)}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {productView === 'top' && (
+            <div className="k-card" style={{ overflow: 'hidden' }}>
+              <div className="k-card-h">
+                <b>Топ продаж · {productInsights.top.length}</b>
+                <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
               </div>
-            )}
-          </div>
+              {!productInsights.top.length ? <div className="k-empty">Нет продаж за период</div> : (
+                <div className="k-tbl-scroll">
+                  <table className="k-tbl">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Товар</th>
+                        <th>Категория</th>
+                        <th>Поставщик</th>
+                        <th>Остаток</th>
+                        <th>Кол-во</th>
+                        <th>Выручка</th>
+                        <th>Себест.</th>
+                        <th>Прибыль</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productInsights.top.map((r, i) => (
+                        <tr key={r.productId}>
+                          <td>{i + 1}</td>
+                          <td style={{ fontWeight: 800 }}>{r.productName}</td>
+                          <td>{r.cat}</td>
+                          <td>{r.supplierName}</td>
+                          <td>{r.stock}</td>
+                          <td>{r.qty}</td>
+                          <td>{fmtMoney(r.revenue)}</td>
+                          <td>{fmtMoney(r.cogs)}</td>
+                          <td style={{ color: r.profit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>{fmtMoney(r.profit)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {productView === 'unsold' && (
+            <div className="k-card" style={{ overflow: 'hidden' }}>
+              <div className="k-card-h">
+                <b>Не продавались · {productInsights.unsold.length}</b>
+                <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
+              </div>
+              {!productInsights.unsold.length ? <div className="k-empty">Все товары продавались</div> : (
+                <div className="k-tbl-scroll">
+                  <table className="k-tbl">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Товар</th>
+                        <th>Категория</th>
+                        <th>Поставщик</th>
+                        <th>Остаток</th>
+                        <th>Цена</th>
+                        <th>Себест.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productInsights.unsold.slice(0, 150).map((r, i) => (
+                        <tr key={r.productId}>
+                          <td>{i + 1}</td>
+                          <td style={{ fontWeight: 800 }}>{r.productName}</td>
+                          <td>{r.cat}</td>
+                          <td>{r.supplierName}</td>
+                          <td style={{ color: r.stock > 0 ? 'var(--gold)' : 'var(--muted)', fontWeight: 800 }}>{r.stock}</td>
+                          <td>{fmtMoney(r.price)}</td>
+                          <td>{fmtMoney(r.cost)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {productView === 'dead' && (
+            <div className="k-card" style={{ overflow: 'hidden' }}>
+              <div className="k-card-h">
+                <b>Залежались (есть остаток, продаж нет) · {productInsights.deadStock.length}</b>
+                <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
+              </div>
+              {!productInsights.deadStock.length ? <div className="k-empty">Нет залежавшихся товаров</div> : (
+                <div className="k-tbl-scroll">
+                  <table className="k-tbl">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Товар</th>
+                        <th>Категория</th>
+                        <th>Поставщик</th>
+                        <th>Остаток</th>
+                        <th>Цена</th>
+                        <th>Заморожено ≈</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productInsights.deadStock.map((r, i) => (
+                        <tr key={r.productId}>
+                          <td>{i + 1}</td>
+                          <td style={{ fontWeight: 800 }}>{r.productName}</td>
+                          <td>{r.cat}</td>
+                          <td>{r.supplierName}</td>
+                          <td style={{ color: 'var(--red)', fontWeight: 900 }}>{r.stock}</td>
+                          <td>{fmtMoney(r.price)}</td>
+                          <td style={{ fontWeight: 800 }}>{fmtMoney(round2(r.stock * (r.cost || r.price)))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {productView === 'categories' && (
+            <div className="k-card" style={{ overflow: 'hidden' }}>
+              <div className="k-card-h">
+                <b>Категории · {productInsights.categories.length}</b>
+                <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
+              </div>
+              {!productInsights.categories.length ? <div className="k-empty">Нет категорий</div> : (
+                <div className="k-tbl-scroll">
+                  <table className="k-tbl">
+                    <thead>
+                      <tr>
+                        <th>Категория</th>
+                        <th>Товаров</th>
+                        <th>Продавались</th>
+                        <th>Не продавались</th>
+                        <th>Кол-во</th>
+                        <th>Выручка</th>
+                        <th>Себест.</th>
+                        <th>Прибыль</th>
+                        <th>Остаток</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productInsights.categories.map(r => (
+                        <tr key={r.cat}>
+                          <td style={{ fontWeight: 800 }}>{r.cat}</td>
+                          <td>{r.products}</td>
+                          <td style={{ color: 'var(--green)' }}>{r.soldProducts}</td>
+                          <td style={{ color: r.unsoldProducts ? 'var(--gold)' : 'var(--muted)' }}>{r.unsoldProducts}</td>
+                          <td>{r.qty}</td>
+                          <td>{fmtMoney(r.revenue)}</td>
+                          <td>{fmtMoney(r.cogs)}</td>
+                          <td style={{ color: r.profit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>{fmtMoney(r.profit)}</td>
+                          <td>{r.stock}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {productView === 'suppliers' && (
+            <div className="k-card" style={{ overflow: 'hidden' }}>
+              <div className="k-card-h">
+                <b>Поставщики: плюс / минус · {productInsights.suppliers.length}</b>
+                <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
+              </div>
+              {!productInsights.suppliers.length ? <div className="k-empty">Нет приходов поставщиков за период</div> : (
+                <div className="k-tbl-scroll">
+                  <table className="k-tbl">
+                    <thead>
+                      <tr>
+                        <th>Поставщик</th>
+                        <th>Статус</th>
+                        <th>Товаров</th>
+                        <th>Закуп</th>
+                        <th>Продано</th>
+                        <th>Выручка</th>
+                        <th>Себест.</th>
+                        <th>Прибыль</th>
+                        <th>Долг</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productInsights.suppliers.map(r => {
+                        const plus = r.profit >= 0 && r.revenue > 0
+                        const minus = r.profit < 0 || (r.suppliedCost > 0 && r.revenue <= 0)
+                        return (
+                          <tr key={r.key}>
+                            <td style={{ fontWeight: 800 }}>{r.name}</td>
+                            <td style={{ fontWeight: 900, color: plus ? 'var(--green)' : minus ? 'var(--red)' : 'var(--muted)' }}>
+                              {plus ? 'В плюс' : minus ? 'В минус' : 'Нейтрально'}
+                            </td>
+                            <td>{r.products}</td>
+                            <td>{fmtMoney(r.suppliedCost)}</td>
+                            <td>{r.soldQty}</td>
+                            <td>{fmtMoney(r.revenue)}</td>
+                            <td>{fmtMoney(r.cogs)}</td>
+                            <td style={{ color: r.profit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 900 }}>{fmtMoney(r.profit)}</td>
+                            <td style={{ color: r.debt > 0 ? 'var(--gold)' : 'var(--muted)' }}>{fmtMoney(r.debt)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

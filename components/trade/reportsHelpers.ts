@@ -47,7 +47,7 @@ export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: st
   { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии, сроки' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и расходы' },
   { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты и продажи в долг' },
-  { id: 'products', label: 'Товары', icon: '📦', hint: 'Что продаётся лучше всего' },
+  { id: 'products', label: 'Товары', icon: '📦', hint: 'Топ продаж, непродаваемые, категории и поставщики +/−' },
 ]
 
 /** Query-параметры периода для API /finance/* */
@@ -376,6 +376,183 @@ export function topProducts(
 
 export function sumCogs(rows: TopProductRow[]) {
   return round2(rows.reduce((s, r) => s + r.cogs, 0))
+}
+
+export type ProductInsightRow = {
+  productId: number
+  productName: string
+  cat: string
+  stock: number
+  price: number
+  cost: number
+  qty: number
+  revenue: number
+  cogs: number
+  profit: number
+  supplierName: string
+}
+
+export type CategoryInsightRow = {
+  cat: string
+  products: number
+  soldProducts: number
+  unsoldProducts: number
+  qty: number
+  revenue: number
+  cogs: number
+  profit: number
+  stock: number
+}
+
+export type SupplierInsightRow = {
+  key: string
+  name: string
+  receipts: number
+  suppliedCost: number
+  paid: number
+  debt: number
+  soldQty: number
+  revenue: number
+  cogs: number
+  profit: number
+  products: number
+}
+
+/** Последний поставщик по приходам товара */
+export function lastSupplierByProduct(receipts: StockReceipt[]): Map<number, string> {
+  const map = new Map<number, string>()
+  const ordered = [...receipts].sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
+  for (const r of ordered) {
+    const name = String(r.supplierName || '').trim() || 'Без поставщика'
+    for (const it of r.items || []) {
+      const pid = Number(it.productId) || 0
+      if (pid > 0) map.set(pid, name)
+    }
+  }
+  return map
+}
+
+export function buildProductInsights(
+  products: Product[],
+  sales: PosSale[],
+  receipts: StockReceipt[],
+): {
+  all: ProductInsightRow[]
+  top: ProductInsightRow[]
+  unsold: ProductInsightRow[]
+  deadStock: ProductInsightRow[]
+  categories: CategoryInsightRow[]
+  suppliers: SupplierInsightRow[]
+} {
+  const sold = topProducts(sales, new Map(products.map(p => [Number(p.id), p])), 10_000)
+  const soldById = new Map(sold.map(r => [r.productId, r]))
+  const supplierByProduct = lastSupplierByProduct(receipts)
+
+  const all: ProductInsightRow[] = products.map(p => {
+    const row = soldById.get(Number(p.id))
+    const qty = Number(row?.qty) || 0
+    const revenue = Number(row?.revenue) || 0
+    const cogs = Number(row?.cogs) || 0
+    const cost = Number(p.costPrice) || 0
+    return {
+      productId: Number(p.id),
+      productName: p.name || `#${p.id}`,
+      cat: String(p.cat || p.catId || 'Без категории'),
+      stock: Number(p.stock) || 0,
+      price: Number(p.price) || 0,
+      cost,
+      qty,
+      revenue,
+      cogs: qty > 0 ? cogs : 0,
+      profit: round2(revenue - (qty > 0 ? cogs : 0)),
+      supplierName: supplierByProduct.get(Number(p.id)) || '—',
+    }
+  }).sort((a, b) => b.revenue - a.revenue || a.productName.localeCompare(b.productName, 'ru'))
+
+  const top = all.filter(r => r.qty > 0).slice(0, 50)
+  const unsold = all
+    .filter(r => !(r.qty > 0))
+    .sort((a, b) => b.stock - a.stock || a.productName.localeCompare(b.productName, 'ru'))
+  const deadStock = unsold.filter(r => r.stock > 0).slice(0, 80)
+
+  const catAcc = new Map<string, CategoryInsightRow>()
+  for (const r of all) {
+    const row = catAcc.get(r.cat) || {
+      cat: r.cat,
+      products: 0,
+      soldProducts: 0,
+      unsoldProducts: 0,
+      qty: 0,
+      revenue: 0,
+      cogs: 0,
+      profit: 0,
+      stock: 0,
+    }
+    row.products += 1
+    if (r.qty > 0) row.soldProducts += 1
+    else row.unsoldProducts += 1
+    row.qty = round2(row.qty + r.qty)
+    row.revenue = round2(row.revenue + r.revenue)
+    row.cogs = round2(row.cogs + r.cogs)
+    row.profit = round2(row.profit + r.profit)
+    row.stock = round2(row.stock + r.stock)
+    catAcc.set(r.cat, row)
+  }
+  const categories = Array.from(catAcc.values()).sort((a, b) => b.revenue - a.revenue || b.products - a.products)
+
+  const supplierAcc = new Map<string, SupplierInsightRow>()
+  for (const r of receipts) {
+    const name = String(r.supplierName || '').trim() || 'Без поставщика'
+    const key = String(r.supplierId || name)
+    const row = supplierAcc.get(key) || {
+      key,
+      name,
+      receipts: 0,
+      suppliedCost: 0,
+      paid: 0,
+      debt: 0,
+      soldQty: 0,
+      revenue: 0,
+      cogs: 0,
+      profit: 0,
+      products: 0,
+    }
+    row.receipts += 1
+    row.suppliedCost = round2(row.suppliedCost + (Number(r.totalCost) || 0))
+    row.paid = round2(row.paid + (Number(r.paidNow) || 0))
+    row.debt = round2(row.debt + (Number(r.debtAdded) || 0))
+    supplierAcc.set(key, row)
+  }
+
+  const productIdsBySupplier = new Map<string, Set<number>>()
+  for (const r of receipts) {
+    const name = String(r.supplierName || '').trim() || 'Без поставщика'
+    const key = String(r.supplierId || name)
+    const set = productIdsBySupplier.get(key) || new Set<number>()
+    for (const it of r.items || []) {
+      const pid = Number(it.productId) || 0
+      if (pid > 0) set.add(pid)
+    }
+    productIdsBySupplier.set(key, set)
+  }
+
+  for (const [key, set] of productIdsBySupplier) {
+    const row = supplierAcc.get(key)
+    if (!row) continue
+    row.products = set.size
+    for (const pid of set) {
+      const p = soldById.get(pid)
+      if (!p) continue
+      row.soldQty = round2(row.soldQty + p.qty)
+      row.revenue = round2(row.revenue + p.revenue)
+      row.cogs = round2(row.cogs + p.cogs)
+    }
+    row.profit = round2(row.revenue - row.cogs)
+  }
+
+  const suppliers = Array.from(supplierAcc.values()).sort((a, b) => b.profit - a.profit || b.revenue - a.revenue)
+
+  return { all, top, unsold, deadStock, categories, suppliers }
 }
 
 export type CashierRow = {
