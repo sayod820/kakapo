@@ -296,6 +296,8 @@ export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[])
     debtLimit: card?.debtLimit ?? client.debtLimit,
     vip: !!(card?.vip ?? client.vip),
     debtEnabled: resolveDebtEnabled(card, client),
+    debtCreditBlocked: !!(card?.debtCreditBlocked ?? client.debtCreditBlocked),
+    debtOverdueStrikes: Math.max(0, Number(card?.debtOverdueStrikes ?? client.debtOverdueStrikes) || 0),
   }
 }
 

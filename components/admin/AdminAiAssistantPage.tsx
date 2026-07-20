@@ -11,7 +11,7 @@ const FALLBACK_QUICK: QuickPrompt[] = [
   { id: 'top', label: 'Что продаётся', icon: '📈', shortcut: '3' },
   { id: 'unsold', label: 'Что не продаётся', icon: '📉', shortcut: '4' },
   { id: 'suppliers', label: 'Поставщики +/−', icon: '🚚', shortcut: '5' },
-  { id: 'debts', label: 'Долги клиентов', icon: '💳', shortcut: '6' },
+  { id: 'debts', label: 'Долги и просрочки', icon: '💳', shortcut: '6' },
   { id: 'till', label: 'Касса и смены', icon: '⚖️', shortcut: '7' },
   { id: 'couriers', label: 'Курьеры', icon: '🛵', shortcut: '8' },
   { id: 'assemblers', label: 'Сборщики', icon: '🛒', shortcut: '9' },

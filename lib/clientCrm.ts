@@ -29,6 +29,8 @@ export interface AdminClient {
   blocked: boolean
   vip?: boolean
   debtEnabled?: boolean
+  debtOverdueStrikes?: number
+  debtCreditBlocked?: boolean
   note?: string
   createdAt?: string
   lastOrderAt?: string
@@ -242,6 +244,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
         || raw.debtEnabled === true
         || debtFromNote(raw.note)
         || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && (Number(raw.debtLimit) || 0) > 0))),
+    debtOverdueStrikes: Math.max(0, Number(raw.debtOverdueStrikes) || 0),
+    debtCreditBlocked: !!raw.debtCreditBlocked,
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,

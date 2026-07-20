@@ -6,11 +6,164 @@
  */
 
 import { getGeminiApiKey, getGeminiModel, loadLocalEnv } from './loadEnv.js'
+import {
+  DEBT_TERM_DAYS,
+  DEBT_BLOCK_AFTER_STRIKES,
+  DEBT_REMINDER_DAYS,
+  buildDebtLedgerResponse,
+  ensureDebtLedger,
+} from './debtLedger.js'
 
 loadLocalEnv()
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
+}
+
+function daysUntilDueDay(dueAtIso, nowIso = new Date().toISOString()) {
+  const due = new Date(dueAtIso)
+  const now = new Date(nowIso)
+  if (Number.isNaN(due.getTime()) || Number.isNaN(now.getTime())) return null
+  due.setHours(0, 0, 0, 0)
+  now.setHours(0, 0, 0, 0)
+  return Math.ceil((due.getTime() - now.getTime()) / 864e5)
+}
+
+/** Сводка по долгам и просрочкам для ИИ (без телефонов) */
+function buildDebtRiskSnapshot(clients) {
+  const nowIso = new Date().toISOString()
+  const overdueClients = []
+  const dueSoonClients = []
+  const blockedClients = []
+  const strikeWarnClients = []
+  let overdueAmount = 0
+  let openEntries = 0
+  let overdueEntries = 0
+  let dueSoonEntries = 0
+
+  for (const client of clients || []) {
+    const debt = round2(client.debt)
+    if (!(debt > 0.001) && !client.debtCreditBlocked && !(Number(client.debtOverdueStrikes) > 0)) continue
+
+    ensureDebtLedger(client)
+    const ledger = buildDebtLedgerResponse(client)
+    const open = (ledger.entries || []).filter(e => e.status === 'open' || e.status === 'overdue')
+
+    // Старый долг без записей ledger — считаем как один открытый без известного срока
+    if (debt > 0.001 && !open.length) {
+      openEntries += 1
+      overdueClients.push({
+        name: client.name || 'Без имени',
+        debt,
+        level: client.level,
+        vip: !!client.vip,
+        strikes: Number(client.debtOverdueStrikes) || 0,
+        creditBlocked: !!client.debtCreditBlocked,
+        overdueAmount: debt,
+        overdueCount: 1,
+        maxDaysOverdue: null,
+        note: 'Нет разбивки по срокам — проверить вручную',
+      })
+      overdueAmount = round2(overdueAmount + debt)
+      overdueEntries += 1
+      continue
+    }
+
+    const overdue = open.filter(e => e.overdue)
+    const dueSoon = open.filter(e => !e.overdue && e.daysLeft != null && e.daysLeft <= DEBT_REMINDER_DAYS)
+    openEntries += open.length
+    overdueEntries += overdue.length
+    dueSoonEntries += dueSoon.length
+
+    const overdueSum = round2(overdue.reduce((s, e) => s + (Number(e.remaining) || 0), 0))
+    overdueAmount = round2(overdueAmount + overdueSum)
+
+    if (client.debtCreditBlocked) {
+      blockedClients.push({
+        name: client.name || 'Без имени',
+        debt,
+        strikes: Number(client.debtOverdueStrikes) || 0,
+        overdueAmount: overdueSum,
+      })
+    }
+
+    if ((Number(client.debtOverdueStrikes) || 0) === 1 && !client.debtCreditBlocked) {
+      strikeWarnClients.push({
+        name: client.name || 'Без имени',
+        debt,
+        strikes: 1,
+        overdueAmount: overdueSum,
+        note: 'Уже 1 просрочка — при следующей новый долг закроется',
+      })
+    }
+
+    if (overdue.length) {
+      const maxDaysOverdue = Math.max(
+        ...overdue.map(e => {
+          const left = daysUntilDueDay(e.dueAtIso, nowIso)
+          return left == null ? 0 : Math.abs(Math.min(0, left))
+        }),
+      )
+      overdueClients.push({
+        name: client.name || 'Без имени',
+        debt,
+        level: client.level,
+        vip: !!client.vip,
+        strikes: Number(client.debtOverdueStrikes) || 0,
+        creditBlocked: !!client.debtCreditBlocked,
+        overdueAmount: overdueSum,
+        overdueCount: overdue.length,
+        maxDaysOverdue,
+        nextDue: ledger.nextDueDate,
+      })
+    } else if (dueSoon.length) {
+      dueSoonClients.push({
+        name: client.name || 'Без имени',
+        debt,
+        dueSoonCount: dueSoon.length,
+        dueSoonAmount: round2(dueSoon.reduce((s, e) => s + (Number(e.remaining) || 0), 0)),
+        nextDue: ledger.nextDueDate,
+        daysLeft: ledger.nextDueDaysLeft,
+      })
+    }
+  }
+
+  overdueClients.sort((a, b) => (b.overdueAmount || 0) - (a.overdueAmount || 0))
+  dueSoonClients.sort((a, b) => (a.daysLeft ?? 99) - (b.daysLeft ?? 99))
+
+  return {
+    termDays: DEBT_TERM_DAYS,
+    reminderDays: DEBT_REMINDER_DAYS,
+    blockAfterStrikes: DEBT_BLOCK_AFTER_STRIKES,
+    rules: {
+      eachDebtDueInDays: DEBT_TERM_DAYS,
+      remindBeforeDays: DEBT_REMINDER_DAYS,
+      firstOverdue: 'предупреждение клиенту',
+      secondOverdue: 'новый долг закрывается (creditBlocked)',
+      afterFullRepay: 'блок и счётчик просрочек сбрасываются',
+    },
+    summary: {
+      debtorsCount: (clients || []).filter(c => (Number(c.debt) || 0) > 0.001).length,
+      debtTotal: round2((clients || []).reduce((s, c) => s + Math.max(0, Number(c.debt) || 0), 0)),
+      openEntries,
+      overdueEntries,
+      overdueAmount,
+      dueSoonEntries,
+      blockedCount: blockedClients.length,
+      strikeWarnCount: strikeWarnClients.length,
+    },
+    overdueClients: overdueClients.slice(0, 15),
+    dueSoonClients: dueSoonClients.slice(0, 12),
+    blockedClients: blockedClients.slice(0, 12),
+    strikeWarnClients: strikeWarnClients.slice(0, 12),
+    actionsHint: [
+      'Сначала связаться с просроченными (overdueClients) — сумма и дни просрочки',
+      'Клиентам из strikeWarnClients напомнить: ещё одна просрочка = закрытие нового долга',
+      'blockedClients — только погашение в магазине, новый долг не давать',
+      'dueSoonClients — мягкое напоминание до срока',
+      'Не увеличивать лимит и не выдавать новый долг при creditBlocked или strikes>=2',
+    ],
+  }
 }
 
 function startOfToday() {
@@ -121,7 +274,16 @@ export function buildAdminAiSnapshot(db) {
     .filter(c => (Number(c.debt) || 0) > 0.001)
     .sort((a, b) => (Number(b.debt) || 0) - (Number(a.debt) || 0))
     .slice(0, 12)
-    .map(c => ({ name: c.name, debt: round2(c.debt), level: c.level, vip: !!c.vip }))
+    .map(c => ({
+      name: c.name,
+      debt: round2(c.debt),
+      level: c.level,
+      vip: !!c.vip,
+      strikes: Number(c.debtOverdueStrikes) || 0,
+      creditBlocked: !!c.debtCreditBlocked,
+    }))
+
+  const debtRisk = buildDebtRiskSnapshot(clients)
 
   const openShifts = shifts.filter(s => s.status === 'open').map(s => ({
     cashier: s.cashierName,
@@ -269,6 +431,8 @@ export function buildAdminAiSnapshot(db) {
       debtTotal: round2(clients.reduce((s, c) => s + Math.max(0, Number(c.debt) || 0), 0)),
       topDebtors: debtors,
     },
+    /** Просрочки, сроки 30 дней, блокировки кредита */
+    debtRisk,
     suppliers: supplierRows,
     deliveryOrders: {
       active: activeOrders.length,
@@ -302,14 +466,14 @@ export const AI_QUICK_PROMPTS = [
     label: 'Полный анализ',
     icon: '🧠',
     shortcut: '1',
-    prompt: 'Сделай полный анализ бизнеса КАКАПО по данным. Что хорошо, что плохо, где риски. Дай 7–10 конкретных действий на сегодня/неделю.',
+    prompt: 'Сделай полный анализ бизнеса КАКАПО по данным. Что хорошо, что плохо, где риски. Отдельно кратко по долгам/просрочкам из debtRisk. Дай 7–10 конкретных действий на сегодня/неделю.',
   },
   {
     id: 'bad',
     label: 'Что плохо сейчас',
     icon: '⚠️',
     shortcut: '2',
-    prompt: 'Найди самые серьёзные проблемы прямо сейчас: касса, долги, склад, доставка, рестораны. Только важное, коротко, с приоритетом.',
+    prompt: 'Найди самые серьёзные проблемы прямо сейчас: касса, долги и просрочки (debtRisk), склад, доставка, рестораны. Только важное, коротко, с приоритетом. По долгам укажи просрочки и кого уже нельзя кредитовать.',
   },
   {
     id: 'top',
@@ -334,10 +498,17 @@ export const AI_QUICK_PROMPTS = [
   },
   {
     id: 'debts',
-    label: 'Долги клиентов',
+    label: 'Долги и просрочки',
     icon: '💳',
     shortcut: '6',
-    prompt: 'Проанализируй долги клиентов: кого проверить, кому ограничить кредит, где риск невозврата.',
+    prompt: `Проанализируй долги клиентов по блоку debtRisk (не выдумывай сроки вне данных).
+Правила: каждый долг гасится за ${DEBT_TERM_DAYS} дней; за ${DEBT_REMINDER_DAYS} дня напоминание; 1-я просрочка — предупреждение; ${DEBT_BLOCK_AFTER_STRIKES}-я — новый долг закрыт.
+Дай:
+1) кто уже просрочил (overdueClients) — сумма, дни, приоритет звонка;
+2) у кого срок скоро (dueSoonClients);
+3) у кого 1 strike (strikeWarnClients) — риск блокировки;
+4) кого уже заблокировали (blockedClients) — только погашение, новый долг не давать;
+5) конкретный план на сегодня: кому звонить/писать, кому ограничить лимит, что сказать кассирам.`,
   },
   {
     id: 'till',
@@ -372,6 +543,15 @@ export const AI_QUICK_PROMPTS = [
 const SYSTEM_INSTRUCTION = `Ты бизнес-ассистент владельца сети КАКАПО (г. Яван, Таджикистан).
 Приложения: магазин/касса, клиенты, курьеры, сборщики, рестораны.
 Отвечай на русском, коротко и по делу.
+
+Долги (блок debtRisk):
+- Каждый отдельный долг должен быть погашен за ${DEBT_TERM_DAYS} дней с даты выдачи.
+- За ${DEBT_REMINDER_DAYS} дня до срока клиент получает напоминание.
+- 1-я просрочка = предупреждение; ${DEBT_BLOCK_AFTER_STRIKES}-я просрочка = новый долг закрыт (creditBlocked).
+- После полного погашения блок и счётчик просрочек сбрасываются.
+- При вопросах про долги/просрочки опирайся на debtRisk.overdueClients, dueSoonClients, strikeWarnClients, blockedClients и actionsHint.
+- Давай конкретные действия: кому звонить, кому не давать новый долг, кому мягко напомнить.
+
 Для курьеров, сборщиков и ресторанов считай текущую активность только по полям activeNow, ordersTodayCreated, deliveredToday, completedToday и queue. Исторические поля ordersTotal/week/rating не называй как активность за сегодня.
 Если ordersTodayCreated=0 и deliveredToday=0, прямо скажи, что сегодня реальных заказов/действий не было или данных мало.
 Формат ответа:

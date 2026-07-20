@@ -36,6 +36,41 @@ export type DebtHistoryEntry = {
   itemsSummary?: string
   /** debt = в долг, pay = погашение, purchase = оплаченная покупка в магазине */
   type: 'debt' | 'pay' | 'purchase'
+  /** Срок погашения (ISO) — с серверного ledger */
+  dueAtIso?: string
+  /** Человекочитаемый срок */
+  dueDate?: string
+  /** Дней до срока (отрицательное = просрочка) */
+  daysLeft?: number
+  overdue?: boolean
+}
+
+export type DebtLedgerEntry = {
+  id: string
+  amount: number
+  remaining: number
+  paidAmount: number
+  createdAtIso: string
+  dueAtIso: string
+  dueDate: string
+  daysLeft: number
+  overdue: boolean
+  source?: string
+  orderId?: string
+  saleId?: string
+  desc: string
+  status: 'open' | 'overdue' | 'paid'
+}
+
+export type DebtLedgerResponse = {
+  termDays: number
+  debt: number
+  debtLimit: number
+  overdueStrikes: number
+  creditBlocked: boolean
+  nextDueDate: string | null
+  nextDueDaysLeft: number | null
+  entries: DebtLedgerEntry[]
 }
 
 export function emitDebtHistoryChange() {
@@ -169,6 +204,12 @@ export function getVipCreditState(user?: Partial<StoreUser> | null): VipCreditSt
 
 export function canPayWithCredit(user: Partial<StoreUser> | null | undefined, amount: number): { ok: boolean; reason?: string } {
   const s = getVipCreditState(user)
+  if (user?.debtCreditBlocked) {
+    return {
+      ok: false,
+      reason: 'Новый долг недоступен: была повторная просрочка. Погасите текущий долг в магазине.',
+    }
+  }
   if (!s.enabled) return { ok: false, reason: 'VIP-кредит недоступен. Нужен VIP и лимит от администратора.' }
   if (amount <= 0) return { ok: false, reason: 'Сумма заказа должна быть больше 0' }
   if (amount > s.available + 0.001) {
@@ -246,12 +287,26 @@ export async function chargeCredit(
   const merged = await findMergedClientByPhone(phone)
   if (!merged) throw new Error('Клиент не найден в CRM')
   const check = canPayWithCredit(
-    { vip: merged.vip, debt: merged.debt, debtLimit: merged.debtLimit, blocked: merged.blocked },
+    {
+      vip: merged.vip,
+      debt: merged.debt,
+      debtLimit: merged.debtLimit,
+      blocked: merged.blocked,
+      debtCreditBlocked: merged.debtCreditBlocked,
+    },
     amount,
   )
   if (!check.ok) throw new Error(check.reason || 'Оплата в долг недоступна')
   const newDebt = Math.round((merged.debt + amount) * 100) / 100
-  setDebtOnCard(phone, newDebt)
+
+  if (USE_API) {
+    const cardNum = merged.card
+    if (!cardNum) throw new Error('Карта клиента не найдена')
+    await api.updateCard(cardNum, { debt: newDebt })
+  } else {
+    setDebtOnCard(phone, newDebt)
+  }
+
   pushDebtHistory(phone, {
     desc: `Заказ ${orderId}`,
     amount: -amount,

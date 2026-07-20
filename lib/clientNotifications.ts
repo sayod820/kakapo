@@ -15,7 +15,7 @@ export type ClientNotificationKind = 'order' | 'review' | 'bonus' | 'promo' | 's
 export type ClientNotificationAction =
   | 'orders' | 'order'
   | 'reviews' | 'review'
-  | 'promos' | 'bonus' | 'vip'
+  | 'promos' | 'bonus' | 'vip' | 'debts'
 
 export type ClientNotification = {
   id: string
@@ -62,6 +62,7 @@ export function resolveNotificationTarget(n: ClientNotification): {
   }
   if (kind === 'bonus') return { page: 'vip' }
   if (kind === 'promo') return { page: 'promos' }
+  if (n.action === 'debts') return { page: 'debts' }
   if (kind === 'order') {
     return n.orderId ? { page: 'orders', params: { orderId: n.orderId } } : { page: 'orders' }
   }
@@ -73,6 +74,7 @@ export function notificationOpenHint(n: ClientNotification): string {
   if (page === 'orders' && params?.orderId) return `Открыть заказ ${params.orderId} →`
   if (page === 'reviews') return 'Открыть отзывы →'
   if (page === 'vip') return 'Открыть бонусы VIP →'
+  if (page === 'debts') return 'Открыть долги →'
   if (page === 'promos') return 'Открыть акции →'
   if (page === 'orders') return 'Открыть заказы →'
   return ''

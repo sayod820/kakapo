@@ -23,6 +23,10 @@ export interface AdminCard {
   vip?: boolean
   /** Раздел долга в приложении и админке (не зависит от VIP) */
   debtEnabled?: boolean
+  /** Сколько раз клиент просрочил срок погашения */
+  debtOverdueStrikes?: number
+  /** Новый долг временно закрыт из-за повторной просрочки */
+  debtCreditBlocked?: boolean
   /** Месяц (YYYY-MM), за который действует статус на карте */
   loyaltyPeriod?: string
   /** Месяц (YYYY-MM), в котором уровень закреплён админом */
@@ -137,6 +141,8 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
         || raw.debtEnabled === true
         || debtFromNote(raw.note)
         || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && (Number(raw.debtLimit) || 0) > 0))),
+    debtOverdueStrikes: Math.max(0, Number(raw.debtOverdueStrikes) || 0),
+    debtCreditBlocked: !!raw.debtCreditBlocked,
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     levelLockedPeriod: raw.levelLockedPeriod === null ? undefined : (raw.levelLockedPeriod || undefined),
     levelAssignMode,

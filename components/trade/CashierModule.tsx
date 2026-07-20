@@ -1039,6 +1039,11 @@ export default function CashierModule({
   const debtLimit = loyalty ? resolveEffectiveDebtLimit(loyalty) : 0
   const availableDebt = loyalty ? Math.max(0, debtLimit - (Number(loyalty.debt) || 0)) : 0
   const clientDebt = Number(loyalty?.debt) || 0
+  const clientDebtBlocked = !!(client?.debtCreditBlocked || loyalty?.debtCreditBlocked)
+
+  function showDebtBlockedToast() {
+    showToast('Долг закрыт', 'Повторная просрочка — новый долг недоступен. Клиент должен погасить текущий долг.')
+  }
 
   const clientHistory = useMemo(() => {
     void histTick
@@ -3006,6 +3011,10 @@ export default function CashierModule({
     let cashReceivedVal = 0
 
     if (methodPay === 'credit') {
+      if (clientDebtBlocked) {
+        showDebtBlockedToast()
+        return
+      }
       apiMethod = 'credit'
       debtAdded = payable
       if (debtAdded > availableDebt + 0.001) {
@@ -3028,6 +3037,10 @@ export default function CashierModule({
         if (!client) {
           setClientOpen(true)
           showToast('Выберите клиента', 'Для долга нужен клиент')
+          return
+        }
+        if (clientDebtBlocked) {
+          showDebtBlockedToast()
           return
         }
         if (debtAdded > availableDebt + 0.001) {
@@ -3300,6 +3313,11 @@ export default function CashierModule({
       return
     }
     if (method === 'credit') {
+      if (clientDebtBlocked) {
+        setPayPickOpen(false)
+        showDebtBlockedToast()
+        return
+      }
       setPayDebtOn(false)
       setBonusUsed(0)
       setPay(method)
@@ -3349,6 +3367,11 @@ export default function CashierModule({
       setCashOpen(false)
       setClientOpen(true)
       showToast('Выберите клиента', 'Чтобы записать остаток в долг')
+      return
+    }
+    if (clientDebtBlocked) {
+      setCashOpen(false)
+      showDebtBlockedToast()
       return
     }
     openCreditNote({ paidCash: cash, method: 'mixed', paidCard: 0, debtAmt: remain })
@@ -4825,6 +4848,7 @@ export default function CashierModule({
                 <div className="client-bonus">
                   ⭐ {fmtBonus(loyalty.bonus)} бон.
                   {clientDebt > 0 ? <> · <span className="debt">долг {fmtMoney(clientDebt)}</span></> : null}
+                  {clientDebtBlocked ? <> · <span className="debt">новый долг закрыт</span></> : null}
                   {debtLimit > 0 ? <> · лимит {fmtMoney(availableDebt)}</> : null}
                   {usedBonus > 0 ? <> · <span className="used">−{usedBonus.toFixed(0)} бон.</span></> : null}
                 </div>
@@ -5349,7 +5373,7 @@ export default function CashierModule({
               <button type="button" className="pay-btn pay-card" onClick={() => choosePayMethod('card')} disabled={busy || total <= 0.001}>
                 <span className="ic">💳</span>Карта
               </button>
-              <button type="button" className="pay-btn pay-credit" onClick={() => choosePayMethod('credit')} disabled={busy || total <= 0.001}>
+              <button type="button" className="pay-btn pay-credit" onClick={() => choosePayMethod('credit')} disabled={busy || total <= 0.001 || clientDebtBlocked}>
                 <span className="ic">📝</span>В долг
               </button>
             </div>

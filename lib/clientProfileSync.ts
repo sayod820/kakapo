@@ -43,6 +43,8 @@ export type CrmStoreUser = {
   debtLimit?: number
   blocked?: boolean
   debtEnabled?: boolean
+  debtOverdueStrikes?: number
+  debtCreditBlocked?: boolean
   loyaltyPeriod?: string
   levelLockedPeriod?: string
   levelAssignMode?: 'auto' | 'manual'
@@ -131,6 +133,8 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
       bonus: card.bonus ?? base.bonus,
       debt: card.debt ?? base.debt,
       debtLimit: Math.max(0, Number(card.debtLimit ?? base.debtLimit) || 0),
+      debtOverdueStrikes: Math.max(0, Number(card.debtOverdueStrikes ?? base.debtOverdueStrikes) || 0),
+      debtCreditBlocked: !!(card.debtCreditBlocked ?? base.debtCreditBlocked),
       vip: !!(card.vip ?? pendingManual.vip ?? base.vip),
       debtEnabled: resolveDebtEnabled(card, base),
       blocked: card.status === 'blocked' || base.blocked,
@@ -155,6 +159,8 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     bonus: card.bonus ?? base.bonus,
     debt: card.debt ?? base.debt,
     debtLimit: Math.max(0, Number(card.debtLimit ?? base.debtLimit) || 0),
+    debtOverdueStrikes: Math.max(0, Number(card.debtOverdueStrikes ?? base.debtOverdueStrikes) || 0),
+    debtCreditBlocked: !!(card.debtCreditBlocked ?? base.debtCreditBlocked),
     vip: !!(card.vip ?? base.vip),
     debtEnabled: resolveDebtEnabled(card, base),
     blocked: card.status === 'blocked' || base.blocked,
@@ -178,6 +184,8 @@ export function crmToStoreUser(c: AdminClient, card?: AdminCard | null): CrmStor
     debt: c.debt || 0,
     debtLimit: Math.max(0, Number(c.debtLimit) || 0),
     debtEnabled: resolveDebtEnabled(card ?? undefined, c),
+    debtOverdueStrikes: Math.max(0, Number(c.debtOverdueStrikes) || 0),
+    debtCreditBlocked: !!(c.debtCreditBlocked || card?.debtCreditBlocked),
     blocked: !!c.blocked,
     loyaltyPeriod: c.loyaltyPeriod,
     levelLockedPeriod: c.levelLockedPeriod,
@@ -313,7 +321,7 @@ export async function isStoreAccountActiveOnServer(phone: string): Promise<boole
 }
 
 const SYNC_KEYS: (keyof CrmStoreUser)[] = [
-  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'levelLockedPeriod', 'levelAssignMode', 'levelValidUntil', 'vipUntil', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
+  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'debtOverdueStrikes', 'debtCreditBlocked', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'levelLockedPeriod', 'levelAssignMode', 'levelValidUntil', 'vipUntil', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
 ]
 
 export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmStoreUser | null | undefined): boolean {

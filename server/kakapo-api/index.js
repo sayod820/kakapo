@@ -133,6 +133,14 @@ import {
   getAdminAiStatus,
 } from './adminAiAssistant.js'
 import { getGeminiApiKey, getGeminiModel, loadLocalEnv } from './loadEnv.js'
+import {
+  buildDebtLedgerResponse,
+  canTakeNewDebt,
+  handleClientDebtDelta,
+  runDebtMaintenance,
+  syncDebtLedgerFromCard,
+  syncDebtLedgerToCard,
+} from './debtLedger.js'
 
 loadLocalEnv()
 
@@ -446,6 +454,16 @@ function pushAutoEnabled(eventId) {
   const settings = db.push?.autoSettings || []
   const row = settings.find(s => s.id === eventId)
   return row ? row.enabled !== false : true
+}
+
+function deliverDebtNotifications(list = []) {
+  for (const payload of list) deliverOrderNotification(payload)
+}
+
+function runDebtMaintenanceAndNotify() {
+  const notes = runDebtMaintenance(db)
+  deliverDebtNotifications(notes)
+  if (notes.length) persist()
 }
 
 function deliverOrderNotification(payload) {
@@ -1594,6 +1612,7 @@ app.post('/pos/sales', (req, res) => {
     }
 
     const row = createPosSale(db, body)
+    deliverDebtNotifications(row._debtNotifications || [])
     let order = null
     if (row.clientPhone) {
       order = createClientOrderFromPosSale(db, row, body)
@@ -2048,6 +2067,9 @@ function normalizeClientRow(raw) {
     vipUntil: raw.vipUntil === null ? undefined : (raw.vipUntil || undefined),
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
     debtEnabled: (Number(raw.debt) || 0) > 0 || raw.debtEnabled === true || debtFromNote(raw.note),
+    debtOverdueStrikes: Number(raw.debtOverdueStrikes) || 0,
+    debtCreditBlocked: !!raw.debtCreditBlocked,
+    debtLedger: Array.isArray(raw.debtLedger) ? raw.debtLedger : [],
     accountStatus: raw.accountStatus === 'recovery' ? 'recovery' : 'active',
     deletedAt: raw.deletedAt || undefined,
     recoveryExpiresAt: raw.recoveryExpiresAt || undefined,
@@ -2065,6 +2087,7 @@ function normalizeClientRow(raw) {
 app.get('/clients', (_req, res) => {
   runAccountLifecycleMaintenance()
   runLoyaltyMaintenance()
+  runDebtMaintenanceAndNotify()
   res.json(listVisibleClients())
 })
 app.post('/clients', (req, res) => {
@@ -2497,6 +2520,9 @@ function normalizeCardRow(raw) {
     note: raw.note || '',
     vip: !!raw.vip || vipFromNote(raw.note),
     debtEnabled: (Number(raw.debt) || 0) > 0 || raw.debtEnabled === true || debtFromNote(raw.note),
+    debtOverdueStrikes: Number(raw.debtOverdueStrikes) || 0,
+    debtCreditBlocked: !!raw.debtCreditBlocked,
+    debtLedger: Array.isArray(raw.debtLedger) ? raw.debtLedger : [],
     loyaltyPeriod: raw.loyaltyPeriod || undefined,
     levelLockedPeriod: raw.levelLockedPeriod === null ? undefined : (raw.levelLockedPeriod || undefined),
     levelAssignMode: raw.levelAssignMode === 'manual' ? 'manual' : (raw.levelAssignMode === 'auto' ? 'auto' : undefined),
@@ -2639,7 +2665,17 @@ function syncClientFromCardRow(card) {
   if (card.vipUntil) client.vipUntil = card.vipUntil
   else if (card.vipUntil === null || card.vipUntil === '') client.vipUntil = undefined
   if (card.bonusEligibleFrom) client.bonusEligibleFrom = card.bonusEligibleFrom
+  syncDebtLedgerFromCard(card, client)
 }
+
+app.get('/debt/ledger', (req, res) => {
+  runDebtMaintenanceAndNotify()
+  const phone = String(req.query.phone || '').trim()
+  if (!phone) return res.status(400).json({ detail: 'Укажите phone' })
+  const client = (db.clients || []).find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  res.json(buildDebtLedgerResponse(client))
+})
 
 app.post('/cards/generate', (req, res) => {
   const count = Math.min(500, Math.max(1, Number(req.query.count) || 1))
@@ -2797,6 +2833,18 @@ app.patch('/cards/:num', (req, res) => {
     const body = { ...req.body }
     const allowDecrease = body.allowBonusDecrease === true
     delete body.allowBonusDecrease
+    const prevDebt = Number(card.debt) || 0
+    if (body.debt != null) {
+      const nextDebt = Number(body.debt) || 0
+      if (nextDebt > prevDebt + 0.001) {
+        const linkedClient = (db.clients || []).find(c =>
+          c.card === num
+          || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+        )
+        const gate = canTakeNewDebt(linkedClient || card, card, nextDebt - prevDebt)
+        if (!gate.ok) return res.status(gate.blocked ? 403 : 400).json({ detail: gate.reason })
+      }
+    }
     if (body.debtEnabled === false && (Number(card.debt) || 0) > 0.001) {
       return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
     }
@@ -2826,6 +2874,25 @@ app.patch('/cards/:num', (req, res) => {
     }
     Object.assign(card, normalizeCardRow({ ...card, ...body, num }))
     syncClientFromCardRow(card)
+    if (body.debt != null) {
+      const linkedClient = (db.clients || []).find(c =>
+        c.card === num
+        || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+      )
+      if (linkedClient) {
+        try {
+          const { notifications } = handleClientDebtDelta(db, linkedClient, card, prevDebt, Number(card.debt) || 0, {
+            source: 'admin',
+            desc: body.debtNote || 'Изменение долга',
+          })
+          deliverDebtNotifications(notifications)
+        } catch (e) {
+          card.debt = prevDebt
+          linkedClient.debt = prevDebt
+          return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось изменить долг' })
+        }
+      }
+    }
   }
   persist()
   res.json(card)
@@ -3166,5 +3233,8 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`   Health: http://0.0.0.0:${PORT}/health`)
   const geminiKey = getGeminiApiKey()
   console.log(`   Gemini ИИ: ${geminiKey ? `готов (${getGeminiModel()})` : 'нет GEMINI_API_KEY в .env / переменных окружения'}\n`)
+  runDebtMaintenanceAndNotify()
+  const debtTimer = setInterval(runDebtMaintenanceAndNotify, 60 * 60 * 1000)
+  debtTimer.unref()
   setImmediate(() => runLoyaltyBackfill())
 })

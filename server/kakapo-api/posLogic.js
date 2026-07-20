@@ -2,6 +2,11 @@ import { nextOrderId } from './seed.js'
 import { stampOrderForClient } from './accountLifecycle.js'
 import { findClientByPhone } from './loyaltyBonus.js'
 import { appendMoneyLedger } from './financeTruth.js'
+import {
+  addDebtCharge,
+  applyDebtRepayment,
+  canTakeNewDebt,
+} from './debtLedger.js'
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
@@ -1212,14 +1217,31 @@ export function createPosSale(db, data = {}) {
   }
   if (debtAdded > 0) {
     const client = getClientById(db, data.clientId) || null
+    const card = getCardByNum(db, data.cardNum)
+    if (client) {
+      const gate = canTakeNewDebt(client, card, debtAdded)
+      if (!gate.ok) throw new Error(gate.reason)
+    }
     if (client) {
       client.debt = round2((Number(client.debt) || 0) + debtAdded)
       client.debtEnabled = true
     }
-    const card = getCardByNum(db, data.cardNum)
     if (card) {
       card.debt = round2((Number(card.debt) || 0) + debtAdded)
       card.debtEnabled = true
+    }
+    if (client) {
+      const itemsSummary = items.slice(0, 5).map(it => `${it.productName} ×${it.qty}`).join(', ')
+      const { notifications } = addDebtCharge(client, card, {
+        amount: debtAdded,
+        source: 'pos',
+        orderId: sale.orderId,
+        saleId: sale.id,
+        desc: String(data.note || '').trim() || `Касса · ${sale.orderId || sale.number}`,
+        createdAtIso: sale.createdAtIso,
+      })
+      sale._debtNotifications = notifications
+      if (itemsSummary) sale._debtItemsSummary = itemsSummary
     }
   }
   db.posSales.unshift(sale)
@@ -1473,9 +1495,12 @@ export function returnPosSale(db, saleId, meta = {}) {
 
   if (cutDebt > 0) {
     const client = getClientById(db, sale.clientId) || null
-    if (client) client.debt = Math.max(0, round2((Number(client.debt) || 0) - cutDebt))
     const card = getCardByNum(db, sale.cardNum)
+    if (client) client.debt = Math.max(0, round2((Number(client.debt) || 0) - cutDebt))
     if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - cutDebt))
+    if (client) {
+      applyDebtRepayment(client, card, cutDebt, { desc: `Возврат · ${sale.orderId || sale.number}` })
+    }
   }
 
   const fullyReturned = items.every(it => {

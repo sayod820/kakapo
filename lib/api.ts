@@ -550,6 +550,10 @@ export const api = {
     request<AdminCard>('/cards/ensure', { method: 'POST', body: JSON.stringify(data) }),
   updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean; allowBonusDecrease?: boolean }) =>
     request<AdminCard>(`/cards/${encodeURIComponent(num.trim())}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getDebtLedger: (phone: string) =>
+    request<import('./clientVipCredit').DebtLedgerResponse>(
+      `/debt/ledger?phone=${encodeURIComponent(phone.trim())}`,
+    ),
   cashTopupCard: (num: string, data: {
     cash: number
     credit: number

@@ -50,6 +50,7 @@ import {
   buildDebtOrderBalances,
   type DebtHistoryEntry,
   type DebtOrderBalance,
+  type DebtLedgerResponse,
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
 import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
@@ -4407,6 +4408,7 @@ function VipDebtSection({
   const { prods } = useLiveCatalog()
   const [tab, setTab] = useState<DebtTab>('all')
   const [histTick, setHistTick] = useState(0)
+  const [ledger, setLedger] = useState<DebtLedgerResponse | null>(null)
   const [payDetail, setPayDetail] = useState<import('@/lib/clientVipCredit').DebtHistoryEntry | null>(null)
   const [orderDetail, setOrderDetail] = useState<{
     hist: import('@/lib/clientVipCredit').DebtHistoryEntry
@@ -4419,6 +4421,18 @@ function VipDebtSection({
   )
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
+
+  useEffect(() => {
+    if (!phone || !USE_API) {
+      setLedger(null)
+      return
+    }
+    let cancelled = false
+    void api.getDebtLedger(phone)
+      .then(data => { if (!cancelled) setLedger(data) })
+      .catch(() => { if (!cancelled) setLedger(null) })
+    return () => { cancelled = true }
+  }, [phone, histTick])
 
   const history = useMemo(() => {
     if (!phone) return []
@@ -4465,9 +4479,38 @@ function VipDebtSection({
       .sort((a, b) => (b.ts || 0) - (a.ts || 0))
   }, [phone, creditUsed, histTick, apiOrders])
 
+  const ledgerUnpaid = useMemo((): DebtOrderBalance[] | null => {
+    if (!ledger?.entries?.length) return null
+    return ledger.entries
+      .filter(e => e.status === 'open' || e.status === 'overdue')
+      .map(e => {
+        const ts = Date.parse(e.createdAtIso) || Date.now()
+        const when = new Date(ts)
+        return {
+          id: e.id,
+          orderId: e.orderId || e.saleId,
+          date: when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }),
+          time: when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+          ts,
+          desc: e.desc || 'Долг',
+          amount: -e.remaining,
+          type: 'debt' as const,
+          originalAmount: e.amount,
+          paidAmount: e.paidAmount,
+          remainingAmount: e.remaining,
+          partial: e.paidAmount > 0.001,
+          dueAtIso: e.dueAtIso,
+          dueDate: e.dueDate,
+          daysLeft: e.daysLeft,
+          overdue: e.overdue,
+        }
+      })
+      .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+  }, [ledger])
+
   const unpaidOrders = useMemo(
-    () => buildDebtOrderBalances(history).unpaid,
-    [history],
+    () => ledgerUnpaid ?? buildDebtOrderBalances(history).unpaid,
+    [ledgerUnpaid, history],
   )
 
   const historyList = useMemo(() => {
@@ -4545,6 +4588,18 @@ function VipDebtSection({
           <div style={{ fontSize: 10, color: 'var(--t3)' }}>
             {b.date}{b.time ? ` · ${b.time}` : ''}
           </div>
+          {b.dueDate && (
+            <div style={{
+              fontSize: 10,
+              color: b.overdue ? '#FF8080' : 'var(--gd)',
+              marginTop: 4,
+              fontWeight: 700,
+            }}>
+              {b.overdue
+                ? `Просрочено · было до ${b.dueDate}`
+                : `Погасить до ${b.dueDate}${b.daysLeft != null && b.daysLeft >= 0 ? ` · ${b.daysLeft} дн.` : ''}`}
+            </div>
+          )}
           {b.partial && (
             <div style={{ fontSize: 10, color: 'var(--gr)', marginTop: 4, fontWeight: 700 }}>
               Оплачено {b.paidAmount.toLocaleString()} из {b.originalAmount.toLocaleString()} ЅМ
@@ -4681,6 +4736,11 @@ function VipDebtSection({
                   Доступно ещё <span style={{ color: 'var(--gr)', fontWeight: 700 }}>{available.toLocaleString()} ЅМ</span> из {creditLimit.toLocaleString()} ЅМ
                 </div>
               )}
+              {ledger?.termDays ? (
+                <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 6 }}>
+                  Срок погашения каждого долга — {ledger.termDays} дней
+                </div>
+              ) : null}
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
               <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 2 }}>Всего взято</div>
@@ -4689,6 +4749,33 @@ function VipDebtSection({
               <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--gr)' }}>{totals.repaid.toLocaleString()} ЅМ</div>
             </div>
           </div>
+
+          {ledger?.creditBlocked && (
+            <div style={{
+              marginTop: 14, padding: '12px 14px', borderRadius: 12,
+              background: 'rgba(255,69,69,.12)', border: '1px solid rgba(255,69,69,.35)',
+              fontSize: 12, fontWeight: 700, color: '#FF9090', lineHeight: 1.45,
+            }}>
+              🚫 Новый долг закрыт из-за повторной просрочки. Погасите текущий долг в магазине.
+            </div>
+          )}
+
+          {creditUsed > 0 && ledger?.nextDueDate && !ledger.creditBlocked && (
+            <div style={{
+              marginTop: 14, padding: '12px 14px', borderRadius: 12,
+              background: ledger.entries.some(e => e.overdue)
+                ? 'rgba(255,69,69,.1)'
+                : 'rgba(255,184,0,.1)',
+              border: `1px solid ${ledger.entries.some(e => e.overdue) ? 'rgba(255,69,69,.35)' : 'rgba(255,184,0,.28)'}`,
+              fontSize: 12, fontWeight: 700,
+              color: ledger.entries.some(e => e.overdue) ? '#FF9090' : 'var(--gd)',
+              lineHeight: 1.45,
+            }}>
+              {ledger.entries.some(e => e.overdue)
+                ? '⚠ Есть просроченные долги — погасите срочно.'
+                : `⏳ Ближайший срок: ${ledger.nextDueDate}${ledger.nextDueDaysLeft != null && ledger.nextDueDaysLeft >= 0 ? ` · осталось ${ledger.nextDueDaysLeft} дн.` : ''}`}
+            </div>
+          )}
 
           {creditUsed > 0 && <DebtSupportBlock debt={creditUsed} cardNum={cardNum} />}
         </div>

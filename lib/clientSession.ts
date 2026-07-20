@@ -17,6 +17,8 @@ export type StoreUser = {
   debtLimit?: number
   blocked?: boolean
   debtEnabled?: boolean
+  debtOverdueStrikes?: number
+  debtCreditBlocked?: boolean
   loyaltyPeriod?: string
   levelLockedPeriod?: string
   levelAssignMode?: 'auto' | 'manual'
