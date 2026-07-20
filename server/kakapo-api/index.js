@@ -128,6 +128,10 @@ import {
   loginEmployee,
   ensureDefaultEmployees,
 } from './employeesLogic.js'
+import {
+  askAdminAi,
+  getAdminAiStatus,
+} from './adminAiAssistant.js'
 
 function financeTruthQuery(req) {
   return {
@@ -3070,6 +3074,23 @@ app.get('/admin/dashboard', (_req, res) => {
     activeRestaurants: db.restaurants.length,
   })
 })
+
+/** ИИ-ассистент только для админки */
+app.get('/admin/ai/status', (_req, res) => {
+  res.json(getAdminAiStatus())
+})
+app.post('/admin/ai/ask', async (req, res) => {
+  try {
+    const result = await askAdminAi(db, {
+      prompt: req.body?.prompt,
+      quickId: req.body?.quickId,
+    })
+    res.json(result)
+  } catch (e) {
+    res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось получить ответ ИИ' })
+  }
+})
+
 app.post('/sync/woocommerce', (_req, res) => res.json({ ok: true, synced: 0 }))
 app.post('/sync/gbs', (_req, res) => res.json({ ok: true, synced: 0 }))
 

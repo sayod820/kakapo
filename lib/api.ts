@@ -606,6 +606,21 @@ export const api = {
   // ── Админ ──
   getDashboard: () => request<any>('/admin/dashboard'),
   getFinanceSummary: () => request<any>('/finance/summary'),
+  getAdminAiStatus: () =>
+    request<{
+      configured: boolean
+      model: string
+      quickPrompts: Array<{ id: string; label: string; icon: string; shortcut: string }>
+    }>('/admin/ai/status'),
+  askAdminAi: (data: { prompt?: string; quickId?: string }) =>
+    request<{
+      ok: boolean
+      prompt: string
+      quickId: string | null
+      answer: string
+      generatedAt: string
+      model: string
+    }>('/admin/ai/ask', { method: 'POST', body: JSON.stringify(data) }),
 
   // ── Сотрудники Торговли ──
   getEmployees: () => request<import('./types').TradeEmployee[]>('/employees'),
