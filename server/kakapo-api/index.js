@@ -141,6 +141,14 @@ import {
   syncDebtLedgerFromCard,
   syncDebtLedgerToCard,
 } from './debtLedger.js'
+import {
+  ensureAuditLog,
+  pruneAuditLog,
+  auditFromReq,
+  listAuditLog,
+  diffBrief,
+  AUDIT_RETENTION_DAYS,
+} from './auditLog.js'
 
 loadLocalEnv()
 
@@ -167,6 +175,8 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
   .filter(Boolean)
 const db = seedIfEmpty()
 ensurePosCollections(db)
+ensureAuditLog(db)
+pruneAuditLog(db)
 if (ensureDefaultEmployees(db)) persist()
 if (ensurePosSaleNumbers(db)) persist()
 if (!db._categorySeedVersion) {
@@ -704,6 +714,15 @@ app.patch('/auth/admin', (req, res) => {
   }
 
   applyAdminAuth({ login: nextLogin, password: nextPassword })
+  auditFromReq(db, req, {
+    action: 'update',
+    entity: 'settings',
+    entityId: 'auth',
+    entityName: 'Доступ админки',
+    summary: nextLogin !== auth.login
+      ? `Сменён логин админа: ${auth.login} → ${nextLogin}`
+      : (body.newPassword ? 'Сменён пароль админа' : 'Обновлены данные входа админа'),
+  })
   persist()
   res.json({ ok: true, login: nextLogin })
 })
@@ -740,6 +759,14 @@ app.post('/products', (req, res) => {
       bulkPricing: Array.isArray(req.body.bulkPricing) ? req.body.bulkPricing : undefined,
     }
     db.products.push(p)
+    auditFromReq(db, req, {
+      action: 'create',
+      entity: 'product',
+      entityId: p.id,
+      entityName: p.name,
+      summary: `Создан товар «${p.name}» · цена ${p.price}`,
+      after: { name: p.name, price: p.price, stock: p.stock, art: p.art },
+    })
     persist()
     broadcastProduct(p)
     res.json(p)
@@ -752,6 +779,7 @@ app.patch('/products/:id', (req, res) => {
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
   try {
     const previousPhoto = p.photo
+    const before = { name: p.name, price: p.price, stock: p.stock, costPrice: p.costPrice, cat: p.cat }
     const body = { ...req.body }
     const artTouched = Object.prototype.hasOwnProperty.call(body, 'art')
     const pluTouched = Object.prototype.hasOwnProperty.call(body, 'plu')
@@ -764,6 +792,16 @@ app.patch('/products/:id', (req, res) => {
       body.plu = codes.plu
     }
     Object.assign(p, body)
+    const after = { name: p.name, price: p.price, stock: p.stock, costPrice: p.costPrice, cat: p.cat }
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'product',
+      entityId: p.id,
+      entityName: p.name,
+      summary: `Изменён товар «${p.name}»` + (diffBrief(before, after, ['name', 'price', 'stock', 'costPrice', 'cat']) ? ` · ${diffBrief(before, after, ['name', 'price', 'stock', 'costPrice', 'cat'])}` : ''),
+      before,
+      after,
+    })
     persist()
     broadcastProduct(p)
     if (Object.prototype.hasOwnProperty.call(req.body, 'photo')
@@ -815,6 +853,16 @@ app.delete('/products/:id', (req, res) => {
   const id = Number(req.params.id)
   const existing = db.products.find(x => x.id === id)
   if (existing?.photo) deleteManagedProductPhoto(existing.photo)
+  if (existing) {
+    auditFromReq(db, req, {
+      action: 'delete',
+      entity: 'product',
+      entityId: id,
+      entityName: existing.name,
+      summary: `Удалён товар «${existing.name}»`,
+      before: { name: existing.name, price: existing.price, stock: existing.stock, art: existing.art },
+    })
+  }
   db.products = db.products.filter(x => x.id !== id)
   persist()
   broadcastProduct({ id, deleted: true })
@@ -1546,6 +1594,14 @@ app.get('/employees/directory', (_req, res) => {
 app.post('/employees', (req, res) => {
   try {
     const row = createEmployee(db, req.body || {})
+    auditFromReq(db, req, {
+      action: 'create',
+      entity: 'employee',
+      entityId: row.id,
+      entityName: row.name,
+      summary: `Создан сотрудник «${row.name}» · ${row.role || row.roleLabel || ''}`,
+      after: { name: row.name, role: row.role, active: row.active },
+    })
     persist()
     res.json(row)
   } catch (e) {
@@ -1554,7 +1610,17 @@ app.post('/employees', (req, res) => {
 })
 app.patch('/employees/:id', (req, res) => {
   try {
+    const before = (db.employees || []).find(e => e.id === req.params.id)
     const row = updateEmployee(db, req.params.id, req.body || {})
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'employee',
+      entityId: row.id,
+      entityName: row.name,
+      summary: `Изменён сотрудник «${row.name}»`,
+      before: before ? { name: before.name, role: before.role, active: before.active } : undefined,
+      after: { name: row.name, role: row.role, active: row.active },
+    })
     persist()
     res.json(row)
   } catch (e) {
@@ -1564,6 +1630,14 @@ app.patch('/employees/:id', (req, res) => {
 app.delete('/employees/:id', (req, res) => {
   try {
     const row = deleteEmployee(db, req.params.id)
+    auditFromReq(db, req, {
+      action: 'delete',
+      entity: 'employee',
+      entityId: row.id,
+      entityName: row.name,
+      summary: `Удалён сотрудник «${row.name}»`,
+      before: { name: row.name, role: row.role },
+    })
     persist()
     res.json(row)
   } catch (e) {
@@ -1573,6 +1647,16 @@ app.delete('/employees/:id', (req, res) => {
 app.post('/employees/login', (req, res) => {
   try {
     const row = loginEmployee(db, req.body || {})
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: 'login',
+      entity: 'employee',
+      entityId: row.id,
+      entityName: row.name,
+      summary: `Вход в Торговлю: ${row.name}`,
+      actor: { name: row.name, employeeId: row.id, role: row.role },
+    })
+    persist()
     res.json(row)
   } catch (e) {
     res.status(401).json({ detail: e?.message || 'Ошибка входа' })
@@ -1619,6 +1703,14 @@ app.get('/pos/shifts', (_req, res) => {
 app.post('/pos/shifts/open', (req, res) => {
   try {
     const row = openPosShift(db, req.body || {})
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: 'shift_open',
+      entity: 'shift',
+      entityId: row.id,
+      entityName: row.cashierName || row.posId,
+      summary: `Открыта смена · ${row.cashierName || 'кассир'} · касса ${row.openingCash ?? 0}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'shift', id: row.id })
     res.json(row)
@@ -1629,6 +1721,14 @@ app.post('/pos/shifts/open', (req, res) => {
 app.patch('/pos/shifts/:id/close', (req, res) => {
   try {
     const row = closePosShift(db, req.params.id, req.body || {})
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: 'shift_close',
+      entity: 'shift',
+      entityId: row.id,
+      entityName: row.cashierName || row.posId,
+      summary: `Закрыта смена · ${row.cashierName || 'кассир'}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'shift', id: row.id })
     res.json(row)
@@ -1695,6 +1795,15 @@ app.post('/pos/sales', (req, res) => {
     persist()
     broadcastPosUpdate({ kind: 'sale', id: row.id })
     broadcastProduct({ reason: 'sale' })
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: 'sale',
+      entity: 'sale',
+      entityId: row.id,
+      entityName: row.saleNumber || row.id,
+      summary: `Продажа ${row.saleNumber || row.id} · ${row.total} ЅМ` + ((Number(row.debtAdded) || 0) > 0 ? ` · долг +${row.debtAdded}` : ''),
+      after: { total: row.total, debtAdded: row.debtAdded, paymentMethod: row.paymentMethod, cashierName: row.cashierName },
+    })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
@@ -1703,6 +1812,14 @@ app.post('/pos/sales', (req, res) => {
 app.post('/pos/sales/:id/return', (req, res) => {
   try {
     const row = returnPosSale(db, req.params.id, req.body || {})
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: 'return',
+      entity: 'sale',
+      entityId: row.id,
+      entityName: row.saleNumber || row.id,
+      summary: `Возврат по чеку ${row.saleNumber || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'sale-return', id: row.id })
     broadcastProduct({ reason: 'sale-return' })
@@ -1718,6 +1835,13 @@ app.get('/stock/receipts', (_req, res) => {
 app.post('/stock/receipts', (req, res) => {
   try {
     const row = createStockReceipt(db, req.body || {})
+    auditFromReq(db, req, {
+      action: 'create',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.supplierName || row.id,
+      summary: `Приход товара · ${row.supplierName || row.id}` + (row.items?.length ? ` · ${row.items.length} поз.` : ''),
+    })
     persist()
     broadcastPosUpdate({ kind: 'receipt', id: row.id })
     broadcastProduct({ reason: 'receipt' })
@@ -1729,6 +1853,13 @@ app.post('/stock/receipts', (req, res) => {
 app.put('/stock/receipts/:id', (req, res) => {
   try {
     const row = updateStockReceipt(db, req.params.id, req.body || {})
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.supplierName || row.id,
+      summary: `Изменён приход · ${row.supplierName || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'receipt', id: row.id, updated: true })
     broadcastProduct({ reason: 'receipt-update' })
@@ -1740,6 +1871,13 @@ app.put('/stock/receipts/:id', (req, res) => {
 app.delete('/stock/receipts/:id', (req, res) => {
   try {
     const row = deleteStockReceipt(db, req.params.id)
+    auditFromReq(db, req, {
+      action: 'delete',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.supplierName || row.id,
+      summary: `Удалён приход · ${row.supplierName || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'receipt', id: row.id, deleted: true })
     broadcastProduct({ reason: 'receipt-delete' })
@@ -1754,6 +1892,13 @@ app.get('/stock/writeoffs', (_req, res) => {
 app.post('/stock/writeoffs', (req, res) => {
   try {
     const row = createStockWriteoff(db, req.body || {})
+    auditFromReq(db, req, {
+      action: 'create',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.reason || row.id,
+      summary: `Списание · ${row.reason || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'writeoff', id: row.id })
     broadcastProduct({ reason: 'writeoff' })
@@ -1765,6 +1910,13 @@ app.post('/stock/writeoffs', (req, res) => {
 app.put('/stock/writeoffs/:id', (req, res) => {
   try {
     const row = updateStockWriteoff(db, req.params.id, req.body || {})
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.reason || row.id,
+      summary: `Изменено списание · ${row.reason || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'writeoff', id: row.id, updated: true })
     broadcastProduct({ reason: 'writeoff-update' })
@@ -1776,6 +1928,13 @@ app.put('/stock/writeoffs/:id', (req, res) => {
 app.delete('/stock/writeoffs/:id', (req, res) => {
   try {
     const row = deleteStockWriteoff(db, req.params.id)
+    auditFromReq(db, req, {
+      action: 'delete',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.reason || row.id,
+      summary: `Удалено списание · ${row.reason || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'writeoff', id: row.id, deleted: true })
     broadcastProduct({ reason: 'writeoff-delete' })
@@ -1790,6 +1949,13 @@ app.get('/stock/revisions', (_req, res) => {
 app.post('/stock/revisions', (req, res) => {
   try {
     const row = createStockRevision(db, req.body || {})
+    auditFromReq(db, req, {
+      action: 'create',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.note || row.id,
+      summary: `Ревизия склада · ${row.note || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'revision', id: row.id })
     broadcastProduct({ reason: 'revision' })
@@ -1801,6 +1967,13 @@ app.post('/stock/revisions', (req, res) => {
 app.put('/stock/revisions/:id', (req, res) => {
   try {
     const row = updateStockRevision(db, req.params.id, req.body || {})
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.note || row.id,
+      summary: `Изменена ревизия · ${row.note || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'revision', id: row.id, updated: true })
     broadcastProduct({ reason: 'revision-update' })
@@ -1812,6 +1985,13 @@ app.put('/stock/revisions/:id', (req, res) => {
 app.delete('/stock/revisions/:id', (req, res) => {
   try {
     const row = deleteStockRevision(db, req.params.id)
+    auditFromReq(db, req, {
+      action: 'delete',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.note || row.id,
+      summary: `Удалена ревизия · ${row.note || row.id}`,
+    })
     persist()
     broadcastPosUpdate({ kind: 'revision', id: row.id, deleted: true })
     broadcastProduct({ reason: 'revision-delete' })
@@ -2202,8 +2382,20 @@ app.patch('/clients/:id', (req, res) => {
   if (!c) return res.status(404).json({ detail: 'Клиент не найден' })
   if (req.body && req.body.purge === true) {
     if (rejectDeleteWithDebt(res, [c])) return
+    auditFromReq(db, req, {
+      action: 'delete',
+      entity: 'client',
+      entityId: c.id,
+      entityName: c.name || c.phone,
+      summary: `Полное удаление клиента «${c.name || c.phone}»`,
+      before: { name: c.name, phone: c.phone, debt: c.debt, card: c.card },
+    })
     removeClientAndUnlinkCards(c)
     return res.json({ ok: true })
+  }
+  const beforeSnap = {
+    name: c.name, phone: c.phone, vip: !!c.vip, level: c.level,
+    debt: c.debt, bonus: c.bonus, debtEnabled: c.debtEnabled, blocked: c.blocked,
   }
   const { purge, allowBonusDecrease, ...patch } = req.body || {}
   if (patch.debtEnabled === false && (Number(c.debt) || 0) > 0.001) {
@@ -2248,10 +2440,25 @@ app.patch('/clients/:id', (req, res) => {
     }
   }
   Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
+  const afterSnap = {
+    name: c.name, phone: c.phone, vip: !!c.vip, level: c.level,
+    debt: c.debt, bonus: c.bonus, debtEnabled: c.debtEnabled, blocked: c.blocked,
+  }
+  const brief = diffBrief(beforeSnap, afterSnap, ['name', 'phone', 'vip', 'level', 'debt', 'bonus', 'debtEnabled', 'blocked'])
+  if (brief) {
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'client',
+      entityId: c.id,
+      entityName: c.name || c.phone,
+      summary: `Изменён клиент «${c.name || c.phone}» · ${brief}`,
+      before: beforeSnap,
+      after: afterSnap,
+    })
+  }
   persist()
   res.json(c)
 })
-
 function unlinkCardsForClient(client) {
   for (const card of db.cards || []) {
     if (card.status === 'unlinked') continue
@@ -2309,7 +2516,16 @@ app.post('/clients/purge-account', (req, res) => {
   runAccountLifecycleMaintenance()
   const clients = (db.clients || []).filter(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
   if (rejectDeleteWithDebt(res, clients)) return
+  const names = clients.map(c => c.name || c.phone).join(', ')
   const result = purgeClientProfilesForPhone(phone, { rememberDeleted: false })
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'client',
+    entityId: phone,
+    entityName: names || phone,
+    summary: `Удаление профиля по телефону ${phone}` + (result.clients ? ` · ${result.clients} зап.` : ''),
+  })
+  persist()
   res.json({ ok: true, ...result })
 })
 
@@ -2318,10 +2534,16 @@ app.post('/clients/:id/recovery', (req, res) => {
   const client = db.clients.find(x => x.id === req.params.id)
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
   if (rejectDeleteWithDebt(res, [client])) return
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'client',
+    entityId: client.id,
+    entityName: client.name || client.phone,
+    summary: `Клиент «${client.name || client.phone}» → корзина восстановления`,
+  })
   moveClientToRecoveryRecord(client)
   res.json(client)
 })
-
 app.post('/clients/:id/restore', (req, res) => {
   if (!db.clients) db.clients = []
   runAccountLifecycleMaintenance()
@@ -2352,7 +2574,16 @@ app.post('/clients/delete-by-phone', (req, res) => {
   runAccountLifecycleMaintenance()
   const clients = (db.clients || []).filter(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
   if (rejectDeleteWithDebt(res, clients)) return
+  const names = clients.map(c => c.name || c.phone).join(', ')
   const result = purgeClientProfilesForPhone(phone, { rememberDeleted: false })
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'client',
+    entityId: phone,
+    entityName: names || phone,
+    summary: `Удаление клиента по телефону ${phone}`,
+  })
+  persist()
   res.json({ ok: true, ...result })
 })
 
@@ -2386,6 +2617,14 @@ app.post('/clients/:id/delete', (req, res) => {
     return res.json({ ok: true })
   }
   if (rejectDeleteWithDebt(res, [client])) return
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'client',
+    entityId: client.id,
+    entityName: client.name || client.phone,
+    summary: `Удалён клиент «${client.name || client.phone}»`,
+    before: { name: client.name, phone: client.phone, debt: client.debt },
+  })
   removeClientAndUnlinkCards(client)
   res.json({ ok: true })
 })
@@ -2396,6 +2635,14 @@ app.delete('/clients/by-phone/:phone', (req, res) => {
   const client = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
   if (rejectDeleteWithDebt(res, [client])) return
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'client',
+    entityId: client.id,
+    entityName: client.name || client.phone,
+    summary: `Удалён клиент «${client.name || client.phone}»`,
+    before: { name: client.name, phone: client.phone },
+  })
   removeClientAndUnlinkCards(client)
   res.json({ ok: true })
 })
@@ -2405,6 +2652,14 @@ app.delete('/clients/:id', (req, res) => {
   const client = db.clients.find(x => x.id === req.params.id)
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
   if (rejectDeleteWithDebt(res, [client])) return
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'client',
+    entityId: client.id,
+    entityName: client.name || client.phone,
+    summary: `Удалён клиент «${client.name || client.phone}»`,
+    before: { name: client.name, phone: client.phone },
+  })
   removeClientAndUnlinkCards(client)
   res.json({ ok: true })
 })
@@ -2415,6 +2670,13 @@ app.get('/settings/pricing', (_req, res) => {
 })
 app.patch('/settings/pricing', (req, res) => {
   db.settings.pricing = normalizePricing({ ...db.settings.pricing, ...req.body })
+  auditFromReq(db, req, {
+    action: 'update',
+    entity: 'settings',
+    entityId: 'pricing',
+    entityName: 'Тариф доставки',
+    summary: 'Изменены настройки тарифа доставки',
+  })
   persist()
   res.json(db.settings.pricing)
 })
@@ -2438,6 +2700,13 @@ app.patch('/settings/loyalty', (req, res) => {
     vip: { ...current.vip, ...body.vip },
   }
   syncCardDebtLimitsFromLoyalty(db, syncClientFromCardRow)
+  auditFromReq(db, req, {
+    action: 'update',
+    entity: 'settings',
+    entityId: 'loyalty',
+    entityName: 'Лояльность',
+    summary: 'Изменены настройки лояльности / VIP',
+  })
   persist()
   res.json(db.settings.loyalty)
 })
@@ -2548,6 +2817,13 @@ app.patch('/settings/admin', (req, res) => {
     auth: current.auth || { ...DEFAULT_ADMIN_SETTINGS.auth },
   }
   // Смена логина/пароля только через /auth/admin (нужен текущий пароль)
+  auditFromReq(db, req, {
+    action: 'update',
+    entity: 'settings',
+    entityId: 'admin',
+    entityName: 'Настройки админки',
+    summary: 'Изменены настройки магазина / GBS / SMS',
+  })
   persist()
   const a = db.settings.admin
   res.json({
@@ -2942,6 +3218,10 @@ app.patch('/cards/:num', (req, res) => {
   const num = decodeURIComponent(req.params.num).toUpperCase()
   const card = findCardByNum(num)
   if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+  const beforeSnap = {
+    client: card.client, phone: card.phone, debt: card.debt, bonus: card.bonus,
+    level: card.level, vip: !!card.vip, status: card.status, debtEnabled: card.debtEnabled,
+  }
   if (req.body.unlink) {
     const prevClient = db.clients?.find(x => x.card === num)
     if (prevClient) prevClient.card = ''
@@ -2955,6 +3235,15 @@ app.patch('/cards/:num', (req, res) => {
       debt: 0,
       debtLimit: 0,
     }))
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'card',
+      entityId: num,
+      entityName: beforeSnap.client || num,
+      summary: `Отвязана карта ${num}` + (beforeSnap.client ? ` · ${beforeSnap.client}` : ''),
+      before: beforeSnap,
+      after: { status: 'unlinked' },
+    })
   } else {
     const body = { ...req.body }
     const allowDecrease = body.allowBonusDecrease === true
@@ -3019,6 +3308,25 @@ app.patch('/cards/:num', (req, res) => {
         }
       }
     }
+    const afterSnap = {
+      client: card.client, phone: card.phone, debt: card.debt, bonus: card.bonus,
+      level: card.level, vip: !!card.vip, status: card.status, debtEnabled: card.debtEnabled,
+    }
+    const brief = diffBrief(beforeSnap, afterSnap, ['client', 'phone', 'debt', 'bonus', 'level', 'vip', 'status', 'debtEnabled'])
+    const debtDelta = (Number(card.debt) || 0) - prevDebt
+    if (brief || Math.abs(debtDelta) > 0.001) {
+      auditFromReq(db, req, {
+        action: 'update',
+        entity: Math.abs(debtDelta) > 0.001 ? 'debt' : 'card',
+        entityId: num,
+        entityName: card.client || num,
+        summary: Math.abs(debtDelta) > 0.001
+          ? `Долг карты ${num}: ${prevDebt} → ${card.debt}` + (body.debtNote ? ` · ${body.debtNote}` : '')
+          : `Изменена карта ${num}` + (brief ? ` · ${brief}` : ''),
+        before: beforeSnap,
+        after: afterSnap,
+      })
+    }
   }
   persist()
   res.json(card)
@@ -3051,6 +3359,15 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + credit) * 100) / 100
     card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + credit) * 100) / 100
     syncClientFromCardRow(card)
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: 'update',
+      entity: 'card',
+      entityId: num,
+      entityName: card.client || num,
+      summary: `Пополнение баланса ${num} · +${credit} (касса +${cash})`,
+      after: { cash, credit, bonus: card.bonus },
+    })
     persist()
     broadcastPosUpdate({ kind: 'client-cash-topup', id: move.id })
     res.json({ card, financeMove: move })
@@ -3262,7 +3579,14 @@ app.get('/reports/pos', (_req, res) => {
   res.json(getPosReport(db))
 })
 
+app.get('/audit', (req, res) => {
+  const removed = pruneAuditLog(db)
+  if (removed > 0) persist()
+  res.json(listAuditLog(db, req.query || {}))
+})
+
 app.get('/admin/dashboard', (_req, res) => {
+
   res.json({
     ordersToday: db.orders.length,
     revenueToday: db.orders.reduce((s, o) => s + bonusEligibleTotal(o), 0),
@@ -3362,5 +3686,13 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   runDebtMaintenanceAndNotify()
   const debtTimer = setInterval(runDebtMaintenanceAndNotify, 60 * 60 * 1000)
   debtTimer.unref()
+  const auditTimer = setInterval(() => {
+    const removed = pruneAuditLog(db)
+    if (removed > 0) {
+      persist()
+      console.log(`[audit] автоочистка: удалено ${removed} записей старше ${AUDIT_RETENTION_DAYS} дн.`)
+    }
+  }, 6 * 60 * 60 * 1000)
+  auditTimer.unref()
   setImmediate(() => runLoyaltyBackfill())
 })

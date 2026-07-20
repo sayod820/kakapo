@@ -59,6 +59,33 @@ export const getToken = (): string | null => {
   return _token
 }
 
+/** Кто выполнил действие (только Admin / Trade) — для журнала аудита */
+function buildAuditActorHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {}
+  const path = window.location.pathname || ''
+  const out: Record<string, string> = {}
+  try {
+    if (path.includes('/admin')) {
+      const raw = localStorage.getItem('kakapo_admin_session')
+      if (raw) {
+        const s = JSON.parse(raw) as { login?: string; name?: string }
+        if (s?.login) out['x-kakapo-admin-login'] = String(s.login)
+        if (s?.name) out['x-kakapo-admin-name'] = String(s.name)
+        out['x-kakapo-app'] = 'admin'
+      }
+    } else if (path.includes('/trade')) {
+      const raw = localStorage.getItem('kakapo_trade_employee_session')
+      if (raw) {
+        const s = JSON.parse(raw) as { employeeId?: string; name?: string }
+        if (s?.employeeId) out['x-kakapo-employee-id'] = String(s.employeeId)
+        if (s?.name) out['x-kakapo-employee-name'] = String(s.name)
+        out['x-kakapo-app'] = 'trade'
+      }
+    }
+  } catch { /* ignore */ }
+  return out
+}
+
 // ── Базовый запрос ──
 function formatApiError(detail: unknown, status?: number): string {
   if (typeof detail === 'string') {
@@ -159,6 +186,7 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
   if (isFormData) delete headers['Content-Type']
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
+  Object.assign(headers, buildAuditActorHeaders())
 
   let res: Response
   try {
@@ -644,6 +672,45 @@ export const api = {
       generatedAt: string
       model: string
     }>('/admin/ai/ask', { method: 'POST', body: JSON.stringify(data) }),
+
+  getAuditLog: (params?: {
+    app?: string
+    action?: string
+    entity?: string
+    q?: string
+    days?: number
+    limit?: number
+    offset?: number
+  }) => {
+    const q = new URLSearchParams()
+    if (params?.app) q.set('app', params.app)
+    if (params?.action) q.set('action', params.action)
+    if (params?.entity) q.set('entity', params.entity)
+    if (params?.q) q.set('q', params.q)
+    if (params?.days) q.set('days', String(params.days))
+    if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.offset) q.set('offset', String(params.offset))
+    const qs = q.toString()
+    return request<{
+      retentionDays: number
+      total: number
+      limit: number
+      offset: number
+      items: Array<{
+        id: string
+        atIso: string
+        app: 'admin' | 'trade'
+        action: string
+        entity: string
+        entityId?: string
+        entityName?: string
+        summary: string
+        before?: Record<string, unknown>
+        after?: Record<string, unknown>
+        actor?: { name?: string; role?: string; adminLogin?: string; employeeId?: string }
+      }>
+    }>(`/audit${qs ? `?${qs}` : ''}`)
+  },
 
   // ── Сотрудники Торговли ──
   getEmployees: () => request<import('./types').TradeEmployee[]>('/employees'),

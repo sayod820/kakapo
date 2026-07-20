@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { api } from '@/lib/api'
+import { api, setToken } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import {
   DEFAULT_ADMIN_LOGIN,
@@ -46,6 +46,7 @@ export default function AdminLoginPage({
           userId: row.user_id,
         }
         saveAdminSession(session)
+        setToken(row.access_token)
         onSuccess(session)
         return
       }
@@ -64,6 +65,7 @@ export default function AdminLoginPage({
         token: 'offline-admin',
       }
       saveAdminSession(session)
+      setToken(session.token)
       onSuccess(session)
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Неверный логин или пароль')
