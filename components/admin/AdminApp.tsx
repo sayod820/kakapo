@@ -9,6 +9,15 @@ import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import MarketCategoriesPanel from '@/components/shared/MarketCategoriesPanel'
 import AdminAiAssistantPage from '@/components/admin/AdminAiAssistantPage'
+import AdminLoginPage from '@/components/admin/AdminLoginPage'
+import {
+  clearAdminSession,
+  loadAdminSession,
+  loadOfflineAdminCreds,
+  saveAdminSession,
+  saveOfflineAdminCreds,
+  type AdminSession,
+} from '@/lib/adminSession'
 import { useCategories } from '@/lib/useCategories'
 import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
 import { usePricingStore, usePickupStore, hydrateCourierStores, syncCourierStoresFromApi } from '@/lib/courierStore'
@@ -485,7 +494,7 @@ const NAV_GROUPS = [
   {g:'Система',   items:[{id:'ai',icon:'🧠',l:'ИИ-ассистент'},{id:'settings',icon:'⚙️',l:'Настройки'}]},
 ];
 
-function Layout({page,setPage,children,title,subtitle}) {
+function Layout({page,setPage,children,title,subtitle,session,onLogout}) {
   const apiOrders = useOrders(s => s.orders);
   const storedCards = useCards();
   const clients = useClients();
@@ -541,10 +550,27 @@ function Layout({page,setPage,children,title,subtitle}) {
             </div>
           ))}
         </nav>
-        <div style={{padding:'10px 14px 16px',borderTop:'1px solid #162B1A',fontSize:9,color:'#3D6645',flexShrink:0,lineHeight:1.6}}>
-          КАКАПО v2.0<br/>
-          🛒 Магазин · 🍽 Рестораны<br/>
-          🛵 Курьеры · 🛒 Сборщики
+        <div style={{padding:'10px 14px 16px',borderTop:'1px solid #162B1A',flexShrink:0}}>
+          <div style={{fontSize:11,fontWeight:700,color:'#8FB897',marginBottom:8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            {session?.name || 'Админ'}{session?.login ? ` · ${session.login}` : ''}
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="btn"
+            style={{
+              width: '100%', padding: '9px 11px', borderRadius: 10, fontSize: 12, fontWeight: 800,
+              background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', color: '#FF6969',
+              cursor: 'pointer', textAlign: 'left',
+            }}
+          >
+            🚪 Выйти
+          </button>
+          <div style={{marginTop:10,fontSize:9,color:'#3D6645',lineHeight:1.6}}>
+            КАКАПО v2.0<br/>
+            🛒 Магазин · 🍽 Рестораны<br/>
+            🛵 Курьеры · 🛒 Сборщики
+          </div>
         </div>
       </aside>
       <div className="admin-main-wrap">
@@ -7087,8 +7113,12 @@ const SETTINGS_QUICK_LINKS = [
   { id: 'push', icon: '🔔', label: 'Push уведомления', sub: 'Рассылки клиентам', color: '#9B6DFF' },
 ]
 
-function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
-  const [stab, setStab] = useState('gbs')
+function SettingsPage({ setPage, session, onSessionUpdate }: {
+  setPage: (p: string) => void
+  session?: AdminSession | null
+  onSessionUpdate?: (s: AdminSession) => void
+}) {
+  const [stab, setStab] = useState('access')
   const [gbsOn, setGbsOn] = useState(false)
   const [gbsIP, setGbsIP] = useState('http://192.168.1.100')
   const [gbsPort, setGbsPort] = useState('8419')
@@ -7100,6 +7130,14 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
   const [storeInfo, setStoreInfo] = useState(DEFAULT_STORE_INFO)
   const [saved, setSaved] = useState(false)
   const [saveErr, setSaveErr] = useState('')
+
+  const [authLogin, setAuthLogin] = useState(session?.login || 'admin')
+  const [authCurrentPass, setAuthCurrentPass] = useState('')
+  const [authNewPass, setAuthNewPass] = useState('')
+  const [authNewPass2, setAuthNewPass2] = useState('')
+  const [authSaved, setAuthSaved] = useState(false)
+  const [authErr, setAuthErr] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
 
   useEffect(() => {
     const loadLocal = () => {
@@ -7121,6 +7159,8 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
         }
         const store = localStorage.getItem('kakapo_admin_store')
         if (store) setStoreInfo({ ...DEFAULT_STORE_INFO, ...JSON.parse(store) })
+        const creds = loadOfflineAdminCreds()
+        setAuthLogin(creds.login)
       } catch { /* private mode */ }
     }
 
@@ -7142,6 +7182,7 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
         if (remote.sms.apiKey != null) setSmsKey(remote.sms.apiKey)
       }
       if (remote.store) setStoreInfo({ ...DEFAULT_STORE_INFO, ...remote.store })
+      if (remote.auth?.login) setAuthLogin(remote.auth.login)
     }).catch(() => loadLocal())
   }, [])
 
@@ -7167,6 +7208,73 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
     }
   }
 
+  const saveAuth = async () => {
+    setAuthErr('')
+    const nextLogin = authLogin.trim()
+    if (nextLogin.length < 3) {
+      setAuthErr('Логин минимум 3 символа')
+      return
+    }
+    if (!authCurrentPass) {
+      setAuthErr('Введите текущий пароль')
+      return
+    }
+    if (authNewPass && authNewPass.length < 4) {
+      setAuthErr('Новый пароль минимум 4 символа')
+      return
+    }
+    if (authNewPass && authNewPass !== authNewPass2) {
+      setAuthErr('Новый пароль и подтверждение не совпадают')
+      return
+    }
+    setAuthBusy(true)
+    try {
+      if (USE_API) {
+        const res = await api.updateAdminAuth({
+          currentPassword: authCurrentPass,
+          login: nextLogin,
+          newPassword: authNewPass || undefined,
+        })
+        const nextSession: AdminSession = {
+          login: res.login,
+          name: session?.name || 'Админ',
+          role: session?.role || 'admin',
+          token: session?.token || `token-admin-${Date.now()}`,
+          userId: session?.userId,
+        }
+        saveAdminSession(nextSession)
+        onSessionUpdate?.(nextSession)
+      } else {
+        const creds = loadOfflineAdminCreds()
+        if (authCurrentPass !== creds.password) {
+          setAuthErr('Неверный текущий пароль')
+          return
+        }
+        saveOfflineAdminCreds({
+          login: nextLogin,
+          password: authNewPass || creds.password,
+        })
+        const nextSession: AdminSession = {
+          login: nextLogin,
+          name: session?.name || 'Админ КАКАПО',
+          role: 'admin',
+          token: session?.token || 'offline-admin',
+        }
+        saveAdminSession(nextSession)
+        onSessionUpdate?.(nextSession)
+      }
+      setAuthCurrentPass('')
+      setAuthNewPass('')
+      setAuthNewPass2('')
+      setAuthSaved(true)
+      setTimeout(() => setAuthSaved(false), 2500)
+    } catch (e) {
+      setAuthErr(e instanceof Error ? e.message : 'Не удалось сохранить доступ')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
   const testConn = async () => {
     setTestSt('loading')
     setSaveErr('')
@@ -7182,6 +7290,7 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
   }
 
   const STABS = [
+    { id: 'access', l: '🔐 Доступ' },
     { id: 'gbs', l: '🔗 GBS Market' },
     { id: 'sms', l: '💬 SMS / OTP' },
     { id: 'store', l: '🏪 Контакты' },
@@ -7216,14 +7325,45 @@ function SettingsPage({ setPage }: { setPage: (p: string) => void }) {
             {t.l}
           </button>
         ))}
-        <button type="button" onClick={saveAll} className="ab abp" style={{ marginLeft: 'auto', padding: '8px 16px' }}>
-          {saved ? '✓ Сохранено!' : '💾 Сохранить'}
-        </button>
+        {stab !== 'access' && (
+          <button type="button" onClick={saveAll} className="ab abp" style={{ marginLeft: 'auto', padding: '8px 16px' }}>
+            {saved ? '✓ Сохранено!' : '💾 Сохранить'}
+          </button>
+        )}
       </div>
 
-      {saveErr && (
+      {saveErr && stab !== 'access' && (
         <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', fontSize: 12, color: '#FF4545' }}>
           {saveErr}
+        </div>
+      )}
+
+      {stab === 'access' && (
+        <div className="ac" style={{ padding: 20, maxWidth: 480 }}>
+          <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>Логин и пароль админки</div>
+          <div style={{ fontSize: 11, color: '#3D6645', marginBottom: 16 }}>
+            Эти данные нужны для входа в панель /admin. Для смены обязательно укажите текущий пароль.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <NI lbl="Логин" val={authLogin} set={setAuthLogin} ph="admin" />
+            <NI lbl="Текущий пароль" val={authCurrentPass} set={setAuthCurrentPass} type="password" ph="••••••••" />
+            <NI lbl="Новый пароль (необязательно)" val={authNewPass} set={setAuthNewPass} type="password" ph="оставьте пустым, чтобы не менять" />
+            <NI lbl="Подтвердите новый пароль" val={authNewPass2} set={setAuthNewPass2} type="password" ph="••••••••" />
+          </div>
+          {authErr && (
+            <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', fontSize: 12, color: '#FF4545' }}>
+              {authErr}
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={authBusy}
+            onClick={() => void saveAuth()}
+            className="ab abp"
+            style={{ width: '100%', marginTop: 16, padding: 12, opacity: authBusy ? .6 : 1 }}
+          >
+            {authBusy ? 'Сохранение…' : authSaved ? '✓ Сохранено!' : '🔐 Сохранить доступ'}
+          </button>
         </div>
       )}
 
@@ -8136,17 +8276,55 @@ function BannersPage() {
 }
 
 /* ══════════════════════════════════════════════════════
-   MAIN ADMIN APP — без логина
+   MAIN ADMIN APP — вход по логину / паролю
 ══════════════════════════════════════════════════════ */
 export default function AdminApp() {
+  const [session, setSession] = useState<AdminSession | null>(null)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    setSession(loadAdminSession())
+    setReady(true)
+  }, [])
+
+  if (!ready) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: '#030B05', color: '#8FB897',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13,
+      }}>
+        Загрузка…
+      </div>
+    )
+  }
+
+  if (!session) {
+    return <AdminLoginPage onSuccess={setSession} />
+  }
+
   return (
     <AppNavigationBoundary>
-      <AdminAppInner />
+      <AdminAppInner
+        session={session}
+        onSessionUpdate={setSession}
+        onLogout={() => {
+          clearAdminSession()
+          setSession(null)
+        }}
+      />
     </AppNavigationBoundary>
-  );
+  )
 }
 
-function AdminAppInner() {
+function AdminAppInner({
+  session,
+  onSessionUpdate,
+  onLogout,
+}: {
+  session: AdminSession
+  onSessionUpdate: (s: AdminSession) => void
+  onLogout: () => void
+}) {
   useApiSync('all');
   const { page, setPage } = useAppNavigation('dashboard');
   useEffect(() => {
@@ -8166,9 +8344,9 @@ function AdminAppInner() {
     return () => {};
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',ai:'ИИ-ассистент',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',settings:'GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',settings:'Доступ · GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
-    <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''}>
+    <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} session={session} onLogout={onLogout}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
       {page==='orders'     && <OrdersPage/>}
       {page==='products'   && <ProductsPage/>}
@@ -8190,7 +8368,7 @@ function AdminAppInner() {
       {page==='courierorders' && <CourierOrdersPage/>}
       {page==='finance'    && <FinancePage/>}
       {page==='ai'         && <AdminAiAssistantPage/>}
-      {page==='settings'   && <SettingsPage setPage={setPage}/>}
+      {page==='settings'   && <SettingsPage setPage={setPage} session={session} onSessionUpdate={onSessionUpdate}/>}
     </Layout>
   );
 }

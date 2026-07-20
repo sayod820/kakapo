@@ -47,7 +47,7 @@ export default function PortalPage() {
             ['📦 Сборщик PIN','5678'],
             ['🍽 Ресторан OTP','1234 · +992 93 111 22 33'],
             ['🏪 Торговля','касса · товары · склад'],
-            ['⚙️ Админ','admin@kakapo.tj / admin123'],
+            ['⚙️ Админ','admin / admin123'],
           ].map(([l,v],i)=>(
             <div key={i} style={{ fontSize:11, color:'#3D6645' }}>
               {l}: <span style={{ color:'#FFB800', fontWeight:700 }}>{v}</span>

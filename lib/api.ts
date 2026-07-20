@@ -305,6 +305,24 @@ export const api = {
       method: 'POST', body: JSON.stringify({ email, password }),
     }),
 
+  loginAdmin: (login: string, password: string) =>
+    request<{ access_token: string; role: string; user_id: number; name: string }>('/auth/login', {
+      method: 'POST', body: JSON.stringify({ login, email: login, password }),
+    }),
+
+  getAdminAuth: () =>
+    request<{ login: string }>('/auth/admin'),
+
+  updateAdminAuth: (data: {
+    currentPassword: string
+    login?: string
+    newPassword?: string
+  }) =>
+    request<{ ok: boolean; login: string }>('/auth/admin', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
   // ── Товары ──
   getProducts: (params?: { category_id?: number; search?: string; hot?: boolean }) => {
     const q = new URLSearchParams()
@@ -530,6 +548,7 @@ export const api = {
     gbs: { enabled: boolean; ip: string; port: string; user: string; pass: string }
     sms: { provider: string; apiKey: string }
     store: Record<string, string>
+    auth?: { login: string }
   }>('/settings/admin'),
   updateAdminSettings: (data: {
     gbs?: Record<string, unknown>

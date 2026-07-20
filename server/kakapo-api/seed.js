@@ -101,7 +101,7 @@ export function seedIfEmpty() {
   db.cards = seedDemoCrm ? DEFAULT_CARDS.map(c => ({ ...c })) : []
   if (!Array.isArray(db.deletedPhoneKeys)) db.deletedPhoneKeys = []
   db.users = [
-    { id: 1, email: 'admin@kakapo.tj', password: 'admin123', role: 'admin', name: 'Админ КАКАПО' },
+    { id: 1, email: 'admin@kakapo.tj', login: 'admin', password: 'admin123', role: 'admin', name: 'Админ КАКАПО' },
     { id: 2, email: 'chaihona@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Чайхона' },
     { id: 3, email: 'pizza@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Пицца Яван' },
   ]

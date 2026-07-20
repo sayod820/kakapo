@@ -127,7 +127,7 @@ export const DEMO_CARDS = [
 ]
 
 // ── CREDENTIALS ──────────────────────────────────
-export const ADMIN_CREDS = { email: 'admin@kakapo.tj', password: 'admin123' }
+export const ADMIN_CREDS = { login: 'admin', email: 'admin@kakapo.tj', password: 'admin123' }
 export const COURIER_OTP  = '1234'
 export const ASSEMBLER_PIN = '5678'
 export const RESTAURANT_PASS = 'rest123'

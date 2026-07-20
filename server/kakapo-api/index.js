@@ -650,10 +650,62 @@ app.post('/auth/otp/verify', (req, res) => {
   res.json({ access_token: 'demo-client-token', role: 'client', user_id: 1, name: 'Клиент' })
 })
 app.post('/auth/login', (req, res) => {
-  const email = String(req.body.email || '').toLowerCase().trim()
-  const user = db.users.find(u => u.email === email && u.password === (req.body.password || ''))
-  if (!user) return res.status(401).json({ detail: 'Неверный email или пароль' })
-  res.json({ access_token: `token-${user.role}-${user.id}`, role: user.role, user_id: user.id, name: user.name })
+  ensureAdminAuth()
+  const loginRaw = String(req.body.login || req.body.email || '').trim()
+  const loginKey = loginRaw.toLowerCase()
+  const password = String(req.body.password || '')
+  if (!loginKey || !password) {
+    return res.status(400).json({ detail: 'Укажите логин и пароль' })
+  }
+  const user = (db.users || []).find(u => {
+    if (u.role !== 'admin') return false
+    const email = String(u.email || '').toLowerCase()
+    const login = String(u.login || '').toLowerCase()
+    return (email === loginKey || login === loginKey) && String(u.password || '') === password
+  })
+  // Обратная совместимость: старый email admin@kakapo.tj при логине "admin"
+  const userOrLegacy = user || (db.users || []).find(u => {
+    if (u.role !== 'admin') return false
+    if (loginKey !== 'admin') return false
+    return String(u.email || '').toLowerCase() === 'admin@kakapo.tj'
+      && String(u.password || '') === password
+  })
+  if (!userOrLegacy) return res.status(401).json({ detail: 'Неверный логин или пароль' })
+  res.json({
+    access_token: `token-${userOrLegacy.role}-${userOrLegacy.id}`,
+    role: userOrLegacy.role,
+    user_id: userOrLegacy.id,
+    name: userOrLegacy.name || 'Админ',
+  })
+})
+app.get('/auth/admin', (_req, res) => {
+  const auth = ensureAdminAuth()
+  res.json({ login: auth.login })
+})
+
+app.patch('/auth/admin', (req, res) => {
+  const auth = ensureAdminAuth()
+  const body = req.body || {}
+  const currentPassword = String(body.currentPassword || '')
+  if (!currentPassword || currentPassword !== auth.password) {
+    return res.status(401).json({ detail: 'Неверный текущий пароль' })
+  }
+
+  let nextLogin = String(body.login != null ? body.login : auth.login).trim()
+  if (!nextLogin) return res.status(400).json({ detail: 'Логин не может быть пустым' })
+  if (nextLogin.length < 3) return res.status(400).json({ detail: 'Логин минимум 3 символа' })
+
+  let nextPassword = auth.password
+  if (body.newPassword != null && String(body.newPassword).length > 0) {
+    nextPassword = String(body.newPassword)
+    if (nextPassword.length < 4) {
+      return res.status(400).json({ detail: 'Новый пароль минимум 4 символа' })
+    }
+  }
+
+  applyAdminAuth({ login: nextLogin, password: nextPassword })
+  persist()
+  res.json({ ok: true, login: nextLogin })
 })
 
 app.get('/products', (_req, res) => res.json(db.products))
@@ -2403,6 +2455,63 @@ const DEFAULT_ADMIN_SETTINGS = {
     telegram: '@kakapo_tj',
     hours: '08:00 – 23:00',
   },
+  auth: {
+    login: 'admin',
+    password: 'admin123',
+  },
+}
+
+function applyAdminAuth({ login, password }) {
+  const a = ensureAdminSettings()
+  const nextLogin = String(login || 'admin').trim() || 'admin'
+  const nextPass = String(password || '')
+  a.auth = { login: nextLogin, password: nextPass }
+  if (!Array.isArray(db.users)) db.users = []
+  let admin = db.users.find(u => u.role === 'admin')
+  if (!admin) {
+    const maxId = db.users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0)
+    admin = {
+      id: maxId + 1,
+      email: nextLogin.includes('@') ? nextLogin : `${nextLogin}@kakapo.tj`,
+      login: nextLogin,
+      password: nextPass,
+      role: 'admin',
+      name: 'Админ КАКАПО',
+    }
+    db.users.push(admin)
+  } else {
+    admin.login = nextLogin
+    admin.password = nextPass
+    admin.email = nextLogin.includes('@') ? nextLogin : `${nextLogin}@kakapo.tj`
+    if (!admin.name) admin.name = 'Админ КАКАПО'
+  }
+  return a.auth
+}
+
+function ensureAdminAuth() {
+  const a = ensureAdminSettings()
+  if (!a.auth || typeof a.auth !== 'object') {
+    a.auth = { ...DEFAULT_ADMIN_SETTINGS.auth }
+  }
+  if (!a.auth.login) a.auth.login = DEFAULT_ADMIN_SETTINGS.auth.login
+  if (a.auth.password == null || a.auth.password === '') {
+    a.auth.password = DEFAULT_ADMIN_SETTINGS.auth.password
+  }
+
+  if (!Array.isArray(db.users)) db.users = []
+  const admin = db.users.find(u => u.role === 'admin')
+  if (admin) {
+    if (!admin.login) {
+      const email = String(admin.email || '').toLowerCase()
+      admin.login = email === 'admin@kakapo.tj' ? 'admin' : (String(admin.email || 'admin').trim() || 'admin')
+    }
+    // users — источник правды, если уже есть пароль
+    if (admin.password != null && String(admin.password).length > 0) {
+      a.auth.password = String(admin.password)
+    }
+    a.auth.login = String(admin.login).trim() || a.auth.login
+  }
+  return applyAdminAuth({ login: a.auth.login, password: a.auth.password })
 }
 
 function ensureAdminSettings() {
@@ -2414,11 +2523,19 @@ function ensureAdminSettings() {
   if (!a.gbs) a.gbs = { ...DEFAULT_ADMIN_SETTINGS.gbs }
   if (!a.sms) a.sms = { ...DEFAULT_ADMIN_SETTINGS.sms }
   if (!a.store) a.store = { ...DEFAULT_ADMIN_SETTINGS.store }
+  if (!a.auth) a.auth = { ...DEFAULT_ADMIN_SETTINGS.auth }
   return a
 }
 
 app.get('/settings/admin', (_req, res) => {
-  res.json(ensureAdminSettings())
+  ensureAdminAuth()
+  const a = ensureAdminSettings()
+  res.json({
+    gbs: a.gbs,
+    sms: a.sms,
+    store: a.store,
+    auth: { login: a.auth?.login || 'admin' },
+  })
 })
 
 app.patch('/settings/admin', (req, res) => {
@@ -2428,11 +2545,20 @@ app.patch('/settings/admin', (req, res) => {
     gbs: { ...current.gbs, ...body.gbs },
     sms: { ...current.sms, ...body.sms },
     store: { ...current.store, ...body.store },
+    auth: current.auth || { ...DEFAULT_ADMIN_SETTINGS.auth },
   }
+  // Смена логина/пароля только через /auth/admin (нужен текущий пароль)
   persist()
-  res.json(db.settings.admin)
+  const a = db.settings.admin
+  res.json({
+    gbs: a.gbs,
+    sms: a.sms,
+    store: a.store,
+    auth: { login: a.auth?.login || 'admin' },
+  })
 })
 ensureAdminSettings()
+ensureAdminAuth()
 
 app.post('/loyalty/sync', (req, res) => {
   const phone = String(req.body?.phone || req.query?.phone || '').trim()
