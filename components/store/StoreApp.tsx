@@ -5969,7 +5969,7 @@ const AddressesPage = ({ go, user }) => {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
             <div style={{ flexShrink: 0 }}>
               <AddressMapPicker
-                key={editId != null ? `edit-map-${editId}-${coords?.lat}-${coords?.lng}` : 'new-map'}
+                key={editId != null ? `edit-map-${editId}` : 'new-map'}
                 pickMode="center"
                 mapHeight={mapPickerHeight}
                 initial={coords}

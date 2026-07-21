@@ -121,7 +121,9 @@ export default function ClientAddressEditorSheet({
     return coords
   }, [editEntry?.id, editEntry?.lat, editEntry?.lng, coords?.lat, coords?.lng, sessionKey])
 
-  const mapInstanceKey = `${sessionKey}-${editEntry?.id ?? 'new'}-${pickerInitial?.lat?.toFixed(5) ?? 'x'}-${pickerInitial?.lng?.toFixed(5) ?? 'y'}`
+  // Ключ НЕ зависит от «живых» координат: иначе при зуме/движении карта пересоздаётся
+  // и зум сбрасывается. Начальная точка задаётся через initial={pickerInitial}.
+  const mapInstanceKey = `${sessionKey}-${editEntry?.id ?? 'new'}`
 
   if (!open) return null
 
