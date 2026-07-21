@@ -7946,7 +7946,9 @@ function PickupsPage() {
   const del = (id:string) => setPickups(list.filter(p=>p.id!==id));
   const toggle = (id:string) => setPickups(list.map(p=>p.id===id?{...p,active:!p.active}:p));
 
-  const FI = ({lbl,fld,ph='',type='text'}:{lbl:string,fld:string,ph?:string,type?:string}) => (
+  // Важно: это render-функция, а не компонент. Вызываем её как {field(...)},
+  // иначе (как <FI/>) input пересоздаётся на каждый ввод и теряет фокус.
+  const field = ({lbl,fld,ph='',type='text'}:{lbl:string,fld:string,ph?:string,type?:string}) => (
     <div><div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>{lbl}</div>
       <input className="ai" type={type} placeholder={ph} value={form[fld]||''} onChange={e=>setForm((f:any)=>({...f,[fld]:e.target.value}))}/>
     </div>
@@ -8042,12 +8044,12 @@ function PickupsPage() {
                 onCenterChange={pickOnMap}
               />
               <div style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:10}}>
-                <FI lbl="Эмодзи" fld="e" ph="🏪"/>
-                <FI lbl="Название *" fld="name" ph="КАКАПО Магазин"/>
+                {field({lbl:'Эмодзи',fld:'e',ph:'🏪'})}
+                {field({lbl:'Название *',fld:'name',ph:'КАКАПО Магазин'})}
               </div>
-              <FI lbl="Цвет (hex)" fld="color" ph="#1FD760"/>
-              <FI lbl="Адрес" fld="addr" ph="ул. Ленина, 42"/>
-              <FI lbl="Телефон" fld="phone" ph="+992 __ ___ __ __"/>
+              {field({lbl:'Цвет (hex)',fld:'color',ph:'#1FD760'})}
+              {field({lbl:'Адрес',fld:'addr',ph:'ул. Ленина, 42'})}
+              {field({lbl:'Телефон',fld:'phone',ph:'+992 __ ___ __ __'})}
               {saveErr && (
                 <div style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,69,69,.08)', border:'1px solid rgba(255,69,69,.25)', fontSize:12, color:'#FF4545' }}>
                   {saveErr}
@@ -8185,7 +8187,8 @@ function BannersPage() {
     else setBanners(bs=>[...bs,{...form,id:Date.now(),disc:Number(form.disc)}]);
     setShowForm(false); setEditId(null); setForm(DEF);
   };
-  const FI = ({label,val,onChange,type='text',half}) => (
+  // render-функция (не компонент): вызывать как {field(...)}, иначе input теряет фокус при вводе
+  const field = ({label,val,onChange,type='text',half}:any) => (
     <div style={{marginBottom:12,flex:half?'1 1 48%':'1 1 100%'}}>
       <div style={{fontSize:11,color:'#8FB897',marginBottom:4,fontWeight:700}}>{label}</div>
       <input className="ai" type={type} value={val} onChange={e=>onChange(e.target.value)}/>
@@ -8252,16 +8255,16 @@ function BannersPage() {
         <div className="ac" style={{padding:20,marginBottom:20}}>
           <div className="ub" style={{fontSize:13,fontWeight:900,marginBottom:16}}>{editId?'✏️ Редактировать':'➕ Новый баннер'}</div>
           <div style={{display:'flex',flexWrap:'wrap',gap:'0 12px'}}>
-            <FI half label="Заголовок *" val={form.title} onChange={v=>setForm(f=>({...f,title:v}))}/>
-            <FI half label="Бейдж (ФЛЭШ, ПЯТНИЦА...)" val={form.badge} onChange={v=>setForm(f=>({...f,badge:v}))}/>
+            {field({half:true,label:'Заголовок *',val:form.title,onChange:(v:any)=>setForm(f=>({...f,title:v}))})}
+            {field({half:true,label:'Бейдж (ФЛЭШ, ПЯТНИЦА...)',val:form.badge,onChange:(v:any)=>setForm(f=>({...f,badge:v}))})}
           </div>
-          <FI label="Подзаголовок" val={form.sub} onChange={v=>setForm(f=>({...f,sub:v}))}/>
+          {field({label:'Подзаголовок',val:form.sub,onChange:(v:any)=>setForm(f=>({...f,sub:v}))})}
           <div style={{display:'flex',gap:12}}>
-            <FI half label="Скидка %" val={form.disc} onChange={v=>setForm(f=>({...f,disc:v}))} type="number"/>
-            <FI half label="Эмодзи" val={form.e} onChange={v=>setForm(f=>({...f,e:v}))}/>
+            {field({half:true,label:'Скидка %',val:form.disc,onChange:(v:any)=>setForm(f=>({...f,disc:v})),type:'number'})}
+            {field({half:true,label:'Эмодзи',val:form.e,onChange:(v:any)=>setForm(f=>({...f,e:v}))})}
           </div>
-          <FI label="Цвет акцента (hex, напр. #1FD760)" val={form.ac} onChange={v=>setForm(f=>({...f,ac:v}))}/>
-          <FI label="Фон (CSS, напр. linear-gradient(135deg,#0A2A0A,#1A4A1A))" val={form.bg} onChange={v=>setForm(f=>({...f,bg:v}))}/>
+          {field({label:'Цвет акцента (hex, напр. #1FD760)',val:form.ac,onChange:(v:any)=>setForm(f=>({...f,ac:v}))})}
+          {field({label:'Фон (CSS, напр. linear-gradient(135deg,#0A2A0A,#1A4A1A))',val:form.bg,onChange:(v:any)=>setForm(f=>({...f,bg:v}))})}
           <div style={{display:'flex',gap:8,marginTop:4}}>
             <button onClick={save} className="ab abp" style={{padding:'9px 20px'}}>Сохранить</button>
             <button onClick={()=>{setShowForm(false);setEditId(null);setForm(DEF);}} className="ab" style={{padding:'9px 16px',background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897'}}>Отмена</button>
