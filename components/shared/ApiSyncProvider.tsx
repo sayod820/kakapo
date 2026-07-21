@@ -5,40 +5,22 @@ import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 
 type Props = { children: React.ReactNode; mode?: 'all' | 'assembler' | 'courier' | 'catalog' }
 
-function pathNeedsOfflineShell(pathname: string) {
-  return pathname === '/trade' || pathname.startsWith('/trade/')
-    || pathname === '/pos' || pathname.startsWith('/pos/')
-}
-
-/** Старый SW подставлял главную на /admin — из‑за этого «админка» выглядела как портал. */
-async function purgeBrokenServiceWorkers(pathname: string) {
+/** Старый SW кэшировал портал и подменял страницы — снимаем его у всех и чистим кэш. */
+async function purgeServiceWorkers() {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
   try {
-    if (pathNeedsOfflineShell(pathname)) {
-      const onLoad = () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => { /* ignore */ })
-      }
-      if (document.readyState === 'complete') onLoad()
-      else window.addEventListener('load', onLoad, { once: true })
-      return
-    }
     const regs = await navigator.serviceWorker.getRegistrations()
     await Promise.all(regs.map(r => r.unregister()))
     if (typeof caches !== 'undefined') {
       const keys = await caches.keys()
-      await Promise.all(
-        keys
-          .filter(k => k.includes('kakapo-shell') || k.startsWith('pages-') || k.startsWith('static-'))
-          .map(k => caches.delete(k)),
-      )
+      await Promise.all(keys.map(k => caches.delete(k)))
     }
   } catch { /* ignore */ }
 }
 
 export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
   useEffect(() => {
-    const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
-    void purgeBrokenServiceWorkers(pathname)
+    void purgeServiceWorkers()
   }, [])
 
   useEffect(() => {
