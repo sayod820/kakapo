@@ -97,15 +97,25 @@ function slimSnapshot(obj) {
   return out
 }
 
+/** Заголовки приходят percent-encoded (клиент кодирует кириллицу) — раскодируем безопасно. */
+function decodeHeader(v) {
+  const s = String(v || '')
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return s
+  }
+}
+
 export function actorFromRequest(req) {
   const h = req?.headers || {}
   const body = req?.body || {}
-  const adminLogin = String(h['x-kakapo-admin-login'] || h['x-admin-login'] || '').trim()
-  const adminName = String(h['x-kakapo-admin-name'] || '').trim()
-  const employeeId = String(h['x-kakapo-employee-id'] || body.employeeId || '').trim()
-  const employeeName = String(h['x-kakapo-employee-name'] || body.employeeName || '').trim()
-  const cashierId = String(body.cashierId || h['x-kakapo-cashier-id'] || '').trim()
-  const cashierName = String(body.cashierName || body.createdBy || h['x-kakapo-cashier-name'] || '').trim()
+  const adminLogin = decodeHeader(h['x-kakapo-admin-login'] || h['x-admin-login'] || '').trim()
+  const adminName = decodeHeader(h['x-kakapo-admin-name'] || '').trim()
+  const employeeId = decodeHeader(h['x-kakapo-employee-id'] || body.employeeId || '').trim()
+  const employeeName = decodeHeader(h['x-kakapo-employee-name'] || body.employeeName || '').trim()
+  const cashierId = decodeHeader(body.cashierId || h['x-kakapo-cashier-id'] || '').trim()
+  const cashierName = decodeHeader(body.cashierName || body.createdBy || h['x-kakapo-cashier-name'] || '').trim()
   const appHint = String(h['x-kakapo-app'] || '').trim()
 
   let app = 'admin'

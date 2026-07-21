@@ -59,6 +59,19 @@ export const getToken = (): string | null => {
   return _token
 }
 
+/**
+ * Значения HTTP-заголовков должны быть в Latin-1. Имена на кириллице ломают
+ * fetch() ("Failed to fetch"), поэтому кодируем всё в percent-encoding (ASCII),
+ * а сервер раскодирует обратно.
+ */
+function encodeHeaderValue(v: string): string {
+  try {
+    return encodeURIComponent(String(v))
+  } catch {
+    return ''
+  }
+}
+
 /** Кто выполнил действие (только Admin / Trade) — для журнала аудита */
 function buildAuditActorHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {}
@@ -69,16 +82,16 @@ function buildAuditActorHeaders(): Record<string, string> {
       const raw = localStorage.getItem('kakapo_admin_session')
       if (raw) {
         const s = JSON.parse(raw) as { login?: string; name?: string }
-        if (s?.login) out['x-kakapo-admin-login'] = String(s.login)
-        if (s?.name) out['x-kakapo-admin-name'] = String(s.name)
+        if (s?.login) out['x-kakapo-admin-login'] = encodeHeaderValue(s.login)
+        if (s?.name) out['x-kakapo-admin-name'] = encodeHeaderValue(s.name)
         out['x-kakapo-app'] = 'admin'
       }
     } else if (path.includes('/trade')) {
       const raw = localStorage.getItem('kakapo_trade_employee_session')
       if (raw) {
         const s = JSON.parse(raw) as { employeeId?: string; name?: string }
-        if (s?.employeeId) out['x-kakapo-employee-id'] = String(s.employeeId)
-        if (s?.name) out['x-kakapo-employee-name'] = String(s.name)
+        if (s?.employeeId) out['x-kakapo-employee-id'] = encodeHeaderValue(s.employeeId)
+        if (s?.name) out['x-kakapo-employee-name'] = encodeHeaderValue(s.name)
         out['x-kakapo-app'] = 'trade'
       }
     }
