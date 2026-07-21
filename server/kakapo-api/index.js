@@ -1303,6 +1303,45 @@ app.post('/orders/bulk-delete', (req, res) => {
 })
 
 app.get('/restaurants', (_req, res) => res.json(db.restaurants))
+app.post('/restaurants', (req, res) => {
+  const b = req.body || {}
+  const name = String(b.name || '').trim()
+  if (!name) return res.status(400).json({ detail: 'Укажите название ресторана' })
+  if (!Array.isArray(db.restaurants)) db.restaurants = []
+  // Генерируем уникальный id вида R-05 (по максимальному существующему номеру)
+  let n = db.restaurants.reduce((m, r) => {
+    const num = parseInt(String(r.id || '').replace(/^R-0?/, ''), 10)
+    return Number.isFinite(num) ? Math.max(m, num) : m
+  }, 0) + 1
+  let id = `R-${String(n).padStart(2, '0')}`
+  while (db.restaurants.some(r => r.id === id)) {
+    n += 1
+    id = `R-${String(n).padStart(2, '0')}`
+  }
+  const rest = {
+    id,
+    name,
+    emoji: b.emoji || '🍽',
+    cuisine: String(b.cuisine || '').trim() || '—',
+    address: String(b.address || '').trim(),
+    phone: String(b.phone || '').trim(),
+    email: String(b.email || '').trim(),
+    commission: Math.max(0, Math.min(100, Number(b.commission) || 15)),
+    open: true,
+    blocked: false,
+    rating: Number(b.rating) || 5,
+    reviews: 0,
+    ordersMonth: 0,
+    revenueMonth: 0,
+    paidRevenueMonth: 0,
+    img: b.img || 'linear-gradient(135deg,#1A0808,#3A1010)',
+    menu: [],
+  }
+  db.restaurants.push(rest)
+  persist()
+  broadcastRestaurant(rest)
+  res.status(201).json(rest)
+})
 app.get('/restaurants/:id', (req, res) => {
   const r = db.restaurants.find(x => x.id === req.params.id)
   if (!r) return res.status(404).json({ detail: 'Не найдено' })

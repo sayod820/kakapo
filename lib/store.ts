@@ -862,6 +862,7 @@ interface RestaurantsStore {
   restaurants: Restaurant[]
   loaded: boolean
   fetchRestaurants: () => Promise<void>
+  createRestaurant: (data: Partial<Restaurant>) => Promise<Restaurant | void>
   toggleOpen: (id: string) => Promise<void>
   updateRestaurant: (id: string, data: Partial<Restaurant>) => Promise<Restaurant | void>
   blockRestaurant: (id: string, blocked: boolean) => Promise<Restaurant | void>
@@ -883,6 +884,17 @@ export const useRestaurants = create<RestaurantsStore>((set, get) => ({
       console.error(e)
       set({ loaded: true })
     }
+  },
+
+  createRestaurant: async (data) => {
+    if (USE_API) {
+      const created = await api.createRestaurant(data)
+      set(s => ({ restaurants: [...s.restaurants, created] }))
+      return created
+    }
+    const local = { menu: [], ...data } as Restaurant
+    set(s => ({ restaurants: [...s.restaurants, local] }))
+    return local
   },
 
   toggleOpen: async (id) => {

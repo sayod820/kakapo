@@ -461,6 +461,8 @@ export const api = {
   // ── Рестораны ──
   getRestaurants: () => request<Restaurant[]>('/restaurants'),
   getRestaurant: (id: string | number) => request<Restaurant>(`/restaurants/${id}`),
+  createRestaurant: (data: Partial<Restaurant>) =>
+    request<Restaurant>('/restaurants', { method: 'POST', body: JSON.stringify(data) }),
   toggleRestaurant: (id: string) => request(`/restaurants/${id}/toggle`, { method: 'PATCH' }),
   updateRestaurant: (id: string, data: Partial<Restaurant>) =>
     request<Restaurant>(`/restaurants/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

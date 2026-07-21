@@ -1838,6 +1838,7 @@ function PartnersPage() {
   const toggleOpenApi = useRestaurants(s => s.toggleOpen);
   const blockRestaurantApi = useRestaurants(s => s.blockRestaurant);
   const fetchRestaurantsApi = useRestaurants(s => s.fetchRestaurants);
+  const createRestaurantApi = useRestaurants(s => s.createRestaurant);
   const updateRestaurantApi = useRestaurants(s => s.updateRestaurant);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const [rests, setRests] = useState<any[]>(() => (USE_API ? [] : RESTAURANTS.map(r => ({ ...r }))));
@@ -2212,22 +2213,31 @@ function PartnersPage() {
     setLocError('');
   };
 
-  const saveAdd = () => {
+  const saveAdd = async () => {
     if (!addForm.name.trim()) { setLocError('Укажите название ресторана'); return; }
     if (addForm.lat == null || addForm.lng == null) { setLocError('Выберите место на карте'); return; }
-    const newId = `R-0${rests.length + 1}`;
     const commission = Number(addForm.commission) || 15;
-    const newRest = {
-      id: newId, name: addForm.name.trim(), emoji: addForm.emoji || '🍽',
+    const payload = {
+      name: addForm.name.trim(), emoji: addForm.emoji || '🍽',
       cuisine: addForm.cuisine.trim() || '—', address: addForm.address.trim(),
       phone: addForm.phone.trim(), email: addForm.email.trim(), commission,
-      open: true, rating: 5, reviews: 0, ordersMonth: 0, revenueMonth: 0,
-      img: 'linear-gradient(135deg,#1A0808,#3A1010)', menu: [],
     };
-    setRests(rs => [...rs, newRest]);
-    pushPickup(newRest, addForm.lat, addForm.lng, addForm.address, addForm.phone, true);
-    setShowAdd(false);
-    resetAddForm();
+    try {
+      const created = await createRestaurantApi(payload);
+      const newRest = created || {
+        id: `R-0${rests.length + 1}`, ...payload,
+        open: true, rating: 5, reviews: 0, ordersMonth: 0, revenueMonth: 0,
+        img: 'linear-gradient(135deg,#1A0808,#3A1010)', menu: [],
+      };
+      // В режиме API эффект синхронизации сам обновит список из стора.
+      if (!USE_API) setRests(rs => [...rs, newRest]);
+      pushPickup(newRest, addForm.lat, addForm.lng, addForm.address, addForm.phone, true);
+      setShowAdd(false);
+      resetAddForm();
+    } catch (e) {
+      console.error(e);
+      setLocError('Не удалось сохранить ресторан. Попробуйте ещё раз.');
+    }
   };
 
   return (
