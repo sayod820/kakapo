@@ -11,6 +11,7 @@ import MarketCategoriesPanel from '@/components/shared/MarketCategoriesPanel'
 import AdminAiAssistantPage from '@/components/admin/AdminAiAssistantPage'
 import AdminLoginPage from '@/components/admin/AdminLoginPage'
 import AuditLogPage from '@/components/admin/AuditLogPage'
+import AdminCashPage from '@/components/admin/AdminCashPage'
 import {
   clearAdminSession,
   loadAdminSession,
@@ -491,7 +492,7 @@ const NAV_GROUPS = [
   {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'},{id:'pickups',icon:'📍',l:'Точки забора'}]},
   {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'employees',icon:'👤',l:'Сотрудники'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
   {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'debts',icon:'📒',l:'Долги VIP'},{id:'push',icon:'🔔',l:'Push'}]},
-  {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
+  {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'cash',icon:'💵',l:'Касса'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
   {g:'Контент',   items:[{id:'banners',icon:'🖼',l:'Баннеры / Слайдеры'}]},
   {g:'Система',   items:[{id:'ai',icon:'🧠',l:'ИИ-ассистент'},{id:'audit',icon:'📜',l:'История действий'},{id:'settings',icon:'⚙️',l:'Настройки'}]},
 ];
@@ -4309,7 +4310,8 @@ function ClientsPage() {
               <th>Заказов</th>
               <th>Потрачено</th>
               <th>Долг</th>
-              <th>Бонусы</th>
+              <th>💰 Кошелёк</th>
+              <th>⭐ Бонусы</th>
               <th>Последний</th>
               <th></th>
             </tr>
@@ -4317,7 +4319,7 @@ function ClientsPage() {
           <tbody>
             {USE_API && clientsApiSyncing && !stored.length ? (
               <tr>
-                <td colSpan={11} style={{ textAlign: 'center', color: '#8FB897', padding: 28 }}>
+                <td colSpan={12} style={{ textAlign: 'center', color: '#8FB897', padding: 28 }}>
                   <div style={{ marginBottom: 8 }}>Загрузка клиентов…</div>
                   <div style={{ fontSize: 11, color: '#3D6645', lineHeight: 1.5 }}>
                     Если долго не грузится — проверьте, что API-сервер запущен, и нажмите «Повторить».
@@ -4326,7 +4328,7 @@ function ClientsPage() {
               </tr>
             ) : USE_API && clientsApiError && !stored.length ? (
               <tr>
-                <td colSpan={11} style={{ textAlign: 'center', padding: 28 }}>
+                <td colSpan={12} style={{ textAlign: 'center', padding: 28 }}>
                   <div style={{ color: '#FF4545', fontWeight: 700, marginBottom: 10 }}>⚠ {clientsApiError}</div>
                   <button type="button" onClick={() => void syncClientsFromApi()} className="ab abp" style={{ padding: '8px 16px', fontSize: 12 }}>
                     Повторить загрузку
@@ -4335,7 +4337,7 @@ function ClientsPage() {
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={11} style={{ textAlign: 'center', color: '#3D6645', padding: 28 }}>
+                <td colSpan={12} style={{ textAlign: 'center', color: '#3D6645', padding: 28 }}>
                   {search.trim() ? `Клиент «${search.trim()}» не найден` : 'Нет клиентов по выбранным фильтрам'}
                 </td>
               </tr>
@@ -4372,6 +4374,7 @@ function ClientsPage() {
                   <td style={{ fontWeight: 600 }}>{c.orders}</td>
                   <td><span className="ub" style={{ fontSize: 12, fontWeight: 700 }}>{c.spent.toLocaleString()} ЅМ</span></td>
                   <td style={{ color: c.debt > 0 ? '#FF4545' : '#3D6645', fontWeight: c.debt > 0 ? 800 : 400 }}>{c.debt > 0 ? `${c.debt.toLocaleString()} ЅМ` : '—'}</td>
+                  <td style={{ color: (Number(c.wallet) || 0) > 0 ? '#00D4C8' : '#3D6645', fontWeight: (Number(c.wallet) || 0) > 0 ? 800 : 400 }}>{(Number(c.wallet) || 0) > 0 ? `${(Number(c.wallet) || 0).toLocaleString()} ЅМ` : '—'}</td>
                   <td style={{ color: '#FFB800', fontWeight: 600 }}>{c.bonus.toLocaleString()} ⭐</td>
                   <td style={{ fontSize: 11, color: '#3D6645' }}>{c.lastLabel}</td>
                   <td>
@@ -4645,11 +4648,12 @@ function ClientsPage() {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8, marginBottom: 14 }}>
               <StatCard l="Заказов" v={detailClient.orders} />
               <StatCard l="Потрачено" v={`${detailClient.spent.toLocaleString()} ЅМ`} c="#1FD760" />
               <StatCard l="Долг" v={detailClient.debt > 0 ? `${detailClient.debt.toLocaleString()} ЅМ` : '—'} c={detailClient.debt > 0 ? '#FF4545' : undefined} />
-              <StatCard l="Бонусы" v={`${detailClient.bonus.toLocaleString()} ⭐`} c="#FFB800" />
+              <StatCard l="💰 Кошелёк" v={`${(Number(detailClient.wallet) || 0).toLocaleString()} ЅМ`} c="#00D4C8" />
+              <StatCard l="⭐ Бонусы" v={`${detailClient.bonus.toLocaleString()}`} c="#FFB800" />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
               <StatCard l="🛒 Магазин" v={detailClient.marketOrders} />
@@ -5120,7 +5124,8 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
               <th>Клиент</th>
               <th>Статус</th>
               <th>Уровень</th>
-              <th>Бонусы</th>
+              <th>💰 Кошелёк</th>
+              <th>⭐ Бонусы</th>
               <th>Долг</th>
               <th>Действие</th>
             </tr>
@@ -5128,7 +5133,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', padding: 32 }}>
+                <td colSpan={8} style={{ textAlign: 'center', padding: 32 }}>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>💳</div>
                   <div style={{ color: '#8FB897', fontWeight: 700, marginBottom: 4 }}>
                     {search.trim() ? 'Ничего не найдено' : 'Карт пока нет'}
@@ -5177,6 +5182,9 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                         </div>
                       )
                       : <span style={{ color: '#3D6645' }}>—</span>}
+                  </td>
+                  <td style={{ color: (Number(c.wallet) || 0) > 0 ? '#00D4C8' : '#3D6645', fontWeight: 700, fontSize: 12 }}>
+                    {(Number(c.wallet) || 0) > 0 ? `${(Number(c.wallet) || 0).toLocaleString()} ЅМ` : '—'}
                   </td>
                   <td style={{ color: '#FFB800', fontWeight: 700, fontSize: 12 }}>
                     {c.bonus > 0 ? `${c.bonus.toLocaleString()} ⭐` : '—'}
@@ -5227,7 +5235,8 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
               {[
                 { l: 'Статус', v: CARD_STATUS_LABELS[detail.status].l, c: CARD_STATUS_LABELS[detail.status].c },
                 { l: 'Телефон', v: detail.phone || '—', c: '#8FB897' },
-                { l: 'Бонусы', v: `${detail.bonus.toLocaleString()} ⭐`, c: '#FFB800' },
+                { l: '💰 Кошелёк', v: `${(Number(detail.wallet) || 0).toLocaleString()} ЅМ`, c: '#00D4C8' },
+                { l: '⭐ Бонусы', v: `${detail.bonus.toLocaleString()}`, c: '#FFB800' },
                 { l: 'Лимит долга', v: detail.debtLimit > 0 ? `${detail.debtLimit} ЅМ` : 'Нет', c: '#1FD760' },
                 { l: 'Долг', v: detail.debt > 0 ? `${detail.debt} ЅМ` : '—', c: detail.debt > 0 ? '#FF4545' : '#3D6645' },
                 { l: 'VIP', v: detail.vip ? '👑 Включён' : 'Выключен', c: detail.vip ? '#FFB800' : '#3D6645' },
@@ -8348,8 +8357,8 @@ function AdminAppInner({
     useProductPhotos.getState().hydrate();
     return () => {};
   }, []);
-  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} session={session} onLogout={onLogout}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
@@ -8372,6 +8381,7 @@ function AdminAppInner({
       {page==='tariff'     && <TariffPage/>}
       {page==='courierorders' && <CourierOrdersPage/>}
       {page==='finance'    && <FinancePage/>}
+      {page==='cash'       && <AdminCashPage/>}
       {page==='ai'         && <AdminAiAssistantPage/>}
       {page==='audit'      && <AuditLogPage/>}
       {page==='settings'   && <SettingsPage setPage={setPage} session={session} onSessionUpdate={onSessionUpdate}/>}

@@ -34,6 +34,7 @@ export type CrmStoreUser = {
   phone: string
   level: ClientLevel
   bonus: number
+  wallet?: number
   clientId?: string
   email?: string
   addr?: string
@@ -131,6 +132,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
       phone: base.phone || card.phone,
       level: pendingManual.level,
       bonus: card.bonus ?? base.bonus,
+      wallet: Math.max(0, Number(card.wallet ?? base.wallet) || 0),
       debt: card.debt ?? base.debt,
       debtLimit: Math.max(0, Number(card.debtLimit ?? base.debtLimit) || 0),
       debtOverdueStrikes: Math.max(0, Number(card.debtOverdueStrikes ?? base.debtOverdueStrikes) || 0),
@@ -157,6 +159,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     phone: base.phone || card.phone,
     ...loyalty,
     bonus: card.bonus ?? base.bonus,
+    wallet: Math.max(0, Number(card.wallet ?? base.wallet) || 0),
     debt: card.debt ?? base.debt,
     debtLimit: Math.max(0, Number(card.debtLimit ?? base.debtLimit) || 0),
     debtOverdueStrikes: Math.max(0, Number(card.debtOverdueStrikes ?? base.debtOverdueStrikes) || 0),
@@ -176,6 +179,7 @@ export function crmToStoreUser(c: AdminClient, card?: AdminCard | null): CrmStor
     phone: c.phone,
     level: c.level,
     bonus: c.bonus,
+    wallet: Math.max(0, Number(card?.wallet ?? c.wallet) || 0),
     clientId: c.id,
     email: c.email || '',
     addr: c.addr || '',
@@ -321,7 +325,7 @@ export async function isStoreAccountActiveOnServer(phone: string): Promise<boole
 }
 
 const SYNC_KEYS: (keyof CrmStoreUser)[] = [
-  'name', 'phone', 'level', 'bonus', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'debtOverdueStrikes', 'debtCreditBlocked', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'levelLockedPeriod', 'levelAssignMode', 'levelValidUntil', 'vipUntil', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
+  'name', 'phone', 'level', 'bonus', 'wallet', 'vip', 'card', 'debt', 'debtLimit', 'debtEnabled', 'debtOverdueStrikes', 'debtCreditBlocked', 'blocked', 'email', 'addr', 'clientId', 'loyaltyPeriod', 'levelLockedPeriod', 'levelAssignMode', 'levelValidUntil', 'vipUntil', 'bonusEligibleFrom', 'accountGeneration', 'recoveryExpiresAt', 'memberSince',
 ]
 
 export function crmStoreUsersEqual(a: CrmStoreUser | null | undefined, b: CrmStoreUser | null | undefined): boolean {

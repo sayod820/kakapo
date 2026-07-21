@@ -789,9 +789,10 @@ export const api = {
     clientName?: string
     clientPhone?: string
     cardNum?: string
-    paymentMethod: 'cash' | 'card' | 'credit' | 'mixed'
+    paymentMethod: 'cash' | 'card' | 'credit' | 'wallet' | 'mixed'
     paidCash?: number
     paidCard?: number
+    paidWallet?: number
     debtAdded?: number
     cashReceived?: number
     changeGiven?: number

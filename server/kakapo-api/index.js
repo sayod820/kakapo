@@ -2288,6 +2288,7 @@ function normalizeClientRow(raw) {
     spent: Number(raw.spent) || 0,
     debt: Number(raw.debt) || 0,
     bonus: Number(raw.bonus) || 0,
+    wallet: Math.max(0, Math.round((Number(raw.wallet) || 0) * 100) / 100),
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
     vip: !!raw.vip || vipFromNote(raw.note),
@@ -2891,6 +2892,30 @@ function migrateLoyaltyRows() {
   if (changed) persist()
 }
 
+/**
+ * Разделение «денег» и «бонусов»: раньше пополнение наличными падало в bonus
+ * (через posCashBonus). Теперь у карты/клиента есть отдельный «Кошелёк» (wallet).
+ * Переносим накопленную наличную часть (posCashBonus) в wallet один раз.
+ */
+function migrateWalletSplit() {
+  if (!db.settings) db.settings = {}
+  if (db.settings.walletSplitDone) return
+  let changed = false
+  for (const card of db.cards || []) {
+    const oldPos = Math.max(0, Number(card.posCashBonus) || 0)
+    if (oldPos > 0) {
+      card.wallet = Math.round(((Number(card.wallet) || 0) + oldPos) * 100) / 100
+      card.bonus = Math.max(0, Math.round(((Number(card.bonus) || 0) - oldPos) * 100) / 100)
+      card.posCashBonus = 0
+      try { syncClientFromCardRow(card) } catch { /* ignore */ }
+      changed = true
+    }
+  }
+  db.settings.walletSplitDone = true
+  persist()
+  if (changed) console.log('[wallet] миграция: наличная часть перенесена в кошелёк')
+}
+
 app.get('/cards', (_req, res) => {
   runLoyaltyMaintenance()
   const list = (db.cards || [])
@@ -2917,6 +2942,7 @@ function normalizeCardRow(raw) {
     status,
     level,
     bonus: Number(raw.bonus) || 0,
+    wallet: Math.max(0, Math.round((Number(raw.wallet) || 0) * 100) / 100),
     posCashBonus: Math.max(0, Number(raw.posCashBonus) || 0),
     debtLimit: Number(raw.debtLimit) || 0,
     debt: Number(raw.debt) || 0,
@@ -2937,6 +2963,7 @@ function normalizeCardRow(raw) {
 }
 
 migrateLoyaltyRows()
+migrateWalletSplit()
 
 function issueCardForNewClient(client) {
   if (!db.cards) db.cards = []
@@ -3051,6 +3078,7 @@ function syncClientFromCardRow(card) {
   else if (!clientName || clientName === 'Клиент') client.name = cardName || clientName || 'Клиент'
   client.level = cardLevelToBasic(card.level)
   client.bonus = Number(card.bonus) || 0
+  client.wallet = Math.max(0, Math.round((Number(card.wallet) || 0) * 100) / 100)
   client.debt = Number(card.debt) || 0
   client.debtLimit = Number(card.debtLimit) || 0
   client.vip = !!card.vip
@@ -3335,22 +3363,36 @@ app.patch('/cards/:num', (req, res) => {
 })
 
 /** Наличное пополнение баланса клиента одновременно увеличивает остаток открытой кассы. */
+/** Бонус ⭐ за наличное пополнение кошелька — по порогам из настроек лояльности. */
+function calcCashDepositBonusServer(cash, loyalty) {
+  const amt = Math.max(0, Number(cash) || 0)
+  if (amt <= 0) return 0
+  const tiers = (loyalty?.cashDepositTiers || [])
+    .slice()
+    .sort((a, b) => (Number(b.minAmount) || 0) - (Number(a.minAmount) || 0))
+  const tier = tiers.find(t => amt >= (Number(t.minAmount) || 0))
+  const pct = tier ? Number(tier.bonusPercent) || 0 : 0
+  return Math.round((amt * pct) / 100 * 100) / 100
+}
+
 app.post('/cards/:num/cash-topup', (req, res) => {
   try {
     const num = decodeURIComponent(req.params.num).toUpperCase()
     const card = findCardByNum(num)
     if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+    // cash — внесённые деньги (идут в Кошелёк). credit оставлен для обратной совместимости.
     const cash = Math.round((Number(req.body?.cash) || 0) * 100) / 100
-    const credit = Math.max(0, Math.round((Number(req.body?.credit) || 0) * 100) / 100)
-    if (!(cash > 0) || !(credit > 0)) {
+    if (!(cash > 0)) {
       return res.status(400).json({ detail: 'Укажите сумму пополнения' })
     }
+    const loyalty = ensureLoyaltySettings(db)
+    const bonusEarned = calcCashDepositBonusServer(cash, loyalty)
 
     const move = createFinanceMove(db, {
       type: 'deposit',
       amount: cash,
-      note: String(req.body?.note || `Пополнение баланса · ${card.client || card.phone || card.num}`),
-      reason: 'Пополнение баланса клиента',
+      note: String(req.body?.note || `Пополнение кошелька · ${card.client || card.phone || card.num}`),
+      reason: 'Пополнение кошелька клиента',
       createdBy: req.body?.cashierName,
       cashierId: req.body?.cashierId,
       cashierName: req.body?.cashierName,
@@ -3358,8 +3400,13 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       posId: req.body?.posId,
     })
 
-    card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + credit) * 100) / 100
-    card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + credit) * 100) / 100
+    // Деньги → Кошелёк
+    card.wallet = Math.round((Math.max(0, Number(card.wallet) || 0) + cash) * 100) / 100
+    // Бонус за пополнение → ⭐ (posCashBonus сохраняет его при пересчёте лояльности)
+    if (bonusEarned > 0) {
+      card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + bonusEarned) * 100) / 100
+      card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + bonusEarned) * 100) / 100
+    }
     syncClientFromCardRow(card)
     auditFromReq(db, req, {
       app: 'trade',
@@ -3367,14 +3414,16 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       entity: 'card',
       entityId: num,
       entityName: card.client || num,
-      summary: `Пополнение баланса ${num} · +${credit} (касса +${cash})`,
-      after: { cash, credit, bonus: card.bonus },
+      summary: `Пополнение кошелька ${num} · +${cash}`
+        + (bonusEarned > 0 ? ` · бонус +${bonusEarned}⭐` : '')
+        + ` (касса +${cash})`,
+      after: { cash, bonusEarned, wallet: card.wallet, bonus: card.bonus },
     })
     persist()
     broadcastPosUpdate({ kind: 'client-cash-topup', id: move.id })
-    res.json({ card, financeMove: move })
+    res.json({ card, financeMove: move, bonusEarned })
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось пополнить баланс' })
+    res.status(400).json({ detail: e?.message || 'Не удалось пополнить кошелёк' })
   }
 })
 

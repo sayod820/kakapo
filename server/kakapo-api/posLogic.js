@@ -1157,9 +1157,10 @@ export function createPosSale(db, data = {}) {
     ? Math.max(0, round2(orderGoodsTotal - discountAmount - bonusSpent))
     : itemsTotal
   const profit = round2(total - totalCost)
-  const paymentMethod = ['cash', 'card', 'credit', 'mixed'].includes(data.paymentMethod) ? data.paymentMethod : 'cash'
+  const paymentMethod = ['cash', 'card', 'credit', 'wallet', 'mixed'].includes(data.paymentMethod) ? data.paymentMethod : 'cash'
   const paidCash = round2(data.paidCash ?? (paymentMethod === 'cash' ? total : 0))
   const paidCard = round2(data.paidCard ?? (paymentMethod === 'card' ? total : 0))
+  const paidWallet = round2(data.paidWallet ?? (paymentMethod === 'wallet' ? total : 0))
   const debtAdded = round2(data.debtAdded ?? (paymentMethod === 'credit' ? total : 0))
   const cashReceived = round2(data.cashReceived ?? 0)
   const changeGiven = round2(data.changeGiven ?? 0)
@@ -1193,6 +1194,7 @@ export function createPosSale(db, data = {}) {
     profit,
     paidCash,
     paidCard,
+    paidWallet,
     debtAdded,
     cashReceived,
     changeGiven,
@@ -1214,6 +1216,26 @@ export function createPosSale(db, data = {}) {
     shift.salesCash = round2((Number(shift.salesCash) || 0) + paidCash)
     shift.salesCard = round2((Number(shift.salesCard) || 0) + paidCard)
     shift.salesCredit = round2((Number(shift.salesCredit) || 0) + debtAdded)
+    if (paidWallet > 0) shift.salesWallet = round2((Number(shift.salesWallet) || 0) + paidWallet)
+  }
+  // Оплата с кошелька (предоплаченные деньги) — списываем баланс клиента.
+  // На наличку кассы НЕ влияет: деньги уже были внесены при пополнении.
+  if (paidWallet > 0) {
+    const walletClient = getClientById(db, data.clientId) || null
+    const walletCard = getCardByNum(db, data.cardNum)
+    const balance = Math.max(
+      Number(walletCard?.wallet) || 0,
+      Number(walletClient?.wallet) || 0,
+    )
+    if (paidWallet > balance + 0.001) {
+      throw new Error('Недостаточно средств на кошельке клиента')
+    }
+    if (walletCard) {
+      walletCard.wallet = round2(Math.max(0, (Number(walletCard.wallet) || 0) - paidWallet))
+    }
+    if (walletClient) {
+      walletClient.wallet = round2(Math.max(0, (Number(walletClient.wallet) || 0) - paidWallet))
+    }
   }
   if (debtAdded > 0) {
     const client = getClientById(db, data.clientId) || null
@@ -1282,6 +1304,16 @@ export function createPosSale(db, data = {}) {
       direction: 'info',
       cashAffect: false,
       reason: `Продажа в долг · ${sale.clientName || sale.clientPhone || ''}`,
+    })
+  }
+  if (paidWallet > 0) {
+    appendMoneyLedger(db, {
+      ...baseLed,
+      type: 'sale_wallet',
+      amount: paidWallet,
+      direction: 'info',
+      cashAffect: false,
+      reason: `Продажа с кошелька · ${sale.clientName || sale.clientPhone || ''}`,
     })
   }
   return sale
@@ -1459,10 +1491,16 @@ export function returnPosSale(db, saleId, meta = {}) {
   let cutDebt = 0
   let cutCash = 0
   let cutCard = 0
+  let cutWallet = 0
   const debtBefore = round2(Number(sale.debtAdded) || 0)
   if (debtBefore > 0 && remainCashCut > 0) {
     cutDebt = Math.min(debtBefore, remainCashCut)
     remainCashCut = round2(remainCashCut - cutDebt)
+  }
+  const walletBefore = round2(Number(sale.paidWallet) || 0)
+  if (walletBefore > 0 && remainCashCut > 0) {
+    cutWallet = Math.min(walletBefore, remainCashCut)
+    remainCashCut = round2(remainCashCut - cutWallet)
   }
   const cashBefore = round2(Number(sale.paidCash) || 0)
   if (cashBefore > 0 && remainCashCut > 0) {
@@ -1491,6 +1529,7 @@ export function returnPosSale(db, saleId, meta = {}) {
   sale.debtAdded = Math.max(0, round2(debtBefore - cutDebt))
   sale.paidCash = Math.max(0, round2(cashBefore - cutCash))
   sale.paidCard = Math.max(0, round2(cardBefore - cutCard))
+  sale.paidWallet = Math.max(0, round2(walletBefore - cutWallet))
   sale.total = Math.max(0, round2((Number(sale.total) || 0) - returnTotal))
 
   if (cutDebt > 0) {
@@ -1501,6 +1540,14 @@ export function returnPosSale(db, saleId, meta = {}) {
     if (client) {
       applyDebtRepayment(client, card, cutDebt, { desc: `Возврат · ${sale.orderId || sale.number}` })
     }
+  }
+
+  // Возврат денег на кошелёк клиента (если платили с кошелька)
+  if (cutWallet > 0) {
+    const client = getClientById(db, sale.clientId) || null
+    const card = getCardByNum(db, sale.cardNum)
+    if (card) card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
+    if (client) client.wallet = round2((Number(client.wallet) || 0) + cutWallet)
   }
 
   const fullyReturned = items.every(it => {
@@ -1519,6 +1566,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     shift.salesCash = Math.max(0, round2((Number(shift.salesCash) || 0) - cutCash))
     shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - cutCard))
     shift.salesCredit = Math.max(0, round2((Number(shift.salesCredit) || 0) - cutDebt))
+    if (cutWallet > 0) shift.salesWallet = Math.max(0, round2((Number(shift.salesWallet) || 0) - cutWallet))
   }
 
   if (!Array.isArray(sale.returns)) sale.returns = []
@@ -1528,6 +1576,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     cutCash,
     cutCard,
     cutDebt,
+    cutWallet,
     note: String(meta.note || '').trim(),
     cashierId: String(meta.cashierId || '').trim(),
     items: returnLines,
@@ -1571,6 +1620,17 @@ export function returnPosSale(db, saleId, meta = {}) {
       direction: 'out',
       cashAffect: false,
       reason: `Возврат карта · ${sale.orderId || sale.number}`,
+      note: String(meta.note || '').trim(),
+    })
+  }
+  if (cutWallet > 0) {
+    appendMoneyLedger(db, {
+      ...ledBase,
+      type: 'sale_return_wallet',
+      amount: cutWallet,
+      direction: 'info',
+      cashAffect: false,
+      reason: `Возврат на кошелёк · ${sale.orderId || sale.number}`,
       note: String(meta.note || '').trim(),
     })
   }

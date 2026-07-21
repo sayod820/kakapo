@@ -8,6 +8,8 @@ export type StoreUser = {
   phone: string
   level: 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
   bonus: number
+  /** Кошелёк — предоплаченные деньги (отдельно от бонусов) */
+  wallet?: number
   clientId?: string
   email?: string
   addr?: string

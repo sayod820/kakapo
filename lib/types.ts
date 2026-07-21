@@ -468,10 +468,12 @@ export interface PosSale {
   clientName?: string
   clientPhone?: string
   cardNum?: string
-  paymentMethod: 'cash' | 'card' | 'credit' | 'mixed'
+  paymentMethod: 'cash' | 'card' | 'credit' | 'wallet' | 'mixed'
   total: number
   paidCash: number
   paidCard: number
+  /** Оплачено с кошелька (предоплаченные деньги клиента) */
+  paidWallet?: number
   debtAdded: number
   /** Точка продаж, с которой проведён чек */
   posId?: string
@@ -616,6 +618,8 @@ export interface Client {
   spent: number
   debt: number
   bonus: number
+  /** Кошелёк — предоплаченные деньги клиента (отдельно от бонусов) */
+  wallet?: number
 }
 
 export type PromoType = 'pct' | 'free' | 'first' | 'fixed' | 'product'

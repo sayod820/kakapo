@@ -270,6 +270,8 @@ function payLabel(sale: PosSale) {
   if (sale.paymentMethod === 'mixed') return 'Смешанная'
   if (sale.paymentMethod === 'cash') return 'Наличные'
   if (sale.paymentMethod === 'card') return 'Картой'
+  if (sale.paymentMethod === 'wallet') return 'С кошелька'
+  if ((Number(sale.paidWallet) || 0) > 0.001) return 'С кошелька'
   if ((Number(sale.debtAdded) || 0) > 0.001) return 'В долг'
   return '—'
 }
@@ -456,6 +458,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     tpl.showPay ? row(tpl.labelPay, payLabel(sale)) : '',
     tpl.showCash ? moneyRow(tpl.labelCash, Number(sale.paidCash) || 0, { currency: cur }) : '',
     tpl.showCard ? moneyRow(cardLineLabel(sale, tpl.labelCard), Number(sale.paidCard) || 0, { currency: cur }) : '',
+    (Number(sale.paidWallet) || 0) > 0.001 ? moneyRow('С кошелька', Number(sale.paidWallet) || 0, { currency: cur }) : '',
     tpl.showDebt ? moneyRow(tpl.labelDebt, Number(sale.debtAdded) || 0, { currency: cur }) : '',
     tpl.showCashGiven ? moneyRow(tpl.labelCashGiven, Number(sale.cashReceived) || 0, { currency: cur }) : '',
     tpl.showChange ? moneyRow(tpl.labelChange, Number(sale.changeGiven) || 0, { bold: true, currency: cur }) : '',

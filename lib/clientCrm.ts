@@ -25,6 +25,8 @@ export interface AdminClient {
   spent: number
   debt: number
   bonus: number
+  /** Кошелёк — предоплаченные деньги клиента (отдельно от бонусов) */
+  wallet?: number
   debtLimit: number
   blocked: boolean
   vip?: boolean
@@ -234,6 +236,7 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     spent: Number(raw.spent) || 0,
     debt: Number(raw.debt) || 0,
     bonus: Number(raw.bonus) || 0,
+    wallet: Math.max(0, Math.round((Number(raw.wallet) || 0) * 100) / 100),
     debtLimit: Number(raw.debtLimit) || 0,
     blocked: !!raw.blocked,
     vip: !!raw.vip || vipFromNote(raw.note),

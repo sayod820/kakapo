@@ -14,6 +14,8 @@ export interface AdminCard {
   status: CardStatus
   level: ClientLevel | ''
   bonus: number
+  /** Кошелёк — предоплаченные деньги клиента (1 сомони = 1 сомони), отдельно от бонусов */
+  wallet?: number
   /** Бонусы, начисленные на кассе за наличные (сохраняются при сверке заказов) */
   posCashBonus?: number
   debtLimit: number
@@ -128,6 +130,7 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     status,
     level,
     bonus: Number(raw.bonus) || 0,
+    wallet: Math.max(0, Math.round((Number(raw.wallet) || 0) * 100) / 100),
     posCashBonus: Math.max(0, Number(raw.posCashBonus) || 0),
     debtLimit: Number(raw.debtLimit) || 0,
     debt: Number(raw.debt) || 0,

@@ -2970,6 +2970,25 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               </span>
             </div>
         </div>
+          {(Number(user.wallet) || 0) > 0 && (
+            <div style={{
+              display:"flex", alignItems:"center", justifyContent:"space-between", gap:8,
+              padding:"12px 14px", borderRadius:14, marginBottom:10,
+              background:"linear-gradient(135deg, rgba(0,212,200,.14), rgba(0,212,200,.05))",
+              border:"1px solid rgba(0,212,200,.3)",
+            }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:18 }}>💰</span>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:800, color:"var(--t1)" }}>Кошелёк</div>
+                  <div style={{ fontSize:10, color:"var(--t3)" }}>деньги для оплаты на кассе</div>
+                </div>
+              </div>
+              <div className="bank-num" style={{ fontSize:20, fontWeight:900, color:"#00D4C8" }}>
+                {(Number(user.wallet) || 0).toLocaleString()} ЅМ
+              </div>
+            </div>
+          )}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:8 }}>
             <div style={{ padding:"10px 6px", borderRadius:12, background:`${profileTheme.accent}14`, border:`1px solid ${profileTheme.border}`, textAlign:"center", minWidth:0, overflow:"hidden" }}>
               <div className="bank-num" style={{ fontSize:bonusFs, color:profileTheme.accent }} title={bonusBank}>{bonusBank}</div>

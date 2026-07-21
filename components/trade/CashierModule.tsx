@@ -76,7 +76,7 @@ const THEME_KEY = 'kakapo_trade_pos_theme'
 const FAV_KEY = 'kakapo_pos_favorites'
 
 type ThemeName = 'dark' | 'light'
-type PayMethod = 'cash' | 'card' | 'credit' | 'balance' | 'mixed'
+type PayMethod = 'cash' | 'card' | 'credit' | 'balance' | 'wallet' | 'mixed'
 type PosSettings = { cashierId: string; cashierName: string; initials: string }
 
 const RECEIPT_HEADER_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f =>
@@ -3003,9 +3003,10 @@ export default function CashierModule({
       return
     }
 
-    let apiMethod: 'cash' | 'card' | 'credit' | 'mixed' = 'cash'
+    let apiMethod: 'cash' | 'card' | 'credit' | 'wallet' | 'mixed' = 'cash'
     let cashPaid = 0
     let cardPaid = 0
+    let walletPaid = 0
     let debtAdded = 0
     let change = 0
     let cashReceivedVal = 0
@@ -3023,6 +3024,19 @@ export default function CashierModule({
       }
     } else if (methodPay === 'balance') {
       apiMethod = 'card'
+    } else if (methodPay === 'wallet') {
+      if (!client) {
+        setClientOpen(true)
+        showToast('Выберите клиента', 'Для оплаты с кошелька нужен клиент')
+        return
+      }
+      const walletBal = Math.round((Number(client.wallet) || 0) * 100) / 100
+      if (payable > walletBal + 0.001) {
+        showToast('Недостаточно на кошельке', `Доступно ${fmtMoney(walletBal)}`)
+        return
+      }
+      apiMethod = 'wallet'
+      walletPaid = payable
     } else if (methodPay === 'mixed') {
       cashPaid = Math.round(Math.max(0, Math.min(payable, paidCash)) * 100) / 100
       cardPaid = Math.round(Math.max(0, paidCardAmt ?? 0) * 100) / 100
@@ -3078,6 +3092,10 @@ export default function CashierModule({
         showToast('Нет связи', 'Оплата картой недоступна офлайн. Проведите наличными или в долг.')
         return
       }
+      if (walletPaid > 0.001 || apiMethod === 'wallet') {
+        showToast('Нет связи', 'Оплата с кошелька недоступна офлайн.')
+        return
+      }
       if (spend > 0) {
         showToast('Нет связи', 'Списание бонусов недоступно офлайн.')
         return
@@ -3110,6 +3128,7 @@ export default function CashierModule({
         paymentMethod: apiMethod,
         paidCash: cashPaid,
         paidCard: cardPaid,
+        paidWallet: walletPaid > 0.001 ? walletPaid : undefined,
         debtAdded,
         cashReceived: cashReceivedVal > 0.001 ? cashReceivedVal : undefined,
         changeGiven: change > 0.001 ? change : undefined,
@@ -3248,6 +3267,7 @@ export default function CashierModule({
       const parts: string[] = []
       if (cashPaid > 0.001) parts.push(`нал ${fmtMoney(cashPaid)}`)
       if (cardPaid > 0.001) parts.push(`карта ${fmtMoney(cardPaid)}`)
+      if (walletPaid > 0.001) parts.push(`кошелёк ${fmtMoney(walletPaid)}`)
       if (debtAdded > 0.001) parts.push(`долг ${fmtMoney(debtAdded)}`)
       if (apiMethod === 'cash' && change > 0) parts.push(`сдача ${fmtMoney(change)}`)
       if (earnedBonus > 0) parts.push(`+${earnedBonus} ⭐`)
@@ -3306,10 +3326,27 @@ export default function CashierModule({
   }
 
   function choosePayMethod(method: PayMethod) {
-    if ((method === 'credit' || method === 'balance') && !client) {
+    if ((method === 'credit' || method === 'balance' || method === 'wallet') && !client) {
       setPayPickOpen(false)
       setClientOpen(true)
-      showToast('Выберите клиента', method === 'balance' ? 'Для списания бонусов нужен клиент' : 'Для оплаты в долг нужен клиент')
+      showToast('Выберите клиента', method === 'balance'
+        ? 'Для списания бонусов нужен клиент'
+        : method === 'wallet'
+          ? 'Для оплаты с кошелька нужен клиент'
+          : 'Для оплаты в долг нужен клиент')
+      return
+    }
+    if (method === 'wallet') {
+      const walletBal = Math.round((Number(client?.wallet) || 0) * 100) / 100
+      const need = Math.max(0, Math.round((afterDisc - Math.floor(usedBonus)) * 100) / 100)
+      if (need > walletBal + 0.001) {
+        showToast('Недостаточно на кошельке', `Доступно ${fmtMoney(walletBal)} · к оплате ${need.toFixed(2)}`)
+        return
+      }
+      setPayDebtOn(false)
+      setPay(method)
+      setPayPickOpen(false)
+      void submitSale(0, 'wallet')
       return
     }
     if (method === 'credit') {
@@ -3390,31 +3427,31 @@ export default function CashierModule({
     }
     const cash = Number(topupBuf) || 0
     if (cash <= 0) return
-    // Вся сумма на баланс + % бонус по порогам
+    // Деньги → Кошелёк, % → бонусы ⭐
     const principal = Math.max(0, Math.round(cash * 100) / 100)
     const percentBonus = calcCashDepositBonus(cash)
     const credit = Math.round((principal + percentBonus) * 100) / 100
-    if (credit <= 0) return
+    if (principal <= 0) return
     setBusy(true)
     try {
       if (!client.card) throw new Error('У клиента нет карты')
       await api.cashTopupCard(client.card, {
         cash,
         credit,
-        note: `Пополнение баланса · ${client.name}`,
+        note: `Пополнение кошелька · ${client.name}`,
         cashierId: settings.cashierId || activeShift.cashierId,
         cashierName: settings.cashierName || activeShift.cashierName,
         shiftId: activeShift.id,
         posId: activeShift.posId || activePosPoint?.id,
       })
-      if (client.phone) recordBalanceTopup(client.phone, cash, credit, 'Пополнение баланса')
+      if (client.phone) recordBalanceTopup(client.phone, cash, percentBonus, 'Пополнение кошелька')
       await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
       const extra = percentBonus > 0 ? ` · +${fmtBonus(percentBonus)} ⭐ бонус` : ''
-      showToast('Баланс пополнен', `${client.name}: +${fmtBonus(principal)} ⭐${extra}`)
+      showToast('Кошелёк пополнен', `${client.name}: +${principal.toFixed(2)} 💰${extra}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
     } finally {
@@ -5390,6 +5427,24 @@ export default function CashierModule({
               </button>
             )}
 
+            {client && (Number(client.wallet) || 0) > 0.001 && (() => {
+              const walletBal = Math.round((Number(client.wallet) || 0) * 100) / 100
+              const need = Math.max(0, Math.round((afterDisc - Math.floor(usedBonus)) * 100) / 100)
+              const enough = need > 0.001 && walletBal >= need - 0.001
+              return (
+                <button
+                  type="button"
+                  className="pay-btn pay-balance pay-balance-full"
+                  disabled={busy || !enough}
+                  onClick={() => choosePayMethod('wallet')}
+                  title={enough ? '' : `На кошельке ${fmtMoney(walletBal)} — недостаточно`}
+                >
+                  <span className="ic">💰</span>
+                  Оплатить с кошелька ({fmtMoney(walletBal)})
+                </button>
+              )
+            })()}
+
             {total <= 0.001 && usedBonus > 0 && (
               <button
                 type="button"
@@ -6127,10 +6182,10 @@ export default function CashierModule({
       {topupOpen && client && (
         <div className="overlay" onClick={() => !busy && setTopupOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>💰 Пополнить баланс</h3>
+            <h3>💰 Пополнить кошелёк</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
               Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
-              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>На баланс: вся сумма + % бонус по порогам</div>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Деньги идут в Кошелёк, а % начисляется бонусами ⭐</div>
             </div>
             <div className="kp-display">
               <div className="lbl">СУММА ПОПОЛНЕНИЯ</div>
@@ -6159,14 +6214,11 @@ export default function CashierModule({
               <Keypad onDigit={k => setTopupBuf(b => appendDigit(b, k))} onBack={() => setTopupBuf(b => b.slice(0, -1))} />
             )}
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено</span><b className="mono">{topupCash.toFixed(2)}</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Сумма на баланс</span><b className="mono">+{fmtBonus(topupPrincipal)} ⭐</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>Бонус %</span><b className="mono">+{fmtBonus(topupPercentBonus)} ⭐</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', color: 'var(--gd)' }}>
-                <span>Итого на карту</span><b className="mono">+{fmtBonus(topupCredit)} ⭐</b>
-              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено наличными</span><b className="mono">{topupCash.toFixed(2)}</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>💰 На кошелёк</span><b className="mono">+{topupPrincipal.toFixed(2)}</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>⭐ Бонус %</span><b className="mono">+{fmtBonus(topupPercentBonus)}</b></div>
               <div style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 8 }}>
-                {topupTier ? cashDepositTierLabel(topupTier) : 'Ниже порога — только сумма без % бонуса'}
+                {topupTier ? cashDepositTierLabel(topupTier) : 'Ниже порога — без % бонуса, только деньги на кошелёк'}
               </div>
             </div>
             <div className="modal-card-actions">
@@ -6267,8 +6319,12 @@ export default function CashierModule({
 
                 <div className="client-kpis">
                   <div className="client-kpi">
-                    <div className="l">Баланс (бонусы)</div>
-                    <div className="v" style={{ color: 'var(--gd)' }}>⭐ {fmtBonus(clientProfileStats.bonus)}</div>
+                    <div className="l">💰 Кошелёк (деньги)</div>
+                    <div className="v" style={{ color: 'var(--gd)' }}>{fmtMoney(Number(client.wallet) || 0)}</div>
+                  </div>
+                  <div className="client-kpi">
+                    <div className="l">⭐ Бонусы</div>
+                    <div className="v" style={{ color: 'var(--gd)' }}>{fmtBonus(clientProfileStats.bonus)}</div>
                   </div>
                   <div className="client-kpi">
                     <div className="l">Долг сейчас</div>
