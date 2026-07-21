@@ -1214,12 +1214,12 @@ export default function CashierModule({
           id: `topup-${t.id}`,
           ts: t.ts || 0,
           when: `${t.date}${t.time ? ` · ${t.time}` : ''}`,
-          title: isTopup ? 'Пополнение баланса' : (t.desc || 'Начисление наличными'),
+          title: isTopup ? 'Пополнение кошелька' : (t.desc || 'Начисление наличными'),
           sub: isTopup
             ? (percentPart > 0
-              ? `+${fmtBonus(cash)} ⭐ сумма · +${fmtBonus(percentPart)} ⭐ бонус %`
-              : `+${fmtBonus(credited)} ⭐ на баланс`)
-            : (credited > 0 ? `+${fmtBonus(credited)} ⭐ на баланс` : 'Без зачисления'),
+              ? `💰 +${fmtMoney(cash)} в кошелёк · +${fmtBonus(percentPart)} ⭐ бонус`
+              : `💰 +${fmtMoney(cash)} в кошелёк`)
+            : (credited > 0 ? `+${fmtBonus(credited)} ⭐ бонус` : 'Без зачисления'),
           amount: Number(t.cash) || 0,
           tone: 'topup',
         })
@@ -1398,35 +1398,8 @@ export default function CashierModule({
     )
   }
 
-  // Восстановить баланс по истории: пополнение = вся сумма наличными (1:1)
-  useEffect(() => {
-    if (!histOpen || !client?.card || !client.phone || !USE_API) return
-    let cancelled = false
-    const histCredit = loadBalanceTopups(client.phone).reduce((s, t) => s + topupBalanceCredit(t), 0)
-    if (histCredit <= 0) return
-    const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
-    const curBonus = Number(loyalty?.bonus ?? cardRow?.bonus) || 0
-    const curPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-    if (curBonus >= histCredit && curPos >= histCredit) return
-    void (async () => {
-      try {
-        const nextPos = Math.max(curPos, histCredit)
-        const nextBonus = Math.max(curBonus, nextPos)
-        if (nextPos === curPos && nextBonus === curBonus) return
-        await api.updateCard(client.card!, {
-          bonus: nextBonus,
-          posCashBonus: nextPos,
-        })
-        if (!cancelled) {
-          await refresh()
-          const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
-          if (fresh) setClient(fresh)
-        }
-      } catch { /* ignore */ }
-    })()
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- one heal when opening profile
-  }, [histOpen, client?.id, client?.card, client?.phone])
+  // Деньги пополнения теперь идут в Кошелёк (wallet), а не в бонусы.
+  // Старое «восстановление баланса по истории» удалено — сервер источник правды.
 
   const clientProfileStats = useMemo(() => {
     void histTick
