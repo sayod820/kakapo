@@ -725,6 +725,12 @@ export const api = {
     }>(`/audit${qs ? `?${qs}` : ''}`)
   },
 
+  restoreAudit: (id: string) =>
+    request<{ ok: boolean; entity: string; row: unknown }>(
+      `/audit/${encodeURIComponent(id)}/restore`,
+      { method: 'POST' },
+    ),
+
   // ── Сотрудники Торговли ──
   getEmployees: () => request<import('./types').TradeEmployee[]>('/employees'),
   getEmployeesDirectory: () =>

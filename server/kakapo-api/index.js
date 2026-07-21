@@ -3587,6 +3587,99 @@ app.get('/audit', (req, res) => {
   res.json(listAuditLog(db, req.query || {}))
 })
 
+/** Какие типы записей можно восстановить (только изменения). */
+const AUDIT_RESTORABLE = new Set(['product', 'client', 'card', 'debt', 'employee'])
+
+function pickDefined(obj, keys) {
+  const out = {}
+  if (!obj || typeof obj !== 'object') return out
+  for (const k of keys) if (obj[k] !== undefined) out[k] = obj[k]
+  return out
+}
+
+/** Восстановить прежнее состояние объекта из записи истории (только action=update). */
+app.post('/audit/:id/restore', (req, res) => {
+  ensureAuditLog(db)
+  const entry = (db.auditLog || []).find(e => e.id === req.params.id)
+  if (!entry) return res.status(404).json({ detail: 'Запись истории не найдена' })
+  if (entry.action !== 'update') {
+    return res.status(400).json({ detail: 'Восстановление доступно только для изменений' })
+  }
+  if (!AUDIT_RESTORABLE.has(entry.entity)) {
+    return res.status(400).json({ detail: 'Этот тип записи нельзя восстановить' })
+  }
+  const before = entry.before
+  if (!before || typeof before !== 'object' || Object.keys(before).length === 0) {
+    return res.status(400).json({ detail: 'В записи нет прежних данных для восстановления' })
+  }
+
+  const logRestore = (entity, summary) => {
+    auditFromReq(db, req, {
+      action: 'update',
+      entity,
+      entityId: entry.entityId,
+      entityName: entry.entityName,
+      summary: `↩ Восстановлено из истории · ${summary}`,
+      before: entry.after,
+      after: entry.before,
+    })
+  }
+
+  try {
+    if (entry.entity === 'product') {
+      const p = db.products.find(x => String(x.id) === String(entry.entityId))
+      if (!p) return res.status(404).json({ detail: 'Товар не найден' })
+      Object.assign(p, pickDefined(before, ['name', 'price', 'stock', 'costPrice', 'cat']))
+      logRestore('product', `товар «${p.name}»`)
+      persist()
+      broadcastProduct(p)
+      return res.json({ ok: true, entity: 'product', row: p })
+    }
+
+    if (entry.entity === 'client') {
+      const c = (db.clients || []).find(x => String(x.id) === String(entry.entityId))
+      if (!c) return res.status(404).json({ detail: 'Клиент не найден' })
+      const patch = pickDefined(before, ['name', 'phone', 'vip', 'level', 'debt', 'bonus', 'debtEnabled', 'blocked'])
+      Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
+      if (c.card) {
+        const linked = findCardByNum(c.card)
+        if (linked) {
+          if (patch.level != null) linked.level = c.level === 'basic' ? '' : c.level
+          if (patch.vip !== undefined) linked.vip = !!c.vip
+          if (patch.debt != null) linked.debt = Number(c.debt) || 0
+          if (patch.bonus != null) linked.bonus = Number(c.bonus) || 0
+        }
+      }
+      logRestore('client', `клиент «${c.name || c.phone}»`)
+      persist()
+      return res.json({ ok: true, entity: 'client', row: c })
+    }
+
+    if (entry.entity === 'card' || entry.entity === 'debt') {
+      const num = String(entry.entityId || '').toUpperCase()
+      const card = findCardByNum(num)
+      if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+      const patch = pickDefined(before, ['client', 'phone', 'debt', 'bonus', 'level', 'vip', 'status', 'debtEnabled'])
+      Object.assign(card, normalizeCardRow({ ...card, ...patch, num }))
+      syncClientFromCardRow(card)
+      logRestore(entry.entity, `карта ${num}`)
+      persist()
+      return res.json({ ok: true, entity: entry.entity, row: card })
+    }
+
+    if (entry.entity === 'employee') {
+      const row = updateEmployee(db, entry.entityId, pickDefined(before, ['name', 'role', 'active']))
+      logRestore('employee', `сотрудник «${row.name}»`)
+      persist()
+      return res.json({ ok: true, entity: 'employee', row })
+    }
+
+    return res.status(400).json({ detail: 'Этот тип записи нельзя восстановить' })
+  } catch (e) {
+    return res.status(400).json({ detail: e?.message || 'Не удалось восстановить' })
+  }
+})
+
 app.get('/admin/dashboard', (_req, res) => {
 
   res.json({
