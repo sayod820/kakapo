@@ -51,7 +51,8 @@ done
 
 echo "==> 2/4 Выпуск сертификата для $DOMAIN (+ www)"
 # --keep-until-expiring: не тратим лимиты Let's Encrypt, если сертификат ещё свежий
-dc run --rm certbot certonly \
+# --entrypoint certbot: перекрываем "/bin/sh -c" из compose
+dc run --rm --entrypoint certbot certbot certonly \
   --webroot -w /var/www/certbot \
   -d "$DOMAIN" \
   -d "www.$DOMAIN" \
