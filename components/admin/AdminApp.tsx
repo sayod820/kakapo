@@ -166,7 +166,6 @@ import { api } from '@/lib/api'
 import { avgReviewRating, resolveReviewPlaceName, sortReviewsNewestFirst } from '@/lib/clientReviews'
 import { STORE_REVIEW_REST_ID } from '@/lib/clientOrderReview'
 import type { Promo, Review } from '@/lib/types'
-import { DEMO_ADMIN_COURIER_ORDERS } from '@/lib/demoOrders'
 import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { formatKm, DEFAULT_PRICING, STORE_LOCATION } from '@/lib/courierData'
 import { preloadLeaflet } from '@/lib/leafletLoader'
@@ -7475,6 +7474,10 @@ function DashboardPage({setPage}) {
     : '…';
   const activeCourierCount = couriers.filter(c => c.status === 'busy' || c.status === 'available').length;
   const workingAssemblers = assemblers.filter(a => a.status === 'working' || a.status === 'available').length;
+  const clients = useClients();
+  const storeDayRevenue = orders
+    .filter(o => o.type === 'market')
+    .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
   return (
     <div>
       {/* 4 apps */}
@@ -7495,7 +7498,7 @@ function DashboardPage({setPage}) {
       </div>
       {/* Revenue */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
-        {[{l:'Выручка магазин/день',v:'3 580 ЅМ',c:'#1FD760',e:'🛒'},{l:'Выручка рестораны/мес',v:`${totalRestRev.toLocaleString()} ЅМ`,c:'#FF8C00',e:'🍽'},{l:'Комиссия КАКАПО',v:`${totalComm.toLocaleString()} ЅМ`,c:'#FFB800',e:'💰'},{l:'Клиентов всего',v:'1 847',c:'#00D4C8',e:'👥'}].map((s,i)=>(
+        {[{l:'Выручка магазин/день',v:`${storeDayRevenue.toLocaleString()} ЅМ`,c:'#1FD760',e:'🛒'},{l:'Выручка рестораны/мес',v:`${totalRestRev.toLocaleString()} ЅМ`,c:'#FF8C00',e:'🍽'},{l:'Комиссия КАКАПО',v:`${totalComm.toLocaleString()} ЅМ`,c:'#FFB800',e:'💰'},{l:'Клиентов всего',v:String(clients.length),c:'#00D4C8',e:'👥'}].map((s,i)=>(
           <div key={i} className="ac" style={{padding:16}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><div style={{fontSize:11,color:'#8FB897',fontWeight:600}}>{s.l}</div><span style={{fontSize:20}}>{s.e}</span></div>
             <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:s.c}}>{s.v}</div>
@@ -8068,7 +8071,8 @@ function PickupsPage() {
 function CourierOrdersPage() {
   const pricing = usePricingStore(s => s.pricing);
   const pickups = usePickupStore(s => s.pickups);
-  const orders = DEMO_ADMIN_COURIER_ORDERS;
+  // Демо-заказы курьеров убраны — раздел наполняется реальными данными
+  const orders: any[] = [];
   const { roadKm, loading: kmLoading } = useOrderRoadKm(orders, true);
   const PM: Record<string,{e:string,name:string;color:string}> = Object.fromEntries(
     pickups.map(p => [p.id, { e: p.e, name: p.name.split(' ')[0], color: p.color }])
@@ -8147,14 +8151,19 @@ function CourierOrdersPage() {
 }
 
 function BannersPage() {
+  // Баннеры и тикер хранятся локально (без сервера). Пусто по умолчанию — админ добавляет сам.
+  const TICKERS_KEY = 'kakapo-admin-tickers';
+  const BANNERS_KEY = 'kakapo-admin-banners';
+  const loadLS = (key: string): any[] => {
+    if (typeof window === 'undefined') return [];
+    try { const raw = localStorage.getItem(key); const v = raw ? JSON.parse(raw) : []; return Array.isArray(v) ? v : []; } catch { return []; }
+  };
+
   /* ── Тикер ── */
-  const [tickers,setTickers] = useState([
-    {id:1,text:'🔥 Молочная среда −30%',on:true},
-    {id:2,text:'⚡ Флэш до 20:00',on:true},
-    {id:3,text:'🥩 Мясные выходные −25%',on:true},
-    {id:4,text:'🎁 Бесплатная доставка от 30 ЅМ',on:true},
-  ]);
+  const [tickers,setTickers] = useState<any[]>(() => loadLS(TICKERS_KEY));
   const [newTick,setNewTick] = useState('');
+  // Любое изменение сразу пишем в кэш (localStorage): переживает обновление, без демо и мелькания
+  useEffect(() => { try { localStorage.setItem(TICKERS_KEY, JSON.stringify(tickers)); } catch { /* quota */ } }, [tickers]);
   const addTick  = () => { if(!newTick.trim()) return; setTickers(ts=>[...ts,{id:Date.now(),text:newTick.trim(),on:true}]); setNewTick(''); };
   const rmTick   = id => setTickers(ts=>ts.filter(t=>t.id!==id));
   const togTick  = id => setTickers(ts=>ts.map(t=>t.id===id?{...t,on:!t.on}:t));
@@ -8162,12 +8171,8 @@ function BannersPage() {
 
   /* ── Баннеры ── */
   const DEF = {badge:'',title:'',sub:'',disc:'',e:'🎁',bg:'linear-gradient(135deg,#0A1A0A,#1A3020)',ac:'#1FD760',on:true};
-  const [banners,setBanners] = useState([
-    {id:1,badge:'ПЯТНИЦА',  title:'Органик-день',     sub:'20% на органические продукты', disc:20,e:'🥦',bg:'linear-gradient(135deg,#0A2A0A,#1A4A1A)',ac:'#1FD760',on:true},
-    {id:2,badge:'ХИТЫ',     title:'Молочная среда',   sub:'Скидка 30% на всё молочное',   disc:30,e:'🥛',bg:'linear-gradient(135deg,#0D2040,#163460)',ac:'#3B8EF0',on:true},
-    {id:3,badge:'ВЫХОДНЫЕ', title:'Мясные выходные',  sub:'−25% на мясо и птицу',         disc:25,e:'🥩',bg:'linear-gradient(135deg,#2A0E0E,#501818)',ac:'#FF4545',on:true},
-    {id:4,badge:'ФЛЭШ',     title:'Флэш до 20:00',    sub:'Успей купить — только сегодня',disc:40,e:'⚡',bg:'linear-gradient(135deg,#1A1A0A,#3A3010)',ac:'#FFB800',on:false},
-  ]);
+  const [banners,setBanners] = useState<any[]>(() => loadLS(BANNERS_KEY));
+  useEffect(() => { try { localStorage.setItem(BANNERS_KEY, JSON.stringify(banners)); } catch { /* quota */ } }, [banners]);
   const [form,setForm] = useState(DEF);
   const [editId,setEditId] = useState(null);
   const [showForm,setShowForm] = useState(false);
