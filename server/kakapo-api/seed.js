@@ -86,38 +86,19 @@ export const DEFAULT_PROMOS = [
   { id: 7, e: '🎁', title: 'Первый заказ', sub: '15% скидка на первый заказ', disc: 15, on: true, cat: 'Магазин', type: 'first', from: '00:00', to: '23:59', till: 'Всегда' },
 ]
 
+/**
+ * Демо-данные отключены — чистый старт для реального запуска.
+ * Гарантируем только вход администратора, чтобы можно было войти в админку.
+ * Наполнение (товары, клиенты, заказы и т.д.) делается вручную из приложений.
+ */
 export function seedIfEmpty() {
   const db = loadDb()
-  if (db.products.length) return db
-
-  const seedDemoCrm = process.env.SEED_DEMO_CRM === 'true'
-
-  db.products = PRODUCTS
-  db.restaurants = RESTAURANTS
-  db.pickups = PICKUPS
-  db.couriers = COURIERS.map(c => ({ ...c }))
-  db.assemblers = ASSEMBLERS.map(a => ({ ...a }))
-  db.clients = seedDemoCrm ? DEFAULT_CLIENTS.map(c => ({ ...c })) : []
-  db.cards = seedDemoCrm ? DEFAULT_CARDS.map(c => ({ ...c })) : []
-  if (!Array.isArray(db.deletedPhoneKeys)) db.deletedPhoneKeys = []
-  db.users = [
-    { id: 1, email: 'admin@kakapo.tj', login: 'admin', password: 'admin123', role: 'admin', name: 'Админ КАКАПО' },
-    { id: 2, email: 'chaihona@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Чайхона' },
-    { id: 3, email: 'pizza@kakapo.tj', password: 'rest123', role: 'restaurant', name: 'Пицца Яван' },
-  ]
-  db.categories = buildCategoriesFromSeed(db._seq)
-  db.promos = DEFAULT_PROMOS.map(p => ({ ...p }))
-  db.reviews = []
-  db._seq.review = 0
-  db.orders = [{
-    id: 'K-4832', type: 'market', status: 'assembling', createdAt: '14:23', total: 64.3, deliveryFee: 0, comment: '',
-    client: { name: 'Диловар', phone: '+992 93 456 78 90', addr: 'ул. Ленина, 42' },
-    items: [{ id: 1, art: 'KAK-0001', e: '🥦', name: 'Брокколи', qty: 2, unit: '500 гр', price: 5.5, source: 'market' }],
-    priority: 'normal',
-  }]
-  db._seq.order = 4832
-  db._seq.promo = 7
-  saveDb()
+  if (!Array.isArray(db.users) || !db.users.length) {
+    db.users = [
+      { id: 1, email: 'admin@kakapo.tj', login: 'admin', password: 'admin123', role: 'admin', name: 'Админ КАКАПО' },
+    ]
+    saveDb()
+  }
   return db
 }
 

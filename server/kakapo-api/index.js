@@ -202,21 +202,15 @@ function persist() {
 }
 
 function ensurePromos() {
-  if (!db._seq.promo) db._seq.promo = DEFAULT_PROMOS.length
   if (!Array.isArray(db.promos)) db.promos = []
-  if (!db.promos.length) {
-    db.promos = DEFAULT_PROMOS.map(p => ({ ...p }))
-    persist()
-  }
+  if (typeof db._seq.promo !== 'number') db._seq.promo = 0
+  // Демо-акции больше не восстанавливаются автоматически (чистый старт).
 }
 ensurePromos()
 
 function ensureCouriers() {
   if (!Array.isArray(db.couriers)) db.couriers = []
-  if (!db.couriers.length) {
-    db.couriers = COURIERS.map(c => ({ ...c }))
-    persist()
-  }
+  // Демо-курьеры больше не восстанавливаются автоматически (чистый старт).
   let changed = false
   for (const c of db.couriers) {
     const acc = normalizeCourierAccount(c.account, c.id)
@@ -231,10 +225,7 @@ ensureCouriers()
 
 function ensureAssemblers() {
   if (!Array.isArray(db.assemblers)) db.assemblers = []
-  if (!db.assemblers.length) {
-    db.assemblers = ASSEMBLERS.map(a => ({ ...a }))
-    persist()
-  }
+  // Демо-сборщики больше не восстанавливаются автоматически (чистый старт).
 }
 ensureAssemblers()
 
