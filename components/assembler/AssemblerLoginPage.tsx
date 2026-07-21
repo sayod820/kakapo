@@ -286,18 +286,6 @@ export default function AssemblerLoginPage({ assemblers, onSuccess }: AssemblerL
             ))}
           </div>
 
-          <div style={{
-            padding: '12px 14px', borderRadius: 12, marginBottom: 18, textAlign: 'center',
-            background: 'linear-gradient(90deg,rgba(155,109,255,.06),rgba(155,109,255,.12),rgba(155,109,255,.06))',
-            backgroundSize: '200% 100%',
-            animation: 'alShimmer 4s ease-in-out infinite',
-            border: '1px solid rgba(155,109,255,.2)',
-          }}>
-            <div style={{ fontSize: 12, color: '#8FB897' }}>
-              💡 Демо PIN: <span className="al-ub" style={{ color: '#9B6DFF', fontWeight: 900, letterSpacing: 3 }}>5 6 7 8</span>
-            </div>
-          </div>
-
           <button type="button" onClick={verify} disabled={load || !pinReady} className="al-btn al-ub"
             style={{
               width: '100%', padding: 16, borderRadius: 16,

@@ -351,20 +351,17 @@ export default function CourierLoginPage({ couriers, onSuccess }: CourierLoginPa
                 ))}
               </div>
 
-              <div style={{
-                padding: '10px 12px', borderRadius: 10, marginBottom: 14, textAlign: 'center',
-                background: 'rgba(59,142,240,.08)',
-                border: '1px solid rgba(59,142,240,.18)',
-              }}>
-                <div style={{ fontSize: 11, color: '#8FB897' }}>
-                  Демо: <span className="cl-ub" style={{ color: '#3B8EF0', fontWeight: 900, letterSpacing: 2 }}>1234</span>
-                </div>
-                {cd > 0 && (
-                  <div style={{ fontSize: 11, color: '#3D6645', marginTop: 6 }}>
+              {cd > 0 && (
+                <div style={{
+                  padding: '10px 12px', borderRadius: 10, marginBottom: 14, textAlign: 'center',
+                  background: 'rgba(59,142,240,.08)',
+                  border: '1px solid rgba(59,142,240,.18)',
+                }}>
+                  <div style={{ fontSize: 11, color: '#3D6645' }}>
                     Повторная отправка через <span style={{ color: '#3B8EF0', fontWeight: 800 }}>{cd}</span> сек
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               <button type="button" onClick={verify} disabled={load || !otpReady} className="cl-btn cl-ub"
                 style={{

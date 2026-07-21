@@ -4,7 +4,6 @@ import Link from 'next/link'
 import {
   verifyRestaurantOtp,
   findRestaurantByPhone,
-  DEFAULT_RESTAURANT_OTP,
   type RestaurantLoginProfile,
 } from '@/lib/restaurantTeam'
 import { saveRestaurantSession, type RestaurantSession } from '@/lib/restaurantSession'
@@ -308,14 +307,6 @@ export default function RestaurantLoginPage({ restaurants, onSuccess }: Restaura
                 </div>
               )}
 
-              <div style={{
-                padding: '10px 13px', borderRadius: 11, marginBottom: 16,
-                background: 'rgba(255,184,0,.06)', border: '1px solid rgba(255,184,0,.2)',
-                fontSize: 11, color: '#8FB897', lineHeight: 1.5, textAlign: 'center',
-              }}>
-                💡 Демо-код SMS: <span style={{ color: '#FFB800', fontWeight: 800 }}>{DEFAULT_RESTAURANT_OTP}</span>
-              </div>
-
               <button type="button" onClick={sendOtp} disabled={load} className="rl-btn rl-ub"
                 style={{
                   width: '100%', padding: 16, borderRadius: 16,
@@ -357,14 +348,6 @@ export default function RestaurantLoginPage({ restaurants, onSuccess }: Restaura
                     }}
                   />
                 ))}
-              </div>
-
-              <div style={{
-                padding: '10px 13px', borderRadius: 11, marginBottom: 16,
-                background: 'rgba(255,184,0,.06)', border: '1px solid rgba(255,184,0,.2)',
-                fontSize: 11, color: '#8FB897', textAlign: 'center',
-              }}>
-                💡 Демо-код: <span style={{ color: '#FFB800', fontWeight: 800 }}>{DEFAULT_RESTAURANT_OTP}</span>
               </div>
 
               <button type="button" onClick={verify} disabled={load || !otpReady} className="rl-btn rl-ub"

@@ -496,22 +496,17 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                 ))}
               </div>
 
-              <div style={{
-                padding: '12px 14px', borderRadius: 12, marginBottom: 18, textAlign: 'center',
-                background: 'linear-gradient(90deg,rgba(255,184,0,.06),rgba(255,184,0,.12),rgba(255,184,0,.06))',
-                backgroundSize: '200% 100%',
-                animation: 'slShimmer 4s ease-in-out infinite',
-                border: '1px solid rgba(255,184,0,.2)',
-              }}>
-                <div style={{ fontSize: 12, color: '#8FB897' }}>
-                  💡 Демо-код: <span className="sl-ub" style={{ color: '#FFB800', fontWeight: 900, letterSpacing: 3 }}>1 2 3 4</span>
-                </div>
-                {cd > 0 && (
-                  <div style={{ fontSize: 11, color: '#3D6645', marginTop: 6 }}>
+              {cd > 0 && (
+                <div style={{
+                  padding: '12px 14px', borderRadius: 12, marginBottom: 18, textAlign: 'center',
+                  background: 'rgba(31,215,96,.06)',
+                  border: '1px solid rgba(31,215,96,.2)',
+                }}>
+                  <div style={{ fontSize: 11, color: '#3D6645' }}>
                     Повторная отправка через <span style={{ color: '#1FD760', fontWeight: 800 }}>{cd}</span> сек
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               <button type="button" onClick={verify} disabled={load || !otpReady} className="sl-btn sl-ub"
                 style={{
