@@ -677,12 +677,17 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         zoom: COURIER_MAP_VIEW.zoom,
         zoomControl: false,
         attributionControl: false,
-        zoomAnimation: false,
-        fadeAnimation: false,
-        markerZoomAnimation: false,
+        // Плавный зум без чёрного мигания
+        zoomAnimation: true,
+        fadeAnimation: true,
+        markerZoomAnimation: true,
         inertia: false,
       });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        updateWhenZooming: false,
+        keepBuffer: 6,
+      }).addTo(map);
       map.on('movestart zoomstart', () => {
         if (!autoFittingRef.current) userMovedMapRef.current = true;
       });

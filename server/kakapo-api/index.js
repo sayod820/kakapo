@@ -3348,7 +3348,11 @@ app.patch('/cards/:num', (req, res) => {
       if (body.vip === false) body.vipUntil = undefined
     }
     Object.assign(card, normalizeCardRow({ ...card, ...body, num }))
-    syncClientFromCardRow(card)
+    // ВАЖНО: сначала обрабатываем дельту долга, пока client.debt ещё равен prevDebt.
+    // Если синхронизировать client.debt из карты ДО handleClientDebtDelta, то
+    // внутренняя проверка лимита (canTakeNewDebt) увидит уже увеличенный долг и
+    // прибавит дельту повторно (двойной учёт) — операция ошибочно отклонится,
+    // сервер откатит долг, и он не попадёт в профиль клиента.
     if (body.debt != null) {
       const linkedClient = (db.clients || []).find(c =>
         c.card === num
@@ -3364,10 +3368,12 @@ app.patch('/cards/:num', (req, res) => {
         } catch (e) {
           card.debt = prevDebt
           linkedClient.debt = prevDebt
+          syncClientFromCardRow(card)
           return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось изменить долг' })
         }
       }
     }
+    syncClientFromCardRow(card)
     const afterSnap = {
       client: card.client, phone: card.phone, debt: card.debt, bonus: card.bonus,
       level: card.level, vip: !!card.vip, status: card.status, debtEnabled: card.debtEnabled,

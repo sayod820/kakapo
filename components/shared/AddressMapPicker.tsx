@@ -351,16 +351,17 @@ export default function AddressMapPicker({
         maxZoom: 19,
         zoomControl: true,
         attributionControl: false,
-        zoomAnimation: false,
-        fadeAnimation: false,
-        markerZoomAnimation: false,
+        // Плавный зум: плитки масштабируются, а не гаснут — нет чёрного мигания
+        zoomAnimation: true,
+        fadeAnimation: true,
+        markerZoomAnimation: true,
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         subdomains: ['a', 'b', 'c'],
         maxZoom: 19,
         updateWhenIdle: true,
         updateWhenZooming: false,
-        keepBuffer: 2,
+        keepBuffer: 6,
       }).addTo(map);
 
       const getPickerCenter = () => {
@@ -587,7 +588,7 @@ export default function AddressMapPicker({
   return (
     <div>
       <div style={{ position: 'relative', borderRadius: 14, overflow: pickMode === 'center' ? 'visible' : 'hidden', border: pickMode === 'center' ? 'none' : `1px solid ${theme.coordsBorder}`, marginBottom: 10, padding: pickMode === 'center' ? '0 16px' : 0 }}>
-        <div ref={containerRef} style={{ width: '100%', height: mapHeight, background: '#050F08', touchAction: 'none' }} />
+        <div ref={containerRef} style={{ width: '100%', height: mapHeight, background: '#e8e6e1', touchAction: 'none' }} />
         {!ready && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050F08' }}>
             <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid rgba(31,215,96,.2)', borderTopColor: theme.spinner, animation: 'spin 1s linear infinite' }} />
