@@ -57,6 +57,8 @@ services:
     image: nginx:1.27-alpine
     container_name: kakapo-nginx
     restart: unless-stopped
+    # Перезагружаем конфиг раз в 6ч — чтобы подхватывать продлённый сертификат
+    command: sh -c "while :; do sleep 21600; nginx -s reload 2>/dev/null || true; done & nginx -g 'daemon off;'"
     ports:
       - "80:80"
       - "443:443"

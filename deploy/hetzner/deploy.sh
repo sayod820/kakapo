@@ -52,6 +52,16 @@ for i in $(seq 1 60); do
 done
 
 echo "==> Перезапуск nginx"
+# Выбираем конфиг автоматически: если есть сертификат — HTTPS, иначе HTTP
+NGINX_DIR="$SCRIPT_DIR/nginx"
+export DOMAIN
+if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm --entrypoint sh certbot -c "[ -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ]" 2>/dev/null; then
+  echo "   Сертификат найден → HTTPS-конфиг"
+  envsubst '${DOMAIN}' < "$NGINX_DIR/default.ssl.conf.template" > "$NGINX_DIR/default.conf"
+else
+  echo "   Сертификата нет → HTTP-конфиг (запустите bash deploy/hetzner/ssl-init.sh для HTTPS)"
+  envsubst '${DOMAIN}' < "$NGINX_DIR/default.http.conf.template" > "$NGINX_DIR/default.conf"
+fi
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d nginx
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart nginx
 

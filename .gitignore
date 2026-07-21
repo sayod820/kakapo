@@ -11,3 +11,6 @@ server/kakapo-api/data/
 server/kakapo-api/.env
 desktop/node_modules/
 desktop/dist/
+
+# nginx конфиг генерируется deploy.sh / ssl-init.sh из шаблонов
+deploy/hetzner/nginx/default.conf
