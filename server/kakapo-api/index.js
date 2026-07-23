@@ -461,6 +461,17 @@ function deliverDebtNotifications(list = []) {
   for (const payload of list) deliverOrderNotification(payload)
 }
 
+/**
+ * Запрос пришёл от персонала (админка или касса/торговая точка)?
+ * Такие заголовки шлёт только admin/trade; клиентское приложение — нет.
+ * Для персонала лимит долга не проверяется (оформляют сразу),
+ * лимит действует только в приложении клиента.
+ */
+function isStaffRequest(req) {
+  const app = String(req?.headers?.['x-kakapo-app'] || '').trim().toLowerCase()
+  return app === 'admin' || app === 'trade'
+}
+
 function runDebtMaintenanceAndNotify() {
   const notes = runDebtMaintenance(db)
   deliverDebtNotifications(notes)
@@ -2458,6 +2469,11 @@ app.patch('/clients/:id', (req, res) => {
     debt: c.debt, bonus: c.bonus, debtEnabled: c.debtEnabled, blocked: c.blocked,
   }
   const { purge, allowBonusDecrease, ...patch } = req.body || {}
+  // Долг НЕ присваиваем напрямую — проводим через единую логику (ledger + лимит + карта).
+  const debtRequested = patch.debt != null ? Number(patch.debt) || 0 : null
+  const debtNoteReq = patch.debtNote
+  delete patch.debt
+  delete patch.debtNote
   if (patch.debtEnabled === false && (Number(c.debt) || 0) > 0.001) {
     return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
   }
@@ -2500,6 +2516,34 @@ app.patch('/clients/:id', (req, res) => {
     }
   }
   Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
+  // Долг: единая логика — запись в ledger, проверка лимита, синхронизация карты.
+  // В связке «карта+клиент» (saveCardLoyalty) карта обновляется первой, поэтому
+  // здесь дельта будет 0 и второй записи в ledger не появится.
+  if (debtRequested != null) {
+    const prevDebt = Number(beforeSnap.debt) || 0
+    if (Math.abs(debtRequested - prevDebt) > 0.001) {
+      const linkedCard = c.card ? findCardByNum(c.card) : null
+      try {
+        const { notifications } = handleClientDebtDelta(db, c, linkedCard, prevDebt, debtRequested, {
+          source: 'admin',
+          desc: debtNoteReq || 'Изменение долга',
+          enforceLimit: !isStaffRequest(req), // лимит только для приложения клиента
+        })
+        c.debt = debtRequested
+        if (debtRequested > prevDebt) c.debtEnabled = true
+        if (linkedCard) {
+          linkedCard.debt = debtRequested
+          if (debtRequested > prevDebt) linkedCard.debtEnabled = true
+        }
+        deliverDebtNotifications(notifications)
+      } catch (e) {
+        c.debt = prevDebt
+        return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось изменить долг' })
+      }
+    } else {
+      c.debt = debtRequested
+    }
+  }
   const afterSnap = {
     name: c.name, phone: c.phone, vip: !!c.vip, level: c.level,
     debt: c.debt, bonus: c.bonus, debtEnabled: c.debtEnabled, blocked: c.blocked,
@@ -3379,7 +3423,8 @@ app.patch('/cards/:num', (req, res) => {
     const allowDecrease = body.allowBonusDecrease === true
     delete body.allowBonusDecrease
     const prevDebt = Number(card.debt) || 0
-    if (body.debt != null) {
+    const enforceDebtLimit = !isStaffRequest(req) // лимит только для приложения клиента
+    if (body.debt != null && enforceDebtLimit) {
       const nextDebt = Number(body.debt) || 0
       if (nextDebt > prevDebt + 0.001) {
         const linkedClient = (db.clients || []).find(c =>
@@ -3433,6 +3478,7 @@ app.patch('/cards/:num', (req, res) => {
           const { notifications } = handleClientDebtDelta(db, linkedClient, card, prevDebt, Number(card.debt) || 0, {
             source: 'admin',
             desc: body.debtNote || 'Изменение долга',
+            enforceLimit: enforceDebtLimit,
           })
           deliverDebtNotifications(notifications)
         } catch (e) {

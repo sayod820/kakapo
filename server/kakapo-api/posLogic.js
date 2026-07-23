@@ -1240,7 +1240,9 @@ export function createPosSale(db, data = {}) {
   if (debtAdded > 0) {
     const client = getClientById(db, data.clientId) || null
     const card = getCardByNum(db, data.cardNum)
-    if (client) {
+    // Касса (торговая точка) оформляет долг без лимита. Лимит действует только
+    // в приложении клиента; включить проверку тут можно флагом data.enforceDebtLimit.
+    if (client && data.enforceDebtLimit === true) {
       const gate = canTakeNewDebt(client, card, debtAdded)
       if (!gate.ok) throw new Error(gate.reason)
     }

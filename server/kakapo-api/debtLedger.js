@@ -356,11 +356,15 @@ export function handleClientDebtDelta(db, client, card, prevDebt, nextDebt, meta
   if (Math.abs(delta) <= 0.001) return { notifications: [] }
 
   if (delta > 0) {
-    const gate = canTakeNewDebt(client, card, delta)
-    if (!gate.ok) {
-      const err = new Error(gate.reason)
-      err.status = gate.blocked ? 403 : 400
-      throw err
+    // Лимит/блокировка проверяются только для клиентского приложения.
+    // Из админки и кассы (meta.enforceLimit === false) долг оформляется без ограничений.
+    if (meta.enforceLimit !== false) {
+      const gate = canTakeNewDebt(client, card, delta)
+      if (!gate.ok) {
+        const err = new Error(gate.reason)
+        err.status = gate.blocked ? 403 : 400
+        throw err
+      }
     }
     const { notifications } = addDebtCharge(client, card, {
       amount: delta,

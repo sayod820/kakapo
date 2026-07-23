@@ -79,20 +79,21 @@ function buildAuditActorHeaders(): Record<string, string> {
   const out: Record<string, string> = {}
   try {
     if (path.includes('/admin')) {
+      // Помечаем приложение по пути всегда (даже без сессии): персонал не ограничен лимитом долга
+      out['x-kakapo-app'] = 'admin'
       const raw = localStorage.getItem('kakapo_admin_session')
       if (raw) {
         const s = JSON.parse(raw) as { login?: string; name?: string }
         if (s?.login) out['x-kakapo-admin-login'] = encodeHeaderValue(s.login)
         if (s?.name) out['x-kakapo-admin-name'] = encodeHeaderValue(s.name)
-        out['x-kakapo-app'] = 'admin'
       }
-    } else if (path.includes('/trade')) {
+    } else if (path.includes('/trade') || path.includes('/pos')) {
+      out['x-kakapo-app'] = 'trade'
       const raw = localStorage.getItem('kakapo_trade_employee_session')
       if (raw) {
         const s = JSON.parse(raw) as { employeeId?: string; name?: string }
         if (s?.employeeId) out['x-kakapo-employee-id'] = encodeHeaderValue(s.employeeId)
         if (s?.name) out['x-kakapo-employee-name'] = encodeHeaderValue(s.name)
-        out['x-kakapo-app'] = 'trade'
       }
     }
   } catch { /* ignore */ }
