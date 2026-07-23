@@ -12,7 +12,7 @@ import {
   type AdminClient,
 } from './clientCrm'
 import { markClientLoyaltySaved, mergeClientLoyaltyIfRecent } from './loyaltySaveGuard'
-import { isPhoneDeleted, mergeDeletedPhonesFromServer, unmarkPhoneDeleted } from './clientTombstones'
+import { isPhoneDeleted, reconcileTombstones, unmarkPhoneDeleted } from './clientTombstones'
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const CLIENTS_KEY = 'kakapo-clients'
@@ -182,11 +182,16 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     set({ apiSyncing: true, apiError: '' })
     try {
       clearAppDataLocalCache()
-      const deletedMeta = await api.getDeletedPhones()
-      mergeDeletedPhonesFromServer(deletedMeta.phones || [])
-      const apiList = ensureArray<AdminClient>(await api.getClients(), 'clients')
+      const [deletedMeta, rawClients] = await Promise.all([
+        api.getDeletedPhones(),
+        api.getClients(),
+      ])
+      const apiRaw = ensureArray<AdminClient>(rawClients, 'clients')
         .map(c => normalizeClient(c))
-        .filter(c => !isClientPurged(c) && !isPhoneDeleted(c.phone))
+        .filter(c => !isClientPurged(c))
+      // Сервер — источник правды: вернувшихся клиентов показываем, метки чистим
+      reconcileTombstones(deletedMeta.phones || [], apiRaw.map(c => c.phone))
+      const apiList = apiRaw.filter(c => !isPhoneDeleted(c.phone))
       const local = prev
       const apiIds = new Set(apiList.map(c => String(c.id)))
       const merged = apiList.map(c => {

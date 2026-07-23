@@ -2284,6 +2284,28 @@ function isPhoneTombstoned(phone) {
   return !!key && db.deletedPhoneKeys.includes(key)
 }
 
+/**
+ * БД — источник правды. Если для телефона есть АКТИВНАЯ запись клиента
+ * (не recovery и не анонимизированная), значит клиент вернулся — снимаем метку
+ * «удалён». Чинит рассинхрон «в базе есть, а в админке не видно».
+ */
+function reconcileDeletedPhonesWithClients() {
+  ensureDeletedPhoneKeys()
+  if (!db.deletedPhoneKeys.length) return
+  const activeKeys = new Set()
+  for (const c of db.clients || []) {
+    if (!c || !c.phone) continue
+    if (c.accountStatus === 'recovery') continue
+    if (String(c.note || '').includes(PURGED_NOTE)) continue
+    const key = normalizePhoneDigits(c.phone)
+    if (key) activeKeys.add(key)
+  }
+  if (!activeKeys.size) return
+  const before = db.deletedPhoneKeys.length
+  db.deletedPhoneKeys = db.deletedPhoneKeys.filter(k => !activeKeys.has(k))
+  if (db.deletedPhoneKeys.length !== before) persist()
+}
+
 function isClientRowVisible(c) {
   if (!c) return false
   if (isPhoneTombstoned(c.phone)) return false
@@ -2355,6 +2377,7 @@ function normalizeClientRow(raw) {
 
 app.get('/clients', (_req, res) => {
   runAccountLifecycleMaintenance()
+  reconcileDeletedPhonesWithClients()
   runLoyaltyMaintenance()
   runDebtMaintenanceAndNotify()
   res.json(listVisibleClients())
@@ -2629,6 +2652,7 @@ app.post('/clients/delete-by-phone', (req, res) => {
 
 app.get('/clients/deleted-phones', (_req, res) => {
   ensureDeletedPhoneKeys()
+  reconcileDeletedPhonesWithClients()
   res.json({ phones: [...db.deletedPhoneKeys] })
 })
 
@@ -2638,6 +2662,7 @@ app.get('/clients/deleted-phones', (_req, res) => {
  */
 app.get('/clients/session-check', (req, res) => {
   runAccountLifecycleMaintenance()
+  reconcileDeletedPhonesWithClients()
   const phone = String(req.query?.phone || '')
   const key = normalizePhoneDigits(phone)
   if (!key) return res.json({ active: false, reason: 'empty' })

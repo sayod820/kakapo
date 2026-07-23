@@ -70,6 +70,28 @@ export function mergeDeletedPhonesFromServer(phones: string[]): void {
   markPhonesDeleted(phones)
 }
 
+/**
+ * Сервер/БД — источник правды. Синхронизируем локальные метки:
+ *  - у вернувшихся клиентов (есть активная запись) метку СНИМАЕМ;
+ *  - серверные удаления добавляем.
+ * Это чинит ситуацию «в базе клиент есть, а в админке не виден».
+ */
+export function reconcileTombstones(serverDeletedPhones: string[], activePhones: string[]): void {
+  const set = loadSet()
+  let changed = false
+  for (const p of activePhones) {
+    const key = phoneKey(p)
+    if (key && set.delete(key)) changed = true
+  }
+  for (const p of serverDeletedPhones) {
+    const key = phoneKey(p)
+    if (key && !set.has(key)) { set.add(key); changed = true }
+  }
+  if (!changed) return
+  saveSet(set)
+  notifyTombstoneChange()
+}
+
 export function unmarkPhoneDeleted(phone?: string | null): void {
   const key = phoneKey(phone)
   if (!key) return
