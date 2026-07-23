@@ -127,6 +127,33 @@ export function deliveredOrdersForClient(db, phone, client = null) {
   })
 }
 
+/**
+ * Сумма списанных бонусов по ВСЕМ неотменённым заказам клиента.
+ * Бонус списывается сразу при создании заказа (applyBonusSpendOnOrder), поэтому
+ * пересчёт должен вычитать списание независимо от статуса доставки — иначе
+ * незавершённый заказ из магазина «возвращал» бы бонус обратно.
+ */
+export function spentBonusForClient(db, phone, client = null) {
+  const key = normalizePhoneDigits(phone)
+  if (!key) return 0
+  const keys = new Set([key])
+  const resolved = client || findClientByPhone(db, phone)
+  if (resolved?.phone) keys.add(normalizePhoneDigits(resolved.phone))
+  if (resolved?.card) {
+    const card = (db.cards || []).find(c => String(c.num).toUpperCase() === String(resolved.card).toUpperCase())
+    if (card?.phone) keys.add(normalizePhoneDigits(card.phone))
+  }
+  return (db.orders || []).reduce((sum, o) => {
+    if (o.status === 'cancelled') return sum
+    const spent = Number(o.bonusSpent) || 0
+    if (spent <= 0) return sum
+    const op = normalizePhoneDigits(o.client?.phone)
+    if (!op || !keys.has(op)) return sum
+    if (resolved && !orderBelongsToClientAccount(o, resolved)) return sum
+    return sum + spent
+  }, 0)
+}
+
 export function findClientByPhone(db, phone) {
   const key = normalizePhoneDigits(phone)
   if (!key) return null
@@ -606,6 +633,9 @@ export function reconcileClientBonuses(db, phone, hooks) {
   const delivered = deliveredOrdersForClient(db, phone, client)
     .sort((a, b) => orderSortKey(a) - orderSortKey(b))
 
+  // Списанные бонусы — по всем неотменённым заказам (списание держится с момента заказа)
+  const spent = spentBonusForClient(db, phone, client)
+
   // Нет доставленных заказов — welcome-бонус, статистика и уровень сбрасываются
   if (!delivered.length) {
     const period = currentLoyaltyPeriod()
@@ -619,7 +649,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
       }
       client.loyaltyPeriod = period
     }
-    const expectedBonus = Math.max(0, welcome + Math.max(0, Number(card.posCashBonus) || 0))
+    const expectedBonus = Math.max(0, welcome + Math.max(0, Number(card.posCashBonus) || 0) - spent)
     const delta = expectedBonus - prevBonus
     if (expectedBonus !== prevBonus) {
       card.bonus = expectedBonus
@@ -641,7 +671,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
     order.bonusEarned = orderEarned
   }
 
-  const bonusSpent = delivered.reduce((s, o) => s + (Number(o.bonusSpent) || 0), 0)
+  const bonusSpent = spent
   const posCashBonus = Math.max(0, Number(card.posCashBonus) || 0)
   const expectedBonus = Math.max(0, welcome + earned - bonusSpent + posCashBonus)
   const finalBonus = expectedBonus

@@ -2733,7 +2733,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     () => (user?.phone ? deliveredOrdersNeedingBonusSync(user.phone, apiOrders).length : 0),
     [user?.phone, apiOrders],
   );
-  const bonusBank = Math.floor(Math.max(0, Number(user?.bonus) || 0)).toLocaleString('ru-RU')
+  const bonusBank = (Math.round(Math.max(0, Number(user?.bonus) || 0) * 100) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 })
   const [reviewStats, setReviewStats] = useState({ count: 0, withReplies: 0 });
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
