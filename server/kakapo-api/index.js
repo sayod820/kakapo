@@ -2228,7 +2228,11 @@ function purgeClientProfilesForPhone(phone, { rememberDeleted = false } = {}) {
     })
   }
 
-  if (!rememberDeleted) forgetDeletedPhone(phone)
+  // Даже если клиента уже нет — для админского удаления помечаем телефон,
+  // чтобы магазин на телефоне вышел из сессии.
+  if (rememberDeleted) rememberDeletedPhone(phone)
+  else forgetDeletedPhone(phone)
+
   clearPersonalNotificationsOnServer(phone)
   persist()
   return { orders: 0, clients: toRemove.length }
@@ -2493,12 +2497,13 @@ app.patch('/clients/:id', (req, res) => {
   res.json(c)
 })
 function unlinkCardsForClient(client) {
+  const clientCardKey = String(client.card || '').trim().toUpperCase()
   for (const card of db.cards || []) {
     if (card.status === 'unlinked') continue
-    const sameClient = card.clientId === client.id
+    const sameClient = client.id && card.clientId === client.id
     const samePhone = card.phone && client.phone
       && normalizePhoneDigits(card.phone) === normalizePhoneDigits(client.phone)
-    const sameCardNum = client.card && card.num === client.card
+    const sameCardNum = !!clientCardKey && String(card.num || '').trim().toUpperCase() === clientCardKey
     if (!sameClient && !samePhone && !sameCardNum) continue
     Object.assign(card, normalizeCardRow({
       num: card.num,
@@ -2535,9 +2540,11 @@ function restoreClientRecord(client) {
 }
 
 function removeClientAndUnlinkCards(client) {
+  // Админское удаление: запоминаем телефон — магазин на телефоне сразу выйдет из сессии
   hardDeleteClientProfile(db, client, {
     unlinkCardsForClient,
-    rememberDeleted: false,
+    rememberDeleted: true,
+    rememberDeletedPhone,
   })
   persist()
 }
@@ -2550,7 +2557,7 @@ app.post('/clients/purge-account', (req, res) => {
   const clients = (db.clients || []).filter(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
   if (rejectDeleteWithDebt(res, clients)) return
   const names = clients.map(c => c.name || c.phone).join(', ')
-  const result = purgeClientProfilesForPhone(phone, { rememberDeleted: false })
+  const result = purgeClientProfilesForPhone(phone, { rememberDeleted: true })
   auditFromReq(db, req, {
     action: 'delete',
     entity: 'client',
@@ -2608,7 +2615,7 @@ app.post('/clients/delete-by-phone', (req, res) => {
   const clients = (db.clients || []).filter(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
   if (rejectDeleteWithDebt(res, clients)) return
   const names = clients.map(c => c.name || c.phone).join(', ')
-  const result = purgeClientProfilesForPhone(phone, { rememberDeleted: false })
+  const result = purgeClientProfilesForPhone(phone, { rememberDeleted: true })
   auditFromReq(db, req, {
     action: 'delete',
     entity: 'client',
@@ -2623,6 +2630,44 @@ app.post('/clients/delete-by-phone', (req, res) => {
 app.get('/clients/deleted-phones', (_req, res) => {
   ensureDeletedPhoneKeys()
   res.json({ phones: [...db.deletedPhoneKeys] })
+})
+
+/**
+ * Лёгкая проверка сессии магазина: жив ли аккаунт по телефону.
+ * Телефон-клиент опрашивает это каждые несколько секунд после удаления в админке.
+ */
+app.get('/clients/session-check', (req, res) => {
+  runAccountLifecycleMaintenance()
+  const phone = String(req.query?.phone || '')
+  const key = normalizePhoneDigits(phone)
+  if (!key) return res.json({ active: false, reason: 'empty' })
+
+  if (isPhoneTombstoned(phone)) {
+    return res.json({ active: false, reason: 'deleted' })
+  }
+
+  const client = (db.clients || []).find(c => normalizePhoneDigits(c.phone) === key)
+  if (client) {
+    if (client.accountStatus === 'recovery') {
+      return res.json({ active: false, reason: 'recovery' })
+    }
+    const note = String(client.note || '')
+    if (note.includes(PURGED_NOTE)) {
+      return res.json({ active: false, reason: 'purged' })
+    }
+    return res.json({ active: true, reason: 'client', clientId: client.id })
+  }
+
+  const card = (db.cards || []).find(c =>
+    c.status !== 'unlinked'
+    && c.phone
+    && normalizePhoneDigits(c.phone) === key,
+  )
+  if (card) {
+    return res.json({ active: true, reason: 'card', cardNum: card.num })
+  }
+
+  return res.json({ active: false, reason: 'missing' })
 })
 
 /** Удалить всех демо-клиентов U-01…U-07 и запомнить их телефоны навсегда */

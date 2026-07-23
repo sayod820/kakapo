@@ -530,6 +530,13 @@ export const api = {
   getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>
     request<{ phones: string[] }>('/clients/deleted-phones').catch(() => ({ phones: [] as string[] })),
+  /** Жив ли аккаунт клиента (магазин опрашивает после удаления в админке) */
+  checkClientSession: (phone: string) => {
+    const digits = (phone || '').replace(/\D/g, '').slice(-9)
+    return request<{ active: boolean; reason?: string }>(
+      `/clients/session-check?phone=${encodeURIComponent(digits)}`,
+    )
+  },
   purgeDemoClients: () =>
     request<{ ok: boolean; removed: number }>('/clients/purge-demo', { method: 'POST' }),
   createClient: (data: Partial<AdminClient>) =>

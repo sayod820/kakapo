@@ -61,7 +61,17 @@ export function useStoreProfileSync(
     if (getSessionEpoch() !== epoch || !isClientSessionActive()) return
     if (userRef.current?.phone !== phone) return
 
-    if (!next) return
+    // Профиль исчез с сервера (удалили в админке) — выходим, даже если session-check
+    // на старом backend ещё не сработал.
+    if (!next) {
+      const stillActive = await isStoreAccountActiveOnServer(phone)
+      if (getSessionEpoch() !== epoch || !isClientSessionActive()) return
+      if (!stillActive) {
+        onRemovedRef.current?.()
+        return
+      }
+      return
+    }
 
     const cur = userRef.current
     if (cur?.clientId && isClientNamePlaceholder(cur.name) && !isClientNamePlaceholder(next.name)) {

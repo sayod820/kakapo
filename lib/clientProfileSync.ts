@@ -309,6 +309,34 @@ export async function isStoreAccountActiveOnServer(phone: string): Promise<boole
     return !!merged && !isClientPurged(merged) && !isClientInRecovery(merged)
   }
   try {
+    // Быстрый путь: сервер знает удалённые телефоны и наличие клиента
+    const session = await api.checkClientSession(phone)
+    if (session && typeof session.active === 'boolean') {
+      if (!session.active) {
+        // Подтянуть tombstone локально — следующий вход тоже будет закрыт
+        try {
+          const { markPhoneDeleted } = await import('./clientTombstones')
+          if (session.reason === 'deleted' || session.reason === 'missing' || session.reason === 'purged') {
+            markPhoneDeleted(phone)
+          }
+        } catch { /* ignore */ }
+      }
+      return session.active
+    }
+  } catch { /* старый backend без session-check — fallback ниже */ }
+
+  try {
+    const deletedMeta = await api.getDeletedPhones()
+    const deleted = (deletedMeta.phones || []).map(p => String(p).replace(/\D/g, '').slice(-9))
+    const key = phone.replace(/\D/g, '').slice(-9)
+    if (key && deleted.includes(key)) {
+      try {
+        const { markPhoneDeleted } = await import('./clientTombstones')
+        markPhoneDeleted(phone)
+      } catch { /* ignore */ }
+      return false
+    }
+
     const [apiClients, apiCards] = await Promise.all([api.getClients(), api.getCards()])
     const client = apiClients
       .map(c => normalizeClient(c))
