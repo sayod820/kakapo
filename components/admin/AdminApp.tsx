@@ -4319,7 +4319,6 @@ function ClientsPage() {
               <th>Заказов</th>
               <th>Потрачено</th>
               <th>Долг</th>
-              <th>💰 Кошелёк</th>
               <th>⭐ Бонусы</th>
               <th>Последний</th>
               <th></th>
@@ -4383,7 +4382,6 @@ function ClientsPage() {
                   <td style={{ fontWeight: 600 }}>{c.orders}</td>
                   <td><span className="ub" style={{ fontSize: 12, fontWeight: 700 }}>{c.spent.toLocaleString()} ЅМ</span></td>
                   <td style={{ color: c.debt > 0 ? '#FF4545' : '#3D6645', fontWeight: c.debt > 0 ? 800 : 400 }}>{c.debt > 0 ? `${c.debt.toLocaleString()} ЅМ` : '—'}</td>
-                  <td style={{ color: (Number(c.wallet) || 0) > 0 ? '#00D4C8' : '#3D6645', fontWeight: (Number(c.wallet) || 0) > 0 ? 800 : 400 }}>{(Number(c.wallet) || 0) > 0 ? `${(Number(c.wallet) || 0).toLocaleString()} ЅМ` : '—'}</td>
                   <td style={{ color: '#FFB800', fontWeight: 600 }}>{c.bonus.toLocaleString()} ⭐</td>
                   <td style={{ fontSize: 11, color: '#3D6645' }}>{c.lastLabel}</td>
                   <td>
@@ -4657,12 +4655,11 @@ function ClientsPage() {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 14 }}>
               <StatCard l="Заказов" v={detailClient.orders} />
               <StatCard l="Потрачено" v={`${detailClient.spent.toLocaleString()} ЅМ`} c="#1FD760" />
               <StatCard l="Долг" v={detailClient.debt > 0 ? `${detailClient.debt.toLocaleString()} ЅМ` : '—'} c={detailClient.debt > 0 ? '#FF4545' : undefined} />
-              <StatCard l="💰 Кошелёк" v={`${(Number(detailClient.wallet) || 0).toLocaleString()} ЅМ`} c="#00D4C8" />
-              <StatCard l="⭐ Бонусы" v={`${detailClient.bonus.toLocaleString()}`} c="#FFB800" />
+              <StatCard l="⭐ Бонусы (1=1 сом)" v={`${detailClient.bonus.toLocaleString()}`} c="#FFB800" />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
               <StatCard l="🛒 Магазин" v={detailClient.marketOrders} />
@@ -5133,7 +5130,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
               <th>Клиент</th>
               <th>Статус</th>
               <th>Уровень</th>
-              <th>💰 Кошелёк</th>
               <th>⭐ Бонусы</th>
               <th>Долг</th>
               <th>Действие</th>
@@ -5192,9 +5188,6 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
                       )
                       : <span style={{ color: '#3D6645' }}>—</span>}
                   </td>
-                  <td style={{ color: (Number(c.wallet) || 0) > 0 ? '#00D4C8' : '#3D6645', fontWeight: 700, fontSize: 12 }}>
-                    {(Number(c.wallet) || 0) > 0 ? `${(Number(c.wallet) || 0).toLocaleString()} ЅМ` : '—'}
-                  </td>
                   <td style={{ color: '#FFB800', fontWeight: 700, fontSize: 12 }}>
                     {c.bonus > 0 ? `${c.bonus.toLocaleString()} ⭐` : '—'}
                   </td>
@@ -5244,8 +5237,7 @@ function CardsPage({ setPage }: { setPage: (p: string) => void }) {
               {[
                 { l: 'Статус', v: CARD_STATUS_LABELS[detail.status].l, c: CARD_STATUS_LABELS[detail.status].c },
                 { l: 'Телефон', v: detail.phone || '—', c: '#8FB897' },
-                { l: '💰 Кошелёк', v: `${(Number(detail.wallet) || 0).toLocaleString()} ЅМ`, c: '#00D4C8' },
-                { l: '⭐ Бонусы', v: `${detail.bonus.toLocaleString()}`, c: '#FFB800' },
+                { l: '⭐ Бонусы (1=1 сом)', v: `${detail.bonus.toLocaleString()}`, c: '#FFB800' },
                 { l: 'Лимит долга', v: detail.debtLimit > 0 ? `${detail.debtLimit} ЅМ` : 'Нет', c: '#1FD760' },
                 { l: 'Долг', v: detail.debt > 0 ? `${detail.debt} ЅМ` : '—', c: detail.debt > 0 ? '#FF4545' : '#3D6645' },
                 { l: 'VIP', v: detail.vip ? '👑 Включён' : 'Выключен', c: detail.vip ? '#FFB800' : '#3D6645' },

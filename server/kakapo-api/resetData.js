@@ -44,7 +44,7 @@ db._seq = { order: 0, product: 0, category: 0, review: 0, promo: 0, payout: 0, p
 // 4) Флаги, чтобы демо/категории не пересоздавались, а миграция не трогала чистые данные
 db._categorySeedVersion = 1
 if (!db.settings) db.settings = {}
-db.settings.walletSplitDone = true
+db.settings.walletMergeDone = true
 
 // 5) Гарантируем вход админа (на случай если users тоже почистили ранее)
 if (!Array.isArray(db.users) || !db.users.length) {

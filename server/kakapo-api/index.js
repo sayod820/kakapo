@@ -3037,27 +3037,39 @@ function migrateLoyaltyRows() {
 }
 
 /**
- * Разделение «денег» и «бонусов»: раньше пополнение наличными падало в bonus
- * (через posCashBonus). Теперь у карты/клиента есть отдельный «Кошелёк» (wallet).
- * Переносим накопленную наличную часть (posCashBonus) в wallet один раз.
+ * Единый баланс «Бонусы»: раньше «деньги» жили в отдельном wallet. Теперь и
+ * пополнения наличными, и бонусы — один баланс bonus. Переносим накопленный
+ * wallet обратно в bonus (и в защищённый posCashBonus) один раз.
  */
-function migrateWalletSplit() {
+function migrateWalletMerge() {
   if (!db.settings) db.settings = {}
-  if (db.settings.walletSplitDone) return
+  if (db.settings.walletMergeDone) return
   let changed = false
   for (const card of db.cards || []) {
-    const oldPos = Math.max(0, Number(card.posCashBonus) || 0)
-    if (oldPos > 0) {
-      card.wallet = Math.round(((Number(card.wallet) || 0) + oldPos) * 100) / 100
-      card.bonus = Math.max(0, Math.round(((Number(card.bonus) || 0) - oldPos) * 100) / 100)
-      card.posCashBonus = 0
+    const w = Math.max(0, Number(card.wallet) || 0)
+    if (w > 0) {
+      card.bonus = Math.round(((Number(card.bonus) || 0) + w) * 100) / 100
+      card.posCashBonus = Math.round(((Number(card.posCashBonus) || 0) + w) * 100) / 100
+      card.wallet = 0
       try { syncClientFromCardRow(card) } catch { /* ignore */ }
       changed = true
     }
   }
-  db.settings.walletSplitDone = true
+  for (const client of db.clients || []) {
+    const w = Math.max(0, Number(client.wallet) || 0)
+    if (w > 0) {
+      const hasCard = client.card
+        && (db.cards || []).some(c => String(c.num).toUpperCase() === String(client.card).toUpperCase())
+      if (!hasCard) {
+        client.bonus = Math.round(((Number(client.bonus) || 0) + w) * 100) / 100
+      }
+      client.wallet = 0
+      changed = true
+    }
+  }
+  db.settings.walletMergeDone = true
   persist()
-  if (changed) console.log('[wallet] миграция: наличная часть перенесена в кошелёк')
+  if (changed) console.log('[wallet] миграция: кошелёк объединён с бонусами')
 }
 
 app.get('/cards', (_req, res) => {
@@ -3107,7 +3119,7 @@ function normalizeCardRow(raw) {
 }
 
 migrateLoyaltyRows()
-migrateWalletSplit()
+migrateWalletMerge()
 
 function issueCardForNewClient(client) {
   if (!db.cards) db.cards = []
@@ -3543,8 +3555,8 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     const move = createFinanceMove(db, {
       type: 'deposit',
       amount: cash,
-      note: String(req.body?.note || `Пополнение кошелька · ${card.client || card.phone || card.num}`),
-      reason: 'Пополнение кошелька клиента',
+      note: String(req.body?.note || `Пополнение бонусов · ${card.client || card.phone || card.num}`),
+      reason: 'Пополнение бонусов клиента',
       createdBy: req.body?.cashierName,
       cashierId: req.body?.cashierId,
       cashierName: req.body?.cashierName,
@@ -3552,13 +3564,12 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       posId: req.body?.posId,
     })
 
-    // Деньги → Кошелёк
-    card.wallet = Math.round((Math.max(0, Number(card.wallet) || 0) + cash) * 100) / 100
-    // Бонус за пополнение → ⭐ (posCashBonus сохраняет его при пересчёте лояльности)
-    if (bonusEarned > 0) {
-      card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + bonusEarned) * 100) / 100
-      card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + bonusEarned) * 100) / 100
-    }
+    // Единый баланс «Бонусы»: и внесённые деньги, и бонус за пополнение идут в bonus.
+    // posCashBonus защищает эту сумму при пересчёте лояльности (bonus = welcome + earned − spent + posCashBonus).
+    const addToBonus = Math.round((cash + bonusEarned) * 100) / 100
+    card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + addToBonus) * 100) / 100
+    card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + addToBonus) * 100) / 100
+    card.wallet = 0
     syncClientFromCardRow(card)
     auditFromReq(db, req, {
       app: 'trade',
@@ -3566,16 +3577,16 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       entity: 'card',
       entityId: num,
       entityName: card.client || num,
-      summary: `Пополнение кошелька ${num} · +${cash}`
-        + (bonusEarned > 0 ? ` · бонус +${bonusEarned}⭐` : '')
-        + ` (касса +${cash})`,
-      after: { cash, bonusEarned, wallet: card.wallet, bonus: card.bonus },
+      summary: `Пополнение бонусов ${num} · +${addToBonus}⭐`
+        + (bonusEarned > 0 ? ` (деньги +${cash} + бонус +${bonusEarned})` : ` (деньги +${cash})`)
+        + ` · касса +${cash}`,
+      after: { cash, bonusEarned, addToBonus, bonus: card.bonus },
     })
     persist()
     broadcastPosUpdate({ kind: 'client-cash-topup', id: move.id })
-    res.json({ card, financeMove: move, bonusEarned })
+    res.json({ card, financeMove: move, bonusEarned, addToBonus })
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось пополнить кошелёк' })
+    res.status(400).json({ detail: e?.message || 'Не удалось пополнить бонусы' })
   }
 })
 

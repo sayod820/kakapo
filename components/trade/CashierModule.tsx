@@ -1214,11 +1214,11 @@ export default function CashierModule({
           id: `topup-${t.id}`,
           ts: t.ts || 0,
           when: `${t.date}${t.time ? ` · ${t.time}` : ''}`,
-          title: isTopup ? 'Пополнение кошелька' : (t.desc || 'Начисление наличными'),
+          title: isTopup ? 'Пополнение бонусов' : (t.desc || 'Начисление наличными'),
           sub: isTopup
             ? (percentPart > 0
-              ? `💰 +${fmtMoney(cash)} в кошелёк · +${fmtBonus(percentPart)} ⭐ бонус`
-              : `💰 +${fmtMoney(cash)} в кошелёк`)
+              ? `⭐ +${fmtBonus(cash + percentPart)} бонусов (деньги ${fmtMoney(cash)} + бонус ${fmtBonus(percentPart)})`
+              : `⭐ +${fmtBonus(cash)} бонусов (деньги ${fmtMoney(cash)})`)
             : (credited > 0 ? `+${fmtBonus(credited)} ⭐ бонус` : 'Без зачисления'),
           amount: Number(t.cash) || 0,
           tone: 'topup',
@@ -1398,8 +1398,8 @@ export default function CashierModule({
     )
   }
 
-  // Деньги пополнения теперь идут в Кошелёк (wallet), а не в бонусы.
-  // Старое «восстановление баланса по истории» удалено — сервер источник правды.
+  // Единый баланс: пополнение наличными и % идут в Бонусы ⭐ (сервер — источник правды).
+  // Старое «восстановление баланса по истории» удалено.
 
   const clientProfileStats = useMemo(() => {
     void histTick
@@ -3400,7 +3400,7 @@ export default function CashierModule({
     }
     const cash = Number(topupBuf) || 0
     if (cash <= 0) return
-    // Деньги → Кошелёк, % → бонусы ⭐
+    // Единый баланс: и деньги, и % идут в Бонусы ⭐
     const principal = Math.max(0, Math.round(cash * 100) / 100)
     const percentBonus = calcCashDepositBonus(cash)
     const credit = Math.round((principal + percentBonus) * 100) / 100
@@ -3411,20 +3411,20 @@ export default function CashierModule({
       await api.cashTopupCard(client.card, {
         cash,
         credit,
-        note: `Пополнение кошелька · ${client.name}`,
+        note: `Пополнение бонусов · ${client.name}`,
         cashierId: settings.cashierId || activeShift.cashierId,
         cashierName: settings.cashierName || activeShift.cashierName,
         shiftId: activeShift.id,
         posId: activeShift.posId || activePosPoint?.id,
       })
-      if (client.phone) recordBalanceTopup(client.phone, cash, percentBonus, 'Пополнение кошелька')
+      if (client.phone) recordBalanceTopup(client.phone, cash, percentBonus, 'Пополнение бонусов')
       await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
-      const extra = percentBonus > 0 ? ` · +${fmtBonus(percentBonus)} ⭐ бонус` : ''
-      showToast('Кошелёк пополнен', `${client.name}: +${principal.toFixed(2)} 💰${extra}`)
+      const extra = percentBonus > 0 ? ` (деньги ${principal.toFixed(2)} + бонус ${fmtBonus(percentBonus)})` : ''
+      showToast('Бонусы пополнены', `${client.name}: +${credit.toFixed(2)} ⭐${extra}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
     } finally {
@@ -5400,24 +5400,6 @@ export default function CashierModule({
               </button>
             )}
 
-            {client && (Number(client.wallet) || 0) > 0.001 && (() => {
-              const walletBal = Math.round((Number(client.wallet) || 0) * 100) / 100
-              const need = Math.max(0, Math.round((afterDisc - Math.floor(usedBonus)) * 100) / 100)
-              const enough = need > 0.001 && walletBal >= need - 0.001
-              return (
-                <button
-                  type="button"
-                  className="pay-btn pay-balance pay-balance-full"
-                  disabled={busy || !enough}
-                  onClick={() => choosePayMethod('wallet')}
-                  title={enough ? '' : `На кошельке ${fmtMoney(walletBal)} — недостаточно`}
-                >
-                  <span className="ic">💰</span>
-                  Оплатить с кошелька ({fmtMoney(walletBal)})
-                </button>
-              )
-            })()}
-
             {total <= 0.001 && usedBonus > 0 && (
               <button
                 type="button"
@@ -6155,10 +6137,10 @@ export default function CashierModule({
       {topupOpen && client && (
         <div className="overlay" onClick={() => !busy && setTopupOpen(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>💰 Пополнить кошелёк</h3>
+            <h3>⭐ Пополнить бонусы</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
               Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
-              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Деньги идут в Кошелёк, а % начисляется бонусами ⭐</div>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Внесённые деньги и % начисляются в Бонусы ⭐ (1 бонус = 1 сом)</div>
             </div>
             <div className="kp-display">
               <div className="lbl">СУММА ПОПОЛНЕНИЯ</div>
@@ -6188,10 +6170,11 @@ export default function CashierModule({
             )}
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено наличными</span><b className="mono">{topupCash.toFixed(2)}</b></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>💰 На кошелёк</span><b className="mono">+{topupPrincipal.toFixed(2)}</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>⭐ Деньги в бонусы</span><b className="mono">+{topupPrincipal.toFixed(2)}</b></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>⭐ Бонус %</span><b className="mono">+{fmtBonus(topupPercentBonus)}</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)', fontWeight: 800 }}><span>⭐ Итого бонусов</span><b className="mono">+{fmtBonus(topupCredit)}</b></div>
               <div style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 8 }}>
-                {topupTier ? cashDepositTierLabel(topupTier) : 'Ниже порога — без % бонуса, только деньги на кошелёк'}
+                {topupTier ? cashDepositTierLabel(topupTier) : 'Ниже порога — без % бонуса, только сумма деньгами'}
               </div>
             </div>
             <div className="modal-card-actions">
@@ -6292,11 +6275,7 @@ export default function CashierModule({
 
                 <div className="client-kpis">
                   <div className="client-kpi">
-                    <div className="l">💰 Кошелёк (деньги)</div>
-                    <div className="v" style={{ color: 'var(--gd)' }}>{fmtMoney(Number(client.wallet) || 0)}</div>
-                  </div>
-                  <div className="client-kpi">
-                    <div className="l">⭐ Бонусы</div>
+                    <div className="l">⭐ Бонусы (1 бонус = 1 сом)</div>
                     <div className="v" style={{ color: 'var(--gd)' }}>{fmtBonus(clientProfileStats.bonus)}</div>
                   </div>
                   <div className="client-kpi">
@@ -6342,7 +6321,7 @@ export default function CashierModule({
                       setTopupOpen(true)
                     }}
                   >
-                    <span className="ic-wrap">💰</span><span>Пополнить</span>
+                    <span className="ic-wrap">⭐</span><span>Пополнить бонусы</span>
                   </button>
                   <button
                     type="button"

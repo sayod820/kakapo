@@ -167,8 +167,8 @@ function payLabel(sale, tpl) {
   if (sale.paymentMethod === 'mixed') return 'Смешанная'
   if (sale.paymentMethod === 'cash') return tpl.labelCash
   if (sale.paymentMethod === 'card') return tpl.labelCard
-  if (sale.paymentMethod === 'wallet') return 'С кошелька'
-  if ((Number(sale.paidWallet) || 0) > 0.001) return 'С кошелька'
+  if (sale.paymentMethod === 'wallet') return 'Бонусами'
+  if ((Number(sale.paidWallet) || 0) > 0.001) return 'Бонусами'
   if ((Number(sale.debtAdded) || 0) > 0.001) return tpl.labelDebt
   return '-'
 }
@@ -388,7 +388,7 @@ function buildEscPosReceipt(sale, opts = {}) {
     lines(kvLines(cardLineLabel(sale, tpl.labelCard), fmt(sale.paidCard), width))
   }
   if ((Number(sale.paidWallet) || 0) > 0.001) {
-    lines(kvLines('С кошелька', fmt(sale.paidWallet), width))
+    lines(kvLines('Бонусами', fmt(sale.paidWallet), width))
   }
   if (tpl.showDebt && (Number(sale.debtAdded) || 0) > 0.001) {
     lines(kvLines(tpl.labelDebt, fmt(sale.debtAdded), width))
