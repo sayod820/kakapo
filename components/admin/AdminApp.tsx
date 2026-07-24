@@ -7751,7 +7751,8 @@ function TariffPage() {
         </div>
         Доставка = <b style={{ color: '#EBF5ED' }}>База ({t.base} ЅМ)</b> + (км − {t.baseDist}) × <b style={{ color: '#EBF5ED' }}>{t.perKm} ЅМ</b>
         {t.weightFirstExtra > 0 || t.weightNextExtra > 0 ? (
-          <> + вес: первые {t.weightStepKg} кг <b style={{ color: '#FFB800' }}>{t.weightFirstExtra} ЅМ</b>, далее каждые {t.weightStepKg} кг <b style={{ color: '#FFB800' }}>+{t.weightNextExtra} ЅМ</b></>
+          <> + вес: первые {t.weightStepKg} кг <b style={{ color: '#FFB800' }}>{t.weightFirstExtra} ЅМ</b>, далее каждые {t.weightStepKg} кг <b style={{ color: '#FFB800' }}>+{t.weightNextExtra} ЅМ</b>
+          {' '}(напр. 120 кг → {t.weightFirstExtra}+{t.weightNextExtra}+{t.weightNextExtra}+{t.weightNextExtra} = {t.weightFirstExtra + t.weightNextExtra * 3} ЅМ)</>
         ) : null}
         {t.freeFrom ? <> · <b style={{ color: '#1FD760' }}>0 ЅМ</b> при заказе от {t.freeFrom} ЅМ</> : null}
         {t.courierCommissionPercent ? <> · <b style={{ color: '#3B8EF0' }}>комиссия курьера {t.courierCommissionPercent}%</b> от доставки</> : null}

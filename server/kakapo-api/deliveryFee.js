@@ -28,15 +28,28 @@ export function normalizePricing(raw = {}) {
   }
 }
 
-/** Первый шаг веса — weightFirstExtra, каждый следующий — weightNextExtra */
+/** Первый шаг веса — weightFirstExtra, каждый следующий — weightNextExtra.
+ *  120 кг / шаг 30: 10+5+5+5 = 25 (не 30).
+ */
 export function calcWeightSurcharge(weightKg, pricing = DEFAULT_PRICING) {
-  const w = Math.max(0, Number(weightKg) || 0)
+  let w = Math.max(0, Number(weightKg) || 0)
+  if (w > 5000) w = w / 1000
+  w = Math.round(w * 10) / 10
   if (w <= 0) return 0
   const step = Math.max(1, Number(pricing.weightStepKg) || DEFAULT_PRICING.weightStepKg)
   const first = Math.max(0, Number(pricing.weightFirstExtra ?? DEFAULT_PRICING.weightFirstExtra) || 0)
   const next = Math.max(0, Number(pricing.weightNextExtra ?? DEFAULT_PRICING.weightNextExtra) || 0)
-  const steps = Math.ceil(w / step)
-  return first + Math.max(0, steps - 1) * next
+
+  let total = 0
+  let left = w
+  let band = 0
+  while (left >= 0.05) {
+    band += 1
+    total += band === 1 ? first : next
+    left = Math.round((left - step) * 10) / 10
+    if (band > 200) break
+  }
+  return Math.round(total * 100) / 100
 }
 
 export function calcDeliveryFee(distKm, weightKg, pricing) {
