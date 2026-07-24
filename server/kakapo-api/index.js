@@ -1865,13 +1865,29 @@ app.post('/pos/sales', (req, res) => {
 app.post('/pos/sales/:id/return', (req, res) => {
   try {
     const row = returnPosSale(db, req.params.id, req.body || {})
+    const bonusRefund = Number(row._bonusRefunded) || 0
+    const bonusPhone = String(row._bonusRefundPhone || row.clientPhone || '').trim()
+    delete row._bonusRefunded
+    delete row._bonusRefundPhone
+    if (bonusRefund > 0 && bonusPhone) {
+      reconcileClientBonuses(db, bonusPhone, loyaltyHooks())
+      const client = findClientByPhone(db, bonusPhone)
+      if (client) {
+        broadcastLoyalty({
+          phone: client.phone,
+          bonus: client.bonus,
+          card: client.card || '',
+        })
+      }
+    }
     auditFromReq(db, req, {
       app: 'trade',
       action: 'return',
       entity: 'sale',
       entityId: row.id,
       entityName: row.saleNumber || row.id,
-      summary: `Возврат по чеку ${row.saleNumber || row.id}`,
+      summary: `Возврат по чеку ${row.saleNumber || row.id}`
+        + (bonusRefund > 0 ? ` · бонусы +${bonusRefund}` : ''),
     })
     persist()
     broadcastPosUpdate({ kind: 'sale-return', id: row.id })

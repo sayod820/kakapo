@@ -1404,7 +1404,7 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
     },
     items,
     marketStatus: 'done',
-    bonusSpent: 0,
+    bonusSpent: bonusSpent > 0 ? bonusSpent : 0,
     pickupIds: ['store'],
   }
 
@@ -1489,7 +1489,19 @@ export function returnPosSale(db, saleId, meta = {}) {
 
   if (sale.originalTotal == null) sale.originalTotal = round2(Number(sale.total) || 0)
 
-  let remainCashCut = returnTotal
+  // Бонусы возвращаем пропорционально сумме возврата (смешанная оплата: бонусы + нал/карта)
+  const bonusBefore = round2(Number(sale.bonusSpent) || 0)
+  const origGoods = round2(
+    Number(sale.orderGoodsTotal)
+    || (Number(sale.originalTotal) || 0) + bonusBefore
+    || returnTotal,
+  )
+  let cutBonus = 0
+  if (bonusBefore > 0 && origGoods > 0) {
+    cutBonus = round2(Math.min(bonusBefore, bonusBefore * (returnTotal / origGoods)))
+  }
+
+  let remainCashCut = round2(Math.max(0, returnTotal - cutBonus))
   let cutDebt = 0
   let cutCash = 0
   let cutCard = 0
@@ -1514,7 +1526,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     cutCard = Math.min(cardBefore, remainCashCut)
     remainCashCut = round2(remainCashCut - cutCard)
   }
-  // leftover (rounding) → cash then card then debt already applied
+  // leftover (rounding) → cash then card; остаток — снова в бонусы
   if (remainCashCut > 0) {
     if (cashBefore - cutCash > 0) {
       const extra = Math.min(cashBefore - cutCash, remainCashCut)
@@ -1526,13 +1538,19 @@ export function returnPosSale(db, saleId, meta = {}) {
       cutCard = round2(cutCard + extra)
       remainCashCut = round2(remainCashCut - extra)
     }
+    if (remainCashCut > 0 && bonusBefore - cutBonus > 0) {
+      const extra = Math.min(bonusBefore - cutBonus, remainCashCut)
+      cutBonus = round2(cutBonus + extra)
+      remainCashCut = round2(remainCashCut - extra)
+    }
   }
 
   sale.debtAdded = Math.max(0, round2(debtBefore - cutDebt))
   sale.paidCash = Math.max(0, round2(cashBefore - cutCash))
   sale.paidCard = Math.max(0, round2(cardBefore - cutCard))
   sale.paidWallet = Math.max(0, round2(walletBefore - cutWallet))
-  sale.total = Math.max(0, round2((Number(sale.total) || 0) - returnTotal))
+  sale.bonusSpent = Math.max(0, round2(bonusBefore - cutBonus))
+  sale.total = Math.max(0, round2((Number(sale.total) || 0) - (returnTotal - cutBonus)))
 
   if (cutDebt > 0) {
     const client = getClientById(db, sale.clientId) || null
@@ -1550,6 +1568,29 @@ export function returnPosSale(db, saleId, meta = {}) {
     const card = getCardByNum(db, sale.cardNum)
     if (card) card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
     if (client) client.wallet = round2((Number(client.wallet) || 0) + cutWallet)
+  }
+
+  // Возврат бонусов клиенту
+  if (cutBonus > 0) {
+    const client =
+      getClientById(db, sale.clientId)
+      || (sale.clientPhone ? findClientByPhone(db, sale.clientPhone) : null)
+    const card = getCardByNum(db, sale.cardNum)
+      || (client?.card ? getCardByNum(db, client.card) : null)
+    if (card) {
+      card.bonus = round2((Number(card.bonus) || 0) + cutBonus)
+    }
+    if (client) {
+      client.bonus = card
+        ? card.bonus
+        : round2((Number(client.bonus) || 0) + cutBonus)
+    }
+    const order = (db.orders || []).find(o => String(o.id) === String(sale.orderId || ''))
+    if (order) {
+      order.bonusSpent = Math.max(0, round2((Number(order.bonusSpent) || 0) - cutBonus))
+    }
+    sale._bonusRefunded = cutBonus
+    sale._bonusRefundPhone = client?.phone || sale.clientPhone || ''
   }
 
   const fullyReturned = items.every(it => {
@@ -1579,6 +1620,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     cutCard,
     cutDebt,
     cutWallet,
+    cutBonus,
     note: String(meta.note || '').trim(),
     cashierId: String(meta.cashierId || '').trim(),
     items: returnLines,
