@@ -38,6 +38,7 @@ import {
   reconcileClientBonuses,
   reconcileAllClientBonuses,
   reverseClientBonusOnOrderCancel,
+  reapplyBonusSpendOnOrderRestore,
   alignPosCashBonusToTarget,
   findClientByPhone,
   bonusEligibleTotal,
@@ -1205,8 +1206,26 @@ app.patch('/orders/:id/status', (req, res) => {
     lockOrderDeliveryFee(updated, db.settings.pricing)
     creditDeliveredOrder(db, updated)
     const phone = updated.client?.phone || ''
+    // Если заказ вернули из отмены — сначала снова учесть списание бонусов
+    if (prev.status === 'cancelled') {
+      reapplyBonusSpendOnOrderRestore(db, prev, updated, loyaltyHooks())
+    }
     applyClientLoyaltyAfterDelivery(db, updated, loyaltyHooks())
     if (phone) {
+      const client = findClientByPhone(db, phone)
+      if (client) {
+        broadcastLoyalty({
+          phone: client.phone,
+          bonus: client.bonus,
+          card: client.card || '',
+        })
+      }
+    }
+  } else if (prev.status === 'cancelled' && updated.status !== 'cancelled') {
+    // Отмена → любой другой статус (не delivered): вернуть списание бонусов
+    const phone = updated.client?.phone || prev.client?.phone || ''
+    if (phone) {
+      reapplyBonusSpendOnOrderRestore(db, prev, updated, loyaltyHooks())
       const client = findClientByPhone(db, phone)
       if (client) {
         broadcastLoyalty({
@@ -1224,6 +1243,7 @@ app.patch('/orders/:id/status', (req, res) => {
       || prev.bonusCredited
       || (Number(prev.bonusEarned) || 0) > 0
       || (Number(prev.bonusSpent) || 0) > 0
+      || (Number(prev.bonusSpentRefunded) || 0) > 0
     if (phone && hadLoyalty) {
       reverseClientBonusOnOrderCancel(db, prev, updated, loyaltyHooks())
       const client = findClientByPhone(db, phone)

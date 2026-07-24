@@ -588,6 +588,8 @@ export function applyClientLoyaltyAfterDelivery(db, order, hooks) {
 
 /**
  * Отмена заказа: вернуть списанные бонусы и пересчитать кэшбэк без этого заказа.
+ * bonusSpent на заказе НЕ обнуляем — spentBonusForClient игнорирует cancelled,
+ * а при восстановлении статуса списание снова учтётся.
  */
 export function reverseClientBonusOnOrderCancel(db, prev, updated, hooks) {
   const phone = prev.client?.phone || updated.client?.phone || ''
@@ -595,18 +597,33 @@ export function reverseClientBonusOnOrderCancel(db, prev, updated, hooks) {
 
   updated.bonusCredited = false
   updated.bonusEarned = 0
-
-  const spent = Number(prev.bonusSpent) || 0
+  // Сохраняем сумму на случай старых записей, где bonusSpent уже обнулили
+  const spent = Number(prev.bonusSpent) || Number(updated.bonusSpent) || 0
   if (spent > 0) {
-    const client = findClientByPhone(db, phone)
-    let card = client?.card ? hooks.findCardByNum(client.card) : null
-    if (!card && client) card = hooks.ensureCardRowForClient(client)
-    if (client && card) {
-      card.bonus = (Number(card.bonus) || 0) + spent
-      client.bonus = card.bonus
-      updated.bonusSpent = 0
-      hooks.syncClientFromCardRow(card)
-    }
+    updated.bonusSpent = spent
+    updated.bonusSpentRefunded = spent
+  }
+
+  return reconcileClientBonuses(db, phone, hooks)
+}
+
+/**
+ * Восстановление заказа из отмены: снова учесть списание бонусов.
+ */
+export function reapplyBonusSpendOnOrderRestore(db, prev, updated, hooks) {
+  const phone = prev.client?.phone || updated.client?.phone || ''
+  if (!phone) return { credited: 0, bonus: 0, orders: 0 }
+
+  const spent = Math.max(
+    0,
+    Number(updated.bonusSpent) || 0,
+    Number(prev.bonusSpentRefunded) || 0,
+    Number(updated.bonusSpentRefunded) || 0,
+    Number(prev.bonusSpent) || 0,
+  )
+  if (spent > 0) {
+    updated.bonusSpent = spent
+    updated.bonusSpentRefunded = 0
   }
 
   return reconcileClientBonuses(db, phone, hooks)
