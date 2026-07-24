@@ -221,7 +221,7 @@ export default function AssemblerLoginPage({ assemblers, onSuccess }: AssemblerL
           {demoList.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 8, fontWeight: 700, letterSpacing: .5, textTransform: 'uppercase' }}>
-                Быстрый вход (демо)
+                Быстрый вход
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {demoList.map(a => (

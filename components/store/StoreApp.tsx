@@ -6079,14 +6079,16 @@ const AddressesPage = ({ go, user }) => {
 const ReferralPage = ({ go, user }) => {
   const [copied, setCopied] = useState(false);
   const welcomeBonus = getRegistrationWelcomeBonus();
-  const code = 'КАКАПО-D7F2';
-  const stats = [{l:'Приглашено',v:'7',c:'var(--blue)'},{l:'Зарегистрировалось',v:'4',c:'var(--gr)'},{l:'Сделали заказ',v:'3',c:'var(--gd)'},{l:'Ваш заработок',v:'150 ⭐',c:'var(--gd)'}];
-  const friends = [
-    {name:'Нилуфар Х.',date:'12 мая',status:'ordered',bonus:50},
-    {name:'Бахром К.', date:'10 мая',status:'ordered',bonus:50},
-    {name:'Рустам Д.', date:'8 мая', status:'ordered',bonus:50},
-    {name:'Зубайр М.', date:'5 мая', status:'registered',bonus:0},
+  const code = user?.card
+    ? String(user.card)
+    : (user?.phone ? 'KKP-' + String(user.phone).replace(/\D/g, '').slice(-4) : 'КАКАПО');
+  const stats = [
+    {l:'Приглашено',v:'0',c:'var(--blue)'},
+    {l:'Зарегистрировалось',v:'0',c:'var(--gr)'},
+    {l:'Сделали заказ',v:'0',c:'var(--gd)'},
+    {l:'Ваш заработок',v:'0 ⭐',c:'var(--gd)'},
   ];
+  const friends: { name: string; date: string; status: string; bonus: number }[] = [];
 
   const copy = () => {
     try{navigator.clipboard.writeText(code);}catch{}
@@ -6143,7 +6145,12 @@ const ReferralPage = ({ go, user }) => {
         </div>
 
         <div className="ub" style={{fontSize:14,fontWeight:800,marginBottom:12}}>Мои приглашённые</div>
-        <div className="card" style={{overflow:'hidden'}}>
+        {friends.length === 0 && (
+          <div className="card" style={{padding:'22px 16px',textAlign:'center',color:'var(--t3)',fontSize:13}}>
+            Пока никого нет. Поделитесь кодом с друзьями — они появятся здесь.
+          </div>
+        )}
+        <div className="card" style={{overflow:'hidden',display:friends.length?'block':'none'}}>
           {friends.map((f,i)=>(
             <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 15px',borderBottom:i<friends.length-1?'1px solid var(--b1)':'none'}}>
               <div style={{width:36,height:36,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'var(--bg)',flexShrink:0}}>{f.name.charAt(0)}</div>

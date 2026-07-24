@@ -275,7 +275,7 @@ export default function CourierLoginPage({ couriers, onSuccess }: CourierLoginPa
 
               {demoList.length > 0 && (
                 <div style={{ marginBottom: 18 }}>
-                  <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 8, fontWeight: 700 }}>Быстрый вход (демо)</div>
+                  <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 8, fontWeight: 700 }}>Быстрый вход</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {demoList.map(c => (
                       <button
