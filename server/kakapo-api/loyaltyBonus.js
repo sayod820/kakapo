@@ -587,6 +587,36 @@ export function applyClientLoyaltyAfterDelivery(db, order, hooks) {
 }
 
 /**
+ * Сколько бонусов было списано по заказу (явное поле / возврат / вывод из сумм / комментарий).
+ */
+export function resolveOrderBonusSpent(order, fallback = null) {
+  const candidates = [
+    Number(order?.bonusSpent) || 0,
+    Number(order?.bonusSpentRefunded) || 0,
+    Number(fallback?.bonusSpent) || 0,
+    Number(fallback?.bonusSpentRefunded) || 0,
+  ]
+  let best = Math.max(0, ...candidates)
+  if (best >= 1) return Math.floor(best)
+
+  const goods = Number(order?.goodsTotal ?? fallback?.goodsTotal)
+  const delivery = Number(order?.deliveryFee ?? fallback?.deliveryFee) || 0
+  const total = Number(order?.total ?? fallback?.total)
+  if (Number.isFinite(goods) && Number.isFinite(total) && goods >= 0) {
+    const inferred = Math.round((goods + delivery - total) * 100) / 100
+    if (inferred >= 1) return Math.floor(inferred)
+  }
+
+  const comment = String(order?.comment || fallback?.comment || '')
+  const m = comment.match(/Списано бонусов:\s*([\d.,]+)/i)
+  if (m) {
+    const n = Math.floor(Number(String(m[1]).replace(',', '.')) || 0)
+    if (n > 0) return n
+  }
+  return 0
+}
+
+/**
  * Отмена заказа: вернуть списанные бонусы и пересчитать кэшбэк без этого заказа.
  * bonusSpent на заказе НЕ обнуляем — spentBonusForClient игнорирует cancelled,
  * а при восстановлении статуса списание снова учтётся.
@@ -597,8 +627,7 @@ export function reverseClientBonusOnOrderCancel(db, prev, updated, hooks) {
 
   updated.bonusCredited = false
   updated.bonusEarned = 0
-  // Сохраняем сумму на случай старых записей, где bonusSpent уже обнулили
-  const spent = Number(prev.bonusSpent) || Number(updated.bonusSpent) || 0
+  const spent = resolveOrderBonusSpent(updated, prev)
   if (spent > 0) {
     updated.bonusSpent = spent
     updated.bonusSpentRefunded = spent
@@ -608,25 +637,44 @@ export function reverseClientBonusOnOrderCancel(db, prev, updated, hooks) {
 }
 
 /**
- * Восстановление заказа из отмены: снова учесть списание бонусов.
+ * Восстановление заказа из отмены (любой статус кроме «отменён»): снова списать бонусы.
  */
 export function reapplyBonusSpendOnOrderRestore(db, prev, updated, hooks) {
   const phone = prev.client?.phone || updated.client?.phone || ''
   if (!phone) return { credited: 0, bonus: 0, orders: 0 }
 
-  const spent = Math.max(
-    0,
-    Number(updated.bonusSpent) || 0,
-    Number(prev.bonusSpentRefunded) || 0,
-    Number(updated.bonusSpentRefunded) || 0,
-    Number(prev.bonusSpent) || 0,
-  )
+  const spent = resolveOrderBonusSpent(updated, prev)
   if (spent > 0) {
     updated.bonusSpent = spent
     updated.bonusSpentRefunded = 0
   }
 
   return reconcileClientBonuses(db, phone, hooks)
+}
+
+/**
+ * Единая логика бонусов при смене статуса:
+ * — Отменён → вернуть бонусы
+ * — любой другой статус из отмены → снова списать
+ */
+export function syncOrderBonusOnStatusChange(db, prev, updated, hooks) {
+  const prevStatus = prev?.status
+  const nextStatus = updated?.status
+  if (!prevStatus || !nextStatus || prevStatus === nextStatus) {
+    return { changed: false, credited: 0, bonus: 0, orders: 0 }
+  }
+
+  if (nextStatus === 'cancelled' && prevStatus !== 'cancelled') {
+    const result = reverseClientBonusOnOrderCancel(db, prev, updated, hooks)
+    return { changed: true, action: 'refund', ...result }
+  }
+
+  if (prevStatus === 'cancelled' && nextStatus !== 'cancelled') {
+    const result = reapplyBonusSpendOnOrderRestore(db, prev, updated, hooks)
+    return { changed: true, action: 'spend', ...result }
+  }
+
+  return { changed: false, credited: 0, bonus: 0, orders: 0 }
 }
 
 /**
