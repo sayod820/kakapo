@@ -38,7 +38,6 @@ const DEFAULT = {
       vipRules: { minOrders: 30, minReviews: 5, minSpent: 3000 },
     },
     admin: {
-      gbs: { enabled: false, ip: 'http://192.168.1.100', port: '8419', user: 'admin', pass: '' },
       sms: { provider: 'smspro', apiKey: '' },
       store: {
         name: 'КАКАПО',

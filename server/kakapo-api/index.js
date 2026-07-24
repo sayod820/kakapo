@@ -2989,7 +2989,6 @@ app.patch('/settings/loyalty', (req, res) => {
 })
 
 const DEFAULT_ADMIN_SETTINGS = {
-  gbs: { enabled: false, ip: 'http://192.168.1.100', port: '8419', user: 'admin', pass: '' },
   sms: { provider: 'smspro', apiKey: '' },
   store: {
     name: 'КАКАПО',
@@ -3066,7 +3065,7 @@ function ensureAdminSettings() {
     db.settings.admin = structuredClone(DEFAULT_ADMIN_SETTINGS)
   }
   const a = db.settings.admin
-  if (!a.gbs) a.gbs = { ...DEFAULT_ADMIN_SETTINGS.gbs }
+  if (a.gbs) delete a.gbs
   if (!a.sms) a.sms = { ...DEFAULT_ADMIN_SETTINGS.sms }
   if (!a.store) a.store = { ...DEFAULT_ADMIN_SETTINGS.store }
   if (!a.auth) a.auth = { ...DEFAULT_ADMIN_SETTINGS.auth }
@@ -3077,7 +3076,6 @@ app.get('/settings/admin', (_req, res) => {
   ensureAdminAuth()
   const a = ensureAdminSettings()
   res.json({
-    gbs: a.gbs,
     sms: a.sms,
     store: a.store,
     auth: { login: a.auth?.login || 'admin' },
@@ -3088,7 +3086,6 @@ app.patch('/settings/admin', (req, res) => {
   const current = ensureAdminSettings()
   const body = req.body || {}
   db.settings.admin = {
-    gbs: { ...current.gbs, ...body.gbs },
     sms: { ...current.sms, ...body.sms },
     store: { ...current.store, ...body.store },
     auth: current.auth || { ...DEFAULT_ADMIN_SETTINGS.auth },
@@ -3099,12 +3096,11 @@ app.patch('/settings/admin', (req, res) => {
     entity: 'settings',
     entityId: 'admin',
     entityName: 'Настройки админки',
-    summary: 'Изменены настройки магазина / GBS / SMS',
+    summary: 'Изменены настройки магазина / SMS',
   })
   persist()
   const a = db.settings.admin
   res.json({
-    gbs: a.gbs,
     sms: a.sms,
     store: a.store,
     auth: { login: a.auth?.login || 'admin' },
@@ -4054,8 +4050,6 @@ app.post('/admin/ai/ask', async (req, res) => {
 })
 
 app.post('/sync/woocommerce', (_req, res) => res.json({ ok: true, synced: 0 }))
-app.post('/sync/gbs', (_req, res) => res.json({ ok: true, synced: 0 }))
-
 app.use((err, _req, res, next) => {
   if (res.headersSent) return next(err)
   if (err instanceof SyntaxError && 'body' in err) {

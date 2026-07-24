@@ -602,13 +602,11 @@ export const api = {
   updateLoyalty: (data: Record<string, unknown>) =>
     request('/settings/loyalty', { method: 'PATCH', body: JSON.stringify(data) }),
   getAdminSettings: () => request<{
-    gbs: { enabled: boolean; ip: string; port: string; user: string; pass: string }
     sms: { provider: string; apiKey: string }
     store: Record<string, string>
     auth?: { login: string }
   }>('/settings/admin'),
   updateAdminSettings: (data: {
-    gbs?: Record<string, unknown>
     sms?: Record<string, unknown>
     store?: Record<string, unknown>
   }) => request('/settings/admin', { method: 'PATCH', body: JSON.stringify(data) }),
@@ -948,5 +946,4 @@ export const api = {
 
   // ── Синхронизация ──
   syncWoo: () => request('/sync/woocommerce', { method: 'POST' }),
-  syncGBS: () => request('/sync/gbs', { method: 'POST' }),
 }

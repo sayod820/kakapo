@@ -1353,7 +1353,6 @@ function ProductsPage() {
   const [search,  setSearch]  = useState('');
   const [catFlt,  setCatFlt]  = useState('all');
   const [statFlt, setStatFlt] = useState('all');
-  const [syncMsg, setSyncMsg] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editP,   setEditP]   = useState(null);
   const [nName,   setNName]   = useState('');
@@ -1403,17 +1402,6 @@ function ProductsPage() {
       bulkPricing: (editP.bulkPricing || []).map(t => ({ minQty: t.minQty, price: t.price })),
     });
   }, [editP, getPhoto]);
-
-  const syncGBS = async () => {
-    setSyncMsg('loading');
-    try {
-      const r = USE_API ? await api.syncGBS() : { synced: 0 };
-      setSyncMsg(`demo:${r?.synced ?? 0}`);
-    } catch {
-      setSyncMsg('demo:0');
-    }
-    setTimeout(()=>setSyncMsg(''),5000);
-  };
 
   const toggleStatFlt = (id) => setStatFlt(s => s === id ? 'all' : id);
 
@@ -1547,12 +1535,7 @@ function ProductsPage() {
           <div style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',fontSize:15,pointerEvents:'none'}}>🔍</div>
           <input className="ai" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Артикул, название, категория..." style={{paddingLeft:38}}/>
         </div>
-        {syncMsg.startsWith('demo:')&&<div style={{fontSize:11,color:'#FFB800',fontWeight:700}}>⚠ Demo-режим: GBS Market не подключён (синхронизировано: {syncMsg.split(':')[1]})</div>}
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
-          <button onClick={syncGBS} className="ab abg" style={{display:'flex',alignItems:'center',gap:6}}>
-            {syncMsg==='loading'?<div style={{width:13,height:13,borderRadius:'50%',border:'2px solid rgba(31,215,96,.3)',borderTopColor:'#1FD760',animation:'spin 1s linear infinite'}}/>:'🔄'}
-            {syncMsg==='loading'?'Синхронизация...':'Синх. GBS Market'}
-          </button>
           <button onClick={()=>setShowAdd(true)} className="ab abp" style={{display:'flex',alignItems:'center',gap:6}}>+ Добавить товар</button>
         </div>
       </div>
@@ -7200,12 +7183,6 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
   onSessionUpdate?: (s: AdminSession) => void
 }) {
   const [stab, setStab] = useState('access')
-  const [gbsOn, setGbsOn] = useState(false)
-  const [gbsIP, setGbsIP] = useState('http://192.168.1.100')
-  const [gbsPort, setGbsPort] = useState('8419')
-  const [gbsUser, setGbsUser] = useState('admin')
-  const [gbsPass, setGbsPass] = useState('')
-  const [testSt, setTestSt] = useState('')
   const [smsP, setSmsP] = useState('smspro')
   const [smsKey, setSmsKey] = useState('')
   const [storeInfo, setStoreInfo] = useState(DEFAULT_STORE_INFO)
@@ -7223,15 +7200,6 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
   useEffect(() => {
     const loadLocal = () => {
       try {
-        const gbs = localStorage.getItem('kakapo_admin_gbs')
-        if (gbs) {
-          const p = JSON.parse(gbs)
-          if (typeof p.enabled === 'boolean') setGbsOn(p.enabled)
-          if (p.ip) setGbsIP(p.ip)
-          if (p.port) setGbsPort(p.port)
-          if (p.user) setGbsUser(p.user)
-          if (p.pass) setGbsPass(p.pass)
-        }
         const sms = localStorage.getItem('kakapo_admin_sms')
         if (sms) {
           const p = JSON.parse(sms)
@@ -7251,13 +7219,6 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
     }
 
     void api.getAdminSettings().then(remote => {
-      if (remote.gbs) {
-        setGbsOn(!!remote.gbs.enabled)
-        if (remote.gbs.ip) setGbsIP(remote.gbs.ip)
-        if (remote.gbs.port) setGbsPort(remote.gbs.port)
-        if (remote.gbs.user) setGbsUser(remote.gbs.user)
-        if (remote.gbs.pass != null) setGbsPass(remote.gbs.pass)
-      }
       if (remote.sms) {
         if (remote.sms.provider) setSmsP(remote.sms.provider)
         if (remote.sms.apiKey != null) setSmsKey(remote.sms.apiKey)
@@ -7269,7 +7230,6 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
 
   const saveAll = async () => {
     const payload = {
-      gbs: { enabled: gbsOn, ip: gbsIP, port: gbsPort, user: gbsUser, pass: gbsPass },
       sms: { provider: smsP, apiKey: smsKey },
       store: storeInfo,
     }
@@ -7277,9 +7237,9 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
       if (USE_API) {
         await api.updateAdminSettings(payload)
       } else {
-        localStorage.setItem('kakapo_admin_gbs', JSON.stringify(payload.gbs))
         localStorage.setItem('kakapo_admin_sms', JSON.stringify(payload.sms))
         localStorage.setItem('kakapo_admin_store', JSON.stringify(payload.store))
+        try { localStorage.removeItem('kakapo_admin_gbs') } catch { /* private mode */ }
       }
       setSaveErr('')
       setSaved(true)
@@ -7356,23 +7316,8 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
     }
   }
 
-  const testConn = async () => {
-    setTestSt('loading')
-    setSaveErr('')
-    try {
-      if (USE_API && gbsOn) await api.syncGBS()
-      else await new Promise(r => setTimeout(r, 1200))
-      setTestSt('ok')
-      setTimeout(() => setTestSt(''), 5000)
-    } catch {
-      setTestSt('err')
-      setTimeout(() => setTestSt(''), 4000)
-    }
-  }
-
   const STABS = [
     { id: 'access', l: '🔐 Доступ' },
-    { id: 'gbs', l: '🔗 GBS Market' },
     { id: 'sms', l: '💬 SMS / OTP' },
     { id: 'store', l: '🏪 Контакты' },
   ]
@@ -7445,32 +7390,6 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
           >
             {authBusy ? 'Сохранение…' : authSaved ? '✓ Сохранено!' : '🔐 Сохранить доступ'}
           </button>
-        </div>
-      )}
-
-      {stab==='gbs'&&(
-        <div style={{display:'grid',gridTemplateColumns:'1.3fr 1fr',gap:18}}>
-          <div className="ac" style={{padding:20}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-              <div className="ub" style={{fontSize:14,fontWeight:800}}>JSON API · GBS Market</div>
-              <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:12,color:gbsOn?'#1FD760':'#3D6645',fontWeight:700}}>{gbsOn?'Активно':'Выкл.'}</span><Tog on={gbsOn} set={() => setGbsOn(v => !v)}/></div>
-            </div>
-            <div style={{marginBottom:12,padding:'8px 12px',borderRadius:8,background:'rgba(255,184,0,.08)',border:'1px solid rgba(255,184,0,.25)',fontSize:11,color:'#FFB800',fontWeight:700}}>⚠ Demo-режим: реального подключения к кассовому терминалу нет, синхронизация не отправляет данные на устройство</div>
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 90px',gap:10}}><NI lbl="IP адрес кассы" val={gbsIP} set={setGbsIP} ph="http://192.168.1.100"/><NI lbl="Порт" val={gbsPort} set={setGbsPort} ph="8419"/></div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><NI lbl="Логин" val={gbsUser} set={setGbsUser}/><NI lbl="Пароль" val={gbsPass} set={setGbsPass} type="password" ph="••••••••••••"/></div>
-            </div>
-            <button type="button" onClick={testConn} className="ab" style={{width:'100%',marginTop:14,padding:11,background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0',display:'flex',alignItems:'center',justifyContent:'center',gap:8,fontSize:13}}>
-              {testSt==='loading'?<><div style={{width:16,height:16,borderRadius:'50%',border:'2px solid rgba(59,142,240,.3)',borderTopColor:'#3B8EF0',animation:'spin 1s linear infinite'}}/>Проверка...</>:testSt==='ok'?'⚠ Demo: заглушка ответила OK (устройство не проверялось)':testSt==='err'?'❌ Не удалось подключиться':'🔌 Проверить соединение'}
-            </button>
-            <div style={{marginTop:12,fontSize:11,color:'#3D6645'}}>
-              Синхронизация товаров: <button type="button" onClick={() => setPage('products')} className="btn" style={{background:'none',border:'none',color:'#1FD760',fontWeight:700,cursor:'pointer',padding:0,fontSize:11}}>Товары → Синх. GBS</button>
-            </div>
-          </div>
-          <div style={{padding:'14px 16px',borderRadius:14,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.2)'}}>
-            <div className="ub" style={{fontSize:12,fontWeight:800,color:'#1FD760',marginBottom:10}}>📋 Инструкция GBS Market</div>
-            {['1. Откройте GBS Market на кассовом компьютере','2. Настройки → Интеграции → API','3. Поставить ✓ "Активировать JSON API"','4. Скопируйте IP кассы','5. Вставьте IP выше и нажмите "Проверить"','6. Включите тумблер — начнётся синхронизация','','Синхронизируется:','• Товары по артикулу KAK-XXXX','• Продажи по карте КАКАПО-XXXX','• Долги VIP клиентов','• История покупок'].map((s,i)=><div key={i} style={{fontSize:11,color:s===''?undefined:s.startsWith('•')?'#FFB800':'#8FB897',marginBottom:4,lineHeight:1.5,fontWeight:s.startsWith('Синх')||s===''?700:400}}>{s}</div>)}
-          </div>
         </div>
       )}
 
@@ -8440,7 +8359,7 @@ function AdminAppInner({
     return () => {};
   }, []);
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Синхронизация KAK-XXXX с GBS Market',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Каталог · артикулы KAK-XXXX · остатки',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} session={session} onLogout={onLogout}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
