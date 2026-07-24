@@ -38,6 +38,7 @@ import {
   reconcileClientBonuses,
   reconcileAllClientBonuses,
   reverseClientBonusOnOrderCancel,
+  alignPosCashBonusToTarget,
   findClientByPhone,
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
@@ -2489,6 +2490,7 @@ app.patch('/clients/:id', (req, res) => {
     const prev = Number(c.bonus) || 0
     if (next < prev) delete patch.bonus
   }
+  const bonusManuallySet = patch.bonus != null
   const vipChanged = patch.vip !== undefined && !!patch.vip !== !!c.vip
   const levelChanged = patch.level != null && patch.level !== c.level
   const loyaltyTouched = vipChanged || levelChanged
@@ -2550,6 +2552,10 @@ app.patch('/clients/:id', (req, res) => {
     } else {
       c.debt = debtRequested
     }
+  }
+  // Ручная смена бонуса: подогнать posCashBonus, иначе reconcile вернёт старую сумму
+  if (bonusManuallySet && patch.bonus != null) {
+    alignPosCashBonusToTarget(db, c.phone, Number(c.bonus) || 0, loyaltyHooks())
   }
   const afterSnap = {
     name: c.name, phone: c.phone, vip: !!c.vip, level: c.level,
@@ -3462,6 +3468,7 @@ app.patch('/cards/:num', (req, res) => {
       const prev = Number(card.bonus) || 0
       if (next < prev) delete body.bonus
     }
+    const bonusManuallySet = body.bonus != null
     const vipChanged = body.vip !== undefined && !!body.vip !== !!card.vip
     const levelChanged = body.level != null && body.level !== card.level
     if (body.vip !== undefined || body.level != null || body.levelAssignMode != null) {
@@ -3509,6 +3516,10 @@ app.patch('/cards/:num', (req, res) => {
       }
     }
     syncClientFromCardRow(card)
+    // Ручная смена бонуса: подогнать posCashBonus, иначе reconcile вернёт старую сумму
+    if (bonusManuallySet && body.bonus != null && card.phone) {
+      alignPosCashBonusToTarget(db, card.phone, Number(card.bonus) || 0, loyaltyHooks())
+    }
     const afterSnap = {
       client: card.client, phone: card.phone, debt: card.debt, bonus: card.bonus,
       level: card.level, vip: !!card.vip, status: card.status, debtEnabled: card.debtEnabled,

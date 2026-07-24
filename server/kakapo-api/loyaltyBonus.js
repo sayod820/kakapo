@@ -613,6 +613,42 @@ export function reverseClientBonusOnOrderCancel(db, prev, updated, hooks) {
 }
 
 /**
+ * После ручной установки бонуса (админ/касса) подогнать posCashBonus,
+ * иначе reconcileClientBonuses вернёт старый баланс:
+ *   bonus = welcome + earned − spent + posCashBonus
+ */
+export function alignPosCashBonusToTarget(db, phone, targetBonus, hooks) {
+  const key = normalizePhoneDigits(phone)
+  if (!key) return null
+
+  const client = findClientByPhone(db, phone)
+  if (!client) return null
+
+  let card = client.card ? hooks.findCardByNum(client.card) : null
+  if (!card) card = hooks.ensureCardRowForClient(client)
+  if (!card) return null
+
+  const loyalty = ensureLoyaltySettings(db)
+  const welcome = Math.max(0, Number(loyalty.welcomeBonus) || 0)
+  const spent = spentBonusForClient(db, phone, client)
+  const delivered = deliveredOrdersForClient(db, phone, client)
+    .sort((a, b) => orderSortKey(a) - orderSortKey(b))
+
+  let earned = 0
+  for (const order of delivered) {
+    earned += earnBonusForOrder(db, phone, order, client, card, loyalty)
+  }
+
+  const target = Math.max(0, Math.round((Number(targetBonus) || 0) * 100) / 100)
+  const base = welcome + earned - spent
+  card.posCashBonus = Math.max(0, Math.round((target - base) * 100) / 100)
+  card.bonus = target
+  client.bonus = target
+  hooks.syncClientFromCardRow(card)
+  return { bonus: target, posCashBonus: card.posCashBonus }
+}
+
+/**
  * Пересчёт бонусов по доставленным заказам (допускает уменьшение при отмене).
  */
 export function reconcileClientBonuses(db, phone, hooks) {
