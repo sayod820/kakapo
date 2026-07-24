@@ -61,10 +61,14 @@ export default function AssemblerLoginPage({ assemblers, onSuccess }: AssemblerL
 
   const verifyWithCode = (code: string) => {
     if (code.length < 4 || load) return
+    if (!selectedId) {
+      setErr('Сначала выберите свой профиль сборщика')
+      return
+    }
     setErr('')
     setLoad(true)
     setTimeout(() => {
-      const result = verifyAssemblerPin(assemblers, code, selectedId ?? undefined)
+      const result = verifyAssemblerPin(assemblers, code, selectedId)
       setLoad(false)
       if (!result.ok) {
         setErr(result.error)

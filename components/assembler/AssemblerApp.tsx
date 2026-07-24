@@ -13,7 +13,7 @@ import { useAssemblerTeam, hydrateAssemblerTeamStore, useAssemblerTeamStore } fr
 import type { AdminAssembler } from '@/lib/assemblerTeam'
 import type { Product } from '@/lib/types'
 import { resolvePhotoUrl } from '@/lib/productPhotos'
-import { canAssemblerSeeOrder, isAssemblerOrderClaimed, orderHasAssemblerAssignment } from '@/lib/assemblerTeam'
+import { canAssemblerSeeOrder, isAssemblerOrderClaimed, orderHasAssemblerAssignment, buildAssemblerPersonalStats } from '@/lib/assemblerTeam'
 import { loadAssemblerSession, saveAssemblerSession, clearAssemblerSession, type AssemblerSession } from '@/lib/assemblerSession'
 // ─── КАКАПО Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
@@ -102,14 +102,6 @@ const ORDERS_DATA = [
       {id:3,art:'KAK-0019',e:'🌾',name:'Рис Девзира',           qty:1, unit:'1 кг',  price:9.50,   done:false},
     ]
   },
-];
-
-const HISTORY_DATA = [
-  {id:'K-4820',time:'13:00',items:5,duration:'6 мин',client:'Рустам Д.'},
-  {id:'K-4815',time:'12:40',items:3,duration:'4 мин',client:'Нилуфар Х.'},
-  {id:'K-4810',time:'12:15',items:7,duration:'9 мин',client:'Бахром К.'},
-  {id:'K-4805',time:'11:50',items:4,duration:'5 мин',client:'Лола М.'},
-  {id:'K-4800',time:'11:20',items:6,duration:'8 мин',client:'Зубайр Р.'},
 ];
 
 /* ══════════════════════════════════════════════════════
@@ -236,7 +228,7 @@ function AssemblerAppInner() {
     await updateStatus(orderId, 'cancelled', {
       ...fields,
       cancelReason: reason,
-      assembler: { name: assemblerName },
+      assembler: { name: assemblerName, id: assemblerProfile?.id },
     });
     if (page === 'collect') navigate('dashboard');
   };
@@ -312,7 +304,10 @@ function AssemblerAppInner() {
     if (USE_API && raw && isMixedOrder(normalizeOrder(raw))) {
       await completeMarketPart(orderId);
     } else if (USE_API) {
-      await updateStatus(orderId, 'assembler_done', { assembler: { name: assemblerName }, marketStatus: 'done' });
+      await updateStatus(orderId, 'assembler_done', {
+        assembler: { name: assemblerName, id: assemblerProfile?.id },
+        marketStatus: 'done',
+      });
     }
     setOrdersTab('ready');
     navigate('dashboard');
@@ -336,12 +331,14 @@ function AssemblerAppInner() {
 
   const pending = mapped;
 
-  const completedCount = useMemo(() => apiOrders.filter(o => {
-    if (!assemblerProfile || !orderHasAssemblerAssignment(normalizeOrder(o), assemblerProfile)) return false
-    const order = normalizeOrder(o)
-    if (isMixedOrder(order)) return getMarketStatus(order) === 'done'
-    return order.type === 'market' && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
-  }).length, [apiOrders, assemblerProfile]);
+  const personalStats = useMemo(() => {
+    if (!assemblerProfile) {
+      return buildAssemblerPersonalStats([], { name: '', phone: '', id: '', avgTimeMin: 0, rating: 5 })
+    }
+    return buildAssemblerPersonalStats(apiOrders, assemblerProfile)
+  }, [apiOrders, assemblerProfile]);
+
+  const completedCount = personalStats.todayCount;
 
   const logout = () => {
     clearAssemblerSession();
@@ -420,8 +417,8 @@ function AssemblerAppInner() {
             onAcknowledgeCancel={dismissCancel}
           />
         )}
-        {page==='history'   && <HistoryPage onPage={setPage} onLogout={logout}/>}
-        {page==='stats'     && <StatsPage onPage={setPage} completed={completedCount} assemblerName={assemblerName} onLogout={logout}/>}
+        {page==='history'   && <HistoryPage onPage={setPage} onLogout={logout} stats={personalStats}/>}
+        {page==='stats'     && <StatsPage onPage={setPage} stats={personalStats} assemblerName={assemblerName} onLogout={logout}/>}
       </div>
     </>
   );
@@ -704,7 +701,7 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
           {[
             {l:'На очереди',  v:workCount,   c:'#9B6DFF'},
             {l:'Готовые',     v:readyQueue.length, c:'#1FD760'},
-            {l:'Собрано сегодня',v:completed+HISTORY_DATA.length,c:'#FFB800'},
+            {l:'Собрано сегодня',v:completed,c:'#FFB800'},
           ].map((s,i)=>(
             <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'13px 10px',textAlign:'center',animation:`fadeUp .4s ease ${i*.06}s both`}}>
               <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:s.c,marginBottom:3}}>{s.v}</div>
@@ -1282,16 +1279,17 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
 /* ══════════════════════════════════════════════════════
    ИСТОРИЯ
 ══════════════════════════════════════════════════════ */
-function HistoryPage({onPage, onLogout}) {
+function HistoryPage({onPage, onLogout, stats}) {
+  const history = stats?.history || [];
   return (
     <div style={{minHeight:'100vh',paddingBottom:90}}>
-      <Header title="История сборок" sub="Сегодня" showBack onBack={()=>onPage('dashboard')} right={<LogoutBtn onLogout={onLogout} />}/>
+      <Header title="История сборок" sub="Только ваши заказы" showBack onBack={()=>onPage('dashboard')} right={<LogoutBtn onLogout={onLogout} />}/>
       <div style={{padding:'14px 18px'}}>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:18}}>
           {[
-            {l:'Собрано сегодня', v:HISTORY_DATA.length, c:'#9B6DFF'},
-            {l:'Ср. время',       v:'7 мин',             c:'#1FD760'},
-            {l:'Товаров собрано', v:'25',                c:'#FFB800'},
+            {l:'Собрано сегодня', v:stats?.todayCount ?? 0, c:'#9B6DFF'},
+            {l:'Ср. время',       v:stats?.avgTimeLabel || '—', c:'#1FD760'},
+            {l:'Товаров собрано', v:stats?.todayItems ?? 0, c:'#FFB800'},
           ].map((s,i)=>(
             <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'13px 10px',textAlign:'center'}}>
               <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:s.c,marginBottom:3}}>{s.v}</div>
@@ -1300,8 +1298,14 @@ function HistoryPage({onPage, onLogout}) {
           ))}
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
-          {HISTORY_DATA.map((h,i)=>(
-            <div key={i} className="card" style={{padding:'14px 16px',animation:`fadeUp .4s ease ${i*.06}s both`}}>
+          {history.length === 0 ? (
+            <div style={{textAlign:'center',padding:'48px 20px',color:'#3D6645'}}>
+              <div style={{fontSize:36,marginBottom:12}}>📦</div>
+              <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,color:'#8FB897',marginBottom:6}}>Пока пусто</div>
+              <div style={{fontSize:12,lineHeight:1.45}}>Здесь появятся только заказы, которые собрали вы</div>
+            </div>
+          ) : history.map((h,i)=>(
+            <div key={h.id} className="card" style={{padding:'14px 16px',animation:`fadeUp .4s ease ${i*.06}s both`}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                 <div style={{display:'flex',alignItems:'center',gap:10}}>
                   <div style={{width:36,height:36,borderRadius:10,background:'rgba(155,109,255,.12)',border:'1px solid rgba(155,109,255,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#9B6DFF',flexShrink:0}}>✓</div>
@@ -1331,13 +1335,19 @@ function HistoryPage({onPage, onLogout}) {
 /* ══════════════════════════════════════════════════════
    СТАТИСТИКА
 ══════════════════════════════════════════════════════ */
-function StatsPage({onPage, completed, assemblerName, onLogout}) {
+function StatsPage({onPage, stats, assemblerName, onLogout}) {
   const avatar = assemblerName?.charAt(0) || 'С';
-  const totalToday  = completed + HISTORY_DATA.length;
-  const totalItems  = 25 + completed*4;
-  const WEEK = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
-  const weekData = [8,12,6,14,11,9,totalToday];
-  const maxW = Math.max(...weekData);
+  const totalToday  = stats?.todayCount ?? 0;
+  const totalItems  = stats?.todayItems ?? 0;
+  const WEEK_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+  const weekData = stats?.weekCounts?.length === 7 ? stats.weekCounts : [0,0,0,0,0,0,totalToday];
+  const weekLabels = weekData.map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return WEEK_SHORT[d.getDay()];
+  });
+  const maxW = Math.max(1, ...weekData);
+  const record = Math.max(...weekData, totalToday);
 
   return (
     <div style={{minHeight:'100vh',paddingBottom:90}}>
@@ -1350,8 +1360,7 @@ function StatsPage({onPage, completed, assemblerName, onLogout}) {
             <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,marginBottom:2}}>{assemblerName}</div>
             <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Сборщик · КАКАПО Яван</div>
             <div style={{display:'flex',gap:8}}>
-              <span style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(31,215,96,.12)',color:'#1FD760',border:'1px solid rgba(31,215,96,.25)'}}>★ 4.9 рейтинг</span>
-              <span style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(155,109,255,.12)',color:'#9B6DFF',border:'1px solid rgba(155,109,255,.25)'}}>Топ сборщик</span>
+              <span style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(31,215,96,.12)',color:'#1FD760',border:'1px solid rgba(31,215,96,.25)'}}>★ {stats?.rating ?? 5} рейтинг</span>
             </div>
           </div>
         </div>
@@ -1359,10 +1368,10 @@ function StatsPage({onPage, completed, assemblerName, onLogout}) {
         {/* Stats grid */}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:18}}>
           {[
-            {l:'Собрано сегодня',   v:totalToday,         c:'#9B6DFF', e:'📦'},
-            {l:'Товаров обработано',v:totalItems,         c:'#FFB800', e:'🛒'},
-            {l:'Среднее время',     v:'7 мин',            c:'#1FD760', e:'⏱'},
-            {l:'Рекорд за день',    v:'19 заказов',       c:'#FF8C00', e:'🏆'},
+            {l:'Собрано сегодня',   v:totalToday,              c:'#9B6DFF', e:'📦'},
+            {l:'Товаров обработано',v:totalItems,              c:'#FFB800', e:'🛒'},
+            {l:'Среднее время',     v:stats?.avgTimeLabel || '—', c:'#1FD760', e:'⏱'},
+            {l:'Рекорд за день',    v:`${record} заказов`,     c:'#FF8C00', e:'🏆'},
           ].map((s,i)=>(
             <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:16,padding:'16px 14px',animation:`fadeUp .4s ease ${i*.07}s both`}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
@@ -1382,7 +1391,7 @@ function StatsPage({onPage, completed, assemblerName, onLogout}) {
               <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
                 <div style={{fontSize:9,color:i===6?'#9B6DFF':'#3D6645',fontWeight:700}}>{v}</div>
                 <div style={{width:'100%',borderRadius:'4px 4px 0 0',background:i===6?'linear-gradient(180deg,#9B6DFF,#6B3FD4)':'linear-gradient(180deg,#1D3822,#162B1A)',height:`${Math.round(v/maxW*80)}px`,transition:'height .6s ease',boxShadow:i===6?'0 2px 10px rgba(155,109,255,.4)':'none'}}/>
-                <div style={{fontSize:9,color:i===6?'#9B6DFF':'#3D6645',fontWeight:i===6?800:400}}>{WEEK[i]}</div>
+                <div style={{fontSize:9,color:i===6?'#9B6DFF':'#3D6645',fontWeight:i===6?800:400}}>{weekLabels[i]}</div>
               </div>
             ))}
           </div>

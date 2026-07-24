@@ -60,17 +60,25 @@ export function formatAssemblerAvgTime(min: number): string {
   return `${min} мин`
 }
 
+function phonesMatchAssembler(a?: string | null, b?: string | null): boolean {
+  const da = String(a || '').replace(/\D/g, '')
+  const db = String(b || '').replace(/\D/g, '')
+  if (da.length < 9 || db.length < 9) return false
+  return da === db || da.slice(-9) === db.slice(-9)
+}
+
+/** Совпадение сборщика: id → телефон → точное имя (без «чужих» по имени) */
 export function matchesAssemblerAssignment(
-  assembler: { name?: string } | null | undefined,
-  profile: Pick<AdminAssembler, 'name' | 'phone'>,
+  assembler: { id?: string; name?: string; phone?: string } | null | undefined,
+  profile: Pick<AdminAssembler, 'name' | 'phone'> & { id?: string },
 ): boolean {
-  if (!assembler?.name) return false
-  const an = assembler.name.toLowerCase().replace(/\./g, '').trim()
-  const pn = profile.name.toLowerCase().trim()
-  if (an === pn) return true
-  const aFirst = an.split(/\s+/)[0] || ''
-  const pFirst = pn.split(/\s+/)[0] || ''
-  return an.startsWith(pFirst) || pn.startsWith(aFirst) || an.includes(pFirst)
+  if (!assembler) return false
+  if (profile.id && assembler.id && String(assembler.id) === String(profile.id)) return true
+  if (phonesMatchAssembler(assembler.phone, profile.phone)) return true
+  const an = (assembler.name || '').toLowerCase().replace(/\./g, '').trim()
+  const pn = (profile.name || '').toLowerCase().trim()
+  if (!an || !pn) return false
+  return an === pn
 }
 
 export type AssemblerMember = { name: string; id?: string }
@@ -150,14 +158,105 @@ export function countAssemblerActiveOrders(
 
 export function countAssemblerCompletedOrders(
   orders: Order[],
-  profile: Pick<AdminAssembler, 'name' | 'phone'>,
+  profile: Pick<AdminAssembler, 'name' | 'phone' | 'id'>,
 ): number {
-  return orders.filter(o => {
-    if (!orderHasAssemblerAssignment(o, profile) && !matchesAssemblerAssignment(o.assembler, profile)) return false
-    const st = o.status
-    return ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(st)
-      || (isMixedOrder(normalizeOrder(o)) && getMarketStatus(normalizeOrder(o)) === 'done')
-  }).length
+  return orders.filter(o => isAssemblerCompletedForProfile(o, profile)).length
+}
+
+export function isAssemblerCompletedForProfile(
+  o: Order,
+  profile: Pick<AdminAssembler, 'name' | 'phone' | 'id'>,
+): boolean {
+  const order = normalizeOrder(o)
+  if (!orderHasAssemblerAssignment(order, profile)) return false
+  if (isMixedOrder(order)) {
+    return getMarketStatus(order) === 'done'
+      || ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
+  }
+  return order.type === 'market'
+    && ['assembler_done', 'courier_picked', 'delivering', 'delivered'].includes(order.status)
+}
+
+function shortAssemblerClientName(name: string): string {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return 'Клиент'
+  if (parts.length === 1) return parts[0]
+  return `${parts[0]} ${parts[1][0]}.`
+}
+
+export interface AssemblerHistoryItem {
+  id: string
+  time: string
+  items: number
+  duration: string
+  client: string
+}
+
+export interface AssemblerPersonalStats {
+  history: AssemblerHistoryItem[]
+  todayCount: number
+  todayItems: number
+  avgTimeLabel: string
+  weekCounts: number[]
+  rating: number
+}
+
+/** История и статистика только по заказам этого сборщика */
+export function buildAssemblerPersonalStats(
+  orders: Order[],
+  profile: Pick<AdminAssembler, 'name' | 'phone' | 'id' | 'avgTimeMin' | 'rating'>,
+): AssemblerPersonalStats {
+  const mine = orders
+    .filter(o => isAssemblerCompletedForProfile(o, profile))
+    .sort((a, b) => {
+      const ta = a.deliveredAtIso || a.createdAtIso || a.deliveredAt || a.createdAt || ''
+      const tb = b.deliveredAtIso || b.createdAtIso || b.deliveredAt || b.createdAt || ''
+      return String(tb).localeCompare(String(ta))
+    })
+
+  const avgMin = Math.max(0, Number(profile.avgTimeMin) || 0)
+  const duration = avgMin > 0 ? `${avgMin} мин` : '—'
+
+  const history: AssemblerHistoryItem[] = mine.slice(0, 40).map(o => {
+    const order = normalizeOrder(o)
+    const itemCount = (order.items || [])
+      .filter(it => !it.source || it.source === 'market' || !it.restId)
+      .reduce((s, it) => s + (Number(it.qty) || 0), 0)
+    return {
+      id: order.id,
+      time: order.deliveredAt || order.createdAt || '—',
+      items: itemCount || (order.items || []).length,
+      duration,
+      client: shortAssemblerClientName(order.client?.name || ''),
+    }
+  })
+
+  const todayItems = history.reduce((s, h) => s + h.items, 0)
+  const weekCounts = [0, 0, 0, 0, 0, 0, 0]
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  for (const o of mine) {
+    const raw = o.deliveredAtIso || o.createdAtIso || ''
+    const d = raw ? new Date(raw) : null
+    if (!d || Number.isNaN(d.getTime())) {
+      weekCounts[6] += 1
+      continue
+    }
+    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    const diffDays = Math.round((startOfToday.getTime() - start.getTime()) / 86400000)
+    if (diffDays >= 0 && diffDays <= 6) {
+      weekCounts[6 - diffDays] += 1
+    }
+  }
+
+  return {
+    history,
+    todayCount: mine.length,
+    todayItems,
+    avgTimeLabel: avgMin > 0 ? `${avgMin} мин` : '—',
+    weekCounts,
+    rating: Number(profile.rating) || 5,
+  }
 }
 
 export function findAssemblerByPhone(assemblers: AdminAssembler[], phone: string): AdminAssembler | undefined {
@@ -189,17 +288,15 @@ export function verifyAssemblerPin(
   code: string,
   assemblerId?: string,
 ): { ok: true; assembler: AdminAssembler } | { ok: false; error: string } {
-  if (assemblerId) {
-    const a = assemblers.find(x => x.id === assemblerId)
-    if (!a) return { ok: false, error: 'Сборщик не найден · проверьте раздел «Сборщики» в админке' }
-    if (a.blocked) return { ok: false, error: 'Доступ заблокирован администратором' }
-    const expected = a.otp || '5678'
-    if (String(code) !== expected) {
-      return { ok: false, error: `Неверный PIN · Демо: ${expected}` }
-    }
-    return { ok: true, assembler: a }
+  if (!assemblerId) {
+    return { ok: false, error: 'Выберите сборщика из списка' }
   }
-  const match = assemblers.find(a => !a.blocked && (a.otp || '5678') === String(code))
-  if (!match) return { ok: false, error: 'Неверный PIN · Демо: 5678' }
-  return { ok: true, assembler: match }
+  const a = assemblers.find(x => x.id === assemblerId)
+  if (!a) return { ok: false, error: 'Сборщик не найден · проверьте раздел «Сборщики» в админке' }
+  if (a.blocked) return { ok: false, error: 'Доступ заблокирован администратором' }
+  const expected = a.otp || '5678'
+  if (String(code) !== expected) {
+    return { ok: false, error: `Неверный PIN · Демо: ${expected}` }
+  }
+  return { ok: true, assembler: a }
 }

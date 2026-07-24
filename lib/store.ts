@@ -15,7 +15,6 @@ import {
   normalizeOrder,
   normalizeOrders,
 } from './orderParts'
-import { ASSEMBLER_NAME } from './courierStats'
 import { kakapoNowTime } from './kakapoTime'
 import { ensureArray } from './apiGuards'
 import { onOrderStatusChange, onRestPartAccepted } from './pushService'
@@ -602,17 +601,19 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   startMarketPart: async (id) => {
     const order = get().orders.find(o => o.id === id)
     if (!order) return
-    const assembler = { name: ASSEMBLER_NAME }
+    const assembler = order.assembler?.name
+      ? order.assembler
+      : null
     const next = isMixedOrder(normalizeOrder(order))
-      ? { ...order, marketStatus: 'assembling' as const, assembler: order.assembler || assembler }
-      : { ...order, status: 'assembling' as OrderStatus, assembler: order.assembler || assembler }
+      ? { ...order, marketStatus: 'assembling' as const, ...(assembler ? { assembler } : {}) }
+      : { ...order, status: 'assembling' as OrderStatus, ...(assembler ? { assembler } : {}) }
     patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
     if (USE_API) {
       try {
         const status = 'assembling'
         const extra = isMixedOrder(normalizeOrder(order))
-          ? { marketStatus: 'assembling', assembler: next.assembler }
-          : { assembler: next.assembler }
+          ? { marketStatus: 'assembling', ...(assembler ? { assembler } : {}) }
+          : { ...(assembler ? { assembler } : {}) }
         const updated = await api.updateOrderStatus(id, status, extra)
         patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
       } catch (e) { console.error(e) }
@@ -622,11 +623,11 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   completeMarketPart: async (id) => {
     const order = get().orders.find(o => o.id === id)
     if (!order) return
-    const assembler = order.assembler || { name: ASSEMBLER_NAME }
+    const assembler = order.assembler || null
     const next = isMixedOrder(normalizeOrder(order))
       ? applyMarketStatus(order, 'done')
-      : { ...order, status: 'assembler_done' as OrderStatus, marketStatus: 'done' as const, assembler }
-    const withAssembler = { ...next, assembler }
+      : { ...order, status: 'assembler_done' as OrderStatus, marketStatus: 'done' as const }
+    const withAssembler = assembler ? { ...next, assembler } : next
     patchOrders(set, get, s => s.map(o => o.id === id ? withAssembler : o))
     if (USE_API) {
       try {
