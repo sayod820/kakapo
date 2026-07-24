@@ -1514,7 +1514,6 @@ function CourierAppInner() {
         {/* HEADER */}
         <header style={{ position:'sticky', top:0, zIndex:100, background:'rgba(3,11,5,.97)', backdropFilter:'blur(16px)', borderBottom:'1px solid #162B1A', padding:'10px 14px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <a href="/" className="btn" style={{ width:34, height:34, borderRadius:11, background:'#0C1C0F', border:'1px solid #162B1A', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', color:'#8FB897', fontSize:15, flexShrink:0 }}>←</a>
             <div style={{ width:38, height:38, borderRadius:12, background:'linear-gradient(145deg,#1E5BB5,#3B8EF0)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0, boxShadow:'0 4px 14px rgba(59,142,240,.25)' }}>🛵</div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:'flex', alignItems:'center', gap:6, minWidth:0 }}>
