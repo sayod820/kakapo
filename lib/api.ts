@@ -610,6 +610,17 @@ export const api = {
     sms?: Record<string, unknown>
     store?: Record<string, unknown>
   }) => request('/settings/admin', { method: 'PATCH', body: JSON.stringify(data) }),
+  /** Публичные контакты магазина (без SMS/auth) */
+  getStoreSettings: () => request<{
+    name?: string
+    city?: string
+    address?: string
+    phone1?: string
+    phone2?: string
+    email?: string
+    telegram?: string
+    hours?: string
+  }>('/settings/store'),
   syncLoyalty: (phone: string) =>
     request<{ ok: boolean; credited: number; orders: number; bonus: number }>('/loyalty/sync', {
       method: 'POST',

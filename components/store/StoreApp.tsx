@@ -53,7 +53,7 @@ import {
   type DebtLedgerResponse,
   refreshStoreUserAfterCredit,
 } from "@/lib/clientVipCredit";
-import { KAKAPO_SUPPORT } from "@/lib/supportContacts";
+import { useSupportContacts, ensureSupportContactsLoaded, toTelHref } from "@/lib/supportContacts";
 import { loadClientAddresses, loadClientAddressesUpdatedAt, saveClientAddresses, saveClientAddressesLocal, formatClientAddressLine, ensureClientDefaultAddress } from "@/lib/clientAddresses";
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson, migrateLegacyClientData } from "@/lib/clientAccountStorage";
 import { mergeCartData, saveRemoteCart, cartSyncTimestamp, findSyncClient, clientCartPayload } from "@/lib/clientCartSync";
@@ -4276,6 +4276,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
 const FAQPage = ({ go }) => {
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState("");
+  const support = useSupportContacts();
   const items = useMemo(() => FAQ(), []);
   const filtered = items.filter(f => q==="" || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase()));
   return (
@@ -4309,12 +4310,12 @@ const FAQPage = ({ go }) => {
         <div style={{ marginTop:20, background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"16px" }}>
           <div className="ub" style={{ fontSize:13, fontWeight:800, marginBottom:4 }}>Не нашли ответ?</div>
           <div style={{ fontSize:12, color:"var(--t2)", marginBottom:14, lineHeight:1.6 }}>Наша поддержка в рабочие часы</div>
-          {[{icon:"phone",l:"Позвонить",s:"+992 118 55-97-97",c:"var(--gr)"},{icon:"tg",l:"Telegram",s:"@kakapo_tj",c:"#29B6F6"}].map((ct,i) => (
-            <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:i<1?"1px solid var(--b1)":"none", cursor:"pointer" }}>
+          {[{icon:"phone",l:"Позвонить",s:support.phone,c:"var(--gr)",href:support.phoneTel},{icon:"tg",l:"Telegram",s:support.telegramLabel,c:"#29B6F6",href:support.telegram}].map((ct,i) => (
+            <a key={i} href={ct.href} {...(ct.icon === 'tg' ? { target: '_blank', rel: 'noopener noreferrer' } : {})} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:i<1?"1px solid var(--b1)":"none", cursor:"pointer", textDecoration:"none", color:"inherit" }}>
               <div style={{ width:38, height:38, borderRadius:11, background:`${ct.c}14`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={ct.icon} s={18} c={ct.c}/></div>
               <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700 }}>{ct.l}</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>{ct.s}</div></div>
               <Ic n="arr" s={14} c="var(--t3)"/>
-            </div>
+            </a>
           ))}
         </div>
       </div>
@@ -4325,7 +4326,7 @@ const FAQPage = ({ go }) => {
 type DebtTab = 'all' | 'debt' | 'pay'
 
 function DebtSupportBlock({ debt, cardNum }: { debt: number; cardNum?: string }) {
-  const s = KAKAPO_SUPPORT
+  const s = useSupportContacts()
   return (
     <div style={{ marginTop: 14, padding: '14px', borderRadius: 14, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.25)' }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--sky)', marginBottom: 6 }}>Погашение через поддержку</div>
@@ -4361,7 +4362,7 @@ function DebtSupportBlock({ debt, cardNum }: { debt: number; cardNum?: string })
 }
 
 function VipSupportBlock() {
-  const s = KAKAPO_SUPPORT
+  const s = useSupportContacts()
   return (
     <div style={{ background: 'var(--l2)', border: '1px solid var(--b1)', borderRadius: 18, padding: '18px', marginBottom: 16 }}>
       <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6 }}>📞 Поддержка VIP</div>
@@ -5344,6 +5345,7 @@ const VIPPage = ({ go, user, setUser }) => {
 };
 const AboutPage = ({ go, user }) => {
   const [tab, setTab] = useState("about");
+  const support = useSupportContacts();
   const [sent, setSent] = useState(false);
   const [name, setName] = useState("");
   const [msg,  setMsg]  = useState("");
@@ -5359,9 +5361,8 @@ const AboutPage = ({ go, user }) => {
   ];
 
   const STORES = [
-    { name:"КАКАПО Главный",    addr:"ул. Ленина, 42",             hours:"08:00–22:00", phone:"+992 118 55-97-97", main:true },
-    { name:"КАКАПО Рынок",      addr:"Центральный рынок, блок 3",  hours:"08:00–20:00", phone:"+992 553 55-98-98", main:false },
-    { name:"КАКАПО Микрорайон", addr:"мкр. Мирный, 15",            hours:"09:00–21:00", phone:"+992 93 123 45 67", main:false },
+    { name: support.name || "КАКАПО Главный", addr: support.address || "ул. Ленина, 42", hours: support.hours || "08:00–22:00", phone: support.phone, main: true },
+    { name: "КАКАПО Рынок", addr: "Центральный рынок, блок 3", hours: "08:00–20:00", phone: support.phone2, main: false },
   ];
 
   const TEAM = [
@@ -5469,14 +5470,12 @@ const AboutPage = ({ go, user }) => {
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Связаться с нами</div>
             <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:22 }}>
               {[
-                { icon:"phone", label:"Позвонить",       sub:"+992 118 55-97-97", color:"var(--gr)",   bg:"rgba(31,215,96,.1)" },
-                { icon:"phone", label:"Второй номер",     sub:"+992 553 55-98-98", color:"var(--gr)",   bg:"rgba(31,215,96,.08)" },
-                { icon:"wa",    label:"WhatsApp",         sub:"Пишите в любое время", color:"#25D366",  bg:"rgba(37,211,102,.1)" },
-                { icon:"tg",    label:"Telegram",         sub:"@kakapo_tj",        color:"#29B6F6",     bg:"rgba(41,182,246,.1)" },
-                { icon:"insta", label:"Instagram",        sub:"@kakapo.tj",        color:"#E1306C",     bg:"rgba(225,48,108,.1)" },
-                { icon:"msg",   label:"Email",            sub:"kakapo.tj@gmail.com",color:"var(--gd)",  bg:"rgba(255,184,0,.1)" },
+                { icon:"phone", label:"Позвонить",       sub:support.phone, color:"var(--gr)",   bg:"rgba(31,215,96,.1)", href: support.phoneTel },
+                { icon:"phone", label:"Второй номер",     sub:support.phone2, color:"var(--gr)",   bg:"rgba(31,215,96,.08)", href: support.phone2Tel },
+                { icon:"tg",    label:"Telegram",         sub:support.telegramLabel, color:"#29B6F6", bg:"rgba(41,182,246,.1)", href: support.telegram },
+                { icon:"msg",   label:"Email",            sub:support.email, color:"var(--gd)",  bg:"rgba(255,184,0,.1)", href: `mailto:${support.email}` },
               ].map((c,i) => (
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, cursor:"pointer", transition:"all .2s" }}>
+                <a key={i} href={c.href} {...(c.icon === 'tg' ? { target: '_blank', rel: 'noopener noreferrer' } : {})} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, cursor:"pointer", transition:"all .2s", textDecoration:"none", color:"inherit" }}>
                   <div style={{ width:42, height:42, borderRadius:13, background:c.bg, border:`1px solid ${c.color}30`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                     <Ic n={c.icon} s={20} c={c.color}/>
                   </div>
@@ -5485,21 +5484,17 @@ const AboutPage = ({ go, user }) => {
                     <div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>{c.sub}</div>
                   </div>
                   <Ic n="arr" s={14} c="var(--t3)"/>
-                </div>
+                </a>
               ))}
             </div>
 
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Режим работы</div>
-            <div className="card" style={{ overflow:"hidden", marginBottom:22 }}>
-              {[{d:"Понедельник – Пятница",h:"08:00–22:00"},{d:"Суббота",h:"08:00–22:00"},{d:"Воскресенье",h:"09:00–21:00"},{d:"Доставка",h:"08:00–22:00"}].map((r,i) => (
-                <div key={i} style={{ padding:"13px 16px", borderBottom:i<3?"1px solid var(--b1)":"none", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <div style={{ width:7, height:7, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>
-                    <span style={{ fontSize:12, fontWeight:600 }}>{r.d}</span>
-                  </div>
-                  <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{r.h}</span>
-                </div>
-              ))}
+            <div className="card" style={{ overflow:"hidden", marginBottom:22, padding:"13px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <div style={{ width:7, height:7, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>
+                <span style={{ fontSize:12, fontWeight:600 }}>Ежедневно</span>
+              </div>
+              <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{support.hours}</span>
             </div>
 
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Написать нам</div>
@@ -5553,9 +5548,9 @@ const AboutPage = ({ go, user }) => {
                       <div style={{ position:"absolute", bottom:7, right:10, fontSize:9, color:"rgba(255,255,255,.4)", display:"flex", alignItems:"center", gap:4 }}>Открыть карту</div>
                     </div>
                     <div style={{ display:"flex", gap:8 }}>
-                      <button className="btn" style={{ flex:1, padding:"10px", fontSize:12, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                      <a href={toTelHref(store.phone)} className="btn" style={{ flex:1, padding:"10px", fontSize:12, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:6, textDecoration:"none" }}>
                         <Ic n="phone" s={13} c="white"/>{store.phone}
-                      </button>
+                      </a>
                       <button className="btn" style={{ flex:1, padding:"10px", fontSize:12, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
                         <Ic n="map" s={13} c="var(--gr)"/>Маршрут
                       </button>
@@ -6715,6 +6710,7 @@ function KakapoAppInner() {
   const [, setLoyaltyCfgTick] = useState(0);
 
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
+  useEffect(() => { void ensureSupportContactsLoaded() }, []);
 
   useLayoutEffect(() => {
     setSessionReady(true);

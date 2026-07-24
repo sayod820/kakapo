@@ -7241,6 +7241,8 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
         localStorage.setItem('kakapo_admin_store', JSON.stringify(payload.store))
         try { localStorage.removeItem('kakapo_admin_gbs') } catch { /* private mode */ }
       }
+      const { applyStoreContactSettings } = await import('@/lib/supportContacts')
+      applyStoreContactSettings(payload.store)
       setSaveErr('')
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)

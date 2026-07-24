@@ -3082,6 +3082,12 @@ app.get('/settings/admin', (_req, res) => {
   })
 })
 
+/** Публичные контакты для клиентского приложения (долги, FAQ, «О нас») */
+app.get('/settings/store', (_req, res) => {
+  const a = ensureAdminSettings()
+  res.json({ ...(a.store || DEFAULT_ADMIN_SETTINGS.store) })
+})
+
 app.patch('/settings/admin', (req, res) => {
   const current = ensureAdminSettings()
   const body = req.body || {}
