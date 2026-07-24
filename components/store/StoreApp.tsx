@@ -6592,9 +6592,6 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
                   )}
                 </div>
                 <div style={{fontSize:11,color:'var(--t3)',marginBottom:6,lineHeight:1.5}}>{item.desc}</div>
-                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
-                  <span style={{fontSize:10,color:'var(--t3)'}}>⏱ {item.time} мин</span>
-                </div>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                   <div style={{display:'flex',alignItems:'baseline',gap:5}}>
                     <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>{item.price}<span style={{fontSize:10,color:'var(--gd)',marginLeft:2}}>ЅМ</span></span>
