@@ -904,6 +904,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
   const [desc, setDesc] = useState('')
   const [cat, setCat] = useState(rest?.categories[0] || '')
   const [emoji, setEmoji] = useState('🍽')
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [photo, setPhoto] = useState('')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoBusy, setPhotoBusy] = useState(false)
@@ -936,6 +937,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
     setDesc('')
     setCat(target)
     setEmoji('🍽')
+    setShowEmojiPicker(false)
     setPhoto('')
     setPhotoFile(null)
     setPhotoBusy(false)
@@ -1376,22 +1378,48 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 {photoErr && <div style={{marginTop:6,fontSize:11,color:'#FF4545'}}>⚠️ {photoErr}</div>}
               </div>
 
-              {/* Emoji picker */}
+              {/* Emoji picker — скрыт, открывается по нажатию (если нет фото) */}
               <div style={{marginBottom:16}}>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Иконка блюда</div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:6}}>
-                  {FOOD_EMOJIS.map(e => (
-                    <button key={e} type="button" onClick={() => setEmoji(e)} className="btn"
-                      style={{
-                        aspectRatio:'1',borderRadius:11,fontSize:22,
-                        background:emoji === e ? 'rgba(31,215,96,.18)' : '#0C1C0F',
-                        border:`1.5px solid ${emoji === e ? 'rgba(31,215,96,.5)' : '#162B1A'}`,
-                        display:'flex',alignItems:'center',justifyContent:'center',
-                      }}>
-                      {e}
-                    </button>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(v => !v)}
+                  className="btn"
+                  style={{
+                    width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,
+                    padding:'11px 14px',borderRadius:14,
+                    background:'#0C1C0F',border:'1px solid #162B1A',
+                  }}
+                >
+                  <div style={{display:'flex',alignItems:'center',gap:10,minWidth:0}}>
+                    <span style={{
+                      width:36,height:36,borderRadius:11,flexShrink:0,
+                      background:'#091508',border:'1px solid #162B1A',
+                      display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,
+                    }}>{emoji}</span>
+                    <div style={{textAlign:'left',minWidth:0}}>
+                      <div style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Иконка без фото</div>
+                      <div style={{fontSize:10,color:'#3D6645',marginTop:1}}>
+                        {photo ? 'Фото уже есть — иконка запасная' : 'Нажмите, чтобы выбрать'}
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{fontSize:12,color:'#3D6645',fontWeight:800}}>{showEmojiPicker ? '▴' : '▾'}</span>
+                </button>
+                {showEmojiPicker && (
+                  <div style={{marginTop:10,display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:6}}>
+                    {FOOD_EMOJIS.map(e => (
+                      <button key={e} type="button" onClick={() => { setEmoji(e); setShowEmojiPicker(false) }} className="btn"
+                        style={{
+                          aspectRatio:'1',borderRadius:11,fontSize:22,
+                          background:emoji === e ? 'rgba(31,215,96,.18)' : '#0C1C0F',
+                          border:`1.5px solid ${emoji === e ? 'rgba(31,215,96,.5)' : '#162B1A'}`,
+                          display:'flex',alignItems:'center',justifyContent:'center',
+                        }}>
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div style={{marginBottom:14}}>
