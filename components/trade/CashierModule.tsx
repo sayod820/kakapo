@@ -2991,10 +2991,8 @@ export default function CashierModule({
       }
       apiMethod = 'credit'
       debtAdded = payable
-      if (debtAdded > availableDebt + 0.001) {
-        showToast('Лимит долга', `Доступно ${fmtMoney(availableDebt)}`)
-        return
-      }
+      // Лимит долга действует только в приложении клиента.
+      // С кассы/админки можно оформить долг сразу, даже если лимит 0.
     } else if (methodPay === 'balance') {
       apiMethod = 'card'
     } else if (methodPay === 'wallet') {
@@ -3030,10 +3028,7 @@ export default function CashierModule({
           showDebtBlockedToast()
           return
         }
-        if (debtAdded > availableDebt + 0.001) {
-          showToast('Лимит долга', `Доступно ${fmtMoney(availableDebt)}`)
-          return
-        }
+        // Лимит не проверяем на кассе — только в приложении клиента
       }
       if (cashPaid < 0.01 && cardPaid < 0.01 && debtAdded < 0.01) {
         showToast('Ошибка', 'Укажите сумму оплаты')
