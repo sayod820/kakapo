@@ -352,12 +352,12 @@ export const DEFAULT_PRICING: PricingConfig = {
   courierCommissionPercent: 15,
 };
 
-/** Надбавка за вес: первый шаг — weightFirstExtra, каждый следующий — weightNextExtra.
- *  Пример (шаг 30, первые 10, далее 5): 120 кг → 10+5+5+5 = 25 (не 30).
+/** Надбавка за вес: первый полный шаг — weightFirstExtra, каждый следующий полный — weightNextExtra.
+ *  Считаем по полным блокам (floor), недобор до следующей ступени не тарифицируется.
+ *  Пример (шаг 30, первые 10, далее 5): 120–149 кг → 10+5+5+5 = 25; 150 кг → 30.
  */
 export function calcWeightSurcharge(weightKg: number, pricing: PricingConfig = DEFAULT_PRICING): number {
   let w = Math.max(0, Number(weightKg) || 0)
-  // если ошибочно пришли граммы
   if (w > 5000) w = w / 1000
   w = Math.round(w * 10) / 10
   if (w <= 0) return 0
@@ -366,17 +366,10 @@ export function calcWeightSurcharge(weightKg: number, pricing: PricingConfig = D
   const first = Math.max(0, Number(pricing.weightFirstExtra ?? DEFAULT_PRICING.weightFirstExtra) || 0)
   const next = Math.max(0, Number(pricing.weightNextExtra ?? DEFAULT_PRICING.weightNextExtra) || 0)
 
-  let total = 0
-  let left = w
-  let band = 0
-  // 1..30 → +first; 31..60 → +next; …; 91..120 → +next  ⇒ 25 при 120 кг
-  while (left >= 0.05) {
-    band += 1
-    total += band === 1 ? first : next
-    left = Math.round((left - step) * 10) / 10
-    if (band > 200) break
-  }
-  return Math.round(total * 100) / 100
+  // Полные ступени: 30→1, 60→2, …, 120→4, 121→4, 150→5
+  let blocks = Math.floor(w / step + 1e-9)
+  if (blocks < 1) blocks = 1 // вес до первого полного шага — всё равно первая ступень
+  return Math.round((first + Math.max(0, blocks - 1) * next) * 100) / 100
 }
 
 export function weightSurchargeLabel(weightKg: number, pricing: PricingConfig = DEFAULT_PRICING): string {
@@ -388,17 +381,10 @@ export function weightSurchargeLabel(weightKg: number, pricing: PricingConfig = 
   let w = Math.max(0, Number(weightKg) || 0)
   if (w > 5000) w = w / 1000
   w = Math.round(w * 10) / 10
-  const bands: number[] = []
-  let left = w
-  let band = 0
-  while (left >= 0.05) {
-    band += 1
-    bands.push(band === 1 ? first : next)
-    left = Math.round((left - step) * 10) / 10
-    if (band > 200) break
-  }
-  const detail = bands.length ? bands.join('+') : String(extra)
-  return `⚖️ Вес ${w} кг (${band}×${step} кг): ${detail} = +${extra} ЅМ`
+  let blocks = Math.floor(w / step + 1e-9)
+  if (blocks < 1) blocks = 1
+  const bands = Array.from({ length: blocks }, (_, i) => (i === 0 ? first : next))
+  return `⚖️ Вес ${w} кг (${blocks}×${step} кг): ${bands.join('+')} = +${extra} ЅМ`
 }
 
 export interface RouteResult {

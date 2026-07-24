@@ -55,9 +55,9 @@ export const TARIFF_FIELD_META: {
   { key: 'base', label: 'Базовая стоимость', unit: 'ЅМ', hint: 'Минимальная цена доставки', step: 1 },
   { key: 'baseDist', label: 'Бесплатный радиус', unit: 'км', hint: 'До этого расстояния — только базовая цена', step: 0.1 },
   { key: 'perKm', label: 'За каждый доп. км', unit: 'ЅМ/км', hint: 'Добавляется за каждый км сверх базового', step: 0.5 },
-  { key: 'weightStepKg', label: 'Шаг веса', unit: 'кг', hint: 'Размер ступени веса (напр. каждые 30 кг)', step: 1 },
-  { key: 'weightFirstExtra', label: 'Первые N кг', unit: 'ЅМ', hint: 'Надбавка за первый шаг веса (напр. первые 30 кг → 10)', step: 1 },
-  { key: 'weightNextExtra', label: 'Каждые следующие N кг', unit: 'ЅМ', hint: 'Надбавка за каждый следующий шаг (напр. +5)', step: 1 },
+  { key: 'weightStepKg', label: 'Шаг веса', unit: 'кг', hint: 'Полный блок веса (напр. каждые 30 кг). Недобор до следующего блока не тарифицируется', step: 1 },
+  { key: 'weightFirstExtra', label: 'Первые N кг', unit: 'ЅМ', hint: 'Надбавка за первый полный блок (напр. 30 кг → 10)', step: 1 },
+  { key: 'weightNextExtra', label: 'Каждые следующие N кг', unit: 'ЅМ', hint: 'Надбавка за каждый следующий полный блок (напр. +5 с 60, 90, 120…)', step: 1 },
   { key: 'freeFrom', label: 'Бесплатная доставка от', unit: 'ЅМ', hint: '0 = отключено · сумма заказа для бесплатной доставки', step: 10 },
   { key: 'courierCommissionPercent', label: 'Комиссия с курьера', unit: '%', hint: '% от стоимости доставки · списывается при принятии заказа', step: 1 },
 ]
