@@ -3,6 +3,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } fr
 import { calcDeliveryFee, calcDeliveryPrice, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, roundRouteKm, COURIER_MAP_VIEW } from '@/lib/courierData'
 import { resolveOrderDeliveryFee, buildDeliveryFeePatch } from '@/lib/deliveryFee'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
+import { DEFAULT_PICKUPS, type PickupPoint } from '@/lib/pickups'
 import { useCourierTeam, useCourierTeamStore } from '@/lib/courierTeamStore'
 import { countCourierActiveOrders, isMyCourierOrder, findCourierByPhone, vehicleIcon } from '@/lib/courierTeam'
 import { reloadCourierTeamStore, syncCourierTeamFromApi } from '@/lib/courierTeamStore'
@@ -269,7 +270,7 @@ function CourierPickupPoints({
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {points.map((pid, idx) => {
-          const pk = PICKUPS[pid] || PICKUPS.store
+          const pk = resolveCourierPickup(PICKUPS, pid)
           const isPicked = picked.has(pid)
           const ready = isPickupPointReady(order, pid)
           const isFocus = focusPid === pid && !isPicked
@@ -584,10 +585,65 @@ function useCourierLocation() {
 }
 
 /* Точки забора — из общего store (синхрон с админкой) */
+const FALLBACK_PICKUP = {
+  id: 'store',
+  name: 'КАКАПО Магазин',
+  addr: '—',
+  phone: '',
+  e: '🏪',
+  color: '#1FD760',
+  lat: 38.3250,
+  lng: 69.0250,
+}
+
+type CourierPickupRow = typeof FALLBACK_PICKUP
+
+function resolveCourierPickup(
+  pickups: Record<string, CourierPickupRow | undefined>,
+  pid: string | undefined | null,
+): CourierPickupRow {
+  const id = String(pid || 'store')
+  const found = pickups[id] || pickups.store
+  if (found?.color) return found
+  const base = DEFAULT_PICKUPS.find(p => p.id === id) || DEFAULT_PICKUPS[0] || FALLBACK_PICKUP
+  return {
+    id: base.id || id,
+    name: base.name || (id === 'store' ? 'КАКАПО Магазин' : `Точка ${id}`),
+    addr: base.addr || '—',
+    phone: base.phone || '',
+    e: base.e || '📍',
+    color: base.color || '#1FD760',
+    lat: Number(base.lat) || FALLBACK_PICKUP.lat,
+    lng: Number(base.lng) || FALLBACK_PICKUP.lng,
+  }
+}
+
 function buildPickupsMap(list: PickupPoint[]) {
-  return Object.fromEntries(list.map(p => [p.id, {
-    id: p.id, name: p.name, addr: p.addr, phone: p.phone, e: p.e, color: p.color, lat: p.lat, lng: p.lng,
-  }]));
+  const rows = (list?.length ? list : DEFAULT_PICKUPS).map(p => ({
+    id: p.id,
+    name: p.name,
+    addr: p.addr,
+    phone: p.phone,
+    e: p.e,
+    color: p.color || '#1FD760',
+    lat: Number(p.lat) || FALLBACK_PICKUP.lat,
+    lng: Number(p.lng) || FALLBACK_PICKUP.lng,
+  }))
+  const map = Object.fromEntries(rows.map(p => [p.id, p])) as Record<string, CourierPickupRow>
+  if (!map.store) {
+    const store = DEFAULT_PICKUPS.find(p => p.id === 'store') || FALLBACK_PICKUP
+    map.store = {
+      id: 'store',
+      name: store.name,
+      addr: store.addr,
+      phone: store.phone,
+      e: store.e,
+      color: store.color || '#1FD760',
+      lat: Number(store.lat) || FALLBACK_PICKUP.lat,
+      lng: Number(store.lng) || FALLBACK_PICKUP.lng,
+    }
+  }
+  return map
 }
 
 /* ─────────────────────────────────────────────────────
@@ -742,7 +798,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
           ? routePickupOrder
           : (selected.routePickupIds ?? []);
         routePids.forEach((pid: string, i: number) => {
-          const pk = PICKUPS[pid] || PICKUPS.store;
+          const pk = resolveCourierPickup(PICKUPS, pid);
           const pending = (selected.pendingParts || []).find((pp: { pickupId: string }) => pp.pickupId === pid);
           const isPicked = pickedSet.has(pid);
           // Забранная точка не исчезает с карты — она остаётся видимой с галочкой ✓,
@@ -909,7 +965,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       const routeGeometry = delivery.geometry?.length >= 2
         ? delivery.geometry
         : orderedIds.map((pid: string) => {
-            const pk = PICKUPS[pid] || PICKUPS.store;
+            const pk = resolveCourierPickup(PICKUPS, pid);
             return [pk.lat, pk.lng] as [number, number];
           }).concat([[order.lat, order.lng] as [number, number]]);
 
@@ -958,7 +1014,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       const navPoints = step === 'toClient'
         ? [{ lat: pos.lat, lng: pos.lng }, { lat: order.lat, lng: order.lng }]
         : (() => {
-            const curPk = PICKUPS[pids[pickupIdx]] || PICKUPS.store;
+            const curPk = resolveCourierPickup(PICKUPS, pids[pickupIdx]);
             return [{ lat: pos.lat, lng: pos.lng }, { lat: curPk.lat, lng: curPk.lng }];
           })();
       const nav = await fetchRoute(navPoints);
@@ -1573,7 +1629,7 @@ function CourierAppInner() {
                         {(routePickupOrders[selected.id]?.length
                           ? routePickupOrders[selected.id]
                           : selected.routePickupIds)?.map((pid:string, pi:number) => {
-                          const pk = PICKUPS[pid]||PICKUPS.store;
+                          const pk = resolveCourierPickup(PICKUPS, pid);
                           return (
                             <div key={pi} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
                               <div style={{ width:32, height:32, borderRadius:9, background:pk.color+'22', border:`1.5px solid ${pk.color}55`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:800, color:pk.color, flexShrink:0 }}>{pi+1}</div>
@@ -1586,7 +1642,7 @@ function CourierAppInner() {
                           );
                         })}
                         {selected.pendingParts?.map((pp: { pickupId: string; label: string; status: string }, pi: number) => {
-                          const pk = PICKUPS[pp.pickupId] || PICKUPS.store;
+                          const pk = resolveCourierPickup(PICKUPS, pp.pickupId);
                           return (
                           <div key={`p-${pi}`} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8, opacity:0.75 }}>
                             <div style={{ width:32, height:32, borderRadius:9, background:'rgba(255,184,0,.12)', border:'1.5px dashed rgba(255,184,0,.45)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{pk?.e || '⏳'}</div>
@@ -1733,7 +1789,7 @@ function CourierAppInner() {
                           </div>
                           <div style={{ fontSize:11, color:'#8FB897', marginBottom:6, display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
                             {o.pickupIds.map((pid:string,pi:number) => {
-                              const pk = PICKUPS[pid]||PICKUPS.store;
+                              const pk = resolveCourierPickup(PICKUPS, pid);
                               return <span key={pi} style={{ color:pk.color, fontWeight:700 }}>{pi>0?'→ ':''}{pk.e} {pk.name.split(' ')[0]}</span>;
                             })} <span style={{ color:'#8FB897' }}>→ 📍 {o.addr}</span>
                           </div>

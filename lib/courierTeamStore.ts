@@ -49,6 +49,7 @@ interface CourierTeamStore {
   setCouriers: (list: AdminCourier[]) => void
   addCourier: (data: Omit<AdminCourier, 'id' | 'orders' | 'today' | 'week' | 'rating'>) => AdminCourier
   updateCourier: (id: string, patch: Partial<AdminCourier>) => void
+  deleteCourier: (id: string) => Promise<void>
   toggleBlock: (id: string) => void
   depositBalance: (id: string, amount: number, note?: string) => Promise<{ balance: number; added: number }>
   withdrawBalance: (id: string, amount: number, note?: string) => Promise<{ balance: number; withdrawn: number }>
@@ -95,6 +96,12 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
     if (USE_API) api.updateCourier(id, patch).catch(console.error)
     return { couriers }
   }),
+  deleteCourier: async (id) => {
+    if (USE_API) await api.deleteCourier(id)
+    const couriers = get().couriers.filter(c => c.id !== id)
+    saveCouriers(couriers)
+    set({ couriers })
+  },
   toggleBlock: id => {
     const c = get().couriers.find(x => x.id === id)
     if (!c) return

@@ -1363,6 +1363,30 @@ app.post('/restaurants', (req, res) => {
   broadcastRestaurant(rest)
   res.status(201).json(rest)
 })
+app.delete('/restaurants/:id', (req, res) => {
+  const id = String(req.params.id || '').trim()
+  const idx = (db.restaurants || []).findIndex(x => x.id === id)
+  if (idx < 0) return res.status(404).json({ detail: 'Ресторан не найден' })
+  const removed = db.restaurants[idx]
+  db.restaurants.splice(idx, 1)
+  // Убрать точку забора ресторана, если есть
+  const REST_PICKUP_MAP = { 'R-01': 'rest1', 'R-02': 'rest2', 'R-03': 'rest3', 'R-04': 'rest4' }
+  const pickupId = REST_PICKUP_MAP[id] || `rest${String(id).replace(/^R-0?/, '')}`
+  if (Array.isArray(db.pickups)) {
+    db.pickups = db.pickups.filter(p => String(p.id) !== String(pickupId) && String(p.restId || '') !== id)
+  }
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'restaurant',
+    entityId: id,
+    entityName: removed.name || id,
+    summary: `Удалён ресторан «${removed.name || id}»`,
+    before: { id, name: removed.name, phone: removed.phone },
+  })
+  persist()
+  broadcast('restaurant_deleted', { id })
+  res.json({ ok: true, id })
+})
 app.get('/restaurants/:id', (req, res) => {
   const r = db.restaurants.find(x => x.id === req.params.id)
   if (!r) return res.status(404).json({ detail: 'Не найдено' })
@@ -1518,6 +1542,23 @@ app.patch('/couriers/:id', (req, res) => {
   persist()
   res.json(c)
 })
+app.delete('/couriers/:id', (req, res) => {
+  const id = String(req.params.id || '').trim()
+  const idx = (db.couriers || []).findIndex(x => x.id === id)
+  if (idx < 0) return res.status(404).json({ detail: 'Курьер не найден' })
+  const removed = db.couriers[idx]
+  db.couriers.splice(idx, 1)
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'courier',
+    entityId: id,
+    entityName: removed.name || id,
+    summary: `Удалён курьер «${removed.name || id}»`,
+    before: { id, name: removed.name, phone: removed.phone },
+  })
+  persist()
+  res.json({ ok: true, id })
+})
 app.post('/couriers/:id/deposit', (req, res) => {
   const result = depositCourierBalance(db, req.params.id, req.body?.amount, req.body?.note)
   if (!result.ok) return res.status(400).json({ detail: result.error })
@@ -1605,6 +1646,23 @@ app.patch('/assemblers/:id', (req, res) => {
   Object.assign(a, normalizeAssemblerRow({ ...a, ...req.body, id: a.id }))
   persist()
   res.json(a)
+})
+app.delete('/assemblers/:id', (req, res) => {
+  const id = String(req.params.id || '').trim()
+  const idx = (db.assemblers || []).findIndex(x => x.id === id)
+  if (idx < 0) return res.status(404).json({ detail: 'Сборщик не найден' })
+  const removed = db.assemblers[idx]
+  db.assemblers.splice(idx, 1)
+  auditFromReq(db, req, {
+    action: 'delete',
+    entity: 'assembler',
+    entityId: id,
+    entityName: removed.name || id,
+    summary: `Удалён сборщик «${removed.name || id}»`,
+    before: { id, name: removed.name, phone: removed.phone },
+  })
+  persist()
+  res.json({ ok: true, id })
 })
 
 app.get('/cashiers', (_req, res) => {

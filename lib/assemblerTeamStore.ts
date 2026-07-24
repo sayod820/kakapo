@@ -47,6 +47,7 @@ interface AssemblerTeamStore {
   setAssemblers: (list: AdminAssembler[]) => void
   addAssembler: (data: Omit<AdminAssembler, 'id' | 'ordersToday' | 'ordersTotal' | 'week' | 'rating'>) => AdminAssembler
   updateAssembler: (id: string, patch: Partial<AdminAssembler>) => void
+  deleteAssembler: (id: string) => Promise<void>
   toggleBlock: (id: string) => void
   fetchFromApi: () => Promise<void>
 }
@@ -90,6 +91,12 @@ export const useAssemblerTeamStore = create<AssemblerTeamStore>((set, get) => ({
     if (USE_API) api.updateAssembler(id, patch).catch(console.error)
     return { assemblers }
   }),
+  deleteAssembler: async (id) => {
+    if (USE_API) await api.deleteAssembler(id)
+    const assemblers = get().assemblers.filter(a => a.id !== id)
+    saveAssemblers(assemblers)
+    set({ assemblers })
+  },
   toggleBlock: id => {
     const a = get().assemblers.find(x => x.id === id)
     if (!a) return

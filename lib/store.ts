@@ -885,6 +885,7 @@ interface RestaurantsStore {
   loaded: boolean
   fetchRestaurants: () => Promise<void>
   createRestaurant: (data: Partial<Restaurant>) => Promise<Restaurant | void>
+  deleteRestaurant: (id: string) => Promise<void>
   toggleOpen: (id: string) => Promise<void>
   updateRestaurant: (id: string, data: Partial<Restaurant>) => Promise<Restaurant | void>
   blockRestaurant: (id: string, blocked: boolean) => Promise<Restaurant | void>
@@ -917,6 +918,13 @@ export const useRestaurants = create<RestaurantsStore>((set, get) => ({
     const local = { menu: [], ...data } as Restaurant
     set(s => ({ restaurants: [...s.restaurants, local] }))
     return local
+  },
+
+  deleteRestaurant: async (id) => {
+    if (USE_API) {
+      await api.deleteRestaurant(id)
+    }
+    set(s => ({ restaurants: s.restaurants.filter(r => r.id !== id) }))
   },
 
   toggleOpen: async (id) => {

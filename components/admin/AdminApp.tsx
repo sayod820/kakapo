@@ -1838,6 +1838,7 @@ function PartnersPage() {
   const blockRestaurantApi = useRestaurants(s => s.blockRestaurant);
   const fetchRestaurantsApi = useRestaurants(s => s.fetchRestaurants);
   const createRestaurantApi = useRestaurants(s => s.createRestaurant);
+  const deleteRestaurantApi = useRestaurants(s => s.deleteRestaurant);
   const updateRestaurantApi = useRestaurants(s => s.updateRestaurant);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
   const [rests, setRests] = useState<any[]>(() => (USE_API ? [] : RESTAURANTS.map(r => ({ ...r }))));
@@ -2273,6 +2274,22 @@ function PartnersPage() {
               <div style={{display:'flex',gap:8}}>
                 <button onClick={() => openManage(r)} className="ab abg" style={{flex:1,padding:'7px',fontSize:11}}>⚙️ Управление</button>
                 <button onClick={() => openPay(r)} className="ab" style={{flex:1,padding:'7px',fontSize:11,background:'rgba(255,184,0,.1)',border:'1.5px solid rgba(255,184,0,.3)',color:'#FFB800'}}>💰 Выплата</button>
+                <button
+                  type="button"
+                  className="ab abd"
+                  style={{padding:'7px 10px',fontSize:11}}
+                  title="Удалить ресторан"
+                  onClick={async () => {
+                    if (!window.confirm(`Удалить ресторан «${r.name}»? Это нельзя отменить.`)) return;
+                    try {
+                      await deleteRestaurantApi(r.id);
+                      setRests(rs => rs.filter(x => x.id !== r.id));
+                      if (sel?.id === r.id) setSel(null);
+                    } catch (e) {
+                      window.alert(e instanceof Error ? e.message : 'Не удалось удалить');
+                    }
+                  }}
+                >🗑</button>
               </div>
             </div>
           </div>
@@ -2362,6 +2379,23 @@ function PartnersPage() {
                 </div>
                 <button onClick={saveInfo} disabled={savingInfo} className="ab abp" style={{width:'100%',padding:10,opacity:savingInfo?0.7:1}}>
                   {savingInfo ? 'Сохранение…' : '✓ Сохранить'}
+                </button>
+                <button
+                  type="button"
+                  className="ab abd"
+                  style={{width:'100%',padding:10,marginTop:10}}
+                  onClick={async () => {
+                    if (!window.confirm(`Удалить ресторан «${sel.name}»? Это нельзя отменить.`)) return;
+                    try {
+                      await deleteRestaurantApi(sel.id);
+                      setRests(rs => rs.filter(x => x.id !== sel.id));
+                      setSel(null);
+                    } catch (e) {
+                      window.alert(e instanceof Error ? e.message : 'Не удалось удалить');
+                    }
+                  }}
+                >
+                  🗑 Удалить ресторан
                 </button>
               </div>
             )}
@@ -2840,7 +2874,7 @@ function ReviewsPage() {
 /* ── КУРЬЕРЫ ─────────────────────────────────────── */
 function CouriersPage() {
   const couriers = useCourierTeam();
-  const { addCourier, updateCourier, toggleBlock, depositBalance, withdrawBalance } = useCourierTeamStore();
+  const { addCourier, updateCourier, deleteCourier, toggleBlock, depositBalance, withdrawBalance } = useCourierTeamStore();
   const apiOrders = useOrders(s => s.orders);
   const pricing = usePricingStore(s => s.pricing);
   const tariff = useMemo(() => normalizePricing({ ...DEFAULT_PRICING, ...pricing }), [pricing]);
@@ -3568,6 +3602,22 @@ function CouriersPage() {
                       <button onClick={() => toggleBlock(c.id)} className={`ab ${c.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
                         {c.blocked ? 'Разблок' : 'Блок'}
                       </button>
+                      <button
+                        type="button"
+                        className="ab abd"
+                        style={{ padding: '4px 9px', fontSize: 11 }}
+                        title="Удалить курьера"
+                        onClick={async () => {
+                          if (!window.confirm(`Удалить курьера «${c.name}»?`)) return;
+                          try {
+                            await deleteCourier(c.id);
+                            if (editId === c.id) closeModal();
+                            if (depositId === c.id) setDepositId(null);
+                          } catch (e) {
+                            window.alert(e instanceof Error ? e.message : 'Не удалось удалить');
+                          }
+                        }}
+                      >🗑</button>
       </div>
                   </td>
               </tr>
@@ -3708,7 +3758,7 @@ function CouriersPage() {
 /* ── СБОРЩИКИ ───────────────────────────────────── */
 function AssemblersPage() {
   const assemblers = useAssemblerTeam();
-  const { addAssembler, updateAssembler, toggleBlock } = useAssemblerTeamStore();
+  const { addAssembler, updateAssembler, deleteAssembler, toggleBlock } = useAssemblerTeamStore();
   const apiOrders = useOrders(s => s.orders);
   const [editId, setEditId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -3840,6 +3890,21 @@ function AssemblersPage() {
                       <button onClick={() => toggleBlock(a.id)} className={`ab ${a.blocked ? 'abg' : 'abd'}`} style={{ padding: '4px 9px', fontSize: 11 }}>
                         {a.blocked ? 'Разблок' : 'Блок'}
                       </button>
+                      <button
+                        type="button"
+                        className="ab abd"
+                        style={{ padding: '4px 9px', fontSize: 11 }}
+                        title="Удалить сборщика"
+                        onClick={async () => {
+                          if (!window.confirm(`Удалить сборщика «${a.name}»?`)) return;
+                          try {
+                            await deleteAssembler(a.id);
+                            if (editId === a.id) closeModal();
+                          } catch (e) {
+                            window.alert(e instanceof Error ? e.message : 'Не удалось удалить');
+                          }
+                        }}
+                      >🗑</button>
                     </div>
                   </td>
               </tr>

@@ -190,7 +190,8 @@ export async function syncCourierStoresFromApi() {
       api.getPickups(),
       api.getPricing(),
     ]);
-    const pickups = ensureArray<PickupPoint>(pickupsRaw, 'pickups');
+    const pickupsRawList = ensureArray<PickupPoint>(pickupsRaw, 'pickups');
+    const pickups = pickupsRawList.length > 0 ? pickupsRawList : DEFAULT_PICKUPS;
     await syncCourierTeamFromApi();
     usePickupStore.setState({ pickups, hydrated: true });
     usePricingStore.setState({ pricing: normalizePricing({ ...DEFAULT_PRICING, ...pricing }), hydrated: true });

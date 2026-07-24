@@ -464,6 +464,8 @@ export const api = {
   getRestaurant: (id: string | number) => request<Restaurant>(`/restaurants/${id}`),
   createRestaurant: (data: Partial<Restaurant>) =>
     request<Restaurant>('/restaurants', { method: 'POST', body: JSON.stringify(data) }),
+  deleteRestaurant: (id: string) =>
+    request<{ ok: boolean; id: string }>(`/restaurants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   toggleRestaurant: (id: string) => request(`/restaurants/${id}/toggle`, { method: 'PATCH' }),
   updateRestaurant: (id: string, data: Partial<Restaurant>) =>
     request<Restaurant>(`/restaurants/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -500,6 +502,8 @@ export const api = {
     request<AdminCourier>('/couriers', { method: 'POST', body: JSON.stringify(data) }),
   updateCourier: (id: string, data: Partial<AdminCourier>) =>
     request<AdminCourier>(`/couriers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteCourier: (id: string) =>
+    request<{ ok: boolean; id: string }>(`/couriers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   depositCourierBalance: (id: string, amount: number, note?: string) =>
     request<{ ok: boolean; balance: number; added: number; courierId?: string; account?: string }>(`/couriers/${id}/deposit`, {
       method: 'POST',
@@ -527,6 +531,8 @@ export const api = {
     request<AdminAssembler>('/assemblers', { method: 'POST', body: JSON.stringify(data) }),
   updateAssembler: (id: string, data: Partial<AdminAssembler>) =>
     request<AdminAssembler>(`/assemblers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteAssembler: (id: string) =>
+    request<{ ok: boolean; id: string }>(`/assemblers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   getClients: () => requestLongList<AdminClient[]>('/clients'),
   getDeletedPhones: () =>
