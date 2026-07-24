@@ -100,6 +100,10 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
   }
   if (raw.vip === true) payload.vip = true
 
+  // Списание бонусов при оформлении — без этого поля сервер не уменьшает баланс
+  const bonusSpent = Math.max(0, Math.floor(Number(raw.bonusSpent) || 0))
+  if (bonusSpent > 0) payload.bonusSpent = bonusSpent
+
   if (orderType === 'mixed') {
     if (raw.marketStatus) payload.marketStatus = raw.marketStatus
     if (raw.restParts) payload.restParts = raw.restParts

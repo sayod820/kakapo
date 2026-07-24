@@ -1173,6 +1173,13 @@ app.post('/orders', (req, res) => {
   consumePromoStockOnOrder(order)
   db.orders.push(order)
   persist()
+  if (bonusSpendReq > 0 && orderClient) {
+    broadcastLoyalty({
+      phone: orderClient.phone,
+      bonus: orderClient.bonus,
+      card: orderClient.card || '',
+    })
+  }
   broadcast('new_order', order)
   res.json(order)
 })
