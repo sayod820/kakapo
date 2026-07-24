@@ -7750,7 +7750,9 @@ function TariffPage() {
           <span className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#3B8EF0' }}>Формула доставки КАКАПО</span>
         </div>
         Доставка = <b style={{ color: '#EBF5ED' }}>База ({t.base} ЅМ)</b> + (км − {t.baseDist}) × <b style={{ color: '#EBF5ED' }}>{t.perKm} ЅМ</b>
-        {t.heavyExtra > 0 && <> + надбавка <b style={{ color: '#FFB800' }}>{t.heavyExtra} ЅМ</b> за груз &gt; {t.heavyKg} кг</>}
+        {t.weightFirstExtra > 0 || t.weightNextExtra > 0 ? (
+          <> + вес: первые {t.weightStepKg} кг <b style={{ color: '#FFB800' }}>{t.weightFirstExtra} ЅМ</b>, далее каждые {t.weightStepKg} кг <b style={{ color: '#FFB800' }}>+{t.weightNextExtra} ЅМ</b></>
+        ) : null}
         {t.freeFrom ? <> · <b style={{ color: '#1FD760' }}>0 ЅМ</b> при заказе от {t.freeFrom} ЅМ</> : null}
         {t.courierCommissionPercent ? <> · <b style={{ color: '#3B8EF0' }}>комиссия курьера {t.courierCommissionPercent}%</b> от доставки</> : null}
         <div style={{ marginTop: 10, fontSize: 11, color: '#3D6645' }}>

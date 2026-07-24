@@ -24,7 +24,7 @@ const DEFAULT = {
   assemblers: [],
   clients: [],
   settings: {
-    pricing: { base: 10, baseDist: 2.5, perKm: 3, heavyKg: 50, heavyExtra: 10, freeFrom: 0, courierCommissionPercent: 15 },
+    pricing: { base: 10, baseDist: 2.5, perKm: 3, weightStepKg: 30, weightFirstExtra: 10, weightNextExtra: 5, freeFrom: 0, courierCommissionPercent: 15 },
     loyalty: {
       welcomeBonus: 10,
       bronzeMinSpent: 500,

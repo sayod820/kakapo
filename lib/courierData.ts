@@ -323,8 +323,19 @@ export interface PricingConfig {
   base: number;
   baseDist: number;
   perKm: number;
-  heavyKg: number;
-  heavyExtra: number;
+  /**
+   * Шаг веса для надбавки, кг.
+   * Пример: 30 → первые 30 кг = weightFirstExtra, каждые следующие 30 кг = weightNextExtra.
+   */
+  weightStepKg: number;
+  /** Надбавка за первый шаг веса (напр. первые 30 кг → 10 ЅМ) */
+  weightFirstExtra: number;
+  /** Надбавка за каждый следующий шаг веса (напр. +5 ЅМ) */
+  weightNextExtra: number;
+  /** @deprecated старый порог — мигрируется в weightStepKg при нормализации */
+  heavyKg?: number;
+  /** @deprecated старая разовая надбавка */
+  heavyExtra?: number;
   freeFrom?: number;
   /** Комиссия платформы с курьера, % от стоимости доставки */
   courierCommissionPercent?: number;
@@ -334,11 +345,31 @@ export const DEFAULT_PRICING: PricingConfig = {
   base: 10,
   baseDist: 2.5,
   perKm: 3,
-  heavyKg: 50,
-  heavyExtra: 10,
+  weightStepKg: 30,
+  weightFirstExtra: 10,
+  weightNextExtra: 5,
   freeFrom: 0,
   courierCommissionPercent: 15,
 };
+
+/** Надбавка за вес: первый шаг — weightFirstExtra, дальше каждый шаг — weightNextExtra */
+export function calcWeightSurcharge(weightKg: number, pricing: PricingConfig = DEFAULT_PRICING): number {
+  const w = Math.max(0, Number(weightKg) || 0)
+  if (w <= 0) return 0
+  const step = Math.max(1, Number(pricing.weightStepKg) || DEFAULT_PRICING.weightStepKg)
+  const first = Math.max(0, Number(pricing.weightFirstExtra ?? DEFAULT_PRICING.weightFirstExtra) || 0)
+  const next = Math.max(0, Number(pricing.weightNextExtra ?? DEFAULT_PRICING.weightNextExtra) || 0)
+  const steps = Math.ceil(w / step)
+  return first + Math.max(0, steps - 1) * next
+}
+
+export function weightSurchargeLabel(weightKg: number, pricing: PricingConfig = DEFAULT_PRICING): string {
+  const extra = calcWeightSurcharge(weightKg, pricing)
+  if (extra <= 0) return ''
+  const step = Math.max(1, Number(pricing.weightStepKg) || 30)
+  const steps = Math.ceil(Math.max(0, weightKg) / step)
+  return `⚖️ Вес ${weightKg} кг (${steps}×${step} кг): +${extra} ЅМ`
+}
 
 export interface RouteResult {
   distanceKm: number;
@@ -388,7 +419,7 @@ export function calcDeliveryFee(distKm: number, weightKg: number, pricing: Prici
   if (distKm > pricing.baseDist) {
     fee += Math.ceil((distKm - pricing.baseDist) * pricing.perKm);
   }
-  if (weightKg > pricing.heavyKg) fee += pricing.heavyExtra;
+  fee += calcWeightSurcharge(weightKg, pricing);
   return fee;
 }
 
@@ -410,8 +441,9 @@ export function calcDeliveryPrice(opts: {
     const extra = Math.ceil(extraKm * pricing.perKm);
     breakdown.push(`+ ${formatKm(extraKm)} × ${pricing.perKm} ЅМ = +${extra} ЅМ`);
   }
-  if (opts.weightKg > pricing.heavyKg) {
-    breakdown.push(`⚖️ Тяжёлый груз (${opts.weightKg} кг): +${pricing.heavyExtra} ЅМ`);
+  const weightExtra = calcWeightSurcharge(opts.weightKg, pricing);
+  if (weightExtra > 0) {
+    breakdown.push(weightSurchargeLabel(opts.weightKg, pricing));
   }
 
   const isFree = pricing.freeFrom != null && pricing.freeFrom > 0 && opts.orderAmount >= pricing.freeFrom;

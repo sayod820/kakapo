@@ -1,6 +1,7 @@
 import {
   calcDeliveryFee,
   calcDeliveryPrice,
+  calcWeightSurcharge,
   DEFAULT_PRICING,
   type PricingConfig,
 } from './courierData'
@@ -26,7 +27,7 @@ export const TARIFF_PRESETS: { id: string; label: string; desc: string; emoji: s
     label: 'Эконом',
     desc: 'Ниже база · больше бесплатных доставок',
     emoji: '💚',
-    config: { base: 7, baseDist: 2, perKm: 2, heavyKg: 50, heavyExtra: 8, freeFrom: 80 },
+    config: { base: 7, baseDist: 2, perKm: 2, weightStepKg: 30, weightFirstExtra: 8, weightNextExtra: 4, freeFrom: 80 },
   },
   {
     id: 'standard',
@@ -40,7 +41,7 @@ export const TARIFF_PRESETS: { id: string; label: string; desc: string; emoji: s
     label: 'Премиум',
     desc: 'Выше база · приоритетная доставка',
     emoji: '👑',
-    config: { base: 15, baseDist: 3, perKm: 4, heavyKg: 40, heavyExtra: 15, freeFrom: 150 },
+    config: { base: 15, baseDist: 3, perKm: 4, weightStepKg: 30, weightFirstExtra: 15, weightNextExtra: 8, freeFrom: 150 },
   },
 ]
 
@@ -54,8 +55,9 @@ export const TARIFF_FIELD_META: {
   { key: 'base', label: 'Базовая стоимость', unit: 'ЅМ', hint: 'Минимальная цена доставки', step: 1 },
   { key: 'baseDist', label: 'Бесплатный радиус', unit: 'км', hint: 'До этого расстояния — только базовая цена', step: 0.1 },
   { key: 'perKm', label: 'За каждый доп. км', unit: 'ЅМ/км', hint: 'Добавляется за каждый км сверх базового', step: 0.5 },
-  { key: 'heavyKg', label: 'Порог тяжёлого груза', unit: 'кг', hint: 'Если вес заказа превышает — надбавка', step: 1 },
-  { key: 'heavyExtra', label: 'Надбавка за тяжёлый груз', unit: 'ЅМ', hint: 'Добавляется если вес > порога', step: 1 },
+  { key: 'weightStepKg', label: 'Шаг веса', unit: 'кг', hint: 'Размер ступени веса (напр. каждые 30 кг)', step: 1 },
+  { key: 'weightFirstExtra', label: 'Первые N кг', unit: 'ЅМ', hint: 'Надбавка за первый шаг веса (напр. первые 30 кг → 10)', step: 1 },
+  { key: 'weightNextExtra', label: 'Каждые следующие N кг', unit: 'ЅМ', hint: 'Надбавка за каждый следующий шаг (напр. +5)', step: 1 },
   { key: 'freeFrom', label: 'Бесплатная доставка от', unit: 'ЅМ', hint: '0 = отключено · сумма заказа для бесплатной доставки', step: 10 },
   { key: 'courierCommissionPercent', label: 'Комиссия с курьера', unit: '%', hint: '% от стоимости доставки · списывается при принятии заказа', step: 1 },
 ]
@@ -64,8 +66,9 @@ export function validatePricing(p: PricingConfig): string | null {
   if (p.base < 0) return 'Базовая стоимость не может быть отрицательной'
   if (p.baseDist < 0) return 'Радиус не может быть отрицательным'
   if (p.perKm < 0) return 'Цена за км не может быть отрицательной'
-  if (p.heavyKg <= 0) return 'Порог веса должен быть больше 0'
-  if (p.heavyExtra < 0) return 'Надбавка не может быть отрицательной'
+  if (p.weightStepKg <= 0) return 'Шаг веса должен быть больше 0'
+  if (p.weightFirstExtra < 0) return 'Надбавка за первый шаг не может быть отрицательной'
+  if (p.weightNextExtra < 0) return 'Надбавка за следующий шаг не может быть отрицательной'
   if (p.freeFrom != null && p.freeFrom < 0) return 'Порог бесплатной доставки не может быть отрицательным'
   if ((p.courierCommissionPercent ?? 0) < 0) return 'Комиссия курьера не может быть отрицательной'
   if ((p.courierCommissionPercent ?? 0) > 100) return 'Комиссия курьера не может быть больше 100%'
@@ -77,11 +80,14 @@ export function normalizePricing(raw: Partial<PricingConfig>): PricingConfig {
     base: Number(raw.base) || DEFAULT_PRICING.base,
     baseDist: Number(raw.baseDist) ?? DEFAULT_PRICING.baseDist,
     perKm: Number(raw.perKm) ?? DEFAULT_PRICING.perKm,
-    heavyKg: Number(raw.heavyKg) ?? DEFAULT_PRICING.heavyKg,
-    heavyExtra: Number(raw.heavyExtra) ?? DEFAULT_PRICING.heavyExtra,
+    weightStepKg: Math.max(1, Number(raw.weightStepKg) || DEFAULT_PRICING.weightStepKg),
+    weightFirstExtra: Math.max(0, Number(
+      raw.weightFirstExtra ?? (raw.weightStepKg == null && raw.heavyExtra != null ? raw.heavyExtra : undefined) ?? DEFAULT_PRICING.weightFirstExtra,
+    ) || 0),
+    weightNextExtra: Math.max(0, Number(raw.weightNextExtra ?? DEFAULT_PRICING.weightNextExtra) || 0),
     freeFrom: Number(raw.freeFrom) ?? 0,
     courierCommissionPercent: Math.max(0, Math.min(100, Number(
-      raw.courierCommissionPercent ?? raw.courierCommissionPerOrder ?? DEFAULT_PRICING.courierCommissionPercent,
+      raw.courierCommissionPercent ?? (raw as { courierCommissionPerOrder?: number }).courierCommissionPerOrder ?? DEFAULT_PRICING.courierCommissionPercent,
     ) || 0)),
   }
 }
@@ -201,8 +207,9 @@ export function calcPreview(
   })
   const extraKm = Math.max(0, distKm - pricing.baseDist)
   const extraCost = extraKm > 0 ? Math.ceil(extraKm * pricing.perKm) : 0
-  const heavy = weightKg > pricing.heavyKg
-  return { feeOnly, full, extraKm, extraCost, heavy, breakdown: full.breakdown, isFree: full.isFree }
+  const weightExtra = calcWeightSurcharge(weightKg, pricing)
+  const heavy = weightExtra > 0
+  return { feeOnly, full, extraKm, extraCost, heavy, weightExtra, breakdown: full.breakdown, isFree: full.isFree }
 }
 
 export function formatSm(n: number): string {

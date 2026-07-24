@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
-import { calcDeliveryFee, calcDeliveryPrice, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, roundRouteKm, COURIER_MAP_VIEW } from '@/lib/courierData'
+import { calcDeliveryFee, calcDeliveryPrice, calcWeightSurcharge, fetchRoute, DEFAULT_PRICING, fetchOrderDeliveryRoute, formatKm, roundRouteKm, COURIER_MAP_VIEW } from '@/lib/courierData'
 import { resolveOrderDeliveryFee, buildDeliveryFeePatch } from '@/lib/deliveryFee'
 import { usePricingStore, usePickups, usePickupLocations, hydrateCourierStores } from '@/lib/courierStore'
 import { DEFAULT_PICKUPS, type PickupPoint } from '@/lib/pickups'
@@ -1692,7 +1692,7 @@ function CourierAppInner() {
                         {(() => {
                           const km = kmForOrder(selected);
                           const dlv = deliveryFeeForOrder(selected);
-                          const isHeavy = selected.weight > TARIFF.heavyKg;
+                          const weightExtra = calcWeightSurcharge(selected.weight, TARIFF);
                           const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
                           const isCredit = selected.paymentMethod === 'credit';
                           const productSum = selected.sum;
@@ -1717,10 +1717,10 @@ function CourierAppInner() {
                                   <span style={{ fontSize:11, color:'#3D6645' }}>+{Math.ceil(extraKm * TARIFF.perKm)} ЅМ</span>
                                 </div>
                               )}
-                              {isHeavy && (
+                              {weightExtra > 0 && (
                                 <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
-                                  <span style={{ fontSize:11, color:'#FFB800' }}>⚖️ Тяжёлый груз ({selected.weight} кг)</span>
-                                  <span style={{ fontSize:11, color:'#FFB800' }}>+{TARIFF.heavyExtra} ЅМ</span>
+                                  <span style={{ fontSize:11, color:'#FFB800' }}>⚖️ Вес ({selected.weight} кг)</span>
+                                  <span style={{ fontSize:11, color:'#FFB800' }}>+{weightExtra} ЅМ</span>
                                 </div>
                               )}
                               <div style={{ display:'flex', justifyContent:'space-between', marginTop:6, marginBottom:8 }}>
@@ -1896,7 +1896,7 @@ function CourierAppInner() {
                   const km = kmForOrder(active);
                   const dlv = deliveryFeeForOrder(active);
                   const extraKm = km != null && km > TARIFF.baseDist ? km - TARIFF.baseDist : 0;
-                  const isHeavy = active.weight > TARIFF.heavyKg;
+                  const weightExtra = calcWeightSurcharge(active.weight, TARIFF);
                   const isCredit = active.paymentMethod === 'credit';
                   const productSum = active.sum;
                   const clientTotal = dlv != null ? (isCredit ? dlv : productSum + dlv) : null;
@@ -1922,10 +1922,10 @@ function CourierAppInner() {
                           <span style={{ fontSize:11, color:'#3D6645' }}>+{Math.ceil(extraKm * TARIFF.perKm)} ЅМ</span>
                         </div>
                       )}
-                      {isHeavy && (
+                      {weightExtra > 0 && (
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
-                          <span style={{ fontSize:11, color:'#FFB800' }}>⚖️ Тяжёлый груз ({active.weight} кг)</span>
-                          <span style={{ fontSize:11, color:'#FFB800' }}>+{TARIFF.heavyExtra} ЅМ</span>
+                          <span style={{ fontSize:11, color:'#FFB800' }}>⚖️ Вес ({active.weight} кг)</span>
+                          <span style={{ fontSize:11, color:'#FFB800' }}>+{weightExtra} ЅМ</span>
                         </div>
                       )}
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6, marginBottom:8 }}>
