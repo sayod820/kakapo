@@ -86,17 +86,29 @@ export function normalizeCourier(raw: Partial<AdminCourier> & { id: string }): A
   }
 }
 
-/** Совпадение заказа с курьером по телефону/имени */
+function phoneDigits(phone?: string | null): string {
+  return String(phone || '').replace(/\D/g, '')
+}
+
+export function phonesMatch(a?: string | null, b?: string | null): boolean {
+  const da = phoneDigits(a)
+  const db = phoneDigits(b)
+  if (da.length < 9 || db.length < 9) return false
+  return da === db || da.slice(-9) === db.slice(-9)
+}
+
+/** Совпадение заказа с курьером: сначала id/телефон, имя — только точное */
 export function matchesCourierAssignment(
-  courier: { name?: string; phone?: string } | null | undefined,
-  profile: Pick<AdminCourier, 'name' | 'phone'>,
+  courier: { id?: string; name?: string; phone?: string } | null | undefined,
+  profile: Pick<AdminCourier, 'name' | 'phone'> & { id?: string },
 ): boolean {
   if (!courier) return false
-  const phone = profile.phone.replace(/\D/g, '')
-  if (courier.phone && courier.phone.replace(/\D/g, '') === phone) return true
-  const first = profile.name.split(/\s+/)[0]?.toLowerCase() || ''
-  const cn = (courier.name || '').toLowerCase()
-  return cn === profile.name.toLowerCase() || cn.startsWith(first) || profile.name.toLowerCase().startsWith(cn.split(/\s+/)[0] || '')
+  if (profile.id && courier.id && String(courier.id) === String(profile.id)) return true
+  if (phonesMatch(courier.phone, profile.phone)) return true
+  const cn = (courier.name || '').trim().toLowerCase()
+  const pn = (profile.name || '').trim().toLowerCase()
+  if (!cn || !pn) return false
+  return cn === pn
 }
 
 export function isMyCourierOrder(

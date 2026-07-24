@@ -289,7 +289,7 @@ interface OrdersStore {
   addOrder: (order: Order) => void
   updateStatus: (id: string, status: OrderStatus, extra?: Record<string, unknown>) => Promise<void>
   adminUpdateStatus: (id: string, status: OrderStatus) => Promise<void>
-  adminAssignCourier: (id: string, courier: { name: string; phone: string } | null) => Promise<void>
+  adminAssignCourier: (id: string, courier: { id?: string; name: string; phone: string } | null) => Promise<void>
   adminAssignAssembler: (id: string, assembler: { name: string; id?: string } | null) => Promise<void>
   adminRemoveOrder: (id: string) => Promise<void>
   adminRemoveOrders: (ids: string[]) => Promise<{ removed: number }>

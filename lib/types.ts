@@ -28,7 +28,7 @@ export interface Order {
   status: OrderStatus
   createdAt: string
   client: { name: string; phone: string; addr: string; lat?: number; lng?: number }
-  courier?: { name: string; phone: string } | null
+  courier?: { id?: string; name: string; phone: string } | null
   assembler?: { name: string; id?: string } | null
   /** Команда сборщиков на одном заказе */
   assemblerTeam?: { name: string; id?: string }[]

@@ -1,19 +1,21 @@
 import { resolveOrderDeliveryFee } from './deliveryFee'
 import type { PricingConfig } from './courierData'
+import { matchesCourierAssignment } from './courierTeam'
 import type { Order } from './types'
 
 export const COURIER_NAME = 'Фирдавс Назаров'
 export const COURIER_PHONE = '+992 93 111 22 33'
 export const ASSEMBLER_NAME = 'Камола Юсупова'
 
-export function belongsToCourier(order: Order, courierName = COURIER_NAME): boolean {
+export type CourierStatsProfile = { id?: string; name: string; phone: string }
+
+/** Доставка принадлежит только этому курьеру — чужие и «без курьера» не показываем */
+export function belongsToCourier(order: Order, courier: CourierStatsProfile | string): boolean {
   if (order.status !== 'delivered') return false
-  if (!order.courier?.name) return true
-  const a = order.courier.name.toLowerCase()
-  const b = courierName.toLowerCase()
-  const firstA = a.split(/\s+/)[0]
-  const firstB = b.split(/\s+/)[0]
-  return a === b || a.startsWith(firstB) || b.startsWith(firstA)
+  const profile: CourierStatsProfile =
+    typeof courier === 'string' ? { name: courier, phone: '' } : courier
+  if (!profile.name && !profile.phone && !profile.id) return false
+  return matchesCourierAssignment(order.courier, profile)
 }
 
 export function courierDeliveryEarning(
@@ -62,10 +64,13 @@ export function buildCourierStats(
   orders: Order[],
   roadKm: Record<string, number>,
   tariff: PricingConfig,
-  courierName = COURIER_NAME,
+  courier: CourierStatsProfile | string = COURIER_NAME,
 ): CourierStats {
+  const profile: CourierStatsProfile =
+    typeof courier === 'string' ? { name: courier, phone: '' } : courier
+
   const delivered = orders
-    .filter(o => belongsToCourier(o, courierName))
+    .filter(o => belongsToCourier(o, profile))
     .sort((a, b) => (b.deliveredAt || b.createdAt || '').localeCompare(a.deliveredAt || a.createdAt || ''))
 
   const withEarnings = delivered.map(o => ({

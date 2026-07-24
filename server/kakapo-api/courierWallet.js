@@ -33,9 +33,13 @@ export function getCourierCommissionForOrder(pricing, courier, order) {
 }
 
 export function findCourierByAssignment(db, courierRef) {
-  if (!courierRef?.phone && !courierRef?.name) return null
-  const key = normalizePhoneDigits(courierRef.phone || '')
+  if (!courierRef?.phone && !courierRef?.name && !courierRef?.id) return null
   const list = db.couriers || []
+  if (courierRef?.id) {
+    const byId = list.find(c => String(c.id) === String(courierRef.id))
+    if (byId) return byId
+  }
+  const key = normalizePhoneDigits(courierRef.phone || '')
   if (key) {
     const byPhone = list.find(c => normalizePhoneDigits(c.phone) === key)
     if (byPhone) return byPhone
@@ -82,8 +86,15 @@ function pushCourierWalletTx(db, row) {
 export function getCourierWalletTransactions(db, courierId, limit = 30) {
   const id = String(courierId || '')
   if (!id) return []
+  const courier = (db.couriers || []).find(c => String(c.id) === id)
+  const since = courier?.createdAt ? Date.parse(courier.createdAt) : 0
   return (db.courierWalletTx || [])
-    .filter(t => t.courierId === id)
+    .filter(t => String(t.courierId) === id)
+    .filter(t => {
+      if (!since) return true
+      const at = Date.parse(t.at || '')
+      return Number.isFinite(at) && at >= since
+    })
     .slice(0, Math.max(1, Math.min(100, limit)))
 }
 

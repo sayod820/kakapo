@@ -213,18 +213,51 @@ ensurePromos()
 
 function ensureCouriers() {
   if (!Array.isArray(db.couriers)) db.couriers = []
+  if (!Array.isArray(db.courierWalletTx)) db.courierWalletTx = []
   // Демо-курьеры больше не восстанавливаются автоматически (чистый старт).
   let changed = false
+  const alive = new Set(db.couriers.map(c => String(c.id)))
+  const beforeTx = db.courierWalletTx.length
+  db.courierWalletTx = db.courierWalletTx.filter(t => alive.has(String(t.courierId || '')))
+  if (db.courierWalletTx.length !== beforeTx) changed = true
   for (const c of db.couriers) {
     const acc = normalizeCourierAccount(c.account, c.id)
     if (c.account !== acc) {
       c.account = acc
       changed = true
     }
+    // Первый запуск после изоляции счетов: не тянуть чужую историю пополнений
+    // с переиспользованного id (C-01 / KUR-0001).
+    if (!c.createdAt) {
+      c.createdAt = new Date().toISOString()
+      const since = Date.parse(c.createdAt)
+      const n0 = db.courierWalletTx.length
+      db.courierWalletTx = db.courierWalletTx.filter(t => {
+        if (String(t.courierId) !== String(c.id)) return true
+        const at = Date.parse(t.at || '')
+        return Number.isFinite(at) && at >= since
+      })
+      if (db.courierWalletTx.length !== n0) changed = true
+      changed = true
+    }
   }
   if (changed) persist()
 }
 ensureCouriers()
+
+function nextCourierSeq(db) {
+  const fromList = (db.couriers || []).map(c => parseInt(String(c.id).replace(/\D/g, ''), 10))
+  const fromTx = (db.courierWalletTx || []).map(t => parseInt(String(t.courierId || '').replace(/\D/g, ''), 10))
+  const fromAcc = (db.couriers || []).map(c => parseInt(String(normalizeCourierAccount(c.account, c.id)).replace(/\D/g, ''), 10))
+  const all = [...fromList, ...fromTx, ...fromAcc].filter(n => Number.isFinite(n) && n > 0)
+  return (all.length ? Math.max(...all) : 0) + 1
+}
+
+function purgeCourierWalletTx(db, courierId) {
+  const id = String(courierId || '')
+  if (!id) return
+  db.courierWalletTx = (db.courierWalletTx || []).filter(t => String(t.courierId) !== id)
+}
 
 function ensureAssemblers() {
   if (!Array.isArray(db.assemblers)) db.assemblers = []
@@ -1519,18 +1552,25 @@ function normalizeCourierRow(raw) {
 app.get('/couriers', (_req, res) => res.json(db.couriers || []))
 app.post('/couriers', (req, res) => {
   if (!db.couriers) db.couriers = []
-  const nums = db.couriers.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
-  const n = (nums.length ? Math.max(...nums) : 0) + 1
+  if (!db.courierWalletTx) db.courierWalletTx = []
+  const body = req.body && typeof req.body === 'object' ? req.body : {}
+  const n = nextCourierSeq(db)
+  const id = `C-${String(n).padStart(2, '0')}`
+  const account = normalizeCourierAccount(`KUR-${String(n).padStart(4, '0')}`, id)
   const row = normalizeCourierRow({
-    id: `C-${String(n).padStart(2, '0')}`,
+    ...body,
+    id,
+    account,
     rating: 5,
     orders: 0,
     today: 0,
     week: 0,
-    status: 'offline',
+    status: body.status === 'available' || body.status === 'busy' ? body.status : 'offline',
     balance: 0,
-    ...req.body,
+    blocked: !!body.blocked,
+    createdAt: new Date().toISOString(),
   })
+  purgeCourierWalletTx(db, row.id)
   db.couriers.push(row)
   persist()
   res.json(row)
@@ -1548,6 +1588,7 @@ app.delete('/couriers/:id', (req, res) => {
   if (idx < 0) return res.status(404).json({ detail: 'Курьер не найден' })
   const removed = db.couriers[idx]
   db.couriers.splice(idx, 1)
+  purgeCourierWalletTx(db, id)
   auditFromReq(db, req, {
     action: 'delete',
     entity: 'courier',

@@ -1216,10 +1216,16 @@ function CourierAppInner() {
   }, [MAP_ORDERS, myActiveOrders]);
   const { roadKm, loading: kmLoading } = useOrderRoadKm(ordersForRoadKm, true);
   const courierStats = useMemo(() => {
-    const base = buildCourierStats(apiOrders, roadKm, TARIFF, courierDisplayName)
-    if (courierProfile) return { ...base, rating: courierProfile.rating }
-    return base
-  }, [apiOrders, roadKm, TARIFF, courierDisplayName, courierProfile]);
+    if (!courierProfile) {
+      return buildCourierStats([], roadKm, TARIFF, { name: '', phone: '' })
+    }
+    const base = buildCourierStats(apiOrders, roadKm, TARIFF, {
+      id: courierProfile.id,
+      name: courierProfile.name,
+      phone: courierProfile.phone || activePhone,
+    })
+    return { ...base, rating: courierProfile.rating }
+  }, [apiOrders, roadKm, TARIFF, courierProfile, activePhone]);
   const waitingForPickup = !!(active && !active.pickupIds.length && active.pendingParts?.length);
   const [acceptErr, setAcceptErr] = useState('');
   const [routeKmLive, setRouteKmLive] = useState<Record<string, number>>({});
@@ -1349,6 +1355,11 @@ function CourierAppInner() {
   }, [courierProfile?.id])
 
   useEffect(() => {
+    setWalletTx([])
+    setWalletHistoryOpen(false)
+  }, [courierProfile?.id])
+
+  useEffect(() => {
     if (tab !== 'earnings' || !courierProfile?.id) {
       setWalletHistoryOpen(false)
       return
@@ -1381,7 +1392,7 @@ function CourierAppInner() {
       ? normalizeOrder(raw).status
       : 'assembler_done';
     await updateStatus(o.id, keepStatus, {
-      courier: { name: courierDisplayName, phone: activePhone },
+      courier: { id: courierProfile?.id, name: courierDisplayName, phone: activePhone },
       courierRoute: route,
       courierAtClient: false,
     });
@@ -1445,7 +1456,7 @@ function CourierAppInner() {
         )
       : { deliveryFee: (active ? deliveryFeeForOrder(active) : 0) ?? 0, deliveryFeeLocked: true as const };
     await updateStatus(finishedId, 'delivered', {
-      courier: { name: courierDisplayName, phone: activePhone },
+      courier: { id: courierProfile?.id, name: courierDisplayName, phone: activePhone },
       deliveredAt,
       courierAtClient: false,
       ...feePatch,

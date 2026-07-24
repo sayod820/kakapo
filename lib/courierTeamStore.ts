@@ -47,7 +47,7 @@ interface CourierTeamStore {
   hydrate: () => void
   reload: () => void
   setCouriers: (list: AdminCourier[]) => void
-  addCourier: (data: Omit<AdminCourier, 'id' | 'orders' | 'today' | 'week' | 'rating'>) => AdminCourier
+  addCourier: (data: Omit<AdminCourier, 'id' | 'orders' | 'today' | 'week' | 'rating'>) => AdminCourier | Promise<AdminCourier>
   updateCourier: (id: string, patch: Partial<AdminCourier>) => void
   deleteCourier: (id: string) => Promise<void>
   toggleBlock: (id: string) => void
@@ -74,6 +74,22 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
     set({ couriers })
   },
   addCourier: data => {
+    if (USE_API) {
+      const payload = {
+        ...data,
+        rating: 5,
+        orders: 0,
+        today: 0,
+        week: 0,
+        balance: 0,
+      }
+      return api.createCourier(payload).then(created => {
+        const row = normalizeCourier(created)
+        const couriers = [...get().couriers.filter(c => c.id !== row.id), row]
+        set({ couriers })
+        return row
+      })
+    }
     const couriers = get().couriers
     const row = normalizeCourier({
       ...data,
@@ -83,10 +99,10 @@ export const useCourierTeamStore = create<CourierTeamStore>((set, get) => ({
       orders: 0,
       today: 0,
       week: 0,
+      balance: 0,
     })
     const next = [...couriers, row]
     saveCouriers(next)
-    if (USE_API) api.createCourier(row).catch(console.error)
     set({ couriers: next })
     return row
   },

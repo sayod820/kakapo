@@ -1044,7 +1044,7 @@ function OrdersPage() {
     setBusyKey(`${o.id}:courier`);
     try {
       if (USE_API) {
-        await adminAssignCourier(o.id, person ? { name: person.name, phone: person.phone } : null);
+        await adminAssignCourier(o.id, person ? { id: person.id, name: person.name, phone: person.phone } : null);
       } else {
         setDemoPatch(prev => ({
           ...prev,
@@ -3041,7 +3041,7 @@ function CouriersPage() {
     setFormErr('');
   };
 
-  const saveCourier = () => {
+  const saveCourier = async () => {
     const name = form.name.trim();
     const phone = form.phone.trim();
     if (!name || !phone) {
@@ -3059,9 +3059,13 @@ function CouriersPage() {
       commissionPercent: customCommission > 0 ? customCommission : undefined,
       otp: (form.otp || '1234').trim(),
     };
-    if (editId) updateCourier(editId, payload);
-    else addCourier(payload);
-    closeModal();
+    try {
+      if (editId) updateCourier(editId, payload);
+      else await Promise.resolve(addCourier(payload));
+      closeModal();
+    } catch (e: unknown) {
+      setFormErr(e instanceof Error ? e.message : 'Не удалось сохранить курьера');
+    }
   };
 
   const setF = <K extends keyof typeof form>(key: K, val: (typeof form)[K]) =>
