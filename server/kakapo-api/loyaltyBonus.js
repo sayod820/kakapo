@@ -149,7 +149,8 @@ export function spentBonusForClient(db, phone, client = null) {
     if (spent <= 0) return sum
     const op = normalizePhoneDigits(o.client?.phone)
     if (!op || !keys.has(op)) return sum
-    if (resolved && !orderBelongsToClientAccount(o, resolved)) return sum
+    // Для списаний достаточно телефона: строгая проверка accountGeneration
+    // ломала «отмена → любой статус» (бонус возвращался, но обратно не списывался).
     return sum + spent
   }, 0)
 }
@@ -638,6 +639,7 @@ export function reverseClientBonusOnOrderCancel(db, prev, updated, hooks) {
 
 /**
  * Восстановление заказа из отмены (любой статус кроме «отменён»): снова списать бонусы.
+ * Сразу уменьшаем баланс на карте; reconcile закрепит итог по формуле.
  */
 export function reapplyBonusSpendOnOrderRestore(db, prev, updated, hooks) {
   const phone = prev.client?.phone || updated.client?.phone || ''
@@ -647,6 +649,16 @@ export function reapplyBonusSpendOnOrderRestore(db, prev, updated, hooks) {
   if (spent > 0) {
     updated.bonusSpent = spent
     updated.bonusSpentRefunded = 0
+
+    const client = findClientByPhone(db, phone)
+    let card = client?.card ? hooks.findCardByNum(client.card) : null
+    if (!card && client) card = hooks.ensureCardRowForClient(client)
+    if (client && card) {
+      const balance = Math.max(0, Number(card.bonus) || 0)
+      card.bonus = Math.max(0, Math.round((balance - spent) * 100) / 100)
+      client.bonus = card.bonus
+      hooks.syncClientFromCardRow(card)
+    }
   }
 
   return reconcileClientBonuses(db, phone, hooks)

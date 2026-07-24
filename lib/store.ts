@@ -28,6 +28,20 @@ import { findCourierByPhone } from './courierTeam'
 import { canCourierAffordOrder, getCourierBalance, isNewCourierAssignment } from './courierWallet'
 import { DEFAULT_PRICING } from './courierData'
 
+function applyBonusLoyaltySync(
+  set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
+  get: () => OrdersStore,
+  id: string,
+  prev?: Order,
+) {
+  const order = get().orders.find(o => o.id === id)
+  if (!order) return
+  const phone = order.client?.phone || prev?.client?.phone || ''
+  if (!phone) return
+  // После отмены/восстановления и доставки — всегда тянем баланс с сервера
+  void import('./loyaltyBonus').then(m => m.syncLoyaltyBonuses(phone, get().orders, { force: true })).catch(() => {})
+}
+
 function applyCancelLoyalty(
   set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
   get: () => OrdersStore,
@@ -40,7 +54,7 @@ function applyCancelLoyalty(
   if (!phone) return
 
   if (USE_API) {
-    void import('./loyaltyBonus').then(m => m.syncLoyaltyBonuses(phone, get().orders)).catch(() => {})
+    void import('./loyaltyBonus').then(m => m.syncLoyaltyBonuses(phone, get().orders, { force: true })).catch(() => {})
     return
   }
 
@@ -441,6 +455,10 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         if (prev && synced) onOrderStatusChange(normalizeOrder(prev), normalizeOrder(synced))
         if (synced?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
         if (synced?.status === 'cancelled') applyCancelLoyalty(set, get, id, prev)
+        // Отмена → любой другой статус: сразу обновить бонусы в UI (не только при «доставлен»)
+        if (prev?.status === 'cancelled' && synced && synced.status !== 'cancelled') {
+          applyBonusLoyaltySync(set, get, id, prev)
+        }
         if (isNewCourierAssignment(prev, patch)) {
           void useCourierTeamStore.getState().fetchFromApi()
         }
@@ -483,6 +501,10 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         if (prev && synced) onOrderStatusChange(prev, normalizeOrder(synced))
         if (synced?.status === 'delivered') applyDeliveryLoyalty(set, get, id)
         if (synced?.status === 'cancelled') applyCancelLoyalty(set, get, id, prev)
+        // Отмена → Новый/Собирается/В пути/... — синхронизировать бонусы как при доставке
+        if (prev?.status === 'cancelled' && synced && synced.status !== 'cancelled') {
+          applyBonusLoyaltySync(set, get, id, prev)
+        }
       } catch (e) {
         console.error(e)
         if (!(e instanceof Error && e.message.includes('Сервер не сохранил'))) {
