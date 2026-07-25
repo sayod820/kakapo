@@ -775,6 +775,64 @@ export function createFinanceMove(db, data = {}) {
   return { ...row, payment }
 }
 
+/**
+ * Погашение долга клиента наличными/картой с открытой смены.
+ * Нал увеличивает salesCash смены (ожидаемая касса), карта — только журнал.
+ */
+export function applyDebtRepayToShift(db, data = {}) {
+  ensurePosCollections(db)
+  const amount = round2(data.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму погашения')
+  const method = data.method === 'card' ? 'card' : 'cash'
+
+  let shift = null
+  if (data.shiftId) {
+    shift = db.posShifts.find(s => s.id === data.shiftId)
+    if (!shift) throw new Error('Смена не найдена')
+    if (shift.status !== 'open') throw new Error('Смена уже закрыта')
+  }
+
+  const cashierName = String(data.cashierName || shift?.cashierName || '').trim()
+  const cashierId = String(data.cashierId || shift?.cashierId || '').trim()
+  const posId = String(shift?.posId || data.posId || '').trim()
+  const note = String(data.note || '').trim()
+  const clientLabel = String(data.clientName || data.cardNum || '').trim()
+
+  if (method === 'cash' && shift) {
+    shift.salesCash = round2((Number(shift.salesCash) || 0) + amount)
+  }
+
+  appendMoneyLedger(db, {
+    type: method === 'cash' ? 'debt_repay_cash' : 'debt_repay_card',
+    amount,
+    direction: 'in',
+    cashAffect: method === 'cash',
+    posId,
+    shiftId: shift?.id || '',
+    cashierId,
+    cashierName,
+    refType: 'debt_repay',
+    refId: String(data.cardNum || ''),
+    reason: method === 'cash'
+      ? `Погашение долга нал · ${clientLabel}`
+      : `Погашение долга карта · ${clientLabel}`,
+    note,
+    meta: {
+      cardNum: data.cardNum || '',
+      clientName: data.clientName || '',
+      method,
+    },
+  })
+
+  return {
+    shiftId: shift?.id || null,
+    posId,
+    method,
+    amount,
+    salesCash: shift ? Number(shift.salesCash) || 0 : null,
+  }
+}
+
 export function deleteFinanceMove(db, id) {
   ensurePosCollections(db)
   const before = db.financeMoves.length

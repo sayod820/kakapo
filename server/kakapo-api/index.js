@@ -90,6 +90,7 @@ import {
   createExpense,
   listFinanceMoves,
   createFinanceMove,
+  applyDebtRepayToShift,
   deleteFinanceMove,
   listStockReceipts,
   createStockReceipt,
@@ -3724,6 +3725,105 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     res.json({ card, financeMove: move, bonusEarned, addToBonus })
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось пополнить бонусы' })
+  }
+})
+
+/** Погашение долга с кассы: нал → в ожидаемую кассу смены */
+app.post('/cards/:num/debt-repay', (req, res) => {
+  try {
+    const num = decodeURIComponent(req.params.num).toUpperCase()
+    const card = findCardByNum(num)
+    if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+
+    const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
+    if (!(amount > 0)) return res.status(400).json({ detail: 'Укажите сумму погашения' })
+
+    const method = String(req.body?.method || 'cash').toLowerCase() === 'card' ? 'card' : 'cash'
+    if (method === 'cash' && !String(req.body?.shiftId || '').trim()) {
+      return res.status(400).json({ detail: 'Откройте смену, чтобы принять наличные в кассу' })
+    }
+    const linkedClient = (db.clients || []).find(c =>
+      c.card === num
+      || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+    )
+    const prevDebt = Math.max(
+      Number(card.debt) || 0,
+      Number(linkedClient?.debt) || 0,
+    )
+    if (amount > prevDebt + 0.001) {
+      return res.status(400).json({ detail: `Долг клиента ${prevDebt.toFixed(2)} ЅМ` })
+    }
+    const nextDebt = Math.round(Math.max(0, prevDebt - amount) * 100) / 100
+
+    if (linkedClient) {
+      try {
+        handleClientDebtDelta(db, linkedClient, card, prevDebt, nextDebt, {
+          enforceLimit: false,
+          source: 'pos',
+          desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
+        })
+      } catch (e) {
+        return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось погасить долг' })
+      }
+      linkedClient.debt = nextDebt
+      card.debt = nextDebt
+      syncDebtLedgerToCard(linkedClient, card)
+    } else {
+      card.debt = nextDebt
+    }
+
+    let bonusEarned = 0
+    if (method === 'cash') {
+      const loyalty = ensureLoyaltySettings(db)
+      bonusEarned = calcCashDepositBonusServer(amount, loyalty)
+      if (bonusEarned > 0) {
+        card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + bonusEarned) * 100) / 100
+        card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + bonusEarned) * 100) / 100
+      }
+    }
+    syncClientFromCardRow(card)
+
+    const till = applyDebtRepayToShift(db, {
+      amount,
+      method,
+      shiftId: req.body?.shiftId,
+      posId: req.body?.posId,
+      cashierId: req.body?.cashierId,
+      cashierName: req.body?.cashierName,
+      cardNum: num,
+      clientName: card.client || linkedClient?.name || '',
+      note: String(req.body?.note || '').trim(),
+    })
+
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: 'update',
+      entity: 'debt',
+      entityId: num,
+      entityName: card.client || num,
+      summary: `Погашение долга ${num}: ${prevDebt} → ${nextDebt}`
+        + (method === 'cash' ? ` · нал +${amount} в кассу` : ' · карта')
+        + (bonusEarned > 0 ? ` · +${bonusEarned}⭐` : ''),
+      before: { debt: prevDebt },
+      after: { debt: nextDebt, method, amount, bonusEarned, till },
+    })
+    persist()
+    broadcastPosUpdate({ kind: 'debt-repay', cardNum: num, amount, method })
+    if (linkedClient?.phone) {
+      broadcastLoyalty({ phone: linkedClient.phone, bonus: linkedClient.bonus, card: num })
+    }
+    res.json({
+      card,
+      client: linkedClient || null,
+      amount,
+      method,
+      prevDebt,
+      nextDebt,
+      bonusEarned,
+      till,
+    })
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось погасить долг' })
   }
 })
 

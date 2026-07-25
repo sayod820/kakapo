@@ -3436,10 +3436,13 @@ export default function CashierModule({
       showToast('Слишком много', `Долг клиента ${fmtMoney(prevDebt)}`)
       return
     }
+    if (!activeShift) {
+      showToast('Смена закрыта', 'Откройте смену, чтобы принять погашение в кассу')
+      return
+    }
     setBusy(true)
     try {
       if (!client.card) throw new Error('У клиента нет карты')
-      const nextDebt = Math.max(0, prevDebt - amount)
       const oldestActive = histActiveDebts
         .slice()
         .sort((a, b) => a.ts - b.ts)
@@ -3457,17 +3460,17 @@ export default function CashierModule({
           type: 'debt' as const,
         }))
       const fifoPreview = allocateRepaymentFifo(oldestActive, amount)
-      const repayBonus = repayMethod === 'cash' ? calcCashDepositBonus(amount) : 0
-      const summary = loyaltySummaryForClient(client, cards)
-      const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
-      const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-      await api.updateCard(client.card, {
-        debt: nextDebt,
-        ...(repayBonus > 0 ? {
-          bonus: (Number(summary.bonus) || 0) + repayBonus,
-          posCashBonus: prevPos + repayBonus,
-        } : {}),
+      const result = await api.debtRepayCard(client.card, {
+        amount,
+        method: repayMethod,
+        note: `Погашение долга · ${client.name}`,
+        cashierId: settings.cashierId || activeShift.cashierId,
+        cashierName: settings.cashierName || activeShift.cashierName,
+        shiftId: activeShift.id,
+        posId: activeShift.posId || activePosPoint?.id,
       })
+      const nextDebt = Number(result.nextDebt) || Math.max(0, prevDebt - amount)
+      const repayBonus = Number(result.bonusEarned) || 0
       if (client.phone) {
         recordStoreDebtRepayment(client.phone, amount, { method: repayMethod })
         if (repayBonus > 0) {
@@ -3484,7 +3487,8 @@ export default function CashierModule({
         ? ` · списано с ${fifoPreview.length} чек${fifoPreview.length === 1 ? 'а' : 'ов'} (со старых)`
         : ''
       const bonusNote = repayBonus > 0 ? ` · +${repayBonus} ⭐` : ''
-      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${bonusNote}${fifoNote}`)
+      const tillNote = repayMethod === 'cash' ? ' · в кассу' : ''
+      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${tillNote}${bonusNote}${fifoNote}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
     } finally {

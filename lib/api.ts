@@ -651,6 +651,26 @@ export const api = {
     `/cards/${encodeURIComponent(num.trim())}/cash-topup`,
     { method: 'POST', body: JSON.stringify(data) },
   ),
+  debtRepayCard: (num: string, data: {
+    amount: number
+    method?: 'cash' | 'card'
+    note?: string
+    cashierId?: string
+    cashierName?: string
+    shiftId?: string
+    posId?: string
+  }) => request<{
+    card: AdminCard
+    amount: number
+    method: 'cash' | 'card'
+    prevDebt: number
+    nextDebt: number
+    bonusEarned: number
+    till: { shiftId: string | null; salesCash: number | null }
+  }>(
+    `/cards/${encodeURIComponent(num.trim())}/debt-repay`,
+    { method: 'POST', body: JSON.stringify(data) },
+  ),
 
   // ── Отзывы ──
   getReviews: (filter?: string | { restId?: string; productId?: string | number }) =>
