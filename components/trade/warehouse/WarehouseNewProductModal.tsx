@@ -6,7 +6,7 @@ import { useProducts } from '@/lib/store'
 import { useCategories } from '@/lib/useCategories'
 import type { Product } from '@/lib/types'
 import ProductFormFields from '@/components/trade/products/ProductFormFields'
-import { buildProductPayload, emptyFormWithNextCodes, type ProductForm } from '@/components/trade/products/productFormShared'
+import { buildProductPayload, emptyForm, emptyFormWithNextCodes, type ProductForm } from '@/components/trade/products/productFormShared'
 
 export default function WarehouseNewProductModal({
   open,
