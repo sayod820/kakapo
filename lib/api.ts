@@ -376,6 +376,11 @@ export const api = {
   getProduct: (id: number) => request<Product>(`/products/${id}`),
   getProductStockLayers: (id: number) => request<ProductStockLayer[]>(`/products/${id}/stock-layers`),
   getAllStockLayers: () => request<ProductStockLayer[]>('/stock/layers'),
+  reconcileStock: (data?: { createdBy?: string }) =>
+    request<{ ok: boolean; fixed: { id: number; name: string; before: number; after: number }[] }>(
+      '/stock/reconcile',
+      { method: 'POST', body: JSON.stringify(data || {}) },
+    ),
   addProductStockLayer: (id: number, data: {
     qty: number
     costPrice?: number

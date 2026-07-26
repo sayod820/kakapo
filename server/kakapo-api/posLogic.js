@@ -268,6 +268,100 @@ export function listAllOpenStockLayers(db) {
   return out
 }
 
+/**
+ * Единственный источник правды по остатку — сумма открытых партий (FIFO).
+ * product.stock — кэш этой суммы для кассы/магазина/сборщика.
+ */
+export function sumProductLayers(db, productId) {
+  ensurePosCollections(db)
+  let sum = 0
+  for (const receipt of db.stockReceipts || []) {
+    for (const item of receipt.items || []) {
+      if (Number(item.productId) !== Number(productId)) continue
+      sum = round2(sum + (Number(item.remainingQty) || 0))
+    }
+  }
+  return round2(sum)
+}
+
+function hasStockLayerHistory(db, productId) {
+  for (const receipt of db.stockReceipts || []) {
+    for (const item of receipt.items || []) {
+      if (Number(item.productId) === Number(productId)) return true
+    }
+  }
+  return false
+}
+
+export function syncProductStock(db, productId) {
+  const product = (db.products || []).find(p => Number(p.id) === Number(productId))
+  if (!product) return 0
+  const sum = sumProductLayers(db, productId)
+  product.stock = sum
+  syncProductPricingFromActiveLayer(db, productId)
+  return sum
+}
+
+function createStockAdjustmentLayer(db, product, qty, meta = {}) {
+  const add = round2(qty)
+  if (!(add > 0)) return null
+  const costPrice = round2(meta.costPrice ?? product.costPrice ?? 0)
+  const retailPrice = round2(meta.retailPrice ?? product.price ?? 0)
+  const receipt = {
+    id: nextId('REC'),
+    supplierId: null,
+    supplierName: String(meta.reason || 'Корректировка остатка'),
+    createdAtIso: meta.createdAtIso || nowIso(),
+    createdBy: String(meta.createdBy || '').trim(),
+    stockAdjustment: true,
+    totalCost: round2(add * costPrice),
+    paidNow: 0,
+    debtAdded: 0,
+    items: [{
+      productId: product.id,
+      productName: product.name,
+      qty: add,
+      remainingQty: add,
+      costPrice,
+      retailPrice,
+      expiryDate: null,
+    }],
+  }
+  db.stockReceipts.unshift(receipt)
+  return receipt
+}
+
+/** Привести партии к точному количеству (ревизия / ручная правка). */
+export function setProductStockExact(db, productId, targetQty, meta = {}) {
+  ensurePosCollections(db)
+  const product = getProduct(db, productId)
+  const target = Math.max(0, round2(targetQty))
+  const current = sumProductLayers(db, product.id)
+  const diff = round2(target - current)
+  if (diff > 0) restoreReceiptBalances(db, product.id, diff, meta)
+  else if (diff < 0) consumeReceiptBalances(db, product.id, Math.abs(diff))
+  return syncProductStock(db, product.id)
+}
+
+export function reconcileAllProductStock(db, meta = {}) {
+  ensurePosCollections(db)
+  const fixed = []
+  for (const product of db.products || []) {
+    const before = round2(product.stock)
+    if (before > 0 && !hasStockLayerHistory(db, product.id)) {
+      createStockAdjustmentLayer(db, product, before, {
+        reason: 'Перенос остатка',
+        createdBy: meta.createdBy || 'system',
+      })
+    }
+    const after = syncProductStock(db, product.id)
+    if (Math.abs(after - before) > 0.0001) {
+      fixed.push({ id: product.id, name: product.name, before, after })
+    }
+  }
+  return fixed
+}
+
 export function addProductStockLayer(db, productId, data = {}) {
   ensurePosCollections(db)
   const product = getProduct(db, productId)
@@ -276,7 +370,6 @@ export function addProductStockLayer(db, productId, data = {}) {
   const retailPrice = round2(data.retailPrice ?? product.price)
   const bulkPricing = normalizeBulkPricing(data.bulkPricing)
   if (!(qty > 0)) throw new Error('Укажите количество прихода')
-  product.stock = round2((Number(product.stock) || 0) + qty)
   const receipt = {
     id: nextId('REC'),
     supplierId: data.supplierId || null,
@@ -298,7 +391,7 @@ export function addProductStockLayer(db, productId, data = {}) {
     }],
   }
   db.stockReceipts.unshift(receipt)
-  syncProductPricingFromActiveLayer(db, product.id)
+  syncProductStock(db, product.id)
   return { receipt, layers: listProductStockLayers(db, product.id) }
 }
 
@@ -383,6 +476,9 @@ function consumeReceiptBalances(db, productId, qty, preferReceiptId = '', prefer
       ? 'Недостаточно остатка по выбранной цене'
       : 'Недостаточно остатка в выбранной партии')
   }
+  if (left > 0.0001) {
+    throw new Error('Недостаточно остатка по партиям')
+  }
   syncProductPricingFromActiveLayer(db, productId)
   return cogs
 }
@@ -395,21 +491,23 @@ function restoreReceiptBalance(db, productId, qty, receiptId = '') {
     const item = receipt?.items?.find(i => Number(i.productId) === Number(productId))
     if (item) {
       item.remainingQty = round2((Number(item.remainingQty) || 0) + add)
-      syncProductPricingFromActiveLayer(db, productId)
+      syncProductStock(db, productId)
       return
     }
   }
-  // fallback: вернуть в самый новый слой с этим товаром или создать виртуальный не требуется —
-  // просто синхронизируем цену после роста stock
-  syncProductPricingFromActiveLayer(db, productId)
+  restoreReceiptBalances(db, productId, add, { reason: 'Возврат товара' })
 }
 
 function consumeStock(db, items) {
+  const planned = new Map()
   const normalized = items.map(raw => {
     const product = getProduct(db, raw.productId)
     const qty = round2(raw.qty)
     if (!(qty > 0)) throw new Error(`Некорректное количество для ${product.name}`)
-    if (round2(product.stock) < qty) throw new Error(`Недостаточно остатка: ${product.name}`)
+    const alreadyPlanned = planned.get(product.id) || 0
+    const available = round2(sumProductLayers(db, product.id) - alreadyPlanned)
+    if (available < qty) throw new Error(`Недостаточно остатка: ${product.name} (есть ${available})`)
+    planned.set(product.id, round2(alreadyPlanned + qty))
     const receiptId = String(raw.receiptId || '').trim()
     const preferRetailPrice = raw.preferRetailPrice != null && Number.isFinite(Number(raw.preferRetailPrice))
       ? round2(raw.preferRetailPrice)
@@ -417,8 +515,8 @@ function consumeStock(db, items) {
     return { product, qty, cogs: 0, receiptId, preferRetailPrice }
   })
   for (const row of normalized) {
-    row.product.stock = round2((Number(row.product.stock) || 0) - row.qty)
     row.cogs = consumeReceiptBalances(db, row.product.id, row.qty, row.receiptId, row.preferRetailPrice)
+    syncProductStock(db, row.product.id)
   }
   return normalized
 }
@@ -857,7 +955,7 @@ function reverseSupplierDebt(db, supplierId, receiptTotal, debtAdded) {
   return supplier
 }
 
-function restoreReceiptBalances(db, productId, qty) {
+function restoreReceiptBalances(db, productId, qty, meta = {}) {
   let left = round2(qty)
   const receipts = [...(db.stockReceipts || [])]
     .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
@@ -885,31 +983,31 @@ function restoreReceiptBalances(db, productId, qty) {
       if (left <= 0) break
     }
   }
-  syncProductPricingFromActiveLayer(db, productId)
+  if (left > 0) {
+    const product = (db.products || []).find(p => Number(p.id) === Number(productId))
+    if (product) {
+      createStockAdjustmentLayer(db, product, left, {
+        reason: meta.reason || 'Корректировка остатка',
+        createdBy: meta.createdBy,
+      })
+    }
+  }
+  syncProductStock(db, productId)
 }
 
 function reverseStockReceipt(db, receipt) {
-  for (const item of receipt.items || []) {
-    const product = getProduct(db, item.productId)
-    const remaining = round2(item.remainingQty ?? item.qty)
-    if (remaining > 0) {
-      product.stock = round2(Math.max(0, (Number(product.stock) || 0) - remaining))
-    }
-    syncProductPricingFromActiveLayer(db, item.productId)
-  }
+  const productIds = (receipt.items || []).map(item => Number(item.productId))
   if (receipt.supplierId) {
     reverseSupplierDebt(db, receipt.supplierId, receipt.totalCost, receipt.debtAdded)
   }
   const idx = (db.stockReceipts || []).findIndex(r => r.id === receipt.id)
   if (idx >= 0) db.stockReceipts.splice(idx, 1)
+  for (const productId of productIds) syncProductStock(db, productId)
 }
 
 function reverseStockWriteoff(db, writeoff) {
   for (const item of writeoff.items || []) {
-    const product = getProduct(db, item.productId)
-    const qty = round2(item.qty)
-    product.stock = round2((Number(product.stock) || 0) + qty)
-    restoreReceiptBalances(db, item.productId, qty)
+    restoreReceiptBalances(db, item.productId, round2(item.qty), { reason: 'Отмена списания' })
   }
 }
 
@@ -932,7 +1030,6 @@ function buildStockReceipt(db, data = {}, meta = {}) {
   })
   let totalCost = 0
   for (const row of items) {
-    row.product.stock = round2((Number(row.product.stock) || 0) + row.qty)
     if (row.costPrice > 0) row.product.costPrice = row.costPrice
     totalCost = round2(totalCost + row.qty * row.costPrice)
   }
@@ -959,7 +1056,7 @@ function buildStockReceipt(db, data = {}, meta = {}) {
     })),
   }
   db.stockReceipts.unshift(receipt)
-  for (const row of items) syncProductPricingFromActiveLayer(db, row.product.id)
+  for (const row of items) syncProductStock(db, row.product.id)
   return receipt
 }
 
@@ -1069,21 +1166,19 @@ export function listStockRevisions(db) {
 
 function reverseStockRevision(db, revision) {
   for (const item of revision.items || []) {
-    const product = getProduct(db, item.productId)
-    product.stock = round2(item.systemStock)
-    syncProductPricingFromActiveLayer(db, item.productId)
+    setProductStockExact(db, item.productId, item.systemStock, { reason: 'Откат ревизии' })
   }
 }
 
 function buildStockRevision(db, data = {}, meta = {}) {
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (!rawItems.length) throw new Error('Нет строк для ревизии')
+  const createdBy = String(meta.createdBy || data.createdBy || '').trim()
   const items = rawItems.map(raw => {
     const product = getProduct(db, raw.productId)
     const countedStock = round2(raw.countedStock)
-    const systemStock = round2(product.stock)
-    product.stock = countedStock
-    syncProductPricingFromActiveLayer(db, product.id)
+    const systemStock = sumProductLayers(db, product.id)
+    setProductStockExact(db, product.id, countedStock, { reason: 'Ревизия', createdBy })
     return {
       productId: product.id,
       productName: product.name,
@@ -1095,7 +1190,7 @@ function buildStockRevision(db, data = {}, meta = {}) {
   const row = {
     id: meta.id || nextId('REV'),
     createdAtIso: meta.createdAtIso || nowIso(),
-    createdBy: String(meta.createdBy || data.createdBy || '').trim(),
+    createdBy,
     note: String(data.note || '').trim(),
     items,
   }
@@ -1530,8 +1625,6 @@ export function returnPosSale(db, saleId, meta = {}) {
       : round2(Number(item.price) || 0)
     const lineReturn = round2(unit * p.qty)
     item.returnedQty = round2((Number(item.returnedQty) || 0) + p.qty)
-    const product = getProduct(db, item.productId)
-    product.stock = round2((Number(product.stock) || 0) + p.qty)
     restoreReceiptBalance(db, item.productId, p.qty, item.receiptId || '')
     returnLines.push({
       productId: item.productId,

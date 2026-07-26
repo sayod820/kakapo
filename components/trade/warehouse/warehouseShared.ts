@@ -54,6 +54,28 @@ export function filterProducts(products: Product[], q: string) {
   return filterProductsBySearch(products, q, 30)
 }
 
+/** Сумма остатка по открытым партиям (единый источник правды для склада). */
+export function sumRemainingQty(layers: { remainingQty?: number }[] | undefined | null): number {
+  if (!layers?.length) return 0
+  let sum = 0
+  for (const layer of layers) {
+    sum += Number(layer.remainingQty) || 0
+  }
+  return Math.round(sum * 100) / 100
+}
+
+/** Живой остаток: партии, если есть; иначе кэш product.stock. */
+export function liveProductStock(
+  product: Product | null | undefined,
+  layers: { remainingQty?: number }[] | undefined | null,
+  layersLoaded = false,
+): number {
+  if (!product) return 0
+  if (layersLoaded) return sumRemainingQty(layers)
+  if (layers && layers.length) return sumRemainingQty(layers)
+  return Number(product.stock) || 0
+}
+
 export type WriteoffReason = {
   id: string
   label: string

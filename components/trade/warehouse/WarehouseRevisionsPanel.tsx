@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { useProducts } from '@/lib/store'
 import { useCategories } from '@/lib/useCategories'
-import type { Product, StockRevision } from '@/lib/types'
+import type { Product, ProductStockLayer, StockRevision } from '@/lib/types'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import RevisionScopePanel from './RevisionScopePanel'
@@ -27,6 +27,7 @@ import {
   formatQty,
   isGramLabel,
   isKgLabel,
+  liveProductStock,
   matchesDateRange,
   packInputUnitLabel,
   packRealWorld,
@@ -59,17 +60,27 @@ function moneyBasisPrice(product: Product | undefined | null): number {
   return Number(product.price) || 0
 }
 
-/** Остаток «в системе» для строки: при редактировании — сохранённый на момент ревизии,
- *  иначе (новая ревизия) — текущий живой остаток товара. */
-function lineSystemStock(line: RevisionDraftLine, product: Product | null | undefined): number {
-  if (line.systemStock != null) return line.systemStock
-  return Number(product?.stock) || 0
+/**
+ * Остаток «в системе»:
+ * - редактирование сохранённой ревизии → зафиксированный systemStock;
+ * - новая ревизия → живой остаток по партиям (не устаревший product.stock).
+ */
+function lineSystemStock(
+  line: RevisionDraftLine,
+  product: Product | null | undefined,
+  liveStock: number,
+  freezeSystem: boolean,
+): number {
+  if (freezeSystem && line.systemStock != null) return line.systemStock
+  return liveStock
 }
 
 function RevisionLineCard({
   line,
   idx,
   product,
+  liveStock,
+  freezeSystem,
   active,
   canRemove,
   onClear,
@@ -84,6 +95,8 @@ function RevisionLineCard({
   line: RevisionDraftLine
   idx: number
   product: Product
+  liveStock: number
+  freezeSystem: boolean
   active: boolean
   canRemove: boolean
   onClear: () => void
@@ -98,7 +111,7 @@ function RevisionLineCard({
   const packInfo = parsePackUnit(product.unit)
   const isWeightUnit = product.sellType === 'weight' || isGramLabel(packInfo.label) || isKgLabel(packInfo.label)
   const inputUnitLabel = packInputUnitLabel(packInfo)
-  const system = lineSystemStock(line, product)
+  const system = lineSystemStock(line, product, liveStock, freezeSystem)
   const counted = line.countedStock !== '' ? Number(line.countedStock) : null
   const diff = counted != null ? counted - system : null
   const costPrice = Number(product.costPrice) || 0
@@ -209,14 +222,60 @@ export default function WarehouseRevisionsPanel({
   const [modalStep, setModalStep] = useState<'scope' | 'count'>('scope')
   const [scopeLabel, setScopeLabel] = useState('Все категории')
   const [countSearch, setCountSearch] = useState('')
+  const [layers, setLayers] = useState<ProductStockLayer[]>([])
+  const [layersLoaded, setLayersLoaded] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const countedRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const { open, note, lines, activeLineKey } = draft
+  const freezeSystem = Boolean(editingId)
+
+  const layersByProduct = useMemo(() => {
+    const map = new Map<number, ProductStockLayer[]>()
+    for (const layer of layers) {
+      const list = map.get(layer.productId) || []
+      list.push(layer)
+      map.set(layer.productId, list)
+    }
+    return map
+  }, [layers])
+
+  const stockOf = useCallback((product: Product | null | undefined) => {
+    if (!product) return 0
+    return liveProductStock(product, layersByProduct.get(product.id), layersLoaded)
+  }, [layersByProduct, layersLoaded])
+
+  const loadLayers = useCallback(async () => {
+    if (!USE_API) {
+      setLayers([])
+      setLayersLoaded(true)
+      return
+    }
+    try {
+      const rows = await api.getAllStockLayers()
+      setLayers(rows)
+    } catch {
+      setLayers([])
+    } finally {
+      setLayersLoaded(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadLayers()
+  }, [loadLayers])
+
+  useEffect(() => {
+    if (open) void loadLayers()
+  }, [open, loadLayers])
 
   useEffect(() => {
     const loaded = loadRevisionDraft()
+    // В новой ревизии не держим устаревший systemStock из черновика
+    if (!editingId && loaded.lines?.length) {
+      loaded.lines = loaded.lines.map(l => ({ ...l, systemStock: undefined }))
+    }
     setDraft(loaded)
     if (loaded.open && loaded.lines.some(l => l.productId)) {
       setModalStep('count')
@@ -276,18 +335,35 @@ export default function WarehouseRevisionsPanel({
   }
 
   function fillLineFromProduct(line: RevisionDraftLine, product: Product): RevisionDraftLine {
-    const sameProduct = line.productId === product.id
+    const live = stockOf(product)
     return {
       ...line,
       productId: product.id,
-      countedStock: line.countedStock !== '' ? line.countedStock : String(product.stock ?? 0),
-      // Смена товара в строке — исходный «системный» остаток относился к другому товару.
-      systemStock: sameProduct ? line.systemStock : undefined,
+      countedStock: line.countedStock !== '' ? line.countedStock : String(live),
+      // Новая ревизия всегда берёт живой остаток по партиям
+      systemStock: undefined,
     }
   }
 
-  function startCountFromScope(toAdd: Product[], label: string) {
+  async function startCountFromScope(toAdd: Product[], label: string) {
     if (!toAdd.length) return
+    await loadLayers()
+    // Берём актуальные партии после загрузки (через API ещё раз — state может не успеть)
+    let qtyMap = new Map<number, number>()
+    if (USE_API) {
+      try {
+        const rows = await api.getAllStockLayers()
+        setLayers(rows)
+        setLayersLoaded(true)
+        for (const layer of rows) {
+          qtyMap.set(layer.productId, (qtyMap.get(layer.productId) || 0) + (Number(layer.remainingQty) || 0))
+        }
+      } catch { /* fallback ниже */ }
+    }
+    const qtyOf = (p: Product) => {
+      if (qtyMap.size) return Math.round((qtyMap.get(p.id) || 0) * 100) / 100
+      return stockOf(p)
+    }
     setScopeLabel(label)
     setCountSearch('')
     setDraft(prev => ({
@@ -296,7 +372,7 @@ export default function WarehouseRevisionsPanel({
         ...toAdd.map(p => ({
           key: `rev-${p.id}-${Math.random()}`,
           productId: p.id,
-          countedStock: String(p.stock ?? 0),
+          countedStock: String(qtyOf(p)),
         })),
         emptyRevisionLine(),
       ],
@@ -357,7 +433,7 @@ export default function WarehouseRevisionsPanel({
       if (!l.productId || l.countedStock === '') continue
       const product = products.find(p => p.id === l.productId)
       if (!product) continue
-      const system = lineSystemStock(l, product)
+      const system = lineSystemStock(l, product, stockOf(product), freezeSystem)
       const counted = Number(l.countedStock) || 0
       const diff = counted - system
       count++
@@ -368,7 +444,7 @@ export default function WarehouseRevisionsPanel({
       else shortage += Math.abs(diff)
     }
     return { count, matched, surplus, shortage, netDiff, costMoneyDiff, withProduct: lines.filter(l => l.productId).length }
-  }, [lines, products])
+  }, [lines, products, stockOf, freezeSystem])
 
   const listStats = useMemo(() => {
     let surplusDocs = 0
@@ -423,7 +499,7 @@ export default function WarehouseRevisionsPanel({
       } else {
         await api.createStockRevision(payload)
       }
-      await Promise.all([onRefresh(), fetchProducts()])
+      await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
       resetForm()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
@@ -442,7 +518,7 @@ export default function WarehouseRevisionsPanel({
       await api.deleteStockRevision(id)
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
-      await Promise.all([onRefresh(), fetchProducts()])
+      await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить ревизию')
     } finally {
@@ -731,6 +807,8 @@ export default function WarehouseRevisionsPanel({
                         line={line}
                         idx={realIdx >= 0 ? realIdx : idx}
                         product={product}
+                        liveStock={stockOf(product)}
+                        freezeSystem={freezeSystem}
                         active={activeLineKey === line.key}
                         canRemove={filledLines.length > 0}
                         onClear={() => selectProduct(line.key, null)}
@@ -741,7 +819,7 @@ export default function WarehouseRevisionsPanel({
                         }))}
                         onActivate={() => setDraftPatch({ activeLineKey: line.key })}
                         onCounted={v => updateLine(line.key, { countedStock: v })}
-                        onMatchSystem={() => updateLine(line.key, { countedStock: String(lineSystemStock(line, product)) })}
+                        onMatchSystem={() => updateLine(line.key, { countedStock: String(stockOf(product)) })}
                         onZero={() => updateLine(line.key, { countedStock: '0' })}
                         cardRef={el => { lineRefs.current[line.key] = el }}
                         countedRef={el => { countedRefs.current[line.key] = el }}

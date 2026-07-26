@@ -100,6 +100,9 @@ import {
   listAllOpenStockLayers,
   addProductStockLayer,
   updateProductStockLayer,
+  sumProductLayers,
+  setProductStockExact,
+  reconcileAllProductStock,
   listStockWriteoffs,
   createStockWriteoff,
   updateStockWriteoff,
@@ -199,6 +202,15 @@ if (!db._supplierPayableSyncVersion) {
   }
   db._supplierPayableSyncVersion = 1
   if (changed) persist()
+}
+if (!db._stockLayerSyncVersion || db._stockLayerSyncVersion < 2) {
+  const fixed = reconcileAllProductStock(db, { createdBy: 'system' })
+  if (fixed.length) {
+    console.log(`[stock] Остатки приведены к партиям (${fixed.length} поз.):`)
+    for (const row of fixed) console.log(`  · ${row.name}: ${row.before} → ${row.after}`)
+  }
+  db._stockLayerSyncVersion = 2
+  persist()
 }
 
 function persist() {
@@ -800,6 +812,11 @@ app.post('/products', (req, res) => {
       bulkPricing: Array.isArray(req.body.bulkPricing) ? req.body.bulkPricing : undefined,
     }
     db.products.push(p)
+    if (Number(p.stock) > 0) {
+      setProductStockExact(db, p.id, p.stock, { reason: 'Начальный остаток', createdBy: req.body?.createdBy || '' })
+    } else {
+      p.stock = 0
+    }
     auditFromReq(db, req, {
       action: 'create',
       entity: 'product',
@@ -832,7 +849,17 @@ app.patch('/products/:id', (req, res) => {
       body.art = codes.art
       body.plu = codes.plu
     }
+    // Остаток живёт в партиях — прямая запись stock иначе расходится со складом
+    const stockTouched = Object.prototype.hasOwnProperty.call(body, 'stock')
+    const nextStock = stockTouched ? Math.max(0, Number(body.stock) || 0) : null
+    delete body.stock
     Object.assign(p, body)
+    if (stockTouched && Math.abs(nextStock - sumProductLayers(db, p.id)) > 0.0001) {
+      setProductStockExact(db, p.id, nextStock, {
+        reason: 'Правка остатка',
+        createdBy: req.body?.createdBy || '',
+      })
+    }
     const after = { name: p.name, price: p.price, stock: p.stock, costPrice: p.costPrice, cat: p.cat }
     auditFromReq(db, req, {
       action: 'update',
@@ -865,6 +892,28 @@ app.get('/products/:id/stock-layers', (req, res) => {
 
 app.get('/stock/layers', (_req, res) => {
   res.json(listAllOpenStockLayers(db))
+})
+
+app.post('/stock/reconcile', (req, res) => {
+  try {
+    const fixed = reconcileAllProductStock(db, { createdBy: req.body?.createdBy || '' })
+    if (fixed.length) {
+      auditFromReq(db, req, {
+        action: 'update',
+        entity: 'product',
+        summary: `Сверка остатков с партиями · исправлено ${fixed.length} поз.`,
+        after: { fixed },
+      })
+      persist()
+      for (const row of fixed) {
+        const p = db.products.find(x => x.id === row.id)
+        if (p) broadcastProduct(p)
+      }
+    }
+    res.json({ ok: true, fixed })
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось сверить остатки' })
+  }
 })
 
 app.post('/products/:id/stock-layers', (req, res) => {
@@ -4078,7 +4127,10 @@ app.post('/audit/:id/restore', (req, res) => {
     if (entry.entity === 'product') {
       const p = db.products.find(x => String(x.id) === String(entry.entityId))
       if (!p) return res.status(404).json({ detail: 'Товар не найден' })
-      Object.assign(p, pickDefined(before, ['name', 'price', 'stock', 'costPrice', 'cat']))
+      Object.assign(p, pickDefined(before, ['name', 'price', 'costPrice', 'cat']))
+      if (before?.stock != null) {
+        setProductStockExact(db, p.id, before.stock, { reason: 'Восстановление из истории' })
+      }
       logRestore('product', `товар «${p.name}»`)
       persist()
       broadcastProduct(p)

@@ -32,6 +32,20 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
     saveWarehouseTab(tab)
   }, [tab])
 
+  useEffect(() => {
+    if (!USE_API) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        await api.reconcileStock()
+        if (!cancelled) await Promise.all([syncPosFromApi(), fetchProducts()])
+      } catch {
+        /* тихая сверка — не блокируем UI */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [fetchProducts])
+
   const totalStock = useMemo(() => products.reduce((s, p) => s + (Number(p.stock) || 0), 0), [products])
   const low = useMemo(() => products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= 5).length, [products])
   const out = useMemo(() => products.filter(p => Number(p.stock) <= 0).length, [products])
