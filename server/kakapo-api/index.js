@@ -23,6 +23,11 @@ import {
   isCourierMapSync,
   marketItems,
 } from './ordersLogic.js'
+import {
+  releaseOrderStock,
+  reserveOrderStock,
+  syncOrderStockReserve,
+} from './orderStock.js'
 import { creditDeliveredOrder, processPayout, getPendingBalance } from './restaurantStats.js'
 import { lockOrderDeliveryFee, normalizePricing } from './deliveryFee.js'
 import {
@@ -1248,9 +1253,16 @@ app.post('/orders', (req, res) => {
     order.restParts = body.restParts || Object.fromEntries((body.restIds || []).map(r => [r, 'new']))
   }
   const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
+  let reservedProducts = []
+  try {
+    reservedProducts = reserveOrderStock(db, order)
+  } catch (e) {
+    return res.status(400).json({ detail: e?.message || 'Недостаточно остатка на складе' })
+  }
   if (bonusSpendReq > 0) {
     const spendResult = applyBonusSpendOnOrder(db, order, bonusSpendReq, loyaltyHooks())
     if (!spendResult.ok) {
+      releaseOrderStock(db, order, 'Откат: бонусы')
       return res.status(400).json({ detail: spendResult.error || 'Не удалось списать бонусы' })
     }
   }
@@ -1259,6 +1271,10 @@ app.post('/orders', (req, res) => {
   consumePromoStockOnOrder(order)
   db.orders.push(order)
   persist()
+  for (const line of reservedProducts) {
+    const p = db.products.find(x => Number(x.id) === Number(line.productId))
+    if (p) broadcastProduct(p)
+  }
   if (bonusSpendReq > 0 && orderClient) {
     broadcastLoyalty({
       phone: orderClient.phone,
@@ -1279,7 +1295,37 @@ app.patch('/orders/:id/status', (req, res) => {
     return res.status(400).json({ detail: commissionResult.error })
   }
 
+  // Склад: правка состава → пересчёт резерва (не при отмене — там полный возврат)
+  let stockTouchedIds = []
+  const nextStatus = req.body?.status || prev.status
+  const willCancel = nextStatus === 'cancelled' && prev.status !== 'cancelled'
+  try {
+    if (!willCancel && Array.isArray(req.body?.items)) {
+      const sync = syncOrderStockReserve(db, prev, req.body.items)
+      if (sync.changed) stockTouchedIds = sync.productIds
+    }
+  } catch (e) {
+    return res.status(400).json({ detail: e?.message || 'Недостаточно остатка на складе' })
+  }
+
   const updated = applyStatusPatch({ ...prev }, req.body)
+  // переносим поля резерва, которые sync менял на prev
+  updated.stockReserved = prev.stockReserved
+  updated.stockReserveLines = prev.stockReserveLines
+  updated.stockFromPos = prev.stockFromPos
+
+  if (updated.status === 'cancelled' && prev.status !== 'cancelled') {
+    const released = releaseOrderStock(db, updated, 'Отмена заказа')
+    stockTouchedIds = [...new Set([...stockTouchedIds, ...released.map(l => Number(l.productId))])]
+  } else if (prev.status === 'cancelled' && updated.status !== 'cancelled') {
+    try {
+      const reserved = reserveOrderStock(db, updated)
+      stockTouchedIds = [...new Set([...stockTouchedIds, ...reserved.map(l => Number(l.productId))])]
+    } catch (e) {
+      return res.status(400).json({ detail: e?.message || 'Недостаточно остатка на складе' })
+    }
+  }
+
   stampCourierCommissionOnOrder(updated, commissionResult)
 
   // Бонусы: Отменён → вернуть; любой другой статус из отмены → снова списать
@@ -1323,6 +1369,10 @@ app.patch('/orders/:id/status', (req, res) => {
   }
   db.orders[idx] = updated
   persist()
+  for (const pid of stockTouchedIds) {
+    const p = db.products.find(x => Number(x.id) === Number(pid))
+    if (p) broadcastProduct(p)
+  }
   if (commissionResult.courierId && Number(commissionResult.commission) > 0) {
     broadcastCourierWallet(commissionResult)
   }
@@ -1350,11 +1400,16 @@ function removeOrderRecord(orderId) {
   if (idx < 0) return { ok: false, status: 404, detail: 'Заказ не найден' }
   const removed = db.orders[idx]
   const phone = removed.client?.phone || ''
+  const released = releaseOrderStock(db, removed, 'Удаление заказа')
   db.orders.splice(idx, 1)
   if (Array.isArray(db.reviews)) {
     db.reviews = db.reviews.filter(r => String(r.orderId) !== id)
   }
   persist()
+  for (const line of released) {
+    const p = db.products.find(x => Number(x.id) === Number(line.productId))
+    if (p) broadcastProduct(p)
+  }
   if (phone) {
     try {
       reconcileClientBonuses(db, phone, loyaltyHooks())
@@ -1383,6 +1438,7 @@ app.post('/orders/bulk-delete', (req, res) => {
     if (idx < 0) continue
     const order = db.orders[idx]
     if (order.client?.phone) phones.add(normalizePhoneDigits(order.client.phone))
+    releaseOrderStock(db, order, 'Удаление заказа')
     db.orders.splice(idx, 1)
     if (Array.isArray(db.reviews)) {
       db.reviews = db.reviews.filter(r => String(r.orderId) !== id)

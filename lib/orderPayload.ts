@@ -31,6 +31,11 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
     if (art) item.art = String(art)
     if (it.photo) item.photo = String(it.photo)
     if (it.photoThumb) item.photoThumb = String(it.photoThumb)
+    // Вес в граммах — для резерва склада (в заказе qty весового = 1)
+    const grams = Number(it.grams ?? it.weightGrams ?? it.promoUnits)
+    if (Number.isFinite(grams) && grams > 0) item.grams = Math.round(grams)
+    const weightKg = Number(it.weightKg)
+    if (Number.isFinite(weightKg) && weightKg > 0) item.weightKg = Number(weightKg.toFixed(3))
     if (source === 'restaurant' && it.restId) item.restId = String(it.restId)
     if (it.cartLineId) item.cartLineId = String(it.cartLineId)
     return item

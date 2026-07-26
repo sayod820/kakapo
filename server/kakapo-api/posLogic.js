@@ -521,6 +521,22 @@ function consumeStock(db, items) {
   return normalized
 }
 
+/** Списание остатка по FIFO (онлайн-заказ, касса и т.п.). */
+export function deductStockLines(db, items) {
+  return consumeStock(db, items)
+}
+
+/** Возврат остатка в партии (отмена заказа / правка состава). */
+export function restoreStockLines(db, items, reason = 'Возврат на склад') {
+  for (const raw of items || []) {
+    const qty = round2(raw.qty)
+    if (!(qty > 0)) continue
+    const productId = Number(raw.productId)
+    if (!productId) continue
+    restoreReceiptBalances(db, productId, qty, { reason })
+  }
+}
+
 export function listCashiers(db) {
   ensurePosCollections(db)
   return db.cashiers
@@ -1559,6 +1575,10 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
     marketStatus: 'done',
     bonusSpent: bonusSpent > 0 ? bonusSpent : 0,
     pickupIds: ['store'],
+    // Склад уже списан чеком кассы — повторно не трогаем
+    stockFromPos: true,
+    stockReserved: true,
+    stockReserveLines: [],
   }
 
   stampOrderForClient(order, client)
