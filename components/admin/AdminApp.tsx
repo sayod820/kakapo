@@ -487,7 +487,7 @@ const DebtReadOnly = ({ debt, onManage }: { debt: number; onManage?: () => void 
 /* ── NAV ──────────────────────────────────────────── */
 const NAV_GROUPS = [
   {g:'Общее',     items:[{id:'dashboard',icon:'📊',l:'Dashboard'},{id:'orders',icon:'📦',l:'Все заказы'}]},
-  {g:'Магазин',   items:[{id:'products',icon:'🥦',l:'Товары'},{id:'categories',icon:'📁',l:'Категории'},{id:'inventory',icon:'📋',l:'Склад'},{id:'promos',icon:'💸',l:'Акции'}]},
+  {g:'Магазин',   items:[{id:'products',icon:'🥦',l:'Товары'},{id:'categories',icon:'📁',l:'Категории'},{id:'promos',icon:'💸',l:'Акции'}]},
   {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'},{id:'pickups',icon:'📍',l:'Точки забора'}]},
   {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'employees',icon:'👤',l:'Сотрудники'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
   {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'debts',icon:'📒',l:'Долги VIP'},{id:'push',icon:'🔔',l:'Push'}]},
@@ -1762,54 +1762,6 @@ function ProductsPage() {
 }
 
 /* ── INVENTORY ──────────────────────────────────── */
-function InventoryPage() {
-  const out=PRODS.filter(p=>p.stock===0);
-  const low=PRODS.filter(p=>p.stock>0&&p.stock<=3);
-  return (
-    <div>
-      {(out.length>0||low.length>0)&&(
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:18}}>
-          {out.length>0&&<div style={{padding:'12px 15px',borderRadius:12,background:'rgba(255,69,69,.07)',border:'1px solid rgba(255,69,69,.3)',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:22}}>🚨</span><div><div style={{fontSize:13,fontWeight:800,color:'#FF4545'}}>Закончилось: {out.length}</div><div style={{fontSize:11,color:'#8FB897'}}>{out.map(p=>p.name).join(', ')}</div></div>
-          </div>}
-          {low.length>0&&<div style={{padding:'12px 15px',borderRadius:12,background:'rgba(255,184,0,.07)',border:'1px solid rgba(255,184,0,.3)',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:22}}>⚠️</span><div><div style={{fontSize:13,fontWeight:800,color:'#FFB800'}}>Мало: {low.length}</div><div style={{fontSize:11,color:'#8FB897'}}>Нужно пополнить</div></div>
-          </div>}
-        </div>
-      )}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
-        <StatCard l="Всего позиций" v={PRODS.length}/>
-        <StatCard l="В наличии" v={PRODS.filter(p=>p.stock>3).length} c="#1FD760"/>
-        <StatCard l="Мало" v={low.length} c="#FFB800"/>
-        <StatCard l="Закончилось" v={out.length} c="#FF4545"/>
-      </div>
-      <div className="ac">
-        <table className="at">
-          <thead><tr><th>Артикул</th><th>Товар</th><th>Остаток</th><th>Статус</th><th>Пополнить</th></tr></thead>
-          <tbody>
-            {PRODS.map(p=>{
-              const sc=p.stock===0?{c:'#FF4545',l:'Нет'}:p.stock<=3?{c:'#FFB800',l:'Мало'}:{c:'#1FD760',l:'Есть'};
-              return (
-                <tr key={p.id}>
-                  <td><span className="ub" style={{fontSize:11,color:'#FFB800'}}>{p.art}</span></td>
-                  <td><div style={{display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:18}}>{p.e}</span><span style={{fontWeight:700}}>{p.name}</span></div></td>
-                  <td>
-                    <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <div style={{width:60,height:7,borderRadius:3,background:'#162B1A',overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,p.stock/20*100)}%`,background:sc.c,borderRadius:3}}/></div>
-                      <span style={{fontSize:12,fontWeight:700,color:sc.c}}>{p.stock} шт</span>
-                    </div>
-                  </td>
-                  <td><Badge v={sc.l} c={sc.c}/></td>
-                  <td><input className="ai" placeholder="Кол-во" type="number" style={{width:90,padding:'5px 9px',fontSize:12}}/></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
 /* ── РЕСТОРАНЫ (ПАРТНЁРЫ) ──────────────────────── */
 function PartnersPage() {
   const pickups = usePickupStore(s => s.pickups);
@@ -8345,6 +8297,10 @@ function AdminAppInner({
   useApiSync('all');
   const { page, setPage } = useAppNavigation('dashboard');
   useEffect(() => {
+    // Старый раздел «Склад» в админке убран — учёт остатков только в Торговле
+    if (page === 'inventory') setPage('products')
+  }, [page, setPage])
+  useEffect(() => {
     if (USE_API) clearAppDataLocalCacheOnce();
     hydrateCourierStores();
     void syncCourierStoresFromApi();
@@ -8360,15 +8316,14 @@ function AdminAppInner({
     useProductPhotos.getState().hydrate();
     return () => {};
   }, []);
-  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',inventory:'Склад',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Каталог · артикулы KAK-XXXX · остатки',inventory:'Контроль остатков',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · GBS · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Каталог · артикулы KAK-XXXX · остатки',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} session={session} onLogout={onLogout}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
       {page==='orders'     && <OrdersPage/>}
       {page==='products'   && <ProductsPage/>}
       {page==='categories' && <CategoriesPage/>}
-      {page==='inventory'  && <InventoryPage/>}
       {page==='promos'     && <PromosPage/>}
       {page==='partners'   && <PartnersPage/>}
       {page==='reviews'    && <ReviewsPage/>}
