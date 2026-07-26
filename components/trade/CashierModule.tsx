@@ -553,6 +553,7 @@ export default function CashierModule({
   const [qtyEditPad, setQtyEditPad] = useState(false)
   const qtyEditInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const commitPosSearchRef = useRef<(raw?: string) => boolean>(() => false)
   const [cashOpen, setCashOpen] = useState(false)
   const [splitCardOpen, setSplitCardOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
@@ -832,6 +833,11 @@ export default function CashierModule({
     }
   }
 
+  const overlayBlocksSearchRef = useRef(overlayBlocksSearch)
+  useEffect(() => {
+    overlayBlocksSearchRef.current = overlayBlocksSearch
+  }, [overlayBlocksSearch])
+
   useEffect(() => () => {
     if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
   }, [])
@@ -924,32 +930,109 @@ export default function CashierModule({
     void desk?.stopCasWeight?.()
   }, [])
 
-  /** Поиск всегда в фокусе на экране кассы (сканер / ввод), пока нет модалок */
+  /**
+   * Главный экран кассы: поиск товара всегда в фокусе.
+   * Иначе после клика по плитке/кнопке сканер не пробивает.
+   */
   useEffect(() => {
     if (overlayBlocksSearch) return
-    const t = window.setTimeout(focusProductSearch, 40)
-    return () => window.clearTimeout(t)
+
+    const scheduleFocus = (delay = 0) => {
+      window.setTimeout(() => {
+        if (overlayBlocksSearchRef.current) return
+        if (document.activeElement === searchInputRef.current) return
+        focusProductSearch()
+      }, delay)
+    }
+
+    scheduleFocus(40)
+
+    const onPointer = (e: PointerEvent) => {
+      if (overlayBlocksSearchRef.current) return
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      // Модалки / другие поля ввода — не трогаем
+      if (t.closest('.modal-card, .overlay, .cash-checkout-shell, .cashier-menu, .pos-settings-fs')) return
+      if (t.closest('textarea, select, [contenteditable="true"]')) return
+      // Другой input (не поиск) — не перехватываем, пока пользователь вводит
+      const input = t.closest('input')
+      if (input && input !== searchInputRef.current) return
+      // Клик по плитке/кнопке/чеку/пустому месту → вернуть фокус в поиск
+      scheduleFocus(30)
+    }
+
+    const onBlurCapture = (e: FocusEvent) => {
+      if (overlayBlocksSearchRef.current) return
+      if (e.target !== searchInputRef.current) return
+      scheduleFocus(40)
+    }
+
+    // Сканер шлёт клавиши: если фокус ушёл — вернуть в поиск и не потерять символ
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (overlayBlocksSearchRef.current) return
+      if (document.activeElement === searchInputRef.current) return
+      const active = document.activeElement as HTMLElement | null
+      if (active?.closest?.('.modal-card, .overlay, .cash-checkout-shell, .pos-settings-fs')) return
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        focusProductSearch()
+        commitPosSearchRef.current(String(qRef.current || ''))
+        return
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault()
+        const next = String(qRef.current || '').slice(0, -1)
+        qRef.current = next
+        setQ(next)
+        focusProductSearch()
+        return
+      }
+      if (e.key.length === 1) {
+        e.preventDefault()
+        const next = String(qRef.current || '') + e.key
+        qRef.current = next
+        setQ(next)
+        focusProductSearch()
+        const digits = next.replace(/\D/g, '')
+        const trimmed = next.trim()
+        const looksBarcode = /^[\d\- ]{4,48}$/.test(trimmed) && digits.length >= 4
+        if (looksBarcode || (digits.length >= 4 && digits.length >= Math.ceil(trimmed.length * 0.6))) {
+          if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
+          scanCommitTimer.current = window.setTimeout(() => {
+            scanCommitTimer.current = null
+            commitPosSearchRef.current(String(qRef.current || ''))
+          }, 160)
+        }
+      }
+    }
+
+    // Страховка: раз в полсекунды, если фокус потерян
+    const tick = window.setInterval(() => {
+      if (overlayBlocksSearchRef.current) return
+      if (document.activeElement === searchInputRef.current) return
+      const active = document.activeElement as HTMLElement | null
+      if (active?.closest?.('.modal-card, .overlay, .cash-checkout-shell, .pos-settings-fs')) return
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
+      focusProductSearch()
+    }, 450)
+
+    document.addEventListener('pointerup', onPointer)
+    document.addEventListener('focusout', onBlurCapture, true)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerup', onPointer)
+      document.removeEventListener('focusout', onBlurCapture, true)
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.clearInterval(tick)
+    }
   }, [
     overlayBlocksSearch,
     activeShift?.id,
     activeTicketId,
-    catModalOpen, clientOpen, clientScanOpen, discOpen, discPickOpen,
-    qtyEditOpen, cashOpen, splitCardOpen, topupOpen, repayOpen,
-    histOpen, payPickOpen, creditNoteOpen, receiptTemplateOpen, printAskSale,
   ])
-
-  useEffect(() => {
-    if (overlayBlocksSearch) return
-    const onPointer = (e: PointerEvent) => {
-      const t = e.target as HTMLElement | null
-      if (!t) return
-      if (t.closest('input, textarea, select, button, a, [contenteditable="true"]')) return
-      if (t.closest('.modal-card, .overlay, .cash-checkout-shell, .cashier-menu')) return
-      window.setTimeout(focusProductSearch, 0)
-    }
-    document.addEventListener('pointerup', onPointer)
-    return () => document.removeEventListener('pointerup', onPointer)
-  }, [overlayBlocksSearch])
 
   const cashierOptions = useMemo(() => {
     if (cashiers.length) return cashiers.filter(c => c.active !== false)
@@ -1603,6 +1686,7 @@ export default function CashierModule({
     window.setTimeout(focusProductSearch, 0)
     return true
   }
+  commitPosSearchRef.current = commitPosSearch
 
   function scheduleScanCommit(delayMs: number) {
     if (scanCommitTimer.current) {
