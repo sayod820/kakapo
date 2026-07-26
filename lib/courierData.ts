@@ -352,9 +352,10 @@ export const DEFAULT_PRICING: PricingConfig = {
   courierCommissionPercent: 15,
 };
 
-/** Надбавка за вес: первый полный шаг — weightFirstExtra, каждый следующий полный — weightNextExtra.
- *  Считаем по полным блокам (floor), недобор до следующей ступени не тарифицируется.
- *  Пример (шаг 30, первые 10, далее 5): 120–149 кг → 10+5+5+5 = 25; 150 кг → 30.
+/** Надбавка за вес: только за ПОЛНЫЕ блоки шага.
+ *  До step кг — 0; с первого полного (напр. 30 кг) — weightFirstExtra;
+ *  каждый следующий полный блок — weightNextExtra.
+ *  Пример (шаг 30, первые 10, далее 5): 1–29 → 0; 30–59 → 10; 60–89 → 15; 120–149 → 25; 150 → 30.
  */
 export function calcWeightSurcharge(weightKg: number, pricing: PricingConfig = DEFAULT_PRICING): number {
   let w = Math.max(0, Number(weightKg) || 0)
@@ -366,9 +367,8 @@ export function calcWeightSurcharge(weightKg: number, pricing: PricingConfig = D
   const first = Math.max(0, Number(pricing.weightFirstExtra ?? DEFAULT_PRICING.weightFirstExtra) || 0)
   const next = Math.max(0, Number(pricing.weightNextExtra ?? DEFAULT_PRICING.weightNextExtra) || 0)
 
-  // Полные ступени: 30→1, 60→2, …, 120→4, 121→4, 150→5
-  let blocks = Math.floor(w / step + 1e-9)
-  if (blocks < 1) blocks = 1 // вес до первого полного шага — всё равно первая ступень
+  const blocks = Math.floor(w / step + 1e-9)
+  if (blocks < 1) return 0
   return Math.round((first + Math.max(0, blocks - 1) * next) * 100) / 100
 }
 
@@ -381,8 +381,8 @@ export function weightSurchargeLabel(weightKg: number, pricing: PricingConfig = 
   let w = Math.max(0, Number(weightKg) || 0)
   if (w > 5000) w = w / 1000
   w = Math.round(w * 10) / 10
-  let blocks = Math.floor(w / step + 1e-9)
-  if (blocks < 1) blocks = 1
+  const blocks = Math.floor(w / step + 1e-9)
+  if (blocks < 1) return ''
   const bands = Array.from({ length: blocks }, (_, i) => (i === 0 ? first : next))
   return `⚖️ Вес ${w} кг (${blocks}×${step} кг): ${bands.join('+')} = +${extra} ЅМ`
 }

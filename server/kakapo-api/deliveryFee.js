@@ -28,8 +28,10 @@ export function normalizePricing(raw = {}) {
   }
 }
 
-/** Первый полный шаг — weightFirstExtra, каждый следующий полный — weightNextExtra.
- *  120–149 кг / шаг 30: 10+5+5+5 = 25; с 150 кг — +5.
+/** Надбавка за вес только за ПОЛНЫЕ блоки шага.
+ *  До step кг — 0; с первого полного (напр. 30) — weightFirstExtra;
+ *  каждый следующий полный блок — weightNextExtra.
+ *  Пример (шаг 30, 10/5): 1–29 → 0; 30–59 → 10; 60–89 → 15; 120–149 → 25; 150 → 30.
  */
 export function calcWeightSurcharge(weightKg, pricing = DEFAULT_PRICING) {
   let w = Math.max(0, Number(weightKg) || 0)
@@ -40,8 +42,8 @@ export function calcWeightSurcharge(weightKg, pricing = DEFAULT_PRICING) {
   const first = Math.max(0, Number(pricing.weightFirstExtra ?? DEFAULT_PRICING.weightFirstExtra) || 0)
   const next = Math.max(0, Number(pricing.weightNextExtra ?? DEFAULT_PRICING.weightNextExtra) || 0)
 
-  let blocks = Math.floor(w / step + 1e-9)
-  if (blocks < 1) blocks = 1
+  const blocks = Math.floor(w / step + 1e-9)
+  if (blocks < 1) return 0
   return Math.round((first + Math.max(0, blocks - 1) * next) * 100) / 100
 }
 
