@@ -554,6 +554,7 @@ export default function CashierModule({
   const qtyEditInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const commitPosSearchRef = useRef<(raw?: string) => boolean>(() => false)
+  const cartItemsRef = useRef<HTMLDivElement>(null)
   const [cashOpen, setCashOpen] = useState(false)
   const [splitCardOpen, setSplitCardOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
@@ -831,6 +832,24 @@ export default function CashierModule({
     } catch {
       el.focus()
     }
+  }
+
+  /** Последний пробитый товар — выделить и показать без ручной прокрутки */
+  function revealCartLine(key: string | null | undefined) {
+    if (!key) return
+    setSelectedLineKey(key)
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const box = cartItemsRef.current
+        if (!box) return
+        const row = box.querySelector(`[data-line-key="${CSS.escape(key)}"]`) as HTMLElement | null
+        if (row) {
+          row.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' })
+        } else {
+          box.scrollTop = box.scrollHeight
+        }
+      })
+    })
   }
 
   const overlayBlocksSearchRef = useRef(overlayBlocksSearch)
@@ -2686,7 +2705,7 @@ export default function CashierModule({
         costPrice,
         supplierName,
       }])
-      setSelectedLineKey(key)
+      revealCartLine(key)
       setQtyEditDraftKey(key)
       setQtyEditKey(key)
       setQtyEditMode('qty')
@@ -2700,44 +2719,70 @@ export default function CashierModule({
       return
     }
 
-    setCart(prevRaw => {
-      const prev = dropZeroWeightLines(prevRaw)
-      const art = String(p.art || '').trim()
-      const barcode = productBarcodes(p)[0] || ''
-      if (weightKg != null) {
-        if (!(weightKg > MIN_WEIGHT_KG)) return prev
-        return [...prev, {
-          key: cartLineKey(p.id, receiptId, weightKg, preferRetailPrice),
-          productId: p.id,
-          name: p.name,
-          emoji: p.e || '📦',
-          price,
-          qty: 1,
-          stock: layerStock,
-          unit: p.unit || 'кг',
-          art,
-          barcode,
-          weightKg,
-          receiptId,
-          preferRetailPrice,
-          costPrice,
-          supplierName,
-        }]
+    const art = String(p.art || '').trim()
+    const barcode = productBarcodes(p)[0] || ''
+
+    if (weightKg != null) {
+      if (!(weightKg > MIN_WEIGHT_KG)) {
+        setLayerPickOpen(false)
+        setLayerPickProduct(null)
+        setLayerPickGroups([])
+        window.setTimeout(focusProductSearch, 0)
+        return
       }
-      const idx = prev.findIndex(l =>
-        l.productId === p.id
-        && l.weightKg == null
-        && (l.receiptId || '') === (receiptId || '')
-        && (l.preferRetailPrice ?? null) === (preferRetailPrice ?? null),
-      )
-      if (idx >= 0) {
-        const next = [...prev]
-        if (next[idx].qty >= next[idx].stock) return prev
-        next[idx] = { ...next[idx], qty: next[idx].qty + 1, price }
-        return next
+      const key = cartLineKey(p.id, receiptId, weightKg, preferRetailPrice)
+      setCart(prev => [...dropZeroWeightLines(prev), {
+        key,
+        productId: p.id,
+        name: p.name,
+        emoji: p.e || '📦',
+        price,
+        qty: 1,
+        stock: layerStock,
+        unit: p.unit || 'кг',
+        art,
+        barcode,
+        weightKg,
+        receiptId,
+        preferRetailPrice,
+        costPrice,
+        supplierName,
+      }])
+      revealCartLine(key)
+      setLayerPickOpen(false)
+      setLayerPickProduct(null)
+      setLayerPickGroups([])
+      window.setTimeout(focusProductSearch, 0)
+      return
+    }
+
+    const existing = cart.find(l =>
+      l.productId === p.id
+      && l.weightKg == null
+      && (l.receiptId || '') === (receiptId || '')
+      && (l.preferRetailPrice ?? null) === (preferRetailPrice ?? null),
+    )
+    if (existing) {
+      if (existing.qty >= existing.stock) {
+        setLayerPickOpen(false)
+        setLayerPickProduct(null)
+        setLayerPickGroups([])
+        window.setTimeout(focusProductSearch, 0)
+        return
       }
-      return [...prev, {
-        key: cartLineKey(p.id, receiptId, undefined, preferRetailPrice),
+      setCart(prevRaw => {
+        const prev = dropZeroWeightLines(prevRaw)
+        const idx = prev.findIndex(l => l.key === existing.key)
+        if (idx < 0) return prev
+        if (prev[idx].qty >= prev[idx].stock) return prev
+        const updated = { ...prev[idx], qty: prev[idx].qty + 1, price }
+        return [...prev.filter((_, i) => i !== idx), updated]
+      })
+      revealCartLine(existing.key)
+    } else {
+      const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
+      setCart(prev => [...dropZeroWeightLines(prev), {
+        key,
         productId: p.id,
         name: p.name,
         emoji: p.e || '📦',
@@ -2751,8 +2796,9 @@ export default function CashierModule({
         preferRetailPrice,
         costPrice,
         supplierName,
-      }]
-    })
+      }])
+      revealCartLine(key)
+    }
     setLayerPickOpen(false)
     setLayerPickProduct(null)
     setLayerPickGroups([])
@@ -2846,11 +2892,13 @@ export default function CashierModule({
     }
     if (isWeight) setLineWeight(qtyEditKey, qty)
     else setQty(qtyEditKey, qty)
+    const savedKey = qtyEditKey
     setQtyEditDraftKey(null)
     setQtyEditOpen(false)
     setQtyEditKey(null)
     setQtyEditPad(false)
     stopWeightModalMonitor()
+    revealCartLine(savedKey)
     window.setTimeout(focusProductSearch, 40)
   }
 
@@ -5076,7 +5124,7 @@ export default function CashierModule({
             )}
           </div>
 
-          <div className="cart-items">
+          <div className="cart-items" ref={cartItemsRef}>
             {!cart.filter(l => l.key !== qtyEditDraftKey).length ? (
               <div className="cart-empty"><div className="ic">🛒</div>Чек пуст.<br />Отсканируйте или выберите товар.</div>
             ) : cart.filter(l => l.key !== qtyEditDraftKey).map(line => {
@@ -5086,6 +5134,7 @@ export default function CashierModule({
               return (
                 <div
                   key={line.key}
+                  data-line-key={line.key}
                   className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''}`}
                   onClick={() => setSelectedLineKey(line.key)}
                 >
