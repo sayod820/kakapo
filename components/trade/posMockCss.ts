@@ -357,6 +357,12 @@ export const POS_MOCK_CSS = `
   .searchpill .ic svg{display:block;}
   .searchpill input{flex:1;min-width:0;background:none;border:none;outline:none;box-shadow:none;font-size:12.5px;font-weight:700;color:var(--t1);-webkit-appearance:none;appearance:none;}
   .searchpill input::placeholder{color:var(--t3);font-weight:600;}
+  .searchpill .search-clear{
+    flex-shrink:0;width:22px;height:22px;border-radius:999px;border:none;
+    background:var(--border);color:var(--t2);font-size:15px;font-weight:800;line-height:1;
+    display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
+  }
+  .searchpill .search-clear:hover{background:var(--border2);color:var(--t1);}
   .pos-root[data-theme="light"] .searchpill:focus-within{box-shadow:0 0 0 3px rgba(18,155,69,.12);}
   .scan-tag{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;font-size:12px;color:var(--t2);background:var(--surface);border:1px solid var(--border);flex-shrink:0;}
 

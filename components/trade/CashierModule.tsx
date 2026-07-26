@@ -555,6 +555,13 @@ export default function CashierModule({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const commitPosSearchRef = useRef<(raw?: string) => boolean>(() => false)
   const cartItemsRef = useRef<HTMLDivElement>(null)
+  /** Актуальный чек для склейки без гонок при быстрых кликах */
+  const cartRef = useRef<CartLine[]>(cart)
+  cartRef.current = cart
+  /** Пока грузятся партии — не плодим параллельные add одного товара */
+  const addInflightRef = useRef(new Set<number>())
+  const addPendingBumpRef = useRef(new Map<number, number>())
+  const lastPieceAddRef = useRef<{ id: number; t: number }>({ id: 0, t: 0 })
   const [cashOpen, setCashOpen] = useState(false)
   const [splitCardOpen, setSplitCardOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
@@ -2529,12 +2536,49 @@ export default function CashierModule({
     }
     const stock = Number(p.stock) || 0
     if (stock <= 0) return
+
+    // Штучный: если уже в чеке — сразу +1, без повторного запроса партий
+    if (weightKg == null && !isWeighted(p)) {
+      const now = performance.now()
+      const existing = cartRef.current.find(l => l.productId === p.id && l.weightKg == null)
+
+      if (existing) {
+        // Быстрый повторный клик/скан → только +1 (склейка в setCart)
+        lastPieceAddRef.current = { id: p.id, t: now }
+        pushProductToCart(p, weightKg)
+        return
+      }
+
+      if (addInflightRef.current.has(p.id)) {
+        addPendingBumpRef.current.set(p.id, (addPendingBumpRef.current.get(p.id) || 0) + 1)
+        return
+      }
+
+      // Дребезг одного клика (mousedown/click/touch) за ~60 мс
+      if (lastPieceAddRef.current.id === p.id && now - lastPieceAddRef.current.t < 60) {
+        return
+      }
+      lastPieceAddRef.current = { id: p.id, t: now }
+    }
+
     void addProductWithLayers(p, weightKg)
   }
 
   async function addProductWithLayers(p: Product, weightKg?: number) {
+    const piece = weightKg == null && !isWeighted(p)
+    if (piece) addInflightRef.current.add(p.id)
+
+    const finishBumps = () => {
+      if (!piece) return
+      const bumps = addPendingBumpRef.current.get(p.id) || 0
+      addPendingBumpRef.current.delete(p.id)
+      addInflightRef.current.delete(p.id)
+      for (let i = 0; i < bumps; i++) pushProductToCart(p, weightKg)
+    }
+
     if (!USE_API) {
       pushProductToCart(p, weightKg)
+      finishBumps()
       return
     }
     setLayerPickBusy(true)
@@ -2548,6 +2592,11 @@ export default function CashierModule({
         setLayerPickGroups(groups)
         setLayerPickWeightKg(weightKg)
         setLayerPickOpen(true)
+        // Выбор цены вручную — отложенные bump не применяем
+        if (piece) {
+          addPendingBumpRef.current.delete(p.id)
+          addInflightRef.current.delete(p.id)
+        }
         return
       }
       if (groups.length === 1) {
@@ -2557,20 +2606,24 @@ export default function CashierModule({
           costPrice: groups[0].costPrice,
           supplierName: groups[0].oldest.supplierName,
         })
+        finishBumps()
         return
       }
       pushProductToCart(p, weightKg)
+      finishBumps()
     } catch {
       pushProductToCart(p, weightKg)
+      finishBumps()
     } finally {
       setLayerPickBusy(false)
+      if (piece) addInflightRef.current.delete(p.id)
     }
   }
 
   function cartLineKey(productId: number, receiptId?: string, weightKg?: number, preferRetailPrice?: number) {
     if (weightKg != null) return `${productId}-w-${Date.now()}`
-    if (preferRetailPrice != null) return `${productId}::p${preferRetailPrice.toFixed(2)}`
-    return receiptId ? `${productId}::${receiptId}` : String(productId)
+    // Штучный: один ключ на товар — повторное пробитие увеличивает qty
+    return String(productId)
   }
 
   async function ensureCasWeightMonitor(want: boolean) {
@@ -2756,32 +2809,26 @@ export default function CashierModule({
       return
     }
 
-    const existing = cart.find(l =>
-      l.productId === p.id
-      && l.weightKg == null
-      && (l.receiptId || '') === (receiptId || '')
-      && (l.preferRetailPrice ?? null) === (preferRetailPrice ?? null),
-    )
-    if (existing) {
-      if (existing.qty >= existing.stock) {
-        setLayerPickOpen(false)
-        setLayerPickProduct(null)
-        setLayerPickGroups([])
-        window.setTimeout(focusProductSearch, 0)
-        return
-      }
-      setCart(prevRaw => {
-        const prev = dropZeroWeightLines(prevRaw)
-        const idx = prev.findIndex(l => l.key === existing.key)
-        if (idx < 0) return prev
+    // Штучный: всегда одна строка на товар — qty++ внутри setCart (без гонок)
+    let revealKey: string | null = null
+    setCart(prevRaw => {
+      const prev = dropZeroWeightLines(prevRaw)
+      const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
+      if (idx >= 0) {
         if (prev[idx].qty >= prev[idx].stock) return prev
-        const updated = { ...prev[idx], qty: prev[idx].qty + 1, price }
+        const updated = {
+          ...prev[idx],
+          qty: prev[idx].qty + 1,
+          price,
+          stock: layerStock > 0 ? layerStock : prev[idx].stock,
+          ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
+        }
+        revealKey = updated.key
         return [...prev.filter((_, i) => i !== idx), updated]
-      })
-      revealCartLine(existing.key)
-    } else {
+      }
       const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
-      setCart(prev => [...dropZeroWeightLines(prev), {
+      revealKey = key
+      return [...prev, {
         key,
         productId: p.id,
         name: p.name,
@@ -2796,9 +2843,9 @@ export default function CashierModule({
         preferRetailPrice,
         costPrice,
         supplierName,
-      }])
-      revealCartLine(key)
-    }
+      }]
+    })
+    if (revealKey) revealCartLine(revealKey)
     setLayerPickOpen(false)
     setLayerPickProduct(null)
     setLayerPickGroups([])
@@ -4767,7 +4814,7 @@ export default function CashierModule({
             </button>
           )}
 
-          <div className="searchpill">
+          <div className={`searchpill${q.trim() ? ' has-q' : ''}`}>
             <span className="ic" aria-hidden>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                 <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.8" />
@@ -4782,6 +4829,28 @@ export default function CashierModule({
               autoFocus
               onKeyDown={onProductSearchKeyDown}
             />
+            {!!q.trim() && (
+              <button
+                type="button"
+                className="search-clear"
+                title="Очистить поиск"
+                aria-label="Очистить поиск"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => {
+                  if (scanCommitTimer.current) {
+                    window.clearTimeout(scanCommitTimer.current)
+                    scanCommitTimer.current = null
+                  }
+                  scanAccumRef.current = ''
+                  scanBurstRef.current = false
+                  qRef.current = ''
+                  setQ('')
+                  window.setTimeout(focusProductSearch, 0)
+                }}
+              >
+                ×
+              </button>
+            )}
             <span className="scan-tag" title="Сканер">📷</span>
           </div>
 
