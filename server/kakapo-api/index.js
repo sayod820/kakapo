@@ -1295,13 +1295,16 @@ app.patch('/orders/:id/status', (req, res) => {
     return res.status(400).json({ detail: commissionResult.error })
   }
 
-  // Склад: правка состава → пересчёт резерва (не при отмене — там полный возврат)
+  // Склад: правка состава → пересчёт резерва; иначе дорезерв старых заказов без stockReserved
   let stockTouchedIds = []
   const nextStatus = req.body?.status || prev.status
   const willCancel = nextStatus === 'cancelled' && prev.status !== 'cancelled'
   try {
     if (!willCancel && Array.isArray(req.body?.items)) {
       const sync = syncOrderStockReserve(db, prev, req.body.items)
+      if (sync.changed) stockTouchedIds = sync.productIds
+    } else if (!willCancel && !prev.stockFromPos && !prev.stockReserved && prev.status !== 'cancelled') {
+      const sync = syncOrderStockReserve(db, prev, prev.items)
       if (sync.changed) stockTouchedIds = sync.productIds
     }
   } catch (e) {
@@ -1372,6 +1375,9 @@ app.patch('/orders/:id/status', (req, res) => {
   for (const pid of stockTouchedIds) {
     const p = db.products.find(x => Number(x.id) === Number(pid))
     if (p) broadcastProduct(p)
+  }
+  if (stockTouchedIds.length) {
+    broadcastPosUpdate({ reason: 'order-stock', productIds: stockTouchedIds })
   }
   if (commissionResult.courierId && Number(commissionResult.commission) > 0) {
     broadcastCourierWallet(commissionResult)

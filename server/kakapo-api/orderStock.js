@@ -28,16 +28,20 @@ function gramsFromUnit(unit) {
 
 /**
  * Сколько единиц склада списывать за строку заказа.
- * Весовой товар на кассе/складе — в кг; в заказе qty=1 и вес в unit/grams.
+ * Весовой товар на складе — в кг; в заказе часто qty=1 и вес в unit/grams.
+ * Сборщик же добавляет «N шт» без граммов — тогда списываем qty как единицы склада.
  */
 export function stockQtyForOrderItem(item, product) {
   if (!product) return 0
-  if (product.sellType === 'weight') {
+  const sellType = String(product.sellType || '').toLowerCase()
+  if (sellType === 'weight') {
     const grams = Number(item.grams ?? item.weightGrams ?? item.promoUnits) || gramsFromUnit(item.unit)
     if (grams > 0) return round2(grams / 1000)
     const w = Number(item.weightKg)
     if (w > 0) return round2(w)
-    return 0
+    // Сборка/правка: qty без grams (сок 17 шт, АНгур 6 шт) — иначе резерв = 0 и склад не двигается
+    const qty = round2(Number(item.qty) || 0)
+    return qty > 0 ? qty : 0
   }
   return round2(Number(item.qty) || 0)
 }
@@ -100,7 +104,16 @@ export function assertMarketStockAvailable(db, orderOrItems) {
  */
 export function reserveOrderStock(db, order) {
   if (!order || order.stockFromPos) return []
-  if (order.stockReserved && Array.isArray(order.stockReserveLines)) return order.stockReserveLines
+  // Пустой «резерв» (старый баг весовых qty=0) не считаем успешным — пересчитаем
+  if (order.stockReserved && Array.isArray(order.stockReserveLines) && order.stockReserveLines.length > 0) {
+    return order.stockReserveLines
+  }
+  if (order.stockReserved && Array.isArray(order.stockReserveLines) && order.stockReserveLines.length === 0) {
+    const retry = buildMarketStockLines(db, order)
+    if (!retry.length) return order.stockReserveLines
+    // иначе fall through — дорезервируем
+    order.stockReserved = false
+  }
   const lines = assertMarketStockAvailable(db, order)
   if (lines.length) deductStockLines(db, lines)
   order.stockReserved = true
@@ -135,6 +148,7 @@ export function syncOrderStockReserve(db, order, nextItems) {
   const probe = { items: nextItems != null ? nextItems : order.items }
   const nextLines = buildMarketStockLines(db, probe)
 
+  // !stockReserved → не выходим: старые заказы без резерва списываем при первой правке/статусе
   if (order.stockReserved && sameLines(prevLines, nextLines)) {
     return { changed: false, productIds: [] }
   }
