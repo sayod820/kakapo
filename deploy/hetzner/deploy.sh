@@ -82,3 +82,9 @@ echo "   /trade       — торговля / касса"
 echo "   /courier     — курьер"
 echo "   /restaurant  — ресторан"
 echo "   /assembler   — сборщик"
+echo "   /updates/kassa — автообновление desktop-кассы"
+
+# Каталог для Setup.exe + latest.yml (volume kakapo-data)
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T api \
+  node -e "require('fs').mkdirSync('/data/updates/kassa',{recursive:true}); console.log('updates dir ok')" \
+  || true

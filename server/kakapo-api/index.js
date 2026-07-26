@@ -2,7 +2,9 @@ import express from 'express'
 import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
-import { loadDb, scheduleSaveDb, flushDb, getDbStats } from './db.js'
+import { loadDb, scheduleSaveDb, flushDb, getDbStats, DATA_DIR } from './db.js'
+import { mkdirSync } from 'fs'
+import { join } from 'path'
 import {
   ensureUploadDirs,
   processAndSaveProductPhoto,
@@ -372,6 +374,30 @@ app.use('/uploads', express.static(UPLOAD_ROOT, {
     res.setHeader('Cache-Control', 'public, max-age=2592000, immutable')
   },
 }))
+
+/** Канал автообновления KAKAPO Касса: latest.yml + Setup.exe */
+const UPDATES_KASSA_DIR = process.env.UPDATES_DIR
+  ? join(process.env.UPDATES_DIR, 'kassa')
+  : join(DATA_DIR, 'updates', 'kassa')
+try {
+  mkdirSync(UPDATES_KASSA_DIR, { recursive: true })
+} catch { /* ignore */ }
+app.use('/updates/kassa', express.static(UPDATES_KASSA_DIR, {
+  maxAge: 0,
+  fallthrough: true,
+  setHeaders(res, filePath) {
+    // latest.yml всегда свежий; exe можно кэшировать по имени с версией
+    if (/\.yml$/i.test(filePath) || /\.yaml$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=3600')
+    }
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  },
+}))
+app.get('/updates/kassa', (_req, res) => {
+  res.type('text').send('KAKAPO Kassa updates channel')
+})
 
 const photoUpload = multer({
   storage: multer.memoryStorage(),
@@ -4452,6 +4478,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.error('   Hetzner/Docker: volume kakapo-data → /data (DATA_DIR=/data)\n')
   }
   console.log(`   Health: http://0.0.0.0:${PORT}/health`)
+  console.log(`   Updates: http://0.0.0.0:${PORT}/updates/kassa  (${UPDATES_KASSA_DIR})`)
   const geminiKey = getGeminiApiKey()
   console.log(`   Gemini ИИ: ${geminiKey ? `готов (${getGeminiModel()})` : 'нет GEMINI_API_KEY в .env / переменных окружения'}\n`)
   runDebtMaintenanceAndNotify()

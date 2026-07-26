@@ -67,6 +67,18 @@ export type CasWeightEvent = {
   ts?: number
 }
 
+export type DesktopUpdateStatus = {
+  state: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  currentVersion: string
+  availableVersion: string
+  percent: number
+  bytesPerSecond?: number
+  transferred?: number
+  total?: number
+  error: string
+  message: string
+}
+
 export type KakapoDesktopApi = {
   isDesktop: true
   getInfo: () => Promise<{ isDesktop: boolean; platform: string; version: string }>
@@ -128,6 +140,11 @@ export type KakapoDesktopApi = {
     error: string
   }>
   onCasWeight?: (handler: (payload: CasWeightEvent) => void) => () => void
+  getUpdateStatus?: () => Promise<DesktopUpdateStatus>
+  checkForUpdates?: () => Promise<DesktopUpdateStatus>
+  downloadUpdate?: () => Promise<DesktopUpdateStatus>
+  quitAndInstall?: () => Promise<{ ok: boolean; error?: string }>
+  onUpdateStatus?: (handler: (payload: DesktopUpdateStatus) => void) => () => void
 }
 
 declare global {

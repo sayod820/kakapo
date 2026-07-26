@@ -24,4 +24,16 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
       ipcRenderer.removeListener('desktop:casWeight', listener)
     }
   },
+  getUpdateStatus: () => ipcRenderer.invoke('desktop:getUpdateStatus'),
+  checkForUpdates: () => ipcRenderer.invoke('desktop:checkForUpdates'),
+  downloadUpdate: () => ipcRenderer.invoke('desktop:downloadUpdate'),
+  quitAndInstall: () => ipcRenderer.invoke('desktop:quitAndInstall'),
+  onUpdateStatus: (handler) => {
+    if (typeof handler !== 'function') return () => {}
+    const listener = (_event, payload) => handler(payload)
+    ipcRenderer.on('desktop:updateStatus', listener)
+    return () => {
+      ipcRenderer.removeListener('desktop:updateStatus', listener)
+    }
+  },
 })

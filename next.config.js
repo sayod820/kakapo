@@ -35,6 +35,11 @@ const nextConfig = {
         source: '/api/kakapo/:path*',
         destination: `${backendUrl}/:path*`,
       },
+      // Автообновление desktop-кассы: https://kakappo.shop/updates/kassa/...
+      {
+        source: '/updates/:path*',
+        destination: `${backendUrl}/updates/:path*`,
+      },
     ]
   },
   // Пропускаем проверки типов при сборке (код конвертирован из JSX)

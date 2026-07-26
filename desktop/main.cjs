@@ -19,6 +19,7 @@ const {
   normalizeReceiptTemplate,
 } = require('./receiptTemplate.cjs')
 const { startLocalUi, stopLocalUi, localUiUrl } = require('./localServer.cjs')
+const { installUpdaterIpc } = require('./updater.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const APP_ICON_PATH = (() => {
@@ -821,6 +822,7 @@ app.whenReady().then(async () => {
     console.error('[kakapo-desktop] не удалось поднять локальный интерфейс', e)
   }
   createWindow(localUrl)
+  installUpdaterIpc(() => mainWindow)
 
   ipcMain.handle('desktop:getInfo', () => ({
     isDesktop: true,
