@@ -683,9 +683,11 @@ export default function CashierModule({
     let cancelled = false
     const softSync = () => {
       if (cancelled || document.visibilityState === 'hidden') return
+      // без сети не дёргаем сервер пачкой запросов
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return
       void syncPosFromApi()
     }
-    const id = window.setInterval(softSync, 4000)
+    const id = window.setInterval(softSync, 20000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') softSync()
     }

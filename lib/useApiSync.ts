@@ -14,6 +14,7 @@ import { useWebSocket } from './ws'
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
 const INTERVAL_MS = 12000
+const POS_INTERVAL_MS = 30000
 
 function wsRoleForMode(mode: SyncMode) {
   if (mode === 'assembler') return 'assembler' as const
@@ -115,27 +116,24 @@ export function useApiSync(mode: SyncMode = 'all') {
         const tasks: Promise<unknown>[] = [
           syncLoyaltyStatusConfigFromApi(),
           useProducts.getState().fetchProducts(),
-          usePromos.getState().fetchPromos(),
-          useRestaurants.getState().fetchRestaurants(),
-          syncCourierStoresFromApi(),
         ]
-        if (mode === 'all') {
-          tasks.push(
-            syncAssemblerTeamFromApi(),
-            syncPushFromApi(),
-          )
-        }
         if (mode === 'pos') {
+          // Касса: только товары, клиенты, карты и снимок POS
+          tasks.push(syncClientsFromApi(), syncCardsFromApi(), syncPosFromApi())
+        } else {
           tasks.push(
-            syncClientsFromApi(),
-            syncCardsFromApi(),
-            syncPosFromApi(),
+            usePromos.getState().fetchPromos(),
+            useRestaurants.getState().fetchRestaurants(),
+            syncCourierStoresFromApi(),
           )
+          if (mode === 'all') {
+            tasks.push(syncAssemblerTeamFromApi(), syncPushFromApi())
+          }
+          if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
+          else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
+          else if (mode === 'restaurant') tasks.push(useOrders.getState().fetchRestaurantOrders())
+          else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
         }
-        if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
-        else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
-        else if (mode === 'restaurant') tasks.push(useOrders.getState().fetchRestaurantOrders())
-        else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
         await Promise.allSettled(tasks)
       } catch (e) {
         console.error('[kakapo] useApiSync load failed', e)
@@ -143,7 +141,7 @@ export function useApiSync(mode: SyncMode = 'all') {
     }
 
     load()
-    const id = setInterval(load, INTERVAL_MS)
+    const id = setInterval(load, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
     return () => clearInterval(id)
   }, [mode])
 }

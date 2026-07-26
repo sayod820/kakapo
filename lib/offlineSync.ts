@@ -199,6 +199,6 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         set({ online: true })
         if (get().pending > 0) await get().flush()
       })()
-    }, 20000)
+    }, 45000)
   },
 }))

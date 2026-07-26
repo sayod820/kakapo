@@ -3,8 +3,9 @@
  *
  * Next собирается в режиме standalone и складывается в desktop/ui.
  * Electron поднимает эту сборку локально, поэтому касса открывается
- * даже без интернета, а запросы к API идут через тот же rewrite
- * /api/kakapo/* — значит CORS не нужен и код фронтенда не меняется.
+ * даже без интернета. Запросы к API в десктопе идут напрямую
+ * на сервер (NEXT_PUBLIC_API_URL), без локального Next-прокси —
+ * иначе касса тормозит на каждом запросе.
  *
  * Запуск: npm run desktop:build-ui
  */
@@ -41,6 +42,8 @@ run('npx', ['next', 'build'], {
   KAKAPO_STANDALONE: 'true',
   NODE_ENV: 'production',
   NEXT_PUBLIC_USE_API: 'true',
+  // Прямой URL в клиентский бандл — без hop через локальный Next
+  NEXT_PUBLIC_API_URL: backendUrl,
   KAKAPO_BACKEND_URL: backendUrl,
   NEXT_PUBLIC_WS_URL: wsUrl,
 })

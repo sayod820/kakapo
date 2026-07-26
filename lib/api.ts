@@ -174,11 +174,11 @@ async function parseErrorResponse(res: Response): Promise<string> {
 }
 
 const RETRY_STATUS = new Set([500, 502, 503, 504])
-const REQUEST_TIMEOUT_MS = 25000
-const LIST_TIMEOUT_MS = 35000
-const REVIEW_TIMEOUT_MS = 45000
-const MAX_ATTEMPTS = 3
-const RETRY_DELAY_MS = 5000
+const REQUEST_TIMEOUT_MS = 12000
+const LIST_TIMEOUT_MS = 20000
+const REVIEW_TIMEOUT_MS = 30000
+const MAX_ATTEMPTS = 2
+const RETRY_DELAY_MS = 1200
 
 function withTimeout<T>(promise: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -233,9 +233,10 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
     res = await withTimeout(fetch(url, { ...options, headers }), timeoutMs)
   } catch (e) {
     const timedOut = e instanceof NetworkError || (e instanceof Error && e.message.includes('Сервер не отвечает'))
-    if (timedOut && attempt < MAX_ATTEMPTS - 1) {
-      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
-      return requestUrl<T>(url, options, attempt + 1, timeoutMs)
+    // Сетевая ошибка / таймаут: один повтор максимум, иначе касса «висит» по 75 секунд
+    if (timedOut && attempt < 1) {
+      await new Promise(r => setTimeout(r, 800))
+      return requestUrl<T>(url, options, attempt + 1, Math.min(timeoutMs, 12000))
     }
     if (timedOut) {
       throw new NetworkError('Сервер не отвечает. Подождите немного и обновите страницу.')

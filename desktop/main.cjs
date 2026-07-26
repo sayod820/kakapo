@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session } = require('electron')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -255,6 +255,9 @@ function createWindow(localUrl = '') {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // Локальный UI на 127.0.0.1 ходит напрямую на kakappo.shop —
+      // без этого Chromium режет ответы по CORS и касса тормозит/ломается.
+      webSecurity: false,
     },
   })
 
@@ -788,9 +791,29 @@ async function ensureReceiptPrinterName(preferred) {
   return printerName
 }
 
+/**
+ * Интерфейс крутится на http://127.0.0.1, а API — на kakappo.shop.
+ * Без CORS браузер Electron режет ответы. Подставляем заголовки сами,
+ * чтобы касса ходила на API напрямую (без медленного локального Next-прокси).
+ */
+function installApiCorsBypass() {
+  const filter = { urls: ['https://kakappo.shop/*', 'http://kakappo.shop/*'] }
+  session.defaultSession.webRequest.onHeadersReceived(filter, (details, callback) => {
+    const headers = { ...(details.responseHeaders || {}) }
+    headers['Access-Control-Allow-Origin'] = ['*']
+    headers['Access-Control-Allow-Headers'] = ['*']
+    headers['Access-Control-Allow-Methods'] = ['GET, POST, PUT, PATCH, DELETE, OPTIONS']
+    // убрать возможный конфликт с credentials
+    delete headers['access-control-allow-credentials']
+    delete headers['Access-Control-Allow-Credentials']
+    callback({ responseHeaders: headers })
+  })
+}
+
 app.whenReady().then(async () => {
   // Меню «KAKAPO / Edit / Вид» на кассе не нужно
   Menu.setApplicationMenu(null)
+  installApiCorsBypass()
   let localUrl = ''
   try {
     localUrl = await startLocalUi()
