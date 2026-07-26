@@ -250,7 +250,7 @@ function AssemblerAppInner() {
     }
   };
 
-  const openCollect = (id: string) => {
+  const openCollect = (id: string, opts?: { edit?: boolean }) => {
     const raw = apiOrders.find(o => o.id === id);
     if (USE_API && raw && assemblerProfile) {
       const order = normalizeOrder(raw);
@@ -281,7 +281,7 @@ function AssemblerAppInner() {
       }
     }
     collectIdRef.current = id;
-    navigate('collect', { order: id });
+    navigate('collect', { order: id, ...(opts?.edit ? { edit: '1' } : {}) });
   };
 
   const toggleItem = (orderId: string, itemId: number) => {
@@ -297,6 +297,38 @@ function AssemblerAppInner() {
       return;
     }
     await updateOrderItemsStore(orderId, items, note ? { assemblerNote: note } : undefined);
+
+    // Пока курьер ещё не забрал у магазина — если после правок есть недособранные
+    // позиции и курьер ещё не принял заказ, возвращаем в сборку.
+    const raw = useOrders.getState().orders.find(o => o.id === orderId)
+      || apiOrders.find(o => o.id === orderId);
+    if (!raw || !assemblerProfile) return;
+    const order = normalizeOrder(raw);
+    if ((order.pickedUpIds || []).includes('store')) return;
+    if (['delivering', 'delivered', 'cancelled'].includes(order.status)) return;
+
+    const courierTaken = !!(order.courier?.name && order.courier.name !== '—')
+      || order.status === 'courier_picked';
+    if (courierTaken) return;
+
+    const wasReady = ['ready', 'assembler_done'].includes(order.status)
+      || (isMixedOrder(order) && getMarketStatus(order) === 'done');
+    if (!wasReady) return;
+
+    const hasUndone = (order.items || []).some(it => !it.done);
+    if (!hasUndone) return;
+
+    if (isMixedOrder(order)) {
+      await updateStatus(orderId, 'assembling', {
+        marketStatus: 'assembling',
+        assembler: { name: assemblerName, id: assemblerProfile.id },
+      });
+    } else {
+      await updateStatus(orderId, 'assembling', {
+        marketStatus: 'assembling',
+        assembler: { name: assemblerName, id: assemblerProfile.id },
+      });
+    }
   };
 
   const completeOrder = async (orderId: string) => {
@@ -385,6 +417,7 @@ function AssemblerAppInner() {
       <CollectPage
         key={activeOrderId}
         order={activeOrder}
+        openEdit={params.edit === '1'}
         onToggle={toggleItem}
         onComplete={completeOrder}
         onHandoff={handoffToCourier}
@@ -652,15 +685,27 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
               ✓ Принять заказ
             </button>
           ) : isCourierAssigned ? (
-            <button type="button" onClick={() => onHandoff(order.id)} className="btn"
-              style={{width:'100%',padding:13,borderRadius:14,background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-              🛵 Забрал курьер
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button type="button" onClick={() => onStart(order.id, { edit: true })} className="btn"
+                style={{width:'100%',padding:12,borderRadius:14,background:'rgba(155,109,255,.1)',border:'1.5px solid rgba(155,109,255,.35)',color:'#9B6DFF',fontFamily:'Nunito',fontWeight:800,fontSize:13}}>
+                ✏️ Открыть · изменить заказ
+              </button>
+              <button type="button" onClick={() => onHandoff(order.id)} className="btn"
+                style={{width:'100%',padding:13,borderRadius:14,background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+                🛵 Забрал курьер
+              </button>
+            </div>
           ) : isReady ? (
-            <button type="button" onClick={() => onStart(order.id)} className="btn"
-              style={{width:'100%',padding:13,borderRadius:14,background:'rgba(31,215,96,.12)',border:'1.5px solid rgba(31,215,96,.35)',color:'#1FD760',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
-              👁 Открыть готовый заказ
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button type="button" onClick={() => onStart(order.id)} className="btn"
+                style={{width:'100%',padding:13,borderRadius:14,background:'rgba(31,215,96,.12)',border:'1.5px solid rgba(31,215,96,.35)',color:'#1FD760',fontFamily:'Nunito',fontWeight:800,fontSize:14}}>
+                👁 Открыть готовый заказ
+              </button>
+              <button type="button" onClick={() => onStart(order.id, { edit: true })} className="btn"
+                style={{width:'100%',padding:12,borderRadius:14,background:'rgba(155,109,255,.1)',border:'1.5px solid rgba(155,109,255,.35)',color:'#9B6DFF',fontFamily:'Nunito',fontWeight:800,fontSize:13}}>
+                ✏️ Изменить / добавить товары
+              </button>
+            </div>
           ) : (
             <button onClick={()=>onStart(order.id)} className="btn"
               style={{width:'100%',padding:13,borderRadius:14,background:`linear-gradient(135deg,#6B3FD4,#9B6DFF)`,border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
@@ -822,10 +867,10 @@ function productToEditItem(p: Product, qty = 1, id?: number): EditOrderItem {
   };
 }
 
-function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, onCancel, onAcknowledgeCancel, onUpdateItems}) {
+function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, onLogout, onCancel, onAcknowledgeCancel, onUpdateItems}) {
   const products = useProducts(s => s.products);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
+  const [showEdit, setShowEdit] = useState(!!openEdit);
   const [editItems, setEditItems] = useState<EditOrderItem[]>(order.items);
   const [editNote, setEditNote] = useState(order.assemblerNote || '');
   const [saving, setSaving] = useState(false);
@@ -837,6 +882,8 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
   const isCancelled = !!order.cancelled;
   const isReady = order.queue === 'ready';
   const isCourierAssigned = order.queue === 'courier_assigned';
+  // Правки/добавления можно до фактической передачи («Забрал курьер»)
+  const canModifyItems = !isCancelled;
   const isHandoffStage = isReady || isCourierAssigned;
   const courierName = order.courier?.name && order.courier.name !== '—' ? order.courier.name : null;
   const clientPhone = phoneHref(order.client.phone);
@@ -1001,7 +1048,7 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
             )}
           </div>
         </div>
-        {!isCancelled && (
+        {canModifyItems && (
           <div style={{display:'flex',gap:10,marginBottom:14}}>
             {clientPhone ? (
               <a href={clientPhone} className="btn"
@@ -1015,8 +1062,13 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
             )}
             <button type="button" onClick={() => setShowEdit(true)} className="btn"
               style={{flex:1,padding:'11px 12px',borderRadius:13,background:'rgba(155,109,255,.1)',border:'1.5px solid rgba(155,109,255,.35)',color:'#9B6DFF',fontWeight:800,fontSize:12}}>
-              ✏️ Изменить заказ
+              ✏️ Изменить / добавить
             </button>
+          </div>
+        )}
+        {isHandoffStage && canModifyItems && (
+          <div style={{padding:'8px 12px',borderRadius:11,background:'rgba(155,109,255,.07)',border:'1px solid rgba(155,109,255,.22)',fontSize:11,color:'#9B6DFF',marginBottom:14,lineHeight:1.45}}>
+            Можно менять и добавлять товары, пока курьер не забрал заказ у магазина.
           </div>
         )}
         {order.comment&&(
@@ -1040,8 +1092,8 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
       {/* Items list */}
       <div style={{padding:'0 18px 180px',display:'flex',flexDirection:'column',gap:10}}>
         {order.items.map((item,i)=>(
-          <div key={item.id} onClick={() => !isCancelled && !isHandoffStage && onToggle(order.id, item.id)}
-            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:isCancelled || isHandoffStage ?'default':'pointer',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
+          <div key={item.id} onClick={() => canModifyItems && onToggle(order.id, item.id)}
+            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:canModifyItems?'pointer':'default',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
             <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s',overflow:'hidden'}}>
               {(item.photoThumb || item.photo)
                 ? <img src={resolvePhotoUrl(item.photoThumb || item.photo)} alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
@@ -1079,15 +1131,25 @@ function CollectPage({order, onToggle, onComplete, onHandoff, onBack, onLogout, 
         <div style={{padding:'12px',background:'rgba(59,142,240,.08)',borderRadius:13,border:'1px solid rgba(59,142,240,.25)',textAlign:'center',fontSize:12,color:'#3B8EF0',fontWeight:700,marginBottom:10}}>
           Курьер {courierName || ''} принял заказ · передайте товары и подтвердите
         </div>
+        <button type="button" onClick={() => setShowEdit(true)} className="btn"
+          style={{width:'100%',padding:12,borderRadius:14,background:'rgba(155,109,255,.1)',border:'1.5px solid rgba(155,109,255,.35)',color:'#9B6DFF',fontWeight:800,fontSize:13,marginBottom:10}}>
+          ✏️ Изменить / добавить товары
+        </button>
         <button type="button" onClick={() => onHandoff(order.id)} className="btn"
           style={{width:'100%',padding:14,borderRadius:16,background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:800,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:10}}>
           🛵 Забрал курьер
         </button>
         </>
         ) : isReady ? (
+        <>
         <div style={{padding:'12px',background:'rgba(31,215,96,.08)',borderRadius:13,border:'1px solid rgba(31,215,96,.25)',textAlign:'center',fontSize:12,color:'#1FD760',fontWeight:700,marginBottom:10}}>
-          ✅ Заказ готов · ожидаем, пока курьер примет его в приложении
+          ✅ Заказ готов · ожидаем курьера. До передачи можно менять состав.
         </div>
+        <button type="button" onClick={() => setShowEdit(true)} className="btn"
+          style={{width:'100%',padding:13,borderRadius:14,background:'rgba(155,109,255,.12)',border:'1.5px solid rgba(155,109,255,.4)',color:'#9B6DFF',fontFamily:'Nunito',fontWeight:800,fontSize:14,marginBottom:10}}>
+          ✏️ Изменить / добавить товары
+        </button>
+        </>
         ) : (
         <>
         {/* Summary */}
