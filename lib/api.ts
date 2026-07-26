@@ -155,6 +155,10 @@ function stripHtmlError(text: string): string {
   if (/Cannot DELETE/i.test(text)) {
     return 'На сервере нет удаления клиентов — обновите backend API'
   }
+  // Next.js 404 HTML (часто когда API URL указан как сайт без /api/kakapo)
+  if (/404|Страница не найдена|__next_f|This page could not be found/i.test(text)) {
+    return 'API не найден (404). Проверьте адрес /api/kakapo — пересоберите веб на сервере.'
+  }
   return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
 }
 

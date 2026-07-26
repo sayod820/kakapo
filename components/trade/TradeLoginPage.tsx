@@ -175,6 +175,8 @@ export default function TradeLoginPage({
 
         {loadingDir ? (
           <div style={{ color: 'var(--muted)', fontWeight: 700, textAlign: 'center' }}>Загрузка…</div>
+        ) : err && !directory.length ? (
+          <div className="tl-err">{err}</div>
         ) : !directory.length ? (
           <div className="tl-err">
             Нет сотрудников. Добавьте их в Админке → Команда → Сотрудники
@@ -205,7 +207,6 @@ export default function TradeLoginPage({
             </button>
           </>
         )}
-        {err && !directory.length && <div className="tl-err" style={{ marginTop: 12 }}>{err}</div>}
       </form>
     </div>
   )

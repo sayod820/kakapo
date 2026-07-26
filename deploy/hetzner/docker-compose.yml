@@ -34,7 +34,9 @@ services:
       args:
         NEXT_PUBLIC_USE_API: "true"
         KAKAPO_BACKEND_URL: http://api:8000
-        NEXT_PUBLIC_API_URL: ${PUBLIC_URL:-}
+        # Пусто → в браузере same-origin /api/kakapo (не PUBLIC_URL сайта!)
+        # Иначе запросы уходят на https://domain/employees и Next отдаёт 404 HTML.
+        NEXT_PUBLIC_API_URL: ""
         NEXT_PUBLIC_WS_URL: ${WS_URL:-}
     container_name: kakapo-web
     restart: unless-stopped
