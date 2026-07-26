@@ -849,11 +849,12 @@ type EditOrderItem = {
   photo?: string | null
   photoThumb?: string | null
   done?: boolean
+  source?: 'market' | 'restaurant'
 }
 
-function productToEditItem(p: Product, qty = 1, id?: number): EditOrderItem {
+function productToEditItem(p: Product, qty = 1, _lineKey?: number): EditOrderItem {
   return {
-    id: id ?? p.id,
+    id: p.id,
     product_id: p.id,
     art: p.art,
     e: p.e,
@@ -864,6 +865,7 @@ function productToEditItem(p: Product, qty = 1, id?: number): EditOrderItem {
     photo: p.photo,
     photoThumb: p.photoThumb,
     done: false,
+    source: 'market',
   };
 }
 
@@ -897,11 +899,17 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
   }, [showEdit]);
 
   useEffect(() => {
-    setEditItems(order.items);
-    setEditNote(order.assemblerNote || '');
-    setPickerMode(null);
-    setProductQuery('');
-  }, [order.id, order.items, order.assemblerNote]);
+    // Пока открыт редактор — не затираем локальные правки ответом с сервера/WS
+    if (showEdit) return
+    setEditItems(order.items.map(it => ({
+      ...it,
+      product_id: it.product_id ?? it.id,
+      source: 'market' as const,
+    })))
+    setEditNote(order.assemblerNote || '')
+    setPickerMode(null)
+    setProductQuery('')
+  }, [order.id, order.items, order.assemblerNote, showEdit])
 
   const filteredProducts = useMemo(() => {
     const q = productQuery.trim().toLowerCase();
@@ -913,6 +921,18 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
       p.cat.toLowerCase().includes(q)
     ).slice(0, 30);
   }, [products, productQuery]);
+
+  const openEditModal = () => {
+    setEditItems(order.items.map(it => ({
+      ...it,
+      product_id: it.product_id ?? it.id,
+      source: 'market' as const,
+    })))
+    setEditNote(order.assemblerNote || '')
+    setPickerMode(null)
+    setProductQuery('')
+    setShowEdit(true)
+  }
 
   const openAddPicker = () => {
     setPickerMode('add');
@@ -932,18 +952,19 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
   const selectProduct = (p: Product) => {
     if (pickerMode === 'add') {
       setEditItems(prev => {
-        const idx = prev.findIndex(it => it.id === p.id || it.art === p.art);
+        const idx = prev.findIndex(it =>
+          Number(it.product_id ?? it.id) === p.id || (it.art && it.art === p.art)
+        );
         if (idx >= 0) {
           return prev.map((it, i) => i === idx ? { ...it, qty: it.qty + 1, done: false } : it);
         }
-        const nextId = prev.length ? Math.max(...prev.map(it => it.id)) + 1 : p.id;
-        return [...prev, productToEditItem(p, 1, nextId)];
+        return [...prev, productToEditItem(p, 1)];
       });
     } else if (typeof pickerMode === 'number') {
       const old = editItems.find(it => it.id === pickerMode);
       setEditItems(prev => prev.map(it => {
         if (it.id !== pickerMode) return it;
-        return { ...productToEditItem(p, old?.qty ?? 1, it.id), done: false };
+        return { ...productToEditItem(p, old?.qty ?? 1), done: false };
       }));
     }
     closePicker();
@@ -973,11 +994,26 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
     }
     setSaving(true);
     try {
-      await onUpdateItems(order.id, filtered.map(it => ({
-        ...it,
-        product_id: it.product_id ?? products.find(p => p.id === it.id || p.art === it.art)?.id ?? it.id,
-      })), editNote.trim());
+      const payload = filtered.map(it => {
+        const productId = Number(it.product_id ?? it.id)
+          || products.find(p => p.id === it.id || p.art === it.art)?.id
+          || 0
+        return {
+          ...it,
+          id: productId || it.id,
+          product_id: productId || it.id,
+          source: 'market' as const,
+          e: it.e || '📦',
+          unit: it.unit || 'шт',
+          price: Number(it.price) || 0,
+          qty: Number(it.qty) || 1,
+          done: !!it.done,
+        }
+      })
+      await onUpdateItems(order.id, payload, editNote.trim());
       setShowEdit(false);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Не удалось сохранить изменения');
     } finally {
       setSaving(false);
     }
@@ -1060,7 +1096,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
                 📞 Номер клиента не указан
               </div>
             )}
-            <button type="button" onClick={() => setShowEdit(true)} className="btn"
+            <button type="button" onClick={openEditModal} className="btn"
               style={{flex:1,padding:'11px 12px',borderRadius:13,background:'rgba(155,109,255,.1)',border:'1.5px solid rgba(155,109,255,.35)',color:'#9B6DFF',fontWeight:800,fontSize:12}}>
               ✏️ Изменить / добавить
             </button>
@@ -1131,7 +1167,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
         <div style={{padding:'12px',background:'rgba(59,142,240,.08)',borderRadius:13,border:'1px solid rgba(59,142,240,.25)',textAlign:'center',fontSize:12,color:'#3B8EF0',fontWeight:700,marginBottom:10}}>
           Курьер {courierName || ''} принял заказ · передайте товары и подтвердите
         </div>
-        <button type="button" onClick={() => setShowEdit(true)} className="btn"
+        <button type="button" onClick={openEditModal} className="btn"
           style={{width:'100%',padding:12,borderRadius:14,background:'rgba(155,109,255,.1)',border:'1.5px solid rgba(155,109,255,.35)',color:'#9B6DFF',fontWeight:800,fontSize:13,marginBottom:10}}>
           ✏️ Изменить / добавить товары
         </button>
@@ -1145,7 +1181,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
         <div style={{padding:'12px',background:'rgba(31,215,96,.08)',borderRadius:13,border:'1px solid rgba(31,215,96,.25)',textAlign:'center',fontSize:12,color:'#1FD760',fontWeight:700,marginBottom:10}}>
           ✅ Заказ готов · ожидаем курьера. До передачи можно менять состав.
         </div>
-        <button type="button" onClick={() => setShowEdit(true)} className="btn"
+        <button type="button" onClick={openEditModal} className="btn"
           style={{width:'100%',padding:13,borderRadius:14,background:'rgba(155,109,255,.12)',border:'1.5px solid rgba(155,109,255,.4)',color:'#9B6DFF',fontFamily:'Nunito',fontWeight:800,fontSize:14,marginBottom:10}}>
           ✏️ Изменить / добавить товары
         </button>

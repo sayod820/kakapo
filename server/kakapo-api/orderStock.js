@@ -11,7 +11,8 @@ function round2(n) {
 }
 
 function productIdOf(item) {
-  const id = Number(item?.id ?? item?.product_id ?? item?.productId)
+  // product_id / productId — реальный товар; id в UI иногда бывает локальным ключом строки
+  const id = Number(item?.product_id ?? item?.productId ?? item?.id)
   return id > 0 ? id : 0
 }
 

@@ -485,7 +485,7 @@ function mapAssemblerOrderShape(o: Order) {
     comment: order.comment || '',
     assemblerNote: order.assemblerNote || '',
     items: marketItems.map((it, idx) => ({
-      id: it.id ?? it.product_id ?? idx + 1,
+      id: it.product_id ?? it.id ?? idx + 1,
       art: it.art || '',
       e: it.e,
       name: it.name,
@@ -495,6 +495,7 @@ function mapAssemblerOrderShape(o: Order) {
       photo: it.photo,
       photoThumb: it.photoThumb,
       product_id: it.product_id ?? it.id,
+      source: 'market' as const,
       done: it.done ?? false,
     })),
   }

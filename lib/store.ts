@@ -738,22 +738,32 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   updateOrderItems: async (orderId, items, extra) => {
     const order = get().orders.find(o => o.id === orderId)
     if (!order) return
-    const itemsSubtotal = Math.round(items.reduce((s, it) => s + it.price * it.qty, 0) * 100) / 100
+    const normalizedItems = items.map(it => {
+      const productId = Number(it.product_id ?? it.id) || 0
+      return {
+        ...it,
+        id: productId || it.id,
+        product_id: productId || it.id,
+        source: it.source === 'restaurant' ? 'restaurant' as const : 'market' as const,
+      }
+    })
+    const itemsSubtotal = Math.round(normalizedItems.reduce((s, it) => s + it.price * it.qty, 0) * 100) / 100
     const total = Math.round((itemsSubtotal + (order.deliveryFee ?? 0)) * 100) / 100
     // goodsTotal должен идти в ногу с items — иначе админка/клиент показывают
     // застывшую сумму с момента оформления, а курьер считает актуальную по items.
-    const patch = { items, total, goodsTotal: itemsSubtotal, ...extra }
+    const patch = { items: normalizedItems, total, goodsTotal: itemsSubtotal, ...extra }
     patchOrders(set, get, s => s.map(o => o.id === orderId ? { ...o, ...patch } : o))
     if (USE_API) {
       try {
         const updated = await api.updateOrderStatus(orderId, order.status, patch)
         patchOrders(set, get, s => s.map(o => {
           if (o.id !== orderId) return o
-          return normalizeOrder({ ...o, ...updated, items: updated.items ?? items, total: updated.total ?? total, goodsTotal: updated.goodsTotal ?? itemsSubtotal })
+          return normalizeOrder({ ...o, ...updated, items: updated.items ?? normalizedItems, total: updated.total ?? total, goodsTotal: updated.goodsTotal ?? itemsSubtotal })
         }))
       } catch (e) {
         console.error(e)
         patchOrders(set, get, s => s.map(o => o.id === orderId ? order : o))
+        throw e instanceof Error ? e : new Error('Не удалось сохранить состав заказа')
       }
     }
   },
