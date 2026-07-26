@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
+import OfflineNotice from './OfflineNotice'
 import { USE_API } from '@/lib/config'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
@@ -102,6 +103,8 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
           Складские операции доступны только при подключении к API
         </div>
       )}
+
+      <OfflineNotice section="склад" />
 
       {apiError && (
         <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>

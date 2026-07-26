@@ -96,7 +96,6 @@ import { preloadLeaflet } from "@/lib/leafletLoader";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700;800;900&family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@600;700;800&display=swap');
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 :root{
   --gr:#1FD760;--gr2:#17B34E;--gr3:#0F8A3A;--gd:#FFB800;

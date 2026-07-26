@@ -222,6 +222,41 @@ function persist() {
   scheduleSaveDb()
 }
 
+// ── Идемпотентность офлайн-кассы ──
+// Касса без интернета копит операции и отправляет их пачкой. Отправка может
+// повториться (обрыв связи на ответе), поэтому запоминаем clientRef каждой
+// проведённой операции и при повторе отдаём тот же результат.
+const OP_REF_TTL_MS = 14 * 24 * 60 * 60 * 1000
+const OP_REF_LIMIT = 5000
+
+function ensureOpRefs() {
+  if (!Array.isArray(db.opRefs)) db.opRefs = []
+  return db.opRefs
+}
+
+function pruneOpRefs() {
+  const rows = ensureOpRefs()
+  const edge = Date.now() - OP_REF_TTL_MS
+  const alive = rows.filter(r => Date.parse(r.createdAtIso || '') > edge)
+  db.opRefs = alive.length > OP_REF_LIMIT ? alive.slice(-OP_REF_LIMIT) : alive
+}
+
+/** Результат ранее проведённой операции с тем же ключом (или null) */
+function findOpRef(kind, clientRef) {
+  const ref = String(clientRef || '').trim()
+  if (!ref) return null
+  const row = ensureOpRefs().find(r => r.clientRef === ref && r.kind === kind)
+  return row ? row.result : null
+}
+
+function rememberOpRef(kind, clientRef, result) {
+  const ref = String(clientRef || '').trim()
+  if (!ref) return
+  const rows = ensureOpRefs()
+  rows.push({ clientRef: ref, kind, result, createdAtIso: new Date().toISOString() })
+  pruneOpRefs()
+}
+
 function ensurePromos() {
   if (!Array.isArray(db.promos)) db.promos = []
   if (typeof db._seq.promo !== 'number') db._seq.promo = 0
@@ -2007,7 +2042,13 @@ app.get('/pos/shifts', (_req, res) => {
 })
 app.post('/pos/shifts/open', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = (db.posShifts || []).find(s => s.clientRef === clientRef)
+      if (known) return res.json(known)
+    }
     const row = openPosShift(db, req.body || {})
+    if (clientRef) row.clientRef = clientRef
     auditFromReq(db, req, {
       app: 'trade',
       action: 'shift_open',
@@ -2025,7 +2066,13 @@ app.post('/pos/shifts/open', (req, res) => {
 })
 app.patch('/pos/shifts/:id/close', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = (db.posShifts || []).find(s => s.closeClientRef === clientRef)
+      if (known) return res.json(known)
+    }
     const row = closePosShift(db, req.params.id, req.body || {})
+    if (clientRef) row.closeClientRef = clientRef
     auditFromReq(db, req, {
       app: 'trade',
       action: 'shift_close',
@@ -2116,7 +2163,16 @@ app.post('/pos/sales', (req, res) => {
 })
 app.post('/pos/sales/:id/return', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = (db.posSales || []).find(s => (s.returns || []).some(r => r.clientRef === clientRef))
+      if (known) return res.json(known)
+    }
     const row = returnPosSale(db, req.params.id, req.body || {})
+    if (clientRef) {
+      const last = Array.isArray(row.returns) ? row.returns[row.returns.length - 1] : null
+      if (last) last.clientRef = clientRef
+    }
     const bonusRefund = Number(row._bonusRefunded) || 0
     const bonusPhone = String(row._bonusRefundPhone || row.clientPhone || '').trim()
     delete row._bonusRefunded
@@ -2405,7 +2461,17 @@ app.get('/finance/moves', (_req, res) => {
 })
 app.post('/finance/moves', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = (db.financeMoves || []).find(m => m.clientRef === clientRef)
+      if (known) return res.json(known)
+    }
     const row = createFinanceMove(db, req.body || {})
+    if (clientRef) {
+      row.clientRef = clientRef
+      const stored = (db.financeMoves || []).find(m => m.id === row.id)
+      if (stored) stored.clientRef = clientRef
+    }
     persist()
     broadcastPosUpdate({ kind: 'finance-move', id: row.id })
     res.json(row)
@@ -3834,6 +3900,9 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     const num = decodeURIComponent(req.params.num).toUpperCase()
     const card = findCardByNum(num)
     if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+    const clientRef = String(req.body?.clientRef || '').trim()
+    const dup = findOpRef('card_topup', clientRef)
+    if (dup) return res.json({ ...dup, card })
     // cash — внесённые деньги (идут в Кошелёк). credit оставлен для обратной совместимости.
     const cash = Math.round((Number(req.body?.cash) || 0) * 100) / 100
     if (!(cash > 0)) {
@@ -3872,6 +3941,7 @@ app.post('/cards/:num/cash-topup', (req, res) => {
         + ` · касса +${cash}`,
       after: { cash, bonusEarned, addToBonus, bonus: card.bonus },
     })
+    rememberOpRef('card_topup', clientRef, { financeMove: move, bonusEarned, addToBonus })
     persist()
     broadcastPosUpdate({ kind: 'client-cash-topup', id: move.id })
     res.json({ card, financeMove: move, bonusEarned, addToBonus })
@@ -3886,6 +3956,9 @@ app.post('/cards/:num/debt-repay', (req, res) => {
     const num = decodeURIComponent(req.params.num).toUpperCase()
     const card = findCardByNum(num)
     if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+    const clientRef = String(req.body?.clientRef || '').trim()
+    const dup = findOpRef('debt_repay', clientRef)
+    if (dup) return res.json({ ...dup, card })
 
     const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
     if (!(amount > 0)) return res.status(400).json({ detail: 'Укажите сумму погашения' })
@@ -3959,13 +4032,7 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       before: { debt: prevDebt },
       after: { debt: nextDebt, method, amount, bonusEarned, till },
     })
-    persist()
-    broadcastPosUpdate({ kind: 'debt-repay', cardNum: num, amount, method })
-    if (linkedClient?.phone) {
-      broadcastLoyalty({ phone: linkedClient.phone, bonus: linkedClient.bonus, card: num })
-    }
-    res.json({
-      card,
+    const result = {
       client: linkedClient || null,
       amount,
       method,
@@ -3973,7 +4040,14 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       nextDebt,
       bonusEarned,
       till,
-    })
+    }
+    rememberOpRef('debt_repay', clientRef, result)
+    persist()
+    broadcastPosUpdate({ kind: 'debt-repay', cardNum: num, amount, method })
+    if (linkedClient?.phone) {
+      broadcastLoyalty({ phone: linkedClient.phone, bonus: linkedClient.bonus, card: num })
+    }
+    res.json({ card, ...result })
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось погасить долг' })
   }

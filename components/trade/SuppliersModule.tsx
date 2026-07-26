@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
+import OfflineNotice from './OfflineNotice'
 import type { PosSupplier, SupplierPayment } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
 
@@ -40,6 +42,7 @@ function emptyPaymentForm(): PaymentFormState {
 }
 
 export default function SuppliersModule() {
+  const canMutate = useCanMutate()
   const suppliers = usePosStore(s => s.suppliers)
   const receipts = usePosStore(s => s.receipts)
   const apiSyncing = usePosStore(s => s.apiSyncing)
@@ -147,6 +150,7 @@ export default function SuppliersModule() {
 
   async function submitForm() {
     if (!USE_API) return
+    if (!guardMutation(msg => setForm(prev => ({ ...prev, msg })))) return
     const name = form.name.trim()
     if (!name) {
       setForm(prev => ({ ...prev, msg: 'Укажите название поставщика' }))
@@ -175,6 +179,7 @@ export default function SuppliersModule() {
 
   async function removeSupplier(s: PosSupplier) {
     if (!USE_API) return
+    if (!guardMutation()) return
     if ((Number(s.payableAmount) || 0) > 0) {
       alert('Нельзя удалить поставщика с непогашенным долгом — сначала оплатите задолженность')
       return
@@ -202,6 +207,7 @@ export default function SuppliersModule() {
 
   async function submitPayment() {
     if (!USE_API) return
+    if (!guardMutation(msg => setPayForm(prev => ({ ...prev, msg })))) return
     const amount = Number(payForm.amount)
     if (!(amount > 0)) {
       setPayForm(prev => ({ ...prev, msg: 'Укажите сумму оплаты' }))
@@ -219,6 +225,7 @@ export default function SuppliersModule() {
 
   async function removePayment(supplierId: string, paymentId: string) {
     if (!USE_API) return
+    if (!guardMutation()) return
     if (!confirm('Удалить этот платёж? Долг поставщику будет восстановлен.')) return
     setDeletingPaymentId(paymentId)
     try {
@@ -243,9 +250,19 @@ export default function SuppliersModule() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
-          <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openNewForm}>+ Новый поставщик</button>
+          <button
+            type="button"
+            className="k-btn k-btn-g"
+            disabled={!USE_API || !canMutate}
+            title={canMutate ? undefined : OFFLINE_BLOCK_MESSAGE}
+            onClick={openNewForm}
+          >
+            + Новый поставщик
+          </button>
         </div>
       </div>
+
+      <OfflineNotice section="поставщики" />
 
       {!USE_API && (
         <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a2414', color: 'var(--gold)', border: '1px solid #5a4020' }}>

@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
+import { guardMutation } from '@/lib/offlineGuard'
 import { USE_API } from '@/lib/config'
 import { useProducts } from '@/lib/store'
 import { useCategories } from '@/lib/useCategories'
@@ -483,6 +484,7 @@ export default function WarehouseRevisionsPanel({
 
   async function submit() {
     if (!USE_API) return
+    if (!guardMutation(setMsg)) return
     const items = lines
       .filter(l => l.productId != null && l.countedStock !== '')
       .map(l => ({ productId: l.productId!, countedStock: Number(l.countedStock) }))
@@ -510,6 +512,7 @@ export default function WarehouseRevisionsPanel({
 
   async function removeRevision(id: string) {
     if (!USE_API) return
+    if (!guardMutation()) return
     const revision = revisions.find(r => r.id === id)
     if (!revision) return
     if (!confirm(`Удалить ревизию от ${fmtDateTime(revision.createdAtIso)}?\n\nОстатки вернутся к значениям до ревизии.`)) return

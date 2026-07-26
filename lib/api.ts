@@ -44,6 +44,25 @@ export function isNetworkError(e: unknown): boolean {
   return e instanceof NetworkError
 }
 
+/** Браузер уже знает, что сети нет — не ждём таймаутов */
+function browserOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+/**
+ * Ответ пришёл, но это не наш API: в десктоп-кассе запросы идут через
+ * локальный сервер, и без интернета он отдаёт 5xx с HTML вместо JSON.
+ * Такой ответ означает «нет связи», а не отказ сервера.
+ */
+function looksLikeOutage(status: number, body: string): boolean {
+  if (status === 502 || status === 503 || status === 504) return true
+  if (status !== 500) return false
+  const text = String(body || '').trim()
+  if (!text) return true
+  if (text.startsWith('{') || text.startsWith('[')) return false
+  return true
+}
+
 // ── Хранение токена ──
 let _token: string | null = null
 export const setToken = (t: string | null) => {
@@ -139,16 +158,19 @@ function stripHtmlError(text: string): string {
   return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
 }
 
-async function parseErrorResponse(res: Response): Promise<string> {
-  const text = await res.text()
-  if (!text) return formatApiError(null, res.status)
+function parseErrorText(text: string, status: number): string {
+  if (!text) return formatApiError(null, status)
   try {
     const json = JSON.parse(text)
-    return formatApiError(json.error ?? json.detail ?? json.message ?? json, res.status) || text.slice(0, 160)
+    return formatApiError(json.error ?? json.detail ?? json.message ?? json, status) || text.slice(0, 160)
   } catch {
     const plain = stripHtmlError(text)
-    return formatApiError(plain, res.status) || plain
+    return formatApiError(plain, status) || plain
   }
+}
+
+async function parseErrorResponse(res: Response): Promise<string> {
+  return parseErrorText(await res.text(), res.status)
 }
 
 const RETRY_STATUS = new Set([500, 502, 503, 504])
@@ -202,6 +224,10 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
   if (token) headers['Authorization'] = `Bearer ${token}`
   Object.assign(headers, buildAuditActorHeaders())
 
+  if (browserOffline()) {
+    throw new NetworkError('Нет связи с сервером. Проверьте интернет.')
+  }
+
   let res: Response
   try {
     res = await withTimeout(fetch(url, { ...options, headers }), timeoutMs)
@@ -218,10 +244,14 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
   }
 
   if (!res.ok) {
-    const message = await parseErrorResponse(res)
+    const raw = await res.text()
+    const message = parseErrorText(raw, res.status)
     if (RETRY_STATUS.has(res.status) && attempt < MAX_ATTEMPTS - 1) {
       await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
       return requestUrl<T>(url, options, attempt + 1, timeoutMs)
+    }
+    if (looksLikeOutage(res.status, raw)) {
+      throw new NetworkError('Нет связи с сервером. Проверьте интернет.')
     }
     throw new Error(message || `Ошибка ${res.status}`)
   }
@@ -645,6 +675,7 @@ export const api = {
       `/debt/ledger?phone=${encodeURIComponent(phone.trim())}`,
     ),
   cashTopupCard: (num: string, data: {
+    clientRef?: string
     cash: number
     credit: number
     note?: string
@@ -657,6 +688,7 @@ export const api = {
     { method: 'POST', body: JSON.stringify(data) },
   ),
   debtRepayCard: (num: string, data: {
+    clientRef?: string
     amount: number
     method?: 'cash' | 'card'
     note?: string
@@ -824,9 +856,9 @@ export const api = {
   deletePosPoint: (id: string) =>
     request<{ id: string }>(`/pos/points/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getPosShifts: () => request<PosShift[]>('/pos/shifts'),
-  openPosShift: (data: { cashierId: string; openingCash: number; note?: string; posId?: string }) =>
+  openPosShift: (data: { clientRef?: string; cashierId: string; openingCash: number; note?: string; posId?: string }) =>
     request<PosShift>('/pos/shifts/open', { method: 'POST', body: JSON.stringify(data) }),
-  closePosShift: (id: string, data: { closingCash: number; note?: string }) =>
+  closePosShift: (id: string, data: { clientRef?: string; closingCash: number; note?: string }) =>
     request<PosShift>(`/pos/shifts/${id}/close`, { method: 'PATCH', body: JSON.stringify(data) }),
   getPosSales: () => request<PosSale[]>('/pos/sales'),
   createPosSale: (data: {
@@ -856,6 +888,7 @@ export const api = {
     items: { productId: number; productName?: string; qty: number; price?: number; receiptId?: string; preferRetailPrice?: number }[]
   }) => request<PosSale & { orderId?: string }>('/pos/sales', { method: 'POST', body: JSON.stringify(data) }),
   returnPosSale: (id: string, data?: {
+    clientRef?: string
     note?: string
     cashierId?: string
     items?: { index?: number; productId?: number; qty: number }[]
@@ -936,6 +969,7 @@ export const api = {
     request<PosExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
   getFinanceMoves: () => request<FinanceMove[]>('/finance/moves'),
   createFinanceMove: (data: {
+    clientRef?: string
     type: 'deposit' | 'withdraw'
     amount: number
     note?: string

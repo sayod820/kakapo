@@ -6,6 +6,8 @@ import { USE_API } from '@/lib/config'
 import type { FinanceTruthBundle, MoneyLedgerEntry } from '@/lib/types'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
+import OfflineNotice from './OfflineNotice'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
 import {
   REPORT_PERIODS,
@@ -44,6 +46,7 @@ const FINANCE_TABS: { id: FinanceTab; label: string; icon: string }[] = [
 ]
 
 export default function FinanceModule() {
+  const canMutate = useCanMutate()
   const sales = usePosStore(s => s.sales)
   const shifts = usePosStore(s => s.shifts)
   const expenses = usePosStore(s => s.expenses)
@@ -178,6 +181,7 @@ export default function FinanceModule() {
   }, [loadTruth])
 
   async function submitExpense() {
+    if (!guardMutation(setMsg)) return
     setBusy(true)
     setMsg('')
     try {
@@ -201,6 +205,7 @@ export default function FinanceModule() {
   }
 
   async function submitDeposit() {
+    if (!guardMutation(setMsg)) return
     setBusy(true)
     setMsg('')
     try {
@@ -224,6 +229,7 @@ export default function FinanceModule() {
   }
 
   async function removeMove(id: string) {
+    if (!guardMutation()) return
     if (!confirm('Удалить запись?')) return
     try {
       await api.deleteFinanceMove(id)
@@ -271,10 +277,22 @@ export default function FinanceModule() {
           <div className="sub">Все суммы считаются на сервере из БД · касса, журнал, прибыль</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="k-btn k-btn-g" onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}>
+          <button
+            type="button"
+            className="k-btn k-btn-g"
+            disabled={!canMutate}
+            title={canMutate ? undefined : OFFLINE_BLOCK_MESSAGE}
+            onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}
+          >
             + Вклад
           </button>
-          <button type="button" className="k-btn k-btn-s" onClick={() => { setMsg(''); setExpOpen(true) }}>
+          <button
+            type="button"
+            className="k-btn k-btn-s"
+            disabled={!canMutate}
+            title={canMutate ? undefined : OFFLINE_BLOCK_MESSAGE}
+            onClick={() => { setMsg(''); setExpOpen(true) }}
+          >
             + Расход
           </button>
           <button type="button" className="k-btn k-btn-s" disabled={refreshing} onClick={() => void refresh()}>
@@ -282,6 +300,8 @@ export default function FinanceModule() {
           </button>
         </div>
       </div>
+
+      <OfflineNotice section="финансы" />
 
       {(apiError || truthError) && (
         <div className="k-alert" style={{ marginBottom: 14, background: '#2a1420', color: '#FF8A8A', border: '1px solid #5a2030' }}>

@@ -245,7 +245,6 @@ function AdminLocationMap({
 // React hooks imported above
 
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800;900&family=Nunito:wght@400;600;700;800&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
   html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
   .ub{font-family:'Unbounded',sans-serif;}

@@ -8,7 +8,8 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "pack": "electron-builder --win dir",
-    "dist": "electron-builder --win nsis"
+    "dist": "electron-builder --win nsis",
+    "build-ui": "npm run desktop:build-ui --prefix .."
   },
   "build": {
     "appId": "tj.kakapo.trade",
@@ -23,9 +24,16 @@
       "tsplLabel.cjs",
       "escposReceipt.cjs",
       "receiptTemplate.cjs",
+      "localServer.cjs",
       "icon.png",
       "config.json",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "ui",
+        "to": "ui"
+      }
     ],
     "win": {
       "icon": "icon.png",

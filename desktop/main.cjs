@@ -18,6 +18,7 @@ const {
   DEFAULT_RECEIPT_TEMPLATE,
   normalizeReceiptTemplate,
 } = require('./receiptTemplate.cjs')
+const { startLocalUi, stopLocalUi, localUiUrl } = require('./localServer.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const APP_ICON_PATH = path.join(__dirname, 'icon.png')
@@ -162,6 +163,17 @@ function buildAppMenu() {
             shell.openExternal(url)
           },
         },
+        {
+          label: 'Вернуть встроенный интерфейс',
+          click: () => {
+            const local = localUiUrl()
+            if (!local) {
+              dialog.showErrorBox('Недоступно', 'Встроенная сборка интерфейса не найдена в этой версии приложения.')
+              return
+            }
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(local)
+          },
+        },
         { type: 'separator' },
         { role: 'quit', label: 'Выход' },
       ],
@@ -210,7 +222,7 @@ button.sec{background:#162B1A;color:#EBF5ED}
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
 }
 
-function createWindow() {
+function createWindow(localUrl = '') {
   const config = loadConfig()
   const winCfg = config.window || {}
   const isDev = process.argv.includes('--dev')
@@ -239,7 +251,10 @@ function createWindow() {
     },
   })
 
-  const url = String(config.tradeUrl || DEFAULT_TRADE_URL).trim() || DEFAULT_TRADE_URL
+  // Локальная сборка интерфейса — касса открывается без интернета.
+  // Если её нет, работаем по-старому: грузим сайт.
+  const remoteUrl = String(config.tradeUrl || DEFAULT_TRADE_URL).trim() || DEFAULT_TRADE_URL
+  const url = localUrl || remoteUrl
 
   mainWindow.once('ready-to-show', () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
@@ -252,11 +267,21 @@ function createWindow() {
     }
   }, 4000)
 
+  let triedRemoteFallback = false
+
   mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame || !mainWindow || mainWindow.isDestroyed()) return
     // -3 = aborted (навигация отменена) — игнор
     if (errorCode === -3) return
     console.error('[kakapo-desktop] load fail', errorCode, errorDescription, validatedURL)
+    // Локальная сборка не открылась — пробуем сайт
+    if (localUrl && !triedRemoteFallback) {
+      triedRemoteFallback = true
+      mainWindow.loadURL(remoteUrl).catch(() => {
+        showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
+      })
+      return
+    }
     showLoadErrorPage(mainWindow, validatedURL || url, errorCode, errorDescription)
     if (!mainWindow.isVisible()) mainWindow.show()
   })
@@ -756,9 +781,15 @@ async function ensureReceiptPrinterName(preferred) {
   return printerName
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   buildAppMenu()
-  createWindow()
+  let localUrl = ''
+  try {
+    localUrl = await startLocalUi()
+  } catch (e) {
+    console.error('[kakapo-desktop] не удалось поднять локальный интерфейс', e)
+  }
+  createWindow(localUrl)
 
   ipcMain.handle('desktop:getInfo', () => ({
     isDesktop: true,
@@ -852,11 +883,16 @@ app.whenReady().then(() => {
   }))
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(localUiUrl())
   })
 })
 
 app.on('window-all-closed', () => {
   try { weightMonitor.stop() } catch { /* ignore */ }
+  stopLocalUi()
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  stopLocalUi()
 })

@@ -13,9 +13,17 @@ function resolveBackendUrl() {
 
 const backendUrl = resolveBackendUrl()
 
+/**
+ * Сборка для десктоп-кассы: интерфейс кладётся внутрь Electron и поднимается
+ * локально, поэтому касса открывается без интернета. На сервере (Docker)
+ * режим не включаем — там обычный `next start`.
+ */
+const standalone = process.env.KAKAPO_STANDALONE === 'true'
+
 const nextConfig = {
   reactStrictMode: true,
   images: { unoptimized: true },
+  ...(standalone ? { output: 'standalone' } : {}),
   async redirects() {
     return [
       { source: '/store', destination: '/', permanent: false },

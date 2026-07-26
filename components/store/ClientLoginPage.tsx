@@ -28,7 +28,6 @@ import { setCurrentClientPhone, resetClientNotificationsForAccount } from '@/lib
 const DEMO_OTP = '1234'
 
 const LOGIN_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800;900&family=Nunito:wght@400;600;700;800&display=swap');
   .sl-root{font-family:'Nunito',sans-serif;}
   .sl-ub{font-family:'Unbounded',sans-serif;}
   .sl-btn{cursor:pointer;border:none;transition:all .22s cubic-bezier(.16,1,.3,1);}

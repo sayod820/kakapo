@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
+import { guardMutation } from '@/lib/offlineGuard'
 import { USE_API } from '@/lib/config'
 import { useProducts } from '@/lib/store'
 import type { Product, StockWriteoff } from '@/lib/types'
@@ -361,6 +362,7 @@ export default function WarehouseWriteoffsPanel({
 
   async function submit() {
     if (!USE_API) return
+    if (!guardMutation(setMsg)) return
     const finalReason = reason === 'Другое' ? customReason.trim() : reason
     if (!finalReason) {
       setMsg('Укажите причину списания')
@@ -401,6 +403,7 @@ export default function WarehouseWriteoffsPanel({
 
   async function removeWriteoff(id: string) {
     if (!USE_API) return
+    if (!guardMutation()) return
     const writeoff = writeoffs.find(w => w.id === id)
     if (!writeoff) return
     if (!confirm(`Удалить списание от ${fmtDateTime(writeoff.createdAtIso)}?\n\nТовар вернётся на склад.`)) return

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useProducts } from '@/lib/store'
 import { useProductPhotos } from '@/lib/productPhotos'
 import { useCategories } from '@/lib/useCategories'
+import { guardMutation } from '@/lib/offlineGuard'
+import OfflineNotice from '@/components/trade/OfflineNotice'
 import ProductTab from '@/components/trade/products/ProductTab'
 import CategoryTab from '@/components/trade/products/CategoryTab'
 import LabelsTab from '@/components/trade/products/LabelsTab'
@@ -135,6 +137,7 @@ export default function ProductsModule({
   }
 
   async function handleSave() {
+    if (!guardMutation(setMsg)) return
     setSaving(true)
     setMsg('')
     try {
@@ -157,6 +160,7 @@ export default function ProductsModule({
   }
 
   async function handleDelete(id: number, name: string) {
+    if (!guardMutation(setMsg)) return
     if (!confirm(`Удалить товар «${name}»?`)) return
     await removeProduct(id)
     if (selectedId === id) {
@@ -188,6 +192,8 @@ export default function ProductsModule({
           </button>
         ))}
       </div>
+
+      <OfflineNotice section="товары" />
 
       {msg && <div className="k-alert" style={{ marginBottom: 12 }}>{msg}</div>}
 

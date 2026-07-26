@@ -16,13 +16,18 @@ export function getApiUrl(): string {
   return BACKEND_URL
 }
 
-/** WebSocket: в браузере — same-origin (nginx /ws/), иначе явный URL или backend */
+/**
+ * WebSocket: в браузере — same-origin (nginx /ws/).
+ * В десктоп-кассе интерфейс поднимается локально на 127.0.0.1, там same-origin
+ * не подходит — используем явный адрес из сборки.
+ */
 export function getWsUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_WS_URL
   if (typeof window !== 'undefined') {
+    if (explicit) return explicit.replace(/\/$/, '')
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${window.location.host}`
   }
-  const explicit = process.env.NEXT_PUBLIC_WS_URL
   if (explicit) return explicit.replace(/\/$/, '')
 
   const api = process.env.NEXT_PUBLIC_API_URL || BACKEND_URL

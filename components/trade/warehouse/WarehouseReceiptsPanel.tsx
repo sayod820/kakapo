@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
+import { guardMutation } from '@/lib/offlineGuard'
 import { USE_API } from '@/lib/config'
 import { serializeBulkPricing } from '@/lib/productBulkPricing'
 import { useProducts } from '@/lib/store'
@@ -593,6 +594,7 @@ export default function WarehouseReceiptsPanel({
 
   async function submit() {
     if (!USE_API) return
+    if (!guardMutation(setMsg)) return
     const items = lines
       .filter(l => l.productId && Number(l.qty) > 0)
       .map(l => ({
@@ -635,6 +637,7 @@ export default function WarehouseReceiptsPanel({
 
   async function removeReceipt(id: string) {
     if (!USE_API) return
+    if (!guardMutation()) return
     const receipt = receipts.find(r => r.id === id)
     if (!receipt) return
     if (!confirm(`Удалить приход от ${fmtDateTime(receipt.createdAtIso)}?\n\nТовар будет списан со склада, долг поставщику скорректируется.`)) return

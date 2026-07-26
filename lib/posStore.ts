@@ -16,7 +16,7 @@ import type {
   StockWriteoff,
 } from './types'
 
-interface PosStore {
+export interface PosStore {
   cashiers: PosCashier[]
   posPoints: PosPoint[]
   shifts: PosShift[]

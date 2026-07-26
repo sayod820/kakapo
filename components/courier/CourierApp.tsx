@@ -41,7 +41,6 @@ import { formatWalletTxTime, getLocalCourierWalletTransactions, walletTxLabel } 
 ══════════════════════════════════════════════════════ */
 
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
   html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
   .ub{font-family:'Nunito',system-ui,sans-serif;font-weight:800;}

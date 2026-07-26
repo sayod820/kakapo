@@ -1,6 +1,5 @@
 /** CSS 1:1 из kakapo-kassa-v5.html (scoped под .pos-root) */
 export const POS_MOCK_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800;900&family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap');
 
   .pos-root{
     --bg:#030B05; --surface:#0A1710; --surface2:#0F2216; --surface3:#132A1A; --border:#1A3322; --border2:#234430;

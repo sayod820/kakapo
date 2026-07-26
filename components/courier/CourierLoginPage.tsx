@@ -5,7 +5,6 @@ import { verifyCourierOtp, findCourierByPhone, vehicleIcon, type AdminCourier } 
 import { saveCourierSession, type CourierSession } from '@/lib/courierSession'
 
 const LOGIN_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap');
   .cl-root{font-family:'Nunito',system-ui,sans-serif;}
   .cl-ub{font-family:'Nunito',system-ui,sans-serif;font-weight:800;}
   .cl-btn{cursor:pointer;border:none;transition:all .22s cubic-bezier(.16,1,.3,1);}

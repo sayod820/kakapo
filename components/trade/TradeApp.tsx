@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useApiSync } from '@/lib/useApiSync'
+import { useOfflineSync } from '@/lib/offlineSync'
+import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { useProducts } from '@/lib/store'
@@ -15,6 +17,7 @@ import ComingSoonModule from '@/components/trade/ComingSoonModule'
 import FinanceModule from '@/components/trade/FinanceModule'
 import ReportsModule from '@/components/trade/ReportsModule'
 import TradeLoginPage from '@/components/trade/TradeLoginPage'
+import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import {
   clearTradeEmployeeSession,
   loadTradeEmployeeSession,
@@ -33,7 +36,6 @@ import {
 ══════════════════════════════════════════════════════════════ */
 
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap');
   .k-trade *{box-sizing:border-box}
   .k-trade{
     --bg:#070C09; --panel:#0B120E; --card:#101A13; --card2:#0D1610; --border:#1C2A21;
@@ -81,6 +83,14 @@ const CSS = `
   .k-store .name{font-weight:800}
   .k-online{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--green);font-weight:700;margin-top:4px}
   .k-online .d{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(31,215,96,.18)}
+  .k-online[data-state="offline"]{color:var(--gold)}
+  .k-online[data-state="offline"] .d{background:var(--gold);box-shadow:0 0 0 3px rgba(255,184,0,.18)}
+  .k-online[data-state="sync"]{color:var(--blue)}
+  .k-online[data-state="sync"] .d{background:var(--blue);box-shadow:0 0 0 3px rgba(59,142,240,.18)}
+  .k-online[data-state="failed"]{color:var(--red)}
+  .k-online[data-state="failed"] .d{background:var(--red);box-shadow:0 0 0 3px rgba(255,90,90,.18)}
+  .k-netnote{margin-top:4px;font-size:11px;color:var(--muted);line-height:1.35;background:none;border:0;padding:0;text-align:left;cursor:pointer;font-family:inherit}
+  .k-netnote:hover{color:var(--text)}
   .k-clock{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
   .k-clock .date{font-size:12px;color:var(--muted)}
   .k-clock .time{font-size:26px;font-weight:900;line-height:1.1}
@@ -326,6 +336,45 @@ function Clock() {
   )
 }
 
+function NetworkStatus() {
+  const online = useOfflineSync(s => s.online)
+  const pending = useOfflineSync(s => s.pending)
+  const failed = useOfflineSync(s => s.failed)
+  const syncing = useOfflineSync(s => s.syncing)
+  const progress = useOfflineSync(s => s.progress)
+  const lastSyncAtIso = useOfflineSync(s => s.lastSyncAtIso)
+  const [mounted, setMounted] = useState(false)
+  const [queueOpen, setQueueOpen] = useState(false)
+
+  useEffect(() => { setMounted(true) }, [])
+  if (!mounted) return <div className="k-online"><span className="d" />Онлайн</div>
+
+  const state = syncing ? 'sync' : !online ? 'offline' : failed > 0 ? 'failed' : 'online'
+  const label = syncing
+    ? `Синхронизация ${progress.total > 0 ? `${progress.done} из ${progress.total}` : ''}`.trim()
+    : online
+      ? 'Онлайн'
+      : 'Без интернета'
+
+  const lastSync = lastSyncAtIso
+    ? new Date(lastSyncAtIso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    : ''
+
+  return (
+    <>
+      <div className="k-online" data-state={state}><span className="d" />{label}</div>
+      {(pending > 0 || failed > 0 || !!lastSync) && (
+        <button type="button" className="k-netnote" onClick={() => setQueueOpen(true)}>
+          {pending > 0 && <div>Ждут отправки: {pending}</div>}
+          {failed > 0 && <div>Требуют разбора: {failed}</div>}
+          {!!lastSync && <div>Синхронизация в {lastSync}</div>}
+        </button>
+      )}
+      {queueOpen && <OfflineQueuePanel onClose={() => setQueueOpen(false)} />}
+    </>
+  )
+}
+
 function TradeAppInner({
   session,
   onLogout,
@@ -455,7 +504,7 @@ function TradeAppInner({
             <div className="k-side-foot">
               <div className="k-store">
                 <div className="name">Магазин KAKAPO</div>
-                <div className="k-online"><span className="d" />Онлайн</div>
+                <NetworkStatus />
                 <Clock />
                 <button
                   type="button"
@@ -560,6 +609,10 @@ function TradeAppGate() {
   const [theme, setTheme] = useState<TradeTheme>(() => loadTradeTheme())
 
   useEffect(() => {
+    // Кэш поднимаем до сетевых запросов: без интернета разделы
+    // показывают данные сразу, а не после таймаута
+    void hydrateOfflineCaches()
+    useOfflineSync.getState().start()
     setSession(loadTradeEmployeeSession())
     setTheme(loadTradeTheme())
     setReady(true)

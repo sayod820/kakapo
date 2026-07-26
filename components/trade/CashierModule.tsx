@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { api, isNetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
-import { newClientRef, isOnline } from '@/lib/offline'
+import { newClientRef, newLocalId, isOnline } from '@/lib/offline'
+import {
+  openShiftSafe,
+  closeShiftSafe,
+  financeMoveSafe,
+  cardTopupSafe,
+  debtRepaySafe,
+  returnSaleSafe,
+} from '@/lib/offlinePosOps'
 import { USE_API } from '@/lib/config'
 import { loyaltySummaryForClient } from '@/lib/clientCardSync'
 import {
@@ -420,9 +428,11 @@ export default function CashierModule({
   const cards = useCardStore(s => s.cards)
   const netOnline = useOfflineSync(s => s.online)
   const netPending = useOfflineSync(s => s.pending)
+  const netFailed = useOfflineSync(s => s.failed)
   const netSyncing = useOfflineSync(s => s.syncing)
+  const netProgress = useOfflineSync(s => s.progress)
   const startNetSync = useOfflineSync(s => s.start)
-  const flushNetQueue = useOfflineSync(s => s.flush)
+  const flushNetQueue = useOfflineSync(s => s.syncNow)
   const shifts = usePosStore(s => s.shifts)
   const posPoints = usePosStore(s => s.posPoints)
   const cashiers = usePosStore(s => s.cashiers)
@@ -1647,8 +1657,13 @@ export default function CashierModule({
       saveSettings(next)
       setSettings(next)
       if (!USE_API) throw new Error('Касса работает только с API')
-      await api.openPosShift({ cashierId: cashier.id, openingCash: cash, posId })
-      await refresh()
+      const opened = await openShiftSafe({
+        cashierId: cashier.id,
+        cashierName: cashier.name,
+        openingCash: cash,
+        posId,
+      })
+      if (!opened.offline) await refresh()
       setCart([])
       setClient(null)
       setDiscountPct(0)
@@ -1657,7 +1672,10 @@ export default function CashierModule({
       setOpenShiftModal(false)
       setOpeningPosId(null)
       setPosSurface('register')
-      showToast('Смена открыта', cashier.name)
+      showToast(
+        'Смена открыта',
+        opened.offline ? `${cashier.name} · без связи, уйдёт после подключения` : cashier.name,
+      )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось открыть смену')
     } finally {
@@ -1935,15 +1953,18 @@ export default function CashierModule({
     try {
       const cash = Number(closingCash)
       if (!(cash >= 0) || closingCash === '') throw new Error('Укажите сумму наличных в кассе')
-      await api.closePosShift(activeShift.id, { closingCash: cash })
-      await refresh()
+      const closed = await closeShiftSafe(activeShift.id, { closingCash: cash })
+      if (!closed.offline) await refresh()
       setCashierScreen(null)
       setCashierMenuOpen(false)
       setPosSurface('dashboard')
       setCart([])
       setClient(null)
       setGateCash(String(cash.toFixed(2)))
-      showToast('Смена закрыта', `В кассе ${fmtMoney(cash)}`)
+      showToast(
+        'Смена закрыта',
+        closed.offline ? `В кассе ${fmtMoney(cash)} · уйдёт после подключения` : `В кассе ${fmtMoney(cash)}`,
+      )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось закрыть смену')
     } finally {
@@ -1963,17 +1984,18 @@ export default function CashierModule({
     try {
       const cash = Number(closingCash)
       if (!(cash >= 0) || closingCash === '') throw new Error('Укажите сумму наличных в кассе')
-      await api.closePosShift(activeShift.id, { closingCash: cash })
+      const closed = await closeShiftSafe(activeShift.id, { closingCash: cash })
       const cashier = await ensureCashier(next.name, next.id)
       const s = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
       saveSettings(s)
       setSettings(s)
-      await api.openPosShift({
+      const opened = await openShiftSafe({
         cashierId: cashier.id,
+        cashierName: cashier.name,
         openingCash: cash,
         posId: activeShift.posId || activePosPoint?.id,
       })
-      await refresh()
+      if (!closed.offline && !opened.offline) await refresh()
       setCashierScreen(null)
       setCashierMenuOpen(false)
       setCart([])
@@ -2036,7 +2058,7 @@ export default function CashierModule({
       if (tillMoveKind === 'out' && amount > tillExpected + 0.009) {
         throw new Error(`В кассе только ${fmtMoney(tillExpected)}`)
       }
-      await api.createFinanceMove({
+      const moved = await financeMoveSafe({
         type: tillMoveKind === 'in' ? 'deposit' : 'withdraw',
         amount,
         note: tillNote.trim() || undefined,
@@ -2052,14 +2074,15 @@ export default function CashierModule({
             ? undefined
             : 'Снятие из кассы',
       })
-      await refresh()
+      if (!moved.offline) await refresh()
       const kindLabel = tillMoveKind === 'in' ? 'Внесено' : 'Снято'
       const supplierName = tillSupplierId
         ? suppliers.find(s => s.id === tillSupplierId)?.name
         : ''
+      const offlineNote = moved.offline ? ' · уйдёт после подключения' : ''
       showToast(
         kindLabel,
-        supplierName ? `${fmtMoney(amount)} · ${supplierName}` : fmtMoney(amount),
+        (supplierName ? `${fmtMoney(amount)} · ${supplierName}` : fmtMoney(amount)) + offlineNote,
       )
       setTillMoveKind(null)
       setTillAmountBuf('')
@@ -2285,11 +2308,12 @@ export default function CashierModule({
     setMsg('')
     try {
       const debtBefore = Number(sale.debtAdded) || 0
-      const updated = await api.returnPosSale(sale.id, {
+      const res = await returnSaleSafe(sale, {
         note: mode === 'all' ? 'Полный возврат с кассы' : 'Частичный возврат с кассы',
         cashierId: settings.cashierId || activeShift?.cashierId,
         ...(payloadItems ? { items: payloadItems } : {}),
       })
+      const updated = res.data
       const debtCut = Math.max(0, debtBefore - (Number(updated.debtAdded) || 0))
       if (sale.clientPhone && debtCut > 0) {
         recordStoreDebtRepayment(sale.clientPhone, debtCut, {
@@ -2297,13 +2321,15 @@ export default function CashierModule({
           method: 'cash',
         })
       }
-      await refresh()
-      await fetchProducts()
+      if (!res.offline) {
+        await refresh()
+        await fetchProducts()
+      }
       setReturnQtyByIdx({})
       const retTotal = Number(updated.lastReturnTotal) || confirmTotal
       showToast(
         updated.status === 'returned' ? 'Чек возвращён' : 'Частичный возврат',
-        `${fmtMoney(retTotal)} · товары на складе`,
+        `${fmtMoney(retTotal)} · товары на складе${res.offline ? ' · уйдёт после подключения' : ''}`,
       )
       setReceiptSaleId(sale.id)
     } catch (e) {
@@ -3117,12 +3143,15 @@ export default function CashierModule({
         })),
       }
       let created: PosSale & { orderId?: string; _offline?: boolean }
+      let offlineSaleId = ''
       try {
         created = await api.createPosSale(salePayload)
       } catch (e) {
         if (isNetworkError(e)) {
-          // нет связи — сохраняем чек в очередь и продолжаем работать
-          await useOfflineSync.getState().queueSale(salePayload)
+          // нет связи — сохраняем чек в очередь и продолжаем работать.
+          // Временный id нужен, чтобы возврат по этому чеку нашёл его после синхронизации.
+          offlineSaleId = newLocalId('sale')
+          await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
           // локально списываем остатки, чтобы не продать в минус до синхронизации
           try {
             const ps = useProducts.getState()
@@ -3153,11 +3182,22 @@ export default function CashierModule({
           }
           created = {
             ...(salePayload as unknown as PosSale),
-            id: salePayload.clientRef,
+            id: offlineSaleId,
             orderId: salePayload.clientRef,
             total,
             _offline: true,
           }
+          // чек сразу виден в разделе «Чеки», а деньги — в кассе смены
+          usePosStore.setState(s => ({
+            sales: [created, ...s.sales],
+            shifts: s.shifts.map(sh => sh.id === activeShift.id ? {
+              ...sh,
+              salesCash: Math.round(((sh.salesCash || 0) + cashPaid) * 100) / 100,
+              salesCard: Math.round(((sh.salesCard || 0) + cardPaid) * 100) / 100,
+              salesCredit: Math.round(((sh.salesCredit || 0) + debtAdded) * 100) / 100,
+              salesCount: (sh.salesCount || 0) + 1,
+            } : sh),
+          }))
         } else {
           throw e
         }
@@ -3403,7 +3443,7 @@ export default function CashierModule({
     setBusy(true)
     try {
       if (!client.card) throw new Error('У клиента нет карты')
-      await api.cashTopupCard(client.card, {
+      const topup = await cardTopupSafe(client.card, {
         cash,
         credit,
         note: `Пополнение бонусов · ${client.name}`,
@@ -3413,13 +3453,14 @@ export default function CashierModule({
         posId: activeShift.posId || activePosPoint?.id,
       })
       if (client.phone) recordBalanceTopup(client.phone, cash, percentBonus, 'Пополнение бонусов')
-      await refresh()
+      if (!topup.offline) await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
       const extra = percentBonus > 0 ? ` (деньги ${principal.toFixed(2)} + бонус ${fmtBonus(percentBonus)})` : ''
-      showToast('Бонусы пополнены', `${client.name}: +${credit.toFixed(2)} ⭐${extra}`)
+      const offlineNote = topup.offline ? ' · уйдёт после подключения' : ''
+      showToast('Бонусы пополнены', `${client.name}: +${credit.toFixed(2)} ⭐${extra}${offlineNote}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
     } finally {
@@ -3460,7 +3501,7 @@ export default function CashierModule({
           type: 'debt' as const,
         }))
       const fifoPreview = allocateRepaymentFifo(oldestActive, amount)
-      const result = await api.debtRepayCard(client.card, {
+      const repaid = await debtRepaySafe(client.card, {
         amount,
         method: repayMethod,
         note: `Погашение долга · ${client.name}`,
@@ -3468,16 +3509,18 @@ export default function CashierModule({
         cashierName: settings.cashierName || activeShift.cashierName,
         shiftId: activeShift.id,
         posId: activeShift.posId || activePosPoint?.id,
+        clientId: client.id,
+        prevDebt,
       })
-      const nextDebt = Number(result.nextDebt) || Math.max(0, prevDebt - amount)
-      const repayBonus = Number(result.bonusEarned) || 0
+      const nextDebt = Number(repaid.data.nextDebt) || Math.max(0, prevDebt - amount)
+      const repayBonus = Number(repaid.data.bonusEarned) || 0
       if (client.phone) {
         recordStoreDebtRepayment(client.phone, amount, { method: repayMethod })
         if (repayBonus > 0) {
           recordBalanceTopup(client.phone, amount, repayBonus, 'Погашение долга наличными')
         }
       }
-      await refresh()
+      if (!repaid.offline) await refresh()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setRepayOpen(false)
@@ -3488,7 +3531,8 @@ export default function CashierModule({
         : ''
       const bonusNote = repayBonus > 0 ? ` · +${repayBonus} ⭐` : ''
       const tillNote = repayMethod === 'cash' ? ' · в кассу' : ''
-      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${tillNote}${bonusNote}${fifoNote}`)
+      const offlineNote = repaid.offline ? ' · уйдёт после подключения' : ''
+      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${tillNote}${bonusNote}${fifoNote}${offlineNote}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
     } finally {
@@ -4502,12 +4546,15 @@ export default function CashierModule({
               />
               {netOnline
                 ? (netPending > 0
-                    ? (netSyncing ? 'Синхронизация…' : `Онлайн · ${netPending} в очереди`)
+                    ? (netSyncing
+                        ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
+                        : `Онлайн · ${netPending} в очереди`)
                     : (activePosPoint?.code || 'Онлайн'))
-                : `Офлайн${netPending > 0 ? ` · ${netPending} чек. ждут` : ''}`}
+                : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}`}
+              {netFailed > 0 && ` · разбор: ${netFailed}`}
             </div>
           </div>
-          {(!netOnline || netPending > 0) && (
+          {(!netOnline || netPending > 0 || netFailed > 0) && (
             <button
               type="button"
               className="net-sync-chip"
