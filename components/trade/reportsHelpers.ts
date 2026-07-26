@@ -502,6 +502,7 @@ export function buildProductInsights(
 
   const supplierAcc = new Map<string, SupplierInsightRow>()
   for (const r of receipts) {
+    if (r.stockAdjustment) continue
     const name = String(r.supplierName || '').trim() || 'Без поставщика'
     const key = String(r.supplierId || name)
     const row = supplierAcc.get(key) || {
@@ -526,6 +527,7 @@ export function buildProductInsights(
 
   const productIdsBySupplier = new Map<string, Set<number>>()
   for (const r of receipts) {
+    if (r.stockAdjustment) continue
     const name = String(r.supplierName || '').trim() || 'Без поставщика'
     const key = String(r.supplierId || name)
     const set = productIdsBySupplier.get(key) || new Set<number>()
@@ -620,7 +622,7 @@ export function filterByCreatedAt<T extends { createdAtIso?: string }>(
 }
 
 export function sumReceiptCost(receipts: StockReceipt[]) {
-  return round2(receipts.reduce((s, r) => s + (Number(r.totalCost) || 0), 0))
+  return round2(receipts.reduce((s, r) => s + (r.stockAdjustment ? 0 : Number(r.totalCost) || 0), 0))
 }
 
 export function sumReceiptPaid(receipts: StockReceipt[]) {

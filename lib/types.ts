@@ -385,6 +385,8 @@ export interface StockReceipt {
   paidNow: number
   debtAdded: number
   items: StockReceiptItem[]
+  /** Служебный слой корректировки остатка (ревизия, возврат) — не закупка */
+  stockAdjustment?: boolean
 }
 
 export interface StockWriteoffItem {

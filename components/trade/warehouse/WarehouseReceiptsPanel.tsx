@@ -671,6 +671,7 @@ export default function WarehouseReceiptsPanel({
     let paidTotal = 0
     let debtTotal = 0
     for (const r of filteredReceipts) {
+      if (r.stockAdjustment) continue
       costTotal += Number(r.totalCost) || 0
       retailTotal += receiptRetailTotal(r)
       paidTotal += Number(r.paidNow) || 0

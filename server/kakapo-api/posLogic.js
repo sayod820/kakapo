@@ -498,6 +498,35 @@ function restoreReceiptBalance(db, productId, qty, receiptId = '') {
   restoreReceiptBalances(db, productId, add, { reason: 'Возврат товара' })
 }
 
+/**
+ * Снимок остатков партий по товарам — чтобы откатить частичное списание,
+ * если многострочная операция упала на середине (касса, заказ, списание).
+ */
+export function snapshotProductLayers(db, productIds) {
+  ensurePosCollections(db)
+  const ids = new Set([...productIds].map(Number))
+  const rows = []
+  for (const receipt of db.stockReceipts || []) {
+    for (const item of receipt.items || []) {
+      if (!ids.has(Number(item.productId))) continue
+      rows.push({ item, remainingQty: item.remainingQty, qty: item.qty })
+    }
+  }
+  return { ids: [...ids], rows, receiptCount: (db.stockReceipts || []).length }
+}
+
+export function rollbackProductLayers(db, snapshot) {
+  if (!snapshot) return
+  // Слои, добавленные во время упавшей операции, лежат в начале списка
+  const extra = (db.stockReceipts || []).length - snapshot.receiptCount
+  if (extra > 0) db.stockReceipts.splice(0, extra)
+  for (const row of snapshot.rows) {
+    row.item.remainingQty = row.remainingQty
+    row.item.qty = row.qty
+  }
+  for (const id of snapshot.ids) syncProductStock(db, id)
+}
+
 function consumeStock(db, items) {
   const planned = new Map()
   const normalized = items.map(raw => {
@@ -514,9 +543,16 @@ function consumeStock(db, items) {
       : null
     return { product, qty, cogs: 0, receiptId, preferRetailPrice }
   })
-  for (const row of normalized) {
-    row.cogs = consumeReceiptBalances(db, row.product.id, row.qty, row.receiptId, row.preferRetailPrice)
-    syncProductStock(db, row.product.id)
+  // Всё или ничего: иначе первая позиция уже списана, а на второй ошибка
+  const snapshot = snapshotProductLayers(db, normalized.map(r => r.product.id))
+  try {
+    for (const row of normalized) {
+      row.cogs = consumeReceiptBalances(db, row.product.id, row.qty, row.receiptId, row.preferRetailPrice)
+      syncProductStock(db, row.product.id)
+    }
+  } catch (e) {
+    rollbackProductLayers(db, snapshot)
+    throw e
   }
   return normalized
 }
@@ -986,19 +1022,8 @@ function restoreReceiptBalances(db, productId, qty, meta = {}) {
       left = round2(left - add)
     }
   }
-  if (left > 0) {
-    for (const receipt of receipts) {
-      for (const item of receipt.items || []) {
-        if (Number(item.productId) !== Number(productId)) continue
-        item.remainingQty = round2((Number(item.remainingQty) || 0) + left)
-        item.qty = round2((Number(item.qty) || 0) + left)
-        receipt.totalCost = round2((receipt.items || []).reduce((sum, row) => sum + (Number(row.qty) || 0) * (Number(row.costPrice) || 0), 0))
-        left = 0
-        break
-      }
-      if (left <= 0) break
-    }
-  }
+  // Излишек сверх ранее списанного не «дописываем» в чужой приход поставщика
+  // (это раздувало бы закуп и себестоимость) — заводим отдельный слой-корректировку
   if (left > 0) {
     const product = (db.products || []).find(p => Number(p.id) === Number(productId))
     if (product) {
@@ -1192,6 +1217,10 @@ function buildStockRevision(db, data = {}, meta = {}) {
   const createdBy = String(meta.createdBy || data.createdBy || '').trim()
   const items = rawItems.map(raw => {
     const product = getProduct(db, raw.productId)
+    // Без явного факта остаток обнулился бы молча — требуем число
+    if (raw.countedStock === '' || raw.countedStock == null || !Number.isFinite(Number(raw.countedStock))) {
+      throw new Error(`Укажите фактическое количество: ${product.name}`)
+    }
     const countedStock = round2(raw.countedStock)
     const systemStock = sumProductLayers(db, product.id)
     setProductStockExact(db, product.id, countedStock, { reason: 'Ревизия', createdBy })
@@ -1863,7 +1892,7 @@ export function getPosFinanceSummary(db) {
     cashRevenue: round2(sales.reduce((sum, row) => sum + (Number(row.paidCash) || 0), 0)),
     cardRevenue: round2(sales.reduce((sum, row) => sum + (Number(row.paidCard) || 0), 0)),
     creditIssued: round2(sales.reduce((sum, row) => sum + (Number(row.debtAdded) || 0), 0)),
-    cogs: round2(receipts.reduce((sum, row) => sum + (Number(row.totalCost) || 0), 0)),
+    cogs: round2(receipts.reduce((sum, row) => sum + (row.stockAdjustment ? 0 : Number(row.totalCost) || 0), 0)),
     expenses: round2(expenses.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)),
     supplierPayments: round2(supplierPayments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)),
     supplierDebt: round2((db.suppliers || []).reduce((sum, row) => sum + (Number(row.payableAmount) || 0), 0)),

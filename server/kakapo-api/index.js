@@ -1217,6 +1217,31 @@ app.get('/orders/:id', (req, res) => {
   if (!o) return res.status(404).json({ detail: 'Заказ не найден' })
   res.json(o)
 })
+function orderSignature(order) {
+  const items = (order.items || [])
+    .map(it => `${it.product_id ?? it.id}:${Number(it.qty) || 0}`)
+    .sort()
+    .join('|')
+  return `${Number(order.total || 0).toFixed(2)}|${items}`
+}
+
+/**
+ * Двойная отправка формы / повтор запроса после таймаута не должны
+ * создавать второй заказ и второй раз списывать склад.
+ */
+function findDuplicateRecentOrder(db, order) {
+  const phone = normalizePhoneDigits(order.client?.phone || '')
+  if (!phone) return null
+  const cutoff = Date.now() - 30000
+  const sig = orderSignature(order)
+  return (db.orders || []).find(o => {
+    if (normalizePhoneDigits(o.client?.phone || '') !== phone) return false
+    const ts = Date.parse(o.createdAtIso || '')
+    if (!Number.isFinite(ts) || ts < cutoff) return false
+    return orderSignature(o) === sig
+  }) || null
+}
+
 app.post('/orders', (req, res) => {
   const body = req.body
   const client = body.client || { name: body.client_name, phone: body.client_phone, addr: body.address, lat: body.lat, lng: body.lng }
@@ -1252,6 +1277,9 @@ app.post('/orders', (req, res) => {
     order.marketStatus = body.marketStatus || 'new'
     order.restParts = body.restParts || Object.fromEntries((body.restIds || []).map(r => [r, 'new']))
   }
+  const duplicate = findDuplicateRecentOrder(db, order)
+  if (duplicate) return res.json(duplicate)
+
   const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
   let reservedProducts = []
   try {
@@ -1303,7 +1331,13 @@ app.patch('/orders/:id/status', (req, res) => {
     if (!willCancel && Array.isArray(req.body?.items)) {
       const sync = syncOrderStockReserve(db, prev, req.body.items)
       if (sync.changed) stockTouchedIds = sync.productIds
-    } else if (!willCancel && !prev.stockFromPos && !prev.stockReserved && prev.status !== 'cancelled') {
+    } else if (
+      !willCancel
+      && !prev.stockFromPos
+      && !prev.stockReserved
+      && !['cancelled', 'delivered'].includes(prev.status)
+    ) {
+      // Заказы, оформленные до резерва склада: списываем один раз, пока они в работе
       const sync = syncOrderStockReserve(db, prev, prev.items)
       if (sync.changed) stockTouchedIds = sync.productIds
     }
@@ -1406,7 +1440,7 @@ function removeOrderRecord(orderId) {
   if (idx < 0) return { ok: false, status: 404, detail: 'Заказ не найден' }
   const removed = db.orders[idx]
   const phone = removed.client?.phone || ''
-  const released = releaseOrderStock(db, removed, 'Удаление заказа')
+  const released = releaseOrderStock(db, removed, 'Удаление заказа', { skipDelivered: true })
   db.orders.splice(idx, 1)
   if (Array.isArray(db.reviews)) {
     db.reviews = db.reviews.filter(r => String(r.orderId) !== id)
@@ -1439,12 +1473,14 @@ app.post('/orders/bulk-delete', (req, res) => {
   if (!ids.length) return res.status(400).json({ detail: 'Укажите ids заказов' })
   const removed = []
   const phones = new Set()
+  const stockTouchedIds = new Set()
   for (const id of ids) {
     const idx = db.orders.findIndex(o => String(o.id) === id)
     if (idx < 0) continue
     const order = db.orders[idx]
     if (order.client?.phone) phones.add(normalizePhoneDigits(order.client.phone))
-    releaseOrderStock(db, order, 'Удаление заказа')
+    const released = releaseOrderStock(db, order, 'Удаление заказа', { skipDelivered: true })
+    for (const line of released) stockTouchedIds.add(Number(line.productId))
     db.orders.splice(idx, 1)
     if (Array.isArray(db.reviews)) {
       db.reviews = db.reviews.filter(r => String(r.orderId) !== id)
@@ -1464,6 +1500,11 @@ app.post('/orders/bulk-delete', (req, res) => {
       }
     }
   }
+  for (const pid of stockTouchedIds) {
+    const p = db.products.find(x => Number(x.id) === pid)
+    if (p) broadcastProduct(p)
+  }
+  if (stockTouchedIds.size) broadcastPosUpdate({ reason: 'order-stock' })
   for (const id of removed) broadcast('order_deleted', { id })
   res.json({ ok: true, removed: removed.length, ids: removed })
 })

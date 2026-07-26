@@ -4,7 +4,13 @@
  * Ресторанные позиции не трогаем — их остаток не в складе КАКАПО.
  */
 import { marketItems } from './ordersLogic.js'
-import { deductStockLines, restoreStockLines, sumProductLayers } from './posLogic.js'
+import {
+  deductStockLines,
+  restoreStockLines,
+  rollbackProductLayers,
+  snapshotProductLayers,
+  sumProductLayers,
+} from './posLogic.js'
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
@@ -125,10 +131,19 @@ export function reserveOrderStock(db, order) {
   return order.stockReserveLines
 }
 
-/** Вернуть склад при отмене / удалении. */
-export function releaseOrderStock(db, order, reason = 'Отмена заказа') {
+/**
+ * Вернуть склад при отмене / удалении.
+ * Доставленный заказ товар уже физически увёз — при простом удалении записи
+ * возвращать нечего, иначе на складе появится «воздух».
+ */
+export function releaseOrderStock(db, order, reason = 'Отмена заказа', opts = {}) {
   if (!order || order.stockFromPos) return []
   if (!order.stockReserved) return []
+  if (opts.skipDelivered && order.status === 'delivered') {
+    order.stockReserved = false
+    order.stockReserveLines = []
+    return []
+  }
   const lines = Array.isArray(order.stockReserveLines) ? order.stockReserveLines : []
   if (lines.length) restoreStockLines(db, lines, reason)
   order.stockReserved = false
@@ -162,10 +177,18 @@ export function syncOrderStockReserve(db, order, nextItems) {
     }
   }
 
-  if (order.stockReserved && prevLines.length) {
-    restoreStockLines(db, prevLines, 'Правка состава заказа')
+  // Возврат старого резерва и списание нового — одной транзакцией,
+  // иначе при ошибке остаток остаётся возвращённым и «раздувается»
+  const snapshot = snapshotProductLayers(db, touchedProductIds(prevLines, nextLines))
+  try {
+    if (order.stockReserved && prevLines.length) {
+      restoreStockLines(db, prevLines, 'Правка состава заказа')
+    }
+    if (nextLines.length) deductStockLines(db, nextLines)
+  } catch (e) {
+    rollbackProductLayers(db, snapshot)
+    throw e
   }
-  if (nextLines.length) deductStockLines(db, nextLines)
   order.stockReserved = true
   order.stockReserveLines = nextLines.map(l => ({
     productId: l.productId,
