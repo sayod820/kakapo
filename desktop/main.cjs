@@ -21,7 +21,14 @@ const {
 const { startLocalUi, stopLocalUi, localUiUrl } = require('./localServer.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
-const APP_ICON_PATH = path.join(__dirname, 'icon.png')
+const APP_ICON_PATH = (() => {
+  const ico = path.join(__dirname, 'icon.ico')
+  const png = path.join(__dirname, 'icon.png')
+  try {
+    if (require('fs').existsSync(ico)) return ico
+  } catch { /* ignore */ }
+  return png
+})()
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
 const USER_CONFIG_PATH = () => path.join(app.getPath('userData'), 'config.json')
 const DEFAULT_TRADE_URL = 'https://kakappo.shop/trade'
@@ -241,7 +248,7 @@ function createWindow(localUrl = '') {
     title: 'KAKAPO Касса',
     icon: APP_ICON_PATH,
     backgroundColor: '#030B05',
-    autoHideMenuBar: false,
+    autoHideMenuBar: true,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -782,7 +789,8 @@ async function ensureReceiptPrinterName(preferred) {
 }
 
 app.whenReady().then(async () => {
-  buildAppMenu()
+  // Меню «KAKAPO / Edit / Вид» на кассе не нужно
+  Menu.setApplicationMenu(null)
   let localUrl = ''
   try {
     localUrl = await startLocalUi()
