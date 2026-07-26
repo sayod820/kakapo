@@ -66,7 +66,6 @@ import {
   isKakapoDesktop,
   type CasWeightEvent,
   type DesktopPrinter,
-  type DesktopUpdateStatus,
 } from '@/lib/desktopBridge'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
@@ -638,16 +637,6 @@ export default function CashierModule({
   const [deskPrintBusy, setDeskPrintBusy] = useState(false)
   const [deskCasBusy, setDeskCasBusy] = useState(false)
   const [deskCasTestBusy, setDeskCasTestBusy] = useState(false)
-  const [deskUpdate, setDeskUpdate] = useState<DesktopUpdateStatus>({
-    state: 'idle',
-    currentVersion: '',
-    availableVersion: '',
-    percent: 0,
-    error: '',
-    message: '',
-  })
-  const [deskUpdateBusy, setDeskUpdateBusy] = useState(false)
-  const deskUpdateToastShownRef = useRef(false)
   const [casWeight, setCasWeight] = useState<CasWeightEvent>({
     connected: false,
     weightKg: 0,
@@ -885,92 +874,6 @@ export default function CashierModule({
       }
     }).catch(() => undefined)
   }, [])
-
-  /** Автообновление: статус + тихая проверка при старте */
-  useEffect(() => {
-    if (!isKakapoDesktop()) return
-    const desk = getKakapoDesktop()
-    if (!desk?.getUpdateStatus) return
-
-    void desk.getUpdateStatus().then(s => setDeskUpdate(s)).catch(() => undefined)
-    const off = desk.onUpdateStatus?.(status => {
-      setDeskUpdate(status)
-      if (status.state === 'available' && status.availableVersion && !deskUpdateToastShownRef.current) {
-        deskUpdateToastShownRef.current = true
-        showToast('Обновление', `Доступна версия ${status.availableVersion}`)
-      }
-    })
-
-    const t = window.setTimeout(() => {
-      void desk.checkForUpdates?.().then(s => {
-        if (s) setDeskUpdate(s)
-      }).catch(() => undefined)
-    }, 4000)
-
-    return () => {
-      window.clearTimeout(t)
-      off?.()
-    }
-  }, [])
-
-  async function runDeskUpdateCheck() {
-    const desk = getKakapoDesktop()
-    if (!desk?.checkForUpdates) {
-      showToast('Обновления', 'Только в программе KAKAPO Касса')
-      return
-    }
-    setDeskUpdateBusy(true)
-    try {
-      const s = await desk.checkForUpdates()
-      setDeskUpdate(s)
-      if (s.state === 'available') {
-        showToast('Обновление', `Доступна версия ${s.availableVersion}`)
-      } else if (s.state === 'not-available') {
-        showToast('Обновления', 'У вас актуальная версия')
-      } else if (s.state === 'error') {
-        showToast('Обновления', s.error || s.message || 'Не удалось проверить')
-      }
-    } catch (e) {
-      showToast('Обновления', e instanceof Error ? e.message : 'Ошибка проверки')
-    } finally {
-      setDeskUpdateBusy(false)
-    }
-  }
-
-  async function runDeskUpdateDownload(andInstall = false) {
-    const desk = getKakapoDesktop()
-    if (!desk?.downloadUpdate) return
-    setDeskUpdateBusy(true)
-    try {
-      const s = await desk.downloadUpdate()
-      setDeskUpdate(s)
-      if (s.state === 'downloaded') {
-        if (andInstall && desk.quitAndInstall) {
-          showToast('Обновление', 'Установка… программа перезапустится')
-          await desk.quitAndInstall()
-          return
-        }
-        showToast('Обновление', 'Скачано — нажмите «Установить»')
-      } else if (s.state === 'error') {
-        showToast('Обновления', s.error || s.message || 'Ошибка загрузки')
-      }
-    } catch (e) {
-      showToast('Обновления', e instanceof Error ? e.message : 'Ошибка загрузки')
-    } finally {
-      setDeskUpdateBusy(false)
-    }
-  }
-
-  async function runDeskUpdateInstall() {
-    const desk = getKakapoDesktop()
-    if (!desk?.quitAndInstall) return
-    showToast('Обновление', 'Установка… программа перезапустится')
-    try {
-      await desk.quitAndInstall()
-    } catch (e) {
-      showToast('Обновления', e instanceof Error ? e.message : 'Не удалось установить')
-    }
-  }
 
   /** В окно попадает только остановившийся вес; движение и снятие игнорируются. */
   useEffect(() => {
@@ -4119,84 +4022,6 @@ export default function CashierModule({
                     />
                   </div>
                 </div>
-
-                {isKakapoDesktop() && (
-                  <div className="pos-settings-card">
-                    <h3>Обновления</h3>
-                    <p className="hint">Новая версия кассы с сервера — без ручной установки на каждый ПК</p>
-                    <div className={`pos-settings-status ${
-                      deskUpdate.state === 'error' ? 'warn'
-                        : deskUpdate.state === 'available' || deskUpdate.state === 'downloaded' ? 'ok'
-                          : ''
-                    }`}>
-                      {deskUpdate.currentVersion
-                        ? `Сейчас: v${deskUpdate.currentVersion}`
-                        : 'Версия…'}
-                      {deskUpdate.state === 'available' && deskUpdate.availableVersion
-                        ? ` · доступна v${deskUpdate.availableVersion}`
-                        : ''}
-                      {deskUpdate.state === 'downloading'
-                        ? ` · скачивание ${Math.round(deskUpdate.percent || 0)}%`
-                        : ''}
-                      {deskUpdate.state === 'downloaded'
-                        ? ' · готово к установке'
-                        : ''}
-                      {deskUpdate.state === 'not-available'
-                        ? ' · актуальная'
-                        : ''}
-                      {deskUpdate.state === 'error' && deskUpdate.error
-                        ? ` · ${deskUpdate.error}`
-                        : ''}
-                    </div>
-                    {deskUpdate.state === 'downloading' && (
-                      <div style={{
-                        height: 8,
-                        borderRadius: 99,
-                        background: 'var(--b1)',
-                        marginTop: 10,
-                        overflow: 'hidden',
-                      }}>
-                        <div style={{
-                          height: '100%',
-                          width: `${Math.max(2, Math.min(100, deskUpdate.percent || 0))}%`,
-                          background: 'var(--gr, #1FD760)',
-                          transition: 'width .2s ease',
-                        }} />
-                      </div>
-                    )}
-                    <div className="pos-settings-row-btns" style={{ marginTop: 12 }}>
-                      <button
-                        type="button"
-                        className="btn-switch-till"
-                        disabled={deskUpdateBusy || deskUpdate.state === 'downloading'}
-                        onClick={() => void runDeskUpdateCheck()}
-                      >
-                        {deskUpdateBusy && deskUpdate.state === 'checking' ? 'Проверка…' : 'Проверить'}
-                      </button>
-                      {(deskUpdate.state === 'available' || deskUpdate.state === 'downloading') && (
-                        <button
-                          type="button"
-                          className="btn-switch-till"
-                          disabled={deskUpdateBusy || deskUpdate.state === 'downloading'}
-                          onClick={() => void runDeskUpdateDownload(true)}
-                        >
-                          {deskUpdate.state === 'downloading'
-                            ? `Скачивание ${Math.round(deskUpdate.percent || 0)}%`
-                            : 'Скачать и установить'}
-                        </button>
-                      )}
-                      {deskUpdate.state === 'downloaded' && (
-                        <button
-                          type="button"
-                          className="btn-switch-till"
-                          onClick={() => void runDeskUpdateInstall()}
-                        >
-                          Установить и перезапустить
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
 
                 <div className="pos-settings-card">
                   <h3>Принтер чеков · XP-58C</h3>

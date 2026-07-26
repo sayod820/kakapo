@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApiSync } from '@/lib/useApiSync'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
@@ -18,6 +18,11 @@ import FinanceModule from '@/components/trade/FinanceModule'
 import ReportsModule from '@/components/trade/ReportsModule'
 import TradeLoginPage from '@/components/trade/TradeLoginPage'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
+import {
+  getKakapoDesktop,
+  isKakapoDesktop,
+  type DesktopUpdateStatus,
+} from '@/lib/desktopBridge'
 import {
   clearTradeEmployeeSession,
   loadTradeEmployeeSession,
@@ -91,6 +96,15 @@ const CSS = `
   .k-online[data-state="failed"] .d{background:var(--red);box-shadow:0 0 0 3px rgba(255,90,90,.18)}
   .k-netnote{margin-top:4px;font-size:11px;color:var(--muted);line-height:1.35;background:none;border:0;padding:0;text-align:left;cursor:pointer;font-family:inherit}
   .k-netnote:hover{color:var(--text)}
+  .k-update{width:100%;margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text);font:inherit;font-size:12px;font-weight:700;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:2px}
+  .k-update:hover:not(:disabled){border-color:var(--green)}
+  .k-update:disabled{opacity:.7;cursor:default}
+  .k-update[data-state="available"],.k-update[data-state="downloaded"]{border-color:rgba(31,215,96,.45);background:rgba(31,215,96,.08)}
+  .k-update[data-state="error"]{border-color:rgba(255,184,0,.4)}
+  .k-update .u-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .k-update .u-sub{font-size:11px;font-weight:600;color:var(--muted);line-height:1.3}
+  .k-update .u-bar{height:4px;border-radius:99px;background:var(--border);overflow:hidden;margin-top:4px}
+  .k-update .u-bar>i{display:block;height:100%;background:var(--green);width:0;transition:width .2s ease}
   .k-clock{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
   .k-clock .date{font-size:12px;color:var(--muted)}
   .k-clock .time{font-size:26px;font-weight:900;line-height:1.1}
@@ -375,6 +389,142 @@ function NetworkStatus() {
   )
 }
 
+function shortUpdateError(raw: string) {
+  const s = String(raw || '').trim()
+  if (!s) return 'Не удалось проверить'
+  if (/404|Cannot find channel/i.test(s)) return 'На сервере ещё нет файла обновления'
+  if (/ENOTFOUND|ECONNREFUSED|network|offline|ERR_/i.test(s)) return 'Нет связи с сервером обновлений'
+  if (/только в установленной/i.test(s)) return s
+  return s.length > 72 ? `${s.slice(0, 72)}…` : s
+}
+
+/** Компактная кнопка обновления внизу сайдбара (только desktop) */
+function DesktopUpdateButton() {
+  const [mounted, setMounted] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<DesktopUpdateStatus>({
+    state: 'idle',
+    currentVersion: '',
+    availableVersion: '',
+    percent: 0,
+    error: '',
+    message: '',
+  })
+  const toastShownRef = useRef(false)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    if (!mounted || !isKakapoDesktop()) return
+    const desk = getKakapoDesktop()
+    if (!desk?.getUpdateStatus) return
+
+    void desk.getUpdateStatus().then(s => setStatus(s)).catch(() => undefined)
+    const off = desk.onUpdateStatus?.(s => {
+      setStatus(s)
+      if (s.state === 'available' && s.availableVersion && !toastShownRef.current) {
+        toastShownRef.current = true
+      }
+    })
+    const t = window.setTimeout(() => {
+      void desk.checkForUpdates?.().then(s => { if (s) setStatus(s) }).catch(() => undefined)
+    }, 5000)
+    return () => {
+      window.clearTimeout(t)
+      off?.()
+    }
+  }, [mounted])
+
+  if (!mounted || !isKakapoDesktop()) return null
+
+  const ver = status.currentVersion ? `v${status.currentVersion}` : ''
+  const pct = Math.round(status.percent || 0)
+
+  let title = 'Обновить'
+  let sub = ver ? `Текущая ${ver}` : 'Проверить обновление'
+  if (status.state === 'checking') {
+    title = 'Проверка…'
+    sub = ver
+  } else if (status.state === 'available') {
+    title = 'Скачать обновление'
+    sub = `Доступна v${status.availableVersion}`
+  } else if (status.state === 'downloading') {
+    title = `Скачивание ${pct}%`
+    sub = `v${status.availableVersion || status.currentVersion}`
+  } else if (status.state === 'downloaded') {
+    title = 'Установить'
+    sub = `v${status.availableVersion} · перезапуск`
+  } else if (status.state === 'not-available') {
+    title = 'Актуальная версия'
+    sub = ver
+  } else if (status.state === 'error') {
+    title = 'Обновить'
+    sub = shortUpdateError(status.error || status.message)
+  }
+
+  async function onClick() {
+    const desk = getKakapoDesktop()
+    if (!desk) return
+    setBusy(true)
+    try {
+      if (status.state === 'downloaded' && desk.quitAndInstall) {
+        await desk.quitAndInstall()
+        return
+      }
+      if ((status.state === 'available' || status.state === 'downloading') && desk.downloadUpdate) {
+        const s = await desk.downloadUpdate()
+        setStatus(s)
+        if (s.state === 'downloaded' && desk.quitAndInstall) {
+          await desk.quitAndInstall()
+        }
+        return
+      }
+      if (desk.checkForUpdates) {
+        const s = await desk.checkForUpdates()
+        setStatus(s)
+        if (s.state === 'available' && desk.downloadUpdate) {
+          const d = await desk.downloadUpdate()
+          setStatus(d)
+          if (d.state === 'downloaded' && desk.quitAndInstall) {
+            await desk.quitAndInstall()
+          }
+        }
+      }
+    } catch (e) {
+      setStatus(prev => ({
+        ...prev,
+        state: 'error',
+        error: e instanceof Error ? e.message : 'Ошибка обновления',
+        message: e instanceof Error ? e.message : 'Ошибка обновления',
+      }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disabled = busy || status.state === 'checking' || status.state === 'downloading'
+
+  return (
+    <button
+      type="button"
+      className="k-update"
+      data-state={status.state}
+      disabled={disabled}
+      onClick={() => void onClick()}
+      title={status.error || status.message || 'Обновление программы'}
+    >
+      <span className="u-title">
+        <span>{title}</span>
+        {ver && status.state !== 'available' && status.state !== 'downloaded' ? <span style={{ color: 'var(--muted)', fontWeight: 700 }}>{ver}</span> : null}
+      </span>
+      {sub ? <span className="u-sub">{sub}</span> : null}
+      {status.state === 'downloading' && (
+        <span className="u-bar"><i style={{ width: `${Math.max(2, Math.min(100, pct))}%` }} /></span>
+      )}
+    </button>
+  )
+}
+
 function TradeAppInner({
   session,
   onLogout,
@@ -506,6 +656,7 @@ function TradeAppInner({
                 <div className="name">Магазин KAKAPO</div>
                 <NetworkStatus />
                 <Clock />
+                <DesktopUpdateButton />
                 <button
                   type="button"
                   className="k-btn k-btn-s"
