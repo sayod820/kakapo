@@ -3177,12 +3177,16 @@ export default function CashierModule({
     const base = discBaseAmount(discMode, discLineKey)
     const raw = Number(discBuf) || 0
     if (next === 'sum') {
-      // % → сумма
-      const sum = Math.round(base * Math.min(90, Math.max(0, raw)) / 100 * 100) / 100
-      setDiscBuf(sum > 0 ? String(sum) : '')
+      // % → новая цена (показываем текущую полную / после % скидки)
+      const pct = Math.min(90, Math.max(0, raw))
+      const price = Math.round(base * (1 - pct / 100) * 100) / 100
+      setDiscBuf(base > 0 ? String(price > 0 ? price : Math.round(base * 100) / 100) : '')
     } else {
-      // сумма → %
-      const pct = base > 0.0001 ? Math.round(Math.min(90, Math.max(0, raw) / base * 100) * 100) / 100 : 0
+      // новая цена → % скидки
+      const newPrice = Math.max(0, raw)
+      const pct = base > 0.0001
+        ? Math.round(Math.min(90, Math.max(0, (base - newPrice) / base * 100)) * 100) / 100
+        : 0
       setDiscBuf(pct > 0 ? String(pct) : '')
     }
     setDiscInputKind(next)
@@ -3190,15 +3194,21 @@ export default function CashierModule({
 
   function applyDiscount() {
     const base = discBaseAmount(discMode, discLineKey)
-    const maxSum = Math.round(base * 0.9 * 100) / 100
+    const minPrice = Math.round(base * 0.1 * 100) / 100 // макс. скидка 90%
     let pct = 0
     if (discInputKind === 'sum') {
-      const sum = Math.max(0, Number(discBuf) || 0)
-      if (sum > maxSum + 0.001) {
-        showToast('Слишком много', `Макс. ${maxSum.toFixed(2)} сом (90%)`)
+      const newPrice = Math.max(0, Number(discBuf) || 0)
+      if (newPrice > base + 0.001) {
+        showToast('Выше цены', `Макс. ${base.toFixed(2)} сом (без скидки)`)
         return
       }
-      pct = base > 0.0001 ? Math.min(90, Math.round(sum / base * 10000) / 100) : 0
+      if (newPrice < minPrice - 0.001 && base > 0) {
+        showToast('Слишком много', `Мин. цена ${minPrice.toFixed(2)} сом (скидка до 90%)`)
+        return
+      }
+      pct = base > 0.0001
+        ? Math.min(90, Math.round((base - newPrice) / base * 10000) / 100)
+        : 0
     } else {
       pct = Math.min(90, Math.max(0, Number(discBuf) || 0))
     }
@@ -6072,15 +6082,20 @@ export default function CashierModule({
       {discOpen && (() => {
         const base = discBaseAmount(discMode, discLineKey)
         const raw = Number(discBuf) || 0
+        const minPrice = Math.round(base * 0.1 * 100) / 100
         const previewPct = discInputKind === 'sum'
-          ? (base > 0.0001 ? Math.min(90, Math.round(raw / base * 10000) / 100) : 0)
+          ? (base > 0.0001
+            ? Math.min(90, Math.max(0, Math.round((base - Math.min(base, Math.max(0, raw))) / base * 10000) / 100))
+            : 0)
           : Math.min(90, Math.max(0, raw))
-        const previewSum = discInputKind === 'sum'
-          ? Math.min(base, Math.max(0, raw))
-          : Math.round(base * previewPct / 100 * 100) / 100
-        const over = discInputKind === 'sum' && raw > Math.round(base * 0.9 * 100) / 100 + 0.001
-        const sumPresets = base > 0
-          ? [0, ...[5, 10, 20, 50].map(v => Math.round(base * v / 100 * 100) / 100).filter(v => v > 0)]
+        const previewOff = Math.round(base * previewPct / 100 * 100) / 100
+        const previewPrice = Math.round((base - previewOff) * 100) / 100
+        const over = discInputKind === 'sum' && base > 0 && (
+          raw > base + 0.001 || raw < minPrice - 0.001
+        )
+        // Быстрые новые цены: полная и после 5/10/15/20%
+        const pricePresets = base > 0
+          ? [100, 95, 90, 85, 80].map(keep => Math.round(base * keep / 100 * 100) / 100)
           : [0]
         return (
           <div className="overlay" onClick={() => { setDiscOpen(false); setDiscInputKind('pct') }}>
@@ -6099,12 +6114,12 @@ export default function CashierModule({
               {discMode === 'line' && discLineKey && (
                 <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>
                   {cart.find(l => l.key === discLineKey)?.name || 'Товар'}
-                  {base > 0 ? ` · ${base.toFixed(2)} сом` : ''}
+                  {base > 0 ? ` · сейчас ${base.toFixed(2)} сом` : ''}
                 </div>
               )}
               {discMode === 'all' && (
                 <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>
-                  На весь чек{base > 0 ? ` · ${base.toFixed(2)} сом` : ''}
+                  На весь чек{base > 0 ? ` · сейчас ${base.toFixed(2)} сом` : ''}
                   {levelDiscPct > 0 ? ` · уже +${levelDiscPct}% статус` : ''}
                 </div>
               )}
@@ -6122,12 +6137,12 @@ export default function CashierModule({
                   className={discInputKind === 'sum' ? 'on' : ''}
                   onClick={() => switchDiscInputKind('sum')}
                 >
-                  Сумма сом
+                  Новая цена
                 </button>
               </div>
 
               <div className="kp-display">
-                <div className="lbl">{discInputKind === 'sum' ? 'СКИДКА, СОМ' : 'СКИДКА, %'}</div>
+                <div className="lbl">{discInputKind === 'sum' ? 'НОВАЯ ЦЕНА, СОМ' : 'СКИДКА, %'}</div>
                 <input
                   ref={amountInputRef}
                   className="kp-field"
@@ -6136,14 +6151,17 @@ export default function CashierModule({
                   autoFocus
                   onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
                   onFocus={e => e.currentTarget.select()}
-                  placeholder="0"
+                  placeholder={discInputKind === 'sum' ? (base > 0 ? base.toFixed(2) : '0') : '0'}
                 />
-                {raw > 0 && (
+                {(raw > 0 || (discInputKind === 'sum' && discBuf !== '')) && (
                   <div className="disc-preview">
                     {discInputKind === 'sum'
-                      ? `≈ ${previewPct.toFixed(2)}%`
-                      : `= ${previewSum.toFixed(2)} сом`}
-                    {over ? ' · больше 90%' : ''}
+                      ? (raw > base + 0.001
+                        ? `выше цены (${base.toFixed(2)})`
+                        : raw < minPrice - 0.001 && base > 0
+                          ? `мин. ${minPrice.toFixed(2)} (до −90%)`
+                          : `скидка −${previewPct.toFixed(2)}% (−${previewOff.toFixed(2)} сом)`)
+                      : `= ${previewPrice.toFixed(2)} сом (−${previewOff.toFixed(2)})`}
                   </div>
                 )}
               </div>
@@ -6153,9 +6171,9 @@ export default function CashierModule({
                     ? [0, 5, 10, 15, 20].map(v => (
                       <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>
                     ))
-                    : sumPresets.map(v => (
-                      <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>
-                        {v === 0 ? '0' : v}
+                    : pricePresets.map((v, i) => (
+                      <button key={`${v}-${i}`} type="button" onClick={() => setDiscBuf(String(v))}>
+                        {i === 0 ? 'Полная' : v}
                       </button>
                     ))}
                 </div>
