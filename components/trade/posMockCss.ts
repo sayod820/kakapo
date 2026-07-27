@@ -331,7 +331,7 @@ export const POS_MOCK_CSS = `
   .gate-input::placeholder{color:var(--t3);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(31,215,96,.25);}
 
-  /* Касса: товары слева, чек справа шире (меньше рядов плиток) */
+  /* Касса: товары слева, чек справа шире (на 1 ряд плиток меньше) */
   .app{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,min(48vw,560px));grid-template-rows:64px 1fr;height:100%;height:100dvh;}
 
   .topbar{grid-column:1/3;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--surface);border-bottom:1px solid var(--border);}
@@ -552,8 +552,8 @@ export const POS_MOCK_CSS = `
   .cat-browse-count{font-size:11px;font-weight:800;color:var(--accent);font-family:'JetBrains Mono',monospace;margin-top:auto;}
   .cat-browse-empty{grid-column:1/-1;text-align:center;padding:28px 12px;color:var(--t3);font-size:13px;font-weight:700;}
 
-  .grid-wrap{flex:1;overflow-y:auto;padding:8px 16px 20px;}
-  .p-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;}
+  .grid-wrap{flex:1;overflow-y:auto;padding:8px 20px 20px;}
+  .p-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:13px;}
   .pos-root button.p-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:16px;padding:12px;text-align:left;transition:border-color .15s,transform .1s;animation:tileIn .25s ease both;}
   .pos-root button.p-tile:hover{border-color:var(--accent);transform:translateY(-2px);}
   .pos-root button.p-tile:active{transform:translateY(0) scale(.97);}
@@ -1224,7 +1224,6 @@ export const POS_MOCK_CSS = `
     .app{grid-template-columns:minmax(0,1fr) minmax(380px,min(46vw,520px));}
     .searchpill{flex:0 1 220px;width:auto;max-width:min(260px,28vw);min-width:140px;}
     .top-clock .tm{font-size:15px;}
-    .p-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;}
   }
 
   .pos-mob-switch{display:none;}
