@@ -331,10 +331,10 @@ export const POS_MOCK_CSS = `
   .gate-input::placeholder{color:var(--t3);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(31,215,96,.25);}
 
-  /* Касса: слева ровно 2 ряда плиток, чек справа шире */
+  /* Касса: слева ровно 5 рядов плиток (5×150 + gaps + padding ≈ 850px), чек справа */
   .pos-root > .app{
     display:grid;
-    grid-template-columns:minmax(340px,380px) minmax(0,1fr);
+    grid-template-columns:minmax(820px,860px) minmax(280px,1fr);
     grid-template-rows:64px 1fr;
     height:100%;
     height:100dvh;
@@ -1233,8 +1233,11 @@ export const POS_MOCK_CSS = `
   .z-stat .v{font-family:'JetBrains Mono';font-size:17px;font-weight:800;}
   .pos-err{margin-top:10px;padding:10px 12px;border-radius:10px;font-size:12px;background:rgba(255,69,69,.1);border:1px solid rgba(255,69,69,.3);color:var(--red);}
 
+  @media(max-width:1400px){
+    .pos-root > .app{grid-template-columns:minmax(680px,720px) minmax(260px,1fr);}
+  }
   @media(max-width:1200px){
-    .pos-root > .app{grid-template-columns:minmax(320px,360px) minmax(0,1fr);}
+    .pos-root > .app{grid-template-columns:minmax(520px,560px) minmax(240px,1fr);}
     .searchpill{flex:0 1 220px;width:auto;max-width:min(260px,28vw);min-width:140px;}
     .top-clock .tm{font-size:15px;}
   }
