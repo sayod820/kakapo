@@ -51,7 +51,7 @@ import {
   findClientByPhone,
   bonusEligibleTotal,
 } from './loyaltyBonus.js'
-import { allocateProductCodes, nextFreeProductCode } from './productCodes.js'
+import { allocateProductCodes, allocateProductBarcodes, nextFreeProductCode, nextFreeEan13 } from './productCodes.js'
 import { createReviewRecord, updateRestaurantRating, updateStoreRating, deleteReviewRecords } from './reviewLogic.js'
 import { normalizeLevelAssignMode, inferLevelAssignMode, isLevelLocked, loyaltyLockRecord } from './loyaltyLock.js'
 import {
@@ -849,7 +849,8 @@ app.patch('/auth/admin', (req, res) => {
 app.get('/products', (_req, res) => res.json(db.products))
 app.get('/products/next-codes', (_req, res) => {
   const next = nextFreeProductCode(db.products)
-  res.json({ next, art: String(next), plu: next <= 9999 ? String(next) : '' })
+  const barcode = nextFreeEan13(db.products, next)
+  res.json({ next, art: String(next), plu: next <= 9999 ? String(next) : '', barcode })
 })
 app.post('/products', (req, res) => {
   try {
@@ -858,6 +859,11 @@ app.post('/products', (req, res) => {
       art: req.body.art,
       plu: req.body.plu,
     })
+    const preferSerial = Number(codes.art) || nextFreeProductCode(db.products)
+    const bars = allocateProductBarcodes(db.products, {
+      barcode: req.body.barcode,
+      barcodes: req.body.barcodes,
+    }, preferSerial)
     const p = {
       id,
       art: codes.art,
@@ -865,10 +871,8 @@ app.post('/products', (req, res) => {
       name: req.body.name, price: req.body.price || 0, costPrice: req.body.costPrice ?? null, cat: req.body.cat || '', catId: req.body.catId || '',
       unit: req.body.unit || 'шт', stock: req.body.stock || 0, hot: !!req.body.hot,
       desc: req.body.desc, brand: req.body.brand, country: req.body.country,
-      barcode: req.body.barcode ? String(req.body.barcode).trim() : undefined,
-      barcodes: Array.isArray(req.body.barcodes)
-        ? [...new Set(req.body.barcodes.map(b => String(b).trim()).filter(Boolean))]
-        : undefined,
+      barcode: bars.barcode,
+      barcodes: bars.barcodes,
       plu: codes.plu,
       organic: !!req.body.organic, sellType: req.body.sellType || 'piece',
       unitGrams: req.body.unitGrams, weightStep: req.body.weightStep, minWeight: req.body.minWeight,
@@ -2173,15 +2177,24 @@ app.post('/pos/sales', (req, res) => {
     persist()
     broadcastPosUpdate({ kind: 'sale', id: row.id })
     broadcastProduct({ reason: 'sale' })
-    auditFromReq(db, req, {
-      app: 'trade',
-      action: 'sale',
-      entity: 'sale',
-      entityId: row.id,
-      entityName: row.saleNumber || row.id,
-      summary: `Продажа ${row.saleNumber || row.id} · ${row.total} ЅМ` + ((Number(row.debtAdded) || 0) > 0 ? ` · долг +${row.debtAdded}` : ''),
-      after: { total: row.total, debtAdded: row.debtAdded, paymentMethod: row.paymentMethod, cashierName: row.cashierName },
-    })
+    // Обычные продажи в историю не пишем — только «махинации» (скидка и т.п.)
+    const discAmt = Math.round((Number(row.discountAmount) || 0) * 100) / 100
+    if (discAmt > 0.001) {
+      auditFromReq(db, req, {
+        app: 'trade',
+        action: 'discount',
+        entity: 'sale',
+        entityId: row.id,
+        entityName: row.saleNumber || row.id,
+        summary: `Скидка на чеке ${row.saleNumber || row.id} · −${discAmt} ЅМ · итог ${row.total} ЅМ`,
+        after: {
+          discountAmount: discAmt,
+          total: row.total,
+          paymentMethod: row.paymentMethod,
+          cashierName: row.cashierName,
+        },
+      })
+    }
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
@@ -2498,6 +2511,18 @@ app.post('/finance/moves', (req, res) => {
       const stored = (db.financeMoves || []).find(m => m.id === row.id)
       if (stored) stored.clientRef = clientRef
     }
+    const isIn = row.type !== 'withdraw'
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: isIn ? 'cash_in' : 'cash_out',
+      entity: 'cash',
+      entityId: row.id,
+      entityName: row.supplierName || row.createdBy || row.id,
+      summary: (isIn ? `Внесение в кассу · ${row.amount} ЅМ` : `Снятие из кассы · ${row.amount} ЅМ`)
+        + (row.note ? ` · ${row.note}` : '')
+        + (row.supplierName ? ` · ${row.supplierName}` : ''),
+      after: { type: row.type, amount: row.amount, note: row.note, shiftId: row.shiftId },
+    })
     persist()
     broadcastPosUpdate({ kind: 'finance-move', id: row.id })
     res.json(row)

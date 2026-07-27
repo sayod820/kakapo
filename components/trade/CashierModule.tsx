@@ -663,7 +663,18 @@ export default function CashierModule({
     paidCard?: number
     debtAmt?: number
   } | null>(null)
-  const [printAskSale, setPrintAskSale] = useState<PosSale | null>(null)
+  /** Вопрос «печатать?» ДО пробития чека — чек проходит только после Нет/Печатать */
+  const [saleConfirm, setSaleConfirm] = useState<{
+    paidCash: number
+    method?: PayMethod
+    bonusSpend?: number
+    paidCard?: number
+    debtAmt?: number
+    saleNote?: string
+    returnTo: 'payPick' | 'cash' | 'splitCard' | 'creditNote'
+    previewTotal: number
+    clientName?: string
+  } | null>(null)
   const printChoiceLockedRef = useRef(false)
   const printingSaleIdsRef = useRef(new Set<string>())
   const [printingSaleId, setPrintingSaleId] = useState<string | null>(null)
@@ -860,7 +871,7 @@ export default function CashierModule({
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
-    || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!printAskSale
+    || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!saleConfirm
     || !!dashMenuPosId
 
   function focusProductSearch() {
@@ -3270,24 +3281,75 @@ export default function CashierModule({
     }
   }
 
-  function finishSalePrintChoice(shouldPrint: boolean) {
-    const sale = printAskSale
-    if (!sale || printChoiceLockedRef.current) return
+  function askSaleConfirm(opts: {
+    paidCash?: number
+    method?: PayMethod
+    bonusSpend?: number
+    paidCard?: number
+    debtAmt?: number
+    saleNote?: string
+    returnTo: 'payPick' | 'cash' | 'splitCard' | 'creditNote'
+    previewTotal: number
+  }) {
+    setCashOpen(false)
+    setSplitCardOpen(false)
+    setPayPickOpen(false)
+    setCreditNoteOpen(false)
+    setAmountPad(false)
+    printChoiceLockedRef.current = false
+    setSaleConfirm({
+      paidCash: opts.paidCash ?? 0,
+      method: opts.method,
+      bonusSpend: opts.bonusSpend,
+      paidCard: opts.paidCard,
+      debtAmt: opts.debtAmt,
+      saleNote: opts.saleNote,
+      returnTo: opts.returnTo,
+      previewTotal: opts.previewTotal,
+      clientName: client?.name,
+    })
+  }
 
-    // Блокировка ставится синхронно до перерисовки: быстрые повторные клики
-    // не смогут отправить несколько одинаковых заданий на XP-58C.
-    printChoiceLockedRef.current = true
-    setPrintAskSale(null)
-    afterSaleTicketReset()
-
-    if (shouldPrint) {
-      void printSaleOnce(sale).finally(() => {
-        printChoiceLockedRef.current = false
-      })
+  function cancelSaleConfirm() {
+    const p = saleConfirm
+    if (!p || busy) return
+    setSaleConfirm(null)
+    if (p.returnTo === 'cash') {
+      setCashOpen(true)
+    } else if (p.returnTo === 'splitCard') {
+      setCashOpen(true)
+      setSplitCardOpen(true)
+    } else if (p.returnTo === 'creditNote') {
+      setCreditNoteOpen(true)
     } else {
-      window.setTimeout(() => {
-        printChoiceLockedRef.current = false
-      }, 0)
+      setPayPickOpen(true)
+    }
+  }
+
+  async function finishSaleConfirm(shouldPrint: boolean) {
+    const p = saleConfirm
+    if (!p || printChoiceLockedRef.current || busy) return
+    printChoiceLockedRef.current = true
+    setSaleConfirm(null)
+    try {
+      const ok = await submitSale(
+        p.paidCash,
+        p.method,
+        p.bonusSpend,
+        p.paidCard,
+        p.debtAmt,
+        p.saleNote,
+        { shouldPrint },
+      )
+      if (!ok) {
+        // Чек не прошёл — вернуть к оплате
+        if (p.returnTo === 'cash') setCashOpen(true)
+        else if (p.returnTo === 'splitCard') { setCashOpen(true); setSplitCardOpen(true) }
+        else if (p.returnTo === 'creditNote') setCreditNoteOpen(true)
+        else setPayPickOpen(true)
+      }
+    } finally {
+      printChoiceLockedRef.current = false
     }
   }
 
@@ -3295,13 +3357,29 @@ export default function CashierModule({
     if (!creditPending) return
     const note = creditNoteBuf.trim()
     const { paidCash, method, paidCard, debtAmt } = creditPending
-    setCreditNoteOpen(false)
-    setCreditPending(null)
-    await submitSale(paidCash, method, 0, paidCard, debtAmt, note)
+    const preview = Math.max(0, afterDisc - Math.floor(usedBonus)) + Math.max(0, Number(debtAmt) || 0)
+    askSaleConfirm({
+      paidCash,
+      method,
+      bonusSpend: 0,
+      paidCard,
+      debtAmt,
+      saleNote: note,
+      returnTo: 'creditNote',
+      previewTotal: Math.round(preview * 100) / 100,
+    })
   }
 
-  async function submitSale(paidCash = 0, payOverride?: PayMethod, bonusSpendOverride?: number, paidCardAmt?: number, debtAmt?: number, saleNote?: string) {
-    if (!activeShift || !cart.length) return
+  async function submitSale(
+    paidCash = 0,
+    payOverride?: PayMethod,
+    bonusSpendOverride?: number,
+    paidCardAmt?: number,
+    debtAmt?: number,
+    saleNote?: string,
+    opts?: { shouldPrint?: boolean },
+  ): Promise<boolean> {
+    if (!activeShift || !cart.length) return false
     const methodPay = payOverride ?? pay
     const spend = Math.max(
       0,
@@ -3315,11 +3393,11 @@ export default function CashierModule({
     if ((methodPay === 'credit' || methodPay === 'balance' || (methodPay === 'mixed' && debtHint > 0.001)) && !client) {
       setClientOpen(true)
       showToast('Выберите клиента', methodPay === 'balance' ? 'Для списания бонусов нужен клиент' : 'Для долга нужен клиент')
-      return
+      return false
     }
     if (methodPay === 'balance' && payable > 0.001) {
       showToast('Недостаточно бонусов', 'Спишите бонусы или выберите другой способ')
-      return
+      return false
     }
 
     let apiMethod: 'cash' | 'card' | 'credit' | 'wallet' | 'mixed' = 'cash'
@@ -3333,7 +3411,7 @@ export default function CashierModule({
     if (methodPay === 'credit') {
       if (clientDebtBlocked) {
         showDebtBlockedToast()
-        return
+        return false
       }
       apiMethod = 'credit'
       debtAdded = payable
@@ -3345,12 +3423,12 @@ export default function CashierModule({
       if (!client) {
         setClientOpen(true)
         showToast('Выберите клиента', 'Для оплаты с кошелька нужен клиент')
-        return
+        return false
       }
       const walletBal = Math.round((Number(client.wallet) || 0) * 100) / 100
       if (payable > walletBal + 0.001) {
         showToast('Недостаточно на кошельке', `Доступно ${fmtMoney(walletBal)}`)
-        return
+        return false
       }
       apiMethod = 'wallet'
       walletPaid = payable
@@ -3368,17 +3446,17 @@ export default function CashierModule({
         if (!client) {
           setClientOpen(true)
           showToast('Выберите клиента', 'Для долга нужен клиент')
-          return
+          return false
         }
         if (clientDebtBlocked) {
           showDebtBlockedToast()
-          return
+          return false
         }
         // Лимит не проверяем на кассе — только в приложении клиента
       }
       if (cashPaid < 0.01 && cardPaid < 0.01 && debtAdded < 0.01) {
         showToast('Ошибка', 'Укажите сумму оплаты')
-        return
+        return false
       }
       if (cashPaid > 0 && cardPaid < 0.01 && debtAdded < 0.01) apiMethod = 'cash'
       else if (cardPaid > 0 && cashPaid < 0.01 && debtAdded < 0.01) apiMethod = 'card'
@@ -3404,15 +3482,15 @@ export default function CashierModule({
     if (!isOnline()) {
       if (cardPaid > 0.001 || apiMethod === 'card') {
         showToast('Нет связи', 'Оплата картой недоступна офлайн. Проведите наличными или в долг.')
-        return
+        return false
       }
       if (walletPaid > 0.001 || apiMethod === 'wallet') {
         showToast('Нет связи', 'Оплата с кошелька недоступна офлайн.')
-        return
+        return false
       }
       if (spend > 0) {
         showToast('Нет связи', 'Списание бонусов недоступно офлайн.')
-        return
+        return false
       }
     }
 
@@ -3610,8 +3688,9 @@ export default function CashierModule({
       setCreditNoteOpen(false)
       setCreditNoteBuf('')
       setCreditPending(null)
-      printChoiceLockedRef.current = false
-      setPrintAskSale({
+      setSaleConfirm(null)
+
+      const saleForPrint: PosSale = {
         ...created,
         orderGoodsTotal: created.orderGoodsTotal ?? Math.round(subtotalGross * 100) / 100,
         discountAmount: created.discountAmount ?? (discountTotal > 0.001 ? discountTotal : undefined),
@@ -3620,10 +3699,16 @@ export default function CashierModule({
         bonusBalanceBefore: created.bonusBalanceBefore ?? bonusBalanceBefore,
         bonusBalanceAfter: created.bonusBalanceAfter ?? bonusBalanceAfter,
         total: created.total ?? total,
-      })
+      }
+      afterSaleTicketReset()
+      if (opts?.shouldPrint) {
+        void printSaleOnce(saleForPrint)
+      }
+      return true
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка продажи')
       showToast('Ошибка', e instanceof Error ? e.message : 'Ошибка продажи')
+      return false
     } finally {
       setBusy(false)
     }
@@ -3674,7 +3759,12 @@ export default function CashierModule({
       setPayDebtOn(false)
       setPay(method)
       setPayPickOpen(false)
-      void submitSale(0, 'wallet')
+      askSaleConfirm({
+        paidCash: 0,
+        method: 'wallet',
+        returnTo: 'payPick',
+        previewTotal: Math.round(afterDisc * 100) / 100,
+      })
       return
     }
     if (method === 'credit') {
@@ -3699,7 +3789,13 @@ export default function CashierModule({
       setBonusUsed(cover)
       setPay(method)
       setPayPickOpen(false)
-      void submitSale(0, 'balance', cover)
+      askSaleConfirm({
+        paidCash: 0,
+        method: 'balance',
+        bonusSpend: cover,
+        returnTo: 'payPick',
+        previewTotal: 0,
+      })
       return
     }
     const debtExtra = currentPayDebtAmt()
@@ -3713,7 +3809,12 @@ export default function CashierModule({
       return
     }
     setPayPickOpen(false)
-    void submitSale(0, method)
+    askSaleConfirm({
+      paidCash: 0,
+      method,
+      returnTo: 'payPick',
+      previewTotal: Math.round((total + debtExtra) * 100) / 100,
+    })
   }
 
   function openCashSplitCard() {
@@ -5799,7 +5900,14 @@ export default function CashierModule({
                 className="btn-confirm"
                 style={{ width: '100%', marginBottom: 10 }}
                 disabled={busy}
-                onClick={() => { setPayPickOpen(false); void submitSale(0, 'balance') }}
+                onClick={() => {
+                  askSaleConfirm({
+                    paidCash: 0,
+                    method: 'balance',
+                    returnTo: 'payPick',
+                    previewTotal: 0,
+                  })
+                }}
               >
                 Подтвердить · оплачено бонусами
               </button>
@@ -5906,37 +6014,38 @@ export default function CashierModule({
         </div>
       )}
 
-      {printAskSale && (
-        <div className="overlay">
+      {saleConfirm && (
+        <div className="overlay" onClick={() => cancelSaleConfirm()}>
           <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
-            <h3>Чек проведён</h3>
+            <h3>Пробить чек?</h3>
             <div className="pay-breakdown" style={{ marginBottom: 14 }}>
-              <div><span>Номер</span><b className="bank-fig">{saleNumberLabel(printAskSale)}</b></div>
               <div className="due">
                 <span>Сумма</span>
-                <b className="bank-fig sum">{fmtMoney(Number(printAskSale.total) || 0)}</b>
+                <b className="bank-fig sum">{fmtMoney(Number(saleConfirm.previewTotal) || 0)}</b>
               </div>
-              {printAskSale.clientName && (
-                <div><span>Клиент</span><b>{printAskSale.clientName}</b></div>
+              {saleConfirm.clientName && (
+                <div><span>Клиент</span><b>{saleConfirm.clientName}</b></div>
               )}
             </div>
             <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14, textAlign: 'center' }}>
-              Печатать чек?
+              Чек пробьётся только после выбора. Печатать чек?
             </div>
             <div className="modal-card-actions" style={{ gap: 8 }}>
               <button
                 type="button"
                 className="btn-cancel"
-                onClick={() => finishSalePrintChoice(false)}
+                disabled={busy}
+                onClick={() => void finishSaleConfirm(false)}
               >
                 Нет
               </button>
               <button
                 type="button"
                 className="btn-confirm"
-                onClick={() => finishSalePrintChoice(true)}
+                disabled={busy}
+                onClick={() => void finishSaleConfirm(true)}
               >
-                🖨 Печатать
+                {busy ? 'Пробиваем…' : '🖨 Печатать'}
               </button>
             </div>
           </div>
@@ -6319,7 +6428,12 @@ export default function CashierModule({
                   className="btn-confirm cash-accept"
                   disabled={busy || cashReceived < collectTotal - 0.001}
                   onClick={() => {
-                    void submitSale(cashReceived)
+                    askSaleConfirm({
+                      paidCash: cashReceived,
+                      method: 'cash',
+                      returnTo: 'cash',
+                      previewTotal: collectTotal,
+                    })
                   }}
                 >
                   Принять
@@ -6400,7 +6514,16 @@ export default function CashierModule({
                   type="button"
                   className="btn-confirm"
                   disabled={busy}
-                  onClick={() => void submitSale(cashReceived, 'mixed', undefined, splitCardAmt, 0)}
+                  onClick={() => {
+                    askSaleConfirm({
+                      paidCash: cashReceived,
+                      method: 'mixed',
+                      paidCard: splitCardAmt,
+                      debtAmt: 0,
+                      returnTo: 'splitCard',
+                      previewTotal: collectTotal,
+                    })
+                  }}
                 >
                   Подтвердить · карта {splitCardAmt.toFixed(2)}
                 </button>

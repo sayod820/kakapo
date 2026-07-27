@@ -1,5 +1,5 @@
 import { categorySlug, findCategoryName } from '@/lib/useCategories'
-import { normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
+import { nextFreeEan13, normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
 import { nextFreeProductCode, parseProductCodeNum } from '@/lib/productCodes'
 import type { Category, Product, SellType } from '@/lib/types'
 
@@ -42,7 +42,7 @@ export function emptyForm(): ProductForm {
   }
 }
 
-/** Форма нового товара с уже подставленными свободными артикулом и PLU */
+/** Форма нового товара с уже подставленными свободными артикулом, PLU и штрихкодом */
 export function emptyFormWithNextCodes(products: Product[]): ProductForm {
   const next = nextFreeProductCode(products)
   const code = String(next)
@@ -50,6 +50,7 @@ export function emptyFormWithNextCodes(products: Product[]): ProductForm {
     ...emptyForm(),
     art: code,
     plu: next <= 9999 ? code : '',
+    barcodes: [nextFreeEan13(products, next)],
   }
 }
 

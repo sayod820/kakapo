@@ -88,3 +88,75 @@ export function allocateProductCodes(products, input = {}, excludeId = null) {
 
   return { art, plu: plu || undefined }
 }
+
+/** Префикс внутренних EAN-13 (не 2x — весовые этикетки) */
+export const INTERNAL_EAN_PREFIX = '460'
+
+export function ean13CheckDigit(digits12) {
+  const d = String(digits12 || '').replace(/\D/g, '').padStart(12, '0').slice(0, 12)
+  let sum = 0
+  for (let i = 0; i < 12; i++) {
+    sum += Number(d[i]) * (i % 2 === 0 ? 1 : 3)
+  }
+  return String((10 - (sum % 10)) % 10)
+}
+
+export function buildEan13(digits12) {
+  const d = String(digits12 || '').replace(/\D/g, '').padStart(12, '0').slice(0, 12)
+  return d + ean13CheckDigit(d)
+}
+
+export function productBarcodeList(p) {
+  if (!p) return []
+  const list = [
+    ...(p.barcode ? [String(p.barcode).trim()] : []),
+    ...(Array.isArray(p.barcodes) ? p.barcodes.map(b => String(b).trim()) : []),
+  ].filter(Boolean)
+  return [...new Set(list)]
+}
+
+export function collectUsedBarcodes(products, excludeId) {
+  const used = new Set()
+  for (const p of products || []) {
+    if (excludeId != null && Number(p.id) === Number(excludeId)) continue
+    for (const c of productBarcodeList(p)) used.add(c)
+  }
+  return used
+}
+
+/** Свободный внутренний EAN-13: 460 + 9 цифр + контрольная */
+export function nextFreeEan13(products, preferSerial, excludeId = null) {
+  const used = collectUsedBarcodes(products, excludeId)
+  let n = preferSerial && preferSerial > 0 ? Math.floor(preferSerial) : 1
+  if (n > 999999999) n = 1
+  for (let i = 0; i < 1000000; i++) {
+    const serial = ((n - 1 + i) % 999999999) + 1
+    const code = buildEan13(INTERNAL_EAN_PREFIX + String(serial).padStart(9, '0'))
+    if (!used.has(code)) return code
+  }
+  const stamp = Date.now() % 1000000000
+  return buildEan13(INTERNAL_EAN_PREFIX + String(stamp).padStart(9, '0'))
+}
+
+/** Нормализация barcodes из тела запроса; пусто → авто EAN-13 */
+export function allocateProductBarcodes(products, input = {}, preferSerial = null, excludeId = null) {
+  let list = []
+  if (Array.isArray(input.barcodes)) {
+    list = input.barcodes.map(b => String(b).trim()).filter(Boolean)
+  }
+  if (input.barcode) {
+    const one = String(input.barcode).trim()
+    if (one) list.unshift(one)
+  }
+  list = [...new Set(list)]
+  if (!list.length) {
+    list = [nextFreeEan13(products, preferSerial, excludeId)]
+  }
+  const used = collectUsedBarcodes(products, excludeId)
+  for (const code of list) {
+    if (used.has(code)) {
+      throw new Error(`Штрихкод «${code}» уже занят`)
+    }
+  }
+  return { barcode: list[0], barcodes: list }
+}

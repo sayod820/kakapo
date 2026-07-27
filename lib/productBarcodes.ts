@@ -18,6 +18,56 @@ export function normalizeBarcodes(codes: string[]) {
   }
 }
 
+/** Префикс внутренних EAN-13 (не 2x — чтобы не путать с весовыми этикетками) */
+export const INTERNAL_EAN_PREFIX = '460'
+
+export function ean13CheckDigit(digits12: string): string {
+  const d = String(digits12 || '').replace(/\D/g, '').padStart(12, '0').slice(0, 12)
+  let sum = 0
+  for (let i = 0; i < 12; i++) {
+    sum += Number(d[i]) * (i % 2 === 0 ? 1 : 3)
+  }
+  return String((10 - (sum % 10)) % 10)
+}
+
+export function buildEan13(digits12: string): string {
+  const d = String(digits12 || '').replace(/\D/g, '').padStart(12, '0').slice(0, 12)
+  return d + ean13CheckDigit(d)
+}
+
+export function collectUsedBarcodes(
+  products: Array<Partial<Product>> | null | undefined,
+  excludeId?: number | null,
+): Set<string> {
+  const used = new Set<string>()
+  for (const p of products || []) {
+    if (excludeId != null && p.id != null && Number(p.id) === Number(excludeId)) continue
+    for (const c of productBarcodes(p)) used.add(c)
+  }
+  return used
+}
+
+/**
+ * Свободный внутренний EAN-13: 460 + 9 цифр + контрольная.
+ * preferSerial — обычно номер артикула (если свободен).
+ */
+export function nextFreeEan13(
+  products: Array<Partial<Product>> | null | undefined,
+  preferSerial?: number | null,
+  excludeId?: number | null,
+): string {
+  const used = collectUsedBarcodes(products, excludeId)
+  let n = preferSerial && preferSerial > 0 ? Math.floor(preferSerial) : 1
+  if (n > 999_999_999) n = 1
+  for (let i = 0; i < 1_000_000; i++) {
+    const serial = ((n - 1 + i) % 999_999_999) + 1
+    const code = buildEan13(INTERNAL_EAN_PREFIX + String(serial).padStart(9, '0'))
+    if (!used.has(code)) return code
+  }
+  const stamp = Date.now() % 1_000_000_000
+  return buildEan13(INTERNAL_EAN_PREFIX + String(stamp).padStart(9, '0'))
+}
+
 export function productBarcodeSearchText(p: Partial<Product>): string {
   return productBarcodes(p).join(' ')
 }

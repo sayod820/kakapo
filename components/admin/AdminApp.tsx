@@ -156,6 +156,8 @@ import { useProductPhotos, resolvePhotoUrl } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import ProductImage from '@/components/shared/ProductImage'
 import { formatPriceLabel, isWeighted, productUnitGrams } from '@/lib/productWeight'
+import { nextFreeEan13 } from '@/lib/productBarcodes'
+import { parseProductCodeNum } from '@/lib/productCodes'
 import { formatBulkPricingHint, hasBulkPricing, normalizeBulkPricing } from '@/lib/productBulkPricing'
 import { isProductPromo, productPromoLabel, stripProductSaleFields } from '@/lib/productPromos'
 import { formatPromoScheduleLabel, hasFlashEnd, inferScheduleMode, isPromoScheduleActive } from '@/lib/promoSchedule'
@@ -1696,7 +1698,25 @@ function ProductsPage() {
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Бренд</div><input className="ai" value={editForm.brand} onChange={e=>setEditForm(f=>({...f,brand:e.target.value}))} placeholder="Производитель"/></div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Страна</div><input className="ai" value={editForm.country} onChange={e=>setEditForm(f=>({...f,country:e.target.value}))} placeholder="Таджикистан"/></div>
-                <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Штрих-код</div><input className="ai" value={editForm.barcode} onChange={e=>setEditForm(f=>({...f,barcode:e.target.value}))} placeholder="4600..."/></div>
+                <div>
+                  <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Штрих-код</div>
+                  <div style={{display:'flex',gap:6}}>
+                    <input className="ai" value={editForm.barcode} onChange={e=>setEditForm(f=>({...f,barcode:e.target.value}))} placeholder="4600..." style={{flex:1}}/>
+                    <button
+                      type="button"
+                      className="ab"
+                      title="Сгенерировать EAN-13"
+                      onClick={()=>{
+                        const prefer = parseProductCodeNum(editForm.art) ?? parseProductCodeNum(editP?.art) ?? editP?.id
+                        const code = nextFreeEan13(prods, prefer, editP?.id ?? null)
+                        setEditForm(f=>({...f, barcode: code}))
+                      }}
+                      style={{padding:'8px 10px',whiteSpace:'nowrap',fontSize:11}}
+                    >
+                      Ген.
+                    </button>
+                  </div>
+                </div>
               </div>
               <div style={{padding:'12px 14px',borderRadius:12,background:'#0C1C0F',border:'1px solid #162B1A'}}>
                 <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Тип продажи</div>

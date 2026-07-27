@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
-import type { Category } from '@/lib/types'
+import { nextFreeEan13 } from '@/lib/productBarcodes'
+import { parseProductCodeNum } from '@/lib/productCodes'
+import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
@@ -12,11 +14,13 @@ export default function ProductFormFields({
   setForm,
   categories,
   productId,
+  products = [],
 }: {
   form: ProductForm
   setForm: (f: ProductForm) => void
   categories: Category[]
   productId?: number | null
+  products?: Product[]
 }) {
   const roots = categories.filter(c => c.parent_id == null)
   const children = (parentId: number) => categories.filter(c => Number(c.parent_id) === parentId)
@@ -29,6 +33,19 @@ export default function ProductFormFields({
       setNewBarcode('')
       return
     }
+    setForm({ ...form, barcodes: [...form.barcodes, code] })
+    setNewBarcode('')
+  }
+
+  function generateBarcode() {
+    const prefer = parseProductCodeNum(form.art) ?? parseProductCodeNum(form.plu)
+    // Учитываем уже добавленные в форму коды (ещё не сохранённые)
+    const draftAsProducts: Partial<Product>[] = [
+      ...products,
+      { id: -1, barcodes: form.barcodes },
+    ]
+    const code = nextFreeEan13(draftAsProducts, prefer, productId ?? null)
+    if (form.barcodes.includes(code)) return
     setForm({ ...form, barcodes: [...form.barcodes, code] })
     setNewBarcode('')
   }
@@ -114,9 +131,10 @@ export default function ProductFormFields({
       </div>
       <div className="k-field" style={{ gridColumn: '1 / -1' }}>
         <label>Штрихкоды</label>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input
             className="k-inp"
+            style={{ flex: 1, minWidth: 160 }}
             value={newBarcode}
             onChange={e => setNewBarcode(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBarcode() } }}
@@ -124,6 +142,15 @@ export default function ProductFormFields({
           />
           <button type="button" className="k-btn" onClick={addBarcode} style={{ whiteSpace: 'nowrap' }}>
             Добавить
+          </button>
+          <button
+            type="button"
+            className="k-btn k-btn-s"
+            onClick={generateBarcode}
+            style={{ whiteSpace: 'nowrap' }}
+            title="Сгенерировать уникальный EAN-13"
+          >
+            Сгенерировать
           </button>
         </div>
         {form.barcodes.length > 0 && (
@@ -155,7 +182,7 @@ export default function ProductFormFields({
           </div>
         )}
         <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-          Один товар может иметь несколько штрихкодов (разные упаковки, поставщики)
+          При создании — EAN-13 сам. Можно сканировать свой или нажать «Сгенерировать»
         </div>
       </div>
       <div className="k-field">

@@ -175,6 +175,8 @@ export function listAuditLog(db, query = {}) {
     if (Number.isNaN(t) || t < cutoff) return false
     if (app && e.app !== app) return false
     if (action && e.action !== action) return false
+    // Обычные продажи (чеки) не показываем — только скидки, касса, склад и пр.
+    if (!action && e.action === 'sale') return false
     if (entity && e.entity !== entity) return false
     if (q) {
       const hay = [
