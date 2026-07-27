@@ -1500,18 +1500,18 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
         </div>
         <div className="hscroll" style={{ marginBottom:22 }}>
           {!catsReady ? (
-            <CatSkeleton count={6} />
+            <CatSkeleton count={6} width={108} />
           ) : (
             rootCats.slice(0,6).map(c => (
-            <div key={c.id} onClick={() => go("plist", { cat:c.id })} style={{ flexShrink:0, width:90, borderRadius:16, background:c.bg, border:`1px solid ${c.color}22`, padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
+            <div key={c.id} onClick={() => go("plist", { cat:c.id })} style={{ flexShrink:0, width:108, borderRadius:16, background:c.bg, border:`1px solid ${c.color}22`, padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
               <div style={{ fontSize:28, marginBottom:6 }}>{c.e}</div>
-              <div style={{ fontSize:10, fontWeight:700, color:c.color, lineHeight:1.3 }}>{c.label.split(" ")[0]}</div>
+              <div style={{ fontSize:10, fontWeight:700, color:c.color, lineHeight:1.25, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{c.label}</div>
             </div>
             ))
           )}
-          <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:90, borderRadius:16, background:"linear-gradient(145deg,#1A0808,#3A1010)", border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
+          <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:108, borderRadius:16, background:"linear-gradient(145deg,#1A0808,#3A1010)", border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
             <div style={{ fontSize:28, marginBottom:6 }}>🍽</div>
-            <div style={{ fontSize:10, fontWeight:700, color:"var(--org)", lineHeight:1.3 }}>Рестораны</div>
+            <div style={{ fontSize:10, fontWeight:700, color:"var(--org)", lineHeight:1.25 }}>Рестораны</div>
           </div>
         </div>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
