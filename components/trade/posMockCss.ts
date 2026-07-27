@@ -678,6 +678,19 @@ export const POS_MOCK_CSS = `
   .qty-edit-toolbar{display:flex;align-items:stretch;gap:8px;margin-bottom:12px;}
   .qty-edit-toolbar .kp-quick{display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:8px;flex:1;margin:0;}
   .pos-root .qty-edit-toolbar .kp-quick button{min-height:44px;min-width:44px;padding:10px 12px;border-radius:12px;font-size:14px;font-weight:800;border:1.5px solid var(--border);}
+  .disc-kind-toggle{
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;
+  }
+  .pos-root .disc-kind-toggle button{
+    min-height:42px;border-radius:12px;border:1.5px solid var(--border);
+    background:var(--surface2);color:var(--t2);font-size:13px;font-weight:800;
+  }
+  .pos-root .disc-kind-toggle button.on{
+    border-color:var(--accent);background:rgba(31,215,96,.12);color:var(--accent);
+  }
+  .disc-preview{
+    margin-top:8px;font-size:12px;font-weight:700;color:var(--t3);
+  }
   .pos-root button.qty-pad-toggle{flex-shrink:0;padding:10px 14px;border-radius:12px;font-size:11.5px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);white-space:nowrap;min-height:44px;}
   .pos-root button.qty-pad-toggle:hover{border-color:var(--accent);color:var(--t1);}
   .pos-root button.qty-pad-toggle.on{border-color:var(--accent);background:rgba(31,215,96,.12);color:var(--gd);}
@@ -916,12 +929,17 @@ export const POS_MOCK_CSS = `
       radial-gradient(90% 70% at 0% 100%, rgba(196,138,0,.08), transparent 50%),
       var(--surface);
   }
+  /* Модалка слева + экранная клавиатура справа (оплата, кол-во, скидка, касса…) */
+  .pad-shell,
   .cash-checkout-shell{
     display:flex;align-items:stretch;justify-content:center;gap:12px;
     max-width:min(960px,96vw);max-height:min(94vh,820px);
   }
-  .cash-checkout-shell .cash-checkout-card{margin:0;flex:0 1 440px;max-height:100%;}
+  .pad-shell > .modal-card,
+  .cash-checkout-shell .cash-checkout-card{margin:0;flex:0 1 440px;max-height:100%;overflow:auto;}
+  .pad-shell.with-pad > .modal-card,
   .cash-checkout-shell.with-pad .cash-checkout-card{width:min(400px,52vw);}
+  .pad-side,
   .cash-pad-side{
     flex:0 0 min(320px,42vw);width:min(320px,42vw);
     display:flex;flex-direction:column;
@@ -931,29 +949,37 @@ export const POS_MOCK_CSS = `
     animation:popIn .22s cubic-bezier(.16,1,.3,1);
     min-height:0;align-self:stretch;
   }
+  .pad-side-title,
   .cash-pad-side-title{
     font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
     color:var(--t3);margin-bottom:10px;text-align:center;flex-shrink:0;
   }
+  .pad-side .keypad,
   .cash-pad-side .keypad{
     margin:0;flex:1;min-height:0;
     display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(4,1fr);
     gap:10px;align-content:stretch;
   }
+  .pad-side .keypad button,
   .cash-pad-side .keypad button{
     min-height:0;height:100%;padding:0;border-radius:16px;
     font-size:clamp(22px,3.2vw,28px);font-weight:800;
   }
+  .pad-side .keypad button.kp-clear,
   .cash-pad-side .keypad button.kp-clear{font-size:clamp(18px,2.6vw,22px);}
+  .pos-root button.pad-side-hide,
   .pos-root button.cash-pad-side-hide{
     margin-top:12px;padding:12px;border-radius:14px;font-size:13px;font-weight:800;
     color:var(--t2);background:var(--surface2);border:1.5px solid var(--border);flex-shrink:0;
   }
   @media (max-width:720px){
+    .pad-shell.with-pad,
     .cash-checkout-shell.with-pad{
       flex-direction:column;align-items:center;overflow-y:auto;padding:8px 0;
     }
+    .pad-shell.with-pad > .modal-card,
     .cash-checkout-shell.with-pad .cash-checkout-card{width:min(440px,94vw);}
+    .pad-side,
     .cash-pad-side{flex:none;width:min(440px,94vw);min-height:340px;}
   }
   .cash-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px;}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { api, isNetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { newClientRef, newLocalId, isOnline } from '@/lib/offline'
@@ -400,6 +400,36 @@ function Keypad({ onDigit, onBack }: { onDigit: (k: string) => void; onBack: () 
   )
 }
 
+/** Модалка слева + экранная клавиатура справа (как при оплате наличными) */
+function PadShell({
+  openPad,
+  onHidePad,
+  pad,
+  children,
+  className = '',
+}: {
+  openPad: boolean
+  onHidePad: () => void
+  pad: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div className={`pad-shell ${openPad ? 'with-pad' : ''} ${className}`.trim()} onClick={e => e.stopPropagation()}>
+      {children}
+      {openPad && (
+        <div className="pad-side">
+          <div className="pad-side-title">Клавиатура</div>
+          {pad}
+          <button type="button" className="pad-side-hide" onClick={onHidePad}>
+            Скрыть
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function QrIcon({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -544,6 +574,8 @@ export default function CashierModule({
   const [discOpen, setDiscOpen] = useState(false)
   const [discBuf, setDiscBuf] = useState('')
   const [discMode, setDiscMode] = useState<'all' | 'line'>('all')
+  /** % или сумма в сомах — в обе скидки */
+  const [discInputKind, setDiscInputKind] = useState<'pct' | 'sum'>('pct')
   const [discLineKey, setDiscLineKey] = useState<string | null>(null)
   const [discPickOpen, setDiscPickOpen] = useState(false)
   const [qtyEditOpen, setQtyEditOpen] = useState(false)
@@ -978,7 +1010,7 @@ export default function CashierModule({
       const t = e.target as HTMLElement | null
       if (!t) return
       // Модалки / другие поля ввода — не трогаем
-      if (t.closest('.modal-card, .overlay, .cash-checkout-shell, .cashier-menu, .pos-settings-fs')) return
+      if (t.closest('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .cashier-menu, .pos-settings-fs')) return
       if (t.closest('textarea, select, [contenteditable="true"]')) return
       // Другой input (не поиск) — не перехватываем, пока пользователь вводит
       const input = t.closest('input')
@@ -998,7 +1030,7 @@ export default function CashierModule({
       if (overlayBlocksSearchRef.current) return
       if (document.activeElement === searchInputRef.current) return
       const active = document.activeElement as HTMLElement | null
-      if (active?.closest?.('.modal-card, .overlay, .cash-checkout-shell, .pos-settings-fs')) return
+      if (active?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs')) return
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
 
@@ -1040,7 +1072,7 @@ export default function CashierModule({
       if (overlayBlocksSearchRef.current) return
       if (document.activeElement === searchInputRef.current) return
       const active = document.activeElement as HTMLElement | null
-      if (active?.closest?.('.modal-card, .overlay, .cash-checkout-shell, .pos-settings-fs')) return
+      if (active?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs')) return
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
       focusProductSearch()
     }, 450)
@@ -3094,6 +3126,15 @@ export default function CashierModule({
     }
   }
 
+  function discBaseAmount(mode: 'all' | 'line', lineKey?: string | null) {
+    if (mode === 'line' && lineKey) {
+      const line = cart.find(l => l.key === lineKey)
+      return line ? lineGross(line) : 0
+    }
+    // На весь чек — после скидок на товары
+    return cart.reduce((s, l) => s + lineNet(l), 0)
+  }
+
   function openAllDiscount() {
     if (!cart.length) {
       showToast('Чек пуст', 'Сначала добавьте товары')
@@ -3101,6 +3142,7 @@ export default function CashierModule({
     }
     setDiscMode('all')
     setDiscLineKey(null)
+    setDiscInputKind('pct')
     setDiscBuf(String(discountPct || ''))
     setAmountPad(false)
     setDiscOpen(true)
@@ -3116,6 +3158,7 @@ export default function CashierModule({
       const line = cart.find(l => l.key === targetKey)!
       setDiscMode('line')
       setDiscLineKey(targetKey)
+      setDiscInputKind('pct')
       setDiscBuf(String(line.discPct || ''))
       setDiscPickOpen(false)
       setAmountPad(false)
@@ -3129,8 +3172,36 @@ export default function CashierModule({
     setDiscPickOpen(true)
   }
 
+  function switchDiscInputKind(next: 'pct' | 'sum') {
+    if (next === discInputKind) return
+    const base = discBaseAmount(discMode, discLineKey)
+    const raw = Number(discBuf) || 0
+    if (next === 'sum') {
+      // % → сумма
+      const sum = Math.round(base * Math.min(90, Math.max(0, raw)) / 100 * 100) / 100
+      setDiscBuf(sum > 0 ? String(sum) : '')
+    } else {
+      // сумма → %
+      const pct = base > 0.0001 ? Math.round(Math.min(90, Math.max(0, raw) / base * 100) * 100) / 100 : 0
+      setDiscBuf(pct > 0 ? String(pct) : '')
+    }
+    setDiscInputKind(next)
+  }
+
   function applyDiscount() {
-    const pct = Math.min(90, Math.max(0, Number(discBuf) || 0))
+    const base = discBaseAmount(discMode, discLineKey)
+    const maxSum = Math.round(base * 0.9 * 100) / 100
+    let pct = 0
+    if (discInputKind === 'sum') {
+      const sum = Math.max(0, Number(discBuf) || 0)
+      if (sum > maxSum + 0.001) {
+        showToast('Слишком много', `Макс. ${maxSum.toFixed(2)} сом (90%)`)
+        return
+      }
+      pct = base > 0.0001 ? Math.min(90, Math.round(sum / base * 10000) / 100) : 0
+    } else {
+      pct = Math.min(90, Math.max(0, Number(discBuf) || 0))
+    }
     if (discMode === 'line' && discLineKey) {
       setCart(prev => prev.map(l => l.key === discLineKey ? { ...l, discPct: pct || undefined } : l))
       setSelectedLineKey(discLineKey)
@@ -3139,6 +3210,7 @@ export default function CashierModule({
     }
     setDiscOpen(false)
     setDiscLineKey(null)
+    setDiscInputKind('pct')
   }
 
   function openCreditNote(pending: {
@@ -5398,7 +5470,17 @@ export default function CashierModule({
         const overStock = previewQty > line.stock + 0.001
         return (
           <div className="overlay" onClick={() => closeQtyEdit()}>
-            <div className="modal-card qty-edit-card" onClick={e => e.stopPropagation()}>
+            <PadShell
+              openPad={qtyEditPad}
+              onHidePad={() => setQtyEditPad(false)}
+              pad={
+                <Keypad
+                  onDigit={k => setQtyEditBuf(b => appendDigit(b, k, 8))}
+                  onBack={() => setQtyEditBuf(b => b.slice(0, -1))}
+                />
+              }
+            >
+            <div className="modal-card qty-edit-card">
               <div className="qty-edit-head">
                 <div className="qty-edit-av">{line.emoji}</div>
                 <div>
@@ -5533,13 +5615,6 @@ export default function CashierModule({
                 </button>
               </div>
 
-              {qtyEditPad && (
-                <Keypad
-                  onDigit={k => setQtyEditBuf(b => appendDigit(b, k, 8))}
-                  onBack={() => setQtyEditBuf(b => b.slice(0, -1))}
-                />
-              )}
-
               <div className="modal-card-actions">
                 <button type="button" className="btn-cancel" onClick={() => closeQtyEdit()}>Отмена</button>
                 <button type="button" className="btn-confirm" disabled={previewQty <= 0 || overStock} onClick={applyQtyEdit}>
@@ -5547,6 +5622,7 @@ export default function CashierModule({
                 </button>
               </div>
             </div>
+            </PadShell>
           </div>
         )
       })()}
@@ -5993,62 +6069,137 @@ export default function CashierModule({
         </div>
       )}
 
-      {discOpen && (
-        <div className="overlay" onClick={() => setDiscOpen(false)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>{discMode === 'line' ? '🏷 Скидка на товар' : '🏷 Скидка на всё'}</h3>
-            {discMode === 'line' && discLineKey && (
-              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>
-                {cart.find(l => l.key === discLineKey)?.name || 'Товар'}
+      {discOpen && (() => {
+        const base = discBaseAmount(discMode, discLineKey)
+        const raw = Number(discBuf) || 0
+        const previewPct = discInputKind === 'sum'
+          ? (base > 0.0001 ? Math.min(90, Math.round(raw / base * 10000) / 100) : 0)
+          : Math.min(90, Math.max(0, raw))
+        const previewSum = discInputKind === 'sum'
+          ? Math.min(base, Math.max(0, raw))
+          : Math.round(base * previewPct / 100 * 100) / 100
+        const over = discInputKind === 'sum' && raw > Math.round(base * 0.9 * 100) / 100 + 0.001
+        const sumPresets = base > 0
+          ? [0, ...[5, 10, 20, 50].map(v => Math.round(base * v / 100 * 100) / 100).filter(v => v > 0)]
+          : [0]
+        return (
+          <div className="overlay" onClick={() => { setDiscOpen(false); setDiscInputKind('pct') }}>
+            <PadShell
+              openPad={amountPad}
+              onHidePad={() => setAmountPad(false)}
+              pad={
+                <Keypad
+                  onDigit={k => setDiscBuf(b => appendDigit(b, k, discInputKind === 'sum' ? 8 : 5))}
+                  onBack={() => setDiscBuf(b => b.slice(0, -1))}
+                />
+              }
+            >
+            <div className="modal-card">
+              <h3>{discMode === 'line' ? '🏷 Скидка на товар' : '🏷 Скидка на всё'}</h3>
+              {discMode === 'line' && discLineKey && (
+                <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>
+                  {cart.find(l => l.key === discLineKey)?.name || 'Товар'}
+                  {base > 0 ? ` · ${base.toFixed(2)} сом` : ''}
+                </div>
+              )}
+              {discMode === 'all' && (
+                <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>
+                  На весь чек{base > 0 ? ` · ${base.toFixed(2)} сом` : ''}
+                  {levelDiscPct > 0 ? ` · уже +${levelDiscPct}% статус` : ''}
+                </div>
+              )}
+
+              <div className="disc-kind-toggle" role="group" aria-label="Тип скидки">
+                <button
+                  type="button"
+                  className={discInputKind === 'pct' ? 'on' : ''}
+                  onClick={() => switchDiscInputKind('pct')}
+                >
+                  Процент %
+                </button>
+                <button
+                  type="button"
+                  className={discInputKind === 'sum' ? 'on' : ''}
+                  onClick={() => switchDiscInputKind('sum')}
+                >
+                  Сумма сом
+                </button>
               </div>
-            )}
-            {discMode === 'all' && (
-              <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>
-                На весь чек{levelDiscPct > 0 ? ` · уже +${levelDiscPct}% статус` : ''}
+
+              <div className="kp-display">
+                <div className="lbl">{discInputKind === 'sum' ? 'СКИДКА, СОМ' : 'СКИДКА, %'}</div>
+                <input
+                  ref={amountInputRef}
+                  className="kp-field"
+                  value={discBuf}
+                  inputMode="decimal"
+                  autoFocus
+                  onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
+                  onFocus={e => e.currentTarget.select()}
+                  placeholder="0"
+                />
+                {raw > 0 && (
+                  <div className="disc-preview">
+                    {discInputKind === 'sum'
+                      ? `≈ ${previewPct.toFixed(2)}%`
+                      : `= ${previewSum.toFixed(2)} сом`}
+                    {over ? ' · больше 90%' : ''}
+                  </div>
+                )}
               </div>
-            )}
-            <div className="kp-display">
-              <div className="lbl">СКИДКА, %</div>
-              <input
-                ref={amountInputRef}
-                className="kp-field"
-                value={discBuf}
-                inputMode="decimal"
-                autoFocus
-                onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
-                onFocus={e => e.currentTarget.select()}
-                placeholder="0"
-              />
-            </div>
-            <div className="qty-edit-toolbar">
-              <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
-                {[0, 5, 10, 15, 20].map(v => <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>)}
+              <div className="qty-edit-toolbar">
+                <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
+                  {discInputKind === 'pct'
+                    ? [0, 5, 10, 15, 20].map(v => (
+                      <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>
+                    ))
+                    : sumPresets.map(v => (
+                      <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>
+                        {v === 0 ? '0' : v}
+                      </button>
+                    ))}
+                </div>
+                <button
+                  type="button"
+                  className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
+                  onClick={() => setAmountPad(v => !v)}
+                  title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
+                >
+                  ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+                </button>
               </div>
-              <button
-                type="button"
-                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
-                onClick={() => setAmountPad(v => !v)}
-                title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
-              >
-                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
-              </button>
+              <div className="modal-card-actions">
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  onClick={() => { setDiscOpen(false); setDiscInputKind('pct') }}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className="btn-confirm"
+                  disabled={over}
+                  onClick={applyDiscount}
+                >
+                  Применить
+                </button>
+              </div>
             </div>
-            {amountPad && (
-              <Keypad onDigit={k => setDiscBuf(b => appendDigit(b, k, 3))} onBack={() => setDiscBuf(b => b.slice(0, -1))} />
-            )}
-            <div className="modal-card-actions">
-              <button type="button" className="btn-cancel" onClick={() => setDiscOpen(false)}>Отмена</button>
-              <button type="button" className="btn-confirm" onClick={applyDiscount}>Применить</button>
-            </div>
+            </PadShell>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {cashOpen && (
         <div className="overlay" onClick={() => !busy && setCashOpen(false)}>
-          <div
-            className={`cash-checkout-shell ${amountPad ? 'with-pad' : ''}`}
-            onClick={e => e.stopPropagation()}
+          <PadShell
+            openPad={amountPad}
+            onHidePad={() => setAmountPad(false)}
+            className="cash-checkout-shell"
+            pad={
+              <Keypad onDigit={k => setCashBuf(b => appendDigit(b, k))} onBack={() => setCashBuf(b => b.slice(0, -1))} />
+            }
           >
             <div className="modal-card cash-checkout-card">
               <div className="cash-head">
@@ -6157,23 +6308,20 @@ export default function CashierModule({
                 </button>
               </div>
             </div>
-
-            {amountPad && (
-              <div className="cash-pad-side">
-                <div className="cash-pad-side-title">Клавиатура</div>
-                <Keypad onDigit={k => setCashBuf(b => appendDigit(b, k))} onBack={() => setCashBuf(b => b.slice(0, -1))} />
-                <button type="button" className="cash-pad-side-hide" onClick={() => setAmountPad(false)}>
-                  Скрыть
-                </button>
-              </div>
-            )}
-          </div>
+          </PadShell>
         </div>
       )}
 
       {splitCardOpen && (
         <div className="overlay" onClick={() => !busy && setSplitCardOpen(false)}>
-          <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
+          <PadShell
+            openPad={amountPad}
+            onHidePad={() => setAmountPad(false)}
+            pad={
+              <Keypad onDigit={k => setSplitCardBuf(b => appendDigit(b, k))} onBack={() => setSplitCardBuf(b => b.slice(0, -1))} />
+            }
+          >
+          <div className="modal-card pay-checkout-card">
             <h3>💳 Карта · остаток</h3>
             <div className="pay-breakdown" style={{ marginBottom: 12 }}>
               <div><span>Наличными</span><b className="bank-fig">{cashReceived.toFixed(2)}</b></div>
@@ -6218,9 +6366,6 @@ export default function CashierModule({
                 ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
               </button>
             </div>
-            {amountPad && (
-              <Keypad onDigit={k => setSplitCardBuf(b => appendDigit(b, k))} onBack={() => setSplitCardBuf(b => b.slice(0, -1))} />
-            )}
 
             {msg && <div className="pos-err">{msg}</div>}
             <div className="modal-card-actions" style={{ flexWrap: 'wrap' }}>
@@ -6272,6 +6417,7 @@ export default function CashierModule({
               )}
             </div>
           </div>
+          </PadShell>
         </div>
       )}
 
@@ -6331,7 +6477,14 @@ export default function CashierModule({
 
       {tillMoveKind && activeShift && (
         <div className="overlay" onClick={() => !busy && setTillMoveKind(null)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
+          <PadShell
+            openPad={amountPad}
+            onHidePad={() => setAmountPad(false)}
+            pad={
+              <Keypad onDigit={k => setTillAmountBuf(b => appendDigit(b, k))} onBack={() => setTillAmountBuf(b => b.slice(0, -1))} />
+            }
+          >
+          <div className="modal-card">
             <h3>{tillMoveKind === 'in' ? '⬇️ Внести в кассу' : '⬆️ Снять из кассы'}</h3>
             <div className="till-expected">
               Сейчас ожидается в кассе: <b>{fmtMoney(tillExpected)}</b>
@@ -6415,9 +6568,6 @@ export default function CashierModule({
                 ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
               </button>
             </div>
-            {amountPad && (
-              <Keypad onDigit={k => setTillAmountBuf(b => appendDigit(b, k))} onBack={() => setTillAmountBuf(b => b.slice(0, -1))} />
-            )}
             {msg && <div className="pos-err">{msg}</div>}
             <div className="modal-card-actions">
               <button
@@ -6438,12 +6588,20 @@ export default function CashierModule({
               </button>
             </div>
           </div>
+          </PadShell>
         </div>
       )}
 
       {topupOpen && client && (
         <div className="overlay" onClick={() => !busy && setTopupOpen(false)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
+          <PadShell
+            openPad={amountPad}
+            onHidePad={() => setAmountPad(false)}
+            pad={
+              <Keypad onDigit={k => setTopupBuf(b => appendDigit(b, k))} onBack={() => setTopupBuf(b => b.slice(0, -1))} />
+            }
+          >
+          <div className="modal-card">
             <h3>⭐ Пополнить бонусы</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
               Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
@@ -6472,9 +6630,6 @@ export default function CashierModule({
                 ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
               </button>
             </div>
-            {amountPad && (
-              <Keypad onDigit={k => setTopupBuf(b => appendDigit(b, k))} onBack={() => setTopupBuf(b => b.slice(0, -1))} />
-            )}
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Внесено наличными</span><b className="mono">{topupCash.toFixed(2)}</b></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, color: 'var(--gd)' }}><span>⭐ Деньги в бонусы</span><b className="mono">+{topupPrincipal.toFixed(2)}</b></div>
@@ -6489,12 +6644,20 @@ export default function CashierModule({
               <button type="button" className="btn-confirm" disabled={busy || topupCredit <= 0} onClick={() => void submitTopup()}>Пополнить</button>
             </div>
           </div>
+          </PadShell>
         </div>
       )}
 
       {repayOpen && client && (
         <div className="overlay" onClick={() => !busy && setRepayOpen(false)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
+          <PadShell
+            openPad={amountPad}
+            onHidePad={() => setAmountPad(false)}
+            pad={
+              <Keypad onDigit={k => setRepayBuf(b => appendDigit(b, k))} onBack={() => setRepayBuf(b => b.slice(0, -1))} />
+            }
+          >
+          <div className="modal-card">
             <h3>💳 Погасить долг</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
               Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
@@ -6548,9 +6711,6 @@ export default function CashierModule({
                 )}
               </div>
             )}
-            {amountPad && (
-              <Keypad onDigit={k => setRepayBuf(b => appendDigit(b, k))} onBack={() => setRepayBuf(b => b.slice(0, -1))} />
-            )}
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setRepayOpen(false)}>Отмена</button>
               <button
@@ -6563,6 +6723,7 @@ export default function CashierModule({
               </button>
             </div>
           </div>
+          </PadShell>
         </div>
       )}
 
