@@ -331,8 +331,8 @@ export const POS_MOCK_CSS = `
   .gate-input::placeholder{color:var(--t3);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(31,215,96,.25);}
 
-  /* Касса: товары слева, чек справа шире (на 1 ряд плиток меньше) */
-  .app{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,min(48vw,560px));grid-template-rows:64px 1fr;height:100%;height:100dvh;}
+  /* Касса: товары слева, чек справа ещё шире (−1 ряд плиток) */
+  .app{display:grid;grid-template-columns:minmax(0,1fr) minmax(500px,min(56vw,640px));grid-template-rows:64px 1fr;height:100%;height:100dvh;}
 
   .topbar{grid-column:1/3;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--surface);border-bottom:1px solid var(--border);}
   .top-meta{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:4px 0;margin-left:auto;}
@@ -1221,7 +1221,7 @@ export const POS_MOCK_CSS = `
   .pos-err{margin-top:10px;padding:10px 12px;border-radius:10px;font-size:12px;background:rgba(255,69,69,.1);border:1px solid rgba(255,69,69,.3);color:var(--red);}
 
   @media(max-width:1200px){
-    .app{grid-template-columns:minmax(0,1fr) minmax(380px,min(46vw,520px));}
+    .app{grid-template-columns:minmax(0,1fr) minmax(440px,min(52vw,580px));}
     .searchpill{flex:0 1 220px;width:auto;max-width:min(260px,28vw);min-width:140px;}
     .top-clock .tm{font-size:15px;}
   }
