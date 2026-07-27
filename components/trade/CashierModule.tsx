@@ -44,7 +44,7 @@ import {
   cashDepositTierLabel,
   resolveEffectiveDebtLimit,
 } from '@/lib/loyaltyStatusConfig'
-import { filterProductsBySearch, pickProductBySearch, productBarcodes, productSearchScore } from '@/lib/productBarcodes'
+import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
 import { useProductPhotos, resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
@@ -585,7 +585,7 @@ export default function CashierModule({
   const [qtyEditPad, setQtyEditPad] = useState(false)
   const qtyEditInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const commitPosSearchRef = useRef<(raw?: string) => boolean>(() => false)
+  const commitPosSearchRef = useRef<(raw?: string, opts?: { fromScanner?: boolean }) => boolean>(() => false)
   const cartItemsRef = useRef<HTMLDivElement>(null)
   /** Актуальный чек для склейки без гонок при быстрых кликах */
   const cartRef = useRef<CartLine[]>(cart)
@@ -1045,10 +1045,19 @@ export default function CashierModule({
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
 
-      if (e.key === 'Enter') {
+      const now = performance.now()
+      const gap = now - scanLastKeyTs.current
+      scanLastKeyTs.current = now
+
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        // Enter без фокуса: только USB-сканер (быстрый ввод). Ручной Enter — в поле поиска.
+        if (!scanBurstRef.current) {
+          if (e.key === 'Enter') focusProductSearch()
+          return
+        }
         e.preventDefault()
         focusProductSearch()
-        commitPosSearchRef.current(String(qRef.current || ''))
+        commitPosSearchRef.current(String(qRef.current || ''), { fromScanner: true })
         return
       }
       if (e.key === 'Backspace') {
@@ -1065,16 +1074,20 @@ export default function CashierModule({
         qRef.current = next
         setQ(next)
         focusProductSearch()
-        const digits = next.replace(/\D/g, '')
-        const trimmed = next.trim()
-        // Автопробитие только для полного штрихкода (EAN-8+), не для 4 цифр PLU
-        const looksBarcode = /^[\d\- ]{8,48}$/.test(trimmed) && digits.length >= 8
-        if (looksBarcode) {
+        // Быстрый поток клавиш = сканер → автопробитие; медленный = ручной фильтр
+        if (gap > 0 && gap < 55) {
+          scanBurstRef.current = true
           if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
           scanCommitTimer.current = window.setTimeout(() => {
             scanCommitTimer.current = null
-            commitPosSearchRef.current(String(qRef.current || ''))
-          }, 160)
+            if (!scanBurstRef.current) return
+            const live = String(qRef.current || '').trim()
+            const digits = live.replace(/\D/g, '')
+            if (digits.length < 8 && live.length < 8) return
+            commitPosSearchRef.current(live, { fromScanner: true })
+          }, 140)
+        } else if (gap > 180) {
+          scanBurstRef.current = false
         }
       }
     }
@@ -1647,21 +1660,9 @@ export default function CashierModule({
     return true
   }
 
-  /** Те же товары, что в левом окне при текущем фильтре + поисковой строке */
-  function leftPanelMatches(raw: string) {
-    let list = inStockProducts
-    if (showFav) list = list.filter(p => favSet.has(p.id))
-    else if (selectedCatSlugs.length > 0) {
-      list = list.filter(p => selectedCatSlugs.some(slug =>
-        productMatchesCategoryFilter(p.catId, slug, categories)
-        || productMatchesCategoryFilter(p.cat, slug, categories),
-      ))
-    }
-    return filterProductsBySearch(list, raw.trim(), 40)
-  }
-
-  /** Сканер: брать значение из input (не из устаревшего state) и класть товар в чек */
-  function commitPosSearch(rawIn?: string): boolean {
+  /** Сканер / Enter: положить товар в чек. Ручной ввод без Enter — только фильтр (не сюда). */
+  function commitPosSearch(rawIn?: string, opts?: { fromScanner?: boolean }): boolean {
+    const fromScanner = !!opts?.fromScanner || scanBurstRef.current
     const raw = String(
       rawIn
       || scanAccumRef.current
@@ -1719,38 +1720,23 @@ export default function CashierModule({
       return true
     }
 
-    let productHit: Product | null =
-      (pickProductBySearch(pool, raw) as Product | null)
-      || (digits.length >= 8
-        ? (pool.find(p => productBarcodes(p).some(c => c.replace(/\D/g, '') === digits)) as Product | undefined) || null
-        : null)
+    // Только точное совпадение: штрихкод / артикул / PLU — никаких «похожих» товаров
+    const exactHit =
+      (pool.find(p => productBarcodes(p).some(c => c === raw || c.replace(/\D/g, '') === digits)) as Product | undefined)
+      || (pool.find(p => String(p.art || '').trim() === raw || String(p.art || '').replace(/\D/g, '') === digits) as Product | undefined)
+      || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
+        ? (pool.find(p => String(p.plu || '').replace(/\D/g, '') === digits) as Product | undefined)
+        : undefined)
+      || null
+
+    const productHit = exactHit
 
     if (!productHit) {
-      const ranked = leftPanelMatches(raw)
-      const shortPluOnly = digits.length > 0 && digits.length <= 4 && /^\d+$/.test(raw)
-      if (shortPluOnly) {
-        // 4 цифры вручную: только точный PLU / артикул — без автопо «похожему» штрихкоду
-        productHit = (ranked.find(p =>
-          String(p.plu || '').replace(/\D/g, '') === digits
-          || String(p.art || '').replace(/\D/g, '') === digits
-        ) as Product | undefined) || null
-      } else if (ranked.length === 1 && productSearchScore(ranked[0], raw) >= 600) {
-        productHit = ranked[0] as Product
-      } else if (ranked[0] && productSearchScore(ranked[0], raw) >= 600) {
-        productHit = ranked[0] as Product
-      } else if (digits.length >= 8) {
-        const byCode = ranked.find(p =>
-          productBarcodes(p).some(c => {
-            const cd = c.replace(/\D/g, '')
-            return cd === digits || cd.endsWith(digits) || digits.endsWith(cd)
-          }),
-        )
-        if (byCode) productHit = byCode as Product
+      // Ручной ввод / неточный код — оставляем фильтр, не пробиваем чужой товар
+      if (fromScanner) {
+        showToast('Товар не найден', raw.length > 24 ? `${raw.slice(0, 24)}…` : raw)
       }
-    }
-
-    if (!productHit) {
-      // точного нет — не чистим поиск, кассир видит фильтр слева
+      scanBurstRef.current = false
       return false
     }
     if ((Number(productHit.stock) || 0) <= 0) {
@@ -1773,6 +1759,8 @@ export default function CashierModule({
     }
     scanCommitTimer.current = window.setTimeout(() => {
       scanCommitTimer.current = null
+      // Автопробитие только от USB-сканера (быстрый ввод), не от ручной печати
+      if (!scanBurstRef.current) return
       const live = String(
         scanAccumRef.current
         || searchInputRef.current?.value
@@ -1780,25 +1768,17 @@ export default function CashierModule({
         || '',
       ).trim()
       const digits = live.replace(/\D/g, '')
-      // Быстрый USB-сканер — любой накопленный код; ручной ввод — только полный штрихкод
-      if (scanBurstRef.current) {
-        if (live.length < 3) return
-      } else if (digits.length < 8) {
-        return
-      }
-      commitPosSearch(live)
+      // Сканер обычно шлёт полный EAN / весовую этикетку
+      if (digits.length < 8 && live.length < 8) return
+      commitPosSearch(live, { fromScanner: true })
     }, delayMs)
   }
 
   function onProductSearchChange(value: string) {
     qRef.current = value
     setQ(value)
-    const trimmed = value.trim()
-    const digits = trimmed.replace(/\D/g, '')
-    const looksFullBarcode = /^[\d\- ]{8,48}$/.test(trimmed) && digits.length >= 8
-    // USB-сканер (быстрый ввод) или полный штрихкод без Enter → автодобавление после паузы
-    if (!(scanBurstRef.current || looksFullBarcode)) return
-    scheduleScanCommit(scanBurstRef.current ? 130 : 160)
+    // Ручной ввод — только фильтр списка. Автопробитие не делаем.
+    // USB-сканер обрабатывается в onProductSearchKeyDown через scanBurst.
   }
 
   function onProductSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -1808,36 +1788,36 @@ export default function CashierModule({
 
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       // сканер печатает заметно быстрее человека — копим код отдельно от React-state
-      if (gap > 0 && gap < 70) {
+      if (gap > 0 && gap < 55) {
         scanBurstRef.current = true
         if (!scanAccumRef.current) {
           const field = String(searchInputRef.current?.value || qRef.current || '')
-          // keydown обычно до появления символа в value; если уже есть — не дублируем
           scanAccumRef.current = field.endsWith(e.key) ? field.slice(0, -e.key.length) : field
         }
         scanAccumRef.current += e.key
-        scheduleScanCommit(130)
-      } else if (gap > 220) {
+        scheduleScanCommit(140)
+      } else if (gap > 180) {
         scanBurstRef.current = false
         scanAccumRef.current = ''
-      } else if (scanBurstRef.current && gap < 160) {
+      } else if (scanBurstRef.current && gap < 120) {
         scanAccumRef.current += e.key
-        scheduleScanCommit(130)
+        scheduleScanCommit(140)
       }
     }
 
-    // Enter или Tab (многие сканеры суффикс Tab) → в чек
+    // Enter / Tab от сканера → в чек. Ручной Enter — только точный код (штрих/PLU/арт).
     if (e.key === 'Enter' || e.key === 'Tab') {
       const fromAccum = scanAccumRef.current.trim()
       const raw = (fromAccum || (e.currentTarget as HTMLInputElement).value).trim()
       if (!raw) return
-      if (e.key === 'Tab' && !scanBurstRef.current && !/^[\d\- ]{4,}$/.test(raw)) return
+      const isScanner = scanBurstRef.current || !!fromAccum
+      if (e.key === 'Tab' && !isScanner) return
       e.preventDefault()
       if (scanCommitTimer.current) {
         window.clearTimeout(scanCommitTimer.current)
         scanCommitTimer.current = null
       }
-      commitPosSearch(raw)
+      commitPosSearch(raw, { fromScanner: isScanner })
     }
   }
 
