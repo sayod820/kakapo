@@ -92,6 +92,8 @@ export function productSearchScore(p: Partial<Product>, query: string, extra = '
 
   const codes = productBarcodes(p)
   if (qRaw && codes.some(c => c === qRaw)) return 1000
+  const qDigits = qRaw.replace(/\D/g, '')
+  if (qDigits.length >= 8 && codes.some(c => c.replace(/\D/g, '') === qDigits)) return 1000
 
   const name = (p.name || '').toLowerCase()
   const art = (p.art || '').toLowerCase()
@@ -99,14 +101,19 @@ export function productSearchScore(p: Partial<Product>, query: string, extra = '
 
   if (art === q) return 900
   if (plu === q) return 880
+  if (qDigits && String(p.plu || '').replace(/\D/g, '') === qDigits) return 880
   if (name === q) return 800
   if (name.startsWith(q)) return 700
   if (art.startsWith(q)) return 650
-  if (codes.some(c => c.startsWith(qRaw))) return 600
+  // Частичный штрихкод — только для длинных кодов (не 4 цифры PLU / начало EAN)
+  if (qDigits.length >= 8 && codes.some(c => c.replace(/\D/g, '').startsWith(qDigits))) return 600
+  if (qRaw.length >= 8 && codes.some(c => c.startsWith(qRaw))) return 600
   if (name.includes(q)) return 500
   if (art.includes(q)) return 400
-  if (codes.some(c => c.includes(qRaw))) return 300
-  if (plu.includes(q)) return 250
+  if (qDigits.length >= 8 && codes.some(c => c.replace(/\D/g, '').includes(qDigits))) return 300
+  if (qRaw.length >= 8 && codes.some(c => c.includes(qRaw))) return 300
+  // Короткие цифры (PLU) — без haystack.includes, иначе «23» ловит PLU 1234
+  if (/^\d+$/.test(qRaw) && qDigits.length <= 7) return 0
 
   const haystack = productSearchHaystack(p, extra)
   if (haystack.includes(q)) return 100
@@ -135,7 +142,7 @@ export function filterProductsBySearch<T extends Partial<Product>>(
     .map(row => row.p)
 }
 
-/** Лучшее совпадение для сканера (Enter / точный штрихкод) */
+/** Лучшее совпадение для сканера (Enter / точный штрихкод / PLU) */
 export function pickProductBySearch<T extends Partial<Product>>(
   products: T[],
   query: string,
@@ -143,11 +150,33 @@ export function pickProductBySearch<T extends Partial<Product>>(
 ): T | null {
   const q = query.trim()
   if (!q) return null
+  const qDigits = q.replace(/\D/g, '')
   const rows = filterProductsBySearch(products, q, 30, extraForProduct)
   if (!rows.length) return null
-  const exact = rows.find(p => productBarcodes(p).some(c => c === q))
-  if (exact) return exact
-  if (rows.length === 1) return rows[0]
+
+  const exactBarcode = rows.find(p => {
+    const codes = productBarcodes(p)
+    if (codes.some(c => c === q)) return true
+    if (qDigits.length >= 8 && codes.some(c => c.replace(/\D/g, '') === qDigits)) return true
+    return false
+  })
+  if (exactBarcode) return exactBarcode
+
+  const exactArt = rows.find(p => String(p.art || '').toLowerCase() === q.toLowerCase())
+  if (exactArt) return exactArt
+
+  // PLU (обычно 4 цифры) — только точное совпадение, не префикс штрихкода
+  if (qDigits.length >= 1 && qDigits.length <= 4 && /^\d+$/.test(q.trim())) {
+    const exactPlu = rows.find(p => String(p.plu || '').replace(/\D/g, '') === qDigits)
+    if (exactPlu) return exactPlu
+    return null
+  }
+
+  if (rows.length === 1) {
+    const only = rows[0]
+    if (productSearchScore(only, q, extraForProduct?.(only) || '') >= 600) return only
+    return null
+  }
   const top = rows[0]
   if (productSearchScore(top, q, extraForProduct?.(top) || '') >= 600) return top
   return null

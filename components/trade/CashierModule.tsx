@@ -1067,8 +1067,9 @@ export default function CashierModule({
         focusProductSearch()
         const digits = next.replace(/\D/g, '')
         const trimmed = next.trim()
-        const looksBarcode = /^[\d\- ]{4,48}$/.test(trimmed) && digits.length >= 4
-        if (looksBarcode || (digits.length >= 4 && digits.length >= Math.ceil(trimmed.length * 0.6))) {
+        // Автопробитие только для полного штрихкода (EAN-8+), не для 4 цифр PLU
+        const looksBarcode = /^[\d\- ]{8,48}$/.test(trimmed) && digits.length >= 8
+        if (looksBarcode) {
           if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
           scanCommitTimer.current = window.setTimeout(() => {
             scanCommitTimer.current = null
@@ -1720,16 +1721,24 @@ export default function CashierModule({
 
     let productHit: Product | null =
       (pickProductBySearch(pool, raw) as Product | null)
-      || (digits.length >= 4
+      || (digits.length >= 8
         ? (pool.find(p => productBarcodes(p).some(c => c.replace(/\D/g, '') === digits)) as Product | undefined) || null
         : null)
 
     if (!productHit) {
       const ranked = leftPanelMatches(raw)
-      // Как слева: один товар в списке после скана → сразу в чек
-      if (ranked.length === 1) productHit = ranked[0] as Product
-      else if (ranked[0] && productSearchScore(ranked[0], raw) >= 300) productHit = ranked[0] as Product
-      else if (digits.length >= 6) {
+      const shortPluOnly = digits.length > 0 && digits.length <= 4 && /^\d+$/.test(raw)
+      if (shortPluOnly) {
+        // 4 цифры вручную: только точный PLU / артикул — без автопо «похожему» штрихкоду
+        productHit = (ranked.find(p =>
+          String(p.plu || '').replace(/\D/g, '') === digits
+          || String(p.art || '').replace(/\D/g, '') === digits
+        ) as Product | undefined) || null
+      } else if (ranked.length === 1 && productSearchScore(ranked[0], raw) >= 600) {
+        productHit = ranked[0] as Product
+      } else if (ranked[0] && productSearchScore(ranked[0], raw) >= 600) {
+        productHit = ranked[0] as Product
+      } else if (digits.length >= 8) {
         const byCode = ranked.find(p =>
           productBarcodes(p).some(c => {
             const cd = c.replace(/\D/g, '')
@@ -1770,7 +1779,13 @@ export default function CashierModule({
         || qRef.current
         || '',
       ).trim()
-      if (live.length < 3) return
+      const digits = live.replace(/\D/g, '')
+      // Быстрый USB-сканер — любой накопленный код; ручной ввод — только полный штрихкод
+      if (scanBurstRef.current) {
+        if (live.length < 3) return
+      } else if (digits.length < 8) {
+        return
+      }
       commitPosSearch(live)
     }, delayMs)
   }
@@ -1780,10 +1795,9 @@ export default function CashierModule({
     setQ(value)
     const trimmed = value.trim()
     const digits = trimmed.replace(/\D/g, '')
-    const digitHeavy = digits.length >= 4 && digits.length >= Math.ceil(trimmed.length * 0.6)
-    const looksBarcode = /^[\d\- ]{4,48}$/.test(trimmed) && digits.length >= 4
-    // USB-сканер: быстрый ввод и/или штрихкод без Enter → автодобавление после паузы
-    if (!(scanBurstRef.current || looksBarcode || digitHeavy)) return
+    const looksFullBarcode = /^[\d\- ]{8,48}$/.test(trimmed) && digits.length >= 8
+    // USB-сканер (быстрый ввод) или полный штрихкод без Enter → автодобавление после паузы
+    if (!(scanBurstRef.current || looksFullBarcode)) return
     scheduleScanCommit(scanBurstRef.current ? 130 : 160)
   }
 
@@ -2571,6 +2585,15 @@ export default function CashierModule({
     showToast('Товары в чеке', `${lines.length} поз. из истории`)
   }
 
+  function clearProductSearch() {
+    qRef.current = ''
+    setQ('')
+    scanAccumRef.current = ''
+    scanBurstRef.current = false
+    if (searchInputRef.current) searchInputRef.current.value = ''
+    window.setTimeout(focusProductSearch, 0)
+  }
+
   function addProduct(p: Product, weightKg?: number) {
     if (!activeShift) {
       showToast('Смена не открыта', 'Сначала откройте смену')
@@ -2579,6 +2602,9 @@ export default function CashierModule({
     }
     const stock = Number(p.stock) || 0
     if (stock <= 0) return
+
+    // После выбора/скана — сразу чистим поиск, как на обычной кассе
+    clearProductSearch()
 
     // Штучный: если уже в чеке — сразу +1, без повторного запроса партий
     if (weightKg == null && !isWeighted(p)) {
