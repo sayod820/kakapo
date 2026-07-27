@@ -101,7 +101,8 @@ export function categoryDisplayLabel(categories: Category[], catId?: string, fal
   return parent ? `${parent.name} · ${cat.name}` : cat.name
 }
 
-/** Общий кэш — все хуки видят одни и те же категории, без мигания seed→API */
+/** Общий кэш — сразу показываем seed/локальный кэш, API обновляет в фоне */
+const CACHE_KEY = 'kakapo_categories_cache_v2'
 let memoryCategories: Category[] | null = null
 let memoryLoaded = false
 let inflight: Promise<Category[]> | null = null
@@ -111,6 +112,42 @@ function notifyCategories() {
   listeners.forEach(l => l())
 }
 
+function readPersistedCategories(): Category[] | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY) || localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) && parsed.length ? parsed as Category[] : null
+  } catch {
+    return null
+  }
+}
+
+function persistCategories(list: Category[]) {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = JSON.stringify(list)
+    sessionStorage.setItem(CACHE_KEY, raw)
+    localStorage.setItem(CACHE_KEY, raw)
+  } catch { /* quota */ }
+}
+
+function bootstrapCategories(): Category[] {
+  if (memoryCategories?.length) return memoryCategories
+  const cached = readPersistedCategories()
+  if (cached?.length) {
+    memoryCategories = cached
+    memoryLoaded = true
+    return cached
+  }
+  // Тот же каталог, что на сервере — мгновенный показ при обновлении страницы
+  const seed = seedToCategories()
+  memoryCategories = seed
+  memoryLoaded = true
+  return seed
+}
+
 async function fetchCategoriesShared(): Promise<Category[]> {
   if (inflight) return inflight
   inflight = (async () => {
@@ -118,10 +155,17 @@ async function fetchCategoriesShared(): Promise<Category[]> {
       if (USE_API) {
         const data = await api.getCategories()
         const list = Array.isArray(data) ? data : []
-        memoryCategories = list
+        if (list.length) {
+          memoryCategories = list
+          memoryLoaded = true
+          persistCategories(list)
+          notifyCategories()
+          return list
+        }
+        // API пустой — оставляем то, что уже на экране
         memoryLoaded = true
         notifyCategories()
-        return list
+        return memoryCategories || []
       }
       const seed = seedToCategories()
       memoryCategories = seed
@@ -129,7 +173,6 @@ async function fetchCategoriesShared(): Promise<Category[]> {
       notifyCategories()
       return seed
     } catch (e) {
-      // При API не подставляем seed — иначе мигание «старое → новое»
       if (!USE_API) {
         const seed = seedToCategories()
         memoryCategories = seed
@@ -139,6 +182,7 @@ async function fetchCategoriesShared(): Promise<Category[]> {
       }
       memoryLoaded = true
       notifyCategories()
+      if (memoryCategories?.length) return memoryCategories
       throw e
     } finally {
       inflight = null
@@ -148,8 +192,8 @@ async function fetchCategoriesShared(): Promise<Category[]> {
 }
 
 export function useCategories() {
-  const [categories, setCategories] = useState<Category[]>(() => memoryCategories || [])
-  const [loaded, setLoaded] = useState(() => memoryLoaded)
+  const [categories, setCategories] = useState<Category[]>(() => bootstrapCategories())
+  const [loaded, setLoaded] = useState(() => true)
   const [error, setError] = useState('')
 
   const reload = useCallback(async () => {
@@ -158,8 +202,8 @@ export function useCategories() {
       setCategories(list)
       setError('')
     } catch (e) {
-      // оставляем уже показанные категории из memory, без seed-фоллбэка
-      if (memoryCategories) setCategories(memoryCategories)
+      if (memoryCategories?.length) setCategories(memoryCategories)
+      else setCategories(bootstrapCategories())
       setError(e instanceof Error ? e.message : 'Не удалось загрузить категории')
     } finally {
       setLoaded(true)

@@ -479,12 +479,8 @@ function catThemeKey(id: string) {
 function useStoreCategories() {
   const { categories, loaded } = useCategories()
   return useMemo(() => {
-    // Пока API не ответил — пусто (без старого hardcoded fallback → нет мигания)
-    if (!loaded) {
-      return { cats: [], rootCats: [], loaded: false, ready: false }
-    }
     if (!categories.length) {
-      return { cats: [], rootCats: [], loaded: true, ready: true }
+      return { cats: [], rootCats: [], loaded, ready: loaded }
     }
     const byId = new Map(categories.map(cat => [cat.id, cat]))
     const cats = categories
