@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 import { loadDb, saveDb, getDbFilePath } from './db.js'
 import { allocateProductBarcodes, allocateProductCodes, isPluTaken, nextFreeProductCode } from './productCodes.js'
 import { setProductStockExact } from './posLogic.js'
-import { buildCategoriesFromSeed } from './marketCategoriesSeed.js'
+import { buildCategoriesFromSeed, CSV_GROUP_TO_SLUG } from './marketCategoriesSeed.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -196,90 +196,42 @@ function hasAny(text, needles) {
   return needles.some(needle => text.includes(needle))
 }
 
-function classifyCategory(sourceCategory, sourceName, weighted) {
+function resolveCategorySlug(sourceCategory, sourceName, weighted) {
   const cat = normalizeText(sourceCategory)
   const name = normalizeText(sourceName)
 
-  if (hasAny(cat, ['игрушк'])) return 'kids_t'
-  if (hasAny(cat, ['детск']) && hasAny(cat, ['питан'])) return 'kids_f'
-  if (hasAny(cat, ['детск']) && hasAny(cat, ['гигиен'])) return 'kids_h'
-  if (hasAny(cat, ['детск']) && hasAny(cat, ['аксессуар'])) return 'kids_a'
-  if (hasAny(cat, ['колбас', 'сосиск', 'сардел', 'казы'])) return 'meat_k'
-  if (hasAny(cat, ['птиц'])) return 'meat_p'
-  if (hasAny(cat, ['мяс', 'фарш'])) return 'meat_b'
-  if (hasAny(cat, ['сливк', 'молок'])) return 'dairy_m'
-  if (hasAny(cat, ['кефир', 'ряжен', 'йогурт', 'сметан', 'сгущ'])) return 'dairy_f'
-  if (hasAny(cat, ['сыр', 'творог', 'сырк'])) return 'dairy_s'
-  if (hasAny(cat, ['яйц'])) return 'dairy_e'
-  if (hasAny(cat, ['хлеб', 'лепеш'])) return 'bread_h'
-  if (hasAny(cat, ['булоч', 'пекарн', 'круассан', 'пончик'])) return 'bread_b'
-  if (hasAny(cat, ['вода'])) return 'drinks_w'
-  if (hasAny(cat, ['газир', 'сладкая вода'])) return 'drinks_s'
-  if (hasAny(cat, ['сок', 'нектар', 'морс'])) return 'drinks_j'
-  if (hasAny(cat, ['чай'])) return 'drinks_t'
-  if (hasAny(cat, ['кофе', 'какао'])) return 'drinks_c'
-  if (hasAny(cat, ['энергет'])) return 'drinks_e'
-  if (hasAny(cat, ['конфет'])) return 'sweets_c'
-  if (hasAny(cat, ['шоколад'])) return 'sweets_ch'
-  if (hasAny(cat, ['печень', 'вафл', 'пряник'])) return 'sweets_b'
-  if (hasAny(cat, ['кекс', 'рулет', 'бисквит', 'торт'])) return 'sweets_k'
-  if (hasAny(cat, ['зефир', 'маршмел', 'мармелад', 'халва', 'ирис'])) return 'sweets_c'
-  if (hasAny(cat, ['жеватель', 'леден'])) return 'sweets_g'
-  if (hasAny(cat, ['чипс', 'сухарик', 'гренк'])) return 'snacks_s'
-  if (hasAny(cat, ['попкорн', 'кукурузн'])) return 'snacks_p'
-  if (hasAny(cat, ['макарон', 'круп'])) return 'grocery_p'
-  if (hasAny(cat, ['приправ', 'соль', 'сода'])) return 'grocery_s'
-  if (hasAny(cat, ['масло', 'уксус', 'соус', 'майонез'])) return 'grocery_o'
-  if (hasAny(cat, ['консерв', 'консервац'])) return 'grocery_c'
-  if (hasAny(cat, ['мука', 'дрож', 'сахар'])) return 'grocery_f'
-  if (hasAny(cat, ['орех', 'семеч'])) return 'grocery_n'
-  if (hasAny(cat, ['джем', 'варень', 'паст'])) return 'grocery_j'
-  if (hasAny(cat, ['морожен'])) return 'frozen_i'
-  if (hasAny(cat, ['пельмен', 'котлет', 'полуфабрикат'])) return 'frozen_r'
-  if (hasAny(cat, ['заморожен'])) return 'frozen_v'
-  if (hasAny(cat, ['стирк'])) return 'house_l'
-  if (hasAny(cat, ['сануз', 'уборк'])) return 'house_c'
-  if (hasAny(cat, ['бумаж', 'салфет', 'ватн'])) return 'house_p'
-  if (hasAny(cat, ['аромат'])) return 'house_a'
-  if (hasAny(cat, ['для тела'])) return 'beauty_b'
-  if (hasAny(cat, ['волос', 'краска'])) return 'beauty_h'
-  if (hasAny(cat, ['полостью рта'])) return 'beauty_o'
-  if (hasAny(cat, ['брить', 'депиляц'])) return 'beauty_s'
-  if (hasAny(cat, ['дезодорант'])) return 'beauty_d'
-  if (hasAny(cat, ['женская'])) return 'beauty_w'
-  if (hasAny(cat, ['лицом', 'крем'])) return 'beauty_f'
-  if (hasAny(cat, ['косметик', 'парфюмер'])) return 'beauty_c'
-  if (hasAny(cat, ['кухон', 'посуда', 'готовки', 'хранения', 'хозтовар'])) return 'home_k'
-  if (hasAny(cat, ['офиса', 'школ'])) return 'home_o'
-  if (hasAny(cat, ['батарей', 'фонар'])) return 'home_b'
-  if (hasAny(cat, ['кабел', 'техник'])) return 'home_e'
-  if (hasAny(cat, ['строитель'])) return 'home_r'
-  if (hasAny(cat, ['обув'])) return 'home_sh'
+  if (CSV_GROUP_TO_SLUG[cat]) return CSV_GROUP_TO_SLUG[cat]
 
-  if (weighted) {
-    if (hasAny(name, ['чой', 'чай'])) return 'drinks_t'
-    if (hasAny(name, ['чипс', 'чипси'])) return 'snacks_s'
-    if (hasAny(name, ['бодом', 'кешу', 'чормагз', 'писта', 'пистаи', 'дони каду'])) return 'grocery_n'
-    if (hasAny(name, ['ангур', 'хурмо', 'нок', 'мавиз'])) return 'veg_fr'
-    if (hasAny(name, ['пиёз', 'гулкарам', 'сабзи', 'бодринг'])) return 'veg_ov'
-    if (hasAny(name, ['нахут', 'нахуди', 'рис', 'приловка'])) return 'grocery_p'
-    if (hasAny(name, ['шакар', 'набот', 'канди'])) return 'grocery_f'
-    if (hasAny(name, ['сыр', 'шири кок', 'сухое молоко'])) return 'dairy_s'
-    if (hasAny(name, ['мохи'])) return 'meat_b'
-    if (hasAny(name, ['арбуз', 'дын', 'лимон', 'апельс', 'мандарин', 'яблок', 'банан', 'виноград', 'груш', 'персик', 'абрикос', 'слив'])) return 'veg_fr'
-    if (hasAny(name, ['капуст', 'карто', 'лук', 'морков', 'огур', 'помидор', 'томат', 'чеснок', 'перец', 'свекл', 'тыкв'])) return 'veg_ov'
-    if (hasAny(name, ['колбас', 'сосиск', 'сардел', 'казы'])) return 'meat_k'
-    if (hasAny(name, ['кур', 'индей', 'голень', 'филе', 'бедро', 'окороч'])) return 'meat_p'
-    if (hasAny(name, ['мяс', 'говяд', 'баран', 'фарш'])) return 'meat_b'
-    if (hasAny(name, ['конфет', 'мармел', 'зефир'])) return 'sweets_c'
-    if (hasAny(name, ['шоколад'])) return 'sweets_ch'
-    if (hasAny(name, ['печень', 'вафл', 'пряник'])) return 'sweets_b'
-    if (hasAny(name, ['чай'])) return 'drinks_t'
-    if (hasAny(name, ['кофе'])) return 'drinks_c'
-    if (hasAny(name, ['фисташ', 'орех', 'семеч'])) return 'grocery_n'
+  if (cat.includes('весов') && cat.includes('товар')) {
+    return classifyWeightedByName(name)
   }
 
+  if (weighted) return classifyWeightedByName(name)
   return 'other'
+}
+
+function classifyWeightedByName(name) {
+  if (hasAny(name, ['чой', 'чай'])) return 'tea_coffee_tea'
+  if (hasAny(name, ['чипс', 'чипси'])) return 'snacks_chips'
+  if (hasAny(name, ['бодом', 'кешу', 'чормагз', 'писта', 'пистаи', 'дони каду', 'орех', 'семеч', 'фисташ'])) return 'snacks_nuts'
+  if (hasAny(name, ['ангур', 'хурмо', 'нок', 'мавиз', 'арбуз', 'дын', 'лимон', 'апельс', 'мандарин', 'яблок', 'банан', 'виноград', 'груш', 'персик', 'абрикос', 'слив', 'киви', 'анор', 'афлесун', 'шафтолу', 'себи', 'занчабил'])) return 'veg_fruit_fruits'
+  if (hasAny(name, ['пиёз', 'гулкарам', 'сабзи', 'бодринг', 'капуст', 'карто', 'лук', 'морков', 'огур', 'помидор', 'томат', 'чеснок', 'перец', 'свекл', 'тыкв', 'гулинг', 'кандалот', 'лаблабу', 'бакладжан', 'сан г', 'пиёзи'])) return 'veg_fruit_vegetables'
+  if (hasAny(name, ['нахут', 'нахуди', 'рис', 'приловка', 'греч', 'перлов', 'мош', 'луби', 'наск', 'горох', 'макарон'])) return 'grocery_cereals'
+  if (hasAny(name, ['шакар', 'набот', 'канди', 'сахар'])) return 'grocery_sugar'
+  if (hasAny(name, ['сыр', 'шири кок', 'сухое молоко'])) return 'dairy_cheese'
+  if (hasAny(name, ['мохи', 'говяд', 'баран', 'мяс', 'фарш'])) return 'meat_beef'
+  if (hasAny(name, ['колбас', 'сосиск', 'сардел', 'казы'])) return 'meat_sausages'
+  if (hasAny(name, ['кур', 'индей', 'голень', 'филе', 'бедро', 'окороч', 'птиц'])) return 'meat_poultry'
+  if (hasAny(name, ['конфет', 'мармел', 'зефир', 'пахлава', 'халва', 'бублик'])) return 'sweets_world_candy_weight'
+  if (hasAny(name, ['шоколад', 'школад'])) return 'sweets_world_chocolate'
+  if (hasAny(name, ['печень', 'вафл', 'пряник', 'вафел'])) return 'sweets_world_cookies_wafers'
+  if (hasAny(name, ['кофе'])) return 'tea_coffee_coffee'
+  if (hasAny(name, ['молок', 'кефир', 'сметан', 'йогурт'])) return 'dairy_milk'
+  return 'other'
+}
+
+function classifyCategory(sourceCategory, sourceName, weighted) {
+  return resolveCategorySlug(sourceCategory, sourceName, weighted)
 }
 
 function clearDb(db) {

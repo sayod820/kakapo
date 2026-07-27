@@ -102,7 +102,7 @@ export function categoryDisplayLabel(categories: Category[], catId?: string, fal
 }
 
 /** Общий кэш — сразу показываем seed/локальный кэш, API обновляет в фоне */
-const CACHE_KEY = 'kakapo_categories_cache_v2'
+const CACHE_KEY = 'kakapo_categories_cache_v3'
 let memoryCategories: Category[] | null = null
 let memoryLoaded = false
 let inflight: Promise<Category[]> | null = null

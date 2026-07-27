@@ -440,38 +440,55 @@ const PRODS = [
 ];
 
 const CAT_THEME: Record<string, { color: string; bg: string; e: string }> = {
-  veg: { color: "#56C956", bg: "linear-gradient(145deg,#0D2A0D,#1A4A1A)", e: "🥦" },
+  snacks: { color: "#FB923C", bg: "linear-gradient(145deg,#2A1000,#4A2000)", e: "🍿" },
+  bakery: { color: "#FCD34D", bg: "linear-gradient(145deg,#281806,#4A2E12)", e: "🥐" },
+  beverages: { color: "#67E8F9", bg: "linear-gradient(145deg,#041820,#0C2E3A)", e: "🧃" },
+  frozen: { color: "#7DD3FC", bg: "linear-gradient(145deg,#051822,#0E2C3E)", e: "🧊" },
+  household_chem: { color: "#6EE7B7", bg: "linear-gradient(145deg,#062018,#103A28)", e: "🧴" },
+  sweets_world: { color: "#C084FC", bg: "linear-gradient(145deg,#1A0C28,#2E1848)", e: "🍫" },
+  stationery: { color: "#A5B4FC", bg: "linear-gradient(145deg,#10182A,#1C2848)", e: "📚" },
+  conservation: { color: "#FDE68A", bg: "linear-gradient(145deg,#241B08,#453412)", e: "🥫" },
+  tea_coffee: { color: "#D4A574", bg: "linear-gradient(145deg,#281806,#4A2E12)", e: "☕" },
   meat: { color: "#FF6B6B", bg: "linear-gradient(145deg,#2A0A0A,#4A1818)", e: "🥩" },
+  veg_fruit: { color: "#56C956", bg: "linear-gradient(145deg,#0D2A0D,#1A4A1A)", e: "🥦" },
   dairy: { color: "#93C5FD", bg: "linear-gradient(145deg,#0A1828,#163050)", e: "🥛" },
-  bread: { color: "#FCD34D", bg: "linear-gradient(145deg,#281806,#4A2E12)", e: "🥐" },
+  oils_sauces: { color: "#FBBF24", bg: "linear-gradient(145deg,#281800,#4A2C00)", e: "🫗" },
+  beauty: { color: "#F9A8D4", bg: "linear-gradient(145deg,#2A0818,#4A1028)", e: "🪥" },
+  grocery: { color: "#FDE68A", bg: "linear-gradient(145deg,#241B08,#453412)", e: "🧂" },
+  appliances: { color: "#CBD5E1", bg: "linear-gradient(145deg,#101820,#1C2A38)", e: "🔌" },
+  fish: { color: "#7DD3FC", bg: "linear-gradient(145deg,#051822,#0E2C3E)", e: "🐟" },
+  kids: { color: "#FBBF24", bg: "linear-gradient(145deg,#281800,#4A2C00)", e: "🧸" },
+  household: { color: "#CBD5E1", bg: "linear-gradient(145deg,#101820,#1C2A38)", e: "🏠" },
+  other: { color: "var(--gr)", bg: "linear-gradient(145deg,#0B130E,#162019)", e: "📦" },
+  // legacy keys
+  veg: { color: "#56C956", bg: "linear-gradient(145deg,#0D2A0D,#1A4A1A)", e: "🥦" },
   drinks: { color: "#67E8F9", bg: "linear-gradient(145deg,#041820,#0C2E3A)", e: "🧃" },
   sweets: { color: "#C084FC", bg: "linear-gradient(145deg,#1A0C28,#2E1848)", e: "🍫" },
-  snacks: { color: "#FB923C", bg: "linear-gradient(145deg,#2A1000,#4A2000)", e: "🍿" },
-  grocery: { color: "#FDE68A", bg: "linear-gradient(145deg,#241B08,#453412)", e: "🧂" },
-  frozen: { color: "#7DD3FC", bg: "linear-gradient(145deg,#051822,#0E2C3E)", e: "🧊" },
-  kids: { color: "#FBBF24", bg: "linear-gradient(145deg,#281800,#4A2C00)", e: "🧸" },
+  bread: { color: "#FCD34D", bg: "linear-gradient(145deg,#281806,#4A2E12)", e: "🥐" },
   house: { color: "#6EE7B7", bg: "linear-gradient(145deg,#062018,#103A28)", e: "🧴" },
-  beauty: { color: "#F9A8D4", bg: "linear-gradient(145deg,#2A0818,#4A1028)", e: "🪥" },
   home: { color: "#CBD5E1", bg: "linear-gradient(145deg,#101820,#1C2A38)", e: "🏠" },
-  fish: { color: "#7DD3FC", bg: "linear-gradient(145deg,#051822,#0E2C3E)", e: "🐟" },
-  other: { color: "var(--gr)", bg: "linear-gradient(145deg,#0B130E,#162019)", e: "📦" },
 }
 
 function catThemeKey(id: string) {
   const slug = String(id || "")
-  if (slug.startsWith("veg")) return "veg"
+  if (slug.startsWith("veg_fruit") || slug.startsWith("veg")) return "veg_fruit"
   if (slug.startsWith("meat")) return "meat"
   if (slug.startsWith("dairy")) return "dairy"
-  if (slug.startsWith("bread")) return "bread"
-  if (slug.startsWith("drinks")) return "drinks"
-  if (slug.startsWith("sweets")) return "sweets"
+  if (slug.startsWith("bakery") || slug.startsWith("bread")) return "bakery"
+  if (slug.startsWith("beverages") || slug.startsWith("drinks")) return "beverages"
+  if (slug.startsWith("tea_coffee")) return "tea_coffee"
+  if (slug.startsWith("sweets_world") || slug.startsWith("sweets")) return "sweets_world"
   if (slug.startsWith("snacks")) return "snacks"
+  if (slug.startsWith("oils_sauces")) return "oils_sauces"
+  if (slug.startsWith("conservation")) return "conservation"
   if (slug.startsWith("grocery")) return "grocery"
   if (slug.startsWith("frozen")) return "frozen"
   if (slug.startsWith("kids")) return "kids"
-  if (slug.startsWith("house")) return "house"
+  if (slug.startsWith("household_chem") || slug.startsWith("house")) return "household_chem"
   if (slug.startsWith("beauty")) return "beauty"
-  if (slug.startsWith("home")) return "home"
+  if (slug.startsWith("stationery")) return "stationery"
+  if (slug.startsWith("appliances")) return "appliances"
+  if (slug.startsWith("household") || slug.startsWith("home")) return "household"
   if (slug.startsWith("fish")) return "fish"
   return "other"
 }
