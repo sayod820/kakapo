@@ -33,6 +33,7 @@ import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
 import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
+import { useCategories } from "@/lib/useCategories";
 import { loadStoreUser, saveStoreUser, clearClientSession, getActiveClientPhone, formatTjPhone, isClientSessionActive, phoneDigits, getSessionEpoch, type StoreUser } from "@/lib/clientSession";
 import { filterOrdersForStoreUser } from "@/lib/clientAccountLifecycle";
 import { fetchCrmStoreUser, crmStoreUsersEqual, mergeCrmIntoStoreUser } from "@/lib/clientProfileSync";
@@ -443,10 +444,10 @@ const CATS = [
   {id:"meat",    e:"🥩",label:"Мясо и птица",      count:67, color:"#FF6B6B",bg:"linear-gradient(145deg,#2A0A0A,#4A1818)", parentId:null},
   {id:"dairy",   e:"🥛",label:"Молочные продукты", count:98, color:"#93C5FD",bg:"linear-gradient(145deg,#0A1828,#163050)", parentId:null},
   {id:"bread",   e:"🥐",label:"Хлеб и выпечка",    count:54, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:null},
-  {id:"sweet",   e:"🍫",label:"Сладости",           count:113,color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:null},
-  {id:"drink",   e:"🧃",label:"Напитки",             count:88, color:"#67E8F9",bg:"linear-gradient(145deg,#041820,#0C2E3A)", parentId:null},
+  {id:"sweets",  e:"🍫",label:"Сладости",           count:113,color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:null},
+  {id:"drinks",  e:"🧃",label:"Напитки",             count:88, color:"#67E8F9",bg:"linear-gradient(145deg,#041820,#0C2E3A)", parentId:null},
   {id:"fish",    e:"🐟",label:"Рыба и морепродукты",count:39, color:"#7DD3FC",bg:"linear-gradient(145deg,#051822,#0E2C3E)", parentId:null},
-  {id:"chem",    e:"🧴",label:"Бытовая химия",      count:45, color:"#6EE7B7",bg:"linear-gradient(145deg,#062018,#103A28)", parentId:null},
+  {id:"house",   e:"🧴",label:"Бытовая химия",      count:45, color:"#6EE7B7",bg:"linear-gradient(145deg,#062018,#103A28)", parentId:null},
   {id:"kids",    e:"👶",label:"Товары для детей",   count:32, color:"#FBBF24",bg:"linear-gradient(145deg,#281800,#4A2C00)", parentId:null},
   {id:"veg_ov",  e:"🥕",label:"Овощи",              count:65, color:"#56C956",bg:"linear-gradient(145deg,#0D2A0D,#1A4A1A)", parentId:"veg"},
   {id:"veg_fr",  e:"🍊",label:"Фрукты",              count:48, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"veg"},
@@ -461,15 +462,81 @@ const CATS = [
   {id:"dairy_e", e:"🥚",label:"Яйцо",                count:8,  color:"#FBBF24",bg:"linear-gradient(145deg,#281800,#4A2C00)", parentId:"dairy"},
   {id:"dairy_t", e:"🧈",label:"Масло и маргарин",    count:12, color:"#FDE68A",bg:"linear-gradient(145deg,#281A00,#4A3000)", parentId:"dairy"},
   {id:"dairy_y", e:"🍦",label:"Йогурты и творог",    count:18, color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:"dairy"},
-  {id:"drink_j", e:"🧃",label:"Соки и нектары",       count:24, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"drink"},
-  {id:"drink_w", e:"💧",label:"Вода",                  count:18, color:"#67E8F9",bg:"linear-gradient(145deg,#041820,#0C2E3A)", parentId:"drink"},
-  {id:"drink_t", e:"🍵",label:"Чай и кофе",            count:28, color:"#A78BFA",bg:"linear-gradient(145deg,#14082A,#26104A)", parentId:"drink"},
-  {id:"drink_c", e:"🥤",label:"Газированные",          count:18, color:"#34D399",bg:"linear-gradient(145deg,#032010,#06401A)", parentId:"drink"},
-  {id:"sweet_c", e:"🍫",label:"Шоколад",               count:32, color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:"sweet"},
-  {id:"sweet_b", e:"🍪",label:"Печенье и вафли",        count:28, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:"sweet"},
-  {id:"sweet_k", e:"🍬",label:"Конфеты",                count:35, color:"#F472B6",bg:"linear-gradient(145deg,#2A0818,#4A1028)", parentId:"sweet"},
-  {id:"sweet_h", e:"🥜",label:"Орехи и сухофрукты",    count:18, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"sweet"},
+  {id:"drinks_j",e:"🧃",label:"Соки и нектары",       count:24, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"drinks"},
+  {id:"drinks_w",e:"💧",label:"Вода",                  count:18, color:"#67E8F9",bg:"linear-gradient(145deg,#041820,#0C2E3A)", parentId:"drinks"},
+  {id:"drinks_t",e:"🍵",label:"Чай и кофе",            count:28, color:"#A78BFA",bg:"linear-gradient(145deg,#14082A,#26104A)", parentId:"drinks"},
+  {id:"drinks_c",e:"🥤",label:"Газированные",          count:18, color:"#34D399",bg:"linear-gradient(145deg,#032010,#06401A)", parentId:"drinks"},
+  {id:"sweets_c",e:"🍫",label:"Шоколад",               count:32, color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:"sweets"},
+  {id:"sweets_b",e:"🍪",label:"Печенье и вафли",        count:28, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:"sweets"},
+  {id:"sweets_k",e:"🍬",label:"Конфеты",                count:35, color:"#F472B6",bg:"linear-gradient(145deg,#2A0818,#4A1028)", parentId:"sweets"},
+  {id:"sweets_h",e:"🥜",label:"Орехи и сухофрукты",    count:18, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"sweets"},
 ];
+
+const CAT_THEME: Record<string, { color: string; bg: string; e: string }> = {
+  veg: { color: "#56C956", bg: "linear-gradient(145deg,#0D2A0D,#1A4A1A)", e: "🥦" },
+  meat: { color: "#FF6B6B", bg: "linear-gradient(145deg,#2A0A0A,#4A1818)", e: "🥩" },
+  dairy: { color: "#93C5FD", bg: "linear-gradient(145deg,#0A1828,#163050)", e: "🥛" },
+  bread: { color: "#FCD34D", bg: "linear-gradient(145deg,#281806,#4A2E12)", e: "🥐" },
+  drinks: { color: "#67E8F9", bg: "linear-gradient(145deg,#041820,#0C2E3A)", e: "🧃" },
+  sweets: { color: "#C084FC", bg: "linear-gradient(145deg,#1A0C28,#2E1848)", e: "🍫" },
+  snacks: { color: "#FB923C", bg: "linear-gradient(145deg,#2A1000,#4A2000)", e: "🍿" },
+  grocery: { color: "#FDE68A", bg: "linear-gradient(145deg,#241B08,#453412)", e: "🧂" },
+  frozen: { color: "#7DD3FC", bg: "linear-gradient(145deg,#051822,#0E2C3E)", e: "🧊" },
+  kids: { color: "#FBBF24", bg: "linear-gradient(145deg,#281800,#4A2C00)", e: "🧸" },
+  house: { color: "#6EE7B7", bg: "linear-gradient(145deg,#062018,#103A28)", e: "🧴" },
+  beauty: { color: "#F9A8D4", bg: "linear-gradient(145deg,#2A0818,#4A1028)", e: "🪥" },
+  home: { color: "#CBD5E1", bg: "linear-gradient(145deg,#101820,#1C2A38)", e: "🏠" },
+  fish: { color: "#7DD3FC", bg: "linear-gradient(145deg,#051822,#0E2C3E)", e: "🐟" },
+  other: { color: "var(--gr)", bg: "linear-gradient(145deg,#0B130E,#162019)", e: "📦" },
+}
+
+function catThemeKey(id: string) {
+  const slug = String(id || "")
+  if (slug.startsWith("veg")) return "veg"
+  if (slug.startsWith("meat")) return "meat"
+  if (slug.startsWith("dairy")) return "dairy"
+  if (slug.startsWith("bread")) return "bread"
+  if (slug.startsWith("drinks")) return "drinks"
+  if (slug.startsWith("sweets")) return "sweets"
+  if (slug.startsWith("snacks")) return "snacks"
+  if (slug.startsWith("grocery")) return "grocery"
+  if (slug.startsWith("frozen")) return "frozen"
+  if (slug.startsWith("kids")) return "kids"
+  if (slug.startsWith("house")) return "house"
+  if (slug.startsWith("beauty")) return "beauty"
+  if (slug.startsWith("home")) return "home"
+  if (slug.startsWith("fish")) return "fish"
+  return "other"
+}
+
+function useStoreCategories() {
+  const { categories } = useCategories()
+  return useMemo(() => {
+    if (!categories.length) {
+      return { cats: CATS, rootCats: CATS.filter(c => !c.parentId) }
+    }
+    const byId = new Map(categories.map(cat => [cat.id, cat]))
+    const cats = categories
+      .map(cat => {
+        const parent = cat.parent_id != null ? byId.get(Number(cat.parent_id)) : null
+        const theme = CAT_THEME[catThemeKey(parent?.slug || cat.slug)]
+        return {
+          id: cat.slug || String(cat.id),
+          e: cat.emoji || theme.e,
+          label: cat.name,
+          color: theme.color,
+          bg: theme.bg,
+          parentId: parent?.slug || null,
+          order: cat.order || 99,
+        }
+      })
+      .sort((a, b) => {
+        if (a.parentId !== b.parentId) return (a.parentId || "").localeCompare(b.parentId || "")
+        return (a.order || 99) - (b.order || 99)
+      })
+    return { cats, rootCats: cats.filter(c => !c.parentId) }
+  }, [categories])
+}
 
 const HOT_HITS_CAT = {
   id: "hot",
@@ -479,13 +546,14 @@ const HOT_HITS_CAT = {
   color: "var(--org)",
 };
 
-function productsInCategory(prods, catId, subCatId = null) {
+function productsInCategory(prods, catId, subCatId = null, cats = CATS) {
   if (catId === "hot") return prods.filter(p => p.hot);
+  const children = cats.filter(c => c.parentId === catId).map(c => c.id)
   return prods.filter(p => {
     const slug = productCatSlug(p);
     if (subCatId) return slug === subCatId;
     if (catId) {
-      return slug === catId || CATS.filter(c => c.parentId === catId).some(sub => sub.id === slug);
+      return slug === catId || children.includes(slug);
     }
     return true;
   });
@@ -1400,6 +1468,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
+  const { rootCats } = useStoreCategories();
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
@@ -1438,7 +1507,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
           <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
         </div>
         <div className="hscroll" style={{ marginBottom:22 }}>
-          {CATS.slice(0,6).map(c => (
+          {rootCats.slice(0,6).map(c => (
             <div key={c.id} onClick={() => go("plist", { cat:c.id })} style={{ flexShrink:0, width:90, borderRadius:16, background:c.bg, border:`1px solid ${c.color}22`, padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
               <div style={{ fontSize:28, marginBottom:6 }}>{c.e}</div>
               <div style={{ fontSize:10, fontWeight:700, color:c.color, lineHeight:1.3 }}>{c.label.split(" ")[0]}</div>
@@ -1495,6 +1564,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 
 const CatalogPage = ({ go, cart, user }) => {
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
+  const { rootCats, cats } = useStoreCategories();
   return (
   <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart} user={user}/>
@@ -1529,12 +1599,12 @@ const CatalogPage = ({ go, cart, user }) => {
       </div>
       <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Все категории</div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-        {CATS.filter(c=>!c.parentId).map((c,i) => (
+        {rootCats.map((c,i) => (
           <div key={c.id} onClick={() => go("plist", { cat:c.id })} className="card" style={{ background:c.bg, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
             <div style={{ padding:"16px 14px" }}>
               <div style={{ fontSize:36, marginBottom:8 }}>{c.e}</div>
               <div className="ub" style={{ fontSize:13, fontWeight:800, color:"#fff", marginBottom:4 }}>{c.label}</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", marginBottom:10 }}>{formatProductCount(productsInCategory(prods, c.id).length)}</div>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", marginBottom:10 }}>{formatProductCount(productsInCategory(prods, c.id, null, cats).length)}</div>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <span style={{ fontSize:11, fontWeight:700, color:c.color }}>Смотреть</span>
                 <Ic n="arr" s={13} c={c.color}/>
@@ -1550,18 +1620,19 @@ const CatalogPage = ({ go, cart, user }) => {
 };
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   const { prods, catalogReady } = useLiveCatalog();
+  const { cats, rootCats } = useStoreCategories();
   const { isVip } = resolveUserVip(user);
   const [sort,    setSort]    = useState("pop");
   const [view,    setView]    = useState("grid");
   const [search,  setSearch]  = useState("");
   const [subCat,  setSubCat]  = useState(null);
   const isHotHits = params?.cat === "hot" || params?.hot === "1";
-  const cat = isHotHits ? HOT_HITS_CAT : (CATS.find(c => c.id === params?.cat) || CATS[0]);
-  const subCats = isHotHits ? [] : CATS.filter(c => c.parentId === cat.id);
+  const cat = isHotHits ? HOT_HITS_CAT : (cats.find(c => c.id === params?.cat) || rootCats[0] || CATS[0]);
+  const subCats = isHotHits ? [] : cats.filter(c => c.parentId === cat.id);
   const hasSubCats = subCats.length > 0;
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
-  let items = isHotHits ? prods.filter(p => p.hot) : productsInCategory(prods, params?.cat, subCat);
+  let items = isHotHits ? prods.filter(p => p.hot) : productsInCategory(prods, params?.cat, subCat, cats);
   if (search) items = items.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
   if (sort === "cheap") items = [...items].sort((a,b) => a.price - b.price);
   else if (sort === "exp") items = [...items].sort((a,b) => b.price - a.price);
@@ -1726,6 +1797,7 @@ const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
 
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const { prods, catalogReady } = useLiveCatalog();
+  const { cats } = useStoreCategories();
   const p = prods.find(x => x.id == params?.id);
   if (!catalogReady || !p) {
     return (
@@ -1805,7 +1877,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         <div style={{ position:"absolute", bottom:0, left:0, right:0, height:80, background:"linear-gradient(transparent,var(--bg))" }}/>
       </div>
       <div style={{ padding:"0 18px 140px" }}>
-        <div style={{ fontSize:11, color:"var(--t3)", marginBottom:10 }}>{CATS.find(c => c.id === pCat)?.label || p.catLabel || p.cat}</div>
+        <div style={{ fontSize:11, color:"var(--t3)", marginBottom:10 }}>{cats.find(c => c.id === pCat)?.label || p.catLabel || p.cat}</div>
         <div className="ub" style={{ fontSize:22, fontWeight:900, lineHeight:1.2, marginBottom:10 }}>{p.name}</div>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
           <Stars r={USE_API ? 0 : p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{USE_API ? storeRevLabel : p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({storeRevLabel} отзывов)</span>
@@ -3907,6 +3979,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
 
 const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const { prods, catalogReady, promosReady } = useLiveCatalog();
+  const { cats, rootCats } = useStoreCategories();
   const apiPromos = usePromos(s => s.promos) || [];
   const { isVip } = resolveUserVip(user);
   const [selectedCat, setSelectedCat] = useState(null);
@@ -3919,13 +3992,13 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   };
   const parentCatForProduct = p => {
     const slug = productCatSlug(p);
-    const cat = CATS.find(c => c.id === slug);
+    const cat = cats.find(c => c.id === slug);
     if (!cat) return null;
     return cat.parentId || cat.id;
   };
   const catMetaForProduct = p => {
     const pid = parentCatForProduct(p);
-    return pid ? CATS.find(c => c.id === pid) : null;
+    return pid ? cats.find(c => c.id === pid) : null;
   };
   const findProductPromo = p => apiPromos.find(pr => pr.type === "product" && Number(pr.productId) === Number(p.id));
   const saleProds = useMemo(
@@ -3942,7 +4015,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const saleByCategory = useMemo(() => {
     const used = new Set();
     const groups = [];
-    for (const cat of CATS.filter(c => !c.parentId)) {
+    for (const cat of rootCats) {
       const items = saleProds.filter(p => parentCatForProduct(p) === cat.id);
       if (!items.length) continue;
       items.forEach(p => used.add(p.id));
@@ -3961,7 +4034,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
       });
     }
     return groups;
-  }, [saleProds]);
+  }, [saleProds, cats, rootCats]);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
   const promosBoot = USE_API && (!catalogReady || !promosReady);

@@ -4,8 +4,9 @@ import { USE_API } from './config'
 
 /** Синонимы catId из API/GBS → slug каталога в приложении */
 const CAT_ALIASES: Record<string, string> = {
-  drinks: 'drink',
-  sweets: 'sweet',
+  drink: 'drinks',
+  sweet: 'sweets',
+  chem: 'house',
 }
 
 /** Slug категории для фильтров (meat, veg…) — не путать с p.cat «Мясо» из API */
