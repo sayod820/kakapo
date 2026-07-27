@@ -331,10 +331,10 @@ export const POS_MOCK_CSS = `
   .gate-input::placeholder{color:var(--t3);}
   .pos-root button.btn-gate{width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(31,215,96,.25);}
 
-  /* Касса: товары ~34%, чек ~66% — чек шире, на 1 ряд плиток меньше */
+  /* Касса: слева ровно 2 ряда плиток, чек справа шире */
   .pos-root > .app{
     display:grid;
-    grid-template-columns:minmax(240px,34%) minmax(420px,66%);
+    grid-template-columns:minmax(340px,380px) minmax(0,1fr);
     grid-template-rows:64px 1fr;
     height:100%;
     height:100dvh;
@@ -1234,7 +1234,7 @@ export const POS_MOCK_CSS = `
   .pos-err{margin-top:10px;padding:10px 12px;border-radius:10px;font-size:12px;background:rgba(255,69,69,.1);border:1px solid rgba(255,69,69,.3);color:var(--red);}
 
   @media(max-width:1200px){
-    .pos-root > .app{grid-template-columns:minmax(220px,36%) minmax(360px,64%);}
+    .pos-root > .app{grid-template-columns:minmax(320px,360px) minmax(0,1fr);}
     .searchpill{flex:0 1 220px;width:auto;max-width:min(260px,28vw);min-width:140px;}
     .top-clock .tm{font-size:15px;}
   }
