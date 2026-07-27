@@ -439,39 +439,6 @@ const PRODS = [
   {id:12,art:"KAK-0012",e:"🍫",name:"Шоколад Alpen Gold", unit:"90 гр", price:6.50, old:8.00, hot:false,isNew:false,org:false,r:4.6,rv:344,grad:"linear-gradient(145deg,#1C0E2C,#2E1848)",cat:"sweet",  desc:"Молочный шоколад Alpen Gold с нежным вкусом карамели.", specs:{Вес:"90 гр",Какао:"32%",Страна:"Россия"}},
 ];
 
-const CATS = [
-  {id:"veg",     e:"🥦",label:"Овощи и фрукты",   count:142,color:"#56C956",bg:"linear-gradient(145deg,#0D2A0D,#1A4A1A)", parentId:null},
-  {id:"meat",    e:"🥩",label:"Мясо и птица",      count:67, color:"#FF6B6B",bg:"linear-gradient(145deg,#2A0A0A,#4A1818)", parentId:null},
-  {id:"dairy",   e:"🥛",label:"Молочные продукты", count:98, color:"#93C5FD",bg:"linear-gradient(145deg,#0A1828,#163050)", parentId:null},
-  {id:"bread",   e:"🥐",label:"Хлеб и выпечка",    count:54, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:null},
-  {id:"sweets",  e:"🍫",label:"Сладости",           count:113,color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:null},
-  {id:"drinks",  e:"🧃",label:"Напитки",             count:88, color:"#67E8F9",bg:"linear-gradient(145deg,#041820,#0C2E3A)", parentId:null},
-  {id:"fish",    e:"🐟",label:"Рыба и морепродукты",count:39, color:"#7DD3FC",bg:"linear-gradient(145deg,#051822,#0E2C3E)", parentId:null},
-  {id:"house",   e:"🧴",label:"Бытовая химия",      count:45, color:"#6EE7B7",bg:"linear-gradient(145deg,#062018,#103A28)", parentId:null},
-  {id:"kids",    e:"👶",label:"Товары для детей",   count:32, color:"#FBBF24",bg:"linear-gradient(145deg,#281800,#4A2C00)", parentId:null},
-  {id:"veg_ov",  e:"🥕",label:"Овощи",              count:65, color:"#56C956",bg:"linear-gradient(145deg,#0D2A0D,#1A4A1A)", parentId:"veg"},
-  {id:"veg_fr",  e:"🍊",label:"Фрукты",              count:48, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"veg"},
-  {id:"veg_gr",  e:"🌿",label:"Зелень",              count:18, color:"#34D399",bg:"linear-gradient(145deg,#032010,#06401A)", parentId:"veg"},
-  {id:"veg_yg",  e:"🫐",label:"Ягоды",               count:11, color:"#A78BFA",bg:"linear-gradient(145deg,#14082A,#26104A)", parentId:"veg"},
-  {id:"meat_b",  e:"🥩",label:"Говядина и баранина", count:22, color:"#FF6B6B",bg:"linear-gradient(145deg,#2A0A0A,#4A1818)", parentId:"meat"},
-  {id:"meat_p",  e:"🍗",label:"Птица",               count:18, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:"meat"},
-  {id:"meat_k",  e:"🌭",label:"Колбасные изделия",   count:15, color:"#FB923C",bg:"linear-gradient(145deg,#2A1200,#4A2200)", parentId:"meat"},
-  {id:"meat_f",  e:"🐟",label:"Рыба",                count:12, color:"#7DD3FC",bg:"linear-gradient(145deg,#051822,#0E2C3E)", parentId:"meat"},
-  {id:"dairy_m", e:"🥛",label:"Молоко и кефир",      count:28, color:"#93C5FD",bg:"linear-gradient(145deg,#0A1828,#163050)", parentId:"dairy"},
-  {id:"dairy_s", e:"🧀",label:"Сыры",                count:22, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:"dairy"},
-  {id:"dairy_e", e:"🥚",label:"Яйцо",                count:8,  color:"#FBBF24",bg:"linear-gradient(145deg,#281800,#4A2C00)", parentId:"dairy"},
-  {id:"dairy_t", e:"🧈",label:"Масло и маргарин",    count:12, color:"#FDE68A",bg:"linear-gradient(145deg,#281A00,#4A3000)", parentId:"dairy"},
-  {id:"dairy_y", e:"🍦",label:"Йогурты и творог",    count:18, color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:"dairy"},
-  {id:"drinks_j",e:"🧃",label:"Соки и нектары",       count:24, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"drinks"},
-  {id:"drinks_w",e:"💧",label:"Вода",                  count:18, color:"#67E8F9",bg:"linear-gradient(145deg,#041820,#0C2E3A)", parentId:"drinks"},
-  {id:"drinks_t",e:"🍵",label:"Чай и кофе",            count:28, color:"#A78BFA",bg:"linear-gradient(145deg,#14082A,#26104A)", parentId:"drinks"},
-  {id:"drinks_c",e:"🥤",label:"Газированные",          count:18, color:"#34D399",bg:"linear-gradient(145deg,#032010,#06401A)", parentId:"drinks"},
-  {id:"sweets_c",e:"🍫",label:"Шоколад",               count:32, color:"#C084FC",bg:"linear-gradient(145deg,#1A0C28,#2E1848)", parentId:"sweets"},
-  {id:"sweets_b",e:"🍪",label:"Печенье и вафли",        count:28, color:"#FCD34D",bg:"linear-gradient(145deg,#281806,#4A2E12)", parentId:"sweets"},
-  {id:"sweets_k",e:"🍬",label:"Конфеты",                count:35, color:"#F472B6",bg:"linear-gradient(145deg,#2A0818,#4A1028)", parentId:"sweets"},
-  {id:"sweets_h",e:"🥜",label:"Орехи и сухофрукты",    count:18, color:"#FB923C",bg:"linear-gradient(145deg,#2A1000,#4A2000)", parentId:"sweets"},
-];
-
 const CAT_THEME: Record<string, { color: string; bg: string; e: string }> = {
   veg: { color: "#56C956", bg: "linear-gradient(145deg,#0D2A0D,#1A4A1A)", e: "🥦" },
   meat: { color: "#FF6B6B", bg: "linear-gradient(145deg,#2A0A0A,#4A1818)", e: "🥩" },
@@ -510,10 +477,14 @@ function catThemeKey(id: string) {
 }
 
 function useStoreCategories() {
-  const { categories } = useCategories()
+  const { categories, loaded } = useCategories()
   return useMemo(() => {
+    // Пока API не ответил — пусто (без старого hardcoded fallback → нет мигания)
+    if (!loaded) {
+      return { cats: [], rootCats: [], loaded: false, ready: false }
+    }
     if (!categories.length) {
-      return { cats: CATS, rootCats: CATS.filter(c => !c.parentId) }
+      return { cats: [], rootCats: [], loaded: true, ready: true }
     }
     const byId = new Map(categories.map(cat => [cat.id, cat]))
     const cats = categories
@@ -531,11 +502,32 @@ function useStoreCategories() {
         }
       })
       .sort((a, b) => {
-        if (a.parentId !== b.parentId) return (a.parentId || "").localeCompare(b.parentId || "")
+        if (a.parentId !== b.parentId) return (a.parentId || '').localeCompare(b.parentId || '')
         return (a.order || 99) - (b.order || 99)
       })
-    return { cats, rootCats: cats.filter(c => !c.parentId) }
-  }, [categories])
+    return { cats, rootCats: cats.filter(c => !c.parentId), loaded: true, ready: true }
+  }, [categories, loaded])
+}
+
+function CatSkeleton({ count = 6, width = 90 }: { count?: number; width?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            flexShrink: 0,
+            width,
+            height: 88,
+            borderRadius: 16,
+            background: 'var(--l2)',
+            border: '1px solid var(--b1)',
+            opacity: 0.55,
+          }}
+        />
+      ))}
+    </>
+  )
 }
 
 const HOT_HITS_CAT = {
@@ -546,7 +538,7 @@ const HOT_HITS_CAT = {
   color: "var(--org)",
 };
 
-function productsInCategory(prods, catId, subCatId = null, cats = CATS) {
+function productsInCategory(prods, catId, subCatId = null, cats = []) {
   if (catId === "hot") return prods.filter(p => p.hot);
   const children = cats.filter(c => c.parentId === catId).map(c => c.id)
   return prods.filter(p => {
@@ -1468,7 +1460,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
-  const { rootCats } = useStoreCategories();
+  const { rootCats, ready: catsReady } = useStoreCategories();
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
@@ -1507,12 +1499,16 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
           <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
         </div>
         <div className="hscroll" style={{ marginBottom:22 }}>
-          {rootCats.slice(0,6).map(c => (
+          {!catsReady ? (
+            <CatSkeleton count={6} />
+          ) : (
+            rootCats.slice(0,6).map(c => (
             <div key={c.id} onClick={() => go("plist", { cat:c.id })} style={{ flexShrink:0, width:90, borderRadius:16, background:c.bg, border:`1px solid ${c.color}22`, padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
               <div style={{ fontSize:28, marginBottom:6 }}>{c.e}</div>
               <div style={{ fontSize:10, fontWeight:700, color:c.color, lineHeight:1.3 }}>{c.label.split(" ")[0]}</div>
             </div>
-          ))}
+            ))
+          )}
           <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:90, borderRadius:16, background:"linear-gradient(145deg,#1A0808,#3A1010)", border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
             <div style={{ fontSize:28, marginBottom:6 }}>🍽</div>
             <div style={{ fontSize:10, fontWeight:700, color:"var(--org)", lineHeight:1.3 }}>Рестораны</div>
@@ -1564,7 +1560,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 
 const CatalogPage = ({ go, cart, user }) => {
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
-  const { rootCats, cats } = useStoreCategories();
+  const { rootCats, cats, ready: catsReady } = useStoreCategories();
   return (
   <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart} user={user}/>
@@ -1598,6 +1594,13 @@ const CatalogPage = ({ go, cart, user }) => {
         </div>
       </div>
       <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Все категории</div>
+      {!catsReady ? (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} style={{ height:120, borderRadius:16, background:"var(--l2)", border:"1px solid var(--b1)", opacity:0.55 }} />
+          ))}
+        </div>
+      ) : (
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
         {rootCats.map((c,i) => (
           <div key={c.id} onClick={() => go("plist", { cat:c.id })} className="card" style={{ background:c.bg, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
@@ -1613,6 +1616,7 @@ const CatalogPage = ({ go, cart, user }) => {
           </div>
         ))}
       </div>
+      )}
     </div>
     <Nav page="catalog" go={go}/>
   </div>
@@ -1620,14 +1624,14 @@ const CatalogPage = ({ go, cart, user }) => {
 };
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   const { prods, catalogReady } = useLiveCatalog();
-  const { cats, rootCats } = useStoreCategories();
+  const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const { isVip } = resolveUserVip(user);
   const [sort,    setSort]    = useState("pop");
   const [view,    setView]    = useState("grid");
   const [search,  setSearch]  = useState("");
   const [subCat,  setSubCat]  = useState(null);
   const isHotHits = params?.cat === "hot" || params?.hot === "1";
-  const cat = isHotHits ? HOT_HITS_CAT : (cats.find(c => c.id === params?.cat) || rootCats[0] || CATS[0]);
+  const cat = isHotHits ? HOT_HITS_CAT : (cats.find(c => c.id === params?.cat) || rootCats[0] || { id: 'other', e: '📦', label: 'Прочее', bg: CAT_THEME.other.bg, color: CAT_THEME.other.color });
   const subCats = isHotHits ? [] : cats.filter(c => c.parentId === cat.id);
   const hasSubCats = subCats.length > 0;
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
@@ -1638,7 +1642,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   else if (sort === "exp") items = [...items].sort((a,b) => b.price - a.price);
   else if (sort === "sale") items = items.filter(p => p.old).sort((a,b) => (1-b.price/b.old) - (1-a.price/a.old));
   else if (isHotHits) items = [...items].sort((a,b) => (b.r || 0) - (a.r || 0));
-  if (USE_API && !catalogReady) {
+  if (USE_API && (!catalogReady || !catsReady)) {
     return (
       <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", color:"var(--t3)", fontSize:13 }}>
         Загрузка каталога…
@@ -3979,7 +3983,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
 
 const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   const { prods, catalogReady, promosReady } = useLiveCatalog();
-  const { cats, rootCats } = useStoreCategories();
+  const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const apiPromos = usePromos(s => s.promos) || [];
   const { isVip } = resolveUserVip(user);
   const [selectedCat, setSelectedCat] = useState(null);
@@ -4037,7 +4041,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   }, [saleProds, cats, rootCats]);
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
-  const promosBoot = USE_API && (!catalogReady || !promosReady);
+  const promosBoot = USE_API && (!catalogReady || !promosReady || !catsReady);
   const activeGroup = selectedCat ? saleByCategory.find(g => g.cat.id === selectedCat) : null;
 
   if (promosBoot) {

@@ -13,7 +13,7 @@
  * (в каталоге server/kakapo-api). Сервер лучше остановить или сразу перезапустить.
  */
 import { loadDb, saveDb, getDbFilePath } from './db.js'
-import { buildCategoriesFromSeed } from './marketCategoriesSeed.js'
+import { replaceCategoriesFromSeed } from './marketCategoriesSeed.js'
 import { copyFileSync, existsSync } from 'fs'
 
 const db = loadDb()
@@ -42,9 +42,11 @@ for (const key of CLEARED) db[key] = []
 // 3) Сброс нумерации
 db._seq = { order: 0, product: 0, category: 0, review: 0, promo: 0, payout: 0, posSale: 0 }
 
-// 4) Категории заново (чтобы сразу можно было добавлять товары)
-db.categories = buildCategoriesFromSeed(db._seq)
-db._categorySeedVersion = 1
+// 4) Категории заново (полное дерево с подкатегориями)
+db.categories = []
+db.deletedCategorySlugs = []
+replaceCategoriesFromSeed(db)
+db._categorySeedVersion = 2
 
 if (!db.settings) db.settings = {}
 db.settings.walletMergeDone = true

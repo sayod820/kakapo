@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
+import { USE_API } from '@/lib/config'
 import { seedToCategories } from '@/lib/marketCategoriesSeed'
 import type { Category } from '@/lib/types'
 
@@ -49,6 +50,48 @@ export function countProductsInCategory(
   return products.filter(p => allowed.includes(p.catId || '')).length
 }
 
+export function getRootSlug(categories: Category[], slug?: string): string | null {
+  if (!slug) return null
+  const cat = getCategoryBySlug(categories, slug)
+  if (!cat) return slug
+  if (cat.parent_id == null) return categorySlug(cat)
+  const parent = categories.find(c => c.id === Number(cat.parent_id))
+  return parent ? categorySlug(parent) : categorySlug(cat)
+}
+
+export function buildAdminRootCats(roots: Category[]) {
+  return roots.map(c => ({
+    id: categorySlug(c),
+    e: c.emoji || '📦',
+    name: c.name,
+  }))
+}
+
+export function buildAdminSelectCats(categories: Category[]) {
+  const byId = new Map(categories.map(c => [c.id, c]))
+  return categories
+    .slice()
+    .sort((a, b) => {
+      const pa = a.parent_id != null ? byId.get(Number(a.parent_id)) : null
+      const pb = b.parent_id != null ? byId.get(Number(b.parent_id)) : null
+      const rootA = pa ? categorySlug(pa) : categorySlug(a)
+      const rootB = pb ? categorySlug(pb) : categorySlug(b)
+      if (rootA !== rootB) return rootA.localeCompare(rootB)
+      if (a.parent_id == null && b.parent_id != null) return -1
+      if (a.parent_id != null && b.parent_id == null) return 1
+      return (a.order || 0) - (b.order || 0)
+    })
+    .map(c => {
+      const parent = c.parent_id != null ? byId.get(Number(c.parent_id)) : null
+      const prefix = parent ? `${parent.name} · ` : ''
+      return {
+        id: categorySlug(c),
+        e: c.emoji || '📦',
+        name: `${prefix}${c.name}`,
+      }
+    })
+}
+
 export function categoryDisplayLabel(categories: Category[], catId?: string, fallback = 'Прочее') {
   const cat = getCategoryBySlug(categories, catId)
   if (!cat) return fallback
@@ -58,22 +101,78 @@ export function categoryDisplayLabel(categories: Category[], catId?: string, fal
   return parent ? `${parent.name} · ${cat.name}` : cat.name
 }
 
+/** Общий кэш — все хуки видят одни и те же категории, без мигания seed→API */
+let memoryCategories: Category[] | null = null
+let memoryLoaded = false
+let inflight: Promise<Category[]> | null = null
+const listeners = new Set<() => void>()
+
+function notifyCategories() {
+  listeners.forEach(l => l())
+}
+
+async function fetchCategoriesShared(): Promise<Category[]> {
+  if (inflight) return inflight
+  inflight = (async () => {
+    try {
+      if (USE_API) {
+        const data = await api.getCategories()
+        const list = Array.isArray(data) ? data : []
+        memoryCategories = list
+        memoryLoaded = true
+        notifyCategories()
+        return list
+      }
+      const seed = seedToCategories()
+      memoryCategories = seed
+      memoryLoaded = true
+      notifyCategories()
+      return seed
+    } catch (e) {
+      // При API не подставляем seed — иначе мигание «старое → новое»
+      if (!USE_API) {
+        const seed = seedToCategories()
+        memoryCategories = seed
+        memoryLoaded = true
+        notifyCategories()
+        return seed
+      }
+      memoryLoaded = true
+      notifyCategories()
+      throw e
+    } finally {
+      inflight = null
+    }
+  })()
+  return inflight
+}
+
 export function useCategories() {
-  const [categories, setCategories] = useState<Category[]>([])
-  const [loaded, setLoaded] = useState(false)
+  const [categories, setCategories] = useState<Category[]>(() => memoryCategories || [])
+  const [loaded, setLoaded] = useState(() => memoryLoaded)
   const [error, setError] = useState('')
 
   const reload = useCallback(async () => {
     try {
-      const data = await api.getCategories()
-      setCategories(Array.isArray(data) ? data : [])
+      const list = await fetchCategoriesShared()
+      setCategories(list)
       setError('')
     } catch (e) {
-      setCategories(seedToCategories())
+      // оставляем уже показанные категории из memory, без seed-фоллбэка
+      if (memoryCategories) setCategories(memoryCategories)
       setError(e instanceof Error ? e.message : 'Не удалось загрузить категории')
     } finally {
       setLoaded(true)
     }
+  }, [])
+
+  useEffect(() => {
+    const sync = () => {
+      setCategories(memoryCategories || [])
+      setLoaded(memoryLoaded)
+    }
+    listeners.add(sync)
+    return () => { listeners.delete(sync) }
   }, [])
 
   useEffect(() => { void reload() }, [reload])

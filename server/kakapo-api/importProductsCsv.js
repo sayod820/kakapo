@@ -5,85 +5,13 @@ import { fileURLToPath } from 'url'
 import { loadDb, saveDb, getDbFilePath } from './db.js'
 import { allocateProductBarcodes, allocateProductCodes, isPluTaken, nextFreeProductCode } from './productCodes.js'
 import { setProductStockExact } from './posLogic.js'
+import { buildCategoriesFromSeed } from './marketCategoriesSeed.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const ROOT = resolve(__dirname, '../..')
 const DEFAULT_CSV = resolve(ROOT, '../products.csv')
 const sourceFile = resolve(process.argv[2] || DEFAULT_CSV)
-
-const CATEGORY_SEED = [
-  { slug: 'veg', emoji: '🥦', name: 'Овощи и фрукты', parentSlug: null, order: 1 },
-  { slug: 'veg_ov', emoji: '🥕', name: 'Овощи', parentSlug: 'veg', order: 1 },
-  { slug: 'veg_fr', emoji: '🍊', name: 'Фрукты и ягоды', parentSlug: 'veg', order: 2 },
-  { slug: 'meat', emoji: '🥩', name: 'Мясо и птица', parentSlug: null, order: 2 },
-  { slug: 'meat_b', emoji: '🥩', name: 'Мясо', parentSlug: 'meat', order: 1 },
-  { slug: 'meat_p', emoji: '🍗', name: 'Птица', parentSlug: 'meat', order: 2 },
-  { slug: 'meat_k', emoji: '🌭', name: 'Колбасные изделия', parentSlug: 'meat', order: 3 },
-  { slug: 'dairy', emoji: '🥛', name: 'Молочное', parentSlug: null, order: 3 },
-  { slug: 'dairy_m', emoji: '🥛', name: 'Молоко и сливки', parentSlug: 'dairy', order: 1 },
-  { slug: 'dairy_f', emoji: '🥣', name: 'Кисломолочные продукты', parentSlug: 'dairy', order: 2 },
-  { slug: 'dairy_s', emoji: '🧀', name: 'Сыры и творог', parentSlug: 'dairy', order: 3 },
-  { slug: 'dairy_e', emoji: '🥚', name: 'Яйца', parentSlug: 'dairy', order: 4 },
-  { slug: 'bread', emoji: '🥐', name: 'Выпечка и хлеб', parentSlug: null, order: 4 },
-  { slug: 'bread_h', emoji: '🍞', name: 'Хлеб и лепёшки', parentSlug: 'bread', order: 1 },
-  { slug: 'bread_b', emoji: '🥐', name: 'Булочки и выпечка', parentSlug: 'bread', order: 2 },
-  { slug: 'drinks', emoji: '🧃', name: 'Напитки', parentSlug: null, order: 5 },
-  { slug: 'drinks_w', emoji: '💧', name: 'Вода', parentSlug: 'drinks', order: 1 },
-  { slug: 'drinks_s', emoji: '🥤', name: 'Газировка', parentSlug: 'drinks', order: 2 },
-  { slug: 'drinks_j', emoji: '🧃', name: 'Соки и нектары', parentSlug: 'drinks', order: 3 },
-  { slug: 'drinks_t', emoji: '🍵', name: 'Чай', parentSlug: 'drinks', order: 4 },
-  { slug: 'drinks_c', emoji: '☕', name: 'Кофе и какао', parentSlug: 'drinks', order: 5 },
-  { slug: 'drinks_e', emoji: '⚡', name: 'Энергетики', parentSlug: 'drinks', order: 6 },
-  { slug: 'sweets', emoji: '🍫', name: 'Сладости', parentSlug: null, order: 6 },
-  { slug: 'sweets_c', emoji: '🍬', name: 'Конфеты и мармелад', parentSlug: 'sweets', order: 1 },
-  { slug: 'sweets_ch', emoji: '🍫', name: 'Шоколад', parentSlug: 'sweets', order: 2 },
-  { slug: 'sweets_b', emoji: '🍪', name: 'Печенье и вафли', parentSlug: 'sweets', order: 3 },
-  { slug: 'sweets_k', emoji: '🧁', name: 'Кексы и торты', parentSlug: 'sweets', order: 4 },
-  { slug: 'sweets_g', emoji: '🍭', name: 'Жвачка и леденцы', parentSlug: 'sweets', order: 5 },
-  { slug: 'snacks', emoji: '🍿', name: 'Снеки', parentSlug: null, order: 7 },
-  { slug: 'snacks_s', emoji: '🍟', name: 'Чипсы и сухарики', parentSlug: 'snacks', order: 1 },
-  { slug: 'snacks_p', emoji: '🍿', name: 'Попкорн и палочки', parentSlug: 'snacks', order: 2 },
-  { slug: 'grocery', emoji: '🧂', name: 'Бакалея', parentSlug: null, order: 8 },
-  { slug: 'grocery_p', emoji: '🍝', name: 'Макароны и крупы', parentSlug: 'grocery', order: 1 },
-  { slug: 'grocery_s', emoji: '🧂', name: 'Приправы, соль и сода', parentSlug: 'grocery', order: 2 },
-  { slug: 'grocery_o', emoji: '🫗', name: 'Масло, уксус и соусы', parentSlug: 'grocery', order: 3 },
-  { slug: 'grocery_c', emoji: '🥫', name: 'Консервы', parentSlug: 'grocery', order: 4 },
-  { slug: 'grocery_f', emoji: '🌾', name: 'Мука, дрожжи и сахар', parentSlug: 'grocery', order: 5 },
-  { slug: 'grocery_n', emoji: '🥜', name: 'Орехи и семечки', parentSlug: 'grocery', order: 6 },
-  { slug: 'grocery_j', emoji: '🍯', name: 'Джемы и пасты', parentSlug: 'grocery', order: 7 },
-  { slug: 'frozen', emoji: '🧊', name: 'Заморозка', parentSlug: null, order: 9 },
-  { slug: 'frozen_i', emoji: '🍨', name: 'Мороженое', parentSlug: 'frozen', order: 1 },
-  { slug: 'frozen_r', emoji: '🥟', name: 'Полуфабрикаты', parentSlug: 'frozen', order: 2 },
-  { slug: 'frozen_v', emoji: '🫛', name: 'Замороженные овощи', parentSlug: 'frozen', order: 3 },
-  { slug: 'kids', emoji: '🧸', name: 'Детские товары', parentSlug: null, order: 10 },
-  { slug: 'kids_f', emoji: '🍼', name: 'Детское питание', parentSlug: 'kids', order: 1 },
-  { slug: 'kids_h', emoji: '🧷', name: 'Детская гигиена', parentSlug: 'kids', order: 2 },
-  { slug: 'kids_t', emoji: '🧸', name: 'Игрушки', parentSlug: 'kids', order: 3 },
-  { slug: 'kids_a', emoji: '🎈', name: 'Детские аксессуары', parentSlug: 'kids', order: 4 },
-  { slug: 'house', emoji: '🧴', name: 'Бытовая химия', parentSlug: null, order: 11 },
-  { slug: 'house_l', emoji: '🧺', name: 'Для стирки', parentSlug: 'house', order: 1 },
-  { slug: 'house_c', emoji: '🧽', name: 'Для уборки', parentSlug: 'house', order: 2 },
-  { slug: 'house_p', emoji: '🧻', name: 'Бумажные товары', parentSlug: 'house', order: 3 },
-  { slug: 'house_a', emoji: '🌸', name: 'Ароматы для дома', parentSlug: 'house', order: 4 },
-  { slug: 'beauty', emoji: '🪥', name: 'Красота и гигиена', parentSlug: null, order: 12 },
-  { slug: 'beauty_b', emoji: '🧼', name: 'Уход за телом', parentSlug: 'beauty', order: 1 },
-  { slug: 'beauty_h', emoji: '🧴', name: 'Уход за волосами', parentSlug: 'beauty', order: 2 },
-  { slug: 'beauty_o', emoji: '🪥', name: 'Уход за полостью рта', parentSlug: 'beauty', order: 3 },
-  { slug: 'beauty_s', emoji: '🪒', name: 'Бритьё и депиляция', parentSlug: 'beauty', order: 4 },
-  { slug: 'beauty_d', emoji: '💨', name: 'Дезодоранты', parentSlug: 'beauty', order: 5 },
-  { slug: 'beauty_w', emoji: '🩷', name: 'Женская гигиена', parentSlug: 'beauty', order: 6 },
-  { slug: 'beauty_f', emoji: '🧴', name: 'Уход за лицом', parentSlug: 'beauty', order: 7 },
-  { slug: 'beauty_c', emoji: '💄', name: 'Косметика и парфюмерия', parentSlug: 'beauty', order: 8 },
-  { slug: 'home', emoji: '🏠', name: 'Товары для дома', parentSlug: null, order: 13 },
-  { slug: 'home_k', emoji: '🍽️', name: 'Кухня и посуда', parentSlug: 'home', order: 1 },
-  { slug: 'home_o', emoji: '📚', name: 'Офис и школа', parentSlug: 'home', order: 2 },
-  { slug: 'home_b', emoji: '🔋', name: 'Батарейки и фонарики', parentSlug: 'home', order: 3 },
-  { slug: 'home_e', emoji: '🔌', name: 'Кабели и техника', parentSlug: 'home', order: 4 },
-  { slug: 'home_r', emoji: '🔧', name: 'Ремонт и стройка', parentSlug: 'home', order: 5 },
-  { slug: 'home_sh', emoji: '👞', name: 'Для обуви', parentSlug: 'home', order: 6 },
-  { slug: 'other', emoji: '📦', name: 'Прочее', parentSlug: null, order: 99 },
-]
 
 const EXACT_NAME_FIXES = new Map([
   ['тарбуз', 'Арбуз'],
@@ -178,40 +106,6 @@ function normalizeText(value) {
     .replace(/ё/g, 'е')
     .replace(/['"]/g, '')
     .replace(/\s+/g, ' ')
-}
-
-function buildCategories(seq) {
-  const slugToId = new Map()
-  const rows = []
-  for (const item of CATEGORY_SEED.filter(cat => !cat.parentSlug)) {
-    const id = ++seq.category
-    slugToId.set(item.slug, id)
-    rows.push({
-      id,
-      slug: item.slug,
-      name: item.name,
-      emoji: item.emoji,
-      desc: item.name,
-      parent_id: null,
-      order: item.order,
-      active: true,
-    })
-  }
-  for (const item of CATEGORY_SEED.filter(cat => cat.parentSlug)) {
-    const id = ++seq.category
-    slugToId.set(item.slug, id)
-    rows.push({
-      id,
-      slug: item.slug,
-      name: item.name,
-      emoji: item.emoji,
-      desc: item.name,
-      parent_id: slugToId.get(item.parentSlug) ?? null,
-      order: item.order,
-      active: true,
-    })
-  }
-  return rows
 }
 
 function categoryMap(categories) {
@@ -413,7 +307,7 @@ function main() {
   const db = loadDb()
   const backup = backupDb()
   clearDb(db)
-  db.categories = buildCategories(db._seq)
+  db.categories = buildCategoriesFromSeed(db._seq)
   const bySlug = categoryMap(db.categories)
 
   const stats = {

@@ -2,17 +2,12 @@ import type { Product, Restaurant } from './types'
 import { productBarcodes } from './productBarcodes'
 import { USE_API } from './config'
 
-/** Синонимы catId из API/GBS → slug каталога в приложении */
-const CAT_ALIASES: Record<string, string> = {
-  drink: 'drinks',
-  sweet: 'sweets',
-  chem: 'house',
-}
+import { CATEGORY_SLUG_ALIASES } from './marketCategoriesSeed'
 
 /** Slug категории для фильтров (meat, veg…) — не путать с p.cat «Мясо» из API */
 export function productCatSlug(p: { catId?: string; cat?: string }): string {
   const raw = String(p.catId || p.cat || '')
-  return CAT_ALIASES[raw] || raw
+  return CATEGORY_SLUG_ALIASES[raw] || raw
 }
 
 /** Дополняет товар из API полями UI (grad, desc…) из локального seed */

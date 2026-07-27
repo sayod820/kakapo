@@ -21,7 +21,17 @@ import {
   type AdminSession,
 } from '@/lib/adminSession'
 import { setToken } from '@/lib/api'
-import { useCategories } from '@/lib/useCategories'
+import {
+  useCategories,
+  categorySlug,
+  findCategoryName,
+  countProductsInCategory,
+  productMatchesCategoryFilter,
+  getRootSlug,
+  getCategoryBySlug,
+  buildAdminRootCats,
+  buildAdminSelectCats,
+} from '@/lib/useCategories'
 import { enrichProducts, enrichRestaurants } from '@/lib/enrichCatalog'
 import { usePricingStore, usePickupStore, hydrateCourierStores, syncCourierStoresFromApi } from '@/lib/courierStore'
 import { useCourierTeamStore, useCourierTeam, syncCourierTeamFromApi } from '@/lib/courierTeamStore'
@@ -372,18 +382,6 @@ const ADMIN_CAT_VISUAL: Record<string, { bg: string; color: string }> = {
   sweets: { bg: 'linear-gradient(145deg,#1A0C28,#2E1848)', color: '#C084FC' },
   house: { bg: 'linear-gradient(145deg,#062018,#103A28)', color: '#6EE7B7' },
 }
-
-const CATS_LIST = [
-  {id:'veg',   e:'🥦', name:'Овощи и фрукты'},
-  {id:'meat',  e:'🥩', name:'Мясо и птица'},
-  {id:'dairy', e:'🥛', name:'Молочное'},
-  {id:'bread', e:'🥐', name:'Выпечка и хлеб'},
-  {id:'drinks',e:'🧃', name:'Напитки'},
-  {id:'grains',e:'🌾', name:'Крупы и бобовые'},
-  {id:'frozen',e:'🧊', name:'Заморозка'},
-  {id:'sweets',e:'🍫', name:'Сладости'},
-  {id:'house', e:'🧴', name:'Бытовая химия'},
-];
 
 const PRODS = [
   {id:1, art:'KAK-0001',e:'🥦',name:'Брокколи свежая',   price:5.50, old:7.20, cat:'Овощи',   catId:'veg',   unit:'500 гр',stock:8, hot:true, organic:true, discount:24},
@@ -1343,6 +1341,9 @@ function serializeBulkPricing(rows) {
 
 function ProductsPage() {
   const { setPhoto, getPhoto, hydrate } = useProductPhotos();
+  const { categories, roots } = useCategories();
+  const adminRoots = useMemo(() => buildAdminRootCats(roots), [roots]);
+  const adminSelectCats = useMemo(() => buildAdminSelectCats(categories), [categories]);
   const apiProducts = useProducts(s => s.products);
   const productsLoaded = useProducts(s => s.loaded);
   const saveProduct = useProducts(s => s.saveProduct);
@@ -1377,6 +1378,11 @@ function ProductsPage() {
   const [ePhotoThumb, setEPhotoThumb] = useState('');
 
   useEffect(() => { hydrate(); }, [hydrate]);
+  useEffect(() => {
+    if (!roots.length) return;
+    const valid = new Set(adminSelectCats.map(c => c.id));
+    if (!valid.has(nCat)) setNCat(categorySlug(roots[0]));
+  }, [roots, adminSelectCats, nCat]);
   useEffect(() => {
     if (!editP) { setEditForm(null); return; }
     setEPhoto(editP.photo || getPhoto(editP.id) || '');
@@ -1427,7 +1433,7 @@ function ProductsPage() {
   const filtered = prods.filter(p => {
     const q = search.toLowerCase();
     const matchQ = !search || p.name.toLowerCase().includes(q) || p.art.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q);
-    const matchC = catFlt==='all' || p.catId===catFlt;
+    const matchC = catFlt === 'all' || productMatchesCategoryFilter(p.catId, catFlt, categories);
     return matchQ && matchC && matchStat(p);
   });
 
@@ -1449,7 +1455,7 @@ function ProductsPage() {
         art: nArt.trim() || code,
         e:nEmoji, name:nName, price:Number(nPrice),
         costPrice: nCostPrice ? Number(nCostPrice) : null,
-        cat:CATS_LIST.find(c=>c.id===nCat)?.name||nCat, catId:nCat,
+        cat: findCategoryName(categories, nCat, nCat), catId: nCat,
         unit:nUnit||'шт', stock:Number(nStock)||0, hot:false, organic:nOrganic,
         desc:nDesc||undefined, sellType:nSellType,
         plu: code,
@@ -1481,7 +1487,7 @@ function ProductsPage() {
       costPrice,
       stock: Number(editForm.stock),
       catId: editForm.catId,
-      cat: CATS_LIST.find(c=>c.id===editForm.catId)?.name || editP.cat,
+      cat: findCategoryName(categories, editForm.catId, editP.cat),
       photo: ePhoto || null,
       photoThumb: ePhotoThumb || null,
       sellType: editForm.sellType || 'piece',
@@ -1500,8 +1506,8 @@ function ProductsPage() {
 
   const delProd = async (id) => { await removeProduct(id); };
 
-  const cats = CATS_LIST;
-  const byCat = cats.map(c=>({...c, count: prods.filter(p=>p.catId===c.id).length}));
+  const cats = adminRoots;
+  const byCat = cats.map(c => ({ ...c, count: countProductsInCategory(prods, c.id, categories) }));
   const withBulk = prods.filter(p => hasBulkPricing(p)).length;
 
   return (
@@ -1544,7 +1550,7 @@ function ProductsPage() {
       <div style={{fontSize:12,color:'#3D6645',marginBottom:10}}>
         Показано {filtered.length} из {prods.length} товаров
         {statFlt!=='all'?` · ${statLabels[statFlt]}`:''}
-        {catFlt!=='all'?` · ${CATS_LIST.find(c=>c.id===catFlt)?.name}`:''}
+        {catFlt!=='all'?` · ${findCategoryName(categories, catFlt, catFlt)}`:''}
       </div>
 
       {/* Table */}
@@ -1635,7 +1641,7 @@ function ProductsPage() {
                 <div>
                   <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Категория *</div>
                   <select className="ai" value={nCat} onChange={e=>setNCat(e.target.value)} style={{cursor:'pointer'}}>
-                    {CATS_LIST.map(c=><option key={c.id} value={c.id}>{c.e} {c.name}</option>)}
+                    {adminSelectCats.map(c=><option key={c.id} value={c.id}>{c.e} {c.name}</option>)}
                   </select>
                 </div>
                 <div><div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Единица измерения</div><input className="ai" value={nUnit} onChange={e=>setNUnit(e.target.value)} placeholder="500 гр / 1 кг / 1 л ..."/></div>
@@ -1760,7 +1766,7 @@ function ProductsPage() {
                 <div>
                   <div style={{fontSize:11,color:'#8FB897',marginBottom:5,fontWeight:700}}>Категория</div>
                   <select className="ai" value={editForm.catId} onChange={e=>setEditForm(f=>({...f,catId:e.target.value}))} style={{cursor:'pointer'}}>
-                    {CATS_LIST.map(c=><option key={c.id} value={c.id}>{c.e} {c.name}</option>)}
+                    {adminSelectCats.map(c=><option key={c.id} value={c.id}>{c.e} {c.name}</option>)}
                   </select>
                 </div>
                 <div style={{display:'flex',alignItems:'flex-end',gap:8,paddingBottom:2}}>
@@ -5725,6 +5731,8 @@ function PromosPage() {
   const emptyProductForm = { productId: '', salePrice: '', oldPrice: '', markHot: false, on: true, stockLimit: '', resetStockSold: false, schedule: { scheduleMode: 'always' as PromoScheduleForm['scheduleMode'], from: '08:00', to: '22:00', till: 'Всегда', startsAt: '', endsAt: '' } }
 
   const apiProducts = useProducts(s => s.products)
+  const { categories, roots } = useCategories()
+  const adminRoots = useMemo(() => buildAdminRootCats(roots), [roots])
   const catalogProds = useMemo(() => stripProductSaleFields(enrichProducts(apiProducts, PRODS)), [apiProducts])
 
   const [promos, setPromosLocal] = useState<Promo[]>([])
@@ -5746,6 +5754,7 @@ function PromosPage() {
   const productPromos = promos.filter(isProductPromo)
   const prodForPromo = (p: Promo) => catalogProds.find(x => x.id === p.productId)
   const catIdForPromo = (p: Promo) => prodForPromo(p)?.catId || null
+  const rootIdForPromo = (p: Promo) => getRootSlug(categories, catIdForPromo(p) || undefined)
   const saleDiscPromo = (p: Promo) => {
     const sale = Number(p.salePrice)
     const old = Number(p.oldPrice) || prodForPromo(p)?.price || 0
@@ -5753,8 +5762,11 @@ function PromosPage() {
   }
   const catLabelForPromo = (p: Promo) => {
     const cid = catIdForPromo(p)
-    const cat = cid ? CATS_LIST.find(c => c.id === cid) : null
-    return cat ? `${cat.e} ${cat.name.split(' ')[0]}` : null
+    const name = cid ? findCategoryName(categories, cid, '') : ''
+    if (!name) return null
+    const cat = getCategoryBySlug(categories, cid!)
+    const emoji = cat?.emoji || '📦'
+    return `${emoji} ${name.split(' ')[0]}`
   }
   const flashPromos = useMemo(
     () => productPromos.filter(p => inferScheduleMode(p) === 'flash'),
@@ -5765,15 +5777,16 @@ function PromosPage() {
     [productPromos],
   )
   const promosByCategory = useMemo(() => {
-    const groups: { cat: typeof CATS_LIST[0]; items: Promo[]; maxDisc: number }[] = []
-    for (const cat of CATS_LIST) {
-      const items = productPromos.filter(p => catIdForPromo(p) === cat.id)
+    const groups: { cat: { id: string; e: string; name: string }; items: Promo[]; maxDisc: number }[] = []
+    const knownRoots = new Set(adminRoots.map(c => c.id))
+    for (const cat of adminRoots) {
+      const items = productPromos.filter(p => rootIdForPromo(p) === cat.id)
       if (!items.length) continue
       groups.push({ cat, items, maxDisc: Math.max(...items.map(saleDiscPromo)) })
     }
     const other = productPromos.filter(p => {
-      const cid = catIdForPromo(p)
-      return !cid || !CATS_LIST.some(c => c.id === cid)
+      const root = rootIdForPromo(p)
+      return !root || !knownRoots.has(root)
     })
     if (other.length) {
       groups.push({
@@ -5783,20 +5796,21 @@ function PromosPage() {
       })
     }
     return groups
-  }, [productPromos, catalogProds])
+  }, [productPromos, adminRoots, categories])
   const activeCat = selectedCat
-    ? (CATS_LIST.find(c => c.id === selectedCat) || (selectedCat === '_other' ? { id: '_other', e: '🏷️', name: 'Другие' } : null))
+    ? (adminRoots.find(c => c.id === selectedCat) || (selectedCat === '_other' ? { id: '_other', e: '🏷️', name: 'Другие' } : null))
     : null
   const activeCatItems = useMemo(() => {
     if (!selectedCat) return []
     if (selectedCat === '_other') {
+      const knownRoots = new Set(adminRoots.map(c => c.id))
       return productPromos.filter(p => {
-        const cid = catIdForPromo(p)
-        return !cid || !CATS_LIST.some(c => c.id === cid)
+        const root = rootIdForPromo(p)
+        return !root || !knownRoots.has(root)
       })
     }
-    return productPromos.filter(p => catIdForPromo(p) === selectedCat)
-  }, [selectedCat, productPromos, catalogProds])
+    return productPromos.filter(p => rootIdForPromo(p) === selectedCat)
+  }, [selectedCat, productPromos, adminRoots, categories])
 
   const persistLocal = (list: Promo[]) => {
     if (typeof window !== 'undefined') localStorage.setItem(LOCAL_KEY, JSON.stringify(list))
@@ -5961,7 +5975,7 @@ function PromosPage() {
       const isFlash = inferScheduleMode({ ...payload, scheduleMode: productForm.schedule.scheduleMode } as Promo) === 'flash'
       if (!isFlash && product?.catId) {
         setSection('categories')
-        setSelectedCat(product.catId)
+        setSelectedCat(getRootSlug(categories, product.catId) || product.catId)
       } else if (isFlash) {
         setSection('flash')
         setSelectedCat(null)
@@ -6032,9 +6046,9 @@ function PromosPage() {
   const editingProductPromo = editProductId != null ? productPromos.find(p => p.id === editProductId) : null
   const pickerProducts = useMemo(() => {
     let list = catalogProds
-    if (pickerCatFilter) list = list.filter(p => p.catId === pickerCatFilter)
+    if (pickerCatFilter) list = list.filter(p => productMatchesCategoryFilter(p.catId, pickerCatFilter, categories))
     return list.map(p => ({ id: p.id, name: p.name, e: p.e, art: p.art, price: p.price }))
-  }, [catalogProds, pickerCatFilter])
+  }, [catalogProds, pickerCatFilter, categories])
   const productPreviewDisc = selectedProduct && productForm.salePrice
     && Number(productForm.oldPrice || selectedProduct.price) > Number(productForm.salePrice)
     ? Math.round((1 - Number(productForm.salePrice) / Number(productForm.oldPrice || selectedProduct.price)) * 100)
