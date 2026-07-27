@@ -1168,7 +1168,10 @@ export default function CashierModule({
         || productMatchesCategoryFilter(p.cat, slug, categories),
       ))
     }
-    if (search.trim()) list = filterProductsBySearch(list, search.trim())
+    if (search.trim()) {
+      // При поиске — порядок по релевантности (хвост штрихкода / название), не алфавит
+      return filterProductsBySearch(list, search.trim(), 80)
+    }
     return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ru'))
   }, [inStockProducts, showFav, favSet, selectedCatSlugs, categories, search])
 

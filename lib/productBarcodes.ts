@@ -72,6 +72,50 @@ export function productBarcodeSearchText(p: Partial<Product>): string {
   return productBarcodes(p).join(' ')
 }
 
+/**
+ * Фонетическая нормализация: bic ≈ бик, cola ≈ кола.
+ * Сводит латиницу и кириллицу к одному «скелету» для поиска.
+ */
+export function foldSearchText(input: string): string {
+  let s = String(input || '').toLowerCase().replace(/ё/g, 'е')
+  // лат. диграфы → одна «буква»-токен
+  s = s
+    .replace(/sch/g, 'щ')
+    .replace(/sh/g, 'ш')
+    .replace(/ch/g, 'ч')
+    .replace(/zh/g, 'ж')
+    .replace(/kh/g, 'х')
+    .replace(/ts/g, 'ц')
+    .replace(/yo/g, 'е')
+    .replace(/yu/g, 'ю')
+    .replace(/ya/g, 'я')
+    .replace(/ye/g, 'е')
+
+  let out = ''
+  for (const ch of s) {
+    if (LAT_FOLD[ch]) out += LAT_FOLD[ch]
+    else if (CYR_FOLD[ch]) out += CYR_FOLD[ch]
+    else if (/[a-z0-9]/.test(ch)) out += ch
+    else if (/\s|-|_/.test(ch)) out += ' '
+  }
+  return out.replace(/\s+/g, ' ').trim()
+}
+
+const LAT_FOLD: Record<string, string> = {
+  // c → k: bic/бик, cola/кола
+  a: 'a', b: 'b', c: 'k', d: 'd', e: 'e', f: 'f', g: 'g', h: 'h',
+  i: 'i', j: 'j', k: 'k', l: 'l', m: 'm', n: 'n', o: 'o', p: 'p',
+  q: 'k', r: 'r', s: 's', t: 't', u: 'u', v: 'v', w: 'v', x: 'x',
+  y: 'i', z: 'z',
+}
+
+const CYR_FOLD: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ж: 'zh', з: 'z',
+  и: 'i', й: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p',
+  р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch',
+  ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+}
+
 /** Текст для полнотекстового поиска: имя, артикул, штрихкоды, PLU, бренд */
 export function productSearchHaystack(p: Partial<Product>, extra = ''): string {
   return [
@@ -84,39 +128,86 @@ export function productSearchHaystack(p: Partial<Product>, extra = ''): string {
   ].filter(Boolean).join(' ').toLowerCase()
 }
 
-/** Релевантность для сортировки (сканер штрихкода → точное совпадение вверху) */
+function textMatchScore(hay: string, q: string, qFold: string): number {
+  if (!q) return 0
+  const h = hay.toLowerCase()
+  const hFold = foldSearchText(hay)
+  if (!h && !hFold) return 0
+  if (h === q || hFold === qFold) return 100
+  if (h.startsWith(q) || hFold.startsWith(qFold)) return 90
+  const words = h.split(/[\s,/.\-_+]+/).filter(Boolean)
+  const wordsFold = hFold.split(/\s+/).filter(Boolean)
+  if (words.some(w => w.startsWith(q)) || wordsFold.some(w => w.startsWith(qFold))) return 80
+  if (h.includes(q) || (qFold.length >= 2 && hFold.includes(qFold))) return 60
+  return 0
+}
+
+/**
+ * Релевантность для списка поиска (касса / склад).
+ * Приоритет: точный код → хвост штрихкода (4–5+) → название (с транслитом) → артикул.
+ */
 export function productSearchScore(p: Partial<Product>, query: string, extra = ''): number {
-  const q = query.trim().toLowerCase()
   const qRaw = query.trim()
+  const q = qRaw.toLowerCase()
   if (!q) return 0
 
-  const codes = productBarcodes(p)
-  if (qRaw && codes.some(c => c === qRaw)) return 1000
+  const qFold = foldSearchText(qRaw)
   const qDigits = qRaw.replace(/\D/g, '')
-  if (qDigits.length >= 8 && codes.some(c => c.replace(/\D/g, '') === qDigits)) return 1000
+  const codes = productBarcodes(p)
+  const codeDigits = codes.map(c => c.replace(/\D/g, '')).filter(Boolean)
+
+  // 1) Точный штрихкод
+  if (codes.some(c => c === qRaw)) return 1000
+  if (qDigits.length >= 8 && codeDigits.some(cd => cd === qDigits)) return 1000
+
+  // 2) Хвост штрихкода: последние 4–5+ цифр → вверху списка
+  if (qDigits.length >= 4 && /^\d+$/.test(qRaw.replace(/[\s\-]/g, ''))) {
+    if (codeDigits.some(cd => cd.length >= qDigits.length && cd.endsWith(qDigits))) {
+      return qDigits.length >= 5 ? 970 : 960
+    }
+  }
 
   const name = (p.name || '').toLowerCase()
   const art = (p.art || '').toLowerCase()
-  const plu = (p.plu || '').toLowerCase()
+  const brand = (p.brand || '').toLowerCase()
+  const pluDigits = String(p.plu || '').replace(/\D/g, '')
 
-  if (art === q) return 900
-  if (plu === q) return 880
-  if (qDigits && String(p.plu || '').replace(/\D/g, '') === qDigits) return 880
-  if (name === q) return 800
-  if (name.startsWith(q)) return 700
-  if (art.startsWith(q)) return 650
-  // Частичный штрихкод — только для длинных кодов (не 4 цифры PLU / начало EAN)
-  if (qDigits.length >= 8 && codes.some(c => c.replace(/\D/g, '').startsWith(qDigits))) return 600
-  if (qRaw.length >= 8 && codes.some(c => c.startsWith(qRaw))) return 600
-  if (name.includes(q)) return 500
-  if (art.includes(q)) return 400
-  if (qDigits.length >= 8 && codes.some(c => c.replace(/\D/g, '').includes(qDigits))) return 300
-  if (qRaw.length >= 8 && codes.some(c => c.includes(qRaw))) return 300
-  // Короткие цифры (PLU) — без haystack.includes, иначе «23» ловит PLU 1234
+  // 3) Точный артикул / PLU
+  if (art && art === q) return 940
+  if (qDigits && pluDigits && pluDigits === qDigits && qDigits.length <= 6) return 930
+
+  // 4) Название / бренд (латиница ↔ кириллица: bic ≈ бик)
+  const nameHit = textMatchScore(name, q, qFold)
+  if (nameHit >= 100) return 920
+  if (nameHit >= 90) return 900
+  if (nameHit >= 80) return 880
+  if (nameHit >= 60) return 860
+
+  const brandHit = textMatchScore(brand, q, qFold)
+  if (brandHit >= 80) return 840
+  if (brandHit >= 60) return 820
+
+  const artHit = textMatchScore(art, q, qFold)
+  if (artHit >= 90) return 800
+  if (artHit >= 60) return 760
+
+  // 5) Префикс / середина длинного штрихкода
+  if (qDigits.length >= 8) {
+    if (codeDigits.some(cd => cd.startsWith(qDigits))) return 700
+    if (codeDigits.some(cd => cd.includes(qDigits))) return 650
+  }
+  if (qRaw.length >= 8) {
+    if (codes.some(c => c.startsWith(qRaw))) return 700
+    if (codes.some(c => c.includes(qRaw))) return 650
+  }
+
+  // Короткие чистые цифры без совпадения PLU/хвоста — не шумим по haystack
   if (/^\d+$/.test(qRaw) && qDigits.length <= 7) return 0
 
   const haystack = productSearchHaystack(p, extra)
-  if (haystack.includes(q)) return 100
+  const hayHit = textMatchScore(haystack, q, qFold)
+  if (hayHit >= 60) return 200
+  if (hayHit > 0) return 100
   return 0
 }
 
