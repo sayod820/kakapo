@@ -641,7 +641,7 @@ export const POS_MOCK_CSS = `
   .discount-strip{margin:8px 14px 0;padding:9px 12px;border-radius:13px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-size:11px;}
   .discount-strip .set-btn{font-size:10.5px;color:var(--blue);font-weight:800;}
 
-  .cart-items{flex:1;overflow-y:auto;padding:10px 14px;min-height:160px;}
+  .cart-items{flex:1;overflow-y:auto;padding:10px 14px;min-height:160px;position:relative;scroll-behavior:auto;}
   .cart-empty{text-align:center;color:var(--t3);padding:36px 10px;}
   .cart-empty .ic{font-size:34px;opacity:.5;margin-bottom:8px;}
   .cart-row{display:flex;align-items:center;gap:10px;padding:11px 8px;border-radius:14px;animation:rowIn .18s ease both;border:1px solid transparent;cursor:pointer;}
