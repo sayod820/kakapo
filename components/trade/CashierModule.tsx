@@ -567,10 +567,7 @@ export default function CashierModule({
         selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
       }
     }))
-    if (selectKey) {
-      revealLineKeyRef.current = selectKey
-      window.requestAnimationFrame(scrollCartToBottom)
-    }
+    if (selectKey) scheduleCartScroll(selectKey)
   }
 
   const [busy, setBusy] = useState(false)
@@ -606,6 +603,9 @@ export default function CashierModule({
   const cartItemsRef = useRef<HTMLDivElement>(null)
   /** После пробития — доскроллить к строке уже после commit DOM */
   const revealLineKeyRef = useRef<string | null>(null)
+  /** Пока true — любое обновление чека докручивает список вниз (как лента кассы) */
+  const cartStickToEndRef = useRef(false)
+  const cartScrollTimersRef = useRef<number[]>([])
   /** Актуальный чек для склейки без гонок при быстрых кликах */
   const cartRef = useRef<CartLine[]>(cart)
   cartRef.current = cart
@@ -909,26 +909,96 @@ export default function CashierModule({
   function revealCartLine(key: string | null | undefined) {
     if (!key) return
     revealLineKeyRef.current = key
+    cartStickToEndRef.current = true
     setSelectedLineKey(key)
+    scheduleCartScroll(key)
   }
 
   function scrollCartToBottom() {
     const box = cartItemsRef.current
     if (!box) return
-    box.scrollTop = box.scrollHeight
+    // Только scrollTop своего контейнера (scrollIntoView крутит чужие панели)
+    const max = Math.max(0, box.scrollHeight - box.clientHeight)
+    box.scrollTop = max
+    if (box.scrollTop < max) box.scrollTop = max
+  }
+
+  function scrollCartToLine(key: string) {
+    const box = cartItemsRef.current
+    if (!box) return
+    const row = box.querySelector(`[data-line-key="${CSS.escape(key)}"]`) as HTMLElement | null
+    if (!row) {
+      scrollCartToBottom()
+      return
+    }
+    // Строка в конце чека — всегда в самый низ; иначе подгоняем по offset
+    if (!row.nextElementSibling) {
+      scrollCartToBottom()
+      return
+    }
+    const top = row.offsetTop
+    const next = Math.max(0, top + row.offsetHeight - box.clientHeight + 10)
+    box.scrollTop = next
+  }
+
+  function clearCartScrollTimers() {
+    for (const id of cartScrollTimersRef.current) {
+      window.clearTimeout(id)
+      window.cancelAnimationFrame(id)
+    }
+    cartScrollTimersRef.current = []
+  }
+
+  function scheduleCartScroll(key: string) {
+    if (!key) return
+    revealLineKeyRef.current = key
+    cartStickToEndRef.current = true
+    clearCartScrollTimers()
+    const run = () => {
+      if (!cartStickToEndRef.current) return
+      if (revealLineKeyRef.current && revealLineKeyRef.current !== key) return
+      scrollCartToLine(key)
+    }
+    run()
+    const raf1 = window.requestAnimationFrame(() => {
+      run()
+      const raf2 = window.requestAnimationFrame(run)
+      cartScrollTimersRef.current.push(raf2)
+    })
+    cartScrollTimersRef.current.push(raf1)
+    for (const ms of [0, 16, 48, 100, 200]) {
+      cartScrollTimersRef.current.push(window.setTimeout(run, ms))
+    }
   }
 
   useLayoutEffect(() => {
+    if (!cartStickToEndRef.current) return
     const key = revealLineKeyRef.current
-    if (!key || selectedLineKey !== key) return
-    // Строка уже в конце списка — достаточно scrollTop
-    scrollCartToBottom()
-    const raf = window.requestAnimationFrame(() => {
-      scrollCartToBottom()
-      if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
-    })
-    return () => window.cancelAnimationFrame(raf)
+    if (key) scrollCartToLine(key)
+    else scrollCartToBottom()
   }, [cart, selectedLineKey])
+
+  useEffect(() => {
+    if (!cartStickToEndRef.current) return
+    const key = revealLineKeyRef.current
+    if (key) scheduleCartScroll(key)
+    else scrollCartToBottom()
+  }, [cart, selectedLineKey])
+
+  // Ручной скролл — отпускаем «прилипание» (не на programmatic scrollTop)
+  useEffect(() => {
+    const box = cartItemsRef.current
+    if (!box) return
+    const release = () => { cartStickToEndRef.current = false }
+    box.addEventListener('wheel', release, { passive: true })
+    box.addEventListener('touchstart', release, { passive: true })
+    box.addEventListener('pointerdown', release)
+    return () => {
+      box.removeEventListener('wheel', release)
+      box.removeEventListener('touchstart', release)
+      box.removeEventListener('pointerdown', release)
+    }
+  }, [])
 
   const overlayBlocksSearchRef = useRef(overlayBlocksSearch)
   useEffect(() => {
@@ -2975,11 +3045,7 @@ export default function CashierModule({
         selectedLineKey: key,
       }
     }))
-    if (revealKey) {
-      revealLineKeyRef.current = revealKey
-      // Мгновенный скролл до commit — потом useLayoutEffect добьёт
-      window.requestAnimationFrame(scrollCartToBottom)
-    }
+    if (revealKey) scheduleCartScroll(revealKey)
     setLayerPickOpen(false)
     setLayerPickProduct(null)
     setLayerPickGroups([])
