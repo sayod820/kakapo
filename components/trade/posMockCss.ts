@@ -644,7 +644,8 @@ export const POS_MOCK_CSS = `
   .cart-items{flex:1;overflow-y:auto;padding:10px 14px;min-height:160px;position:relative;scroll-behavior:auto;}
   .cart-empty{text-align:center;color:var(--t3);padding:36px 10px;}
   .cart-empty .ic{font-size:34px;opacity:.5;margin-bottom:8px;}
-  .cart-row{display:flex;align-items:center;gap:10px;padding:11px 8px;border-radius:14px;animation:rowIn .18s ease both;border:1px solid transparent;cursor:pointer;}
+  .cart-row{display:flex;align-items:center;gap:10px;padding:11px 8px;border-radius:14px;border:1px solid transparent;cursor:pointer;}
+  .cart-row.is-new{animation:rowIn .15s ease both;}
   .cart-row:hover{background:var(--surface2);border-color:var(--border);}
   .cart-row.sel{background:rgba(31,215,96,.12);border-color:rgba(31,215,96,.45);box-shadow:inset 3px 0 0 var(--green);}
   .cart-row .ic{width:44px;height:44px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}

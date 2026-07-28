@@ -909,48 +909,37 @@ export default function CashierModule({
 
   function scrollCartToLine(key: string) {
     const box = cartItemsRef.current
-    if (!box) return false
+    if (!box) return
     const row = box.querySelector(`[data-line-key="${CSS.escape(key)}"]`) as HTMLElement | null
-    // Не используем scrollIntoView — в Electron/flex он часто крутит не тот контейнер
-    if (row) {
-      const pad = 10
-      const top = row.offsetTop
-      const bottom = top + row.offsetHeight
-      const viewTop = box.scrollTop
-      const viewBottom = viewTop + box.clientHeight
-      if (bottom + pad > viewBottom) {
-        box.scrollTop = bottom - box.clientHeight + pad
-      } else if (top - pad < viewTop) {
-        box.scrollTop = Math.max(0, top - pad)
-      }
+    if (!row) {
+      box.scrollTop = Math.max(0, box.scrollHeight - box.clientHeight)
+      return
     }
-    // Гарантия: низ чека (последняя пробитая всегда внизу списка)
-    box.scrollTop = box.scrollHeight
-    return true
+    // Координаты относительно видимой области списка — надёжнее offsetTop в flex/Electron
+    const boxRect = box.getBoundingClientRect()
+    const rowRect = row.getBoundingClientRect()
+    const pad = 8
+    if (rowRect.bottom > boxRect.bottom - pad) {
+      box.scrollTop += rowRect.bottom - boxRect.bottom + pad
+    } else if (rowRect.top < boxRect.top + pad) {
+      box.scrollTop += rowRect.top - boxRect.top - pad
+    }
   }
 
   useLayoutEffect(() => {
     const key = revealLineKeyRef.current
-    if (!key) return
-    if (selectedLineKey !== key) return
+    if (!key || selectedLineKey !== key) return
 
     scrollCartToLine(key)
     const raf = window.requestAnimationFrame(() => {
       scrollCartToLine(key)
-      window.requestAnimationFrame(() => scrollCartToLine(key))
+      // ещё один кадр — после flex-пересчёта высоты
+      window.requestAnimationFrame(() => {
+        scrollCartToLine(key)
+        if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
+      })
     })
-    // После анимации rowIn (.18s) высота списка окончательная
-    const t1 = window.setTimeout(() => scrollCartToLine(key), 50)
-    const t2 = window.setTimeout(() => {
-      scrollCartToLine(key)
-      if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
-    }, 200)
-
-    return () => {
-      window.cancelAnimationFrame(raf)
-      window.clearTimeout(t1)
-      window.clearTimeout(t2)
-    }
+    return () => window.cancelAnimationFrame(raf)
   }, [cart, selectedLineKey])
 
   const overlayBlocksSearchRef = useRef(overlayBlocksSearch)
@@ -2926,10 +2915,12 @@ export default function CashierModule({
           ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
         }
         revealKey = updated.key
-        // Последняя пробитая — вниз списка
+        // Не переставляем строку в конец — это лагает чек и ломает скролл
+        const next = prev.slice()
+        next[idx] = updated
         return {
           ...t,
-          cart: [...prev.filter((_, i) => i !== idx), updated],
+          cart: next,
           selectedLineKey: updated.key,
         }
       }
