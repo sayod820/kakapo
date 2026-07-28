@@ -567,7 +567,10 @@ export default function CashierModule({
         selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
       }
     }))
-    if (selectKey) revealLineKeyRef.current = selectKey
+    if (selectKey) {
+      revealLineKeyRef.current = selectKey
+      window.requestAnimationFrame(scrollCartToBottom)
+    }
   }
 
   const [busy, setBusy] = useState(false)
@@ -610,6 +613,8 @@ export default function CashierModule({
   const addInflightRef = useRef(new Set<number>())
   const addPendingBumpRef = useRef(new Map<number, number>())
   const lastPieceAddRef = useRef<{ id: number; t: number }>({ id: 0, t: 0 })
+  /** Кэш групп цен по партиям — без ожидания API на каждое пробитие */
+  const layerGroupsCacheRef = useRef(new Map<number, PriceLayerGroup[]>())
   const [cashOpen, setCashOpen] = useState(false)
   const [splitCardOpen, setSplitCardOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
@@ -900,44 +905,27 @@ export default function CashierModule({
     }
   }
 
-  /** Последний пробитый товар — выделить и показать без ручной прокрутки */
+  /** Последний пробитый товар — выделить и докрутить чек вниз */
   function revealCartLine(key: string | null | undefined) {
     if (!key) return
     revealLineKeyRef.current = key
     setSelectedLineKey(key)
   }
 
-  function scrollCartToLine(key: string) {
+  function scrollCartToBottom() {
     const box = cartItemsRef.current
     if (!box) return
-    const row = box.querySelector(`[data-line-key="${CSS.escape(key)}"]`) as HTMLElement | null
-    if (!row) {
-      box.scrollTop = Math.max(0, box.scrollHeight - box.clientHeight)
-      return
-    }
-    // Координаты относительно видимой области списка — надёжнее offsetTop в flex/Electron
-    const boxRect = box.getBoundingClientRect()
-    const rowRect = row.getBoundingClientRect()
-    const pad = 8
-    if (rowRect.bottom > boxRect.bottom - pad) {
-      box.scrollTop += rowRect.bottom - boxRect.bottom + pad
-    } else if (rowRect.top < boxRect.top + pad) {
-      box.scrollTop += rowRect.top - boxRect.top - pad
-    }
+    box.scrollTop = box.scrollHeight
   }
 
   useLayoutEffect(() => {
     const key = revealLineKeyRef.current
     if (!key || selectedLineKey !== key) return
-
-    scrollCartToLine(key)
+    // Строка уже в конце списка — достаточно scrollTop
+    scrollCartToBottom()
     const raf = window.requestAnimationFrame(() => {
-      scrollCartToLine(key)
-      // ещё один кадр — после flex-пересчёта высоты
-      window.requestAnimationFrame(() => {
-        scrollCartToLine(key)
-        if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
-      })
+      scrollCartToBottom()
+      if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
     })
     return () => window.cancelAnimationFrame(raf)
   }, [cart, selectedLineKey])
@@ -2668,23 +2656,12 @@ export default function CashierModule({
       for (let i = 0; i < bumps; i++) pushProductToCart(p, weightKg)
     }
 
-    if (!USE_API) {
-      pushProductToCart(p, weightKg)
-      finishBumps()
-      return
-    }
-    setLayerPickBusy(true)
-    try {
-      const layers = await api.getProductStockLayers(p.id)
-      const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
-      const groups = groupStockLayersByRetail(open, Number(p.price) || 0)
-      // Несколько разных цен — кассир выбирает цену; внутри цены списание FIFO
+    const applyGroupsOrPush = (groups: PriceLayerGroup[]) => {
       if (groups.length > 1) {
         setLayerPickProduct(p)
         setLayerPickGroups(groups)
         setLayerPickWeightKg(weightKg)
         setLayerPickOpen(true)
-        // Выбор цены вручную — отложенные bump не применяем
         if (piece) {
           addPendingBumpRef.current.delete(p.id)
           addInflightRef.current.delete(p.id)
@@ -2703,6 +2680,53 @@ export default function CashierModule({
       }
       pushProductToCart(p, weightKg)
       finishBumps()
+    }
+
+    // Весовой без кг — сразу модалка веса, API не ждём
+    if (isWeighted(p) && weightKg == null) {
+      pushProductToCart(p, weightKg)
+      if (piece) addInflightRef.current.delete(p.id)
+      return
+    }
+
+    // Offline / без API — мгновенно в чек
+    if (!USE_API || !isOnline()) {
+      pushProductToCart(p, weightKg)
+      finishBumps()
+      return
+    }
+
+    // Кэш групп цен — без сетевой задержки
+    const cached = layerGroupsCacheRef.current.get(p.id)
+    if (cached) {
+      applyGroupsOrPush(cached)
+      // фоном обновим кэш
+      void api.getProductStockLayers(p.id).then(layers => {
+        const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+        layerGroupsCacheRef.current.set(p.id, groupStockLayersByRetail(open, Number(p.price) || 0))
+      }).catch(() => {})
+      return
+    }
+
+    // Штучный без кэша — сразу в чек (не тормозим сканер), партии подтянем в фоне
+    if (piece) {
+      pushProductToCart(p, weightKg)
+      finishBumps()
+      void api.getProductStockLayers(p.id).then(layers => {
+        const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+        layerGroupsCacheRef.current.set(p.id, groupStockLayersByRetail(open, Number(p.price) || 0))
+      }).catch(() => {})
+      return
+    }
+
+    // Весовой с весом / редкий путь — можно подождать партии коротко
+    setLayerPickBusy(true)
+    try {
+      const layers = await api.getProductStockLayers(p.id)
+      const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+      const groups = groupStockLayersByRetail(open, Number(p.price) || 0)
+      layerGroupsCacheRef.current.set(p.id, groups)
+      applyGroupsOrPush(groups)
     } catch {
       pushProductToCart(p, weightKg)
       finishBumps()
@@ -2915,9 +2939,11 @@ export default function CashierModule({
           ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
         }
         revealKey = updated.key
-        // Не переставляем строку в конец — это лагает чек и ломает скролл
+        // Повторное пробитие — строка уходит в конец чека
         const next = prev.slice()
-        next[idx] = updated
+        next.splice(idx, 1)
+        next.push(updated)
+        cartRef.current = next
         return {
           ...t,
           cart: next,
@@ -2926,28 +2952,34 @@ export default function CashierModule({
       }
       const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
       revealKey = key
+      const next = [...prev, {
+        key,
+        productId: p.id,
+        name: p.name,
+        emoji: p.e || '📦',
+        price,
+        qty: 1,
+        stock: layerStock,
+        unit: displaySellUnit(p),
+        art,
+        barcode,
+        receiptId,
+        preferRetailPrice,
+        costPrice,
+        supplierName,
+      }]
+      cartRef.current = next
       return {
         ...t,
-        cart: [...prev, {
-          key,
-          productId: p.id,
-          name: p.name,
-          emoji: p.e || '📦',
-          price,
-          qty: 1,
-          stock: layerStock,
-          unit: displaySellUnit(p),
-          art,
-          barcode,
-          receiptId,
-          preferRetailPrice,
-          costPrice,
-          supplierName,
-        }],
+        cart: next,
         selectedLineKey: key,
       }
     }))
-    if (revealKey) revealLineKeyRef.current = revealKey
+    if (revealKey) {
+      revealLineKeyRef.current = revealKey
+      // Мгновенный скролл до commit — потом useLayoutEffect добьёт
+      window.requestAnimationFrame(scrollCartToBottom)
+    }
     setLayerPickOpen(false)
     setLayerPickProduct(null)
     setLayerPickGroups([])
