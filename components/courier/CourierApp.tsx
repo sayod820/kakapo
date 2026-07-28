@@ -111,7 +111,7 @@ function CourierWalletCard({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', fontWeight: 700, letterSpacing: .6, textTransform: 'uppercase' }}>KAKAPO · Счёт курьера</div>
-            <div className="ub" style={{ fontSize: 22, fontWeight: 900, letterSpacing: 2, marginTop: 6, color: '#EBF5ED' }}>{account}</div>
+            <div className="ub" style={{ fontSize: 22, fontWeight: 900, letterSpacing: 2, marginTop: 6, color: 'var(--t1)' }}>{account}</div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,.55)', marginTop: 8 }}>{name}</div>
           </div>
           <div style={{ fontSize: 26, lineHeight: 1 }}>💳</div>
@@ -128,7 +128,7 @@ function CourierWalletCard({
             borderRadius: 11,
             background: 'rgba(255,255,255,.08)',
             border: '1px solid rgba(255,255,255,.15)',
-            color: '#EBF5ED',
+            color: 'var(--t1)',
             fontWeight: 800,
             fontSize: 12,
             display: 'flex',
@@ -174,12 +174,12 @@ function CourierWalletHistoryScreen({
       <div style={{
         position: 'sticky', top: 57, zIndex: 50,
         background: 'rgba(3,11,5,.97)', backdropFilter: 'blur(16px)',
-        borderBottom: '1px solid #162B1A', padding: '10px 14px',
+        borderBottom: '1px solid var(--b1)', padding: '10px 14px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button type="button" onClick={onBack} className="btn" style={{
-            width: 34, height: 34, borderRadius: 11, background: '#0C1C0F', border: '1px solid #162B1A',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8FB897', fontSize: 15, flexShrink: 0,
+            width: 34, height: 34, borderRadius: 11, background: 'var(--l3)', border: '1px solid var(--b1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--t2)', fontSize: 15, flexShrink: 0,
           }}>←</button>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="ub" style={{ fontSize: 14, fontWeight: 900 }}>Операции по счёту</div>
@@ -280,7 +280,7 @@ function CourierPickupPoints({
 
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, color: '#8FB897', marginBottom: 10, letterSpacing: 0.4 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--t2)', marginBottom: 10, letterSpacing: 0.4 }}>
         📍 Точки забора{optimized.length > 1 ? ' · кратчайший маршрут' : ''}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -315,8 +315,8 @@ function CourierPickupPoints({
                 borderRadius: 14,
                 textAlign: 'left',
                 width: '100%',
-                background: isPicked ? `${pk.color}12` : isFocus ? `${pk.color}18` : '#091508',
-                border: `1.5px solid ${isPicked ? pk.color + '55' : isFocus ? pk.color : '#162B1A'}`,
+                background: isPicked ? `${pk.color}12` : isFocus ? `${pk.color}18` : 'var(--l2)',
+                border: `1.5px solid ${isPicked ? pk.color + '55' : isFocus ? pk.color : 'var(--b1)'}`,
                 opacity: !ready && !isPicked ? 0.72 : 1,
                 cursor: ready && !isPicked ? 'pointer' : 'default',
               }}
@@ -329,15 +329,15 @@ function CourierPickupPoints({
                 {isPicked ? '✓' : pk.e}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#3D6645', marginBottom: 2 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3)', marginBottom: 2 }}>
                   {optimized.includes(pid) ? `${optimized.indexOf(pid) + 1}. ` : ''}{kind}
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: isPicked ? pk.color : '#EBF5ED' }}>{pk.name}</div>
-                <div style={{ fontSize: 10, color: '#8FB897', marginTop: 2 }}>{pk.addr}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: isPicked ? pk.color : 'var(--t1)' }}>{pk.name}</div>
+                <div style={{ fontSize: 10, color: 'var(--t2)', marginTop: 2 }}>{pk.addr}</div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: badgeColor, marginTop: 6 }}>{badge}</div>
               </div>
               {ready && !isPicked && (
-                <span style={{ fontSize: 10, fontWeight: 700, color: isFocus ? pk.color : '#3D6645', flexShrink: 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: isFocus ? pk.color : 'var(--t3)', flexShrink: 0 }}>
                   {isFocus ? '→ еду сюда' : 'выбрать'}
                 </span>
               )}
@@ -438,14 +438,14 @@ function CourierPaymentFooter({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#FFB800' }}>👑 В ДОЛГ (VIP)</div>
-            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>товары — уже на карте клиента</div>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>товары — уже на карте клиента</div>
       </div>
           <span className="ub" style={{ fontSize: amountSize - 6, fontWeight: 900, color: '#FFB800' }}>{pm.credit.toFixed(2)} ЅМ</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>💵 НАЛИЧНЫМИ</div>
-            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>только доставка</div>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>только доставка</div>
         </div>
           <span className="ub" style={{ fontSize: amountSize, fontWeight: 900, color: '#1FD760' }}>{pm.cash.toFixed(2)} ЅМ</span>
       </div>
@@ -457,17 +457,17 @@ function CourierPaymentFooter({
       {pm.products > 0 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#8FB897' }}>📦 Продукт</div>
-            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>отнести в магазин / ресторан</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)' }}>📦 Продукт</div>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>отнести в магазин / ресторан</div>
           </div>
-          <span className="ub" style={{ fontSize: size === 'lg' ? 16 : 14, fontWeight: 800, color: '#EBF5ED' }}>{pm.products.toFixed(2)} ЅМ</span>
+          <span className="ub" style={{ fontSize: size === 'lg' ? 16 : 14, fontWeight: 800, color: 'var(--t1)' }}>{pm.products.toFixed(2)} ЅМ</span>
         </div>
       )}
       {dlv != null && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#8FB897' }}>🛵 Доставка</div>
-            <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>ваш заработок</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)' }}>🛵 Доставка</div>
+            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>ваш заработок</div>
           </div>
           <span className="ub" style={{ fontSize: size === 'lg' ? 16 : 14, fontWeight: 800, color: '#1FD760' }}>{pm.delivery.toFixed(2)} ЅМ</span>
         </div>
@@ -475,7 +475,7 @@ function CourierPaymentFooter({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px dashed rgba(31,215,96,.2)' }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760' }}>💵 ИТОГО С КЛИЕНТА</div>
-          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>{pm.payLabel} · взять с клиента</div>
+          <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>{pm.payLabel} · взять с клиента</div>
         </div>
         <span className="ub" style={{ fontSize: amountSize, fontWeight: 900, color: '#1FD760' }}>{dlv != null ? `${pm.cash.toFixed(2)}` : '…'} ЅМ</span>
       </div>
@@ -855,7 +855,7 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
         const pinBg = isSel
           ? 'linear-gradient(135deg,#1E5BB5,#3B8EF0)'
           : isWaiting
-            ? 'linear-gradient(135deg,#4A5568,#8FB897)'
+            ? 'linear-gradient(135deg,#4A5568,var(--t2))'
           : isPreparing
             ? 'linear-gradient(135deg,#B8860B,#FFB800)'
             : myDeliveryList
@@ -1058,22 +1058,22 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
       {!sheetOpen && (
         <div style={{ position:'absolute', top:12, left:12, padding:'7px 12px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid rgba(59,142,240,.3)', zIndex:999, pointerEvents:'none' }}>
           <div className="ub" style={{ fontSize:17, fontWeight:900, color:'#3B8EF0' }}>{orders.length}</div>
-          <div style={{ fontSize:9, color:'#8FB897' }}>на карте</div>
+          <div style={{ fontSize:9, color:'var(--t2)' }}>на карте</div>
         </div>
       )}
       {!sheetOpen && orders.length > 0 && myDeliveryList && (
-        <div style={{ position:'absolute', top:12, right:12, padding:'8px 10px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid #162B1A', zIndex:999, pointerEvents:'none', display:'flex', alignItems:'center', gap:6, fontSize:10, color:'#8FB897' }}>
+        <div style={{ position:'absolute', top:12, right:12, padding:'8px 10px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid var(--b1)', zIndex:999, pointerEvents:'none', display:'flex', alignItems:'center', gap:6, fontSize:10, color:'var(--t2)' }}>
           <span style={{ width:10, height:10, borderRadius:'50% 50% 50% 0', transform:'rotate(-45deg)', background:'#3B8EF0', flexShrink:0 }}/>
           Адрес доставки
         </div>
       )}
       {!sheetOpen && orders.length > 0 && !myDeliveryList && !step && (
-        <div style={{ position:'absolute', top:12, right:12, padding:'8px 10px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid #162B1A', zIndex:999, pointerEvents:'none', display:'flex', flexDirection:'column', gap:5 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, color:'#8FB897' }}>
+        <div style={{ position:'absolute', top:12, right:12, padding:'8px 10px', borderRadius:12, background:'rgba(3,11,5,.88)', backdropFilter:'blur(10px)', border:'1px solid var(--b1)', zIndex:999, pointerEvents:'none', display:'flex', flexDirection:'column', gap:5 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, color:'var(--t2)' }}>
             <span style={{ width:10, height:10, borderRadius:'50% 50% 50% 0', transform:'rotate(-45deg)', background:'#FFB800', flexShrink:0 }}/>
             Готовится
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, color:'#8FB897' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, color:'var(--t2)' }}>
             <span style={{ width:10, height:10, borderRadius:'50% 50% 50% 0', transform:'rotate(-45deg)', background:'#1FD760', flexShrink:0 }}/>
             Можно забирать
           </div>
@@ -1114,10 +1114,10 @@ function LeafletMap({ orders, selected, onSelect, pickupIdx = 0, step, height = 
 ───────────────────────────────────────────────────── */
 function CourierSessionBoot() {
   return (
-    <div style={{ minHeight: '100vh', background: '#030B05', maxWidth: 480, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', maxWidth: 480, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
       <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg,#1E5BB5,#3B8EF0)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, boxShadow: '0 8px 28px rgba(59,142,240,.35)', animation: 'glow 2s ease-in-out infinite' }}>🛵</div>
       <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2.5px solid rgba(59,142,240,.2)', borderTopColor: '#3B8EF0', animation: 'spin .75s linear infinite' }} />
-      <div style={{ fontSize: 12, color: '#8FB897', fontWeight: 600 }}>Загрузка кабинета…</div>
+      <div style={{ fontSize: 12, color: 'var(--t2)', fontWeight: 600 }}>Загрузка кабинета…</div>
     </div>
   );
 }
@@ -1569,7 +1569,7 @@ function CourierAppInner() {
                 disabled={locationLoading}
                 className="btn"
                 title={locationEnabled ? 'GPS включён' : 'Включить GPS'}
-                style={{ width:34, height:34, borderRadius:11, border:`1px solid ${locationEnabled?'rgba(31,215,96,.4)':'#162B1A'}`, background:locationEnabled?'rgba(31,215,96,.1)':'#0C1C0F', color:locationEnabled?'#1FD760':'#6B8F75', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', opacity:locationLoading?0.6:1 }}
+                style={{ width:34, height:34, borderRadius:11, border:`1px solid ${locationEnabled?'rgba(31,215,96,.4)':'var(--b1)'}`, background:locationEnabled?'rgba(31,215,96,.1)':'var(--l3)', color:locationEnabled?'#1FD760':'#6B8F75', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', opacity:locationLoading?0.6:1 }}
               >
                 {locationLoading ? '…' : '📍'}
               </button>
@@ -1590,16 +1590,16 @@ function CourierAppInner() {
       {tab==='orders' && (
           <div>
             <div style={{ display:'flex', gap:8, padding:'12px 18px 0' }}>
-            {([['available','Свободен','#1FD760'],['busy','В заказе','#FFB800'],['offline','Офлайн','#3D6645']] as const).map(([s,l,c])=>(
-                <button key={s} onClick={()=>setStatus(s)} className="btn" style={{ flex:1, padding:'9px 6px', borderRadius:11, fontSize:11, fontWeight:700, border:`1.5px solid ${status===s?c:'#162B1A'}`, background:status===s?c+'18':'#091508', color:status===s?c:'#8FB897' }}>{l}</button>
+            {([['available','Свободен','#1FD760'],['busy','В заказе','#FFB800'],['offline','Офлайн','var(--t3)']] as const).map(([s,l,c])=>(
+                <button key={s} onClick={()=>setStatus(s)} className="btn" style={{ flex:1, padding:'9px 6px', borderRadius:11, fontSize:11, fontWeight:700, border:`1.5px solid ${status===s?c:'var(--b1)'}`, background:status===s?c+'18':'var(--l2)', color:status===s?c:'var(--t2)' }}>{l}</button>
             ))}
           </div>
 
             {status==='offline' ? (
-              <div style={{ textAlign:'center', padding:'70px 20px', color:'#8FB897' }}>
+              <div style={{ textAlign:'center', padding:'70px 20px', color:'var(--t2)' }}>
                 <div style={{ fontSize:52, marginBottom:14 }}>😴</div>
                 <div className="ub" style={{ fontSize:16, fontWeight:800, marginBottom:6 }}>Вы офлайн</div>
-                <div style={{ fontSize:12, color:'#3D6645' }}>Включите «Свободен» чтобы видеть заказы</div>
+                <div style={{ fontSize:12, color:'var(--t3)' }}>Включите «Свободен» чтобы видеть заказы</div>
               </div>
             ) : (
               <>
@@ -1613,7 +1613,7 @@ function CourierAppInner() {
                     {/* затемнение */}
                     <div onClick={()=>setSelected(null)} style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.7)', backdropFilter:'blur(4px)' }}/>
                     {/* карточка */}
-                    <div style={{ position:'relative', width:'100%', maxWidth:480, background:'#0C1C0F', borderRadius:'22px 22px 0 0', padding:'20px 18px calc(32px + env(safe-area-inset-bottom, 0px))', maxHeight:'85vh', overflowY:'auto', boxShadow:'0 -12px 40px rgba(0,0,0,.8)' }}>
+                    <div style={{ position:'relative', width:'100%', maxWidth:480, background:'var(--l3)', borderRadius:'22px 22px 0 0', padding:'20px 18px calc(32px + env(safe-area-inset-bottom, 0px))', maxHeight:'85vh', overflowY:'auto', boxShadow:'0 -12px 40px rgba(0,0,0,.8)' }}>
                       {/* ручка */}
                       <div style={{ width:36, height:4, borderRadius:2, background:'#2A4A2A', margin:'0 auto 14px' }}/>
 
@@ -1624,7 +1624,7 @@ function CourierAppInner() {
                           {selected.mapStatus && selected.mapStatus !== 'ready' && (
                             <span style={{ display:'inline-block', marginTop:4, padding:'3px 8px', borderRadius:8, fontSize:10, fontWeight:700,
                               background: selected.mapStatus === 'waiting' ? 'rgba(143,184,151,.12)' : 'rgba(255,184,0,.12)',
-                              color: selected.mapStatus === 'waiting' ? '#8FB897' : '#FFB800',
+                              color: selected.mapStatus === 'waiting' ? 'var(--t2)' : '#FFB800',
                               border: `1px solid ${selected.mapStatus === 'waiting' ? 'rgba(143,184,151,.35)' : 'rgba(255,184,0,.35)'}`,
                             }}>{courierMapStatusLabel(selected.mapStatus, selected.orderKind || 'market')}</span>
                           )}
@@ -1644,9 +1644,9 @@ function CourierAppInner() {
                       </div>
 
                       {/* маршрут: точки забора → клиент */}
-                      <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:14, padding:'12px 14px', marginBottom:12 }}>
+                      <div style={{ background:'var(--l2)', border:'1px solid var(--b1)', borderRadius:14, padding:'12px 14px', marginBottom:12 }}>
                         {selected.mapStatus === 'waiting' && (
-                          <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(143,184,151,.08)', border:'1px solid rgba(143,184,151,.3)', marginBottom:10, fontSize:12, color:'#8FB897', fontWeight:700 }}>
+                          <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(143,184,151,.08)', border:'1px solid rgba(143,184,151,.3)', marginBottom:10, fontSize:12, color:'var(--t2)', fontWeight:700 }}>
                             {courierWaitingBanner('waiting', selected.orderKind || 'market')}
                           </div>
                         )}
@@ -1663,9 +1663,9 @@ function CourierAppInner() {
                             <div key={pi} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
                               <div style={{ width:32, height:32, borderRadius:9, background:pk.color+'22', border:`1.5px solid ${pk.color}55`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:800, color:pk.color, flexShrink:0 }}>{pi+1}</div>
                               <div style={{ flex:1 }}>
-                                <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>{pk.id==='store'?'ЗАБРАТЬ ИЗ МАГАЗИНА':'ЗАБРАТЬ ИЗ РЕСТОРАНА'}</div>
+                                <div style={{ fontSize:10, color:'var(--t3)', fontWeight:700 }}>{pk.id==='store'?'ЗАБРАТЬ ИЗ МАГАЗИНА':'ЗАБРАТЬ ИЗ РЕСТОРАНА'}</div>
                                 <div style={{ fontSize:13, fontWeight:700, color:pk.color }}>{pk.name}</div>
-                                <div style={{ fontSize:10, color:'#3D6645' }}>{pk.addr}</div>
+                                <div style={{ fontSize:10, color:'var(--t3)' }}>{pk.addr}</div>
                               </div>
                             </div>
                           );
@@ -1677,17 +1677,17 @@ function CourierAppInner() {
                             <div style={{ width:32, height:32, borderRadius:9, background:'rgba(255,184,0,.12)', border:'1.5px dashed rgba(255,184,0,.45)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>{pk?.e || '⏳'}</div>
                             <div style={{ flex:1 }}>
                               <div style={{ fontSize:10, color:'#FFB800', fontWeight:700 }}>{pp.pickupId === 'store' ? 'Магазин' : 'Ресторан'} — {pp.status}</div>
-                              <div style={{ fontSize:11, color:'#3D6645' }}>{pk?.name || pp.label} · после принятия — на карте доставки</div>
+                              <div style={{ fontSize:11, color:'var(--t3)' }}>{pk?.name || pp.label} · после принятия — на карте доставки</div>
                             </div>
               </div>
                           );
                         })}
-                        <div style={{ display:'flex', alignItems:'center', gap:10, paddingTop:8, borderTop:'1px dashed #1D3822' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10, paddingTop:8, borderTop:'1px dashed var(--b2)' }}>
                           <div style={{ width:32, height:32, borderRadius:9, background:'rgba(59,142,240,.12)', border:'1.5px solid rgba(59,142,240,.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>📍</div>
                           <div style={{ flex:1 }}>
-                            <div style={{ fontSize:10, color:'#3D6645', fontWeight:700 }}>ДОСТАВИТЬ КЛИЕНТУ</div>
-                            <div style={{ fontSize:13, fontWeight:700, color:'#EBF5ED' }}>{selected.client}</div>
-                            <div style={{ fontSize:10, color:'#8FB897' }}>{selected.addr}</div>
+                            <div style={{ fontSize:10, color:'var(--t3)', fontWeight:700 }}>ДОСТАВИТЬ КЛИЕНТУ</div>
+                            <div style={{ fontSize:13, fontWeight:700, color:'var(--t1)' }}>{selected.client}</div>
+                            <div style={{ fontSize:10, color:'var(--t2)' }}>{selected.addr}</div>
           </div>
           </div>
             </div>
@@ -1701,7 +1701,7 @@ function CourierAppInner() {
                       {/* состав */}
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14 }}>
                         {selected.items.map((it: any,i: number)=>(
-                          <span key={i} style={{ padding:'4px 9px', borderRadius:8, fontSize:11, background:'#091508', border:'1px solid #162B1A', color:'#8FB897', display:'inline-flex', alignItems:'center', gap:5 }}>
+                          <span key={i} style={{ padding:'4px 9px', borderRadius:8, fontSize:11, background:'var(--l2)', border:'1px solid var(--b1)', color:'var(--t2)', display:'inline-flex', alignItems:'center', gap:5 }}>
                             {it.photo ? <img src={resolvePhotoUrl(it.photo)} alt="" style={{width:16,height:16,borderRadius:4,objectFit:'cover'}}/> : it.e} {it.n} ×{it.q}
                           </span>
                         ))}
@@ -1718,22 +1718,22 @@ function CourierAppInner() {
                           return (
                             <>
                               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
-                                <span style={{ fontSize:12, color:'#8FB897' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт → в магазин'}</span>
+                                <span style={{ fontSize:12, color:'var(--t2)' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт → в магазин'}</span>
                                 <span style={{ fontSize:12, fontWeight:700 }}>{productSum.toFixed(2)} ЅМ</span>
                               </div>
-                              <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
+                              <div style={{ fontSize:10, color:'var(--t3)', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
                               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
-                                <span style={{ fontSize:12, color:'#8FB897' }}>Забор → клиент (по дорогам)</span>
+                                <span style={{ fontSize:12, color:'var(--t2)' }}>Забор → клиент (по дорогам)</span>
                                 <span style={{ fontSize:12, fontWeight:700 }}>{km != null ? formatKm(km) : '…'}</span>
                               </div>
                               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
-                                <span style={{ fontSize:12, color:'#8FB897' }}>База (до {TARIFF.baseDist} км)</span>
+                                <span style={{ fontSize:12, color:'var(--t2)' }}>База (до {TARIFF.baseDist} км)</span>
                                 <span style={{ fontSize:12, fontWeight:700 }}>{TARIFF.base} ЅМ</span>
                               </div>
                               {extraKm > 0 && dlv != null && (
                                 <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
-                                  <span style={{ fontSize:11, color:'#3D6645' }}>+ {formatKm(extraKm)} × {TARIFF.perKm} ЅМ</span>
-                                  <span style={{ fontSize:11, color:'#3D6645' }}>+{Math.ceil(extraKm * TARIFF.perKm)} ЅМ</span>
+                                  <span style={{ fontSize:11, color:'var(--t3)' }}>+ {formatKm(extraKm)} × {TARIFF.perKm} ЅМ</span>
+                                  <span style={{ fontSize:11, color:'var(--t3)' }}>+{Math.ceil(extraKm * TARIFF.perKm)} ЅМ</span>
                                 </div>
                               )}
                               {weightExtra > 0 && (
@@ -1743,8 +1743,8 @@ function CourierAppInner() {
                                 </div>
                               )}
                               <div style={{ display:'flex', justifyContent:'space-between', marginTop:6, marginBottom:8 }}>
-                                <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>Доставка итого</span>
-                                <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>{dlv ?? '…'} ЅМ</span>
+                                <span style={{ fontSize:12, fontWeight:700, color:'var(--t1)' }}>Доставка итого</span>
+                                <span style={{ fontSize:12, fontWeight:700, color:'var(--t1)' }}>{dlv ?? '…'} ЅМ</span>
                               </div>
                               <CourierPaymentFooter order={selected} dlv={dlv} />
                             </>
@@ -1753,9 +1753,9 @@ function CourierAppInner() {
                     </div>
                       {/* кнопки */}
                       <div style={{ display:'flex', gap:8 }}>
-                        <button onClick={()=>setSelected(null)} className="btn" style={{ padding:'14px 18px', borderRadius:14, background:'#162B1A', border:'none', color:'#8FB897', fontWeight:700, fontSize:14 }}>✕</button>
+                        <button onClick={()=>setSelected(null)} className="btn" style={{ padding:'14px 18px', borderRadius:14, background:'var(--b1)', border:'none', color:'var(--t2)', fontWeight:700, fontSize:14 }}>✕</button>
                         {selectedLive?.mapStatus === 'waiting' ? (
-                          <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(143,184,151,.1)', border:'1px solid rgba(143,184,151,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'#8FB897' }}>
+                          <div style={{ flex:1, padding:14, borderRadius:14, background:'rgba(143,184,151,.1)', border:'1px solid rgba(143,184,151,.35)', textAlign:'center', fontSize:13, fontWeight:700, color:'var(--t2)' }}>
                             📦 Заказ ещё не собирается
                     </div>
                         ) : !selectedLive || selectedLive.mapStatus === 'preparing' || !selectedLive.pickupIds?.length ? (
@@ -1767,7 +1767,7 @@ function CourierAppInner() {
                             {canAcceptMore().msg}
             </div>
           ) : (
-                        <button onClick={()=>void accept(selectedLive)} disabled={!!acceptingId} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:acceptingId ? '#162B1A' : 'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:acceptingId ? '#8FB897' : '#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:acceptingId ? 0.7 : 1 }}>
+                        <button onClick={()=>void accept(selectedLive)} disabled={!!acceptingId} className="btn" style={{ flex:1, padding:14, borderRadius:14, background:acceptingId ? 'var(--b1)' : 'linear-gradient(135deg,#17B34E,#1FD760)', border:'none', color:acceptingId ? 'var(--t2)' : '#030B05', fontWeight:800, fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:2, opacity:acceptingId ? 0.7 : 1 }}>
                           <span>{acceptingId ? '⏳ Принимаем…' : '✓ Принять заказ'}</span>
                           <span style={{ fontSize:11, fontWeight:700, opacity:.85 }}>{selectedLive?.paymentMethod === 'credit' ? 'наличными за доставку' : 'наличными'} {courierCashToCollect(selectedLive, deliveryFeeForOrder(selectedLive))}</span>
                         </button>
@@ -1786,14 +1786,14 @@ function CourierAppInner() {
                   <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
                     Доступные заказы
                     <span style={{ padding:'2px 8px', borderRadius:8, fontSize:11, fontWeight:800, background:'rgba(31,215,96,.12)', color:'#1FD760', border:'1px solid rgba(31,215,96,.28)' }}>{available.length}</span>
-                    {kmLoading && <span style={{ fontSize:10, color:'#3D6645', fontWeight:600 }}>· считаем км…</span>}
+                    {kmLoading && <span style={{ fontSize:10, color:'var(--t3)', fontWeight:600 }}>· считаем км…</span>}
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                     {available.length === 0 && (
-                      <div style={{ textAlign:'center', padding:'28px 16px', color:'#8FB897', background:'#091508', border:'1px solid #162B1A', borderRadius:16 }}>
+                      <div style={{ textAlign:'center', padding:'28px 16px', color:'var(--t2)', background:'var(--l2)', border:'1px solid var(--b1)', borderRadius:16 }}>
                         <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
                         <div style={{ fontSize:13, fontWeight:700, marginBottom:4 }}>Нет доступных заказов</div>
-                        <div style={{ fontSize:11, color:'#3D6645' }}>{myActiveOrders.length ? `${myActiveOrders.length} в доставке — вкладка «Доставка»` : 'Новые появятся после оформления в магазине'}</div>
+                        <div style={{ fontSize:11, color:'var(--t3)' }}>{myActiveOrders.length ? `${myActiveOrders.length} в доставке — вкладка «Доставка»` : 'Новые появятся после оформления в магазине'}</div>
                 </div>
               )}
                     {available.map((o,idx)=>{
@@ -1802,30 +1802,30 @@ function CourierAppInner() {
                       const dlv = deliveryFeeForOrder(o);
                       return (
                         <div key={o.id} onClick={()=>setSelected(o)} className="btn"
-                          style={{ background:isSel?'rgba(59,142,240,.08)':'#091508', border:`1.5px solid ${isSel?'rgba(59,142,240,.4)':'#162B1A'}`, borderRadius:16, padding:'14px 15px', textAlign:'left' }}>
+                          style={{ background:isSel?'rgba(59,142,240,.08)':'var(--l2)', border:`1.5px solid ${isSel?'rgba(59,142,240,.4)':'var(--b1)'}`, borderRadius:16, padding:'14px 15px', textAlign:'left' }}>
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                             <div style={{ display:'flex', alignItems:'center', gap:9 }}>
-                              <div style={{ width:34, height:34, borderRadius:10, background:isSel?'linear-gradient(135deg,#1E5BB5,#3B8EF0)':'#0C1C0F', border:`1px solid ${isSel?'transparent':'#162B1A'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, color:isSel?'white':'#3B8EF0' }}>{idx+1}</div>
+                              <div style={{ width:34, height:34, borderRadius:10, background:isSel?'linear-gradient(135deg,#1E5BB5,#3B8EF0)':'var(--l3)', border:`1px solid ${isSel?'transparent':'var(--b1)'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, color:isSel?'white':'#3B8EF0' }}>{idx+1}</div>
                               <div>
                                 <div className="ub" style={{ fontSize:13, fontWeight:800, color:'#3B8EF0' }}>{o.id}</div>
-                                <div style={{ fontSize:11, color:'#8FB897' }}>{o.client.split(' ')[0]} · {o.time}</div>
+                                <div style={{ fontSize:11, color:'var(--t2)' }}>{o.client.split(' ')[0]} · {o.time}</div>
             </div>
                             </div>
                             <div style={{ textAlign:'right' }}>
                               <div className="ub" style={{ fontSize:17, fontWeight:900, color:'#1FD760' }}>{dlv ?? '…'} ЅМ</div>
-                              <div style={{ fontSize:9, color:'#3D6645' }}>доставка · {km != null ? `${formatKm(km)} забор→клиент` : '…'}</div>
+                              <div style={{ fontSize:9, color:'var(--t3)' }}>доставка · {km != null ? `${formatKm(km)} забор→клиент` : '…'}</div>
                             </div>
                           </div>
-                          <div style={{ fontSize:11, color:'#8FB897', marginBottom:6, display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
+                          <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
                             {o.pickupIds.map((pid:string,pi:number) => {
                               const pk = resolveCourierPickup(PICKUPS, pid);
                               return <span key={pi} style={{ color:pk.color, fontWeight:700 }}>{pi>0?'→ ':''}{pk.e} {pk.name.split(' ')[0]}</span>;
-                            })} <span style={{ color:'#8FB897' }}>→ 📍 {o.addr}</span>
+                            })} <span style={{ color:'var(--t2)' }}>→ 📍 {o.addr}</span>
                           </div>
                           <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                             <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'rgba(59,142,240,.1)', color:'#3B8EF0' }}>🛣 {km != null ? formatKm(km) : '…'}</span>
                             <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'rgba(255,184,0,.1)', color:'#FFB800' }}>{o.weight} кг</span>
-                            <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'#0C1C0F', color:'#8FB897' }}>{o.items.length} пр.</span>
+                            <span style={{ padding:'3px 8px', borderRadius:7, fontSize:10, fontWeight:700, background:'var(--l3)', color:'var(--t2)' }}>{o.items.length} пр.</span>
                             {isSel && <span style={{ marginLeft:'auto', fontSize:11, color:'#3B8EF0', fontWeight:700 }}>выбран ↑</span>}
                           </div>
                         </div>
@@ -1843,10 +1843,10 @@ function CourierAppInner() {
           active ? (
           <div>
               <div style={{ padding:'12px 18px 0', display:'flex', alignItems:'center', gap:10 }}>
-                <button type="button" onClick={goToDeliveryList} className="btn" style={{ width:38, height:38, borderRadius:12, background:'#0C1C0F', border:'1px solid #162B1A', color:'#8FB897', fontSize:16 }}>←</button>
+                <button type="button" onClick={goToDeliveryList} className="btn" style={{ width:38, height:38, borderRadius:12, background:'var(--l3)', border:'1px solid var(--b1)', color:'var(--t2)', fontSize:16 }}>←</button>
                 <div style={{ flex:1 }}>
                   <div className="ub" style={{ fontSize:14, fontWeight:800 }}>Заказ {active.id}</div>
-                  <div style={{ fontSize:11, color:'#3D6645' }}>Назад к списку доставок</div>
+                  <div style={{ fontSize:11, color:'var(--t3)' }}>Назад к списку доставок</div>
               </div>
             </div>
               <LeafletMap key="active-map" orders={[active]} selected={active} onSelect={()=>{}} height={250} pickupIdx={pickupIdx} step={step} TARIFF={TARIFF} roadKm={roadKm} courierPos={courierPos} onEnableLocation={enableLocation} locationLoading={locationLoading} locationError={locationError} PICKUPS={PICKUPS} pickupLocations={pickupLocations} onRouteKm={onRouteKm} onRouteOrder={onRouteOrder} />
@@ -1854,11 +1854,11 @@ function CourierAppInner() {
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
                 <div>
                     <span className="ub" style={{ fontSize:16, fontWeight:900, color:'#3B8EF0' }}>{active.id}</span>
-                    <div style={{ fontSize:12, color:'#8FB897', marginTop:2 }}>{active.client}</div>
+                    <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>{active.client}</div>
                 </div>
                   <div style={{ textAlign:'right' }}>
                     <div className="ub" style={{ fontSize:20, fontWeight:900, color:'#1FD760' }}>{deliveryFeeForOrder(active) ?? '…'} ЅМ</div>
-                    <div style={{ fontSize:9, color:'#3D6645' }}>доставка · {kmForOrder(active) != null ? `${formatKm(kmForOrder(active)!)} забор→клиент` : '…'}</div>
+                    <div style={{ fontSize:9, color:'var(--t3)' }}>доставка · {kmForOrder(active) != null ? `${formatKm(kmForOrder(active)!)} забор→клиент` : '…'}</div>
               </div>
                 </div>
 
@@ -1876,19 +1876,19 @@ function CourierAppInner() {
                         <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,184,0,.08)', border:'1px solid rgba(255,184,0,.35)', marginBottom:14 }}>
                           <div style={{ fontSize:13, fontWeight:800, color:'#FFB800', marginBottom:4 }}>⏳ Ожидаем готовность</div>
                           {active.pendingParts?.map((pp: { label: string; status: string }, i: number) => (
-                            <div key={i} style={{ fontSize:12, color:'#8FB897', marginTop:4 }}>
+                            <div key={i} style={{ fontSize:12, color:'var(--t2)', marginTop:4 }}>
                               {pp.label}: <span style={{ color:'#FFB800', fontWeight:700 }}>{pp.status}</span>
                             </div>
                           ))}
                         </div>
                       )}
 
-                      <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:16, padding:'14px 16px', marginBottom:14 }}>
-                        <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8 }}>🛵 ДОСТАВИТЬ КЛИЕНТУ</div>
+                      <div style={{ background:'var(--l2)', border:'1px solid var(--b1)', borderRadius:16, padding:'14px 16px', marginBottom:14 }}>
+                        <div style={{ fontSize:10, color:'var(--t3)', fontWeight:700, marginBottom:8 }}>🛵 ДОСТАВИТЬ КЛИЕНТУ</div>
                         <div style={{ display:'flex', gap:10 }}>
                           <div style={{ flex:1 }}>
-                            <div style={{ fontSize:13, fontWeight:700, color: canGoToClient ? '#EBF5ED' : '#8FB897' }}>{active.addr}</div>
-                            <div style={{ fontSize:11, color:'#8FB897', marginTop:2 }}>{active.client}</div>
+                            <div style={{ fontSize:13, fontWeight:700, color: canGoToClient ? 'var(--t1)' : 'var(--t2)' }}>{active.addr}</div>
+                            <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>{active.client}</div>
                           </div>
                           <a href={`tel:${active.phone}`} style={{ padding:'7px 11px', borderRadius:9, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.3)', color:'#3B8EF0', fontSize:13, textDecoration:'none', alignSelf:'center' }}>📞</a>
                         </div>
@@ -1897,15 +1897,15 @@ function CourierAppInner() {
                   )
                 })()}
 
-                <div style={{ background:'#091508', border:'1px solid #162B1A', borderRadius:16, padding:'12px 16px', marginBottom:14 }}>
-                  <div style={{ fontSize:11, color:'#3D6645', marginBottom:8, fontWeight:700 }}>СОСТАВ ЗАКАЗА</div>
+                <div style={{ background:'var(--l2)', border:'1px solid var(--b1)', borderRadius:16, padding:'12px 16px', marginBottom:14 }}>
+                  <div style={{ fontSize:11, color:'var(--t3)', marginBottom:8, fontWeight:700 }}>СОСТАВ ЗАКАЗА</div>
                   <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                     {active.items.map((it: any,i: number)=>(
                       <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13 }}>
-                        <span style={{ color:'#EBF5ED', display:'inline-flex', alignItems:'center', gap:6 }}>
-                          {it.photo ? <img src={resolvePhotoUrl(it.photo)} alt="" style={{width:20,height:20,borderRadius:5,objectFit:'cover'}}/> : it.e} {it.n} <span style={{ color:'#3D6645' }}>×{it.q}</span>
+                        <span style={{ color:'var(--t1)', display:'inline-flex', alignItems:'center', gap:6 }}>
+                          {it.photo ? <img src={resolvePhotoUrl(it.photo)} alt="" style={{width:20,height:20,borderRadius:5,objectFit:'cover'}}/> : it.e} {it.n} <span style={{ color:'var(--t3)' }}>×{it.q}</span>
                         </span>
-                        <span style={{ fontWeight:700, color:'#8FB897' }}>{(it.p*it.q).toFixed(2)} ЅМ</span>
+                        <span style={{ fontWeight:700, color:'var(--t2)' }}>{(it.p*it.q).toFixed(2)} ЅМ</span>
                       </div>
                     ))}
                   </div>
@@ -1921,24 +1921,24 @@ function CourierAppInner() {
                   const clientTotal = dlv != null ? (isCredit ? dlv : productSum + dlv) : null;
                   return (
                     <div style={{ background:'rgba(31,215,96,.08)', border:'2px solid rgba(31,215,96,.4)', borderRadius:16, padding:'16px', marginBottom:18 }}>
-                      <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:10, letterSpacing:1 }}>ИТОГО К ПОЛУЧЕНИЮ</div>
+                      <div style={{ fontSize:10, color:'var(--t3)', fontWeight:700, marginBottom:10, letterSpacing:1 }}>ИТОГО К ПОЛУЧЕНИЮ</div>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                        <span style={{ fontSize:12, color:'#8FB897' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт → в магазин'}</span>
+                        <span style={{ fontSize:12, color:'var(--t2)' }}>{isCredit ? 'Товары (в кредит)' : 'Продукт → в магазин'}</span>
                         <span style={{ fontSize:13, fontWeight:700 }}>{productSum.toFixed(2)} ЅМ</span>
                       </div>
-                      <div style={{ fontSize:10, color:'#3D6645', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
+                      <div style={{ fontSize:10, color:'var(--t3)', fontWeight:700, marginBottom:8, letterSpacing:1 }}>ДОСТАВКА</div>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
-                        <span style={{ fontSize:12, color:'#8FB897' }}>Забор → клиент (по дорогам)</span>
+                        <span style={{ fontSize:12, color:'var(--t2)' }}>Забор → клиент (по дорогам)</span>
                         <span style={{ fontSize:12, fontWeight:700 }}>{km != null ? formatKm(km) : '…'}</span>
                       </div>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
-                        <span style={{ fontSize:12, color:'#8FB897' }}>База (до {TARIFF.baseDist} км)</span>
+                        <span style={{ fontSize:12, color:'var(--t2)' }}>База (до {TARIFF.baseDist} км)</span>
                         <span style={{ fontSize:12, fontWeight:700 }}>{TARIFF.base} ЅМ</span>
                       </div>
                       {extraKm > 0 && dlv != null && (
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
-                          <span style={{ fontSize:11, color:'#3D6645' }}>+ {formatKm(extraKm)} × {TARIFF.perKm} ЅМ</span>
-                          <span style={{ fontSize:11, color:'#3D6645' }}>+{Math.ceil(extraKm * TARIFF.perKm)} ЅМ</span>
+                          <span style={{ fontSize:11, color:'var(--t3)' }}>+ {formatKm(extraKm)} × {TARIFF.perKm} ЅМ</span>
+                          <span style={{ fontSize:11, color:'var(--t3)' }}>+{Math.ceil(extraKm * TARIFF.perKm)} ЅМ</span>
                         </div>
                       )}
                       {weightExtra > 0 && (
@@ -1948,8 +1948,8 @@ function CourierAppInner() {
                         </div>
                       )}
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:6, marginBottom:8 }}>
-                        <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>Доставка итого</span>
-                        <span style={{ fontSize:12, fontWeight:700, color:'#EBF5ED' }}>{dlv ?? '…'} ЅМ</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:'var(--t1)' }}>Доставка итого</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:'var(--t1)' }}>{dlv ?? '…'} ЅМ</span>
                       </div>
                       {!isCredit && clientTotal != null && (
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, padding:'8px 10px', borderRadius:10, background:'rgba(31,215,96,.12)' }}>
@@ -2017,7 +2017,7 @@ function CourierAppInner() {
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
                 <div>
                   <div className="ub" style={{ fontSize:16, fontWeight:900 }}>Мои доставки</div>
-                  <div style={{ fontSize:12, color:'#8FB897', marginTop:2 }}>{myActiveOrders.length} из {courierProfile.maxActiveOrders} заказов</div>
+                  <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>{myActiveOrders.length} из {courierProfile.maxActiveOrders} заказов</div>
                 </div>
                 <div style={{ padding:'8px 12px', borderRadius:12, background:'rgba(59,142,240,.1)', border:'1px solid rgba(59,142,240,.25)' }}>
                   <span style={{ fontSize:11, fontWeight:800, color:'#3B8EF0' }}>Нажмите заказ →</span>
@@ -2039,22 +2039,22 @@ function CourierAppInner() {
                   const statusColor = statusLabel === 'К клиенту' ? '#3B8EF0' : statusLabel === 'На месте' ? '#1FD760' : statusLabel === 'Ожидание' ? '#FFB800' : '#FF8C00'
                   return (
                     <button key={o.id} type="button" onClick={() => openDeliveryDetail(o.id)} className="btn"
-                      style={{ background:'#091508', border:'1.5px solid #162B1A', borderRadius:16, padding:'14px 15px', textAlign:'left' }}>
+                      style={{ background:'var(--l2)', border:'1.5px solid var(--b1)', borderRadius:16, padding:'14px 15px', textAlign:'left' }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                           <div style={{ width:34, height:34, borderRadius:10, background:'linear-gradient(135deg,#1E5BB5,#3B8EF0)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Unbounded', fontSize:12, fontWeight:900, color:'white' }}>{idx + 1}</div>
                           <div>
                             <div className="ub" style={{ fontSize:14, fontWeight:800, color:'#3B8EF0' }}>{o.id}</div>
-                            <div style={{ fontSize:11, color:'#8FB897' }}>{o.client}</div>
+                            <div style={{ fontSize:11, color:'var(--t2)' }}>{o.client}</div>
                           </div>
                         </div>
                         <div style={{ textAlign:'right' }}>
                           <div className="ub" style={{ fontSize:16, fontWeight:900, color:'#1FD760' }}>{dlv ?? '…'} ЅМ</div>
-                          <div style={{ fontSize:9, color:'#3D6645' }}>{km != null ? formatKm(km) : '…'}</div>
+                          <div style={{ fontSize:9, color:'var(--t3)' }}>{km != null ? formatKm(km) : '…'}</div>
                         </div>
                       </div>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
-                        <div style={{ fontSize:11, color:'#8FB897', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📍 {o.addr}</div>
+                        <div style={{ fontSize:11, color:'var(--t2)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📍 {o.addr}</div>
                         <span style={{ padding:'3px 9px', borderRadius:8, fontSize:10, fontWeight:800, background:`${statusColor}18`, color:statusColor, border:`1px solid ${statusColor}44`, flexShrink:0 }}>{statusLabel}</span>
                       </div>
                     </button>
@@ -2064,7 +2064,7 @@ function CourierAppInner() {
             </div>
           </div>
         ) : (
-            <div style={{ textAlign:'center', padding:'56px 24px 84px', color:'#8FB897' }}>
+            <div style={{ textAlign:'center', padding:'56px 24px 84px', color:'var(--t2)' }}>
               <div style={{ width:64, height:64, borderRadius:18, margin:'0 auto 16px', background:'linear-gradient(145deg,rgba(59,142,240,.12),rgba(59,142,240,.04))', border:'1px solid rgba(59,142,240,.22)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, boxShadow:'0 8px 24px rgba(0,0,0,.25)' }}>🛵</div>
               <div className="ub" style={{ fontSize:15, fontWeight:900, marginBottom:6 }}>Нет активной доставки</div>
               <div style={{ fontSize:12, color:'#5A7A62', marginBottom:18, lineHeight:1.45 }}>Примите заказ во вкладке «Заказы»</div>
@@ -2168,7 +2168,7 @@ function CourierAppInner() {
       )}
 
         {/* NAV */}
-        <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'rgba(3,11,5,.97)', backdropFilter:'blur(16px)', borderTop:'1px solid #162B1A', padding:'8px 12px calc(10px + env(safe-area-inset-bottom, 0px))', display:'flex', justifyContent:'space-around', gap:6, zIndex:90 }}>
+        <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'rgba(3,11,5,.97)', backdropFilter:'blur(16px)', borderTop:'1px solid var(--b1)', padding:'8px 12px calc(10px + env(safe-area-inset-bottom, 0px))', display:'flex', justifyContent:'space-around', gap:6, zIndex:90 }}>
         {([['orders','📋','Заказы'],['active','🛵','Доставка'],['earnings','💰','Счёт']] as const).map(([id,icon,label])=>(
             <button key={id} onClick={() => { if (id === 'active') setDetailOrderId(null); if (id !== 'earnings') setWalletHistoryOpen(false); setTab(id); }} className="btn" style={{
               flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, padding:'7px 4px', borderRadius:12,

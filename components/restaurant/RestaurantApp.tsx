@@ -509,18 +509,18 @@ function Header({
   showBack?: boolean; backPage?: string; title?: string
 }) {
   return (
-    <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid #162B1A'}}>
+    <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
       <div style={{padding:'13px 18px',display:'flex',alignItems:'center',gap:10}}>
         {showBack ? (
-          <button onClick={()=>onPage(backPage||'dashboard')} className="btn" style={{width:38,height:38,borderRadius:12,background:'#0C1C0F',border:'1px solid #162B1A',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-            <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="#8FB897" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 5 5 12 12 19"/></svg>
+          <button onClick={()=>onPage(backPage||'dashboard')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="var(--t2)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 5 5 12 12 19"/></svg>
           </button>
         ) : (
           <div style={{width:38,height:38,borderRadius:12,background:'linear-gradient(135deg,#0F3020,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0,animation:'glow 3s ease-in-out infinite'}}>{rest?.emoji||'🍽'}</div>
         )}
         <div style={{flex:1}}>
           <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900}}>{title||rest?.name}</div>
-          <div style={{fontSize:10,color:'#8FB897',marginTop:1}}>{rest?.cuisine} · {rest?.address}</div>
+          <div style={{fontSize:10,color:'var(--t2)',marginTop:1}}>{rest?.cuisine} · {rest?.address}</div>
         </div>
         {!showBack && onToggleOpen && (
           <div onClick={onToggleOpen} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:11,background:isOpen?'rgba(31,215,96,.12)':'rgba(255,69,69,.12)',border:`1px solid ${isOpen?'rgba(31,215,96,.3)':'rgba(255,69,69,.3)'}`,cursor:'pointer'}}>
@@ -545,12 +545,12 @@ function BottomNav({page, onPage, newOrders, reviewBadge}) {
     {id:'settings', icon:'⚙️', label:'Настройки'},
   ];
   return (
-    <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid #162B1A',padding:'8px 18px',paddingBottom:'calc(10px + env(safe-area-inset-bottom,0))',display:'flex',justifyContent:'space-around',zIndex:80}}>
+    <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid var(--b1)',padding:'8px 18px',paddingBottom:'calc(10px + env(safe-area-inset-bottom,0))',display:'flex',justifyContent:'space-around',zIndex:80}}>
       {items.map(item=>(
         <button key={item.id} onClick={()=>onPage(item.id)} className="btn"
           style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'5px 10px',borderRadius:11,background:page===item.id?'rgba(31,215,96,.09)':'transparent',border:`1.5px solid ${page===item.id?'rgba(31,215,96,.22)':'transparent'}`,position:'relative'}}>
           <span style={{fontSize:20}}>{item.icon}</span>
-          <span style={{fontSize:9,fontWeight:page===item.id?800:600,color:page===item.id?'#1FD760':'#3D6645',fontFamily:'Nunito'}}>{item.label}</span>
+          <span style={{fontSize:9,fontWeight:page===item.id?800:600,color:page===item.id?'#1FD760':'var(--t3)',fontFamily:'Nunito'}}>{item.label}</span>
           {item.badge>0&&<div style={{position:'absolute',top:2,right:6,width:16,height:16,borderRadius:'50%',background:'#FF4545',border:'2px solid #030B05',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:8,fontWeight:900,color:'white'}}>{item.badge}</div>}
         </button>
       ))}
@@ -571,7 +571,7 @@ function DashboardPage({rest, orders, reviews, reviewsLoaded, unseenReviews, isO
   const avgReview     = displayRestRating(reviews, rest, reviewsLoaded);
 
   return (
-    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90,paddingTop:hasAlert?88:0}}>
+    <div style={{minHeight:'100vh',background:'var(--bg)',paddingBottom:90,paddingTop:hasAlert?88:0}}>
       <Header rest={rest} isOpen={isOpen} onToggleOpen={onToggleOpen} onPage={onPage} onLogout={onLogout}/>
 
       <div style={{padding:'16px 18px'}}>
@@ -580,7 +580,7 @@ function DashboardPage({rest, orders, reviews, reviewsLoaded, unseenReviews, isO
             <div style={{fontSize:24}}>⭐</div>
             <div style={{flex:1}}>
               <div style={{fontSize:14,fontWeight:800,color:'#FFB800'}}>{unseenReviews} новых отзывов от клиентов</div>
-              <div style={{fontSize:11,color:'#8FB897',marginTop:1}}>Нажмите чтобы прочитать и ответить</div>
+              <div style={{fontSize:11,color:'var(--t2)',marginTop:1}}>Нажмите чтобы прочитать и ответить</div>
             </div>
           </div>
         )}
@@ -592,7 +592,7 @@ function DashboardPage({rest, orders, reviews, reviewsLoaded, unseenReviews, isO
             </div>
             <div style={{flex:1}}>
               <div style={{fontSize:14,fontWeight:800,color:'#FF4545'}}>🔔 {newOrders} новых заказа — требуют ответа!</div>
-              <div style={{fontSize:11,color:'#8FB897',marginTop:1}}>Нажмите чтобы обработать заказы</div>
+              <div style={{fontSize:11,color:'var(--t2)',marginTop:1}}>Нажмите чтобы обработать заказы</div>
             </div>
             <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#FF4545" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
           </div>
@@ -606,9 +606,9 @@ function DashboardPage({rest, orders, reviews, reviewsLoaded, unseenReviews, isO
             {l:'Готово к выдаче',  v:todayOrders.filter(o=>o.status==='ready').length,   c:'#1FD760', e:'✅'},
             {l:'Доставлено сегодня',v:doneToday,     c:'#3B8EF0', e:'🛵'},
           ].map((s,i)=>(
-            <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:16,padding:'14px',animation:`fadeUp .4s ease ${i*.06}s both`}}>
+            <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'14px',animation:`fadeUp .4s ease ${i*.06}s both`}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
-                <div style={{fontSize:10,color:'#8FB897',fontWeight:600}}>{s.l}</div>
+                <div style={{fontSize:10,color:'var(--t2)',fontWeight:600}}>{s.l}</div>
                 <span style={{fontSize:20}}>{s.e}</span>
               </div>
               <div style={{fontFamily:'Unbounded',fontSize:26,fontWeight:900,color:s.c}}>{s.v}</div>
@@ -619,12 +619,12 @@ function DashboardPage({rest, orders, reviews, reviewsLoaded, unseenReviews, isO
         {/* Revenue today */}
         <div onClick={()=>onPage('stats')} style={{cursor:'pointer',background:'linear-gradient(135deg,#071A0A,#0F3018)',border:'1px solid rgba(31,215,96,.2)',borderRadius:18,padding:'18px',marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Выручка сегодня</div>
+            <div style={{fontSize:11,color:'var(--t2)',marginBottom:6}}>Выручка сегодня</div>
             <div style={{fontFamily:'Unbounded',fontSize:30,fontWeight:900,color:'#1FD760'}}>{revenue} <span style={{fontSize:16,color:'#FFB800'}}>ЅМ</span></div>
-            <div style={{fontSize:11,color:'#3D6645',marginTop:4}}>Комиссия КАКАПО ({rest?.commission}%): <span style={{color:'#FF4545'}}>−{Math.round(revenue*rest?.commission/100)} ЅМ</span></div>
+            <div style={{fontSize:11,color:'var(--t3)',marginTop:4}}>Комиссия КАКАПО ({rest?.commission}%): <span style={{color:'#FF4545'}}>−{Math.round(revenue*rest?.commission/100)} ЅМ</span></div>
           </div>
           <div style={{textAlign:'right'}}>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:4}}>Ваш доход · ★ {avgReview}</div>
+            <div style={{fontSize:11,color:'var(--t2)',marginBottom:4}}>Ваш доход · ★ {avgReview}</div>
             <div style={{fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:'#FFB800'}}>{Math.round(revenue*(1-rest?.commission/100))} ЅМ</div>
           </div>
         </div>
@@ -641,13 +641,13 @@ function DashboardPage({rest, orders, reviews, reviewsLoaded, unseenReviews, isO
                 <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:readyOrders.length?16:0}}>
                   {workOrders.slice(0,3).map((o,i)=>{
                     const sc = {new:{l:'Новый',c:'#FF4545'},cooking:{l:'Готовится',c:'#FFB800'}};
-                    const s = sc[o.status]||{l:o.status,c:'#8FB897'};
+                    const s = sc[o.status]||{l:o.status,c:'var(--t2)'};
                     return (
-                      <div key={o.id} onClick={()=>onPage('orders')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 14px',background:'#091508',border:`1px solid ${s.c}28`,borderRadius:14,cursor:'pointer',animation:`fadeUp .4s ease ${i*.07}s both`}}>
+                      <div key={o.id} onClick={()=>onPage('orders')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 14px',background:'var(--l2)',border:`1px solid ${s.c}28`,borderRadius:14,cursor:'pointer',animation:`fadeUp .4s ease ${i*.07}s both`}}>
                         <div style={{width:8,height:8,borderRadius:'50%',background:s.c,flexShrink:0,animation:o.status==='new'?'pulse 1.5s infinite':'none'}}/>
                         <div style={{flex:1}}>
                           <div style={{fontSize:13,fontWeight:700,marginBottom:1}}>{o.id} · {o.client}</div>
-                          <div style={{fontSize:11,color:'#8FB897'}}>{o.items.map(it=>it.name).join(', ')}</div>
+                          <div style={{fontSize:11,color:'var(--t2)'}}>{o.items.map(it=>it.name).join(', ')}</div>
                         </div>
                         <div style={{textAlign:'right'}}>
                           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900}}>{o.total} <span style={{fontSize:10,color:'#FFB800'}}>ЅМ</span></div>
@@ -667,11 +667,11 @@ function DashboardPage({rest, orders, reviews, reviewsLoaded, unseenReviews, isO
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
                   {readyOrders.slice(0,3).map((o,i)=>(
-                    <div key={o.id} onClick={()=>onPage('orders')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 14px',background:'#091508',border:'1px solid rgba(31,215,96,.28)',borderRadius:14,cursor:'pointer',animation:`fadeUp .4s ease ${i*.07}s both`}}>
+                    <div key={o.id} onClick={()=>onPage('orders')} style={{display:'flex',alignItems:'center',gap:12,padding:'13px 14px',background:'var(--l2)',border:'1px solid rgba(31,215,96,.28)',borderRadius:14,cursor:'pointer',animation:`fadeUp .4s ease ${i*.07}s both`}}>
                       <div style={{width:8,height:8,borderRadius:'50%',background:'#1FD760',flexShrink:0}}/>
                       <div style={{flex:1}}>
                         <div style={{fontSize:13,fontWeight:700,marginBottom:1}}>{o.id} · {o.client}</div>
-                        <div style={{fontSize:11,color:'#8FB897'}}>{o.items.map(it=>it.name).join(', ')}</div>
+                        <div style={{fontSize:11,color:'var(--t2)'}}>{o.items.map(it=>it.name).join(', ')}</div>
                       </div>
                       <div style={{textAlign:'right'}}>
                         <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900}}>{o.total} <span style={{fontSize:10,color:'#FFB800'}}>ЅМ</span></div>
@@ -733,7 +733,7 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
   };
 
   return (
-    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
+    <div style={{minHeight:'100vh',background:'var(--bg)',paddingBottom:90}}>
       <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Заказы"/>
 
       <div style={{padding:'14px 18px 0'}}>
@@ -744,7 +744,7 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
             {id:'done',l:`Доставлено (${doneOrders.length})`,accent:'#3B8EF0'},
           ].map(f=>(
             <button key={f.id} onClick={()=>setFilter(f.id)} className="btn"
-              style={{flex:1,padding:'10px 8px',borderRadius:12,fontSize:11,fontWeight:700,border:`1.5px solid ${filter===f.id?`${f.accent}66`:'#162B1A'}`,background:filter===f.id?`${f.accent}1F`:'#0C1C0F',color:filter===f.id?f.accent:'#8FB897',fontFamily:'Nunito'}}>
+              style={{flex:1,padding:'10px 8px',borderRadius:12,fontSize:11,fontWeight:700,border:`1.5px solid ${filter===f.id?`${f.accent}66`:'var(--b1)'}`,background:filter===f.id?`${f.accent}1F`:'var(--l3)',color:filter===f.id?f.accent:'var(--t2)',fontFamily:'Nunito'}}>
               {f.l}
             </button>
           ))}
@@ -767,9 +767,9 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
               ? 'rgba(59,142,240,.45)'
               : isReadyWaiting
                 ? 'rgba(31,215,96,.4)'
-                : '#162B1A'
+                : 'var(--b1)'
           return (
-            <div key={o.id} style={{background:'#091508',border:`1.5px solid ${cardBorder}`,borderRadius:18,overflow:'hidden',animation:`fadeUp .4s ease ${i*.06}s both`}}>
+            <div key={o.id} style={{background:'var(--l2)',border:`1.5px solid ${cardBorder}`,borderRadius:18,overflow:'hidden',animation:`fadeUp .4s ease ${i*.06}s both`}}>
               {isReadyWaiting && (
                 <div style={{padding:'7px 16px',background:'rgba(31,215,96,.08)',borderBottom:'1px solid rgba(31,215,96,.2)',display:'flex',alignItems:'center',gap:7}}>
                   <span style={{fontSize:11,fontWeight:800,color:'#1FD760'}}>✅ Заказ готов · ждёт курьера</span>
@@ -781,12 +781,12 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
                 </div>
               )}
               {/* Status header */}
-              <div style={{padding:'10px 16px',background:o.status==='new'?'rgba(255,69,69,.08)':o.status==='ready'?'rgba(31,215,96,.08)':'rgba(255,184,0,.06)',borderBottom:'1px solid #162B1A',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{padding:'10px 16px',background:o.status==='new'?'rgba(255,69,69,.08)':o.status==='ready'?'rgba(31,215,96,.08)':'rgba(255,184,0,.06)',borderBottom:'1px solid var(--b1)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <div style={{display:'flex',alignItems:'center',gap:7}}>
                   <div style={{width:8,height:8,borderRadius:'50%',background:s.c,animation:o.status!=='delivered'?'pulse 1.5s infinite':'none'}}/>
                   <span style={{fontSize:12,fontWeight:800,color:s.c}}>{s.l}</span>
                 </div>
-                <span style={{fontSize:11,color:'#3D6645'}}>{o.time}</span>
+                <span style={{fontSize:11,color:'var(--t3)'}}>{o.time}</span>
               </div>
 
               <div style={{padding:'14px 16px'}}>
@@ -795,24 +795,24 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
                   <div>
                     <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800}}>{o.id}</div>
                     <div style={{fontSize:13,fontWeight:700,marginTop:2}}>{o.client}</div>
-                    <div style={{fontSize:11,color:'#8FB897',marginTop:1}}>{o.phone}</div>
+                    <div style={{fontSize:11,color:'var(--t2)',marginTop:1}}>{o.phone}</div>
                   </div>
                   <div style={{textAlign:'right'}}>
                     <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900}}>{o.total} <span style={{fontSize:12,color:'#FFB800'}}>ЅМ</span></div>
-                    <div style={{fontSize:11,color:'#8FB897',marginTop:2}}>📍 {o.addr}</div>
+                    <div style={{fontSize:11,color:'var(--t2)',marginTop:2}}>📍 {o.addr}</div>
                   </div>
                 </div>
 
                 {/* Items */}
-                <div style={{background:'#0C1C0F',borderRadius:12,padding:'10px 13px',marginBottom:o.comment?10:12}}>
+                <div style={{background:'var(--l3)',borderRadius:12,padding:'10px 13px',marginBottom:o.comment?10:12}}>
                   {o.items.map((it,j)=>(
-                    <div key={j} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:j<o.items.length-1?'1px solid #162B1A':'none'}}>
+                    <div key={j} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:j<o.items.length-1?'1px solid var(--b1)':'none'}}>
                       <div style={{display:'flex',alignItems:'center',gap:8}}>
                         {resolvePhotoUrl(it.photo)
                           ? <img src={resolvePhotoUrl(it.photo)} alt="" style={{width:24,height:24,borderRadius:6,objectFit:'cover',flexShrink:0}}/>
                           : <span style={{fontSize:18,width:24}}>{it.e}</span>}
                         <span style={{fontSize:13,fontWeight:600}}>{it.name}</span>
-                        <span style={{fontSize:11,color:'#3D6645'}}>× {it.qty}</span>
+                        <span style={{fontSize:11,color:'var(--t3)'}}>× {it.qty}</span>
                       </div>
                       <span style={{fontSize:12,fontWeight:700,color:'#FFB800',fontFamily:'Unbounded'}}>{it.price.toFixed(2)} ЅМ</span>
                     </div>
@@ -833,12 +833,12 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
                       {isCourierAssigned ? (
                         <>
                           <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>{raw?.courier?.name}</div>
-                          <div style={{fontSize:10,color:'#3D6645'}}>{raw?.courier?.phone || 'Курьер ждёт передачи заказа'}</div>
+                          <div style={{fontSize:10,color:'var(--t3)'}}>{raw?.courier?.phone || 'Курьер ждёт передачи заказа'}</div>
                         </>
                       ) : (
                         <>
                           <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>Ожидаем курьера</div>
-                          <div style={{fontSize:10,color:'#3D6645'}}>Курьер примет заказ в приложении</div>
+                          <div style={{fontSize:10,color:'var(--t3)'}}>Курьер примет заказ в приложении</div>
                         </>
                       )}
                     </div>
@@ -876,7 +876,7 @@ function OrdersPage({rest, orders, apiOrders, onUpdate, onHandoff, onPage, revie
           <div style={{textAlign:'center',paddingTop:40}}>
             <div style={{fontSize:48,marginBottom:12}}>📭</div>
             <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:800,marginBottom:6}}>Заказов нет</div>
-            <div style={{fontSize:12,color:'#8FB897'}}>{emptyMsg}</div>
+            <div style={{fontSize:12,color:'var(--t2)'}}>{emptyMsg}</div>
           </div>
         )}
       </div>
@@ -1047,7 +1047,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
   }
 
   return (
-    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
+    <div style={{minHeight:'100vh',background:'var(--bg)',paddingBottom:90}}>
       <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Управление меню"/>
 
       {stopCount > 0 && (
@@ -1055,7 +1055,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
           <span style={{fontSize:20}}>⚠️</span>
           <div style={{flex:1}}>
             <span style={{fontSize:13,fontWeight:700,color:'#FF4545'}}>Стоп-лист: {stopCount} блюд</span>
-            <div style={{fontSize:11,color:'#8FB897',marginTop:1}}>Клиенты не могут заказать эти блюда</div>
+            <div style={{fontSize:11,color:'var(--t2)',marginTop:1}}>Клиенты не могут заказать эти блюда</div>
           </div>
         </div>
       )}
@@ -1067,15 +1067,15 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
               width:86,flexShrink:0,padding:'14px 10px 12px',borderRadius:18,textAlign:'center',
               background:isAllView
                 ? 'linear-gradient(160deg,rgba(23,179,78,.22) 0%,rgba(31,215,96,.08) 100%)'
-                : 'linear-gradient(160deg,#0C1C0F 0%,#091508 100%)',
-              border:`1.5px solid ${isAllView ? 'rgba(31,215,96,.55)' : '#162B1A'}`,
+                : 'linear-gradient(160deg,var(--l3) 0%,var(--l2) 100%)',
+              border:`1.5px solid ${isAllView ? 'rgba(31,215,96,.55)' : 'var(--b1)'}`,
               boxShadow:isAllView ? '0 8px 28px rgba(31,215,96,.22), inset 0 1px 0 rgba(255,255,255,.06)' : 'none',
               transform:isAllView ? 'translateY(-2px)' : 'none',
               transition:'all .22s ease',
             }}>
             <div style={{fontSize:28,lineHeight:1,marginBottom:8}}>📋</div>
             <div style={{
-              fontSize:11,fontWeight:800,color:isAllView ? '#1FD760' : '#8FB897',
+              fontSize:11,fontWeight:800,color:isAllView ? '#1FD760' : 'var(--t2)',
               lineHeight:1.2,marginBottom:6,
             }}>
               Все
@@ -1083,8 +1083,8 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
             <div style={{
               display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:22,height:20,padding:'0 7px',
               borderRadius:20,fontSize:10,fontWeight:800,
-              background:isAllView ? 'rgba(31,215,96,.2)' : '#162B1A',
-              color:isAllView ? '#1FD760' : '#3D6645',
+              background:isAllView ? 'rgba(31,215,96,.2)' : 'var(--b1)',
+              color:isAllView ? '#1FD760' : 'var(--t3)',
             }}>
               {menu.length}
             </div>
@@ -1098,8 +1098,8 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                   width:86,flexShrink:0,padding:'14px 10px 12px',borderRadius:18,textAlign:'center',
                   background:active
                     ? 'linear-gradient(160deg,rgba(23,179,78,.22) 0%,rgba(31,215,96,.08) 100%)'
-                    : 'linear-gradient(160deg,#0C1C0F 0%,#091508 100%)',
-                  border:`1.5px solid ${active ? 'rgba(31,215,96,.55)' : '#162B1A'}`,
+                    : 'linear-gradient(160deg,var(--l3) 0%,var(--l2) 100%)',
+                  border:`1.5px solid ${active ? 'rgba(31,215,96,.55)' : 'var(--b1)'}`,
                   boxShadow:active ? '0 8px 28px rgba(31,215,96,.22), inset 0 1px 0 rgba(255,255,255,.06)' : 'none',
                   transform:active ? 'translateY(-2px)' : 'none',
                   transition:'all .22s ease',
@@ -1108,7 +1108,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                   {categoryIcon(c)}
                 </div>
                 <div style={{
-                  fontSize:11,fontWeight:800,color:active ? '#1FD760' : '#8FB897',
+                  fontSize:11,fontWeight:800,color:active ? '#1FD760' : 'var(--t2)',
                   lineHeight:1.2,marginBottom:6,maxHeight:26,overflow:'hidden',
                 }}>
                   {c}
@@ -1116,8 +1116,8 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 <div style={{
                   display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:22,height:20,padding:'0 7px',
                   borderRadius:20,fontSize:10,fontWeight:800,
-                  background:active ? 'rgba(31,215,96,.2)' : '#162B1A',
-                  color:active ? '#1FD760' : '#3D6645',
+                  background:active ? 'rgba(31,215,96,.2)' : 'var(--b1)',
+                  color:active ? '#1FD760' : 'var(--t3)',
                 }}>
                   {count}
                 </div>
@@ -1162,13 +1162,13 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 {viewIcon}
               </div>
               <div>
-                <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'#EBF5ED',marginBottom:3}}>{viewTitle}</div>
-                <div style={{fontSize:12,color:'#8FB897'}}>
+                <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'var(--t1)',marginBottom:3}}>{viewTitle}</div>
+                <div style={{fontSize:12,color:'var(--t2)'}}>
                   {displayMenu.length} {displayMenu.length === 1 ? 'блюдо' : displayMenu.length < 5 ? 'блюда' : 'блюд'}
                   {isAllView && categories.length > 0 && (
-                    <span style={{color:'#3D6645'}}> · {categories.length} {categories.length < 5 ? 'раздела' : 'разделов'}</span>
+                    <span style={{color:'var(--t3)'}}> · {categories.length} {categories.length < 5 ? 'раздела' : 'разделов'}</span>
                   )}
-                  {!isAllView && displayMenu.length === 0 && <span style={{color:'#3D6645'}}> · пока пусто</span>}
+                  {!isAllView && displayMenu.length === 0 && <span style={{color:'var(--t3)'}}> · пока пусто</span>}
                 </div>
               </div>
             </div>
@@ -1178,7 +1178,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 style={{
                   width:36,height:36,borderRadius:11,
                   background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',
-                  color:'#8FB897',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',
+                  color:'var(--t2)',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',
                 }}>
                 ✏️
               </button>
@@ -1213,12 +1213,12 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
         {displayMenu.length === 0 ? (
           <div style={{
             padding:'28px 22px',borderRadius:18,textAlign:'center',
-            background:'#091508',border:'1px solid #162B1A',
+            background:'var(--l2)',border:'1px solid var(--b1)',
             animation:'fadeUp .4s ease both',
           }}>
             <div style={{fontSize:44,marginBottom:10}}>{viewIcon}</div>
-            <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,marginBottom:6,color:'#EBF5ED'}}>Пока нет блюд</div>
-            <div style={{fontSize:12,color:'#8FB897',lineHeight:1.55}}>
+            <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,marginBottom:6,color:'var(--t1)'}}>Пока нет блюд</div>
+            <div style={{fontSize:12,color:'var(--t2)',lineHeight:1.55}}>
               {isAllView ? 'Добавьте первое блюдо в любой раздел' : 'Используйте зелёную кнопку выше'}
             </div>
           </div>
@@ -1227,16 +1227,16 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
             {displayMenu.map((item, i) => (
               <div key={item.id} style={{
                 display:'flex',gap:12,padding:'14px 15px',
-                background:'linear-gradient(160deg,#0C1C0F 0%,#091508 100%)',
-                border:`1px solid ${item.inStock ? '#162B1A' : 'rgba(255,69,69,.35)'}`,
+                background:'linear-gradient(160deg,var(--l3) 0%,var(--l2) 100%)',
+                border:`1px solid ${item.inStock ? 'var(--b1)' : 'rgba(255,69,69,.35)'}`,
                 borderRadius:18,animation:`fadeUp .35s ease ${i * .05}s both`,
                 opacity:item.inStock ? 1 : .75,
                 boxShadow:'0 4px 20px rgba(0,0,0,.22)',
               }}>
                 <div style={{
-                  width:68,height:68,borderRadius:14,background:'#0C1C0F',
+                  width:68,height:68,borderRadius:14,background:'var(--l3)',
                   display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,
-                  position:'relative',overflow:'hidden',border:'1px solid #162B1A',
+                  position:'relative',overflow:'hidden',border:'1px solid var(--b1)',
                 }}>
                   {(item as { photo?: string }).photo
                     ? <img src={resolvePhotoUrl((item as { photo?: string }).photo)} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
@@ -1261,7 +1261,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                       </button>
                     )}
                   </div>
-                  <div style={{fontSize:11,color:'#3D6645',marginBottom:5,lineHeight:1.4}}>{item.desc}</div>
+                  <div style={{fontSize:11,color:'var(--t3)',marginBottom:5,lineHeight:1.4}}>{item.desc}</div>
                   <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900}}>
                     {item.price}<span style={{fontSize:10,color:'#FFB800',marginLeft:2}}>ЅМ</span>
                   </div>
@@ -1293,18 +1293,18 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
           <div style={{
             position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'92vh',
             display:'flex',flexDirection:'column',
-            background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',
+            background:'var(--l1)',borderTop:'1px solid var(--b1)',borderRadius:'24px 24px 0 0',
             animation:'slideUp .4s cubic-bezier(.16,1,.3,1)',
           }}>
             <div style={{padding:'16px 20px 0',flexShrink:0}}>
-              <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 16px'}}/>
+              <div style={{width:40,height:4,borderRadius:2,background:'var(--b2)',margin:'0 auto 16px'}}/>
               <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:4}}>
                 <div>
                   <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:4}}>Новое блюдо</div>
-                  <div style={{fontSize:12,color:'#8FB897'}}>Заполните карточку — так её увидят клиенты</div>
+                  <div style={{fontSize:12,color:'var(--t2)'}}>Заполните карточку — так её увидят клиенты</div>
                 </div>
                 <button type="button" onClick={() => setShowAdd(false)} className="btn"
-                  style={{width:34,height:34,borderRadius:11,background:'#0C1C0F',border:'1px solid #162B1A',color:'#8FB897',fontSize:16}}>
+                  style={{width:34,height:34,borderRadius:11,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',fontSize:16}}>
                   ✕
                 </button>
               </div>
@@ -1313,13 +1313,13 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
             <div style={{flex:1,overflowY:'auto',padding:'14px 20px 20px'}}>
               {/* Preview */}
               <div style={{marginBottom:18}}>
-                <div style={{fontSize:10,color:'#3D6645',marginBottom:8,fontWeight:800,letterSpacing:.5,textTransform:'uppercase'}}>Предпросмотр</div>
+                <div style={{fontSize:10,color:'var(--t3)',marginBottom:8,fontWeight:800,letterSpacing:.5,textTransform:'uppercase'}}>Предпросмотр</div>
                 <div style={{
-                  display:'flex',gap:12,padding:'12px 14px',background:'#091508',
+                  display:'flex',gap:12,padding:'12px 14px',background:'var(--l2)',
                   border:'1.5px solid rgba(31,215,96,.25)',borderRadius:15,
                 }}>
                   <div style={{
-                    width:60,height:60,borderRadius:13,background:'#0C1C0F',border:'1px solid #162B1A',
+                    width:60,height:60,borderRadius:13,background:'var(--l3)',border:'1px solid var(--b1)',
                     display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0,
                   }}>
                     {photo
@@ -1328,14 +1328,14 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                     }
                   </div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:800,marginBottom:2,color:name ? '#EBF5ED' : '#3D6645'}}>
+                    <div style={{fontSize:13,fontWeight:800,marginBottom:2,color:name ? 'var(--t1)' : 'var(--t3)'}}>
                       {name.trim() || 'Название блюда'}
                     </div>
-                    <div style={{fontSize:10,color:'#3D6645',marginBottom:4,lineHeight:1.4}}>
+                    <div style={{fontSize:10,color:'var(--t3)',marginBottom:4,lineHeight:1.4}}>
                       {desc.trim() || 'Краткое описание'}
                     </div>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:priceNum > 0 ? '#1FD760' : '#3D6645'}}>
+                      <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:priceNum > 0 ? '#1FD760' : 'var(--t3)'}}>
                         {priceNum > 0 ? priceNum : '—'}<span style={{fontSize:9,color:'#FFB800'}}> ЅМ</span>
                       </span>
                       <span style={{fontSize:10,padding:'2px 8px',borderRadius:20,background:'rgba(31,215,96,.1)',color:'#1FD760',fontWeight:700}}>{cat}</span>
@@ -1352,15 +1352,15 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
 
               {/* Category chips */}
               <div style={{marginBottom:16}}>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Раздел меню *</div>
+                <div style={{fontSize:11,color:'var(--t2)',marginBottom:8,fontWeight:700}}>Раздел меню *</div>
                 <div className="hscroll" style={{gap:6}}>
                   {categories.map(c => (
                     <button key={c} type="button" onClick={() => setCat(c)} className="btn"
                       style={{
                         padding:'8px 14px',borderRadius:50,fontSize:12,fontWeight:700,whiteSpace:'nowrap',
-                        border:`1.5px solid ${cat === c ? 'rgba(31,215,96,.5)' : '#162B1A'}`,
-                        background:cat === c ? 'rgba(31,215,96,.15)' : '#0C1C0F',
-                        color:cat === c ? '#1FD760' : '#8FB897',
+                        border:`1.5px solid ${cat === c ? 'rgba(31,215,96,.5)' : 'var(--b1)'}`,
+                        background:cat === c ? 'rgba(31,215,96,.15)' : 'var(--l3)',
+                        color:cat === c ? '#1FD760' : 'var(--t2)',
                       }}>
                       {c}
                     </button>
@@ -1370,9 +1370,9 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
 
               {/* Photo */}
               <div style={{marginBottom:16}}>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>📷 Фото (необязательно)</div>
+                <div style={{fontSize:11,color:'var(--t2)',marginBottom:8,fontWeight:700}}>📷 Фото (необязательно)</div>
                 {photo ? (
-                  <div style={{position:'relative',width:'100%',height:160,borderRadius:14,overflow:'hidden',border:'1px solid #162B1A'}}>
+                  <div style={{position:'relative',width:'100%',height:160,borderRadius:14,overflow:'hidden',border:'1px solid var(--b1)'}}>
                     <img src={resolvePhotoUrl(photo)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                     <button type="button" onClick={() => { setPhoto(''); setPhotoFile(null) }} className="btn"
                       style={{position:'absolute',top:8,right:8,width:32,height:32,borderRadius:'50%',background:'rgba(0,0,0,.75)',border:'1px solid rgba(255,255,255,.2)',color:'white',fontSize:14}}>
@@ -1383,12 +1383,12 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                   <label className="btn" style={{
                     display:'flex',alignItems:'center',justifyContent:'center',gap:10,
                     width:'100%',padding:'16px',borderRadius:14,
-                    border:'2px dashed #1D3822',background:'#0C1C0F',cursor:'pointer',
+                    border:'2px dashed var(--b2)',background:'var(--l3)',cursor:'pointer',
                   }}>
                     <span style={{fontSize:22}}>📷</span>
                     <div style={{textAlign:'left'}}>
-                      <div style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Загрузить фото</div>
-                      <div style={{fontSize:10,color:'#3D6645'}}>JPG, PNG и другие · автоматически WebP</div>
+                      <div style={{fontSize:12,color:'var(--t2)',fontWeight:700}}>Загрузить фото</div>
+                      <div style={{fontSize:10,color:'var(--t3)'}}>JPG, PNG и другие · автоматически WebP</div>
                     </div>
                     <input type="file" accept="image/*" onChange={handlePhoto} style={{display:'none'}}/>
                   </label>
@@ -1405,23 +1405,23 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                   style={{
                     width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,
                     padding:'11px 14px',borderRadius:14,
-                    background:'#0C1C0F',border:'1px solid #162B1A',
+                    background:'var(--l3)',border:'1px solid var(--b1)',
                   }}
                 >
                   <div style={{display:'flex',alignItems:'center',gap:10,minWidth:0}}>
                     <span style={{
                       width:36,height:36,borderRadius:11,flexShrink:0,
-                      background:'#091508',border:'1px solid #162B1A',
+                      background:'var(--l2)',border:'1px solid var(--b1)',
                       display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,
                     }}>{emoji}</span>
                     <div style={{textAlign:'left',minWidth:0}}>
-                      <div style={{fontSize:12,color:'#8FB897',fontWeight:700}}>Иконка без фото</div>
-                      <div style={{fontSize:10,color:'#3D6645',marginTop:1}}>
+                      <div style={{fontSize:12,color:'var(--t2)',fontWeight:700}}>Иконка без фото</div>
+                      <div style={{fontSize:10,color:'var(--t3)',marginTop:1}}>
                         {photo ? 'Фото уже есть — иконка запасная' : 'Нажмите, чтобы выбрать'}
                       </div>
                     </div>
                   </div>
-                  <span style={{fontSize:12,color:'#3D6645',fontWeight:800}}>{showEmojiPicker ? '▴' : '▾'}</span>
+                  <span style={{fontSize:12,color:'var(--t3)',fontWeight:800}}>{showEmojiPicker ? '▴' : '▾'}</span>
                 </button>
                 {showEmojiPicker && (
                   <div style={{marginTop:10,display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:6}}>
@@ -1429,8 +1429,8 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                       <button key={e} type="button" onClick={() => { setEmoji(e); setShowEmojiPicker(false) }} className="btn"
                         style={{
                           aspectRatio:'1',borderRadius:11,fontSize:22,
-                          background:emoji === e ? 'rgba(31,215,96,.18)' : '#0C1C0F',
-                          border:`1.5px solid ${emoji === e ? 'rgba(31,215,96,.5)' : '#162B1A'}`,
+                          background:emoji === e ? 'rgba(31,215,96,.18)' : 'var(--l3)',
+                          border:`1.5px solid ${emoji === e ? 'rgba(31,215,96,.5)' : 'var(--b1)'}`,
                           display:'flex',alignItems:'center',justifyContent:'center',
                         }}>
                         {e}
@@ -1441,17 +1441,17 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
               </div>
 
               <div style={{marginBottom:14}}>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:6,fontWeight:700}}>Название *</div>
+                <div style={{fontSize:11,color:'var(--t2)',marginBottom:6,fontWeight:700}}>Название *</div>
                 <input className="inp" value={name} onChange={e => { setName(e.target.value); setFormErr('') }} placeholder="Например: Плов узбекский"/>
               </div>
 
               <div style={{marginBottom:14}}>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:6,fontWeight:700}}>Состав / описание</div>
+                <div style={{fontSize:11,color:'var(--t2)',marginBottom:6,fontWeight:700}}>Состав / описание</div>
                 <textarea className="inp" value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Граммовка, состав, особенности…" style={{resize:'vertical',minHeight:64}}/>
               </div>
 
               <div style={{marginBottom:8}}>
-                <div style={{fontSize:11,color:'#8FB897',marginBottom:6,fontWeight:700}}>Цена *</div>
+                <div style={{fontSize:11,color:'var(--t2)',marginBottom:6,fontWeight:700}}>Цена *</div>
                 <div style={{position:'relative'}}>
                   <input className="inp" value={price} onChange={e => { setPrice(e.target.value); setFormErr('') }} type="number" min="1" placeholder="0" style={{paddingRight:48}}/>
                   <span style={{position:'absolute',right:14,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:800,color:'#FFB800'}}>ЅМ</span>
@@ -1459,12 +1459,12 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
               </div>
             </div>
 
-            <div style={{padding:'12px 20px 32px',borderTop:'1px solid #162B1A',flexShrink:0,background:'rgba(3,11,5,.97)'}}>
+            <div style={{padding:'12px 20px 32px',borderTop:'1px solid var(--b1)',flexShrink:0,background:'rgba(3,11,5,.97)'}}>
               <button type="button" onClick={save} disabled={!canSave} className="btn"
                 style={{
                   width:'100%',padding:15,borderRadius:16,
-                  background:canSave ? 'linear-gradient(135deg,#17B34E,#1FD760)' : '#162B1A',
-                  border:'none',color:canSave ? '#030B05' : '#3D6645',
+                  background:canSave ? 'linear-gradient(135deg,#17B34E,#1FD760)' : 'var(--b1)',
+                  border:'none',color:canSave ? '#030B05' : 'var(--t3)',
                   fontFamily:'Nunito',fontWeight:800,fontSize:15,
                   boxShadow:canSave ? '0 8px 24px rgba(31,215,96,.35)' : 'none',
                 }}>
@@ -1480,11 +1480,11 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
           <div onClick={() => setShowAddCat(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.88)',backdropFilter:'blur(12px)'}}/>
           <div style={{
             position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'85vh',overflowY:'auto',
-            background:'linear-gradient(180deg,#0a180d 0%,#06100A 100%)',
+            background:'linear-gradient(180deg,#0a180d 0%,var(--l1) 100%)',
             borderTop:'1px solid rgba(31,215,96,.2)',borderRadius:'28px 28px 0 0',
             padding:'22px 20px 40px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)',
           }}>
-            <div style={{width:44,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 20px'}}/>
+            <div style={{width:44,height:4,borderRadius:2,background:'var(--b2)',margin:'0 auto 20px'}}/>
             <div style={{textAlign:'center',marginBottom:20}}>
               <div style={{
                 width:56,height:56,borderRadius:18,margin:'0 auto 12px',
@@ -1492,7 +1492,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 border:'1px solid rgba(31,215,96,.35)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,
               }}>📂</div>
               <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,marginBottom:4}}>Новый раздел</div>
-              <div style={{fontSize:12,color:'#8FB897',lineHeight:1.5}}>Выберите готовый или придумайте своё название</div>
+              <div style={{fontSize:12,color:'var(--t2)',lineHeight:1.5}}>Выберите готовый или придумайте своё название</div>
             </div>
             {catErr && (
               <div style={{padding:'10px 13px',borderRadius:12,marginBottom:14,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545',textAlign:'center'}}>
@@ -1501,23 +1501,23 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
             )}
             {availableSuggestions.length > 0 && (
               <div style={{marginBottom:18}}>
-                <div style={{fontSize:10,color:'#3D6645',marginBottom:10,fontWeight:800,letterSpacing:.4,textTransform:'uppercase'}}>Популярные разделы</div>
+                <div style={{fontSize:10,color:'var(--t3)',marginBottom:10,fontWeight:800,letterSpacing:.4,textTransform:'uppercase'}}>Популярные разделы</div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
                   {availableSuggestions.slice(0, 9).map(s => (
                     <button key={s} type="button" onClick={() => saveNewCategory(s)} className="btn"
                       style={{
                         padding:'12px 8px',borderRadius:16,textAlign:'center',
-                        background:'#091508',border:'1px solid #162B1A',
+                        background:'var(--l2)',border:'1px solid var(--b1)',
                       }}>
                       <div style={{fontSize:24,marginBottom:6}}>{categoryIcon(s)}</div>
-                      <div style={{fontSize:10,fontWeight:800,color:'#EBF5ED',lineHeight:1.2}}>{s}</div>
+                      <div style={{fontSize:10,fontWeight:800,color:'var(--t1)',lineHeight:1.2}}>{s}</div>
                     </button>
                   ))}
                 </div>
               </div>
             )}
             <div style={{marginBottom:18}}>
-              <div style={{fontSize:11,color:'#8FB897',marginBottom:8,fontWeight:700}}>Своё название</div>
+              <div style={{fontSize:11,color:'var(--t2)',marginBottom:8,fontWeight:700}}>Своё название</div>
               <input className="inp" value={newCatName} onChange={e => { setNewCatName(e.target.value); setCatErr('') }}
                 onKeyDown={e => e.key === 'Enter' && saveNewCategory()}
                 placeholder="Например: Закуски" autoFocus/>
@@ -1532,7 +1532,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
               ✓ Создать раздел
             </button>
             <button type="button" onClick={() => setShowAddCat(false)} className="btn"
-              style={{width:'100%',padding:12,borderRadius:14,background:'transparent',border:'none',color:'#8FB897',fontWeight:700,fontSize:13}}>
+              style={{width:'100%',padding:12,borderRadius:14,background:'transparent',border:'none',color:'var(--t2)',fontWeight:700,fontSize:13}}>
               Отмена
             </button>
           </div>
@@ -1544,11 +1544,11 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
           <div onClick={() => setShowRenameCat(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.88)',backdropFilter:'blur(12px)'}}/>
           <div style={{
             position:'relative',zIndex:1,width:'100%',maxWidth:480,
-            background:'linear-gradient(180deg,#0a180d 0%,#06100A 100%)',
+            background:'linear-gradient(180deg,#0a180d 0%,var(--l1) 100%)',
             borderTop:'1px solid rgba(31,215,96,.2)',borderRadius:'28px 28px 0 0',
             padding:'22px 20px 40px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)',
           }}>
-            <div style={{width:44,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 20px'}}/>
+            <div style={{width:44,height:4,borderRadius:2,background:'var(--b2)',margin:'0 auto 20px'}}/>
             <div style={{textAlign:'center',marginBottom:20}}>
               <div style={{
                 width:56,height:56,borderRadius:18,margin:'0 auto 12px',
@@ -1556,7 +1556,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
                 border:'1px solid rgba(31,215,96,.35)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,
               }}>{categoryIcon(activeCat)}</div>
               <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,marginBottom:4}}>Переименовать</div>
-              <div style={{fontSize:12,color:'#8FB897'}}>Сейчас: <span style={{color:'#1FD760',fontWeight:700}}>{activeCat}</span></div>
+              <div style={{fontSize:12,color:'var(--t2)'}}>Сейчас: <span style={{color:'#1FD760',fontWeight:700}}>{activeCat}</span></div>
             </div>
             {catErr && (
               <div style={{padding:'10px 13px',borderRadius:12,marginBottom:14,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',fontSize:12,color:'#FF4545',textAlign:'center'}}>
@@ -1575,7 +1575,7 @@ function MenuPage({rest, menu, onToggle, onAdd, onRemove, onAddCategory, onRenam
               ✓ Сохранить
             </button>
             <button type="button" onClick={() => setShowRenameCat(false)} className="btn"
-              style={{width:'100%',padding:12,borderRadius:14,background:'transparent',border:'none',color:'#8FB897',fontWeight:700,fontSize:13}}>
+              style={{width:'100%',padding:12,borderRadius:14,background:'transparent',border:'none',color:'var(--t2)',fontWeight:700,fontSize:13}}>
               Отмена
             </button>
           </div>
@@ -1595,7 +1595,7 @@ function ReviewsPage({ rest, reviews, reviewsLoaded, onPage, onRefresh, onMarkSe
   const [replyText, setReplyText] = useState('');
   const ratingLabel = `${displayRestRating(reviews, rest, reviewsLoaded)} ★`;
   const Stars = ({ n }: { n: number }) => (
-    <span>{[1, 2, 3, 4, 5].map(i => <span key={i} style={{ color: i <= n ? '#FFB800' : '#1D3822', fontSize: 14 }}>★</span>)}</span>
+    <span>{[1, 2, 3, 4, 5].map(i => <span key={i} style={{ color: i <= n ? '#FFB800' : 'var(--b2)', fontSize: 14 }}>★</span>)}</span>
   );
 
   const saveReply = async (id: number) => {
@@ -1612,23 +1612,23 @@ function ReviewsPage({ rest, reviews, reviewsLoaded, onPage, onRefresh, onMarkSe
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#030B05', paddingBottom: 90 }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', paddingBottom: 90 }}>
       <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Отзывы клиентов"/>
       <div style={{ padding: '14px 18px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
           {[
-            { l: 'Всего', v: reviews.length, c: '#EBF5ED' },
+            { l: 'Всего', v: reviews.length, c: 'var(--t1)' },
             { l: 'Новых', v: reviews.filter(r => !r.restSeen).length, c: '#FF4545' },
             { l: 'Рейтинг', v: ratingLabel, c: '#FFB800' },
           ].map((s, i) => (
-            <div key={i} style={{ background: '#091508', border: '1px solid #162B1A', borderRadius: 14, padding: '12px', textAlign: 'center' }}>
-              <div style={{ fontSize: 10, color: '#8FB897', marginBottom: 4 }}>{s.l}</div>
+            <div key={i} style={{ background: 'var(--l2)', border: '1px solid var(--b1)', borderRadius: 14, padding: '12px', textAlign: 'center' }}>
+              <div style={{ fontSize: 10, color: 'var(--t2)', marginBottom: 4 }}>{s.l}</div>
               <div style={{ fontFamily: 'Unbounded', fontSize: 16, fontWeight: 900, color: s.c }}>{s.v}</div>
             </div>
           ))}
         </div>
         {reviews.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#8FB897' }}>
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--t2)' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
             <div style={{ fontFamily: 'Unbounded', fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Пока нет отзывов</div>
             <div style={{ fontSize: 12 }}>Клиенты оценивают магазин и ресторан после доставки заказа</div>
@@ -1636,7 +1636,7 @@ function ReviewsPage({ rest, reviews, reviewsLoaded, onPage, onRefresh, onMarkSe
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {reviews.map((rev, i) => (
-            <div key={rev.id} onClick={() => !rev.restSeen && onMarkSeen(rev.id)} style={{ background: '#091508', border: `1.5px solid ${!rev.restSeen ? 'rgba(255,184,0,.35)' : rev.rating <= 2 ? 'rgba(255,69,69,.3)' : '#162B1A'}`, borderRadius: 16, padding: '14px 16px', animation: `fadeUp .4s ease ${i * .05}s both` }}>
+            <div key={rev.id} onClick={() => !rev.restSeen && onMarkSeen(rev.id)} style={{ background: 'var(--l2)', border: `1.5px solid ${!rev.restSeen ? 'rgba(255,184,0,.35)' : rev.rating <= 2 ? 'rgba(255,69,69,.3)' : 'var(--b1)'}`, borderRadius: 16, padding: '14px 16px', animation: `fadeUp .4s ease ${i * .05}s both` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#0F8A3A,#1FD760)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 13, fontWeight: 900, color: '#030B05' }}>{rev.client.charAt(0)}</div>
@@ -1644,7 +1644,7 @@ function ReviewsPage({ rest, reviews, reviewsLoaded, onPage, onRefresh, onMarkSe
                     <div style={{ fontSize: 13, fontWeight: 700 }}>{rev.client}</div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 2 }}>
                       <Stars n={rev.rating} />
-                      <span style={{ fontSize: 10, color: '#3D6645' }}>{rev.date}</span>
+                      <span style={{ fontSize: 10, color: 'var(--t3)' }}>{rev.date}</span>
                     </div>
                   </div>
                 </div>
@@ -1653,7 +1653,7 @@ function ReviewsPage({ rest, reviews, reviewsLoaded, onPage, onRefresh, onMarkSe
                   {rev.urgent && <span style={{ fontSize: 9, fontWeight: 800, color: '#FF4545', background: 'rgba(255,69,69,.12)', padding: '2px 7px', borderRadius: 6 }}>СРОЧНО</span>}
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: '#EBF5ED', lineHeight: 1.55, padding: '10px 12px', background: '#0C1C0F', borderRadius: 10, border: '1px solid #162B1A', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, color: 'var(--t1)', lineHeight: 1.55, padding: '10px 12px', background: 'var(--l3)', borderRadius: 10, border: '1px solid var(--b1)', marginBottom: 10 }}>
                 "{rev.text || 'Без комментария'}"
               </div>
               {rev.adminReply && (
@@ -1667,7 +1667,7 @@ function ReviewsPage({ rest, reviews, reviewsLoaded, onPage, onRefresh, onMarkSe
                   <textarea className="inp" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Ответ клиенту…" rows={2} style={{ marginBottom: 8, resize: 'vertical' }} />
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => saveReply(rev.id)} className="btn" style={{ flex: 1, padding: '10px', borderRadius: 11, background: 'linear-gradient(135deg,#17B34E,#1FD760)', border: 'none', color: '#030B05', fontWeight: 800, fontSize: 12 }}>Отправить</button>
-                    <button onClick={() => { setReplyId(null); setReplyText(''); }} className="btn" style={{ padding: '10px 14px', borderRadius: 11, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', fontSize: 12 }}>✕</button>
+                    <button onClick={() => { setReplyId(null); setReplyText(''); }} className="btn" style={{ padding: '10px 14px', borderRadius: 11, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontSize: 12 }}>✕</button>
                   </div>
                 </div>
               ) : (
@@ -1704,21 +1704,21 @@ function StatsPage({rest, orders, reviews, reviewsLoaded, onPage, reviewBadge = 
   const maxW = Math.max(...weekData);
 
   return (
-    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
+    <div style={{minHeight:'100vh',background:'var(--bg)',paddingBottom:90}}>
       <Header rest={rest} isOpen={true} onPage={onPage} showBack backPage="dashboard" title="Статистика"/>
 
       <div style={{padding:'16px 18px'}}>
         {/* Revenue summary */}
         <div style={{background:'linear-gradient(135deg,#071A0A,#0F3018)',border:'1px solid rgba(31,215,96,.2)',borderRadius:18,padding:'20px',marginBottom:16}}>
-          <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Выручка за сегодня</div>
+          <div style={{fontSize:11,color:'var(--t2)',marginBottom:6}}>Выручка за сегодня</div>
           <div style={{fontFamily:'Unbounded',fontSize:32,fontWeight:900,color:'#1FD760',marginBottom:14}}>{revenue} <span style={{fontSize:16,color:'#FFB800'}}>ЅМ</span></div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <div style={{background:'rgba(31,215,96,.08)',borderRadius:12,padding:'12px',border:'1px solid rgba(31,215,96,.2)'}}>
-              <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Ваш доход</div>
+              <div style={{fontSize:10,color:'var(--t3)',marginBottom:4}}>Ваш доход</div>
               <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:'#1FD760'}}>{myShare} ЅМ</div>
             </div>
             <div style={{background:'rgba(255,69,69,.08)',borderRadius:12,padding:'12px',border:'1px solid rgba(255,69,69,.2)'}}>
-              <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>Комиссия КАКАПО {rest?.commission}%</div>
+              <div style={{fontSize:10,color:'var(--t3)',marginBottom:4}}>Комиссия КАКАПО {rest?.commission}%</div>
               <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:'#FF4545'}}>{commission} ЅМ</div>
             </div>
           </div>
@@ -1731,32 +1731,32 @@ function StatsPage({rest, orders, reviews, reviewsLoaded, onPage, reviewBadge = 
             {l:'Ср. чек', v:`${delivered.length?Math.round(revenue/delivered.length):0} ЅМ`,c:'#FFB800'},
             {l:'Рейтинг', v:`★ ${displayRestRating(reviews, rest, reviewsLoaded)}`,c:'#FFB800'},
           ].map((s,i)=>(
-            <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'13px 10px',textAlign:'center'}}>
+            <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:14,padding:'13px 10px',textAlign:'center'}}>
               <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:s.c,marginBottom:3}}>{s.v}</div>
-              <div style={{fontSize:10,color:'#3D6645'}}>{s.l}</div>
+              <div style={{fontSize:10,color:'var(--t3)'}}>{s.l}</div>
             </div>
           ))}
         </div>
 
         {/* Week chart */}
-        <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:18,padding:'18px',marginBottom:16}}>
+        <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:18,padding:'18px',marginBottom:16}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:16}}>Выручка за неделю</div>
           <div style={{display:'flex',gap:6,alignItems:'flex-end',height:100}}>
             {weekData.map((v,i)=>(
               <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
                 <div style={{fontSize:9,color:'#FFB800',fontWeight:700}}>{v}</div>
                 <div style={{width:'100%',borderRadius:'4px 4px 0 0',background:'linear-gradient(180deg,#1FD760,#17B34E)',height:`${Math.round((v/maxW)*80)}px`,transition:'height .5s ease'}}/>
-                <div style={{fontSize:9,color:'#3D6645'}}>{WEEK[i]}</div>
+                <div style={{fontSize:9,color:'var(--t3)'}}>{WEEK[i]}</div>
               </div>
             ))}
           </div>
         </div>
 
         {/* Top dishes */}
-        <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:18,padding:'18px'}}>
+        <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:18,padding:'18px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:14}}>Топ блюда</div>
           {top.map(([name,qty],i)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:i<top.length-1?'1px solid #162B1A':'none'}}>
+            <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:i<top.length-1?'1px solid var(--b1)':'none'}}>
               <div style={{width:24,height:24,borderRadius:'50%',background:'rgba(255,184,0,.12)',border:'1px solid rgba(255,184,0,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:10,fontWeight:900,color:'#FFB800',flexShrink:0}}>{i+1}</div>
               <span style={{flex:1,fontSize:13,fontWeight:600}}>{name}</span>
               <span style={{fontFamily:'Unbounded',fontSize:12,fontWeight:700,color:'#1FD760'}}>{qty} шт</span>
@@ -1797,15 +1797,15 @@ function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout, reviewBadge
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',borderRadius:13,background:isOpen?'rgba(31,215,96,.06)':'rgba(255,69,69,.06)',border:`1px solid ${isOpen?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)'}`}}>
             <div>
               <div style={{fontSize:13,fontWeight:700,color:isOpen?'#1FD760':'#FF4545'}}>{isOpen?'🟢 Ресторан открыт':'🔴 Ресторан закрыт'}</div>
-              <div style={{fontSize:11,color:'#8FB897',marginTop:2}}>{isOpen?'Клиенты могут делать заказы':'Заказы не принимаются'}</div>
+              <div style={{fontSize:11,color:'var(--t2)',marginTop:2}}>{isOpen?'Клиенты могут делать заказы':'Заказы не принимаются'}</div>
             </div>
             <Tog on={isOpen} onToggle={onToggleOpen}/>
           </div>
-          <div style={{fontSize:11,color:'#3D6645',marginTop:8}}>Режим работы: {rest?.hours?.open} – {rest?.hours?.close}</div>
+          <div style={{fontSize:11,color:'var(--t3)',marginTop:8}}>Режим работы: {rest?.hours?.open} – {rest?.hours?.close}</div>
         </div>
 
         {/* Restaurant info */}
-        <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:16,padding:'16px'}}>
+        <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'16px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:14}}>Информация о ресторане</div>
           {[
             {l:'Название',   v:rest?.name},
@@ -1814,21 +1814,21 @@ function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout, reviewBadge
             {l:'Телефон',    v:rest?.phone},
             {l:'Email',      v:rest?.email},
           ].map((r,i,arr)=>(
-            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:i<arr.length-1?'1px solid #162B1A':'none'}}>
-              <span style={{fontSize:12,color:'#8FB897'}}>{r.l}</span>
+            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:i<arr.length-1?'1px solid var(--b1)':'none'}}>
+              <span style={{fontSize:12,color:'var(--t2)'}}>{r.l}</span>
               <span style={{fontSize:12,fontWeight:700,maxWidth:200,textAlign:'right'}}>{r.v}</span>
             </div>
           ))}
         </div>
 
         {/* Notifications */}
-        <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:16,padding:'16px'}}>
+        <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'16px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:14}}>Уведомления</div>
           {[
             {l:'Push при новом заказе', on:notifs, onToggle:() => setNotifs(v => !v)},
             {l:'Звук при новом заказе', on:sound,  onToggle:() => setSound(v => !v)},
           ].map((r,i,arr)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 0',borderBottom:i<arr.length-1?'1px solid #162B1A':'none'}}>
+            <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 0',borderBottom:i<arr.length-1?'1px solid var(--b1)':'none'}}>
               <span style={{fontSize:13,fontWeight:600}}>{r.l}</span>
               <Tog on={r.on} onToggle={r.onToggle}/>
             </div>
@@ -1839,10 +1839,10 @@ function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout, reviewBadge
         <div style={{background:'rgba(255,69,69,.06)',border:'1px solid rgba(255,69,69,.2)',borderRadius:16,padding:'16px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,color:'#FF4545',marginBottom:10}}>Условия договора</div>
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-            <span style={{fontSize:12,color:'#8FB897'}}>Комиссия КАКАПО</span>
+            <span style={{fontSize:12,color:'var(--t2)'}}>Комиссия КАКАПО</span>
             <span style={{fontSize:13,fontWeight:800,color:'#FF4545'}}>{rest?.commission}%</span>
           </div>
-          <div style={{fontSize:11,color:'#3D6645',lineHeight:1.6}}>
+          <div style={{fontSize:11,color:'var(--t3)',lineHeight:1.6}}>
             С каждого заказа КАКАПО удерживает {rest?.commission}% как комиссию за платформу, маркетинг и доставку. Вопросы: +992 118 55-97-97
           </div>
         </div>

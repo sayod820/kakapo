@@ -114,11 +114,11 @@ export default function AdminAiAssistantPage() {
         marginBottom: 16, flexWrap: 'wrap',
       }}>
         <div>
-          <div style={{ fontSize: 12, color: '#8FB897', fontWeight: 700, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: 'var(--t2)', fontWeight: 700, lineHeight: 1.5 }}>
             Только для владельца в админке. ИИ смотрит сводку по кассе, товарам, долгам, курьерам, сборщикам и ресторанам.
           </div>
-          <div style={{ fontSize: 11, color: '#3D6645', marginTop: 6 }}>
-            Быстрые клавиши: <b style={{ color: '#8FB897' }}>Alt + 0…9</b> · отправить: <b style={{ color: '#8FB897' }}>Alt + Enter</b>
+          <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
+            Быстрые клавиши: <b style={{ color: 'var(--t2)' }}>Alt + 0…9</b> · отправить: <b style={{ color: 'var(--t2)' }}>Alt + Enter</b>
             {configured != null && (
               <> · Gemini: <b style={{ color: configured ? '#1FD760' : '#FF4545' }}>{configured ? `готов (${model})` : 'нет ключа'}</b></>
             )}
@@ -131,7 +131,7 @@ export default function AdminAiAssistantPage() {
           type="button"
           className="ab"
           onClick={() => void refreshStatus()}
-          style={{ padding: '8px 12px', background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', flexShrink: 0 }}
+          style={{ padding: '8px 12px', background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', flexShrink: 0 }}
         >
           Обновить
         </button>
@@ -144,7 +144,7 @@ export default function AdminAiAssistantPage() {
           fontSize: 12, color: '#FF8080', fontWeight: 700, lineHeight: 1.5,
         }}>
           Не удалось связаться с backend API: {statusError}
-          <div style={{ marginTop: 6, color: '#EBF5ED', fontWeight: 600 }}>
+          <div style={{ marginTop: 6, color: 'var(--t1)', fontWeight: 600 }}>
             Запустите API: <code>npm run dev --prefix server/kakapo-api</code> или <code>npm run dev:all</code>
           </div>
         </div>
@@ -158,16 +158,16 @@ export default function AdminAiAssistantPage() {
         }}>
           {isLocalDevHost() ? (
             <>
-              Локально (ПК): добавьте ключ в <code style={{ color: '#EBF5ED' }}>server/kakapo-api/.env</code>:
-              <div style={{ marginTop: 6, fontFamily: 'monospace', color: '#EBF5ED' }}>GEMINI_API_KEY=ваш_ключ</div>
-              Затем перезапустите API: <code style={{ color: '#EBF5ED' }}>npm run dev --prefix server/kakapo-api</code>
+              Локально (ПК): добавьте ключ в <code style={{ color: 'var(--t1)' }}>server/kakapo-api/.env</code>:
+              <div style={{ marginTop: 6, fontFamily: 'monospace', color: 'var(--t1)' }}>GEMINI_API_KEY=ваш_ключ</div>
+              Затем перезапустите API: <code style={{ color: 'var(--t1)' }}>npm run dev --prefix server/kakapo-api</code>
             </>
           ) : (
             <>
-              На сервере: ключ в <code style={{ color: '#EBF5ED' }}>deploy/hetzner/.env</code> (не в .env на ПК).
-              <div style={{ marginTop: 6, fontFamily: 'monospace', color: '#EBF5ED' }}>GEMINI_API_KEY=AIzaSy...</div>
-              <div style={{ marginTop: 6, color: '#EBF5ED', fontWeight: 600 }}>
-                SSH на сервер → <code style={{ color: '#EBF5ED' }}>cd /opt/kakapo && git pull && bash deploy/hetzner/set-gemini-key.sh</code>
+              На сервере: ключ в <code style={{ color: 'var(--t1)' }}>deploy/hetzner/.env</code> (не в .env на ПК).
+              <div style={{ marginTop: 6, fontFamily: 'monospace', color: 'var(--t1)' }}>GEMINI_API_KEY=AIzaSy...</div>
+              <div style={{ marginTop: 6, color: 'var(--t1)', fontWeight: 600 }}>
+                SSH на сервер → <code style={{ color: 'var(--t1)' }}>cd /opt/kakapo && git pull && bash deploy/hetzner/set-gemini-key.sh</code>
               </div>
             </>
           )}
@@ -176,7 +176,7 @@ export default function AdminAiAssistantPage() {
       )}
 
       <div style={{ marginBottom: 14 }}>
-        <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 8 }}>
+        <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: 'var(--t2)', marginBottom: 8 }}>
           Быстрые запросы
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
@@ -189,15 +189,15 @@ export default function AdminAiAssistantPage() {
               className="btn"
               style={{
                 padding: '12px 12px', borderRadius: 12, textAlign: 'left',
-                background: '#091508', border: '1px solid #162B1A',
-                color: '#EBF5ED', cursor: busy ? 'wait' : 'pointer',
+                background: 'var(--l2)', border: '1px solid var(--b1)',
+                color: 'var(--t1)', cursor: busy ? 'wait' : 'pointer',
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <span style={{ fontSize: 18 }}>{q.icon}</span>
                 <span style={{
-                  fontSize: 10, fontWeight: 800, color: '#3D6645',
-                  padding: '2px 6px', borderRadius: 6, background: '#0C1C0F', border: '1px solid #162B1A',
+                  fontSize: 10, fontWeight: 800, color: 'var(--t3)',
+                  padding: '2px 6px', borderRadius: 6, background: 'var(--l3)', border: '1px solid var(--b1)',
                 }}>
                   Alt+{q.shortcut}
                 </span>
@@ -209,7 +209,7 @@ export default function AdminAiAssistantPage() {
       </div>
 
       <div className="ac" style={{ padding: 16, marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: '#8FB897', fontWeight: 700, marginBottom: 8 }}>Свой вопрос</div>
+        <div style={{ fontSize: 11, color: 'var(--t2)', fontWeight: 700, marginBottom: 8 }}>Свой вопрос</div>
         <textarea
           ref={inputRef}
           value={prompt}
@@ -218,8 +218,8 @@ export default function AdminAiAssistantPage() {
           rows={3}
           style={{
             width: '100%', resize: 'vertical', minHeight: 80,
-            background: '#0C1C0F', border: '1.5px solid #162B1A', borderRadius: 12,
-            color: '#EBF5ED', padding: '12px 14px', fontFamily: 'Nunito, sans-serif',
+            background: 'var(--l3)', border: '1.5px solid var(--b1)', borderRadius: 12,
+            color: 'var(--t1)', padding: '12px 14px', fontFamily: 'Nunito, sans-serif',
             fontSize: 13, outline: 'none', boxSizing: 'border-box',
           }}
           onKeyDown={e => {
@@ -244,7 +244,7 @@ export default function AdminAiAssistantPage() {
             className="ab"
             disabled={busy}
             onClick={() => { setPrompt(''); setAnswer(''); setErr(''); inputRef.current?.focus() }}
-            style={{ padding: '10px 14px', background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}
+            style={{ padding: '10px 14px', background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)' }}
           >
             Очистить
           </button>
@@ -260,10 +260,10 @@ export default function AdminAiAssistantPage() {
             {busy ? 'Анализ…' : 'Ответ ИИ'}
           </div>
           {busy ? (
-            <div style={{ fontSize: 13, color: '#8FB897' }}>Собираю данные приложения и спрашиваю Gemini…</div>
+            <div style={{ fontSize: 13, color: 'var(--t2)' }}>Собираю данные приложения и спрашиваю Gemini…</div>
           ) : (
             <div style={{
-              whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55, color: '#EBF5ED', fontWeight: 600,
+              whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55, color: 'var(--t1)', fontWeight: 600,
             }}>
               {answer}
             </div>
@@ -273,7 +273,7 @@ export default function AdminAiAssistantPage() {
 
       {!!hist.length && (
         <div>
-          <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 8 }}>
+          <div className="ub" style={{ fontSize: 12, fontWeight: 800, color: 'var(--t2)', marginBottom: 8 }}>
             Недавние ответы
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -285,14 +285,14 @@ export default function AdminAiAssistantPage() {
                 onClick={() => { setAnswer(h.answer); setPrompt(h.title) }}
                 style={{
                   textAlign: 'left', padding: '12px 14px', borderRadius: 12,
-                  background: '#091508', border: '1px solid #162B1A', color: '#EBF5ED',
+                  background: 'var(--l2)', border: '1px solid var(--b1)', color: 'var(--t1)',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                   <b style={{ fontSize: 12 }}>{h.title}</b>
-                  <span style={{ fontSize: 10, color: '#3D6645' }}>{h.at}</span>
+                  <span style={{ fontSize: 10, color: 'var(--t3)' }}>{h.at}</span>
                 </div>
-                <div style={{ fontSize: 11, color: '#8FB897', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {h.answer.replace(/\s+/g, ' ').slice(0, 120)}…
                 </div>
               </button>

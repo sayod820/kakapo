@@ -132,7 +132,7 @@ export default function AssemblerApp() {
 
 function AssemblerSessionBoot() {
   return (
-    <div style={{ minHeight: '100vh', background: '#030B05', maxWidth: 480, margin: '0 auto' }} />
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', maxWidth: 480, margin: '0 auto' }} />
   );
 }
 
@@ -535,12 +535,12 @@ function BottomNav({page, onPage, newCount}) {
     {id:'stats',     icon:'📊', label:'Статистика'},
   ];
   return (
-    <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid #162B1A',padding:'8px 18px',paddingBottom:'calc(10px + env(safe-area-inset-bottom,0))',display:'flex',justifyContent:'space-around',zIndex:80}}>
+    <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid var(--b1)',padding:'8px 18px',paddingBottom:'calc(10px + env(safe-area-inset-bottom,0))',display:'flex',justifyContent:'space-around',zIndex:80}}>
       {items.map(item=>(
         <button key={item.id} onClick={()=>onPage(item.id)} className="btn"
           style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'5px 14px',borderRadius:11,background:page===item.id?'rgba(155,109,255,.12)':'transparent',border:`1.5px solid ${page===item.id?'rgba(155,109,255,.3)':'transparent'}`,position:'relative'}}>
           <span style={{fontSize:20}}>{item.icon}</span>
-          <span style={{fontSize:10,fontWeight:page===item.id?800:600,color:page===item.id?'#9B6DFF':'#3D6645',fontFamily:'Nunito'}}>{item.label}</span>
+          <span style={{fontSize:10,fontWeight:page===item.id?800:600,color:page===item.id?'#9B6DFF':'var(--t3)',fontFamily:'Nunito'}}>{item.label}</span>
           {item.id==='dashboard'&&newCount>0&&(
             <div style={{position:'absolute',top:2,right:8,width:17,height:17,borderRadius:'50%',background:'#FF4545',border:'2px solid #030B05',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:8,fontWeight:900,color:'white'}}>{newCount}</div>
           )}
@@ -625,14 +625,14 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
             <div>
               <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
                 <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,color:'#9B6DFF'}}>{order.id}</span>
-                <span style={{fontSize:11,color:'#3D6645'}}>{order.time}</span>
+                <span style={{fontSize:11,color:'var(--t3)'}}>{order.time}</span>
               </div>
               <div style={{fontSize:13,fontWeight:700,marginBottom:1}}>{order.client.name}</div>
-              <div style={{fontSize:11,color:'#8FB897'}}>📍 {order.client.addr}</div>
+              <div style={{fontSize:11,color:'var(--t2)'}}>📍 {order.client.addr}</div>
             </div>
             <div style={{textAlign:'right'}}>
               <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:'#9B6DFF',marginBottom:2}}>{order.items.length}</div>
-              <div style={{fontSize:10,color:'#3D6645'}}>товаров</div>
+              <div style={{fontSize:10,color:'var(--t3)'}}>товаров</div>
             </div>
           </div>
 
@@ -640,10 +640,10 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
           {isAssembling && pct>0&&(
             <div style={{marginBottom:12}}>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-                <span style={{fontSize:11,color:'#8FB897'}}>Прогресс сборки</span>
+                <span style={{fontSize:11,color:'var(--t2)'}}>Прогресс сборки</span>
                 <span style={{fontSize:11,fontWeight:700,color:'#9B6DFF'}}>{doneCount}/{order.items.length}</span>
               </div>
-              <div style={{height:6,background:'#162B1A',borderRadius:3,overflow:'hidden'}}>
+              <div style={{height:6,background:'var(--b1)',borderRadius:3,overflow:'hidden'}}>
                 <div style={{height:'100%',width:`${pct}%`,background:'linear-gradient(90deg,#6B3FD4,#9B6DFF)',borderRadius:3,transition:'width .4s ease'}}/>
               </div>
             </div>
@@ -654,16 +654,16 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
             {order.items.slice(0,5).map((item,j)=>{
               const photo = item.photoThumb || item.photo
               return (
-              <div key={j} style={{display:'flex',alignItems:'center',gap:5,padding:'4px 9px',borderRadius:9,background:item.done?'rgba(155,109,255,.12)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,position:'relative'}}>
+              <div key={j} style={{display:'flex',alignItems:'center',gap:5,padding:'4px 9px',borderRadius:9,background:item.done?'rgba(155,109,255,.12)':'var(--l3)',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'var(--b1)'}`,position:'relative'}}>
                 {photo
                   ? <img src={resolvePhotoUrl(photo)} alt="" style={{width:18,height:18,borderRadius:4,objectFit:'contain',flexShrink:0}}/>
                   : <span style={{fontSize:14}}>{item.e}</span>}
-                <span style={{fontSize:11,fontWeight:600,color:item.done?'#9B6DFF':'#8FB897',textDecoration:item.done?'line-through':'none'}}>{item.name.split(' ')[0]}</span>
+                <span style={{fontSize:11,fontWeight:600,color:item.done?'#9B6DFF':'var(--t2)',textDecoration:item.done?'line-through':'none'}}>{item.name.split(' ')[0]}</span>
                 {item.done&&<span style={{fontSize:10,color:'#9B6DFF'}}>✓</span>}
               </div>
               )
             })}
-            {order.items.length>5&&<span style={{fontSize:11,color:'#3D6645',alignSelf:'center'}}>+{order.items.length-5} ещё</span>}
+            {order.items.length>5&&<span style={{fontSize:11,color:'var(--t3)',alignSelf:'center'}}>+{order.items.length-5} ещё</span>}
           </div>
 
           {/* Comment */}
@@ -687,17 +687,17 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
               {isCourierAssigned && courierName ? (
                 <>
                   <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>{courierName}</div>
-                  <div style={{fontSize:10,color:'#3D6645'}}>{order.courier.phone || 'Курьер ждёт передачи заказа'}</div>
+                  <div style={{fontSize:10,color:'var(--t3)'}}>{order.courier.phone || 'Курьер ждёт передачи заказа'}</div>
                 </>
               ) : isReady ? (
                 <>
                   <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>Ожидаем курьера</div>
-                  <div style={{fontSize:10,color:'#3D6645'}}>Заказ готов — курьер примет его в приложении</div>
+                  <div style={{fontSize:10,color:'var(--t3)'}}>Заказ готов — курьер примет его в приложении</div>
                 </>
               ) : (
                 <>
                   <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0'}}>Курьер примет заказ после сборки</div>
-                  <div style={{fontSize:10,color:'#3D6645'}}>Сначала соберите товары — затем курьер сам возьмёт заказ в работу</div>
+                  <div style={{fontSize:10,color:'var(--t3)'}}>Сначала соберите товары — затем курьер сам возьмёт заказ в работу</div>
                 </>
               )}
             </div>
@@ -773,9 +773,9 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
             {l:'Готовые',     v:readyQueue.length, c:'#1FD760'},
             {l:'Собрано сегодня',v:completed,c:'#FFB800'},
           ].map((s,i)=>(
-            <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'13px 10px',textAlign:'center',animation:`fadeUp .4s ease ${i*.06}s both`}}>
+            <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:14,padding:'13px 10px',textAlign:'center',animation:`fadeUp .4s ease ${i*.06}s both`}}>
               <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:s.c,marginBottom:3}}>{s.v}</div>
-              <div style={{fontSize:9,color:'#3D6645',lineHeight:1.3}}>{s.l}</div>
+              <div style={{fontSize:9,color:'var(--t3)',lineHeight:1.3}}>{s.l}</div>
             </div>
           ))}
         </div>
@@ -786,7 +786,7 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
             {id:'ready',l:`Готовые (${readyQueue.length})`,accent:'#1FD760'},
           ].map(f=>(
             <button key={f.id} type="button" onClick={()=>setFilter(f.id)} className="btn"
-              style={{flex:1,padding:'10px 8px',borderRadius:12,fontSize:11,fontWeight:700,border:`1.5px solid ${filter===f.id?`${f.accent}66`:'#162B1A'}`,background:filter===f.id?`${f.accent}1F`:'#0C1C0F',color:filter===f.id?f.accent:'#8FB897',fontFamily:'Nunito'}}>
+              style={{flex:1,padding:'10px 8px',borderRadius:12,fontSize:11,fontWeight:700,border:`1.5px solid ${filter===f.id?`${f.accent}66`:'var(--b1)'}`,background:filter===f.id?`${f.accent}1F`:'var(--l3)',color:filter===f.id?f.accent:'var(--t2)',fontFamily:'Nunito'}}>
               {f.l}
             </button>
           ))}
@@ -796,13 +796,13 @@ function DashboardPage({orders, cancelledOrders, completed, tab, onTab, onStart,
           <div style={{textAlign:'center',paddingTop:40,animation:'fadeIn .6s ease'}}>
             <div style={{fontSize:48,marginBottom:12}}>📭</div>
             <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:800,marginBottom:6,color:'#9B6DFF'}}>Заказов нет</div>
-            <div style={{fontSize:12,color:'#8FB897'}}>{emptyMsg}</div>
+            <div style={{fontSize:12,color:'var(--t2)'}}>{emptyMsg}</div>
           </div>
         ) : showReady && readyQueue.length===0 ?(
           <div style={{textAlign:'center',paddingTop:40,animation:'fadeIn .6s ease'}}>
             <div style={{fontSize:48,marginBottom:12}}>✅</div>
             <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:800,marginBottom:6,color:'#1FD760'}}>Готовых нет</div>
-            <div style={{fontSize:12,color:'#8FB897'}}>{emptyMsg}</div>
+            <div style={{fontSize:12,color:'var(--t2)'}}>{emptyMsg}</div>
           </div>
         ) : (
           <>
@@ -1047,23 +1047,23 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
 
 
   return (
-    <div style={{minHeight:'100vh',background:'#030B05',maxWidth:480,margin:'0 auto'}}>
+    <div style={{minHeight:'100vh',background:'var(--bg)',maxWidth:480,margin:'0 auto'}}>
       <style>{CSS}</style>
       {/* Header */}
-      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid #162B1A'}}>
+      <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={onBack} className="btn" style={{width:38,height:38,borderRadius:12,background:'#0C1C0F',border:'1px solid #162B1A',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-            <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="#8FB897" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 5 5 12 12 19"/></svg>
+          <button onClick={onBack} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="var(--t2)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 5 5 12 12 19"/></svg>
           </button>
           <div style={{flex:1}}>
             <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,color:'#9B6DFF'}}>{order.id}</div>
-            <div style={{fontSize:10,color:'#8FB897',marginTop:1}}>{order.client.name} · {doneCount}/{order.items.length} собрано</div>
+            <div style={{fontSize:10,color:'var(--t2)',marginTop:1}}>{order.client.name} · {doneCount}/{order.items.length} собрано</div>
           </div>
           <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,color:allDone?'#1FD760':'#9B6DFF'}}>{pct}%</div>
           <LogoutBtn onLogout={onLogout} />
         </div>
         {/* Progress bar */}
-        <div style={{height:5,background:'#162B1A',margin:'0 18px 12px'}}>
+        <div style={{height:5,background:'var(--b1)',margin:'0 18px 12px'}}>
           <div style={{height:'100%',width:`${pct}%`,background:allDone?'linear-gradient(90deg,#17B34E,#1FD760)':'linear-gradient(90deg,#6B3FD4,#9B6DFF)',borderRadius:2,transition:'width .4s ease',boxShadow:allDone?'0 0 10px rgba(31,215,96,.5)':'0 0 10px rgba(155,109,255,.5)'}}/>
         </div>
       </header>
@@ -1073,7 +1073,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
         {isCancelled && (
           <div style={{padding:'14px 16px',borderRadius:14,background:'rgba(255,69,69,.1)',border:'1.5px solid rgba(255,69,69,.35)',marginBottom:14,animation:'fadeUp .35s ease'}}>
             <div style={{fontSize:14,fontWeight:800,color:'#FF6969',marginBottom:6}}>✕ Клиент отменил заказ</div>
-            <div style={{fontSize:12,color:'#8FB897',lineHeight:1.5,marginBottom:12}}>
+            <div style={{fontSize:12,color:'var(--t2)',lineHeight:1.5,marginBottom:12}}>
               {order.cancelReason || 'Сборку можно прекратить — заказ больше не нужен.'}
             </div>
             <button type="button" onClick={onAcknowledgeCancel} className="btn"
@@ -1083,28 +1083,28 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
           </div>
         )}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
-          <div style={{padding:'11px 14px',borderRadius:13,background:'#091508',border:'1px solid #162B1A'}}>
-            <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>📍 Клиент</div>
+          <div style={{padding:'11px 14px',borderRadius:13,background:'var(--l2)',border:'1px solid var(--b1)'}}>
+            <div style={{fontSize:10,color:'var(--t3)',marginBottom:4}}>📍 Клиент</div>
             <div style={{fontSize:12,fontWeight:700,marginBottom:1}}>{order.client.name}</div>
-            <div style={{fontSize:10,color:'#8FB897',marginBottom:order.client.phone?3:0}}>{order.client.addr}</div>
+            <div style={{fontSize:10,color:'var(--t2)',marginBottom:order.client.phone?3:0}}>{order.client.addr}</div>
             {order.client.phone && <div style={{fontSize:10,color:'#9B6DFF',fontWeight:700}}>{order.client.phone}</div>}
           </div>
           <div style={{padding:'11px 14px',borderRadius:13,background:'rgba(59,142,240,.07)',border:'1px solid rgba(59,142,240,.2)'}}>
-            <div style={{fontSize:10,color:'#3D6645',marginBottom:4}}>🛵 Курьер</div>
+            <div style={{fontSize:10,color:'var(--t3)',marginBottom:4}}>🛵 Курьер</div>
             {isCourierAssigned && courierName ? (
               <>
                 <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>{courierName}</div>
-                <div style={{fontSize:10,color:'#8FB897'}}>{order.courier.phone || 'Ожидает передачи заказа'}</div>
+                <div style={{fontSize:10,color:'var(--t2)'}}>{order.courier.phone || 'Ожидает передачи заказа'}</div>
               </>
             ) : isReady ? (
               <>
                 <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>Ожидаем курьера</div>
-                <div style={{fontSize:10,color:'#8FB897'}}>Заказ готов — курьер примет его в приложении</div>
+                <div style={{fontSize:10,color:'var(--t2)'}}>Заказ готов — курьер примет его в приложении</div>
               </>
             ) : (
               <>
                 <div style={{fontSize:12,fontWeight:700,color:'#3B8EF0',marginBottom:1}}>Назначится после сборки</div>
-                <div style={{fontSize:10,color:'#8FB897'}}>Курьер сам примет заказ, когда товары будут готовы</div>
+                <div style={{fontSize:10,color:'var(--t2)'}}>Курьер сам примет заказ, когда товары будут готовы</div>
               </>
             )}
           </div>
@@ -1117,7 +1117,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
                 📞 Позвонить клиенту
               </a>
             ) : (
-              <div style={{flex:1,padding:'11px 12px',borderRadius:13,background:'#091508',border:'1px solid #162B1A',color:'#3D6645',fontSize:11,textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <div style={{flex:1,padding:'11px 12px',borderRadius:13,background:'var(--l2)',border:'1px solid var(--b1)',color:'var(--t3)',fontSize:11,textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center'}}>
                 📞 Номер клиента не указан
               </div>
             )}
@@ -1154,8 +1154,8 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
       <div style={{padding:'0 18px 180px',display:'flex',flexDirection:'column',gap:10}}>
         {order.items.map((item,i)=>(
           <div key={item.id} onClick={() => canModifyItems && onToggle(order.id, item.id)}
-            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'#091508',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'#162B1A'}`,cursor:canModifyItems?'pointer':'default',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
-            <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'#0C1C0F',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'#162B1A'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s',overflow:'hidden'}}>
+            style={{display:'flex',gap:13,padding:'14px 15px',borderRadius:16,background:item.done?'rgba(155,109,255,.08)':'var(--l2)',border:`1.5px solid ${item.done?'rgba(155,109,255,.4)':'var(--b1)'}`,cursor:canModifyItems?'pointer':'default',transition:'background .2s, border-color .2s',opacity:isCancelled?.55:1}}>
+            <div style={{width:52,height:52,borderRadius:14,background:item.done?'rgba(155,109,255,.15)':'var(--l3)',border:`1px solid ${item.done?'rgba(155,109,255,.3)':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,flexShrink:0,position:'relative',transition:'all .2s',overflow:'hidden'}}>
               {(item.photoThumb || item.photo)
                 ? <img src={resolvePhotoUrl(item.photoThumb || item.photo)} alt="" style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}}/>
                 : item.e}
@@ -1166,15 +1166,15 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
               )}
             </div>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:14,fontWeight:700,marginBottom:4,textDecoration:item.done?'line-through':'none',color:item.done?'#3D6645':'#EBF5ED',transition:'color .2s'}}>{item.name}</div>
+              <div style={{fontSize:14,fontWeight:700,marginBottom:4,textDecoration:item.done?'line-through':'none',color:item.done?'var(--t3)':'var(--t1)',transition:'color .2s'}}>{item.name}</div>
               <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:4}}>
-                <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:item.done?'#3D6645':'#9B6DFF'}}>{item.qty} шт</span>
-                <span style={{fontSize:11,color:'#3D6645'}}>· {item.unit}</span>
+                <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:item.done?'var(--t3)':'#9B6DFF'}}>{item.qty} шт</span>
+                <span style={{fontSize:11,color:'var(--t3)'}}>· {item.unit}</span>
                 <span style={{fontSize:11,color:'#FFB800',fontWeight:700}}>{(item.price * item.qty).toFixed(2)} ЅМ</span>
               </div>
-              <span style={{fontFamily:'Unbounded',fontSize:9,color:'#3D6645',fontWeight:700}}>{item.art}</span>
+              <span style={{fontFamily:'Unbounded',fontSize:9,color:'var(--t3)',fontWeight:700}}>{item.art}</span>
             </div>
-            <div style={{width:30,height:30,borderRadius:'50%',border:`2.5px solid ${item.done?'#9B6DFF':'#1D3822'}`,background:item.done?'linear-gradient(135deg,#6B3FD4,#9B6DFF)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,alignSelf:'center',transition:'all .2s',boxShadow:item.done?'0 0 12px rgba(155,109,255,.4)':'none'}}>
+            <div style={{width:30,height:30,borderRadius:'50%',border:`2.5px solid ${item.done?'#9B6DFF':'var(--b2)'}`,background:item.done?'linear-gradient(135deg,#6B3FD4,#9B6DFF)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,alignSelf:'center',transition:'all .2s',boxShadow:item.done?'0 0 12px rgba(155,109,255,.4)':'none'}}>
               {item.done&&<svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" style={{animation:'checkPop .3s ease'}}><polyline points="20 6 9 17 4 12"/></svg>}
             </div>
           </div>
@@ -1182,7 +1182,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
       </div>
 
       {/* Bottom action */}
-      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:90,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid #162B1A',padding:'13px 18px 28px'}}>
+      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:90,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid var(--b1)',padding:'13px 18px 28px'}}>
         {isCancelled ? (
           <div style={{padding:'12px',background:'rgba(255,69,69,.08)',borderRadius:13,border:'1px solid rgba(255,69,69,.25)',textAlign:'center',fontSize:12,color:'#FF6969',fontWeight:700}}>
             Сборка остановлена — заказ отменён
@@ -1215,10 +1215,10 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
         <>
         {/* Summary */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-          <div style={{fontSize:11,color:'#8FB897'}}>
+          <div style={{fontSize:11,color:'var(--t2)'}}>
             Итого: <span style={{fontWeight:700,color:'#FFB800'}}>{itemsTotal.toFixed(2)} ЅМ</span>
           </div>
-          <div style={{fontSize:11,color:'#8FB897'}}>
+          <div style={{fontSize:11,color:'var(--t2)'}}>
             Собрано: <span style={{fontWeight:700,color:'#9B6DFF'}}>{doneCount}/{order.items.length}</span>
           </div>
         </div>
@@ -1228,7 +1228,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
             ✅ Заказ готов
           </button>
         ) : (
-          <div style={{padding:'12px',background:'#091508',borderRadius:13,border:'1px solid #162B1A',textAlign:'center',fontSize:12,color:'#8FB897',marginBottom:10}}>
+          <div style={{padding:'12px',background:'var(--l2)',borderRadius:13,border:'1px solid var(--b1)',textAlign:'center',fontSize:12,color:'var(--t2)',marginBottom:10}}>
             Отметьте каждый товар по мере сборки · Осталось: <span style={{color:'#9B6DFF',fontWeight:700}}>{order.items.length-doneCount} товаров</span>
           </div>
         )}
@@ -1244,12 +1244,12 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
       {showConfirm&&(
         <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
           <div onClick={()=>setShowConfirm(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
-          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',padding:'22px 20px 44px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
-            <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 20px'}}/>
+          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,background:'var(--l1)',borderTop:'1px solid var(--b1)',borderRadius:'24px 24px 0 0',padding:'22px 20px 44px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
+            <div style={{width:40,height:4,borderRadius:2,background:'var(--b2)',margin:'0 auto 20px'}}/>
             <div style={{textAlign:'center',marginBottom:20}}>
               <div style={{fontSize:48,marginBottom:10}}>📦</div>
               <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Заказ {order.id} собран!</div>
-              <div style={{fontSize:12,color:'#8FB897',lineHeight:1.6}}>
+              <div style={{fontSize:12,color:'var(--t2)',lineHeight:1.6}}>
                 Заказ готов к передаче.<br/>
                 <span style={{color:'#3B8EF0',fontWeight:700}}>Курьер примет его сам в приложении</span>
               </div>
@@ -1274,11 +1274,11 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
       {showEdit && (
         <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
           <div onClick={() => !saving && setShowEdit(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
-          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'88vh',overflowY:'auto',background:'#06100A',borderTop:'1px solid #162B1A',borderRadius:'24px 24px 0 0',padding:'22px 20px 44px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
-            <div style={{width:40,height:4,borderRadius:2,background:'#1D3822',margin:'0 auto 20px'}}/>
+          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'88vh',overflowY:'auto',background:'var(--l1)',borderTop:'1px solid var(--b1)',borderRadius:'24px 24px 0 0',padding:'22px 20px 44px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
+            <div style={{width:40,height:4,borderRadius:2,background:'var(--b2)',margin:'0 auto 20px'}}/>
             <div style={{marginBottom:16}}>
               <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Изменить заказ</div>
-              <div style={{fontSize:12,color:'#8FB897',lineHeight:1.5}}>
+              <div style={{fontSize:12,color:'var(--t2)',lineHeight:1.5}}>
                 Позвоните клиенту и уточните количество, замену или удаление товара.
               </div>
             </div>
@@ -1291,15 +1291,15 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
             {pickerMode !== null ? (
               <div style={{marginBottom:16}}>
                 <button type="button" onClick={closePicker} className="btn"
-                  style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,padding:'8px 0',background:'none',border:'none',color:'#8FB897',fontSize:12,fontWeight:700}}>
+                  style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,padding:'8px 0',background:'none',border:'none',color:'var(--t2)',fontSize:12,fontWeight:700}}>
                   ← Назад к списку
                 </button>
                 <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,marginBottom:6,color:'#9B6DFF'}}>
                   {pickerMode === 'add' ? 'Добавить товар' : 'Заменить товар'}
                 </div>
                 {replaceTarget && (
-                  <div style={{fontSize:11,color:'#8FB897',marginBottom:10,lineHeight:1.5}}>
-                    Вместо: <span style={{color:'#EBF5ED',fontWeight:700}}>{replaceTarget.e} {replaceTarget.name}</span>
+                  <div style={{fontSize:11,color:'var(--t2)',marginBottom:10,lineHeight:1.5}}>
+                    Вместо: <span style={{color:'var(--t1)',fontWeight:700}}>{replaceTarget.e} {replaceTarget.name}</span>
                   </div>
                 )}
                 <input
@@ -1307,16 +1307,16 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
                   onChange={e => setProductQuery(e.target.value)}
                   placeholder="Поиск по названию или артикулу…"
                   autoFocus
-                  style={{width:'100%',padding:'12px 14px',borderRadius:12,background:'#091508',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:13,marginBottom:12,fontFamily:'Nunito'}}
+                  style={{width:'100%',padding:'12px 14px',borderRadius:12,background:'var(--l2)',border:'1px solid var(--b1)',color:'var(--t1)',fontSize:13,marginBottom:12,fontFamily:'Nunito'}}
                 />
                 <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'42vh',overflowY:'auto'}}>
                   {filteredProducts.map(p => (
                     <button key={p.id} type="button" onClick={() => selectProduct(p)} className="btn"
-                      style={{display:'flex',alignItems:'center',gap:12,padding:'11px 12px',borderRadius:13,background:'#091508',border:'1px solid #162B1A',textAlign:'left',width:'100%'}}>
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'11px 12px',borderRadius:13,background:'var(--l2)',border:'1px solid var(--b1)',textAlign:'left',width:'100%'}}>
                       <span style={{fontSize:26,flexShrink:0}}>{p.e}</span>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:700,color:'#EBF5ED',marginBottom:2}}>{p.name}</div>
-                        <div style={{fontSize:10,color:'#8FB897'}}>{p.art} · {p.unit} · {p.price.toFixed(2)} ЅМ</div>
+                        <div style={{fontSize:13,fontWeight:700,color:'var(--t1)',marginBottom:2}}>{p.name}</div>
+                        <div style={{fontSize:10,color:'var(--t2)'}}>{p.art} · {p.unit} · {p.price.toFixed(2)} ЅМ</div>
                       </div>
                       <div style={{textAlign:'right',flexShrink:0}}>
                         <div style={{fontSize:10,color:p.stock > 0 ? '#1FD760' : '#FF6969',fontWeight:700}}>
@@ -1327,7 +1327,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
                     </button>
                   ))}
                   {!filteredProducts.length && (
-                    <div style={{padding:20,textAlign:'center',fontSize:12,color:'#8FB897'}}>
+                    <div style={{padding:20,textAlign:'center',fontSize:12,color:'var(--t2)'}}>
                       Товар не найден — попробуйте другой запрос
                     </div>
                   )}
@@ -1341,14 +1341,14 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
             </button>
             <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
               {editItems.map(item => (
-                <div key={item.id} style={{padding:'12px 14px',borderRadius:14,background:'#091508',border:'1px solid #162B1A'}}>
+                <div key={item.id} style={{padding:'12px 14px',borderRadius:14,background:'var(--l2)',border:'1px solid var(--b1)'}}>
                   <div style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:10}}>
                     {(item.photoThumb || item.photo)
                       ? <img src={resolvePhotoUrl(item.photoThumb || item.photo)} alt="" style={{width:28,height:28,borderRadius:8,objectFit:'contain',flexShrink:0}}/>
                       : <span style={{fontSize:24}}>{item.e}</span>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{item.name}</div>
-                      <div style={{fontSize:10,color:'#8FB897'}}>{item.art} · {item.unit} · {item.price.toFixed(2)} ЅМ</div>
+                      <div style={{fontSize:10,color:'var(--t2)'}}>{item.art} · {item.unit} · {item.price.toFixed(2)} ЅМ</div>
                     </div>
                     <button type="button" onClick={() => removeItem(item.id)} className="btn"
                       style={{width:30,height:30,borderRadius:10,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.3)',color:'#FF6969',fontSize:14,flexShrink:0}}>
@@ -1356,13 +1356,13 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
                     </button>
                   </div>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-                    <span style={{fontSize:11,color:'#8FB897'}}>Количество</span>
+                    <span style={{fontSize:11,color:'var(--t2)'}}>Количество</span>
                     <div style={{display:'flex',alignItems:'center',gap:10}}>
                       <button type="button" onClick={() => changeQty(item.id, -1)} className="btn"
-                        style={{width:34,height:34,borderRadius:10,background:'#0C1C0F',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:18,fontWeight:700}}>−</button>
+                        style={{width:34,height:34,borderRadius:10,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t1)',fontSize:18,fontWeight:700}}>−</button>
                       <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,color:'#9B6DFF',minWidth:24,textAlign:'center'}}>{item.qty}</span>
                       <button type="button" onClick={() => changeQty(item.id, 1)} className="btn"
-                        style={{width:34,height:34,borderRadius:10,background:'#0C1C0F',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:18,fontWeight:700}}>+</button>
+                        style={{width:34,height:34,borderRadius:10,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t1)',fontSize:18,fontWeight:700}}>+</button>
                     </div>
                   </div>
                   <button type="button" onClick={() => openReplacePicker(item.id)} className="btn"
@@ -1372,17 +1372,17 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
                 </div>
               ))}
               {!editItems.length && (
-                <div style={{padding:16,textAlign:'center',fontSize:12,color:'#8FB897',borderRadius:12,border:'1px dashed #1D3822'}}>
+                <div style={{padding:16,textAlign:'center',fontSize:12,color:'var(--t2)',borderRadius:12,border:'1px dashed var(--b2)'}}>
                   Все товары удалены — добавьте из каталога или отмените заказ
                 </div>
               )}
             </div>
-            <label style={{display:'block',fontSize:11,color:'#8FB897',marginBottom:8}}>Заметка об изменениях</label>
+            <label style={{display:'block',fontSize:11,color:'var(--t2)',marginBottom:8}}>Заметка об изменениях</label>
             <textarea value={editNote} onChange={e => setEditNote(e.target.value)} rows={3} placeholder="Например: заменили молоко 1 л на 2 л, убрали сыр — нет в наличии"
-              style={{width:'100%',padding:'12px 14px',borderRadius:12,background:'#091508',border:'1px solid #162B1A',color:'#EBF5ED',fontSize:13,resize:'vertical',marginBottom:16,fontFamily:'Nunito'}}/>
+              style={{width:'100%',padding:'12px 14px',borderRadius:12,background:'var(--l2)',border:'1px solid var(--b1)',color:'var(--t1)',fontSize:13,resize:'vertical',marginBottom:16,fontFamily:'Nunito'}}/>
             <div style={{display:'flex',gap:10}}>
               <button type="button" onClick={() => setShowEdit(false)} disabled={saving} className="btn"
-                style={{flex:1,padding:13,borderRadius:14,background:'#091508',border:'1px solid #162B1A',color:'#8FB897',fontWeight:700,fontSize:13}}>
+                style={{flex:1,padding:13,borderRadius:14,background:'var(--l2)',border:'1px solid var(--b1)',color:'var(--t2)',fontWeight:700,fontSize:13}}>
                 Отмена
               </button>
               <button type="button" onClick={handleSaveEdit} disabled={saving || !editItems.length} className="btn"
@@ -1414,17 +1414,17 @@ function HistoryPage({onPage, onLogout, stats}) {
             {l:'Ср. время',       v:stats?.avgTimeLabel || '—', c:'#1FD760'},
             {l:'Товаров собрано', v:stats?.todayItems ?? 0, c:'#FFB800'},
           ].map((s,i)=>(
-            <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:14,padding:'13px 10px',textAlign:'center'}}>
+            <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:14,padding:'13px 10px',textAlign:'center'}}>
               <div style={{fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:s.c,marginBottom:3}}>{s.v}</div>
-              <div style={{fontSize:9,color:'#3D6645',lineHeight:1.3}}>{s.l}</div>
+              <div style={{fontSize:9,color:'var(--t3)',lineHeight:1.3}}>{s.l}</div>
             </div>
           ))}
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
           {history.length === 0 ? (
-            <div style={{textAlign:'center',padding:'48px 20px',color:'#3D6645'}}>
+            <div style={{textAlign:'center',padding:'48px 20px',color:'var(--t3)'}}>
               <div style={{fontSize:36,marginBottom:12}}>📦</div>
-              <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,color:'#8FB897',marginBottom:6}}>Пока пусто</div>
+              <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:800,color:'var(--t2)',marginBottom:6}}>Пока пусто</div>
               <div style={{fontSize:12,lineHeight:1.45}}>Здесь появятся только заказы, которые собрали вы</div>
             </div>
           ) : history.map((h,i)=>(
@@ -1434,12 +1434,12 @@ function HistoryPage({onPage, onLogout, stats}) {
                   <div style={{width:36,height:36,borderRadius:10,background:'rgba(155,109,255,.12)',border:'1px solid rgba(155,109,255,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'#9B6DFF',flexShrink:0}}>✓</div>
                   <div>
                     <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,color:'#9B6DFF'}}>{h.id}</div>
-                    <div style={{fontSize:11,color:'#8FB897',marginTop:1}}>{h.client}</div>
+                    <div style={{fontSize:11,color:'var(--t2)',marginTop:1}}>{h.client}</div>
                   </div>
                 </div>
                 <div style={{textAlign:'right'}}>
                   <div style={{fontFamily:'Unbounded',fontSize:12,fontWeight:700,color:'#1FD760'}}>{h.duration}</div>
-                  <div style={{fontSize:10,color:'#3D6645',marginTop:1}}>{h.time}</div>
+                  <div style={{fontSize:10,color:'var(--t3)',marginTop:1}}>{h.time}</div>
                 </div>
               </div>
               <div style={{display:'flex',gap:8}}>
@@ -1481,7 +1481,7 @@ function StatsPage({onPage, stats, assemblerName, onLogout}) {
           <div style={{width:56,height:56,borderRadius:18,background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:'white',flexShrink:0,boxShadow:'0 6px 20px rgba(155,109,255,.4)'}}>{avatar}</div>
           <div style={{flex:1}}>
             <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900,marginBottom:2}}>{assemblerName}</div>
-            <div style={{fontSize:11,color:'#8FB897',marginBottom:6}}>Сборщик · КАКАПО Яван</div>
+            <div style={{fontSize:11,color:'var(--t2)',marginBottom:6}}>Сборщик · КАКАПО Яван</div>
             <div style={{display:'flex',gap:8}}>
               <span style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(31,215,96,.12)',color:'#1FD760',border:'1px solid rgba(31,215,96,.25)'}}>★ {stats?.rating ?? 5} рейтинг</span>
             </div>
@@ -1496,9 +1496,9 @@ function StatsPage({onPage, stats, assemblerName, onLogout}) {
             {l:'Среднее время',     v:stats?.avgTimeLabel || '—', c:'#1FD760', e:'⏱'},
             {l:'Рекорд за день',    v:`${record} заказов`,     c:'#FF8C00', e:'🏆'},
           ].map((s,i)=>(
-            <div key={i} style={{background:'#091508',border:'1px solid #162B1A',borderRadius:16,padding:'16px 14px',animation:`fadeUp .4s ease ${i*.07}s both`}}>
+            <div key={i} style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'16px 14px',animation:`fadeUp .4s ease ${i*.07}s both`}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
-                <div style={{fontSize:10,color:'#3D6645',fontWeight:600}}>{s.l}</div>
+                <div style={{fontSize:10,color:'var(--t3)',fontWeight:600}}>{s.l}</div>
                 <span style={{fontSize:20}}>{s.e}</span>
               </div>
               <div style={{fontFamily:'Unbounded',fontSize:22,fontWeight:900,color:s.c}}>{s.v}</div>
@@ -1507,14 +1507,14 @@ function StatsPage({onPage, stats, assemblerName, onLogout}) {
         </div>
 
         {/* Week chart */}
-        <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:18,padding:'18px',marginBottom:16}}>
+        <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:18,padding:'18px',marginBottom:16}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:16}}>Заказов за неделю</div>
           <div style={{display:'flex',gap:6,alignItems:'flex-end',height:100}}>
             {weekData.map((v,i)=>(
               <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
-                <div style={{fontSize:9,color:i===6?'#9B6DFF':'#3D6645',fontWeight:700}}>{v}</div>
-                <div style={{width:'100%',borderRadius:'4px 4px 0 0',background:i===6?'linear-gradient(180deg,#9B6DFF,#6B3FD4)':'linear-gradient(180deg,#1D3822,#162B1A)',height:`${Math.round(v/maxW*80)}px`,transition:'height .6s ease',boxShadow:i===6?'0 2px 10px rgba(155,109,255,.4)':'none'}}/>
-                <div style={{fontSize:9,color:i===6?'#9B6DFF':'#3D6645',fontWeight:i===6?800:400}}>{weekLabels[i]}</div>
+                <div style={{fontSize:9,color:i===6?'#9B6DFF':'var(--t3)',fontWeight:700}}>{v}</div>
+                <div style={{width:'100%',borderRadius:'4px 4px 0 0',background:i===6?'linear-gradient(180deg,#9B6DFF,#6B3FD4)':'linear-gradient(180deg,var(--b2),var(--b1))',height:`${Math.round(v/maxW*80)}px`,transition:'height .6s ease',boxShadow:i===6?'0 2px 10px rgba(155,109,255,.4)':'none'}}/>
+                <div style={{fontSize:9,color:i===6?'#9B6DFF':'var(--t3)',fontWeight:i===6?800:400}}>{weekLabels[i]}</div>
               </div>
             ))}
           </div>
@@ -1524,7 +1524,7 @@ function StatsPage({onPage, stats, assemblerName, onLogout}) {
         <div style={{background:'rgba(155,109,255,.06)',border:'1px solid rgba(155,109,255,.2)',borderRadius:16,padding:'16px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:12,fontWeight:800,color:'#9B6DFF',marginBottom:10}}>💡 Советы для эффективности</div>
           {['Начинайте с тяжёлых товаров (мясо, молочное)','Проверяйте срок годности при сборке','Хрупкие товары кладите поверх тяжёлых','Сверяйтесь с артикулом KAK-XXXX'].map((tip,i)=>(
-            <div key={i} style={{fontSize:11,color:'#8FB897',padding:'7px 0',borderBottom:i<3?'1px solid rgba(155,109,255,.1)':'none',display:'flex',alignItems:'flex-start',gap:8}}>
+            <div key={i} style={{fontSize:11,color:'var(--t2)',padding:'7px 0',borderBottom:i<3?'1px solid rgba(155,109,255,.1)':'none',display:'flex',alignItems:'flex-start',gap:8}}>
               <span style={{color:'#9B6DFF',fontWeight:700,flexShrink:0}}>{i+1}.</span>{tip}
             </div>
           ))}

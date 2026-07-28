@@ -238,7 +238,7 @@ export default function AuditLogPage() {
         <button type="button" onClick={() => void load()} style={btn}>Обновить</button>
       </div>
 
-      <div style={{ fontSize: 12, color: '#8FB897' }}>
+      <div style={{ fontSize: 12, color: 'var(--t2)' }}>
         Хранение {retentionDays} дней · автоочистка старше срока · сейчас {total} записей
         {loading ? ' · загрузка…' : ''}
       </div>
@@ -257,7 +257,7 @@ export default function AuditLogPage() {
       )}
 
       {!loading && !err && items.length === 0 && (
-        <div style={{ color: '#8FB897', fontSize: 13, padding: 24, textAlign: 'center' }}>
+        <div style={{ color: 'var(--t2)', fontSize: 13, padding: 24, textAlign: 'center' }}>
           Пока нет записей. Действия админки и торговли появятся здесь.
         </div>
       )}
@@ -279,7 +279,7 @@ export default function AuditLogPage() {
                 borderRadius: 12,
                 border: '1px solid rgba(80,140,100,0.22)',
                 background: open ? 'rgba(20,55,32,0.9)' : 'rgba(8,28,16,0.55)',
-                color: '#EBF5ED',
+                color: 'var(--t1)',
               }}
             >
               <div
@@ -320,7 +320,7 @@ export default function AuditLogPage() {
                           gridTemplateColumns: '130px 1fr',
                           gap: 8, alignItems: 'baseline', fontSize: 12,
                         }}>
-                          <span style={{ color: '#8FB897', fontWeight: 600 }}>{fieldLabel(ch.key)}</span>
+                          <span style={{ color: 'var(--t2)', fontWeight: 600 }}>{fieldLabel(ch.key)}</span>
                           <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline' }}>
                             {ch.kind !== 'added' && (
                               <span style={{
@@ -338,7 +338,7 @@ export default function AuditLogPage() {
                       ))}
                     </div>
                   ) : (
-                    <div style={{ fontSize: 12, color: '#8FB897' }}>Подробности изменений не сохранены.</div>
+                    <div style={{ fontSize: 12, color: 'var(--t2)' }}>Подробности изменений не сохранены.</div>
                   )}
 
                   {canRestore && (
@@ -356,7 +356,7 @@ export default function AuditLogPage() {
                       >
                         {busy ? 'Восстановление…' : '↩ Восстановить как было'}
                       </button>
-                      <span style={{ fontSize: 11, color: '#8FB897' }}>
+                      <span style={{ fontSize: 11, color: 'var(--t2)' }}>
                         Вернёт значения слева (до изменения)
                       </span>
                     </div>
@@ -374,7 +374,7 @@ export default function AuditLogPage() {
 const sel: CSSProperties = {
   background: 'rgba(4,18,10,0.9)',
   border: '1px solid rgba(80,140,100,0.35)',
-  color: '#EBF5ED',
+  color: 'var(--t1)',
   borderRadius: 8,
   padding: '8px 10px',
   fontSize: 13,

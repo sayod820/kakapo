@@ -304,13 +304,13 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const currentIdx = stepIndex(step)
 
   const fieldLabel = (lbl: string) => (
-    <div style={{ fontSize: 10, color: '#3D6645', marginBottom: 7, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase' }}>{lbl}</div>
+    <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 7, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase' }}>{lbl}</div>
   )
 
   return (
     <div className="sl-root" style={{
       minHeight: '100dvh',
-      background: '#030B05',
+      background: 'var(--bg)',
       maxWidth: 480,
       margin: '0 auto',
       position: 'relative',
@@ -336,10 +336,10 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
       <button type="button" onClick={() => go('profile')} className="sl-btn" style={{
         position: 'absolute', top: 18, left: 18, zIndex: 10,
         width: 42, height: 42, borderRadius: 13,
-        background: 'rgba(9,21,8,.85)', backdropFilter: 'blur(12px)',
-        border: '1px solid rgba(31,215,96,.2)',
+        background: 'var(--fab-bg)', backdropFilter: 'blur(12px)',
+        border: '1px solid var(--b1)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#8FB897', fontSize: 18,
+        color: 'var(--t2)', fontSize: 18,
       }}>←</button>
 
       <div style={{
@@ -364,10 +364,10 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
           </div>
           <div className="sl-ub" style={{
             fontSize: 24, fontWeight: 900, letterSpacing: '-.02em', marginBottom: 6,
-            background: 'linear-gradient(135deg,#EBF5ED 0%,#1FD760 100%)',
+            background: 'linear-gradient(135deg,var(--t1) 0%,#1FD760 100%)',
             WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
           }}>КАКАПО</div>
-          <div style={{ fontSize: 13, color: '#8FB897', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>
             Вход и регистрация · <span style={{ color: '#1FD760', fontWeight: 700 }}>г. Яван</span>
           </div>
         </div>
@@ -382,16 +382,16 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                 width: 28, height: 28, borderRadius: 9,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 12, fontWeight: 800,
-                background: currentIdx >= i ? 'linear-gradient(135deg,#17B34E,#1FD760)' : '#0C1C0F',
-                color: currentIdx >= i ? '#030B05' : '#3D6645',
-                border: `1.5px solid ${currentIdx >= i ? 'rgba(31,215,96,.6)' : '#162B1A'}`,
+                background: currentIdx >= i ? 'linear-gradient(135deg,#17B34E,#1FD760)' : 'var(--l3)',
+                color: currentIdx >= i ? '#030B05' : 'var(--t3)',
+                border: `1.5px solid ${currentIdx >= i ? 'rgba(31,215,96,.6)' : 'var(--b1)'}`,
                 boxShadow: currentIdx === i ? '0 4px 14px rgba(31,215,96,.35)' : 'none',
               }}>{i + 1}</div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: currentIdx >= i ? '#1FD760' : '#3D6645' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: currentIdx >= i ? '#1FD760' : 'var(--t3)' }}>
                 {s.label}
               </span>
               {i < stepLabels.length - 1 && (
-                <div style={{ width: 20, height: 2, borderRadius: 1, background: currentIdx > i ? '#1FD760' : '#162B1A', marginLeft: 4 }} />
+                <div style={{ width: 20, height: 2, borderRadius: 1, background: currentIdx > i ? '#1FD760' : 'var(--b1)', marginLeft: 4 }} />
               )}
             </div>
           ))}
@@ -416,8 +416,8 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
 
           {step === 'phone' && (
             <div key="phone-step">
-              <div className="sl-ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 4, color: '#EBF5ED' }}>Номер телефона</div>
-              <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 18, lineHeight: 1.45 }}>
+              <div className="sl-ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 4, color: 'var(--t1)' }}>Номер телефона</div>
+              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 18, lineHeight: 1.45 }}>
                 Один номер для входа и регистрации — пришлём SMS с кодом
               </div>
 
@@ -428,8 +428,8 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                   display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'none', zIndex: 2,
                 }}>
                   <span style={{ fontSize: 18 }}>🇹🇯</span>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: '#8FB897' }}>+992</span>
-                  <div style={{ width: 1, height: 18, background: '#162B1A' }} />
+                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t2)' }}>+992</span>
+                  <div style={{ width: 1, height: 18, background: 'var(--b1)' }} />
                 </div>
                 <input
                   className="sl-inp"
@@ -442,8 +442,8 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                   autoFocus
                   style={{
                     width: '100%', padding: '14px 14px 14px 88px', borderRadius: 14,
-                    background: '#0C1C0F', border: '1.5px solid #162B1A',
-                    color: '#EBF5ED', fontSize: 16, letterSpacing: .5,
+                    background: 'var(--l3)', border: '1.5px solid var(--b1)',
+                    color: 'var(--t1)', fontSize: 16, letterSpacing: .5,
                   }}
                 />
               </div>
@@ -464,8 +464,8 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
 
           {step === 'otp' && (
             <div key="otp-step">
-              <div className="sl-ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 4, color: '#EBF5ED', textAlign: 'center' }}>Подтверждение</div>
-              <div style={{ fontSize: 12, color: '#8FB897', textAlign: 'center', marginBottom: 22, lineHeight: 1.5 }}>
+              <div className="sl-ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 4, color: 'var(--t1)', textAlign: 'center' }}>Подтверждение</div>
+              <div style={{ fontSize: 12, color: 'var(--t2)', textAlign: 'center', marginBottom: 22, lineHeight: 1.5 }}>
                 Код отправлен на<br />
                 <span style={{ color: '#1FD760', fontWeight: 800, fontSize: 14 }}>+992 {phone}</span>
               </div>
@@ -486,9 +486,9 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                     className="sl-inp sl-ub"
                     style={{
                       width: 58, height: 66, borderRadius: 16,
-                      border: `2px solid ${v || focusedOtp === i ? 'rgba(31,215,96,.7)' : '#162B1A'}`,
-                      background: v ? 'rgba(31,215,96,.14)' : '#0C1C0F',
-                      textAlign: 'center', fontSize: 28, fontWeight: 900, color: '#EBF5ED',
+                      border: `2px solid ${v || focusedOtp === i ? 'rgba(31,215,96,.7)' : 'var(--b1)'}`,
+                      background: v ? 'rgba(31,215,96,.14)' : 'var(--l3)',
+                      textAlign: 'center', fontSize: 28, fontWeight: 900, color: 'var(--t1)',
                       boxShadow: focusedOtp === i ? '0 0 20px rgba(31,215,96,.25)' : v ? '0 4px 12px rgba(31,215,96,.15)' : 'none',
                     }}
                   />
@@ -501,7 +501,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                   background: 'rgba(31,215,96,.06)',
                   border: '1px solid rgba(31,215,96,.2)',
                 }}>
-                  <div style={{ fontSize: 11, color: '#3D6645' }}>
+                  <div style={{ fontSize: 11, color: 'var(--t3)' }}>
                     Повторная отправка через <span style={{ color: '#1FD760', fontWeight: 800 }}>{cd}</span> сек
                   </div>
                 </div>
@@ -524,7 +524,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
 
               <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 14 }}>
                 <button type="button" onClick={() => { setStep('phone'); setErr(''); setOtp(['', '', '', '']) }}
-                  className="sl-btn" style={{ background: 'none', border: 'none', color: '#8FB897', fontSize: 12, fontWeight: 700 }}>
+                  className="sl-btn" style={{ background: 'none', border: 'none', color: 'var(--t2)', fontSize: 12, fontWeight: 700 }}>
                   ← Изменить номер
                 </button>
                 {cd === 0 && (
@@ -540,14 +540,14 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
           {step === 'restore' && recoveryClient && (
             <div key="restore-step">
               <div style={{ fontSize: 48, textAlign: 'center', marginBottom: 12 }}>♻️</div>
-              <div className="sl-ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, color: '#EBF5ED', textAlign: 'center' }}>
+              <div className="sl-ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, color: 'var(--t1)', textAlign: 'center' }}>
                 Восстановить аккаунт?
               </div>
-              <div style={{ fontSize: 13, color: '#8FB897', marginBottom: 20, lineHeight: 1.55, textAlign: 'center' }}>
-                Аккаунт <strong style={{ color: '#EBF5ED' }}>{recoveryClient.name}</strong> ({formatTjPhone(phone)}) был удалён
+              <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 20, lineHeight: 1.55, textAlign: 'center' }}>
+                Аккаунт <strong style={{ color: 'var(--t1)' }}>{recoveryClient.name}</strong> ({formatTjPhone(phone)}) был удалён
                 {recoveryClient.deletedAt ? ` · ${recoveryClient.deletedAt}` : ''}.
                 <br />Можно восстановить профиль, заказы и бонусы до{' '}
-                <strong style={{ color: '#EBF5ED' }}>
+                <strong style={{ color: 'var(--t1)' }}>
                   {recoveryClient.recoveryExpiresAt || recoveryExpiresAtIso(recoveryClient.deletedAt)}
                 </strong>.
               </div>
@@ -564,7 +564,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
               <button type="button" onClick={declineRestore} disabled={load} className="sl-btn"
                 style={{
                   width: '100%', padding: 14, borderRadius: 16,
-                  background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#8FB897',
+                  background: 'var(--l3)', border: '1.5px solid var(--b1)', color: 'var(--t2)',
                   fontWeight: 700, fontSize: 13,
                 }}>
                 Нет, выйти
@@ -574,8 +574,8 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
 
           {step === 'register' && (
             <div key="register-step">
-              <div className="sl-ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 4, color: '#EBF5ED' }}>Создание аккаунта</div>
-              <div style={{ fontSize: 12, color: '#8FB897', marginBottom: 18, lineHeight: 1.45 }}>
+              <div className="sl-ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 4, color: 'var(--t1)' }}>Создание аккаунта</div>
+              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 18, lineHeight: 1.45 }}>
                 Номер <span style={{ color: '#1FD760', fontWeight: 700 }}>{formatTjPhone(phone)}</span> не найден — заполните данные
               </div>
 
@@ -584,13 +584,13 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                   {fieldLabel('Имя *')}
                   <input className="sl-inp" value={reg.firstName} onChange={e => setRegField('firstName', e.target.value)}
                     placeholder="Диловар" autoFocus
-                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
+                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: 'var(--l3)', border: '1.5px solid var(--b1)', color: 'var(--t1)', fontSize: 14 }} />
                 </div>
                 <div>
                   {fieldLabel('Фамилия *')}
                   <input className="sl-inp" value={reg.lastName} onChange={e => setRegField('lastName', e.target.value)}
                     placeholder="Рахимов"
-                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
+                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: 'var(--l3)', border: '1.5px solid var(--b1)', color: 'var(--t1)', fontSize: 14 }} />
                 </div>
               </div>
 
@@ -604,7 +604,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                       <span style={{ fontSize: 22 }}>📍</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 800, color: '#EBF5ED', marginBottom: 4 }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)', marginBottom: 4 }}>
                           {formatClientAddressLine(savedAddr)}
                         </div>
                         {savedAddr.coords && (
@@ -615,7 +615,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                       </div>
                     </div>
                     <button type="button" onClick={openAddrSheet} className="sl-btn"
-                      style={{ width: '100%', marginTop: 10, padding: '10px', borderRadius: 10, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', fontSize: 12, fontWeight: 700 }}>
+                      style={{ width: '100%', marginTop: 10, padding: '10px', borderRadius: 10, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontSize: 12, fontWeight: 700 }}>
                       ✏️ Изменить адрес
                     </button>
                   </div>
@@ -628,7 +628,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                     }}>
                     <div style={{ fontSize: 26, marginBottom: 4 }}>📍</div>
                     Добавить адрес
-                    <div style={{ fontSize: 11, color: '#3D6645', marginTop: 4, fontWeight: 600 }}>Карта · дом · квартира · этаж · подъезд</div>
+                    <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4, fontWeight: 600 }}>Карта · дом · квартира · этаж · подъезд</div>
                   </button>
                 )}
               </div>
@@ -637,7 +637,7 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                 {fieldLabel('Email')}
                 <input className="sl-inp" value={reg.email} onChange={e => setRegField('email', e.target.value)}
                   placeholder="example@mail.com" type="email"
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: '#0C1C0F', border: '1.5px solid #162B1A', color: '#EBF5ED', fontSize: 14 }} />
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: 'var(--l3)', border: '1.5px solid var(--b1)', color: 'var(--t1)', fontSize: 14 }} />
               </div>
 
               <div style={{
@@ -660,14 +660,14 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
               </button>
 
               <button type="button" onClick={() => { setStep('otp'); setErr('') }}
-                className="sl-btn" style={{ width: '100%', marginTop: 12, background: 'none', border: 'none', color: '#8FB897', fontSize: 12, fontWeight: 700 }}>
+                className="sl-btn" style={{ width: '100%', marginTop: 12, background: 'none', border: 'none', color: 'var(--t2)', fontSize: 12, fontWeight: 700 }}>
                 ← Назад к коду
               </button>
             </div>
           )}
         </div>
 
-        <div style={{ marginTop: 28, textAlign: 'center', fontSize: 10, color: '#3D6645', lineHeight: 1.6 }}>
+        <div style={{ marginTop: 28, textAlign: 'center', fontSize: 10, color: 'var(--t3)', lineHeight: 1.6 }}>
           КАКАПО · Магазин · Таджикистан<br />
           <span style={{ color: '#2a4a32' }}>Только вход по номеру телефона</span>
         </div>

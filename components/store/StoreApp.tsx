@@ -106,7 +106,9 @@ const CSS = `
   --b1:#162B1A;--b2:#1D3822;
   --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
   --red:#FF4545;--blue:#3B8EF0;--sky:#00D4C8;--pur:#9B6DFF;--org:#FF7D3B;--gd2:#E89E00;
-  --header-bg:var(--header-bg);
+  --header-bg:rgba(3,11,5,.96);
+  --overlay:var(--overlay);
+  --fab-bg:var(--fab-bg);
   --store-w:480px;
 }
 html[data-theme="light"]{
@@ -116,6 +118,8 @@ html[data-theme="light"]{
   --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
   --red:#DC2626;--blue:#2563EB;--sky:#0891B2;--pur:#7C3AED;--org:#EA580C;--gd2:#B45309;
   --header-bg:rgba(255,255,255,.96);
+  --overlay:rgba(12,26,16,.45);
+  --fab-bg:rgba(255,255,255,.88);
 }
 @media (min-width:600px){:root{--store-w:640px;}}
 @media (min-width:900px){:root{--store-w:920px;}}
@@ -1881,12 +1885,12 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:100, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <button onClick={() => go("catalog")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"rgba(3,11,5,.75)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={18} c="var(--t1)"/></button>
+        <button onClick={() => go("catalog")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={18} c="var(--t1)"/></button>
         <div style={{ display:"flex", gap:8 }}>
-          <button onClick={() => onWish(p.id)} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"rgba(3,11,5,.75)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <button onClick={() => onWish(p.id)} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
             <Ic n="heart" s={18} c={wished[p.id] ? "#FF4545" : "var(--t1)"} fill={wished[p.id] ? "#FF4545" : "none"}/>
           </button>
-          <button onClick={() => go("cart")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"rgba(3,11,5,.75)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
+          <button onClick={() => go("cart")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="cart" s={18} c="var(--t1)"/>
             {cartBadgeNum>0 && <div style={{ position:"absolute", top:-4, right:-4, minWidth:16, height:16, padding:"0 3px", borderRadius:999, background:"var(--gr)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:8, fontWeight:900, color:"var(--bg)" }}>{cartBadge}</div>}
           </button>
@@ -3113,7 +3117,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
           <div
             onClick={() => setCardQrOpen(false)}
             style={{
-              position:"fixed", inset:0, zIndex:500, background:"rgba(3,11,5,.78)", backdropFilter:"blur(6px)",
+              position:"fixed", inset:0, zIndex:500, background:"var(--overlay)", backdropFilter:"blur(6px)",
               display:"flex", alignItems:"center", justifyContent:"center", padding:24,
             }}
           >
@@ -3582,7 +3586,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                 </div>
               ))}
             </div>
-            <div style={{ height:80, borderRadius:12, background:"linear-gradient(135deg,#050F08,#091814)", border:"1px solid rgba(59,142,240,.2)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
+            <div style={{ height:80, borderRadius:12, background:"linear-gradient(135deg,var(--l1),var(--l3))", border:"1px solid rgba(59,142,240,.2)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
               <div style={{ position:"absolute", inset:0, opacity:.05, background:"repeating-linear-gradient(0deg,transparent,transparent 16px,rgba(59,142,240,1) 16px,rgba(59,142,240,1) 17px),repeating-linear-gradient(90deg,transparent,transparent 16px,rgba(59,142,240,1) 16px,rgba(59,142,240,1) 17px)" }}/>
               <div style={{ position:"absolute", right:"15%", top:"30%", fontSize:18 }}>🏠</div>
               <div style={{ position:"absolute", left:"25%", top:"35%", fontSize:16 }}>🛵</div>
@@ -5648,7 +5652,7 @@ const AboutPage = ({ go, user }) => {
                         <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--t2)" }}><Ic n="clock" s={12} c="var(--gd)"/>{store.hours}</div>
                       </div>
                     </div>
-                    <div style={{ height:90, borderRadius:12, overflow:"hidden", position:"relative", background:"linear-gradient(135deg,#050F08,#091814)", border:"1px solid rgba(31,215,96,.12)", marginBottom:12, cursor:"pointer" }}>
+                    <div style={{ height:90, borderRadius:12, overflow:"hidden", position:"relative", background:"linear-gradient(135deg,var(--l1),var(--l3))", border:"1px solid rgba(31,215,96,.12)", marginBottom:12, cursor:"pointer" }}>
                       <div style={{ position:"absolute", inset:0, opacity:.05, background:"repeating-linear-gradient(0deg,transparent,transparent 16px,rgba(31,215,96,1) 16px,rgba(31,215,96,1) 17px),repeating-linear-gradient(90deg,transparent,transparent 16px,rgba(31,215,96,1) 16px,rgba(31,215,96,1) 17px)" }}/>
                       <div style={{ position:"absolute", top:"40%", left:"45%", display:"flex", flexDirection:"column", alignItems:"center" }}>
                         <div style={{ width:26, height:26, borderRadius:"50%", background:"rgba(31,215,96,.9)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:10, fontWeight:900, color:"var(--bg)", boxShadow:"0 0 10px rgba(31,215,96,.6)" }}>K</div>
@@ -6634,7 +6638,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
 
       {/* Hero banner — scrollable */}
       <div style={{height:180,background:r.img,display:'flex',alignItems:'flex-end',padding:'18px',position:'relative',overflow:'hidden'}}>
-        <div style={{position:'absolute',inset:0,background:'linear-gradient(transparent 30%,rgba(3,11,5,.95))'}}/>
+        <div style={{position:'absolute',inset:0,background:'linear-gradient(transparent 30%,var(--bg))'}}/>
         <div style={{position:'relative',zIndex:1}}>
           <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:'white',marginBottom:4}}>{r.name}</div>
           <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>

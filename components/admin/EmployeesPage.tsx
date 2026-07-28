@@ -222,7 +222,7 @@ export default function EmployeesPage() {
           <div className="amodbox" style={{ maxWidth: 480 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>{editId ? 'Изменить сотрудника' : 'Новый сотрудник'}</div>
-              <button type="button" onClick={() => setShow(false)} className="ab" style={{ background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
+              <button type="button" onClick={() => setShow(false)} className="ab" style={{ background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', width: 32, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, fontSize: 16 }}>✕</button>
             </div>
             <div style={{ display: 'grid', gap: 12 }}>
               <label style={{ display: 'grid', gap: 6 }}>

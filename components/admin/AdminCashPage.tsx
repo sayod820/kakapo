@@ -98,7 +98,7 @@ export default function AdminCashPage() {
         <button type="button" onClick={() => void load()} className="ab abp" style={{ padding: '8px 16px', fontSize: 12 }}>
           ↻ Обновить
         </button>
-        <span style={{ fontSize: 12, color: '#8FB897' }}>
+        <span style={{ fontSize: 12, color: 'var(--t2)' }}>
           {loading ? 'Загрузка…' : 'Данные из кассы (Торговля) в реальном времени'}
         </span>
       </div>
@@ -109,7 +109,7 @@ export default function AdminCashPage() {
         <StatBox l="💵 Наличка в кассах сейчас" v={fmtMoney(cashInTills)} c="#1FD760" sub={`${openShifts.length} откр. смен`} />
         <StatBox l="🧾 Открытых смен" v={String(openShifts.length)} c="#FFB800" />
         <StatBox l="📒 Баланс кассовой книги" v={cashBookBalance != null ? fmtMoney(cashBookBalance) : '—'} c="#00D4C8" />
-        <StatBox l="⚠ Расхождения" v={String(alerts.length)} c={alerts.length > 0 ? '#FF4545' : '#3D6645'} />
+        <StatBox l="⚠ Расхождения" v={String(alerts.length)} c={alerts.length > 0 ? '#FF4545' : 'var(--t3)'} />
       </div>
 
       <Section title="Открытые смены (наличка сейчас)">
@@ -133,8 +133,8 @@ export default function AdminCashPage() {
               {openShifts.map(s => (
                 <tr key={s.id}>
                   <td style={{ fontWeight: 600 }}>{s.cashierName || '—'}</td>
-                  <td style={{ color: '#8FB897' }}>{s.posId || '—'}</td>
-                  <td style={{ fontSize: 11, color: '#3D6645' }}>{fmtWhen(s.openedAtIso)}</td>
+                  <td style={{ color: 'var(--t2)' }}>{s.posId || '—'}</td>
+                  <td style={{ fontSize: 11, color: 'var(--t3)' }}>{fmtWhen(s.openedAtIso)}</td>
                   <td>{fmtMoney(s.openingCash)}</td>
                   <td>{fmtMoney(s.salesCash)}</td>
                   <td>{fmtMoney(Number(s.cashInTotal) || 0)}</td>
@@ -158,7 +158,7 @@ export default function AdminCashPage() {
               }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: a.severity === 'high' ? '#FF6B6B' : '#FFB800' }}>{a.title}</div>
                 <div style={{ fontSize: 12, color: '#C8E0D0', marginTop: 2 }}>{a.message}</div>
-                <div style={{ fontSize: 10, color: '#3D6645', marginTop: 2 }}>{fmtWhen(a.atIso)}</div>
+                <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>{fmtWhen(a.atIso)}</div>
               </div>
             ))}
           </div>
@@ -184,13 +184,13 @@ export default function AdminCashPage() {
               {vsRows.slice(0, 50).map(r => (
                 <tr key={r.shiftId}>
                   <td style={{ fontWeight: 600 }}>{r.cashierName || '—'}</td>
-                  <td style={{ color: '#8FB897' }}>{r.posId || '—'}</td>
-                  <td style={{ fontSize: 11, color: '#3D6645' }}>{fmtWhen(r.closedAtIso)}</td>
+                  <td style={{ color: 'var(--t2)' }}>{r.posId || '—'}</td>
+                  <td style={{ fontSize: 11, color: 'var(--t3)' }}>{fmtWhen(r.closedAtIso)}</td>
                   <td>{fmtMoney(r.expectedCash)}</td>
                   <td>{fmtMoney(r.actualCash)}</td>
                   <td style={{
                     fontWeight: 800,
-                    color: Math.abs(r.cashDiff) < 0.01 ? '#3D6645' : r.cashDiff < 0 ? '#FF4545' : '#FFB800',
+                    color: Math.abs(r.cashDiff) < 0.01 ? 'var(--t3)' : r.cashDiff < 0 ? '#FF4545' : '#FFB800',
                   }}>
                     {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}
                     {r.cashDiff < -0.01 ? ' (недостача)' : r.cashDiff > 0.01 ? ' (излишек)' : ''}
@@ -206,22 +206,22 @@ export default function AdminCashPage() {
 }
 
 const StatBox = ({ l, v, c, sub }: { l: string; v: string; c?: string; sub?: string }) => (
-  <div style={{ padding: '14px 16px', borderRadius: 14, background: '#0C1C0F', border: '1px solid #162B1A' }}>
-    <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 6 }}>{l}</div>
-    <div style={{ fontSize: 22, fontWeight: 900, color: c || '#EBF5ED', fontFamily: 'Unbounded' }}>{v}</div>
-    {sub && <div style={{ fontSize: 10, color: '#3D6645', marginTop: 4 }}>{sub}</div>}
+  <div style={{ padding: '14px 16px', borderRadius: 14, background: 'var(--l3)', border: '1px solid var(--b1)' }}>
+    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 6 }}>{l}</div>
+    <div style={{ fontSize: 22, fontWeight: 900, color: c || 'var(--t1)', fontFamily: 'Unbounded' }}>{v}</div>
+    {sub && <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>{sub}</div>}
   </div>
 )
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <div style={sectionStyle}>
-    <div style={{ fontSize: 14, fontWeight: 800, color: '#EBF5ED', marginBottom: 12 }}>{title}</div>
+    <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--t1)', marginBottom: 12 }}>{title}</div>
     {children}
   </div>
 )
 
 const Empty = ({ text }: { text: string }) => (
-  <div style={{ color: '#3D6645', fontSize: 13, padding: 20, textAlign: 'center' }}>{text}</div>
+  <div style={{ color: 'var(--t3)', fontSize: 13, padding: 20, textAlign: 'center' }}>{text}</div>
 )
 
 const sectionStyle: CSSProperties = {

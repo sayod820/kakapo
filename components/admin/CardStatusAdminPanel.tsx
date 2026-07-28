@@ -27,14 +27,14 @@ import { useCards, useCardStore } from '@/lib/cardStore'
 import { useClients, useClientStore } from '@/lib/clientStore'
 
 const Tog = ({ on, set, disabled = false, title }: { on: boolean; set: () => void; disabled?: boolean; title?: string }) => (
-  <div title={title} onClick={() => { if (!disabled) set() }} style={{ width: 44, height: 24, borderRadius: 12, background: on ? '#1FD760' : '#1D3822', position: 'relative', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? .65 : 1, transition: 'background .2s', flexShrink: 0 }}>
+  <div title={title} onClick={() => { if (!disabled) set() }} style={{ width: 44, height: 24, borderRadius: 12, background: on ? '#1FD760' : 'var(--b2)', position: 'relative', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? .65 : 1, transition: 'background .2s', flexShrink: 0 }}>
     <div style={{ position: 'absolute', top: 3, left: on ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: 'white', transition: 'left .2s' }} />
   </div>
 )
 
 const NI = ({ lbl, val, set, ph = '', type = 'text' }: { lbl: string; val: string; set: (v: string) => void; ph?: string; type?: string }) => (
   <div>
-    <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 5, fontWeight: 700 }}>{lbl}</div>
+    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>{lbl}</div>
     <input className="ai" type={type} value={val} onChange={e => set(e.target.value)} placeholder={ph} />
   </div>
 )
@@ -54,15 +54,15 @@ function TierPreviewCard({ tier }: { tier: LoyaltyTierConfig }) {
           <span style={{ fontSize: 22 }}>{tier.emoji}</span>
           <span className="ub" style={{ fontSize: 15, fontWeight: 900, color: tier.accent }}>{tier.label}</span>
         </div>
-        <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 4 }}>
           Кэшбэк: <span style={{ color: tier.color, fontWeight: 700 }}>{tier.bonusPercent > 0 ? `${tier.bonusPercent}%` : '—'}</span>
           {tier.id === 'vip' && tier.defaultDebtLimit > 0 && (
             <span style={{ marginLeft: 8, color: '#3B8EF0' }}>· долг до {tier.defaultDebtLimit.toLocaleString()} ЅМ</span>
           )}
         </div>
-        <div style={{ fontSize: 10, color: '#3D6645', lineHeight: 1.4 }}>{tier.perk}</div>
+        <div style={{ fontSize: 10, color: 'var(--t3)', lineHeight: 1.4 }}>{tier.perk}</div>
         {tier.id !== 'basic' && tier.id !== 'vip' && (
-          <div style={{ fontSize: 10, color: '#3D6645', marginTop: 6 }}>от {tier.minSpent.toLocaleString()} ЅМ</div>
+          <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 6 }}>от {tier.minSpent.toLocaleString()} ЅМ</div>
         )}
       </div>
       <div style={{ height: 3, background: tier.rail }} />
@@ -137,9 +137,9 @@ function CashDepositTiersEditor({
   }
 
   return (
-    <div style={{ background: '#0A140C', border: '1px solid #162B1A', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
+    <div style={{ background: '#0A140C', border: '1px solid var(--b1)', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
       <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 6 }}>💵 Наличные в магазин (Торговля)</div>
-      <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 12, lineHeight: 1.45 }}>
+      <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 12, lineHeight: 1.45 }}>
         Пороги бонусов при внесении наличных: чем больше сумма — тем выше процент. Используется в разделе «Клиенты → Наличные».
       </div>
       <div style={{ display: 'grid', gap: 8 }}>
@@ -179,7 +179,7 @@ function CashDepositTiersEditor({
         + Добавить порог
       </button>
       {sorted.length > 0 && (
-        <div style={{ marginTop: 12, fontSize: 11, color: '#3D6645' }}>
+        <div style={{ marginTop: 12, fontSize: 11, color: 'var(--t3)' }}>
           Пример: при 1000 сом с порогом «{cashDepositTierLabel(sorted.find(t => t.minAmount <= 1000) || sorted[0])}» →{' '}
           <strong style={{ color: '#FFB800' }}>
             {Math.floor(1000 * (sorted.filter(t => t.minAmount <= 1000).pop()?.bonusPercent || 0) / 100)} ⭐
@@ -402,15 +402,15 @@ export default function CardStatusAdminPanel() {
         >
           <div>
             <div className="ub" style={{ fontSize: 14, fontWeight: 900 }}>⚙️ Программа лояльности</div>
-            <div style={{ fontSize: 11, color: '#8FB897', marginTop: 3 }}>Бонусы, пороги уровней и условия VIP</div>
+            <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 3 }}>Бонусы, пороги уровней и условия VIP</div>
           </div>
-          <span style={{ fontSize: 12, color: '#8FB897' }}>{showProgram ? '▲ Свернуть' : '▼ Настроить'}</span>
+          <span style={{ fontSize: 12, color: 'var(--t2)' }}>{showProgram ? '▲ Свернуть' : '▼ Настроить'}</span>
         </button>
 
         {showProgram && (
-          <div style={{ padding: '0 18px 18px', borderTop: '1px solid #162B1A' }}>
+          <div style={{ padding: '0 18px 18px', borderTop: '1px solid var(--b1)' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', margin: '14px 0' }}>
-              <button type="button" onClick={resetConfig} className="ab" style={{ padding: '8px 14px', fontSize: 11, background: '#0C1C0F', border: '1px solid #162B1A', color: '#8FB897' }}>
+              <button type="button" onClick={resetConfig} className="ab" style={{ padding: '8px 14px', fontSize: 11, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)' }}>
                 Сбросить
               </button>
               <button type="button" onClick={saveConfig} className="ab abp" style={{ padding: '8px 18px', fontSize: 12, fontWeight: 800 }}>
@@ -441,7 +441,7 @@ export default function CardStatusAdminPanel() {
               }}
             />
 
-            <div style={{ fontSize: 12, fontWeight: 800, color: '#8FB897', marginBottom: 10 }}>Уровни</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--t2)', marginBottom: 10 }}>Уровни</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 14 }}>
               {allTiers.map(t => (
                 <button
@@ -451,7 +451,7 @@ export default function CardStatusAdminPanel() {
                   className="ab"
                   style={{
                     padding: 0, overflow: 'hidden', textAlign: 'left',
-                    border: selectedTier === t.id ? `2px solid ${t.color}` : '1px solid #162B1A',
+                    border: selectedTier === t.id ? `2px solid ${t.color}` : '1px solid var(--b1)',
                     borderRadius: 14, background: 'transparent',
                   }}
                 >
@@ -460,12 +460,12 @@ export default function CardStatusAdminPanel() {
               ))}
             </div>
 
-            <div style={{ background: '#0A140C', border: '1px solid #162B1A', borderRadius: 14, padding: '14px 16px' }}>
+            <div style={{ background: '#0A140C', border: '1px solid var(--b1)', borderRadius: 14, padding: '14px 16px' }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 10 }}>
                 {editingTier.emoji} {editingTier.label}
               </div>
               {selectedTier === 'basic' && (
-                <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.18)' }}>
+                <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.18)' }}>
                   При регистрации клиент получает <strong style={{ color: '#FFB800' }}>{draft.welcomeBonus} ⭐</strong> — настраивается выше в «Бонус при регистрации».
                 </div>
               )}
@@ -477,7 +477,7 @@ export default function CardStatusAdminPanel() {
 
       {/* Назначение клиентам */}
       <div className="ac">
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid #162B1A' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--b1)' }}>
           <div className="ub" style={{ fontSize: 15, fontWeight: 900, marginBottom: 10 }}>👥 Статусы клиентов</div>
           <div style={{ position: 'relative', maxWidth: 360 }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, opacity: .5 }}>🔍</span>
@@ -507,13 +507,13 @@ export default function CardStatusAdminPanel() {
             <tbody>
               {!crmReady ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 28, color: '#8FB897' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 28, color: 'var(--t2)' }}>
                     Загрузка статусов…
                   </td>
                 </tr>
               ) : filteredCards.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 28, color: '#3D6645' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 28, color: 'var(--t3)' }}>
                     Нет активных карт с клиентами
                   </td>
                 </tr>
@@ -546,7 +546,7 @@ export default function CardStatusAdminPanel() {
                     <td>
                       <div style={{ fontWeight: 700, fontSize: 13 }}>{card.client || '—'}</div>
                       <div style={{ fontSize: 11, color: '#FFB800', marginTop: 2 }}>{card.num}</div>
-                      <div style={{ fontSize: 10, color: '#3D6645' }}>{card.phone || '—'}</div>
+                      <div style={{ fontSize: 10, color: 'var(--t3)' }}>{card.phone || '—'}</div>
                     </td>
                     <td>
                       <select
@@ -569,11 +569,11 @@ export default function CardStatusAdminPanel() {
                         <option value="auto">🔄 Автоматически</option>
                         <option value="manual">✋ Ручной</option>
                       </select>
-                      <div style={{ fontSize: 9, color: '#8FB897', marginTop: 4 }}>{levelExpiry}</div>
+                      <div style={{ fontSize: 9, color: 'var(--t2)', marginTop: 4 }}>{levelExpiry}</div>
                     </td>
                     <td>
                       {isAuto ? (
-                        <div style={{ fontSize: 12, color: '#8FB897', padding: '6px 0' }}>
+                        <div style={{ fontSize: 12, color: 'var(--t2)', padding: '6px 0' }}>
                           <span style={{ color: '#1FD760' }}>
                             {autoLevel !== 'basic' ? `📈 ${autoLevel}` : '— по заказам'}
                           </span>
@@ -592,7 +592,7 @@ export default function CardStatusAdminPanel() {
                         </select>
                       )}
                       {st.level === 'basic' && !isAuto ? (
-                        <div style={{ fontSize: 9, color: '#8FB897', marginTop: 4 }}>♾ Постоянно</div>
+                        <div style={{ fontSize: 9, color: 'var(--t2)', marginTop: 4 }}>♾ Постоянно</div>
                       ) : !isAuto && isLevelLocked(lockRecord) ? (
                         <div style={{ fontSize: 9, color: '#FFB800', marginTop: 4 }}>🔒 закреплён</div>
                       ) : null}
@@ -615,7 +615,7 @@ export default function CardStatusAdminPanel() {
                     </td>
                     <td>
                       {isAuto ? (
-                        <div style={{ fontSize: 11, color: '#8FB897', padding: '6px 0' }}>
+                        <div style={{ fontSize: 11, color: 'var(--t2)', padding: '6px 0' }}>
                           {st.vip ? (
                             <>
                               <span style={{ color: '#FFB800', fontWeight: 700 }}>👑 вкл</span>
@@ -624,7 +624,7 @@ export default function CardStatusAdminPanel() {
                           ) : autoVipEligible ? (
                             <span style={{ color: '#1FD760' }}>по условиям ✓</span>
                           ) : (
-                            <span style={{ color: '#3D6645' }}>по условиям</span>
+                            <span style={{ color: 'var(--t3)' }}>по условиям</span>
                           )}
                         </div>
                       ) : (
@@ -643,7 +643,7 @@ export default function CardStatusAdminPanel() {
                                   <option key={o.days} value={o.days}>{o.label}</option>
                                 ))}
                               </select>
-                              <div style={{ fontSize: 9, color: '#8FB897' }}>{vipExpiry}</div>
+                              <div style={{ fontSize: 9, color: 'var(--t2)' }}>{vipExpiry}</div>
                             </>
                           )}
                         </div>
@@ -651,7 +651,7 @@ export default function CardStatusAdminPanel() {
                     </td>
                     <td>
                       {isAuto ? (
-                        <div style={{ fontSize: 11, padding: '6px 0', color: autoDebtOn ? '#1FD760' : '#3D6645', fontWeight: autoDebtOn ? 700 : 400 }}>
+                        <div style={{ fontSize: 11, padding: '6px 0', color: autoDebtOn ? '#1FD760' : 'var(--t3)', fontWeight: autoDebtOn ? 700 : 400 }}>
                           {autoDebtOn ? '✓ авто' : '—'}
                         </div>
                       ) : (

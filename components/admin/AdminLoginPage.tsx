@@ -136,7 +136,7 @@ export default function AdminLoginPage({
           box-shadow:0 6px 16px rgba(31,215,96,.25);
         }
         .al-btn:disabled{opacity:.6;cursor:default}
-        .al-hint{margin-top:14px;text-align:center;font-size:11px;color:#3D6645;line-height:1.5}
+        .al-hint{margin-top:14px;text-align:center;font-size:11px;color:var(--t3);line-height:1.5}
       `}</style>
       <form className="al-card" onSubmit={submit}>
         <div className="al-logo">K</div>
