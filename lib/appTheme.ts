@@ -45,6 +45,13 @@ export function applyDocumentTheme(theme: AppTheme) {
   document.body.style.color = theme === 'light' ? '#0C1A10' : '#EBF5ED'
 }
 
+/** Только тёмная тема на экране (без записи в localStorage) — клиент / курьер / сборщик / ресторан */
+export function useForcedDarkTheme() {
+  useEffect(() => {
+    applyDocumentTheme('dark')
+  }, [])
+}
+
 export function useAppTheme() {
   const [theme, setThemeState] = useState<AppTheme>(() => loadAppTheme())
 

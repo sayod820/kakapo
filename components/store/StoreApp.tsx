@@ -94,8 +94,7 @@ import { inferScheduleMode } from "@/lib/promoSchedule";
 import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
 import { preloadLeaflet } from "@/lib/leafletLoader";
-import { useAppTheme } from "@/lib/appTheme";
-import ThemeToggle from "@/components/shared/ThemeToggle";
+import { useForcedDarkTheme } from "@/lib/appTheme";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
@@ -110,16 +109,6 @@ const CSS = `
   --overlay:var(--overlay);
   --fab-bg:var(--fab-bg);
   --store-w:480px;
-}
-html[data-theme="light"]{
-  --gr:#129B45;--gr2:#0F8A3A;--gr3:#0A6B2E;--gd:#D97706;
-  --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;--l4:#E0EBE3;
-  --b1:#D0DDD4;--b2:#BCCBBF;
-  --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
-  --red:#DC2626;--blue:#2563EB;--sky:#0891B2;--pur:#7C3AED;--org:#EA580C;--gd2:#B45309;
-  --header-bg:rgba(255,255,255,.96);
-  --overlay:rgba(12,26,16,.45);
-  --fab-bg:rgba(255,255,255,.88);
 }
 @media (min-width:600px){:root{--store-w:640px;}}
 @media (min-width:900px){:root{--store-w:920px;}}
@@ -177,9 +166,7 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 @keyframes crownFloat{0%,100%{transform:translateY(0) rotate(-3deg);}50%{transform:translateY(-3px) rotate(3deg);}}
 .loyalty-tier-card{position:relative;overflow:hidden;border-radius:20px;}
 .loyalty-tier-card::before{content:'';position:absolute;inset:0;opacity:.06;pointer-events:none;background:repeating-linear-gradient(45deg,transparent,transparent 10px,rgba(255,255,255,.15) 10px,rgba(255,255,255,.15) 11px);}
-html[data-theme="light"] .loyalty-tier-card::before{opacity:0;}
 .loyalty-vip-card{animation:vipGlow 3s ease-in-out infinite;}
-html[data-theme="light"] .loyalty-vip-card{animation:none;box-shadow:0 4px 20px rgba(217,119,6,.12)!important;}
 .loyalty-level-up{animation:levelUpPop 2.4s ease forwards;}
 .loyalty-tier-node-active{animation:tierPulse 2.2s ease-in-out infinite;}
 .loyalty-vip-shimmer{background:linear-gradient(105deg,transparent 30%,rgba(255,220,100,.35) 50%,transparent 70%);background-size:200% 100%;animation:vipShimmer 3s linear infinite;}
@@ -551,8 +538,7 @@ function catThemeKey(id: string) {
 }
 
 function useStoreCategories() {
-  const { theme } = useAppTheme()
-  const light = theme === 'light'
+  const light = false
   const { categories, loaded } = useCategories()
   return useMemo(() => {
     if (!categories.length) {
@@ -1018,8 +1004,7 @@ function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm'
 }
 
 function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => void }) {
-  const { theme: uiTheme } = useAppTheme()
-  const light = uiTheme === 'light'
+  const light = false;
   const { isVip, theme } = resolveUserVip(user, light)
   if (!user || !isVip) return null
   const firstName = (user.name || 'Клиент').split(' ')[0]
@@ -1068,8 +1053,7 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
 }
 
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
-  const { theme: uiTheme } = useAppTheme()
-  const light = uiTheme === 'light'
+  const light = false;
   const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount, periodSubtitle } = loyalty
   const themes = getTierThemes(light)
   const theme = isVip ? themes.vip : isBasicClient ? themes.basic : (themes[tier.id] || themes.bronze)
@@ -1478,8 +1462,7 @@ const FAQ = () => {
   {q:"Что если меня нет дома?",              a:"Курьер подождёт 10 минут. Оставьте комментарий к заказу — например, 'оставить у соседа'."},
 ]; };
 const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { catalogReady } = useLiveCatalog();
   const rating = productRatingUi(p, catalogReady);
   const qty  = cart[p.id] || 0;
@@ -1547,8 +1530,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 };
 
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const banners = storeBannerSlides(light);
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   const { rootCats, ready: catsReady } = useStoreCategories();
@@ -1654,8 +1636,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 };
 
 const CatalogPage = ({ go, cart, user }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   const { rootCats, cats, ready: catsReady } = useStoreCategories();
   const restBannerBg = softAccentSurface('#EA580C', light, 'linear-gradient(135deg,#1A0808,#3A1010)');
@@ -1721,8 +1702,7 @@ const CatalogPage = ({ go, cart, user }) => {
 );
 };
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { prods, catalogReady } = useLiveCatalog();
   const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const { isVip } = resolveUserVip(user, light);
@@ -1904,8 +1884,7 @@ const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
 };
 
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { prods, catalogReady } = useLiveCatalog();
   const { cats } = useStoreCategories();
   const p = prods.find(x => x.id == params?.id);
@@ -2119,8 +2098,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   );
 };
 const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady = true, user }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { prods, catalogReady } = useLiveCatalog();
   const items = buildCartLineItems(cart, cartMeta, prods);
   const prodItems = items.filter(p => !p.isRest);
@@ -2909,7 +2887,7 @@ function CartPageBoot({ go }: { go: (p: string) => void }) {
   );
 }
 
-const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady, theme, onThemeChange }) => {
+const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady }) => {
   const apiOrders = useOrders(s => s.orders);
   const fetchOrders = useOrders(s => s.fetchOrders);
   const pendingBonusSyncCount = useMemo(
@@ -3022,7 +3000,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     }
     : loyalty
   const profileTheme = (() => {
-    const th = getTierThemes(theme === 'light')
+    const th = getTierThemes()
     return profileLoyalty.isVip ? th.vip : profileLoyalty.isBasicClient ? th.basic : (th[profileLoyalty.tier.id] || th.bronze)
   })()
   const profileTierId = profileLoyalty.isVip ? 'vip' : profileLoyalty.isBasicClient ? 'basic' : profileLoyalty.tier.id
@@ -3076,9 +3054,6 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
       <header style={profileHeaderStyle(profileTheme)}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900, color: profileTheme.accent }}>Профиль</div>
-          {theme && onThemeChange && (
-            <ThemeToggle theme={theme} onChange={onThemeChange} />
-          )}
           <button onClick={() => go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="bell" s={17} c="var(--t2)"/>
             {unreadNotifs > 0 && (
@@ -3275,12 +3250,6 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                 </div>
               ))}
             </div>
-
-        {theme && onThemeChange && (
-          <div style={{ marginBottom: 12 }}>
-            <ThemeToggle theme={theme} onChange={onThemeChange} variant="row" />
-          </div>
-        )}
 
         <div className="card" style={cardAccent}>
           {confirmDelete ? (
@@ -3991,8 +3960,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
 };
 
 const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const shortLabel = cat.label.split(" ")[0];
   return (
     <div
@@ -4031,8 +3999,7 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
 };
 
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const qty = cart[p.id] || 0;
   const photo = resolveProductPhoto(p, { preferThumb: true });
                 return (
@@ -4103,8 +4070,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
 };
 
 const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { prods, catalogReady, promosReady } = useLiveCatalog();
   const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const apiPromos = usePromos(s => s.promos) || [];
@@ -4376,8 +4342,7 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 };
 
 const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { prods, catalogReady } = useLiveCatalog();
   const { isVip } = resolveUserVip(user, light);
   const [query, setQuery] = useState("");
@@ -4475,8 +4440,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
 };
 
 const FAQPage = ({ go }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState("");
   const support = useSupportContacts();
@@ -5308,8 +5272,7 @@ const VIPPage = ({ go, user, setUser }) => {
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { isVip, theme, tier } = resolveUserVip(vipUser, light)
   const showVipSupport =
     resolveAdminVipActive(user?.vip, user?.loyaltyPeriod, user?.vipUntil) ||
@@ -5549,8 +5512,7 @@ const VIPPage = ({ go, user, setUser }) => {
   );
 };
 const AboutPage = ({ go, user }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const [tab, setTab] = useState("about");
   const support = useSupportContacts();
   const [sent, setSent] = useState(false);
@@ -6279,8 +6241,7 @@ const AddressesPage = ({ go, user }) => {
   );
 };
 const ReferralPage = ({ go, user }) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const [copied, setCopied] = useState(false);
   const welcomeBonus = getRegistrationWelcomeBonus();
   const code = user?.card
@@ -6469,8 +6430,7 @@ const ChatPage = ({ go, user }) => {
 
 
 const RestaurantsPage = ({go, cart, onAdd}) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -6638,8 +6598,7 @@ function PublicReviewsSheet({
 }
 
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
-  const { theme: uiTheme } = useAppTheme();
-  const light = uiTheme === 'light';
+  const light = false;
   const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
@@ -6897,7 +6856,7 @@ function KakapoAppInner() {
   useApiSync('all');
   const { prods } = useLiveCatalog();
   const { page, params, go } = useAppNavigation('home');
-  const { theme, setTheme } = useAppTheme();
+  useForcedDarkTheme();
   const [sessionBoot] = useState(hydrateStoreSessionFromStorage);
   const [cart,   setCart]   = useState(sessionBoot.cart);
   const [cartMeta, setCartMeta] = useState(sessionBoot.cartMeta);
@@ -7308,7 +7267,7 @@ function KakapoAppInner() {
   )
   const isVipUser = !!(displayUser?.vip || storeLoyalty.isVip)
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser, sessionReady, cartSyncReady, theme, onThemeChange: setTheme };
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser, sessionReady, cartSyncReady };
 
   const render = () => {
     switch (page) {
@@ -7320,7 +7279,7 @@ function KakapoAppInner() {
       case "cart":             return <CartPage          {...shared} onDel={delItem}/>;
       case "checkout":         return <CheckoutPage      {...shared}/>;
       case "auth":             return <ClientLoginPage   go={go} setUser={setUser}/>;
-      case "profile":          return <ProfilePage       {...shared} user={displayUser} setUser={setUser} onLogout={logout} theme={theme} onThemeChange={setTheme}/>;
+      case "profile":          return <ProfilePage       {...shared} user={displayUser} setUser={setUser} onLogout={logout}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
       case "reviews":          return <ClientReviewsPage   go={go} user={user} sessionReady={sessionReady} params={params}/>;
       case "promos":           return <PromosPage        {...shared}/>;

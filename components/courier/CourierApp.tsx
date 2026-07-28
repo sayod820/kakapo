@@ -34,8 +34,7 @@ import { formatCourierAccountDisplay } from '@/lib/courierAccount'
 import { api } from '@/lib/api'
 import type { CourierWalletTx } from '@/lib/courierWalletTx'
 import { formatWalletTxTime, getLocalCourierWalletTransactions, walletTxLabel } from '@/lib/courierWalletTx'
-import { useAppTheme } from '@/lib/appTheme'
-import ThemeToggle from '@/components/shared/ThemeToggle'
+import { useForcedDarkTheme } from '@/lib/appTheme'
 
 /* ══════════════════════════════════════════════════════
    КАКАПО КУРЬЕР — карта со всеми заказами + список
@@ -51,13 +50,6 @@ const CSS = `
     --gr:#1FD760;--blue:#3B8EF0;--red:#FF4545;--gd:#FFB800;
     --header-bg:rgba(3,11,5,.97);
     background:var(--bg);color:var(--t1);font-family:'Nunito',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;min-height:100vh;
-  }
-  .courier-app[data-theme="light"]{
-    --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;
-    --b1:#D0DDD4;--b2:#BCCBBF;
-    --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
-    --gr:#129B45;--blue:#2563EB;--red:#DC2626;--gd:#D97706;
-    --header-bg:rgba(255,255,255,.97);
   }
   .ub{font-family:'Nunito',system-ui,sans-serif;font-weight:800;}
   .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}
@@ -1132,7 +1124,7 @@ export default function CourierApp() {
 
 function CourierAppInner() {
   useApiSync('courier');
-  const { theme, setTheme } = useAppTheme();
+  useForcedDarkTheme();
   const { page: tab, navigate: setTab } = useAppNavigation('orders');
   const TARIFF = useTariff();
   const couriers = useCourierTeam();
@@ -1517,7 +1509,7 @@ function CourierAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <div className="courier-app" data-theme={theme}>
+        <div className="courier-app" data-theme="dark">
           <CourierLoginPage couriers={couriers} onSuccess={setSession} />
         </div>
       </>
@@ -1527,7 +1519,7 @@ function CourierAppInner() {
   return (
     <>
       <style>{CSS}</style>
-      <div className="courier-app" data-theme={theme} style={{ minHeight:'100vh', maxWidth:480, margin:'0 auto', paddingBottom:64 }}>
+      <div className="courier-app" data-theme="dark" style={{ minHeight:'100vh', maxWidth:480, margin:'0 auto', paddingBottom:64 }}>
 
         {/* HEADER */}
         <header style={{ position:'sticky', top:0, zIndex:100, background:'var(--header-bg)', backdropFilter:'blur(16px)', borderBottom:'1px solid var(--b1)', padding:'10px 14px' }}>
@@ -1549,7 +1541,6 @@ function CourierAppInner() {
                 {courierProfile ? `${vehicleIcon(courierProfile.vehicle)} ${courierProfile.num} · до ${courierProfile.maxActiveOrders} зак.` : COURIER.vehicle}
               </div>
             </div>
-            <ThemeToggle theme={theme} onChange={setTheme} />
             {tab !== 'earnings' && (
             <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
               <div style={{ padding:'4px 8px', borderRadius:10, background:'rgba(59,142,240,.08)', border:'1px solid rgba(59,142,240,.2)', textAlign:'center', minWidth:46 }}>

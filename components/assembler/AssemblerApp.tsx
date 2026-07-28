@@ -15,8 +15,7 @@ import type { Product } from '@/lib/types'
 import { resolvePhotoUrl } from '@/lib/productPhotos'
 import { canAssemblerSeeOrder, isAssemblerOrderClaimed, orderHasAssemblerAssignment, buildAssemblerPersonalStats } from '@/lib/assemblerTeam'
 import { loadAssemblerSession, saveAssemblerSession, clearAssemblerSession, type AssemblerSession } from '@/lib/assemblerSession'
-import { useAppTheme } from '@/lib/appTheme'
-import ThemeToggle from '@/components/shared/ThemeToggle'
+import { useForcedDarkTheme } from '@/lib/appTheme'
 // ─── КАКАПО Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
    КАКАПО СБОРЩИК — Приложение для сборки заказов
@@ -54,13 +53,6 @@ const CSS = `
     --gr:#1FD760;--pur:#9B6DFF;--red:#FF4545;
     --header-bg:rgba(3,11,5,.97);
     background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;
-  }
-  .assembler-app[data-theme="light"]{
-    --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;
-    --b1:#D0DDD4;--b2:#BCCBBF;
-    --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
-    --gr:#129B45;--pur:#7C3AED;--red:#DC2626;
-    --header-bg:rgba(255,255,255,.97);
   }
   .ub{font-family:'Unbounded',sans-serif;}
   .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}.btn:active{transform:scale(.96);}
@@ -138,7 +130,7 @@ function AssemblerSessionBoot() {
 
 function AssemblerAppInner() {
   useApiSync('assembler');
-  const { theme, setTheme } = useAppTheme();
+  useForcedDarkTheme();
   const assemblers = useAssemblerTeam();
   const teamApiReady = useAssemblerTeamStore(s => s.apiReady);
   const [session, setSession] = useState<AssemblerSession | null>(null);
@@ -398,7 +390,7 @@ function AssemblerAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <div className="assembler-app" data-theme={theme}>
+        <div className="assembler-app" data-theme="dark">
           <AssemblerSessionBoot />
         </div>
       </>
@@ -410,7 +402,7 @@ function AssemblerAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <div className="assembler-app" data-theme={theme}>
+        <div className="assembler-app" data-theme="dark">
           <AssemblerLoginPage
             assemblers={assemblers}
             onSuccess={a => {
@@ -427,14 +419,14 @@ function AssemblerAppInner() {
   if (page === 'collect' && activeOrderId) {
     if (!activeOrder) {
       return (
-        <div className="assembler-app" data-theme={theme} style={{ minHeight:'100vh', maxWidth:480, margin:'0 auto' }}>
+        <div className="assembler-app" data-theme="dark" style={{ minHeight:'100vh', maxWidth:480, margin:'0 auto' }}>
           <style>{CSS}</style>
           <Header title={activeOrderId} sub="Загрузка заказа…" showBack onBack={() => navigate('dashboard')} />
         </div>
       );
     }
     return (
-      <div className="assembler-app" data-theme={theme}>
+      <div className="assembler-app" data-theme="dark">
         <style>{CSS}</style>
         <CollectPage
           key={activeOrderId}
@@ -456,7 +448,7 @@ function AssemblerAppInner() {
   return (
     <>
       <style>{CSS}</style>
-      <div className="assembler-app" data-theme={theme} style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh'}}>
+      <div className="assembler-app" data-theme="dark" style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh'}}>
         {page==='dashboard' && (
           <DashboardPage
             orders={pending}
@@ -484,7 +476,6 @@ function AssemblerAppInner() {
    HEADER (shared)
 ══════════════════════════════════════════════════════ */
 function Header({title, sub, showBack, onBack, right}) {
-  const { theme, setTheme } = useAppTheme()
   return (
     <header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
       <div style={{padding:'13px 18px',display:'flex',alignItems:'center',gap:10}}>
@@ -498,7 +489,6 @@ function Header({title, sub, showBack, onBack, right}) {
           <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>{title}</div>
           {sub&&<div style={{fontSize:10,color:'var(--t2)',marginTop:1}}>{sub}</div>}
         </div>
-        <ThemeToggle theme={theme} onChange={setTheme} />
         {right}
       </div>
     </header>

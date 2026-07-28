@@ -17,8 +17,7 @@ import Link from 'next/link'
 import RestaurantLoginPage from '@/components/restaurant/RestaurantLoginPage'
 import { loadRestaurantSession, clearRestaurantSession, saveRestaurantSession, type RestaurantSession } from '@/lib/restaurantSession'
 import type { RestaurantLoginProfile } from '@/lib/restaurantTeam'
-import { useAppTheme } from '@/lib/appTheme'
-import ThemeToggle from '@/components/shared/ThemeToggle'
+import { useForcedDarkTheme } from '@/lib/appTheme'
 // ─── КАКАПО Restaurant App ───────────────────────
 /* ══════════════════════════════════════════════════════
    КАКАПО RESTAURANT — Приложение для партнёров
@@ -38,13 +37,6 @@ const CSS = `
     --gr:#1FD760;--red:#FF4545;--gd:#FFB800;--blue:#3B8EF0;
     --header-bg:rgba(3,11,5,.96);
     background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;
-  }
-  .rest-app[data-theme="light"]{
-    --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;
-    --b1:#D0DDD4;--b2:#BCCBBF;
-    --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
-    --gr:#129B45;--red:#DC2626;--gd:#D97706;--blue:#2563EB;
-    --header-bg:rgba(255,255,255,.96);
   }
   .ub{font-family:'Unbounded',sans-serif;}
   .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}.btn:active{transform:scale(.97);}
@@ -139,7 +131,7 @@ export default function RestaurantApp() {
 
 function RestaurantAppInner() {
   useApiSync('restaurant');
-  const { theme } = useAppTheme();
+  useForcedDarkTheme();
   const { page, setPage } = useAppNavigation('dashboard');
   const apiOrders = useOrders(s => s.orders);
   const updateStatusApi = useOrders(s => s.updateStatus);
@@ -413,7 +405,7 @@ function RestaurantAppInner() {
       return (
         <>
           <style>{CSS}</style>
-          <div className="rest-app" data-theme={theme} style={{ maxWidth: 480, margin: '0 auto', minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--t2)', fontSize: 14 }}>
+          <div className="rest-app" data-theme="dark" style={{ maxWidth: 480, margin: '0 auto', minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--t2)', fontSize: 14 }}>
             Загрузка ресторана…
           </div>
         </>
@@ -422,7 +414,7 @@ function RestaurantAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <div className="rest-app" data-theme={theme}>
+        <div className="rest-app" data-theme="dark">
           <RestaurantLoginPage restaurants={loginRestaurants} onSuccess={onLoginSuccess} />
         </div>
       </>
@@ -432,7 +424,7 @@ function RestaurantAppInner() {
   return (
     <>
       <style>{CSS}</style>
-      <div className="rest-app" data-theme={theme} style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',position:'relative'}}>
+      <div className="rest-app" data-theme="dark" style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',position:'relative'}}>
         {/* New order notification */}
         {alertOrder && (
           <div
@@ -1776,7 +1768,6 @@ function StatsPage({rest, orders, reviews, reviewsLoaded, onPage, reviewBadge = 
 function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout, reviewBadge = 0}) {
   const [notifs, setNotifs] = useState(true);
   const [sound,  setSound]  = useState(true);
-  const { theme, setTheme } = useAppTheme();
 
   const Tog = ({on, onToggle}) => (
     <div onClick={onToggle} style={{width:44,height:24,borderRadius:12,background:on?'var(--gr)':'var(--b2)',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
@@ -1789,8 +1780,6 @@ function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout, reviewBadge
       <Header rest={rest} isOpen={isOpen} onToggleOpen={onToggleOpen} onPage={onPage} showBack backPage="dashboard" title="Настройки"/>
 
       <div style={{padding:'16px 18px',display:'flex',flexDirection:'column',gap:12}}>
-        <ThemeToggle theme={theme} onChange={setTheme} variant="row" />
-
         {/* Restaurant status */}
         <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'16px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:14}}>Статус ресторана</div>
