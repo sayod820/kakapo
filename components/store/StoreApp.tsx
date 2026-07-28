@@ -177,7 +177,9 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 @keyframes crownFloat{0%,100%{transform:translateY(0) rotate(-3deg);}50%{transform:translateY(-3px) rotate(3deg);}}
 .loyalty-tier-card{position:relative;overflow:hidden;border-radius:20px;}
 .loyalty-tier-card::before{content:'';position:absolute;inset:0;opacity:.06;pointer-events:none;background:repeating-linear-gradient(45deg,transparent,transparent 10px,rgba(255,255,255,.15) 10px,rgba(255,255,255,.15) 11px);}
+html[data-theme="light"] .loyalty-tier-card::before{opacity:0;}
 .loyalty-vip-card{animation:vipGlow 3s ease-in-out infinite;}
+html[data-theme="light"] .loyalty-vip-card{animation:none;box-shadow:0 4px 20px rgba(217,119,6,.12)!important;}
 .loyalty-level-up{animation:levelUpPop 2.4s ease forwards;}
 .loyalty-tier-node-active{animation:tierPulse 2.2s ease-in-out infinite;}
 .loyalty-vip-shimmer{background:linear-gradient(105deg,transparent 30%,rgba(255,220,100,.35) 50%,transparent 70%);background-size:200% 100%;animation:vipShimmer 3s linear infinite;}
@@ -484,6 +486,46 @@ const CAT_THEME: Record<string, { color: string; bg: string; e: string }> = {
   home: { color: "#CBD5E1", bg: "linear-gradient(145deg,#101820,#1C2A38)", e: "🏠" },
 }
 
+/** Пастельный фон категории для светлой темы */
+function catThemeForMode(key: string, light: boolean) {
+  const base = CAT_THEME[key] || CAT_THEME.other
+  if (!light) return base
+  const c = base.color.startsWith('var(') ? '#129B45' : base.color
+  return {
+    ...base,
+    bg: `linear-gradient(145deg, color-mix(in srgb, ${c} 18%, #FFFFFF), color-mix(in srgb, ${c} 8%, #F3F7F4))`,
+    color: c,
+  }
+}
+
+/** Мягкий баннер / плитка вместо тёмного градиента */
+function softAccentSurface(accent: string, light: boolean, darkFallback: string) {
+  if (!light) return darkFallback
+  const c = accent.startsWith('var(') ? '#129B45' : accent
+  return `linear-gradient(135deg, color-mix(in srgb, ${c} 16%, #FFFFFF), color-mix(in srgb, ${c} 7%, #F3F7F4))`
+}
+
+/** Светлый градиент из тёмного (берёт первый #hex как акцент) */
+function softFromDarkGrad(darkGrad: string, light: boolean, fallbackAccent = '#129B45') {
+  if (!light) return darkGrad
+  const m = String(darkGrad || '').match(/#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})\b/)
+  const accent = m ? `#${m[1]}` : fallbackAccent
+  return softAccentSurface(accent, true, darkGrad)
+}
+
+function insetChipBg(light: boolean, alphaDark = 0.25) {
+  return light ? 'rgba(12,26,16,.05)' : `rgba(0,0,0,${alphaDark})`
+}
+
+function storeBannerSlides(light: boolean) {
+  return [
+    { e: '🥛', title: 'Молочная среда', sub: 'Скидка 30% на молочную продукцию', badge: 'Сегодня', disc: 30, ac: 'var(--gr)', bg: softAccentSurface('#129B45', light, 'linear-gradient(135deg,#061A0C,#0F3020)') },
+    { e: '🥩', title: 'Мясные выходные', sub: 'Скидки до 25% на мясо и птицу', badge: 'Сб–Вс', disc: 25, ac: 'var(--red)', bg: softAccentSurface('#DC2626', light, 'linear-gradient(135deg,#1A0608,#3A1014)') },
+    { e: '🥦', title: 'Органик-день', sub: '20% на органические продукты', badge: 'Пятница', disc: 20, ac: '#56C956', bg: softAccentSurface('#56C956', light, 'linear-gradient(135deg,#061A08,#102A14)') },
+    { e: '🚀', title: 'Бесплатная доставка', sub: 'При заказе от 30 ЅМ', badge: 'Всегда', disc: null as number | null, bg: softAccentSurface('#2563EB', light, 'linear-gradient(135deg,#060820,#0E1840)'), ac: 'var(--blue)' },
+  ]
+}
+
 function catThemeKey(id: string) {
   const slug = String(id || "")
   if (slug.startsWith("veg_fruit") || slug.startsWith("veg")) return "veg_fruit"
@@ -509,6 +551,8 @@ function catThemeKey(id: string) {
 }
 
 function useStoreCategories() {
+  const { theme } = useAppTheme()
+  const light = theme === 'light'
   const { categories, loaded } = useCategories()
   return useMemo(() => {
     if (!categories.length) {
@@ -518,13 +562,13 @@ function useStoreCategories() {
     const cats = categories
       .map(cat => {
         const parent = cat.parent_id != null ? byId.get(Number(cat.parent_id)) : null
-        const theme = CAT_THEME[catThemeKey(parent?.slug || cat.slug)]
+        const themeVis = catThemeForMode(catThemeKey(parent?.slug || cat.slug), light)
         return {
           id: cat.slug || String(cat.id),
-          e: cat.emoji || theme.e,
+          e: cat.emoji || themeVis.e,
           label: cat.name,
-          color: theme.color,
-          bg: theme.bg,
+          color: themeVis.color,
+          bg: themeVis.bg,
           parentId: parent?.slug || null,
           order: cat.order || 99,
         }
@@ -534,7 +578,7 @@ function useStoreCategories() {
         return (a.order || 99) - (b.order || 99)
       })
     return { cats, rootCats: cats.filter(c => !c.parentId), loaded: true, ready: true }
-  }, [categories, loaded])
+  }, [categories, loaded, light])
 }
 
 function CatSkeleton({ count = 6, width = 90 }: { count?: number; width?: number }) {
@@ -658,12 +702,7 @@ const RESTAURANTS = [
   },
 ];
 
-const BANNERS = [
-  {e:"🥛",title:"Молочная среда",  sub:"Скидка 30% на молочную продукцию",badge:"Сегодня",disc:30,bg:"linear-gradient(135deg,#061A0C,#0F3020)",ac:"var(--gr)"},
-  {e:"🥩",title:"Мясные выходные",sub:"Скидки до 25% на мясо и птицу",   badge:"Сб–Вс",  disc:25,bg:"linear-gradient(135deg,#1A0608,#3A1014)",ac:"var(--red)"},
-  {e:"🥦",title:"Органик-день",   sub:"20% на органические продукты",    badge:"Пятница",disc:20,bg:"linear-gradient(135deg,#061A08,#102A14)",ac:"#56C956"},
-  {e:"🚀",title:"Бесплатная доставка",sub:"При заказе от 30 ЅМ",        badge:"Всегда", disc:null,bg:"linear-gradient(135deg,#060820,#0E1840)",ac:"var(--blue)"},
-];
+;
 
 const ORDERS_LIST = [
   {id:"K-4832",phone:"+992 93 456 78 90",date:"16 мая",time:"14:23",status:"delivering",eta:"~12 мин",items:[{e:"🥦",name:"Брокколи",qty:2,price:5.50},{e:"🥩",name:"Говядина",qty:1,price:38.0}],total:49.0,bonus:9,delivery:0,addr:"ул. Ленина, 42"},
@@ -839,8 +878,20 @@ function vipPageShell(isVip: boolean) {
 
 type TierTheme = { bg: string; border: string; glow: string; accent: string; rail: string }
 
-function getTierThemes(): Record<string, TierTheme> {
-  return tierPresentationMap(loadLoyaltyStatusConfig())
+function getTierThemes(light = false): Record<string, TierTheme> {
+  const map = tierPresentationMap(loadLoyaltyStatusConfig())
+  if (!light) return map
+  const out: Record<string, TierTheme> = {}
+  for (const [id, t] of Object.entries(map)) {
+    const accent = t.accent || '#129B45'
+    out[id] = {
+      ...t,
+      bg: `linear-gradient(145deg, #FFFFFF 0%, color-mix(in srgb, ${accent} 10%, #F3F7F4) 100%)`,
+      glow: `color-mix(in srgb, ${accent} 18%, transparent)`,
+      border: `color-mix(in srgb, ${accent} 28%, transparent)`,
+    }
+  }
+  return out
 }
 
 function profilePageShell(theme: TierTheme, tierId: string) {
@@ -874,8 +925,8 @@ function profileCardAccent(theme: TierTheme) {
 
 type VipUserLike = { level?: string; vip?: boolean; name?: string; bonus?: number; card?: string } | null | undefined
 
-function resolveUserVip(user: VipUserLike) {
-  const themes = getTierThemes()
+function resolveUserVip(user: VipUserLike, light = false) {
+  const themes = getTierThemes(light)
   const cfg = loadLoyaltyStatusConfig()
   const isVip = !!user?.vip
   if (isVip) {
@@ -967,7 +1018,9 @@ function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm'
 }
 
 function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => void }) {
-  const { isVip, theme } = resolveUserVip(user)
+  const { theme: uiTheme } = useAppTheme()
+  const light = uiTheme === 'light'
+  const { isVip, theme } = resolveUserVip(user, light)
   if (!user || !isVip) return null
   const firstName = (user.name || 'Клиент').split(' ')[0]
   return (
@@ -993,10 +1046,10 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
               animation: 'crownFloat 2.5s ease-in-out infinite',
             }}>👑</div>
             <div>
-              <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: '#FFD700', marginBottom: 2 }}>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: light ? '#B45309' : '#FFD700', marginBottom: 2 }}>
                 Добро пожаловать, {firstName}!
               </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,220,100,.75)' }}>VIP MEMBER · все привилегии активны</div>
+              <div style={{ fontSize: 10, color: light ? 'var(--t2)' : 'rgba(255,220,100,.75)' }}>VIP MEMBER · все привилегии активны</div>
             </div>
           </div>
           <UserStatusBadge user={user} size="sm" />
@@ -1005,7 +1058,7 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
           {['🚀 Приоритет', '🌿 Доставка 0', '⭐ Кешбэк 5%', '💳 Кредит'].map((p, i) => (
             <div key={i} style={{
               flex: 1, textAlign: 'center', fontSize: 8, fontWeight: 700, padding: '6px 2px', borderRadius: 8,
-              color: 'rgba(255,220,100,.9)', background: 'rgba(0,0,0,.28)', border: '1px solid rgba(255,184,0,.22)',
+              color: light ? '#B45309' : 'rgba(255,220,100,.9)', background: insetChipBg(light, 0.28), border: '1px solid rgba(255,184,0,.22)',
             }}>{p}</div>
           ))}
         </div>
@@ -1015,11 +1068,15 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
 }
 
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
+  const { theme: uiTheme } = useAppTheme()
+  const light = uiTheme === 'light'
   const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount, periodSubtitle } = loyalty
-  const themes = getTierThemes()
+  const themes = getTierThemes(light)
   const theme = isVip ? themes.vip : isBasicClient ? themes.basic : (themes[tier.id] || themes.bronze)
   const prevTierRef = useRef(tier.id)
   const [levelFlash, setLevelFlash] = useState<string | null>(null)
+  const chip = insetChipBg(light)
+  const railTrack = insetChipBg(light, 0.35)
 
   useEffect(() => {
     if (prevTierRef.current !== tier.id) {
@@ -1105,7 +1162,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
           </div>
           <div style={{
             textAlign: 'right', padding: '6px 10px', borderRadius: 12,
-            background: 'rgba(0,0,0,.25)', border: `1px solid ${theme.border}`,
+            background: chip, border: `1px solid ${theme.border}`,
           }}>
             <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: 'var(--t1)', lineHeight: 1.1 }}>
               {spent.toLocaleString()} <span style={{ fontSize: 9, color: theme.accent }}>ЅМ</span>
@@ -1118,7 +1175,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
           <div style={{ marginBottom: 14 }}>
             <div style={{
               fontSize: 11, fontWeight: 700, marginBottom: 10, padding: '10px 12px', borderRadius: 12, lineHeight: 1.55,
-              background: 'rgba(0,0,0,.2)',
+              background: chip,
               border: '1px solid rgba(143,184,151,.2)', color: 'var(--t2)',
             }}>
               <span style={{ color: theme.accent, fontWeight: 800 }}>Привилегий пока нет.</span>
@@ -1130,7 +1187,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                   <span style={{ fontSize: 10, color: 'var(--t2)' }}>До {nextTier.emoji} {nextTier.label}</span>
                   <span className="ub" style={{ fontSize: 10, fontWeight: 800, color: theme.accent }}>{progressPct}%</span>
                 </div>
-                <div style={{ height: 8, borderRadius: 4, background: 'rgba(0,0,0,.35)', overflow: 'hidden', border: `1px solid ${theme.border}` }}>
+                <div style={{ height: 8, borderRadius: 4, background: railTrack, overflow: 'hidden', border: `1px solid ${theme.border}` }}>
                   <div style={{ height: '100%', width: `${Math.max(progressPct, 4)}%`, borderRadius: 4, background: theme.rail, transition: 'width .6s ease' }} />
                 </div>
               </>
@@ -1142,7 +1199,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
               <span style={{ fontSize: 10, color: 'var(--t2)' }}>Прогресс до {nextTier.emoji} {nextTier.label}</span>
               <span className="ub" style={{ fontSize: 10, fontWeight: 800, color: theme.accent }}>{progressPct}%</span>
             </div>
-            <div style={{ height: 8, borderRadius: 4, background: 'rgba(0,0,0,.35)', overflow: 'hidden', position: 'relative', border: `1px solid ${theme.border}` }}>
+            <div style={{ height: 8, borderRadius: 4, background: railTrack, overflow: 'hidden', position: 'relative', border: `1px solid ${theme.border}` }}>
               <div style={{
                 height: '100%', width: `${progressPct}%`, borderRadius: 4,
                 background: theme.rail, transition: 'width .6s cubic-bezier(.16,1,.3,1)',
@@ -1170,7 +1227,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
         )}
 
         <div style={{ position: 'relative', marginBottom: 14, padding: '0 2px' }}>
-          <div style={{ position: 'absolute', top: 18, left: '10%', right: '10%', height: 3, borderRadius: 2, background: 'rgba(0,0,0,.4)', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', top: 18, left: '10%', right: '10%', height: 3, borderRadius: 2, background: railTrack, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${overallPct}%`, background: theme.rail, borderRadius: 2, transition: 'width .6s ease' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
@@ -1223,7 +1280,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
             overflow: 'hidden',
             background: isVip
               ? 'linear-gradient(135deg,rgba(255,184,0,.22),rgba(255,140,0,.08),rgba(255,184,0,.15))'
-              : 'rgba(0,0,0,.28)',
+              : chip,
             border: isVip ? '1.5px solid rgba(255,184,0,.55)' : `1px solid ${theme.border}`,
             boxShadow: isVip ? '0 4px 24px rgba(255,184,0,.2), inset 0 1px 0 rgba(255,220,100,.15)' : 'none',
             transition: 'all .3s ease',
@@ -1242,7 +1299,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                   <Ic n="crown" s={14} c={isVip ? '#1a1000' : 'var(--gd)'} />
                 </div>
                 <div>
-                  <span className="ub" style={{ fontSize: 13, fontWeight: 900, color: isVip ? '#FFD700' : 'var(--t1)', display: 'block' }}>
+                  <span className="ub" style={{ fontSize: 13, fontWeight: 900, color: isVip ? (light ? '#B45309' : '#FFD700') : 'var(--t1)', display: 'block' }}>
                     {isVip ? 'VIP MEMBER' : 'Путь к VIP'}
                   </span>
                   {isVip && adminVip && (
@@ -1273,7 +1330,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                   return (
                     <div key={step.id} style={{
                       flex: 1, padding: '8px 4px', borderRadius: 10, textAlign: 'center',
-                      background: step.done ? 'rgba(31,215,96,.12)' : 'rgba(0,0,0,.2)',
+                      background: step.done ? 'rgba(31,215,96,.12)' : chip,
                       border: `1px solid ${step.done ? 'rgba(31,215,96,.35)' : 'var(--b1)'}`,
                       position: 'relative', overflow: 'hidden',
                     }}>
@@ -1293,7 +1350,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                   <div key={i} style={{
                     flex: 1, fontSize: 8, fontWeight: 700, textAlign: 'center', padding: '6px 2px',
                     borderRadius: 8, color: 'rgba(255,220,100,.9)',
-                    background: 'rgba(0,0,0,.25)', border: '1px solid rgba(255,184,0,.2)',
+                    background: light ? 'rgba(217,119,6,.1)' : 'rgba(0,0,0,.25)', border: '1px solid rgba(255,184,0,.2)',
                   }}>{p}</div>
                 ))}
               </div>
@@ -1421,6 +1478,8 @@ const FAQ = () => {
   {q:"Что если меня нет дома?",              a:"Курьер подождёт 10 минут. Оставьте комментарий к заказу — например, 'оставить у соседа'."},
 ]; };
 const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { catalogReady } = useLiveCatalog();
   const rating = productRatingUi(p, catalogReady);
   const qty  = cart[p.id] || 0;
@@ -1430,10 +1489,11 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const localPhoto = useProductPhotos(s => s.photos[p.id]);
   const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto: () => localPhoto });
   const add = e => { e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 300); onAdd(p.id); };
+  const mediaBg = softFromDarkGrad(p.grad || 'linear-gradient(135deg,#2A1400,#4A2400)', light);
   return (
     <div className="card" style={{ display:"flex", flexDirection:"column", height:"100%", cursor:"default", position:"relative" }} onClick={() => go("product", { id:p.id })}>
-      <button onClick={e => { e.stopPropagation(); onWish(p.id); }} className="btn" style={{ position:"absolute", top:8, right:8, zIndex:3, width:28, height:28, borderRadius:"50%", background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <Ic n="heart" s={13} c={wished ? "#FF4545" : "rgba(255,255,255,.5)"} fill={wished ? "#FF4545" : "none"} w={2}/>
+      <button onClick={e => { e.stopPropagation(); onWish(p.id); }} className="btn" style={{ position:"absolute", top:8, right:8, zIndex:3, width:28, height:28, borderRadius:"50%", background: light ? "rgba(255,255,255,.85)" : "rgba(0,0,0,.5)", border: light ? "1px solid var(--b1)" : "none", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <Ic n="heart" s={13} c={wished ? "#FF4545" : light ? "var(--t3)" : "rgba(255,255,255,.5)"} fill={wished ? "#FF4545" : "none"} w={2}/>
       </button>
       <div style={{ position:"absolute", top:8, left:8, display:"flex", flexDirection:"column", gap:3, zIndex:3 }}>
         {disc > 0 && <span className="bdg b-rd">−{disc}%</span>}
@@ -1441,7 +1501,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
         {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.12)", color:"#34D399", border:"1px solid rgba(52,211,153,.28)" }}>🌿</span>}
         {hasBulkPricing(p) && <span className="bdg" style={{ background:"rgba(255,140,0,.12)", color:"#FF8C00", border:"1px solid rgba(255,140,0,.28)", fontSize:8 }}>ОПТ</span>}
       </div>
-      <div style={{ height:110, flexShrink:0, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
+      <div style={{ height:110, flexShrink:0, background:mediaBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
         {photo
           ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding:6, boxSizing:"border-box", animation:"float 3.2s ease-in-out infinite" }}/>
           : p.e
@@ -1487,6 +1547,9 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 };
 
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
+  const banners = storeBannerSlides(light);
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   const { rootCats, ready: catsReady } = useStoreCategories();
   const apiOrders = useOrders(s => s.orders);
@@ -1498,8 +1561,12 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const [bi, setBi] = useState(0);
-  useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % BANNERS.length), 4000); return () => clearInterval(t); }, []);
-  const b = BANNERS[bi];
+  useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % banners.length), 4000); return () => clearInterval(t); }, [banners.length]);
+  const b = banners[bi];
+  const bannerTitle = light ? 'var(--t1)' : '#fff';
+  const bannerSub = light ? 'var(--t2)' : 'rgba(255,255,255,.6)';
+  const restTileBg = softAccentSurface('#EA580C', light, 'linear-gradient(145deg,#1A0808,#3A1010)');
+  const promoBannerBg = softAccentSurface('#2563EB', light, 'linear-gradient(135deg,#070A18,#0E1430)');
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <Header go={go} cart={cart} user={vipUser}/>
@@ -1511,14 +1578,14 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div>
                 <span className="bdg" style={{ background:`${b.ac}20`, color:b.ac, border:`1px solid ${b.ac}40`, marginBottom:10, display:"inline-flex" }}>✦ {b.badge}</span>
-                <div className="ub" style={{ fontSize:22, fontWeight:900, color:"#fff", lineHeight:1.2, marginBottom:6 }}>{b.title}</div>
-                <div style={{ fontSize:12, color:"rgba(255,255,255,.6)", marginBottom:12 }}>{b.sub}</div>
+                <div className="ub" style={{ fontSize:22, fontWeight:900, color:bannerTitle, lineHeight:1.2, marginBottom:6 }}>{b.title}</div>
+                <div style={{ fontSize:12, color:bannerSub, marginBottom:12 }}>{b.sub}</div>
                 {b.disc && <div style={{ padding:"7px 16px", borderRadius:11, background:b.ac, color:"white", fontFamily:"Unbounded", fontSize:20, fontWeight:900, display:"inline-block" }}>−{b.disc}%</div>}
               </div>
               <div style={{ fontSize:52, animation:"float 2.5s ease-in-out infinite", flexShrink:0 }}>{b.e}</div>
             </div>
             <div style={{ display:"flex", gap:5, marginTop:12 }}>
-              {BANNERS.map((_, i) => <div key={i} onClick={e => { e.stopPropagation(); setBi(i); }} style={{ width:i===bi?20:6, height:6, borderRadius:3, background:i===bi?b.ac:"rgba(255,255,255,.2)", transition:"all .3s", cursor:"pointer" }}/>)}
+              {banners.map((_, i) => <div key={i} onClick={e => { e.stopPropagation(); setBi(i); }} style={{ width:i===bi?20:6, height:6, borderRadius:3, background:i===bi?b.ac: light ? "rgba(12,26,16,.15)" : "rgba(255,255,255,.2)", transition:"all .3s", cursor:"pointer" }}/>)}
             </div>
           </div>
         </div>
@@ -1537,7 +1604,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             </div>
             ))
           )}
-          <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:108, borderRadius:16, background:"linear-gradient(145deg,#1A0808,#3A1010)", border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
+          <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:108, borderRadius:16, background:restTileBg, border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
             <div style={{ fontSize:28, marginBottom:6 }}>🍽</div>
             <div style={{ fontSize:10, fontWeight:700, color:"var(--org)", lineHeight:1.25 }}>Рестораны</div>
           </div>
@@ -1549,14 +1616,14 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
         <div className="hscroll" style={{ marginBottom:22 }}>
           {restaurants.map((r,i) => (
             <div key={r.id} onClick={() => go("restaurant",{rid:r.id})}
-              style={{ flexShrink:0, width:160, borderRadius:18, overflow:"hidden", background:r.img, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`, position:"relative" }}>
+              style={{ flexShrink:0, width:160, borderRadius:18, overflow:"hidden", background:softFromDarkGrad(r.img, light, '#EA580C'), cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`, position:"relative", border: light ? "1px solid var(--b1)" : "none" }}>
               {!r.open && <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", zIndex:2, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:"white" }}>🔴 Закрыто</div>}
               <div style={{ padding:"14px 12px 10px", position:"relative", zIndex:1 }}>
                 <div style={{ fontSize:36, marginBottom:6 }}>{r.emoji}</div>
-                <div className="ub" style={{ fontSize:12, fontWeight:900, color:"white", marginBottom:2, lineHeight:1.3 }}>{r.name}</div>
-                <div style={{ fontSize:10, color:"rgba(255,255,255,.6)", marginBottom:8 }}>{restaurantCuisineLabel(r.cuisine, restaurantsReady)}</div>
+                <div className="ub" style={{ fontSize:12, fontWeight:900, color: light ? "var(--t1)" : "white", marginBottom:2, lineHeight:1.3 }}>{r.name}</div>
+                <div style={{ fontSize:10, color: light ? "var(--t2)" : "rgba(255,255,255,.6)", marginBottom:8 }}>{restaurantCuisineLabel(r.cuisine, restaurantsReady)}</div>
                 <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-                  <span style={{ padding:"2px 7px", borderRadius:7, fontSize:9, fontWeight:800, background:"rgba(0,0,0,.4)", color:"rgba(255,255,255,.8)" }}>★ {restaurantRatingLabel(r.rating, restaurantsReady)}</span>
+                  <span style={{ padding:"2px 7px", borderRadius:7, fontSize:9, fontWeight:800, background: light ? "rgba(12,26,16,.06)" : "rgba(0,0,0,.4)", color: light ? "var(--t2)" : "rgba(255,255,255,.8)" }}>★ {restaurantRatingLabel(r.rating, restaurantsReady)}</span>
                 </div>
               </div>
             </div>
@@ -1573,7 +1640,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             </div>
           ))}
         </div>
-        <div onClick={() => go("promos")} style={{ borderRadius:18, background:"linear-gradient(135deg,#070A18,#0E1430)", border:"1px solid rgba(59,142,240,.2)", padding:"18px", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
+        <div onClick={() => go("promos")} style={{ borderRadius:18, background:promoBannerBg, border:"1px solid rgba(59,142,240,.2)", padding:"18px", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
           <div>
             <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:4 }}>Акции и скидки</div>
             <div style={{ fontSize:12, color:"var(--t2)" }}>Флэш-распродажа до 20:00 ⚡</div>
@@ -1587,8 +1654,11 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 };
 
 const CatalogPage = ({ go, cart, user }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   const { rootCats, cats, ready: catsReady } = useStoreCategories();
+  const restBannerBg = softAccentSurface('#EA580C', light, 'linear-gradient(135deg,#1A0808,#3A1010)');
   return (
   <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart} user={user}/>
@@ -1601,12 +1671,12 @@ const CatalogPage = ({ go, cart, user }) => {
             <div style={{ fontSize:10, color:"var(--t3)" }}>{p.s}</div>
           </button>
         ))}
-        <div onClick={() => go("restaurants")} style={{ background:"linear-gradient(135deg,#1A0808,#3A1010)", border:"1px solid rgba(255,125,59,.25)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:"fadeUp .4s cubic-bezier(.16,1,.3,1) .2s both", gridColumn:"span 2" }}>
+        <div onClick={() => go("restaurants")} style={{ background:restBannerBg, border:"1px solid rgba(255,125,59,.25)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:"fadeUp .4s cubic-bezier(.16,1,.3,1) .2s both", gridColumn:"span 2" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             <div style={{ fontSize:38 }}>🍽</div>
             <div style={{ flex:1 }}>
               <div className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--org)", marginBottom:2 }}>Рестораны г. Яван</div>
-              <div style={{ fontSize:11, color:"rgba(255,255,255,.5)", marginBottom:6 }}>Чайхона, Пицца, Суши, Фаст-фуд</div>
+              <div style={{ fontSize:11, color: light ? "var(--t2)" : "rgba(255,255,255,.5)", marginBottom:6 }}>Чайхона, Пицца, Суши, Фаст-фуд</div>
               <div style={{ display:"flex", gap:8 }}>
                 {restaurants.map(r => (
                   <span key={r.id} style={{ fontSize:18 }}>{r.emoji}</span>
@@ -1615,7 +1685,7 @@ const CatalogPage = ({ go, cart, user }) => {
             </div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
               <div style={{ fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--org)" }}>{restaurantsReady ? restaurants.length : '…'}</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,.4)" }}>ресторана</div>
+              <div style={{ fontSize:10, color: light ? "var(--t3)" : "rgba(255,255,255,.4)" }}>ресторана</div>
               <div style={{ marginTop:6, fontSize:11, fontWeight:700, color:"var(--org)" }}>Смотреть →</div>
             </div>
           </div>
@@ -1631,11 +1701,11 @@ const CatalogPage = ({ go, cart, user }) => {
       ) : (
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
         {rootCats.map((c,i) => (
-          <div key={c.id} onClick={() => go("plist", { cat:c.id })} className="card" style={{ background:c.bg, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
+          <div key={c.id} onClick={() => go("plist", { cat:c.id })} className="card" style={{ background:c.bg, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both`, border: light ? `1px solid ${c.color}28` : undefined }}>
             <div style={{ padding:"16px 14px" }}>
               <div style={{ fontSize:36, marginBottom:8 }}>{c.e}</div>
-              <div className="ub" style={{ fontSize:13, fontWeight:800, color:"#fff", marginBottom:4 }}>{c.label}</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,.5)", marginBottom:10 }}>{formatProductCount(productsInCategory(prods, c.id, null, cats).length)}</div>
+              <div className="ub" style={{ fontSize:13, fontWeight:800, color: light ? "var(--t1)" : "#fff", marginBottom:4 }}>{c.label}</div>
+              <div style={{ fontSize:10, color: light ? "var(--t3)" : "rgba(255,255,255,.5)", marginBottom:10 }}>{formatProductCount(productsInCategory(prods, c.id, null, cats).length)}</div>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <span style={{ fontSize:11, fontWeight:700, color:c.color }}>Смотреть</span>
                 <Ic n="arr" s={13} c={c.color}/>
@@ -1651,15 +1721,21 @@ const CatalogPage = ({ go, cart, user }) => {
 );
 };
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { prods, catalogReady } = useLiveCatalog();
   const { cats, rootCats, ready: catsReady } = useStoreCategories();
-  const { isVip } = resolveUserVip(user);
+  const { isVip } = resolveUserVip(user, light);
   const [sort,    setSort]    = useState("pop");
   const [view,    setView]    = useState("grid");
   const [search,  setSearch]  = useState("");
   const [subCat,  setSubCat]  = useState(null);
   const isHotHits = params?.cat === "hot" || params?.hot === "1";
-  const cat = isHotHits ? HOT_HITS_CAT : (cats.find(c => c.id === params?.cat) || rootCats[0] || { id: 'other', e: '📦', label: 'Прочее', bg: CAT_THEME.other.bg, color: CAT_THEME.other.color });
+  const hotCat = {
+    ...HOT_HITS_CAT,
+    bg: softAccentSurface('#FB923C', light, HOT_HITS_CAT.bg),
+  };
+  const cat = isHotHits ? hotCat : (cats.find(c => c.id === params?.cat) || rootCats[0] || { id: 'other', e: '📦', label: 'Прочее', bg: catThemeForMode('other', light).bg, color: catThemeForMode('other', light).color });
   const subCats = isHotHits ? [] : cats.filter(c => c.parentId === cat.id);
   const hasSubCats = subCats.length > 0;
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
@@ -1741,7 +1817,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
               const rating = productRatingUi(p, catalogReady);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product", { id:p.id })}>
-                  <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                  <div style={{ width:60, height:60, borderRadius:14, background:softFromDarkGrad(p.grad, light), display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
                     {resolveProductPhoto(p, { preferThumb: true })
                       ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block" }}/>
                       : p.e}
@@ -1828,6 +1904,8 @@ const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
 };
 
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { prods, catalogReady } = useLiveCatalog();
   const { cats } = useStoreCategories();
   const p = prods.find(x => x.id == params?.id);
@@ -1896,7 +1974,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           </button>
         </div>
       </div>
-      <div style={{ height:300, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
+      <div style={{ height:300, background:softFromDarkGrad(p.grad, light), display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
         {photo
           ? <img src={photo} alt={p.name} style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding:16, boxSizing:"border-box", animation:"float 3.5s ease-in-out infinite", filter:"drop-shadow(0 16px 28px rgba(0,0,0,.45))" }}/>
           : <div style={{ fontSize:120, filter:"drop-shadow(0 20px 40px rgba(0,0,0,.5))", animation:"float 3s ease-in-out infinite", position:"relative", zIndex:1 }}>{p.e}</div>
@@ -1993,7 +2071,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
             <div className="hscroll">
               {related.map(rp => (
                 <div key={rp.id} className="card" style={{ width:140, flexShrink:0, cursor:"pointer" }} onClick={() => go("product", { id:rp.id })}>
-                  <div style={{ height:80, background:rp.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:36, overflow:"hidden" }}>
+                  <div style={{ height:80, background:softFromDarkGrad(rp.grad, light), display:"flex", alignItems:"center", justifyContent:"center", fontSize:36, overflow:"hidden" }}>
                     {resolveProductPhoto(rp, { preferThumb: true })
                       ? <img src={resolveProductPhoto(rp, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block", animation:"float 3s ease-in-out infinite" }}/>
                       : <span style={{ animation:"float 3s ease-in-out infinite" }}>{rp.e}</span>}
@@ -2041,6 +2119,8 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   );
 };
 const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady = true, user }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { prods, catalogReady } = useLiveCatalog();
   const items = buildCartLineItems(cart, cartMeta, prods);
   const prodItems = items.filter(p => !p.isRest);
@@ -2085,7 +2165,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               const unitPrice = cartUnitPrice(p, p.qty, !!p.isRest);
               return (
                 <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"13px" }}>
-                  <div style={{ width:62, height:62, borderRadius:15, background:p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                  <div style={{ width:62, height:62, borderRadius:15, background:softFromDarkGrad(p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", light), display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative", overflow:"hidden" }}>
                     {resolveProductPhoto(p, { preferThumb: true })
                       ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block" }}/>
                       : p.e}
@@ -2942,7 +3022,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     }
     : loyalty
   const profileTheme = (() => {
-    const th = getTierThemes()
+    const th = getTierThemes(theme === 'light')
     return profileLoyalty.isVip ? th.vip : profileLoyalty.isBasicClient ? th.basic : (th[profileLoyalty.tier.id] || th.bronze)
   })()
   const profileTierId = profileLoyalty.isVip ? 'vip' : profileLoyalty.isBasicClient ? 'basic' : profileLoyalty.tier.id
@@ -3911,6 +3991,8 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
 };
 
 const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const shortLabel = cat.label.split(" ")[0];
   return (
     <div
@@ -3930,7 +4012,7 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
     >
               <div>
         <div style={{ fontSize: 30, marginBottom: 8, lineHeight: 1 }}>{cat.e}</div>
-        <div className="ub" style={{ fontSize: 15, fontWeight: 800, color: "#fff", lineHeight: 1.2 }}>{shortLabel}</div>
+        <div className="ub" style={{ fontSize: 15, fontWeight: 800, color: light ? "var(--t1)" : "#fff", lineHeight: 1.2 }}>{shortLabel}</div>
                   </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
         <span style={{
@@ -3942,13 +4024,15 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
           fontWeight: 800,
           color: cat.color,
         }}>−{maxDisc}%</span>
-        <span style={{ fontSize: 15, color: "rgba(255,255,255,.4)", fontWeight: 300 }}>→</span>
+        <span style={{ fontSize: 15, color: light ? "var(--t3)" : "rgba(255,255,255,.4)", fontWeight: 300 }}>→</span>
                 </div>
               </div>
   );
 };
 
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const qty = cart[p.id] || 0;
   const photo = resolveProductPhoto(p, { preferThumb: true });
                 return (
@@ -3960,7 +4044,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
         flexShrink: 0,
         borderRadius: 18,
         overflow: "hidden",
-        background: "linear-gradient(160deg,#1A0808 0%,#2A1018 55%,#120608 100%)",
+        background: softAccentSurface('#DC2626', light, "linear-gradient(160deg,#1A0808 0%,#2A1018 55%,#120608 100%)"),
         border: "1px solid rgba(255,69,69,.22)",
         boxShadow: "0 8px 28px rgba(255,69,69,.08)",
         cursor: "pointer",
@@ -3968,7 +4052,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
         flexDirection: "column",
       }}
     >
-      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: p.grad || "rgba(255,69,69,.06)", overflow: "hidden" }}>
+      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: softFromDarkGrad(p.grad || "rgba(255,69,69,.06)", light, '#DC2626'), overflow: "hidden" }}>
         {photo
           ? <img src={photo} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", display: "block", padding: 6, boxSizing: "border-box", animation: "float 3s ease-in-out infinite" }} />
           : <span style={{ animation: "float 3s ease-in-out infinite" }}>{p.e}</span>}
@@ -4019,6 +4103,8 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
 };
 
 const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { prods, catalogReady, promosReady } = useLiveCatalog();
   const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const apiPromos = usePromos(s => s.promos) || [];
@@ -4178,10 +4264,10 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
           <>
             {flashProds.length > 0 && (
               <section style={{ marginBottom: 22 }}>
-                <div style={{ borderRadius: 20, padding: "16px 16px 14px", background: "linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)", border: "1px solid rgba(255,69,69,.2)", boxShadow: "0 10px 32px rgba(255,69,69,.06)" }}>
+                <div style={{ borderRadius: 20, padding: "16px 16px 14px", background: softAccentSurface('#DC2626', light, "linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)"), border: "1px solid rgba(255,69,69,.2)", boxShadow: "0 10px 32px rgba(255,69,69,.06)" }}>
                   <div style={{ marginBottom: 12 }}>
-                    <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: "#FF8C8C", marginBottom: 4 }}>⚡ Флэш-распродажа</div>
-                    <div style={{ fontSize: 11, color: "rgba(255,200,200,.55)" }}>Быстрые скидки — успейте забрать</div>
+                    <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: light ? "var(--red)" : "#FF8C8C", marginBottom: 4 }}>⚡ Флэш-распродажа</div>
+                    <div style={{ fontSize: 11, color: light ? "var(--t2)" : "rgba(255,200,200,.55)" }}>Быстрые скидки — успейте забрать</div>
                   </div>
                   <div className="hscroll" style={{ gap: 10, margin: "0 -4px", padding: "0 2px 2px" }}>
                     {flashProds.map(p => {
@@ -4290,8 +4376,10 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 };
 
 const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { prods, catalogReady } = useLiveCatalog();
-  const { isVip } = resolveUserVip(user);
+  const { isVip } = resolveUserVip(user, light);
   const [query, setQuery] = useState("");
   const iRef = useRef();
   useEffect(() => {
@@ -4352,7 +4440,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
                 const rating = productRatingUi(p, catalogReady);
                 return (
                   <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product",{id:p.id})}>
-                    <div style={{ width:60, height:60, borderRadius:14, background:p.grad, display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
+                    <div style={{ width:60, height:60, borderRadius:14, background:softFromDarkGrad(p.grad, light), display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
                       {resolveProductPhoto(p, { preferThumb: true })
                         ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block" }}/>
                         : p.e}
@@ -4387,6 +4475,8 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
 };
 
 const FAQPage = ({ go }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState("");
   const support = useSupportContacts();
@@ -4405,7 +4495,7 @@ const FAQPage = ({ go }) => {
         </div>
       </header>
       <div style={{ padding:"16px 18px 100px" }}>
-        {!q && <div style={{ borderRadius:18, padding:"18px", marginBottom:20, background:"linear-gradient(135deg,#061A0C,#0F3020)", border:"1px solid rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}><div><div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:4 }}>Центр помощи</div><div style={{ fontSize:12, color:"var(--t2)" }}>Ответы на ваши вопросы о КАКАПО</div></div><div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>❓</div></div>}
+        {!q && <div style={{ borderRadius:18, padding:"18px", marginBottom:20, background:softAccentSurface('#129B45', light, "linear-gradient(135deg,#061A0C,#0F3020)"), border:"1px solid rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}><div><div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:4 }}>Центр помощи</div><div style={{ fontSize:12, color:"var(--t2)" }}>Ответы на ваши вопросы о КАКАПО</div></div><div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>❓</div></div>}
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {filtered.map((f,i) => (
             <div key={i} style={{ background:"var(--l2)", border:`1px solid ${open===i?"rgba(31,215,96,.3)":"var(--b1)"}`, borderRadius:16, overflow:"hidden", transition:"border-color .2s", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
@@ -5218,7 +5308,9 @@ const VIPPage = ({ go, user, setUser }) => {
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
-  const { isVip, theme, tier } = resolveUserVip(vipUser)
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
+  const { isVip, theme, tier } = resolveUserVip(vipUser, light)
   const showVipSupport =
     resolveAdminVipActive(user?.vip, user?.loyaltyPeriod, user?.vipUntil) ||
     (loyalty.isVip && user?.levelAssignMode !== 'manual')
@@ -5282,7 +5374,7 @@ const VIPPage = ({ go, user, setUser }) => {
       <div style={{ padding:"16px 18px 100px" }}>
         {isVip ? (
           <>
-        <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,#1A1000,#2E1E00,#1A1000)", border:"1.5px solid rgba(255,184,0,.4)", boxShadow:"0 8px 40px rgba(255,184,0,.2)" }}>
+        <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:softAccentSurface('#D97706', light, "linear-gradient(135deg,#1A1000,#2E1E00,#1A1000)"), border:"1.5px solid rgba(255,184,0,.4)", boxShadow:"0 8px 40px rgba(255,184,0,.2)" }}>
           <div style={{ position:"absolute", inset:0, opacity:.04, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
           <div style={{ position:"absolute", right:-30, top:-30, width:160, height:160, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(20px)" }}/>
           <div style={{ position:"relative", zIndex:2, padding:"22px 22px 20px" }}>
@@ -5457,6 +5549,8 @@ const VIPPage = ({ go, user, setUser }) => {
   );
 };
 const AboutPage = ({ go, user }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const [tab, setTab] = useState("about");
   const support = useSupportContacts();
   const [sent, setSent] = useState(false);
@@ -5521,7 +5615,7 @@ const AboutPage = ({ go, user }) => {
       <div style={{ padding:"0 0 100px" }}>
         {tab==="about" && (
           <div>
-            <div style={{ height:200, background:"linear-gradient(160deg,#061A0A 0%,#103020 50%,#040E06 100%)", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"28px 24px", position:"relative", overflow:"hidden" }}>
+            <div style={{ height:200, background:softAccentSurface('#129B45', light, "linear-gradient(160deg,#061A0A 0%,#103020 50%,#040E06 100%)"), display:"flex", alignItems:"center", justifyContent:"space-between", padding:"28px 24px", position:"relative", overflow:"hidden" }}>
               <div style={{ position:"absolute", left:0, right:0, height:1, background:"linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)", animation:"scanLine 3s linear infinite" }}/>
               <div>
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
@@ -5531,7 +5625,7 @@ const AboutPage = ({ go, user }) => {
                     <div style={{ fontSize:11, color:"var(--t2)" }}>Ваш семейный супермаркет</div>
                   </div>
                 </div>
-                <div style={{ fontSize:13, color:"rgba(255,255,255,.65)", lineHeight:1.6 }}>Свежие продукты каждой семье г. Яван</div>
+                <div style={{ fontSize:13, color:light ? "var(--t2)" : "rgba(255,255,255,.65)", lineHeight:1.6 }}>Свежие продукты каждой семье г. Яван</div>
               </div>
               <div style={{ fontSize:52, animation:"float 3s ease-in-out infinite", filter:"drop-shadow(0 6px 16px rgba(31,215,96,.35))" }}>🛒</div>
               <div style={{ position:"absolute", bottom:0, left:0, right:0, height:60, background:"linear-gradient(transparent,var(--bg))" }}/>
@@ -5567,7 +5661,7 @@ const AboutPage = ({ go, user }) => {
                 ))}
               </div>
 
-              <div style={{ borderRadius:18, background:"linear-gradient(135deg,#0A1A06,#142A0E)", border:"1px solid rgba(31,215,96,.2)", padding:"18px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ borderRadius:18, background:softAccentSurface('#129B45', light, "linear-gradient(135deg,#0A1A06,#142A0E)"), border:"1px solid rgba(31,215,96,.2)", padding:"18px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div>
                   <div style={{ fontSize:11, fontWeight:800, color:"var(--gr)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:6 }}>Нас выбирают</div>
                   <div className="ub" style={{ fontSize:16, fontWeight:900, marginBottom:4 }}>Лучший супермаркет Явана</div>
@@ -5699,7 +5793,7 @@ const AboutPage = ({ go, user }) => {
                 </div>
               ))}
             </div>
-            <div style={{ background:"linear-gradient(135deg,#060C20,#0E1640)", border:"1px solid rgba(59,142,240,.2)", borderRadius:18, padding:"20px", textAlign:"center", marginBottom:16 }}>
+            <div style={{ background:softAccentSurface('#2563EB', light, "linear-gradient(135deg,#060C20,#0E1640)"), border:"1px solid rgba(59,142,240,.2)", borderRadius:18, padding:"20px", textAlign:"center", marginBottom:16 }}>
               <div style={{ fontSize:36, marginBottom:10 }}>💼</div>
               <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:6 }}>Хотите к нам?</div>
               <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.65, marginBottom:14 }}>Ищем ответственных и позитивных людей для работы в КАКАПО</div>
@@ -6185,6 +6279,8 @@ const AddressesPage = ({ go, user }) => {
   );
 };
 const ReferralPage = ({ go, user }) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const [copied, setCopied] = useState(false);
   const welcomeBonus = getRegistrationWelcomeBonus();
   const code = user?.card
@@ -6212,7 +6308,7 @@ const ReferralPage = ({ go, user }) => {
         </div>
       </header>
       <div style={{padding:'16px 18px 100px'}}>
-        <div style={{borderRadius:22,background:'linear-gradient(135deg,#061A0C,#0F3020)',border:'1px solid rgba(31,215,96,.2)',padding:'24px',textAlign:'center',marginBottom:18,position:'relative',overflow:'hidden'}}>
+        <div style={{borderRadius:22,background:softAccentSurface('#129B45', light, 'linear-gradient(135deg,#061A0C,#0F3020)'),border:'1px solid rgba(31,215,96,.2)',padding:'24px',textAlign:'center',marginBottom:18,position:'relative',overflow:'hidden'}}>
           <div style={{position:'absolute',left:0,right:0,height:1,background:'linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)',animation:'scanLine 3s linear infinite'}}/>
           <div style={{fontSize:48,marginBottom:10,animation:'float 3s ease-in-out infinite'}}>🎁</div>
           <div className="ub" style={{fontSize:18,fontWeight:900,marginBottom:6}}>Пригласи — получи бонусы</div>
@@ -6373,6 +6469,8 @@ const ChatPage = ({ go, user }) => {
 
 
 const RestaurantsPage = ({go, cart, onAdd}) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -6409,7 +6507,7 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
       </header>
 
       <div style={{padding:'14px 18px 100px'}}>
-        <div style={{borderRadius:20,overflow:'hidden',marginBottom:20,background:'linear-gradient(135deg,#0A1A06,#14300F)',border:'1px solid rgba(31,215,96,.2)',padding:'18px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{borderRadius:20,overflow:'hidden',marginBottom:20,background:softAccentSurface('#129B45', light, 'linear-gradient(135deg,#0A1A06,#14300F)'),border:'1px solid rgba(31,215,96,.2)',padding:'18px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div>
             <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Рестораны г. Яван</div>
             <div style={{fontSize:12,color:'var(--t2)',marginBottom:8}}>Заказывай еду из любимых мест · Один курьер</div>
@@ -6424,16 +6522,16 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           {filtered.map((r,i)=>(
             <div key={r.id} onClick={()=>go('restaurant',{rid:r.id})} className="card" style={{cursor:'pointer',animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`,opacity:r.open?1:.7}}>
-              <div style={{height:130,background:r.img,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 18px',position:'relative',overflow:'hidden'}}>
-                <div style={{position:'absolute',inset:0,opacity:.04,background:'repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,1) 8px,rgba(255,255,255,1) 9px)'}}/>
+              <div style={{height:130,background:softFromDarkGrad(r.img, light, '#EA580C'),display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 18px',position:'relative',overflow:'hidden'}}>
+                {!light && <div style={{position:'absolute',inset:0,opacity:.04,background:'repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,1) 8px,rgba(255,255,255,1) 9px)'}}/>}
                 <div>
-                  <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:'white',marginBottom:4,textShadow:'0 2px 8px rgba(0,0,0,.5)'}}>{r.name}</div>
-                  <div style={{fontSize:12,color:'rgba(255,255,255,.7)',marginBottom:8}}>{restaurantsReady ? r.cuisine : '…'}</div>
+                  <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:light?'var(--t1)':'white',marginBottom:4,textShadow:light?'none':'0 2px 8px rgba(0,0,0,.5)'}}>{r.name}</div>
+                  <div style={{fontSize:12,color:light?'var(--t2)':'rgba(255,255,255,.7)',marginBottom:8}}>{restaurantsReady ? r.cuisine : '…'}</div>
                   <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                    {r.tags.map((t,j)=><span key={j} style={{padding:'3px 8px',borderRadius:8,fontSize:10,fontWeight:700,background:'rgba(255,255,255,.15)',color:'white'}}>{t}</span>)}
+                    {r.tags.map((t,j)=><span key={j} style={{padding:'3px 8px',borderRadius:8,fontSize:10,fontWeight:700,background:light?'rgba(12,26,16,.06)':'rgba(255,255,255,.15)',color:light?'var(--t2)':'white'}}>{t}</span>)}
                   </div>
                 </div>
-                <div style={{fontSize:56,animation:'float 3s ease-in-out infinite',filter:'drop-shadow(0 4px 12px rgba(0,0,0,.5))'}}>{r.emoji}</div>
+                <div style={{fontSize:56,animation:'float 3s ease-in-out infinite',filter:light?'none':'drop-shadow(0 4px 12px rgba(0,0,0,.5))'}}>{r.emoji}</div>
                 {!r.open&&<div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:'white'}}>🔴 Закрыто</div>}
               </div>
               <div style={{padding:'12px 16px',display:'flex',alignItems:'center'}}>
@@ -6540,6 +6638,8 @@ function PublicReviewsSheet({
 }
 
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
+  const { theme: uiTheme } = useAppTheme();
+  const light = uiTheme === 'light';
   const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
@@ -6637,10 +6737,10 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
       </header>
 
       {/* Hero banner — scrollable */}
-      <div style={{height:180,background:r.img,display:'flex',alignItems:'flex-end',padding:'18px',position:'relative',overflow:'hidden'}}>
+      <div style={{height:180,background:softFromDarkGrad(r.img, light, '#EA580C'),display:'flex',alignItems:'flex-end',padding:'18px',position:'relative',overflow:'hidden'}}>
         <div style={{position:'absolute',inset:0,background:'linear-gradient(transparent 30%,var(--bg))'}}/>
         <div style={{position:'relative',zIndex:1}}>
-          <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:'white',marginBottom:4}}>{r.name}</div>
+          <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:light?'var(--t1)':'white',marginBottom:4}}>{r.name}</div>
           <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
             <button type="button" onClick={openReviews} className="btn" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,background:'rgba(255,184,0,.14)',border:'1px solid rgba(255,184,0,.35)',color:'var(--gd)',fontSize:12,fontWeight:800}}>
               <Ic n="star" s={13} c="var(--gd)"/>
