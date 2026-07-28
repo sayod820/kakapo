@@ -94,6 +94,8 @@ import { inferScheduleMode } from "@/lib/promoSchedule";
 import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
 import { preloadLeaflet } from "@/lib/leafletLoader";
+import { useAppTheme } from "@/lib/appTheme";
+import ThemeToggle from "@/components/shared/ThemeToggle";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
 const CSS = `
@@ -104,7 +106,16 @@ const CSS = `
   --b1:#162B1A;--b2:#1D3822;
   --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
   --red:#FF4545;--blue:#3B8EF0;--sky:#00D4C8;--pur:#9B6DFF;--org:#FF7D3B;--gd2:#E89E00;
+  --header-bg:var(--header-bg);
   --store-w:480px;
+}
+html[data-theme="light"]{
+  --gr:#129B45;--gr2:#0F8A3A;--gr3:#0A6B2E;--gd:#D97706;
+  --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;--l4:#E0EBE3;
+  --b1:#D0DDD4;--b2:#BCCBBF;
+  --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
+  --red:#DC2626;--blue:#2563EB;--sky:#0891B2;--pur:#7C3AED;--org:#EA580C;--gd2:#B45309;
+  --header-bg:rgba(255,255,255,.96);
 }
 @media (min-width:600px){:root{--store-w:640px;}}
 @media (min-width:900px){:root{--store-w:920px;}}
@@ -297,7 +308,7 @@ const Nav = ({ page, go, user: userProp }) => {
   const { isVip } = resolveUserVip(syncedUser)
   return (
   <nav className="store-nav" style={{
-    background: isVip ? "rgba(10,8,2,.97)" : "rgba(3,11,5,.97)",
+    background: isVip ? "rgba(10,8,2,.97)" : "var(--header-bg)",
     backdropFilter:"blur(26px)",
     borderTop: isVip ? "1px solid rgba(255,184,0,.35)" : "1px solid var(--b1)",
     boxShadow: isVip ? "0 -4px 24px rgba(255,184,0,.12)" : "none",
@@ -367,7 +378,7 @@ const Header = ({ title, back, go, cart, user: userProp }) => {
   return (
     <header style={{
       position:"sticky", top:0, zIndex:100,
-      background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)",
+      background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)",
       backdropFilter:"blur(24px)",
       borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)",
       boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none",
@@ -843,7 +854,7 @@ function profileHeaderStyle(theme: TierTheme) {
     position: 'sticky' as const,
     top: 0,
     zIndex: 100,
-    background: 'rgba(3,11,5,.96)',
+    background: 'var(--header-bg)',
     backdropFilter: 'blur(24px)',
     borderBottom: `1px solid ${theme.border}`,
     boxShadow: `0 4px 22px ${theme.glow.replace(/,\s*[\d.]+\)$/, ', 0.12)')}`,
@@ -1664,7 +1675,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   }
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
         <div style={{ padding:"13px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go(isHotHits ? "home" : "catalog")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ width:36, height:36, borderRadius:10, background:cat.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cat.e}</div>
@@ -1999,7 +2010,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
           </div>
         )}
       </div>
-      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px 24px" }}>
+      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"var(--header-bg)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px 24px" }}>
         <div style={{ display:"flex", gap:10, alignItems:"center" }}>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div>
@@ -2043,7 +2054,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
   const tqty  = items.length;
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Корзина</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{tqty} товаров</div></div>
@@ -2119,7 +2130,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
             </div>
       )}
       {items.length > 0 && (
-        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:210, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(14px + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:210, background:"var(--header-bg)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(14px + env(safe-area-inset-bottom, 0px))" }}>
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             {retailSub > sub && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--t3)", marginBottom:6 }}>
@@ -2551,7 +2562,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900 }}>Оформление заказа</div>
@@ -2711,7 +2722,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       </div>
         )}
     </div>
-      <div ref={checkoutFooterRef} style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"rgba(3,11,5,.97)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px calc(28px + env(safe-area-inset-bottom, 0px))" }}>
+      <div ref={checkoutFooterRef} style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"var(--header-bg)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px calc(28px + env(safe-area-inset-bottom, 0px))" }}>
         {addrReady && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0 }}>
@@ -2798,7 +2809,7 @@ function StoreSessionBoot() {
 function CartPageBoot({ go }: { go: (p: string) => void }) {
   return (
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.96)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
           <div style={{ flex: 1 }}>
@@ -2814,7 +2825,7 @@ function CartPageBoot({ go }: { go: (p: string) => void }) {
   );
 }
 
-const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady }) => {
+const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady, theme, onThemeChange }) => {
   const apiOrders = useOrders(s => s.orders);
   const fetchOrders = useOrders(s => s.fetchOrders);
   const pendingBonusSyncCount = useMemo(
@@ -2981,6 +2992,9 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
       <header style={profileHeaderStyle(profileTheme)}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900, color: profileTheme.accent }}>Профиль</div>
+          {theme && onThemeChange && (
+            <ThemeToggle theme={theme} onChange={onThemeChange} />
+          )}
           <button onClick={() => go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             <Ic n="bell" s={17} c="var(--t2)"/>
             {unreadNotifs > 0 && (
@@ -3177,6 +3191,12 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                 </div>
               ))}
             </div>
+
+        {theme && onThemeChange && (
+          <div style={{ marginBottom: 12 }}>
+            <ThemeToggle theme={theme} onChange={onThemeChange} variant="row" />
+          </div>
+        )}
 
         <div className="card" style={cardAccent}>
           {confirmDelete ? (
@@ -3517,7 +3537,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
 
   if (selected) return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => setSelected(null)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:15, fontWeight:900 }}>Заказ {selected.id}</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{selected.date} · {selected.time}</div></div>
@@ -3653,7 +3673,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
 
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div>
@@ -3827,7 +3847,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
 
   return (
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.96)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
@@ -4060,7 +4080,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   if (promosBoot) {
     return (
       <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-        <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+        <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
           <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
             <div style={{ flex: 1 }}>
@@ -4084,7 +4104,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
     const { cat, items } = activeGroup;
     return (
       <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-        <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+        <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
           <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
             <button onClick={() => setSelectedCat(null)} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Ic n="arrL" s={17} c="var(--t2)"/>
@@ -4122,7 +4142,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
 
   return (
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(3,11,5,.97)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
+      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
           <div style={{ flex: 1 }}>
@@ -4220,7 +4240,7 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
@@ -4279,7 +4299,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
   const totalQtyNum = sumCartUnits(cart, prods);
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1, position:"relative" }}>
@@ -4370,7 +4390,7 @@ const FAQPage = ({ go }) => {
   const filtered = items.filter(f => q==="" || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase()));
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>FAQ</div>
@@ -5238,7 +5258,7 @@ const VIPPage = ({ go, user, setUser }) => {
     }}>
       <header style={{
         position:"sticky", top:0, zIndex:100,
-        background: isVip ? "rgba(10,8,2,.96)" : "rgba(3,11,5,.96)",
+        background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)",
         backdropFilter:"blur(24px)",
         borderBottom: isVip ? "1px solid rgba(255,184,0,.35)" : "1px solid var(--b1)",
         boxShadow: isVip ? "0 4px 20px rgba(255,184,0,.12)" : "none",
@@ -5478,7 +5498,7 @@ const AboutPage = ({ go, user }) => {
 
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(3,11,5,.96)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
@@ -5758,7 +5778,7 @@ const NotifPage = ({go, user}) => {
 
   return (
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
-      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{flex:1}}>
@@ -5988,7 +6008,7 @@ const AddressesPage = ({ go, user }) => {
 
   return (
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
-      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Мои адреса</div>
@@ -6030,7 +6050,7 @@ const AddressesPage = ({ go, user }) => {
       </div>
       {showAdd && mapOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 320, display: 'flex', flexDirection: 'column', background: 'var(--bg)', maxWidth:'var(--store-w)', margin: '0 auto', left: 0, right: 0, height: '100dvh', overflow: 'hidden' }}>
-          <header style={{ flexShrink: 0, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--b1)', background: 'rgba(3,11,5,.96)' }}>
+          <header style={{ flexShrink: 0, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--b1)', background: 'var(--header-bg)' }}>
             <button
               type="button"
               onClick={() => (editId != null || coords ? setMapOpen(false) : resetForm())}
@@ -6181,7 +6201,7 @@ const ReferralPage = ({ go, user }) => {
 
   return (
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
-      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Пригласи друга</div>
@@ -6294,7 +6314,7 @@ const ChatPage = ({ go, user }) => {
 
   return (
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto',display:'flex',flexDirection:'column'}}>
-      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--bg)',flexShrink:0}}>K</div>
@@ -6337,7 +6357,7 @@ const ChatPage = ({ go, user }) => {
         )}
       </div>
 
-      <div style={{padding:'12px 18px 28px',borderTop:'1px solid var(--b1)',background:'rgba(3,11,5,.97)',backdropFilter:'blur(20px)',display:'flex',gap:10}}>
+      <div style={{padding:'12px 18px 28px',borderTop:'1px solid var(--b1)',background:'var(--header-bg)',backdropFilter:'blur(20px)',display:'flex',gap:10}}>
         <input className="inp" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send(input)} placeholder="Написать сообщение..." style={{flex:1}}/>
         <button onClick={()=>send(input)} className="btn" style={{width:46,height:46,borderRadius:13,background:input?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:input?'none':'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <Ic n="send" s={18} c={input?'white':'var(--t3)'}/>
@@ -6364,7 +6384,7 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
 
   return (
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
-      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:40,height:40,borderRadius:12,background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'var(--bg)',animation:'glow 3s ease-in-out infinite',boxShadow:'0 4px 16px rgba(31,215,96,.4)',flexShrink:0}}>K</div>
           <div className="ub" style={{flex:1,fontSize:16,fontWeight:900}}>Рестораны</div>
@@ -6579,7 +6599,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
 
       {/* Sticky header — back + name + cart + categories */}
-      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.96)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
+      <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
           <button onClick={()=>go('restaurants')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
@@ -6773,6 +6793,7 @@ function KakapoAppInner() {
   useApiSync('all');
   const { prods } = useLiveCatalog();
   const { page, params, go } = useAppNavigation('home');
+  const { theme, setTheme } = useAppTheme();
   const [sessionBoot] = useState(hydrateStoreSessionFromStorage);
   const [cart,   setCart]   = useState(sessionBoot.cart);
   const [cartMeta, setCartMeta] = useState(sessionBoot.cartMeta);
@@ -7183,7 +7204,7 @@ function KakapoAppInner() {
   )
   const isVipUser = !!(displayUser?.vip || storeLoyalty.isVip)
 
-  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser, sessionReady, cartSyncReady };
+  const shared = { go, cart, cartMeta, onAdd:addItem, onRm:rmItem, onWish:toggleWish, wished, params, onClearCart: clearCart, showToast, user: displayUser, setUser, onLogout: logout, isVip: isVipUser, sessionReady, cartSyncReady, theme, onThemeChange: setTheme };
 
   const render = () => {
     switch (page) {
@@ -7195,7 +7216,7 @@ function KakapoAppInner() {
       case "cart":             return <CartPage          {...shared} onDel={delItem}/>;
       case "checkout":         return <CheckoutPage      {...shared}/>;
       case "auth":             return <ClientLoginPage   go={go} setUser={setUser}/>;
-      case "profile":          return <ProfilePage       {...shared} user={displayUser} setUser={setUser} onLogout={logout}/>;
+      case "profile":          return <ProfilePage       {...shared} user={displayUser} setUser={setUser} onLogout={logout} theme={theme} onThemeChange={setTheme}/>;
       case "orders":           return <OrdersPage        {...shared} user={user}/>;
       case "reviews":          return <ClientReviewsPage   go={go} user={user} sessionReady={sessionReady} params={params}/>;
       case "promos":           return <PromosPage        {...shared}/>;

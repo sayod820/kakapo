@@ -17,6 +17,8 @@ import Link from 'next/link'
 import RestaurantLoginPage from '@/components/restaurant/RestaurantLoginPage'
 import { loadRestaurantSession, clearRestaurantSession, saveRestaurantSession, type RestaurantSession } from '@/lib/restaurantSession'
 import type { RestaurantLoginProfile } from '@/lib/restaurantTeam'
+import { useAppTheme } from '@/lib/appTheme'
+import ThemeToggle from '@/components/shared/ThemeToggle'
 // ─── КАКАПО Restaurant App ───────────────────────
 /* ══════════════════════════════════════════════════════
    КАКАПО RESTAURANT — Приложение для партнёров
@@ -29,18 +31,32 @@ import type { RestaurantLoginProfile } from '@/lib/restaurantTeam'
 /* ── CSS ─────────────────────────────────────────── */
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-  html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
+  .rest-app{
+    --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;
+    --b1:#162B1A;--b2:#1D3822;
+    --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
+    --gr:#1FD760;--red:#FF4545;--gd:#FFB800;--blue:#3B8EF0;
+    --header-bg:rgba(3,11,5,.96);
+    background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;
+  }
+  .rest-app[data-theme="light"]{
+    --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;
+    --b1:#D0DDD4;--b2:#BCCBBF;
+    --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
+    --gr:#129B45;--red:#DC2626;--gd:#D97706;--blue:#2563EB;
+    --header-bg:rgba(255,255,255,.96);
+  }
   .ub{font-family:'Unbounded',sans-serif;}
   .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}.btn:active{transform:scale(.97);}
-  .card{background:#091508;border:1px solid #162B1A;border-radius:18px;overflow:hidden;}
-  .inp{background:#0C1C0F;border:1.5px solid #162B1A;border-radius:13px;color:#EBF5ED;font-family:'Nunito',sans-serif;font-size:14px;outline:none;padding:12px 15px;width:100%;transition:border-color .2s;}
+  .card{background:var(--l2);border:1px solid var(--b1);border-radius:18px;overflow:hidden;}
+  .inp{background:var(--l3);border:1.5px solid var(--b1);border-radius:13px;color:var(--t1);font-family:'Nunito',sans-serif;font-size:14px;outline:none;padding:12px 15px;width:100%;transition:border-color .2s;}
   .inp:focus{border-color:rgba(31,215,96,.5);box-shadow:0 0 0 3px rgba(31,215,96,.07);}
-  .inp::placeholder{color:#3D6645;}
+  .inp::placeholder{color:var(--t3);}
   .hscroll{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;}
   .hscroll::-webkit-scrollbar{display:none;}
   ::-webkit-scrollbar{width:3px;}
-  ::-webkit-scrollbar-track{background:#06100A;}
-  ::-webkit-scrollbar-thumb{background:#1D3822;border-radius:2px;}
+  ::-webkit-scrollbar-track{background:var(--l1);}
+  ::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px;}
   @keyframes spin{from{transform:rotate(0);}to{transform:rotate(360deg);}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
   @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
@@ -123,6 +139,7 @@ export default function RestaurantApp() {
 
 function RestaurantAppInner() {
   useApiSync('restaurant');
+  const { theme } = useAppTheme();
   const { page, setPage } = useAppNavigation('dashboard');
   const apiOrders = useOrders(s => s.orders);
   const updateStatusApi = useOrders(s => s.updateStatus);
@@ -396,7 +413,7 @@ function RestaurantAppInner() {
       return (
         <>
           <style>{CSS}</style>
-          <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100dvh', background: '#030B05', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8FB897', fontSize: 14 }}>
+          <div className="rest-app" data-theme={theme} style={{ maxWidth: 480, margin: '0 auto', minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--t2)', fontSize: 14 }}>
             Загрузка ресторана…
           </div>
         </>
@@ -405,7 +422,9 @@ function RestaurantAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <RestaurantLoginPage restaurants={loginRestaurants} onSuccess={onLoginSuccess} />
+        <div className="rest-app" data-theme={theme}>
+          <RestaurantLoginPage restaurants={loginRestaurants} onSuccess={onLoginSuccess} />
+        </div>
       </>
     );
   }
@@ -413,7 +432,7 @@ function RestaurantAppInner() {
   return (
     <>
       <style>{CSS}</style>
-      <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05',position:'relative'}}>
+      <div className="rest-app" data-theme={theme} style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',position:'relative'}}>
         {/* New order notification */}
         {alertOrder && (
           <div
@@ -1757,20 +1776,23 @@ function StatsPage({rest, orders, reviews, reviewsLoaded, onPage, reviewBadge = 
 function SettingsPage({rest, isOpen, onToggleOpen, onPage, onLogout, reviewBadge = 0}) {
   const [notifs, setNotifs] = useState(true);
   const [sound,  setSound]  = useState(true);
+  const { theme, setTheme } = useAppTheme();
 
   const Tog = ({on, onToggle}) => (
-    <div onClick={onToggle} style={{width:44,height:24,borderRadius:12,background:on?'#1FD760':'#1D3822',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
+    <div onClick={onToggle} style={{width:44,height:24,borderRadius:12,background:on?'var(--gr)':'var(--b2)',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
       <div style={{position:'absolute',top:3,left:on?23:3,width:18,height:18,borderRadius:'50%',background:'white',transition:'left .2s'}}/>
     </div>
   );
 
   return (
-    <div style={{minHeight:'100vh',background:'#030B05',paddingBottom:90}}>
+    <div style={{minHeight:'100vh',background:'var(--bg)',paddingBottom:90}}>
       <Header rest={rest} isOpen={isOpen} onToggleOpen={onToggleOpen} onPage={onPage} showBack backPage="dashboard" title="Настройки"/>
 
       <div style={{padding:'16px 18px',display:'flex',flexDirection:'column',gap:12}}>
+        <ThemeToggle theme={theme} onChange={setTheme} variant="row" />
+
         {/* Restaurant status */}
-        <div style={{background:'#091508',border:'1px solid #162B1A',borderRadius:16,padding:'16px'}}>
+        <div style={{background:'var(--l2)',border:'1px solid var(--b1)',borderRadius:16,padding:'16px'}}>
           <div style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800,marginBottom:14}}>Статус ресторана</div>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',borderRadius:13,background:isOpen?'rgba(31,215,96,.06)':'rgba(255,69,69,.06)',border:`1px solid ${isOpen?'rgba(31,215,96,.2)':'rgba(255,69,69,.2)'}`}}>
             <div>

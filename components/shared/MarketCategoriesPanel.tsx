@@ -260,7 +260,7 @@ export default function MarketCategoriesPanel({
             {categories.find(c => c.id === cat.parent_id)?.name}
           </span>
         ) : (
-          <span className="k-badge" style={{ background: '#1a2430', color: 'var(--blue)' }}>
+          <span className="k-badge k-badge-cat">
             {categories.find(c => c.id === cat.parent_id)?.name}
           </span>
         )}

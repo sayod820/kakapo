@@ -15,6 +15,8 @@ import type { Product } from '@/lib/types'
 import { resolvePhotoUrl } from '@/lib/productPhotos'
 import { canAssemblerSeeOrder, isAssemblerOrderClaimed, orderHasAssemblerAssignment, buildAssemblerPersonalStats } from '@/lib/assemblerTeam'
 import { loadAssemblerSession, saveAssemblerSession, clearAssemblerSession, type AssemblerSession } from '@/lib/assemblerSession'
+import { useAppTheme } from '@/lib/appTheme'
+import ThemeToggle from '@/components/shared/ThemeToggle'
 // ─── КАКАПО Assembler App ────────────────────────
 /* ══════════════════════════════════════════════════════
    КАКАПО СБОРЩИК — Приложение для сборки заказов
@@ -45,13 +47,27 @@ function saveDismissedCancelled(ids: Set<string>) {
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-  html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
+  .assembler-app{
+    --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;
+    --b1:#162B1A;--b2:#1D3822;
+    --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
+    --gr:#1FD760;--pur:#9B6DFF;--red:#FF4545;
+    --header-bg:rgba(3,11,5,.97);
+    background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;
+  }
+  .assembler-app[data-theme="light"]{
+    --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;
+    --b1:#D0DDD4;--b2:#BCCBBF;
+    --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
+    --gr:#129B45;--pur:#7C3AED;--red:#DC2626;
+    --header-bg:rgba(255,255,255,.97);
+  }
   .ub{font-family:'Unbounded',sans-serif;}
   .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}.btn:active{transform:scale(.96);}
-  .card{background:#091508;border:1px solid #162B1A;border-radius:18px;}
-  .inp{background:#0C1C0F;border:1.5px solid #162B1A;border-radius:13px;color:#EBF5ED;font-family:'Nunito',sans-serif;font-size:14px;outline:none;padding:12px 15px;width:100%;transition:border-color .2s;}
+  .card{background:var(--l2);border:1px solid var(--b1);border-radius:18px;}
+  .inp{background:var(--l3);border:1.5px solid var(--b1);border-radius:13px;color:var(--t1);font-family:'Nunito',sans-serif;font-size:14px;outline:none;padding:12px 15px;width:100%;transition:border-color .2s;}
   .inp:focus{border-color:rgba(155,109,255,.5);}
-  .inp::placeholder{color:#3D6645;}
+  .inp::placeholder{color:var(--t3);}
   @keyframes spin{from{transform:rotate(0);}to{transform:rotate(360deg);}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
   @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
@@ -59,7 +75,7 @@ const CSS = `
   @keyframes ping{0%{transform:scale(1);opacity:1;}100%{transform:scale(2.2);opacity:0;}}
   @keyframes slideUp{from{opacity:0;transform:translateY(24px);}to{opacity:1;transform:translateY(0);}}
   @keyframes checkPop{0%{transform:scale(0);}60%{transform:scale(1.2);}100%{transform:scale(1);}}
-  ::-webkit-scrollbar{width:3px;}::-webkit-scrollbar-track{background:#06100A;}::-webkit-scrollbar-thumb{background:#1D3822;border-radius:2px;}
+  ::-webkit-scrollbar{width:3px;}::-webkit-scrollbar-track{background:var(--l1);}::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px;}
 `;
 
 /* ── DEMO DATA ─────────────────────────────────── */
@@ -122,6 +138,7 @@ function AssemblerSessionBoot() {
 
 function AssemblerAppInner() {
   useApiSync('assembler');
+  const { theme, setTheme } = useAppTheme();
   const assemblers = useAssemblerTeam();
   const teamApiReady = useAssemblerTeamStore(s => s.apiReady);
   const [session, setSession] = useState<AssemblerSession | null>(null);
@@ -381,7 +398,9 @@ function AssemblerAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <AssemblerSessionBoot />
+        <div className="assembler-app" data-theme={theme}>
+          <AssemblerSessionBoot />
+        </div>
       </>
     );
   }
@@ -391,14 +410,16 @@ function AssemblerAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <AssemblerLoginPage
-          assemblers={assemblers}
-          onSuccess={a => {
-            const next = { assemblerId: a.id, name: a.name };
-            saveAssemblerSession(next);
-            setSession(next);
-          }}
-        />
+        <div className="assembler-app" data-theme={theme}>
+          <AssemblerLoginPage
+            assemblers={assemblers}
+            onSuccess={a => {
+              const next = { assemblerId: a.id, name: a.name };
+              saveAssemblerSession(next);
+              setSession(next);
+            }}
+          />
+        </div>
       </>
     );
   }
@@ -406,33 +427,36 @@ function AssemblerAppInner() {
   if (page === 'collect' && activeOrderId) {
     if (!activeOrder) {
       return (
-        <div style={{ minHeight:'100vh', background:'#030B05', maxWidth:480, margin:'0 auto' }}>
+        <div className="assembler-app" data-theme={theme} style={{ minHeight:'100vh', maxWidth:480, margin:'0 auto' }}>
           <style>{CSS}</style>
           <Header title={activeOrderId} sub="Загрузка заказа…" showBack onBack={() => navigate('dashboard')} />
         </div>
       );
     }
     return (
-      <CollectPage
-        key={activeOrderId}
-        order={activeOrder}
-        openEdit={params.edit === '1'}
-        onToggle={toggleItem}
-        onComplete={completeOrder}
-        onHandoff={handoffToCourier}
-        onBack={() => navigate('dashboard')}
-        onLogout={logout}
-        onCancel={() => cancelOrder(activeOrderId, 'Отменено сборщиком')}
-        onAcknowledgeCancel={() => dismissCancel(activeOrderId)}
-        onUpdateItems={updateOrderItems}
-      />
+      <div className="assembler-app" data-theme={theme}>
+        <style>{CSS}</style>
+        <CollectPage
+          key={activeOrderId}
+          order={activeOrder}
+          openEdit={params.edit === '1'}
+          onToggle={toggleItem}
+          onComplete={completeOrder}
+          onHandoff={handoffToCourier}
+          onBack={() => navigate('dashboard')}
+          onLogout={logout}
+          onCancel={() => cancelOrder(activeOrderId, 'Отменено сборщиком')}
+          onAcknowledgeCancel={() => dismissCancel(activeOrderId)}
+          onUpdateItems={updateOrderItems}
+        />
+      </div>
     );
   }
 
   return (
     <>
       <style>{CSS}</style>
-      <div style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh',background:'#030B05'}}>
+      <div className="assembler-app" data-theme={theme} style={{maxWidth:480,margin:'0 auto',minHeight:'100dvh'}}>
         {page==='dashboard' && (
           <DashboardPage
             orders={pending}
@@ -460,19 +484,21 @@ function AssemblerAppInner() {
    HEADER (shared)
 ══════════════════════════════════════════════════════ */
 function Header({title, sub, showBack, onBack, right}) {
+  const { theme, setTheme } = useAppTheme()
   return (
-    <header style={{position:'sticky',top:0,zIndex:100,background:'rgba(3,11,5,.97)',backdropFilter:'blur(24px)',borderBottom:'1px solid #162B1A'}}>
+    <header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
       <div style={{padding:'13px 18px',display:'flex',alignItems:'center',gap:10}}>
         {showBack
-          ? <button onClick={onBack} className="btn" style={{width:38,height:38,borderRadius:12,background:'#0C1C0F',border:'1px solid #162B1A',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-              <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="#8FB897" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 5 5 12 12 19"/></svg>
+          ? <button onClick={onBack} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="var(--t2)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 5 5 12 12 19"/></svg>
             </button>
           : <div style={{width:40,height:40,borderRadius:13,background:'linear-gradient(135deg,#6B3FD4,#9B6DFF)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:16,fontWeight:900,color:'white',flexShrink:0,boxShadow:'0 4px 16px rgba(155,109,255,.4)'}}>С</div>
         }
-        <div style={{flex:1}}>
+        <div style={{flex:1,minWidth:0}}>
           <div style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>{title}</div>
-          {sub&&<div style={{fontSize:10,color:'#8FB897',marginTop:1}}>{sub}</div>}
+          {sub&&<div style={{fontSize:10,color:'var(--t2)',marginTop:1}}>{sub}</div>}
         </div>
+        <ThemeToggle theme={theme} onChange={setTheme} />
         {right}
       </div>
     </header>

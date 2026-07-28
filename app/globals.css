@@ -1,7 +1,7 @@
 @import './fonts.css';
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html, body { background: #030B05; color: #EBF5ED; font-family: 'Nunito', sans-serif; -webkit-font-smoothing: antialiased; }
+html, body { background: var(--bg); color: var(--t1); font-family: 'Nunito', sans-serif; -webkit-font-smoothing: antialiased; }
 
 :root {
   --bg:  #030B05;
@@ -21,12 +21,36 @@ html, body { background: #030B05; color: #EBF5ED; font-family: 'Nunito', sans-se
   --t1:  #EBF5ED;
   --t2:  #8FB897;
   --t3:  #3D6645;
+  --header-bg: rgba(3,11,5,.96);
+  --shade: rgba(0,0,0,.35);
+}
+
+html[data-theme="light"] {
+  --bg:  #F3F7F4;
+  --l1:  #FFFFFF;
+  --l2:  #FFFFFF;
+  --l3:  #EAF1EC;
+  --b1:  #D0DDD4;
+  --b2:  #BCCBBF;
+  --gr:  #129B45;
+  --gr2: #0F8A3A;
+  --gr3: #0A6B2E;
+  --gd:  #D97706;
+  --red: #DC2626;
+  --org: #EA580C;
+  --blue:#2563EB;
+  --pur: #7C3AED;
+  --t1:  #0C1A10;
+  --t2:  #4A6B52;
+  --t3:  #7A9580;
+  --header-bg: rgba(255,255,255,.96);
+  --shade: rgba(12,26,16,.1);
 }
 
 .ub { font-family: 'Unbounded', sans-serif; }
 ::-webkit-scrollbar { width: 3px; }
-::-webkit-scrollbar-track { background: #06100A; }
-::-webkit-scrollbar-thumb { background: #1D3822; border-radius: 2px; }
+::-webkit-scrollbar-track { background: var(--l1); }
+::-webkit-scrollbar-thumb { background: var(--b2); border-radius: 2px; }
 
 @keyframes spin    { from{transform:rotate(0)} to{transform:rotate(360deg)} }
 @keyframes fadeUp  { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }

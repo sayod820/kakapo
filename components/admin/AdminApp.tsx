@@ -182,6 +182,8 @@ import { useOrderRoadKm } from '@/lib/useOrderRoadKm'
 import { formatKm, DEFAULT_PRICING, STORE_LOCATION } from '@/lib/courierData'
 import { preloadLeaflet } from '@/lib/leafletLoader'
 import Link from 'next/link'
+import { useAppTheme } from '@/lib/appTheme'
+import ThemeToggle from '@/components/shared/ThemeToggle'
 
 const AddressMapPicker = dynamic(() => import('@/components/shared/AddressMapPicker'), { ssr: false })
 
@@ -258,40 +260,54 @@ function AdminLocationMap({
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-  html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
+  .admin-shell{
+    --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;
+    --b1:#162B1A;--b2:#1D3822;
+    --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
+    --gr:#1FD760;--gr2:#17B34E;--red:#FF4545;--blue:#3B8EF0;--org:#FF8C00;--pur:#9B6DFF;
+    --header-bg:rgba(3,11,5,.95);
+    display:flex;min-height:100vh;min-height:100dvh;background:var(--bg);color:var(--t1);font-family:Nunito,sans-serif;
+  }
+  .admin-shell[data-theme="light"]{
+    --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;
+    --b1:#D0DDD4;--b2:#BCCBBF;
+    --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
+    --gr:#129B45;--gr2:#0F8A3A;--red:#DC2626;--blue:#2563EB;--org:#EA580C;--pur:#7C3AED;
+    --header-bg:rgba(255,255,255,.95);
+  }
   .ub{font-family:'Unbounded',sans-serif;}
   .btn{cursor:pointer;border:none;transition:all .18s;}.btn:active{transform:scale(.97);}
-  .ac{background:#091508;border:1px solid #162B1A;border-radius:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .ac{background:var(--l2);border:1px solid var(--b1);border-radius:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
   .at{width:100%;border-collapse:collapse;min-width:560px;}
-  .at th{padding:9px 14px;text-align:left;font-size:10px;font-weight:800;color:#3D6645;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #162B1A;}
-  .at td{padding:11px 14px;border-bottom:1px solid rgba(22,43,26,.4);font-size:13px;vertical-align:middle;}
+  .at th{padding:9px 14px;text-align:left;font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--b1);}
+  .at td{padding:11px 14px;border-bottom:1px solid color-mix(in srgb, var(--b1) 40%, transparent);font-size:13px;vertical-align:middle;}
   .at tr:last-child td{border-bottom:none;}
   .at tr:hover td{background:rgba(31,215,96,.03);}
-  .ai{background:#0C1C0F;border:1.5px solid #162B1A;border-radius:10px;color:#EBF5ED;font-family:'Nunito',sans-serif;font-size:13px;outline:none;padding:9px 13px;transition:border-color .2s;width:100%;}
+  .ai{background:var(--l3);border:1.5px solid var(--b1);border-radius:10px;color:var(--t1);font-family:'Nunito',sans-serif;font-size:13px;outline:none;padding:9px 13px;transition:border-color .2s;width:100%;}
   .ai:focus{border-color:rgba(31,215,96,.5);}
-  .ai::placeholder{color:#3D6645;}
+  .ai::placeholder{color:var(--t3);}
   .ab{font-family:'Nunito',sans-serif;font-weight:700;cursor:pointer;border:none;transition:all .2s;border-radius:10px;padding:8px 16px;font-size:13px;}
   .ab:active{transform:scale(.97);}
-  .abp{background:linear-gradient(135deg,#17B34E,#1FD760);color:#030B05;}
-  .abg{background:rgba(31,215,96,.09);color:#1FD760;border:1.5px solid rgba(31,215,96,.28);}
-  .abd{background:rgba(255,69,69,.1);color:#FF4545;border:1px solid rgba(255,69,69,.3);}
+  .abp{background:linear-gradient(135deg,var(--gr2),var(--gr));color:var(--bg);}
+  .abg{background:rgba(31,215,96,.09);color:var(--gr);border:1.5px solid rgba(31,215,96,.28);}
+  .abd{background:rgba(255,69,69,.1);color:var(--red);border:1px solid rgba(255,69,69,.3);}
   .amod{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;}
   .amodbg{position:absolute;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(10px);}
-  .amodbox{position:relative;z-index:1;background:#06100A;border:1px solid #162B1A;border-radius:20px;padding:24px;width:100%;max-width:640px;max-height:90vh;overflow-y:auto;animation:fadeIn .3s ease;}
+  .admin-shell[data-theme="light"] .amodbg{background:rgba(12,26,16,.45);}
+  .amodbox{position:relative;z-index:1;background:var(--l1);border:1px solid var(--b1);border-radius:20px;padding:24px;width:100%;max-width:640px;max-height:90vh;overflow-y:auto;animation:fadeIn .3s ease;}
   @keyframes fadeIn{from{opacity:0;transform:scale(.97);}to{opacity:1;transform:scale(1);}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
   @keyframes spin{from{transform:rotate(0);}to{transform:rotate(360deg);}}
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
   @keyframes ping{0%{transform:scale(1);opacity:1;}100%{transform:scale(2);opacity:0;}}
-  ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:#06100A;}::-webkit-scrollbar-thumb{background:#1D3822;border-radius:2px;}
+  ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:var(--l1);}::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px;}
 
-  .admin-shell{display:flex;min-height:100vh;min-height:100dvh;background:#030B05;font-family:Nunito,sans-serif;}
-  .admin-sidebar{width:205px;flex-shrink:0;background:#06100A;border-right:1px solid #162B1A;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;height:100dvh;overflow-y:auto;z-index:120;}
+  .admin-sidebar{width:205px;flex-shrink:0;background:var(--l1);border-right:1px solid var(--b1);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;height:100dvh;overflow-y:auto;z-index:120;}
   .admin-overlay{display:none;}
-  .admin-mob-btn{display:none;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;border:1px solid #162B1A;background:#0C1C0F;color:#EBF5ED;cursor:pointer;font-size:20px;flex-shrink:0;}
+  .admin-mob-btn{display:none;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;border:1px solid var(--b1);background:var(--l3);color:var(--t1);cursor:pointer;font-size:20px;flex-shrink:0;}
   .admin-bottom-nav{display:none;}
   .admin-main-wrap{flex:1;display:flex;flex-direction:column;min-width:0;}
-  .admin-header{padding:12px 24px;border-bottom:1px solid #162B1A;background:rgba(3,11,5,.95);backdrop-filter:blur(16px);display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;flex-shrink:0;}
+  .admin-header{padding:12px 24px;border-bottom:1px solid var(--b1);background:var(--header-bg);backdrop-filter:blur(16px);display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;flex-shrink:0;}
   .admin-content{flex:1;padding:22px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
   .admin-app-badges{display:flex;gap:6px;flex-wrap:wrap;}
   .admin-tbl-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
@@ -307,7 +323,7 @@ const CSS = `
   @media (max-width:1024px){
     .admin-sidebar{
       position:fixed;left:0;top:0;transform:translateX(-105%);transition:transform .25s ease;
-      width:min(280px,88vw);height:100vh;height:100dvh;box-shadow:none;border-right:1px solid #162B1A;
+      width:min(280px,88vw);height:100vh;height:100dvh;box-shadow:none;border-right:1px solid var(--b1);
     }
     .admin-sidebar.open{transform:translateX(0);box-shadow:8px 0 32px rgba(0,0,0,.55);}
     .admin-overlay{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:110;opacity:0;pointer-events:none;transition:opacity .25s;}
@@ -319,15 +335,15 @@ const CSS = `
     .admin-main-wrap{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px));}
     .admin-bottom-nav{
       display:flex;position:fixed;bottom:0;left:0;right:0;z-index:100;
-      background:#06100A;border-top:1px solid #162B1A;
+      background:var(--l1);border-top:1px solid var(--b1);
       padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));gap:2px;
     }
     .admin-bottom-nav button{
       flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-      border:none;background:transparent;color:#3D6645;padding:6px 2px;border-radius:10px;
+      border:none;background:transparent;color:var(--t3);padding:6px 2px;border-radius:10px;
       font-size:9px;font-weight:800;cursor:pointer;min-height:52px;font-family:Nunito,sans-serif;
     }
-    .admin-bottom-nav button.active{color:#1FD760;background:rgba(31,215,96,.12);}
+    .admin-bottom-nav button.active{color:var(--gr);background:rgba(31,215,96,.12);}
     .admin-bottom-nav button .ic{font-size:18px;line-height:1;}
     .amod{align-items:flex-end;padding:0;}
     .amodbox{max-width:100%;max-height:92vh;max-height:92dvh;border-radius:18px 18px 0 0;margin-top:auto;}
@@ -495,7 +511,7 @@ const NAV_GROUPS = [
   {g:'Система',   items:[{id:'ai',icon:'🧠',l:'ИИ-ассистент'},{id:'audit',icon:'📜',l:'История действий'},{id:'settings',icon:'⚙️',l:'Настройки'}]},
 ];
 
-function Layout({page,setPage,children,title,subtitle,session,onLogout}) {
+function Layout({page,setPage,children,title,subtitle,session,onLogout,theme,onThemeChange}) {
   const apiOrders = useOrders(s => s.orders);
   const storedCards = useCards();
   const clients = useClients();
@@ -524,37 +540,42 @@ function Layout({page,setPage,children,title,subtitle,session,onLogout}) {
   ];
 
   return (
-    <div className="admin-shell">
+    <div className="admin-shell" data-theme={theme || 'dark'}>
       <style>{CSS}</style>
       <div className={`admin-overlay${menuOpen ? ' open' : ''}`} onClick={() => setMenuOpen(false)} />
       <aside className={`admin-sidebar${menuOpen ? ' open' : ''}`}>
-        <div style={{padding:'16px 14px',borderBottom:'1px solid #162B1A',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+        <div style={{padding:'16px 14px',borderBottom:'1px solid var(--b1)',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
           <div style={{width:40,height:40,borderRadius:13,background:'linear-gradient(135deg,#0F8A3A,#1FD760)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:16,fontWeight:900,color:'#030B05',flexShrink:0}}>K</div>
           <div style={{flex:1,minWidth:0}}>
-            <div className="ub" style={{fontSize:14,fontWeight:900,color:'#1FD760'}}>КАКАПО</div>
-            <div style={{fontSize:9,color:'#3D6645'}}>Admin · г. Яван</div>
+            <div className="ub" style={{fontSize:14,fontWeight:900,color:'var(--gr)'}}>КАКАПО</div>
+            <div style={{fontSize:9,color:'var(--t3)'}}>Admin · г. Яван</div>
           </div>
           <button type="button" className="admin-mob-btn" onClick={() => setMenuOpen(false)} aria-label="Закрыть" style={{width:34,height:34,fontSize:16}}>✕</button>
         </div>
         <nav style={{flex:1,padding:'8px',display:'flex',flexDirection:'column',gap:0}}>
           {NAV_GROUPS.map(g=>(
             <div key={g.g} style={{marginBottom:4}}>
-              <div style={{fontSize:9,fontWeight:800,color:'#3D6645',textTransform:'uppercase',letterSpacing:1,padding:'6px 10px 3px'}}>{g.g}</div>
+              <div style={{fontSize:9,fontWeight:800,color:'var(--t3)',textTransform:'uppercase',letterSpacing:1,padding:'6px 10px 3px'}}>{g.g}</div>
               {g.items.map(n=>(
                 <button key={n.id} type="button" onClick={()=>goPage(n.id)} className="btn"
-                  style={{display:'flex',alignItems:'center',gap:9,padding:'9px 11px',borderRadius:10,background:page===n.id?'rgba(31,215,96,.14)':'transparent',border:`1px solid ${page===n.id?'rgba(31,215,96,.22)':'transparent'}`,color:page===n.id?'#1FD760':'#8FB897',fontSize:13,fontWeight:600,textAlign:'left',cursor:'pointer',width:'100%',position:'relative'}}>
+                  style={{display:'flex',alignItems:'center',gap:9,padding:'9px 11px',borderRadius:10,background:page===n.id?'rgba(31,215,96,.14)':'transparent',border:`1px solid ${page===n.id?'rgba(31,215,96,.22)':'transparent'}`,color:page===n.id?'var(--gr)':'var(--t2)',fontSize:13,fontWeight:600,textAlign:'left',cursor:'pointer',width:'100%',position:'relative'}}>
                   <span style={{fontSize:16,flexShrink:0}}>{n.icon}</span>{n.l}
-                  {n.id==='orders'&&newOrders>0&&<span style={{marginLeft:'auto',minWidth:18,height:18,padding:'0 5px',borderRadius:999,background:'#FF4545',fontSize:9,fontWeight:900,color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{newOrders > 99 ? '99+' : newOrders}</span>}
-                  {n.id==='debts'&&debtClients>0&&<span style={{marginLeft:'auto',minWidth:18,height:18,padding:'0 5px',borderRadius:999,background:'#FF8C00',fontSize:9,fontWeight:900,color:'#030B05',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{debtClients > 99 ? '99+' : debtClients}</span>}
+                  {n.id==='orders'&&newOrders>0&&<span style={{marginLeft:'auto',minWidth:18,height:18,padding:'0 5px',borderRadius:999,background:'var(--red)',fontSize:9,fontWeight:900,color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{newOrders > 99 ? '99+' : newOrders}</span>}
+                  {n.id==='debts'&&debtClients>0&&<span style={{marginLeft:'auto',minWidth:18,height:18,padding:'0 5px',borderRadius:999,background:'var(--org)',fontSize:9,fontWeight:900,color:'#030B05',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',flexShrink:0}}>{debtClients > 99 ? '99+' : debtClients}</span>}
                 </button>
               ))}
             </div>
           ))}
         </nav>
-        <div style={{padding:'10px 14px 16px',borderTop:'1px solid #162B1A',flexShrink:0}}>
-          <div style={{fontSize:11,fontWeight:700,color:'#8FB897',marginBottom:8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+        <div style={{padding:'10px 14px 16px',borderTop:'1px solid var(--b1)',flexShrink:0}}>
+          <div style={{fontSize:11,fontWeight:700,color:'var(--t2)',marginBottom:8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
             {session?.name || 'Админ'}{session?.login ? ` · ${session.login}` : ''}
           </div>
+          {theme && onThemeChange && (
+            <div style={{ marginBottom: 10 }}>
+              <ThemeToggle theme={theme} onChange={onThemeChange} variant="row" />
+            </div>
+          )}
           <button
             type="button"
             onClick={onLogout}
@@ -567,7 +588,7 @@ function Layout({page,setPage,children,title,subtitle,session,onLogout}) {
           >
             🚪 Выйти
           </button>
-          <div style={{marginTop:10,fontSize:9,color:'#3D6645',lineHeight:1.6}}>
+          <div style={{marginTop:10,fontSize:9,color:'var(--t3)',lineHeight:1.6}}>
             КАКАПО v2.0<br/>
             🛒 Магазин · 🍽 Рестораны<br/>
             🛵 Курьеры · 🛒 Сборщики
@@ -579,8 +600,9 @@ function Layout({page,setPage,children,title,subtitle,session,onLogout}) {
           <button type="button" className="admin-mob-btn" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
           <div style={{flex:1,minWidth:0}}>
             <div className="ub" style={{fontSize:16,fontWeight:900}}>{title}</div>
-            {subtitle&&<div style={{fontSize:11,color:'#8FB897',marginTop:1}}>{subtitle}</div>}
+            {subtitle&&<div style={{fontSize:11,color:'var(--t2)',marginTop:1}}>{subtitle}</div>}
           </div>
+          {theme && onThemeChange && <ThemeToggle theme={theme} onChange={onThemeChange} />}
           <div className="admin-app-badges">
             {page !== 'settings' && [{l:'Магазин',c:'#1FD760'},{l:'Рестораны',c:'#FF8C00'},{l:'Курьеры',c:'#3B8EF0'},{l:'Сборщики',c:'#9B6DFF'}].map((a,i)=>(
               <span key={i} style={{padding:'3px 9px',borderRadius:8,fontSize:10,fontWeight:700,background:`${a.c}14`,color:a.c,border:`1px solid ${a.c}28`}}>{a.l}</span>
@@ -8328,6 +8350,7 @@ function AdminAppInner({
   onLogout: () => void
 }) {
   useApiSync('all');
+  const { theme, setTheme } = useAppTheme();
   const { page, setPage } = useAppNavigation('dashboard');
   useEffect(() => {
     // Старый раздел «Склад» в админке убран — учёт остатков только в Торговле
@@ -8352,7 +8375,7 @@ function AdminAppInner({
   const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
   const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Каталог · артикулы KAK-XXXX · остатки',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
-    <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} session={session} onLogout={onLogout}>
+    <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} session={session} onLogout={onLogout} theme={theme} onThemeChange={setTheme}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
       {page==='orders'     && <OrdersPage/>}
       {page==='products'   && <ProductsPage/>}

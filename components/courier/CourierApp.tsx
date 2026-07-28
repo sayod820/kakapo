@@ -34,6 +34,8 @@ import { formatCourierAccountDisplay } from '@/lib/courierAccount'
 import { api } from '@/lib/api'
 import type { CourierWalletTx } from '@/lib/courierWalletTx'
 import { formatWalletTxTime, getLocalCourierWalletTransactions, walletTxLabel } from '@/lib/courierWalletTx'
+import { useAppTheme } from '@/lib/appTheme'
+import ThemeToggle from '@/components/shared/ThemeToggle'
 
 /* ══════════════════════════════════════════════════════
    КАКАПО КУРЬЕР — карта со всеми заказами + список
@@ -42,11 +44,25 @@ import { formatWalletTxTime, getLocalCourierWalletTransactions, walletTxLabel } 
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-  html,body{background:#030B05;color:#EBF5ED;font-family:'Nunito',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  .courier-app{
+    --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;
+    --b1:#162B1A;--b2:#1D3822;
+    --t1:#EBF5ED;--t2:#8FB897;--t3:#6B8F75;
+    --gr:#1FD760;--blue:#3B8EF0;--red:#FF4545;--gd:#FFB800;
+    --header-bg:rgba(3,11,5,.97);
+    background:var(--bg);color:var(--t1);font-family:'Nunito',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;min-height:100vh;
+  }
+  .courier-app[data-theme="light"]{
+    --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;
+    --b1:#D0DDD4;--b2:#BCCBBF;
+    --t1:#0C1A10;--t2:#4A6B52;--t3:#7A9580;
+    --gr:#129B45;--blue:#2563EB;--red:#DC2626;--gd:#D97706;
+    --header-bg:rgba(255,255,255,.97);
+  }
   .ub{font-family:'Nunito',system-ui,sans-serif;font-weight:800;}
   .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}
   .btn:active{transform:scale(.97);}
-  .ccard{background:#091508;border:1px solid #162B1A;border-radius:14px;}
+  .ccard{background:var(--l2);border:1px solid var(--b1);border-radius:14px;}
   @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -1116,6 +1132,7 @@ export default function CourierApp() {
 
 function CourierAppInner() {
   useApiSync('courier');
+  const { theme, setTheme } = useAppTheme();
   const { page: tab, navigate: setTab } = useAppNavigation('orders');
   const TARIFF = useTariff();
   const couriers = useCourierTeam();
@@ -1500,7 +1517,9 @@ function CourierAppInner() {
     return (
       <>
         <style>{CSS}</style>
-        <CourierLoginPage couriers={couriers} onSuccess={setSession} />
+        <div className="courier-app" data-theme={theme}>
+          <CourierLoginPage couriers={couriers} onSuccess={setSession} />
+        </div>
       </>
     );
   }
@@ -1508,10 +1527,10 @@ function CourierAppInner() {
   return (
     <>
       <style>{CSS}</style>
-      <div style={{ minHeight:'100vh', background:'#030B05', maxWidth:480, margin:'0 auto', paddingBottom:64 }}>
+      <div className="courier-app" data-theme={theme} style={{ minHeight:'100vh', maxWidth:480, margin:'0 auto', paddingBottom:64 }}>
 
         {/* HEADER */}
-        <header style={{ position:'sticky', top:0, zIndex:100, background:'rgba(3,11,5,.97)', backdropFilter:'blur(16px)', borderBottom:'1px solid #162B1A', padding:'10px 14px' }}>
+        <header style={{ position:'sticky', top:0, zIndex:100, background:'var(--header-bg)', backdropFilter:'blur(16px)', borderBottom:'1px solid var(--b1)', padding:'10px 14px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <div style={{ width:38, height:38, borderRadius:12, background:'linear-gradient(145deg,#1E5BB5,#3B8EF0)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0, boxShadow:'0 4px 14px rgba(59,142,240,.25)' }}>🛵</div>
             <div style={{ flex:1, minWidth:0 }}>
@@ -1520,25 +1539,26 @@ function CourierAppInner() {
                 <span style={{
                   flexShrink:0, padding:'2px 7px', borderRadius:20, fontSize:9, fontWeight:800,
                   background: status==='available' ? 'rgba(31,215,96,.12)' : status==='busy' ? 'rgba(255,184,0,.12)' : 'rgba(61,102,69,.15)',
-                  color: status==='available' ? '#1FD760' : status==='busy' ? '#FFB800' : '#6B8F75',
-                  border: `1px solid ${status==='available' ? 'rgba(31,215,96,.4)' : status==='busy' ? 'rgba(255,184,0,.4)' : '#1E3024'}`,
+                  color: status==='available' ? 'var(--gr)' : status==='busy' ? 'var(--gd)' : 'var(--t3)',
+                  border: `1px solid ${status==='available' ? 'rgba(31,215,96,.4)' : status==='busy' ? 'rgba(255,184,0,.4)' : 'var(--b1)'}`,
                 }}>
                   {status==='available'?'Свободен':status==='busy'?'В заказе':'Офлайн'}
                 </span>
               </div>
-              <div style={{ fontSize:10, color:'#6B8F75', marginTop:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              <div style={{ fontSize:10, color:'var(--t3)', marginTop:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                 {courierProfile ? `${vehicleIcon(courierProfile.vehicle)} ${courierProfile.num} · до ${courierProfile.maxActiveOrders} зак.` : COURIER.vehicle}
               </div>
             </div>
+            <ThemeToggle theme={theme} onChange={setTheme} />
             {tab !== 'earnings' && (
             <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
               <div style={{ padding:'4px 8px', borderRadius:10, background:'rgba(59,142,240,.08)', border:'1px solid rgba(59,142,240,.2)', textAlign:'center', minWidth:46 }}>
-                <div style={{ fontSize:8, color:'#6B8F75', lineHeight:1, fontWeight:600 }}>Счёт</div>
-                <div className="ub" style={{ fontSize:11, fontWeight:900, color: walletBalance < orderCommission ? '#FF4545' : '#3B8EF0', lineHeight:1.3, marginTop:2 }}>{formatSm(walletBalance)}</div>
+                <div style={{ fontSize:8, color:'var(--t3)', lineHeight:1, fontWeight:600 }}>Счёт</div>
+                <div className="ub" style={{ fontSize:11, fontWeight:900, color: walletBalance < orderCommission ? 'var(--red)' : 'var(--blue)', lineHeight:1.3, marginTop:2 }}>{formatSm(walletBalance)}</div>
               </div>
               <div style={{ padding:'4px 8px', borderRadius:10, background:'rgba(31,215,96,.06)', border:'1px solid rgba(31,215,96,.2)', textAlign:'center', minWidth:46 }}>
-                <div style={{ fontSize:8, color:'#6B8F75', lineHeight:1, fontWeight:600 }}>Сегодня</div>
-                <div className="ub" style={{ fontSize:11, fontWeight:900, color:'#1FD760', lineHeight:1.3, marginTop:2 }}>{formatSm(courierStats.todayEarnings)}</div>
+                <div style={{ fontSize:8, color:'var(--t3)', lineHeight:1, fontWeight:600 }}>Сегодня</div>
+                <div className="ub" style={{ fontSize:11, fontWeight:900, color:'var(--gr)', lineHeight:1.3, marginTop:2 }}>{formatSm(courierStats.todayEarnings)}</div>
               </div>
             </div>
             )}

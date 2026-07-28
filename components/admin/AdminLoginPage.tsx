@@ -9,12 +9,15 @@ import {
   saveAdminSession,
   type AdminSession,
 } from '@/lib/adminSession'
+import { useAppTheme } from '@/lib/appTheme'
+import ThemeToggle from '@/components/shared/ThemeToggle'
 
 export default function AdminLoginPage({
   onSuccess,
 }: {
   onSuccess: (session: AdminSession) => void
 }) {
+  const { theme, setTheme } = useAppTheme()
   const [login, setLogin] = useState(DEFAULT_ADMIN_LOGIN)
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -75,11 +78,18 @@ export default function AdminLoginPage({
   }
 
   return (
-    <div className="al-wrap">
+    <div className="al-wrap" data-theme={theme}>
+      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 2 }}>
+        <ThemeToggle theme={theme} onChange={setTheme} />
+      </div>
       <style>{`
         .al-wrap{
           min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
-          background:#030B05;position:relative;font-family:Nunito,system-ui,sans-serif;color:#EBF5ED;
+          background:var(--bg,#030B05);position:relative;font-family:Nunito,system-ui,sans-serif;color:var(--t1,#EBF5ED);
+          --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;--b1:#162B1A;--t1:#EBF5ED;--t2:#8FB897;--gr:#1FD760;
+        }
+        .al-wrap[data-theme="light"]{
+          --bg:#F3F7F4;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#EAF1EC;--b1:#D0DDD4;--t1:#0C1A10;--t2:#4A6B52;--gr:#129B45;
         }
         .al-wrap::before{
           content:'';position:absolute;inset:0;pointer-events:none;opacity:.5;
@@ -89,7 +99,7 @@ export default function AdminLoginPage({
         }
         .al-card{
           position:relative;z-index:1;width:100%;max-width:400px;
-          background:#0C1C0F;border:1px solid #162B1A;border-radius:22px;padding:28px 24px;
+          background:var(--l3);border:1px solid var(--b1);border-radius:22px;padding:28px 24px;
           box-shadow:0 18px 40px rgba(0,0,0,.35);
         }
         .al-logo{
@@ -100,11 +110,11 @@ export default function AdminLoginPage({
           box-shadow:0 6px 16px rgba(31,215,96,.28);
         }
         .al-card h1{margin:0 0 6px;font-size:20px;font-weight:900;text-align:center;font-family:Unbounded,sans-serif}
-        .al-card .sub{text-align:center;font-size:12px;color:#8FB897;margin-bottom:22px}
-        .al-lbl{display:block;font-size:11px;font-weight:700;color:#8FB897;margin-bottom:6px}
+        .al-card .sub{text-align:center;font-size:12px;color:var(--t2);margin-bottom:22px}
+        .al-lbl{display:block;font-size:11px;font-weight:700;color:var(--t2);margin-bottom:6px}
         .al-inp{
-          width:100%;padding:12px 14px;border-radius:12px;border:1.5px solid #162B1A;
-          background:#091508;color:#EBF5ED;font-size:14px;font-weight:600;outline:none;
+          width:100%;padding:12px 14px;border-radius:12px;border:1.5px solid var(--b1);
+          background:var(--l2);color:var(--t1);font-size:14px;font-weight:600;outline:none;
           box-sizing:border-box;
         }
         .al-inp:focus{border-color:rgba(31,215,96,.45)}
@@ -112,7 +122,7 @@ export default function AdminLoginPage({
         .al-pass-wrap .al-inp{padding-right:48px}
         .al-eye{
           position:absolute;right:10px;top:50%;transform:translateY(-50%);
-          border:none;background:transparent;color:#8FB897;cursor:pointer;font-size:14px;padding:4px;
+          border:none;background:transparent;color:var(--t2);cursor:pointer;font-size:14px;padding:4px;
         }
         .al-err{
           margin:12px 0 0;padding:10px 12px;border-radius:10px;

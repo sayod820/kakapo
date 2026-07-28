@@ -61,7 +61,8 @@ const CSS = `
     --text:#0C1A10; --muted:#4A6B52; --muted2:#7A9580;
     --green:#129B45; --green-d:#D6F0DF; --blue:#2563EB; --purple:#7C3AED; --red:#DC2626; --gold:#D97706;
     --hover:#EAF1EC; --tbl-line:#D0DDD4; --nav-hover:#EAF1EC; --scroll:#BCCBBF;
-    --photo-plate:#E8F0EA; --badge-cat-bg:#E8EEF8; --badge-cat-fg:#2563EB;
+    /* Категорийные «чёрные точки» — как в тёмной теме: тёмный фон + синий текст */
+    --photo-plate:#E8F0EA; --badge-cat-bg:#1a2430; --badge-cat-fg:#3B8EF0;
     --badge-stock-ok:#D6F0DF; --badge-stock-low:#FEF3C7; --badge-stock-no:#FEE2E2;
     --badge-debt-bg:#FEF3C7; --badge-debt-ok:#D6F0DF; --badge-warn-bg:#FEE2E2; --badge-vip-bg:#EDE9FE;
     --border-debt:#F0D9A8; --border-debt-over:#FECACA;
@@ -159,8 +160,7 @@ const CSS = `
   .k-tbl tbody tr:hover{background:var(--hover)}
   .k-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
   .k-badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:800}
-  .k-badge-cat{background:var(--badge-cat-bg);color:var(--badge-cat-fg);border:1px solid var(--border)}
-  .k-trade[data-theme="light"] .k-badge-cat{border-color:#C5D0E8}
+  .k-badge-cat{background:var(--badge-cat-bg);color:var(--badge-cat-fg);border:1px solid #2a3548}
   .k-empty{padding:34px;text-align:center;color:var(--muted2)}
   .k-alert{padding:10px 14px;border-radius:10px;font-size:13px;background:var(--green-d);color:var(--green);border:1px solid #1f5a33}
   .k-trade[data-theme="light"] .k-alert{border-color:#9FD4B0}
@@ -298,13 +298,23 @@ type TradeTheme = 'dark' | 'light'
 
 function loadTradeTheme(): TradeTheme {
   if (typeof window === 'undefined') return 'dark'
-  const t = localStorage.getItem(THEME_KEY)
-  return t === 'light' ? 'light' : 'dark'
+  try {
+    const shared = localStorage.getItem('kakapo_ui_theme')
+    if (shared === 'light' || shared === 'dark') return shared
+    const t = localStorage.getItem(THEME_KEY)
+    return t === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
 }
 
 function saveTradeTheme(theme: TradeTheme) {
   if (typeof window === 'undefined') return
-  localStorage.setItem(THEME_KEY, theme)
+  try {
+    localStorage.setItem(THEME_KEY, theme)
+    localStorage.setItem('kakapo_ui_theme', theme)
+    window.dispatchEvent(new CustomEvent('kakapo-theme', { detail: theme }))
+  } catch { /* private mode */ }
 }
 
 type TradePage = TradePageId
