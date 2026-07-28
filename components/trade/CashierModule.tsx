@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { api, isNetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { newClientRef, newLocalId, isOnline } from '@/lib/offline'
@@ -556,6 +556,20 @@ export default function CashierModule({
     }))
   }
 
+  /** Корзина + выделение одной записью — иначе выделение «залипает» на предыдущей строке */
+  function setCartAndSelect(updater: (prev: CartLine[]) => CartLine[], selectKey: string | null) {
+    setTickets(prev => prev.map(t => {
+      if (t.id !== activeTicketId) return t
+      const nextCart = updater(t.cart)
+      return {
+        ...t,
+        cart: nextCart,
+        selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
+      }
+    }))
+    if (selectKey) revealLineKeyRef.current = selectKey
+  }
+
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [toast, setToast] = useState<{ title: string; sub: string } | null>(null)
@@ -587,6 +601,8 @@ export default function CashierModule({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const commitPosSearchRef = useRef<(raw?: string, opts?: { fromScanner?: boolean }) => boolean>(() => false)
   const cartItemsRef = useRef<HTMLDivElement>(null)
+  /** После пробития — доскроллить к строке уже после commit DOM */
+  const revealLineKeyRef = useRef<string | null>(null)
   /** Актуальный чек для склейки без гонок при быстрых кликах */
   const cartRef = useRef<CartLine[]>(cart)
   cartRef.current = cart
@@ -887,20 +903,24 @@ export default function CashierModule({
   /** Последний пробитый товар — выделить и показать без ручной прокрутки */
   function revealCartLine(key: string | null | undefined) {
     if (!key) return
+    revealLineKeyRef.current = key
     setSelectedLineKey(key)
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const box = cartItemsRef.current
-        if (!box) return
-        const row = box.querySelector(`[data-line-key="${CSS.escape(key)}"]`) as HTMLElement | null
-        if (row) {
-          row.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' })
-        } else {
-          box.scrollTop = box.scrollHeight
-        }
-      })
-    })
   }
+
+  useLayoutEffect(() => {
+    const key = revealLineKeyRef.current
+    if (!key) return
+    if (selectedLineKey !== key) return
+    const box = cartItemsRef.current
+    if (!box) return
+    revealLineKeyRef.current = null
+    const row = box.querySelector(`[data-line-key="${CSS.escape(key)}"]`) as HTMLElement | null
+    if (row) {
+      row.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' })
+    }
+    // Всегда показываем низ чека — последняя пробитая строка внизу
+    box.scrollTop = box.scrollHeight
+  }, [cart, selectedLineKey])
 
   const overlayBlocksSearchRef = useRef(overlayBlocksSearch)
   useEffect(() => {
@@ -2793,7 +2813,7 @@ export default function CashierModule({
       const key = cartLineKey(p.id, receiptId, 0, preferRetailPrice)
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
-      setCart(prev => [...dropZeroWeightLines(prev), {
+      setCartAndSelect(prev => [...dropZeroWeightLines(prev), {
         key,
         productId: p.id,
         name: p.name,
@@ -2809,8 +2829,7 @@ export default function CashierModule({
         preferRetailPrice,
         costPrice,
         supplierName,
-      }])
-      revealCartLine(key)
+      }], key)
       setQtyEditDraftKey(key)
       setQtyEditKey(key)
       setQtyEditMode('qty')
@@ -2836,7 +2855,7 @@ export default function CashierModule({
         return
       }
       const key = cartLineKey(p.id, receiptId, weightKg, preferRetailPrice)
-      setCart(prev => [...dropZeroWeightLines(prev), {
+      setCartAndSelect(prev => [...dropZeroWeightLines(prev), {
         key,
         productId: p.id,
         name: p.name,
@@ -2852,8 +2871,7 @@ export default function CashierModule({
         preferRetailPrice,
         costPrice,
         supplierName,
-      }])
-      revealCartLine(key)
+      }], key)
       setLayerPickOpen(false)
       setLayerPickProduct(null)
       setLayerPickGroups([])
@@ -2863,11 +2881,12 @@ export default function CashierModule({
 
     // Штучный: всегда одна строка на товар — qty++ внутри setCart (без гонок)
     let revealKey: string | null = null
-    setCart(prevRaw => {
-      const prev = dropZeroWeightLines(prevRaw)
+    setTickets(prevTickets => prevTickets.map(t => {
+      if (t.id !== activeTicketId) return t
+      const prev = dropZeroWeightLines(t.cart)
       const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
       if (idx >= 0) {
-        if (prev[idx].qty >= prev[idx].stock) return prev
+        if (prev[idx].qty >= prev[idx].stock) return t
         const updated = {
           ...prev[idx],
           qty: prev[idx].qty + 1,
@@ -2876,28 +2895,37 @@ export default function CashierModule({
           ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
         }
         revealKey = updated.key
-        return [...prev.filter((_, i) => i !== idx), updated]
+        // Последняя пробитая — вниз списка
+        return {
+          ...t,
+          cart: [...prev.filter((_, i) => i !== idx), updated],
+          selectedLineKey: updated.key,
+        }
       }
       const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
       revealKey = key
-      return [...prev, {
-        key,
-        productId: p.id,
-        name: p.name,
-        emoji: p.e || '📦',
-        price,
-        qty: 1,
-        stock: layerStock,
-        unit: displaySellUnit(p),
-        art,
-        barcode,
-        receiptId,
-        preferRetailPrice,
-        costPrice,
-        supplierName,
-      }]
-    })
-    if (revealKey) revealCartLine(revealKey)
+      return {
+        ...t,
+        cart: [...prev, {
+          key,
+          productId: p.id,
+          name: p.name,
+          emoji: p.e || '📦',
+          price,
+          qty: 1,
+          stock: layerStock,
+          unit: displaySellUnit(p),
+          art,
+          barcode,
+          receiptId,
+          preferRetailPrice,
+          costPrice,
+          supplierName,
+        }],
+        selectedLineKey: key,
+      }
+    }))
+    if (revealKey) revealLineKeyRef.current = revealKey
     setLayerPickOpen(false)
     setLayerPickProduct(null)
     setLayerPickGroups([])
