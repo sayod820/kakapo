@@ -503,6 +503,8 @@ export default function CashierModule({
   const scanLastKeyTs = useRef(0)
   const scanBurstRef = useRef(false)
   const scanAccumRef = useRef('')
+  /** Буфер скана с первого символа (до confirm burst) — не теряем char до onChange */
+  const scanTypeBufRef = useRef('')
   const [showFav, setShowFav] = useState(false)
   const [selectedCatSlugs, setSelectedCatSlugs] = useState<string[]>([])
   const [favIds, setFavIds] = useState<number[]>(loadFavIds)
@@ -967,12 +969,12 @@ export default function CashierModule({
       cartScrollTimersRef.current.push(window.requestAnimationFrame(run))
     })
     cartScrollTimersRef.current.push(raf1)
-    for (const ms of [0, 24, 64, 120, 220]) {
+    for (const ms of [0, 40, 120]) {
       cartScrollTimersRef.current.push(window.setTimeout(run, ms))
     }
     cartScrollTimersRef.current.push(window.setTimeout(() => {
       if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
-    }, 280))
+    }, 180))
   }
 
   function revealCartLine(key: string | null | undefined) {
@@ -1135,19 +1137,24 @@ export default function CashierModule({
       scanLastKeyTs.current = now
 
       if (e.key === 'Enter' || e.key === 'Tab') {
-        // Enter без фокуса: только USB-сканер (быстрый ввод). Ручной Enter — в поле поиска.
-        if (!scanBurstRef.current) {
+        if (!scanBurstRef.current && !scanAccumRef.current) {
           if (e.key === 'Enter') focusProductSearch()
           return
         }
         e.preventDefault()
         focusProductSearch()
-        commitPosSearchRef.current(String(qRef.current || ''), { fromScanner: true })
+        const raw = String(scanAccumRef.current || qRef.current || '').trim()
+        if (scanCommitTimer.current) {
+          window.clearTimeout(scanCommitTimer.current)
+          scanCommitTimer.current = null
+        }
+        commitPosSearchRef.current(raw, { fromScanner: true })
         return
       }
       if (e.key === 'Backspace') {
         e.preventDefault()
-        const next = String(qRef.current || '').slice(0, -1)
+        const next = String(scanAccumRef.current || qRef.current || '').slice(0, -1)
+        scanAccumRef.current = next
         qRef.current = next
         setQ(next)
         focusProductSearch()
@@ -1155,25 +1162,41 @@ export default function CashierModule({
       }
       if (e.key.length === 1) {
         e.preventDefault()
-        const next = String(qRef.current || '') + e.key
-        qRef.current = next
-        setQ(next)
-        focusProductSearch()
-        // Быстрый поток клавиш = сканер → автопробитие; медленный = ручной фильтр
-        if (gap > 0 && gap < 55) {
+        const fast = gap < 55 || (scanBurstRef.current && gap < 140)
+        if (gap >= 140) {
+          scanBurstRef.current = false
+          scanAccumRef.current = ''
+          scanTypeBufRef.current = e.key
+          const next = String(qRef.current || '') + e.key
+          qRef.current = next
+          setQ(next)
+          focusProductSearch()
+          return
+        }
+        if (fast) {
           scanBurstRef.current = true
+          if (!scanTypeBufRef.current) scanTypeBufRef.current = String(qRef.current || '')
+          scanTypeBufRef.current += e.key
+          scanAccumRef.current = scanTypeBufRef.current
+          qRef.current = scanAccumRef.current
           if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
           scanCommitTimer.current = window.setTimeout(() => {
             scanCommitTimer.current = null
             if (!scanBurstRef.current) return
-            const live = String(qRef.current || '').trim()
-            const digits = live.replace(/\D/g, '')
-            if (digits.length < 8 && live.length < 8) return
+            const live = String(scanAccumRef.current || scanTypeBufRef.current || '').trim()
+            if (live.length < 3) return
             commitPosSearchRef.current(live, { fromScanner: true })
-          }, 140)
-        } else if (gap > 180) {
-          scanBurstRef.current = false
+          }, 90)
+          return
         }
+        // Средний темп — обычный ручной ввод
+        scanBurstRef.current = false
+        scanAccumRef.current = ''
+        scanTypeBufRef.current = ''
+        const next = String(qRef.current || '') + e.key
+        qRef.current = next
+        setQ(next)
+        focusProductSearch()
       }
     }
 
@@ -1760,6 +1783,7 @@ export default function CashierModule({
     ).trim()
     if (!raw) return false
     scanAccumRef.current = ''
+    scanTypeBufRef.current = ''
 
     const clientHit = findClientByScan(raw)
     const looksLikeClientCard = /какапо/i.test(raw) || /^k-?\d+/i.test(raw)
@@ -1794,13 +1818,19 @@ export default function CashierModule({
       }
       if ((Number(scaleHit.stock) || 0) <= 0) {
         showToast('Нет на складе', scaleHit.name)
+        qRef.current = ''
+        setQ('')
+        scanBurstRef.current = false
         return false
       }
       if (!isWeighted(scaleHit)) {
         showToast('Не весовой товар', `${scaleHit.name} — в карточке тип не «вес»`)
+        qRef.current = ''
+        setQ('')
+        scanBurstRef.current = false
         return false
       }
-      addProduct(scaleHit as Product, scaleLabel.weightKg)
+      addProduct(scaleHit as Product, scaleLabel.weightKg, { fromScanner: true })
       qRef.current = ''
       setQ('')
       scanBurstRef.current = false
@@ -1808,8 +1838,8 @@ export default function CashierModule({
       return true
     }
 
-    // Только точное совпадение: штрихкод / артикул / PLU — никаких «похожих» товаров
-    const exactHit =
+    // Точное совпадение штрихкод / артикул / PLU
+    let productHit =
       (pool.find(p => productBarcodes(p).some(c => c === raw || c.replace(/\D/g, '') === digits)) as Product | undefined)
       || (pool.find(p => String(p.art || '').trim() === raw || String(p.art || '').replace(/\D/g, '') === digits) as Product | undefined)
       || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
@@ -1817,21 +1847,33 @@ export default function CashierModule({
         : undefined)
       || null
 
-    const productHit = exactHit
+    // Сканер: если точный код не сработал, но поиск однозначно нашёл товар — пробиваем
+    if (!productHit && fromScanner) {
+      productHit =
+        (pickProductBySearch(pool, raw) as Product | null)
+        || (pickProductBySearch(products, raw) as Product | null)
+        || null
+    }
 
     if (!productHit) {
-      // Ручной ввод / неточный код — оставляем фильтр, не пробиваем чужой товар
       if (fromScanner) {
         showToast('Товар не найден', raw.length > 24 ? `${raw.slice(0, 24)}…` : raw)
+        qRef.current = ''
+        setQ('')
       }
       scanBurstRef.current = false
       return false
     }
     if ((Number(productHit.stock) || 0) <= 0) {
       showToast('Нет на складе', productHit.name)
+      if (fromScanner) {
+        qRef.current = ''
+        setQ('')
+      }
+      scanBurstRef.current = false
       return false
     }
-    addProduct(productHit)
+    addProduct(productHit, undefined, { fromScanner: true })
     qRef.current = ''
     setQ('')
     scanBurstRef.current = false
@@ -1847,7 +1889,6 @@ export default function CashierModule({
     }
     scanCommitTimer.current = window.setTimeout(() => {
       scanCommitTimer.current = null
-      // Автопробитие только от USB-сканера (быстрый ввод), не от ручной печати
       if (!scanBurstRef.current) return
       const live = String(
         scanAccumRef.current
@@ -1855,18 +1896,20 @@ export default function CashierModule({
         || qRef.current
         || '',
       ).trim()
-      const digits = live.replace(/\D/g, '')
-      // Сканер обычно шлёт полный EAN / весовую этикетку
-      if (digits.length < 8 && live.length < 8) return
+      // Короткие PLU/арт тоже пробиваем — commit сам решит, есть ли товар
+      if (live.length < 3) return
       commitPosSearch(live, { fromScanner: true })
     }, delayMs)
   }
 
   function onProductSearchChange(value: string) {
+    // Во время burst сканера поле не трогаем — код копится в scanAccumRef
+    if (scanBurstRef.current && scanAccumRef.current) {
+      qRef.current = scanAccumRef.current
+      return
+    }
     qRef.current = value
     setQ(value)
-    // Ручной ввод — только фильтр списка. Автопробитие не делаем.
-    // USB-сканер обрабатывается в onProductSearchKeyDown через scanBurst.
   }
 
   function onProductSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -1875,28 +1918,38 @@ export default function CashierModule({
     scanLastKeyTs.current = now
 
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      // сканер печатает заметно быстрее человека — копим код отдельно от React-state
-      if (gap > 0 && gap < 55) {
-        scanBurstRef.current = true
-        if (!scanAccumRef.current) {
-          const field = String(searchInputRef.current?.value || qRef.current || '')
-          scanAccumRef.current = field.endsWith(e.key) ? field.slice(0, -e.key.length) : field
-        }
-        scanAccumRef.current += e.key
-        scheduleScanCommit(140)
-      } else if (gap > 180) {
+      // Пауза ≥140мс — новый ввод; первый символ кладём в буфер (ещё не burst)
+      if (gap >= 140) {
         scanBurstRef.current = false
         scanAccumRef.current = ''
-      } else if (scanBurstRef.current && gap < 120) {
-        scanAccumRef.current += e.key
-        scheduleScanCommit(140)
+        scanTypeBufRef.current = e.key
+        // дальше onChange обновит поле — без preventDefault
+        return
       }
+      // Быстрый поток (в т.ч. gap==0) = USB-сканер
+      const fast = gap < 55 || scanBurstRef.current
+      if (fast) {
+        scanBurstRef.current = true
+        // Первый быстрый gap: в буфере уже первый символ с прошлой клавиши
+        if (!scanTypeBufRef.current) {
+          scanTypeBufRef.current = String(qRef.current || searchInputRef.current?.value || '')
+        }
+        scanTypeBufRef.current += e.key
+        scanAccumRef.current = scanTypeBufRef.current
+        qRef.current = scanAccumRef.current
+        e.preventDefault() // не перерисовываем сетку на каждый символ
+        scheduleScanCommit(90)
+        return
+      }
+      // Средний темп — ручной ввод, сброс скан-буфера
+      scanBurstRef.current = false
+      scanAccumRef.current = ''
+      scanTypeBufRef.current = ''
     }
 
-    // Enter / Tab от сканера → в чек. Ручной Enter — только точный код (штрих/PLU/арт).
     if (e.key === 'Enter' || e.key === 'Tab') {
-      const fromAccum = scanAccumRef.current.trim()
-      const raw = (fromAccum || (e.currentTarget as HTMLInputElement).value).trim()
+      const fromAccum = (scanAccumRef.current || scanTypeBufRef.current).trim()
+      const raw = (fromAccum || (e.currentTarget as HTMLInputElement).value || qRef.current || '').trim()
       if (!raw) return
       const isScanner = scanBurstRef.current || !!fromAccum
       if (e.key === 'Tab' && !isScanner) return
@@ -2657,12 +2710,13 @@ export default function CashierModule({
     qRef.current = ''
     setQ('')
     scanAccumRef.current = ''
+    scanTypeBufRef.current = ''
     scanBurstRef.current = false
     if (searchInputRef.current) searchInputRef.current.value = ''
     window.setTimeout(focusProductSearch, 0)
   }
 
-  function addProduct(p: Product, weightKg?: number) {
+  function addProduct(p: Product, weightKg?: number, opts?: { fromScanner?: boolean }) {
     if (!activeShift) {
       showToast('Смена не открыта', 'Сначала откройте смену')
       setOpenShiftModal(true)
@@ -2680,7 +2734,6 @@ export default function CashierModule({
       const existing = cartRef.current.find(l => l.productId === p.id && l.weightKg == null)
 
       if (existing) {
-        // Быстрый повторный клик/скан → только +1 (склейка в setCart)
         lastPieceAddRef.current = { id: p.id, t: now }
         pushProductToCart(p, weightKg)
         return
@@ -2691,8 +2744,8 @@ export default function CashierModule({
         return
       }
 
-      // Дребезг одного клика (mousedown/click/touch) за ~60 мс
-      if (lastPieceAddRef.current.id === p.id && now - lastPieceAddRef.current.t < 60) {
+      // Дребезг клика мыши — не для сканера (иначе второй скан «съедается»)
+      if (!opts?.fromScanner && lastPieceAddRef.current.id === p.id && now - lastPieceAddRef.current.t < 60) {
         return
       }
       lastPieceAddRef.current = { id: p.id, t: now }
@@ -5179,6 +5232,7 @@ export default function CashierModule({
                     scanCommitTimer.current = null
                   }
                   scanAccumRef.current = ''
+                  scanTypeBufRef.current = ''
                   scanBurstRef.current = false
                   qRef.current = ''
                   setQ('')
