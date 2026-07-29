@@ -45,4 +45,5 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   localDbQueueDelete: (clientRef) => ipcRenderer.invoke('desktop:localDbQueueDelete', clientRef),
   localDbMetaGet: () => ipcRenderer.invoke('desktop:localDbMetaGet'),
   localDbMetaPatch: (patch) => ipcRenderer.invoke('desktop:localDbMetaPatch', patch),
+  localDbMarkInstalled: () => ipcRenderer.invoke('desktop:localDbMarkInstalled'),
 })

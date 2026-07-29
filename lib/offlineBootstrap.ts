@@ -1,10 +1,9 @@
 // ════════════════════════════════════════════════
-// KAKAPO — первая загрузка локальной базы кассы
-// Качает товары/клиенты/карты/смены… на диск ПК,
-// докачивает при обрыве, помечает bootstrapComplete.
+// KAKAPO — первая установка локальной базы (один раз)
+// Дальше работа из локалки; при интернете — тихий синк.
 // ════════════════════════════════════════════════
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
-import { isOnline } from './offline'
+import { isOnline, readCachedProducts } from './offline'
 import { getApiUrl } from './config'
 
 export type BootstrapStepId =
@@ -29,25 +28,46 @@ const STEPS: { id: BootstrapStepId; label: string }[] = [
   { id: 'cards', label: 'Карты лояльности' },
 ]
 
+/** Установка уже была: флаг на диске ИЛИ каталог уже скачан */
 export async function isLocalBootstrapComplete(): Promise<boolean> {
   if (!isKakapoDesktop()) return true
   const desk = getKakapoDesktop()
   try {
     const info = await desk?.localDbInfo?.()
     if (info?.bootstrapComplete) return true
+    if ((info as { hasCatalog?: boolean } | undefined)?.hasCatalog) return true
     const meta = await desk?.localDbMetaGet?.()
-    return !!meta?.bootstrapComplete
-  } catch {
+    if (meta?.bootstrapComplete || meta?.installComplete) return true
+    // запасной путь: товары уже в локальном KV
+    const products = await readCachedProducts()
+    if (products && products.length > 0) {
+      await markLocalBootstrapComplete()
+      return true
+    }
     return false
+  } catch {
+    try {
+      const products = await readCachedProducts()
+      return !!(products && products.length > 0)
+    } catch {
+      return false
+    }
   }
 }
 
 export async function markLocalBootstrapComplete(): Promise<void> {
   const desk = getKakapoDesktop()
-  await desk?.localDbMetaPatch?.({
-    bootstrapComplete: true,
-    lastBootstrapAt: new Date().toISOString(),
-  })
+  try {
+    if (desk?.localDbMarkInstalled) {
+      await desk.localDbMarkInstalled()
+      return
+    }
+    await desk?.localDbMetaPatch?.({
+      bootstrapComplete: true,
+      installComplete: true,
+      lastBootstrapAt: new Date().toISOString(),
+    })
+  } catch { /* ignore */ }
 }
 
 export async function markLocalSyncAt(): Promise<void> {
@@ -57,7 +77,6 @@ export async function markLocalSyncAt(): Promise<void> {
   })
 }
 
-/** Проверка, что сервер доступен */
 export async function pingApiForBootstrap(timeoutMs = 6000): Promise<boolean> {
   if (!isOnline()) return false
   try {
@@ -72,8 +91,7 @@ export async function pingApiForBootstrap(timeoutMs = 6000): Promise<boolean> {
 }
 
 /**
- * Полная выгрузка данных в локальную базу.
- * Можно вызывать повторно после обрыва — докачает и перезапишет кэш.
+ * Один раз при установке/первом запуске — качает всё на диск ПК.
  */
 export async function runLocalBootstrap(
   onProgress?: (p: BootstrapProgress) => void,
@@ -83,13 +101,11 @@ export async function runLocalBootstrap(
     onProgress?.({ step, label, done: i, total, error })
   }
 
-  if (!isKakapoDesktop()) {
-    return { ok: true }
-  }
+  if (!isKakapoDesktop()) return { ok: true }
 
   const alive = await pingApiForBootstrap()
   if (!alive) {
-    return { ok: false, error: 'Нет интернета. Подключите сеть и повторите загрузку.' }
+    return { ok: false, error: 'Нет интернета. Для первой установки подключите сеть.' }
   }
 
   try {
@@ -102,13 +118,7 @@ export async function runLocalBootstrap(
 
     report(0, 'products', STEPS[0].label)
     await useProducts.getState().fetchProducts()
-    const products = useProducts.getState().products
-    if (!products.length) {
-      // пустой каталог — всё равно продолжаем (новая точка)
-      report(1, 'products', STEPS[0].label)
-    } else {
-      report(1, 'products', STEPS[0].label)
-    }
+    report(1, 'products', STEPS[0].label)
 
     report(1, 'pos', STEPS[1].label)
     await syncPosFromApi()
@@ -128,12 +138,37 @@ export async function runLocalBootstrap(
     return { ok: true }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Ошибка загрузки'
+    // если хоть товары успели лечь на диск — не считаем полный провал
+    const products = await readCachedProducts()
+    if (products && products.length > 0) {
+      await markLocalBootstrapComplete()
+      return { ok: true }
+    }
     report(0, 'products', 'Ошибка', msg)
     return { ok: false, error: msg }
   }
 }
 
-/** Сохранить открытые чеки кассы (после света — восстановить) */
+/** Тихий синк при появлении интернета (остатки, цены, товары…) */
+export async function silentSyncFromServer(): Promise<void> {
+  if (!isOnline()) return
+  const alive = await pingApiForBootstrap(4000)
+  if (!alive) return
+  const [{ useProducts }, { syncPosFromApi }, { syncClientsFromApi }, { syncCardsFromApi }] = await Promise.all([
+    import('./store'),
+    import('./posStore'),
+    import('./clientStore'),
+    import('./cardStore'),
+  ])
+  await Promise.allSettled([
+    useProducts.getState().fetchProducts(),
+    syncPosFromApi(),
+    syncClientsFromApi(),
+    syncCardsFromApi(),
+  ])
+  await markLocalSyncAt()
+}
+
 export async function savePosSessionState(state: unknown): Promise<void> {
   const desk = getKakapoDesktop()
   if (desk?.localDbKvSet) {

@@ -3,7 +3,7 @@
 /**
  * Локальная база кассы на диске ПК (userData).
  * Атомарная запись: temp → rename — переживает обрыв света.
- * Хранит: KV (товары/клиенты/смены…), очередь синка, состояние чеков.
+ * Флаг INSTALL_OK — установка завершена, больше не просим интернет.
  */
 
 const fs = require('fs')
@@ -13,6 +13,7 @@ const { app, ipcMain } = require('electron')
 const FILE_KV = 'local-kv.json'
 const FILE_QUEUE = 'local-queue.json'
 const FILE_META = 'local-meta.json'
+const FILE_INSTALL_OK = 'INSTALL_OK'
 
 let rootDir = ''
 let kvCache = null
@@ -35,7 +36,6 @@ function readJson(file, fallback) {
     if (!raw.trim()) return fallback
     return JSON.parse(raw)
   } catch {
-    // повреждённый файл после сбоя — пробуем .bak
     try {
       const bak = dbPath(file + '.bak')
       if (fs.existsSync(bak)) return JSON.parse(fs.readFileSync(bak, 'utf8'))
@@ -49,21 +49,16 @@ function atomicWrite(file, data) {
   const p = dbPath(file)
   const tmp = p + '.tmp'
   const bak = p + '.bak'
-  const json = JSON.stringify(data)
+  const json = typeof data === 'string' ? data : JSON.stringify(data)
   fs.writeFileSync(tmp, json, 'utf8')
   try {
     if (fs.existsSync(p)) {
       try { fs.copyFileSync(p, bak) } catch { /* ignore */ }
     }
     fs.renameSync(tmp, p)
-  } catch (e) {
-    // Windows: rename может не заменить существующий — пишем напрямую
-    try {
-      fs.writeFileSync(p, json, 'utf8')
-      try { fs.unlinkSync(tmp) } catch { /* ignore */ }
-    } catch (e2) {
-      throw e2
-    }
+  } catch {
+    fs.writeFileSync(p, json, 'utf8')
+    try { fs.unlinkSync(tmp) } catch { /* ignore */ }
   }
 }
 
@@ -87,16 +82,41 @@ function loadMeta() {
   return metaCache
 }
 
-function saveKv() {
-  atomicWrite(FILE_KV, loadKv())
+function saveKv() { atomicWrite(FILE_KV, loadKv()) }
+function saveQueue() { atomicWrite(FILE_QUEUE, loadQueue()) }
+function saveMeta() { atomicWrite(FILE_META, loadMeta()) }
+
+function hasInstallOkFile() {
+  try { return fs.existsSync(dbPath(FILE_INSTALL_OK)) } catch { return false }
 }
 
-function saveQueue() {
-  atomicWrite(FILE_QUEUE, loadQueue())
+function writeInstallOk() {
+  ensureDir(rootDir)
+  const stamp = new Date().toISOString()
+  fs.writeFileSync(dbPath(FILE_INSTALL_OK), stamp, 'utf8')
+  const meta = loadMeta()
+  meta.bootstrapComplete = true
+  meta.installComplete = true
+  meta.lastBootstrapAt = stamp
+  metaCache = meta
+  saveMeta()
 }
 
-function saveMeta() {
-  atomicWrite(FILE_META, loadMeta())
+function catalogReady() {
+  const kv = loadKv()
+  const products = kv.catalog_products
+  return Array.isArray(products) && products.length > 0
+}
+
+function isSetupComplete() {
+  if (hasInstallOkFile()) return true
+  if (loadMeta().bootstrapComplete || loadMeta().installComplete) return true
+  // Данные уже на диске (старая сессия) — считаем установку завершённой
+  if (catalogReady()) {
+    writeInstallOk()
+    return true
+  }
+  return false
 }
 
 function initLocalDb() {
@@ -105,9 +125,11 @@ function initLocalDb() {
   loadKv()
   loadQueue()
   loadMeta()
+  // самовосстановление флага, если каталог уже есть
+  if (!hasInstallOkFile() && catalogReady()) writeInstallOk()
   return {
     root: rootDir,
-    bootstrapComplete: !!loadMeta().bootstrapComplete,
+    bootstrapComplete: isSetupComplete(),
     kvKeys: Object.keys(loadKv()).length,
     queueLen: loadQueue().length,
   }
@@ -119,7 +141,9 @@ function installLocalDbIpc() {
   ipcMain.handle('desktop:localDbInfo', () => ({
     ok: true,
     root: rootDir,
-    bootstrapComplete: !!loadMeta().bootstrapComplete,
+    bootstrapComplete: isSetupComplete(),
+    installComplete: isSetupComplete(),
+    hasCatalog: catalogReady(),
     kvKeys: Object.keys(loadKv()).length,
     queueLen: loadQueue().length,
     lastBootstrapAt: loadMeta().lastBootstrapAt || null,
@@ -171,18 +195,31 @@ function installLocalDbIpc() {
     return { ok: true }
   })
 
-  ipcMain.handle('desktop:localDbMetaGet', () => ({ ...loadMeta() }))
+  ipcMain.handle('desktop:localDbMetaGet', () => ({
+    ...loadMeta(),
+    bootstrapComplete: isSetupComplete(),
+    installComplete: isSetupComplete(),
+  }))
 
   ipcMain.handle('desktop:localDbMetaPatch', (_e, patch) => {
     const meta = loadMeta()
     Object.assign(meta, patch && typeof patch === 'object' ? patch : {})
     metaCache = meta
     saveMeta()
-    return { ok: true, meta: { ...meta } }
+    if (meta.bootstrapComplete || meta.installComplete) {
+      try { writeInstallOk() } catch { /* ignore */ }
+    }
+    return { ok: true, meta: { ...meta, bootstrapComplete: isSetupComplete() } }
+  })
+
+  ipcMain.handle('desktop:localDbMarkInstalled', () => {
+    writeInstallOk()
+    return { ok: true, bootstrapComplete: true }
   })
 }
 
 module.exports = {
   initLocalDb,
   installLocalDbIpc,
+  isSetupComplete,
 }

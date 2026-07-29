@@ -771,17 +771,22 @@ function TradeAppGate() {
   const [session, setSession] = useState<TradeEmployeeSession | null>(null)
   const [ready, setReady] = useState(false)
   const [theme, setTheme] = useState<TradeTheme>(() => loadTradeTheme())
-  const [localDbReady, setLocalDbReady] = useState(() => !isKakapoDesktop())
+  /** null = ещё проверяем диск; true = установка ок; false = нужен первый скач */
+  const [localDbReady, setLocalDbReady] = useState<boolean | null>(() => (isKakapoDesktop() ? null : true))
 
   useEffect(() => {
-    // Кэш поднимаем до сетевых запросов: без интернета разделы
-    // показывают данные сразу, а не после таймаута
     void hydrateOfflineCaches()
     useOfflineSync.getState().start()
     setSession(loadTradeEmployeeSession())
     setTheme(loadTradeTheme())
     if (isKakapoDesktop()) {
-      void isLocalBootstrapComplete().then(done => setLocalDbReady(done))
+      void isLocalBootstrapComplete().then(done => {
+        setLocalDbReady(done)
+        // если база уже есть — тихо подтянем остатки/цены при наличии сети
+        if (done) {
+          void import('@/lib/offlineBootstrap').then(m => m.silentSyncFromServer()).catch(() => {})
+        }
+      })
     } else {
       setLocalDbReady(true)
     }
@@ -799,12 +804,25 @@ function TradeAppGate() {
     saveTradeTheme(next)
   }
 
-  if (!ready) {
+  if (!ready || localDbReady === null) {
     return (
       <div className="k-trade" data-theme={theme} style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
         <style>{CSS}</style>
         <div style={{ color: 'var(--muted)', fontWeight: 700 }}>Загрузка…</div>
       </div>
+    )
+  }
+
+  // Первый запуск приложения = шаг установки (до входа). Потом больше не показывается.
+  if (isKakapoDesktop() && localDbReady === false) {
+    return (
+      <LocalDbBootstrap
+        theme={theme}
+        onDone={() => {
+          void hydrateOfflineCaches()
+          setLocalDbReady(true)
+        }}
+      />
     )
   }
 
@@ -821,19 +839,6 @@ function TradeAppGate() {
           }}
         />
       </div>
-    )
-  }
-
-  // Desktop: первый запуск — скачать всё в локальную базу на диск
-  if (isKakapoDesktop() && !localDbReady) {
-    return (
-      <LocalDbBootstrap
-        theme={theme}
-        onDone={() => {
-          void hydrateOfflineCaches()
-          setLocalDbReady(true)
-        }}
-      />
     )
   }
 

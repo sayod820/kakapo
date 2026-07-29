@@ -163,6 +163,8 @@ export type KakapoDesktopApi = {
   localDbQueueDelete?: (clientRef: string) => Promise<{ ok: boolean }>
   localDbMetaGet?: () => Promise<Record<string, unknown>>
   localDbMetaPatch?: (patch: Record<string, unknown>) => Promise<{ ok: boolean; meta: Record<string, unknown> }>
+  /** Пометить установку завершённой — больше не просить скачивание */
+  localDbMarkInstalled?: () => Promise<{ ok: boolean; bootstrapComplete: boolean }>
 }
 
 declare global {

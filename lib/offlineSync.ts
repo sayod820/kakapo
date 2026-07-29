@@ -181,8 +181,11 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       const hadQueue = get().pending > 0
       set({ online: true })
       await get().flush()
+      try {
+        const { silentSyncFromServer } = await import('./offlineBootstrap')
+        await silentSyncFromServer()
+      } catch { /* обновим при следующем цикле */ }
       if (!hadQueue) {
-        try { await refetchEverything() } catch { /* обновим при следующем цикле */ }
         set({ lastSyncAtIso: new Date().toISOString() })
       }
     }
