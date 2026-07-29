@@ -297,14 +297,15 @@ const THEME_KEY = 'kakapo_trade_pos_theme'
 type TradeTheme = 'dark' | 'light'
 
 function loadTradeTheme(): TradeTheme {
-  if (typeof window === 'undefined') return 'dark'
+  if (typeof window === 'undefined') return 'light'
   try {
-    const shared = localStorage.getItem('kakapo_ui_theme')
-    if (shared === 'light' || shared === 'dark') return shared
     const t = localStorage.getItem(THEME_KEY)
-    return t === 'light' ? 'light' : 'dark'
+    if (t === 'dark' || t === 'light') return t
+    const shared = localStorage.getItem('kakapo_ui_theme')
+    if (shared === 'dark' || shared === 'light') return shared
+    return 'light'
   } catch {
-    return 'dark'
+    return 'light'
   }
 }
 

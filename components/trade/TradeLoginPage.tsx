@@ -10,7 +10,7 @@ type TradeTheme = 'dark' | 'light'
 
 export default function TradeLoginPage({
   onSuccess,
-  theme = 'dark',
+  theme = 'light',
   onThemeChange,
 }: {
   onSuccess: (session: TradeEmployeeSession) => void

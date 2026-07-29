@@ -361,10 +361,10 @@ function saveSettings(s: PosSettings) {
 }
 
 function loadTheme(): ThemeName {
-  if (typeof window === 'undefined') return 'dark'
+  if (typeof window === 'undefined') return 'light'
   const t = localStorage.getItem(THEME_KEY)
-  if (t === 'light') return 'light'
-  return 'dark'
+  if (t === 'dark') return 'dark'
+  return 'light'
 }
 
 function loadFavIds(): number[] {
