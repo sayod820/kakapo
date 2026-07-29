@@ -341,6 +341,7 @@ export const POS_MOCK_CSS = `
   }
   .pos-root > .app > .cart{
     min-width:0;
+    min-height:0;
     width:100%;
   }
   .pos-root > .app > .products{
@@ -589,7 +590,8 @@ export const POS_MOCK_CSS = `
   .p-stock{font-size:10px;color:var(--accent);margin-top:4px;font-weight:700;}
   .p-stock.low{color:var(--red);}
 
-  .cart{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+  .cart{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;min-height:0;}
+  .cart-end-anchor{height:1px;width:100%;flex-shrink:0;pointer-events:none;}
   .client-card{margin:14px 14px 0;padding:12px 14px;border-radius:16px;background:var(--surface2);border:1.5px solid var(--border);display:flex;align-items:center;gap:11px;cursor:pointer;flex-shrink:0;}
   .client-card:hover{border-color:var(--border2);}
   .client-card.set{border-color:rgba(255,184,0,.3);background:rgba(255,184,0,.05);}

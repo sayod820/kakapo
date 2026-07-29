@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { api, isNetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { newClientRef, newLocalId, isOnline } from '@/lib/offline'
@@ -558,16 +559,18 @@ export default function CashierModule({
 
   /** Корзина + выделение одной записью — иначе выделение «залипает» на предыдущей строке */
   function setCartAndSelect(updater: (prev: CartLine[]) => CartLine[], selectKey: string | null) {
-    setTickets(prev => prev.map(t => {
-      if (t.id !== activeTicketId) return t
-      const nextCart = updater(t.cart)
-      return {
-        ...t,
-        cart: nextCart,
-        selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
-      }
-    }))
-    if (selectKey) scheduleCartScroll(selectKey)
+    flushSync(() => {
+      setTickets(prev => prev.map(t => {
+        if (t.id !== activeTicketId) return t
+        const nextCart = updater(t.cart)
+        return {
+          ...t,
+          cart: nextCart,
+          selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
+        }
+      }))
+    })
+    if (selectKey) pinCartToPunched(selectKey)
   }
 
   const [busy, setBusy] = useState(false)
@@ -601,14 +604,15 @@ export default function CashierModule({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const commitPosSearchRef = useRef<(raw?: string, opts?: { fromScanner?: boolean }) => boolean>(() => false)
   const cartItemsRef = useRef<HTMLDivElement>(null)
-  /** После пробития — доскроллить к строке уже после commit DOM */
+  const cartEndRef = useRef<HTMLDivElement>(null)
+  /** Ключ только что пробитой строки — пока не null, чек держим на ней */
   const revealLineKeyRef = useRef<string | null>(null)
-  /** Пока true — любое обновление чека докручивает список вниз (как лента кассы) */
-  const cartStickToEndRef = useRef(false)
   const cartScrollTimersRef = useRef<number[]>([])
   /** Актуальный чек для склейки без гонок при быстрых кликах */
   const cartRef = useRef<CartLine[]>(cart)
   cartRef.current = cart
+  /** Инкремент → useLayoutEffect гарантированно крутит к пробитой строке */
+  const [cartPinGen, setCartPinGen] = useState(0)
   /** Пока грузятся партии — не плодим параллельные add одного товара */
   const addInflightRef = useRef(new Set<number>())
   const addPendingBumpRef = useRef(new Map<number, number>())
@@ -905,40 +909,38 @@ export default function CashierModule({
     }
   }
 
-  /** Последний пробитый товар — выделить и докрутить чек вниз */
-  function revealCartLine(key: string | null | undefined) {
-    if (!key) return
-    revealLineKeyRef.current = key
-    cartStickToEndRef.current = true
-    setSelectedLineKey(key)
-    scheduleCartScroll(key)
-  }
-
-  function scrollCartToBottom() {
+  /** Прокрутка чека к пробитой строке — только scrollTop своего .cart-items */
+  function scrollCartToPunched(key?: string | null) {
     const box = cartItemsRef.current
-    if (!box) return
-    // Только scrollTop своего контейнера (scrollIntoView крутит чужие панели)
-    const max = Math.max(0, box.scrollHeight - box.clientHeight)
-    box.scrollTop = max
-    if (box.scrollTop < max) box.scrollTop = max
-  }
-
-  function scrollCartToLine(key: string) {
-    const box = cartItemsRef.current
-    if (!box) return
-    const row = box.querySelector(`[data-line-key="${CSS.escape(key)}"]`) as HTMLElement | null
-    if (!row) {
-      scrollCartToBottom()
-      return
+    if (!box) return false
+    const want = key || revealLineKeyRef.current
+    let row: HTMLElement | null = null
+    if (want) {
+      for (const el of box.querySelectorAll('[data-line-key]')) {
+        if (el.getAttribute('data-line-key') === want) {
+          row = el as HTMLElement
+          break
+        }
+      }
     }
-    // Строка в конце чека — всегда в самый низ; иначе подгоняем по offset
-    if (!row.nextElementSibling) {
-      scrollCartToBottom()
-      return
+    // Сначала в самый низ (пробитый всегда в конце)
+    box.scrollTop = box.scrollHeight
+    const end = cartEndRef.current
+    if (end) {
+      const br = box.getBoundingClientRect()
+      const er = end.getBoundingClientRect()
+      if (er.bottom > br.bottom) box.scrollTop += er.bottom - br.bottom + 4
     }
-    const top = row.offsetTop
-    const next = Math.max(0, top + row.offsetHeight - box.clientHeight + 10)
-    box.scrollTop = next
+    if (row) {
+      const br = box.getBoundingClientRect()
+      const rr = row.getBoundingClientRect()
+      if (rr.bottom > br.bottom - 4) box.scrollTop += rr.bottom - br.bottom + 8
+      else if (rr.top < br.top + 4) box.scrollTop += rr.top - br.top - 8
+      const rr2 = row.getBoundingClientRect()
+      const br2 = box.getBoundingClientRect()
+      return rr2.top >= br2.top - 2 && rr2.bottom <= br2.bottom + 2
+    }
+    return true
   }
 
   function clearCartScrollTimers() {
@@ -949,56 +951,41 @@ export default function CashierModule({
     cartScrollTimersRef.current = []
   }
 
-  function scheduleCartScroll(key: string) {
+  /** После пробития: выделить + несколько попыток скролла (Electron/flex) */
+  function pinCartToPunched(key: string | null | undefined) {
     if (!key) return
     revealLineKeyRef.current = key
-    cartStickToEndRef.current = true
+    setCartPinGen(g => g + 1)
     clearCartScrollTimers()
     const run = () => {
-      if (!cartStickToEndRef.current) return
-      if (revealLineKeyRef.current && revealLineKeyRef.current !== key) return
-      scrollCartToLine(key)
+      if (revealLineKeyRef.current !== key) return
+      scrollCartToPunched(key)
     }
     run()
     const raf1 = window.requestAnimationFrame(() => {
       run()
-      const raf2 = window.requestAnimationFrame(run)
-      cartScrollTimersRef.current.push(raf2)
+      cartScrollTimersRef.current.push(window.requestAnimationFrame(run))
     })
     cartScrollTimersRef.current.push(raf1)
-    for (const ms of [0, 16, 48, 100, 200]) {
+    for (const ms of [0, 24, 64, 120, 220]) {
       cartScrollTimersRef.current.push(window.setTimeout(run, ms))
     }
+    cartScrollTimersRef.current.push(window.setTimeout(() => {
+      if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
+    }, 280))
+  }
+
+  function revealCartLine(key: string | null | undefined) {
+    if (!key) return
+    setSelectedLineKey(key)
+    pinCartToPunched(key)
   }
 
   useLayoutEffect(() => {
-    if (!cartStickToEndRef.current) return
     const key = revealLineKeyRef.current
-    if (key) scrollCartToLine(key)
-    else scrollCartToBottom()
-  }, [cart, selectedLineKey])
-
-  useEffect(() => {
-    if (!cartStickToEndRef.current) return
-    const key = revealLineKeyRef.current
-    if (key) scheduleCartScroll(key)
-    else scrollCartToBottom()
-  }, [cart, selectedLineKey])
-
-  // Ручной скролл — отпускаем «прилипание» (не на programmatic scrollTop)
-  useEffect(() => {
-    const box = cartItemsRef.current
-    if (!box) return
-    const release = () => { cartStickToEndRef.current = false }
-    box.addEventListener('wheel', release, { passive: true })
-    box.addEventListener('touchstart', release, { passive: true })
-    box.addEventListener('pointerdown', release)
-    return () => {
-      box.removeEventListener('wheel', release)
-      box.removeEventListener('touchstart', release)
-      box.removeEventListener('pointerdown', release)
-    }
-  }, [])
+    if (!key) return
+    scrollCartToPunched(key)
+  }, [cart, selectedLineKey, cartPinGen])
 
   const overlayBlocksSearchRef = useRef(overlayBlocksSearch)
   useEffect(() => {
@@ -2995,61 +2982,71 @@ export default function CashierModule({
 
     // Штучный: всегда одна строка на товар — qty++ внутри setCart (без гонок)
     let revealKey: string | null = null
-    setTickets(prevTickets => prevTickets.map(t => {
-      if (t.id !== activeTicketId) return t
-      const prev = dropZeroWeightLines(t.cart)
-      const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
-      if (idx >= 0) {
-        if (prev[idx].qty >= prev[idx].stock) return t
-        const updated = {
-          ...prev[idx],
-          qty: prev[idx].qty + 1,
-          price,
-          stock: layerStock > 0 ? layerStock : prev[idx].stock,
-          ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
+    flushSync(() => {
+      setTickets(prevTickets => prevTickets.map(t => {
+        if (t.id !== activeTicketId) return t
+        const prev = dropZeroWeightLines(t.cart)
+        const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
+        if (idx >= 0) {
+          if (prev[idx].qty >= prev[idx].stock) return t
+          const updated = {
+            ...prev[idx],
+            qty: prev[idx].qty + 1,
+            price,
+            stock: layerStock > 0 ? layerStock : prev[idx].stock,
+            ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
+          }
+          revealKey = updated.key
+          // Повторное пробитие — строка уходит в конец чека
+          const next = prev.slice()
+          next.splice(idx, 1)
+          next.push(updated)
+          cartRef.current = next
+          return {
+            ...t,
+            cart: next,
+            selectedLineKey: updated.key,
+          }
         }
-        revealKey = updated.key
-        // Повторное пробитие — строка уходит в конец чека
-        const next = prev.slice()
-        next.splice(idx, 1)
-        next.push(updated)
+        const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
+        revealKey = key
+        const next = [...prev, {
+          key,
+          productId: p.id,
+          name: p.name,
+          emoji: p.e || '📦',
+          price,
+          qty: 1,
+          stock: layerStock,
+          unit: displaySellUnit(p),
+          art,
+          barcode,
+          receiptId,
+          preferRetailPrice,
+          costPrice,
+          supplierName,
+        }]
         cartRef.current = next
         return {
           ...t,
           cart: next,
-          selectedLineKey: updated.key,
+          selectedLineKey: key,
         }
-      }
-      const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
-      revealKey = key
-      const next = [...prev, {
-        key,
-        productId: p.id,
-        name: p.name,
-        emoji: p.e || '📦',
-        price,
-        qty: 1,
-        stock: layerStock,
-        unit: displaySellUnit(p),
-        art,
-        barcode,
-        receiptId,
-        preferRetailPrice,
-        costPrice,
-        supplierName,
-      }]
-      cartRef.current = next
-      return {
-        ...t,
-        cart: next,
-        selectedLineKey: key,
-      }
-    }))
-    if (revealKey) scheduleCartScroll(revealKey)
+      }))
+    })
+    if (revealKey) {
+      // DOM уже обновлён (flushSync) — крутим сразу, потом ещё раз после фокуса поиска
+      pinCartToPunched(revealKey)
+      window.setTimeout(() => {
+        focusProductSearch()
+        scrollCartToPunched(revealKey)
+      }, 0)
+    } else {
+      window.setTimeout(focusProductSearch, 0)
+    }
     setLayerPickOpen(false)
     setLayerPickProduct(null)
     setLayerPickGroups([])
-    window.setTimeout(focusProductSearch, 0)
   }
 
   function pickPriceGroup(group: PriceLayerGroup) {
@@ -5546,6 +5543,11 @@ export default function CashierModule({
                   data-line-key={line.key}
                   className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''}`}
                   onClick={() => setSelectedLineKey(line.key)}
+                  ref={selectedLineKey === line.key ? (el) => {
+                    if (!el) return
+                    if (revealLineKeyRef.current !== line.key) return
+                    scrollCartToPunched(line.key)
+                  } : undefined}
                 >
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
@@ -5598,6 +5600,7 @@ export default function CashierModule({
                 </div>
               )
             })}
+            <div ref={cartEndRef} className="cart-end-anchor" aria-hidden />
           </div>
 
           <div className="check-actions">
