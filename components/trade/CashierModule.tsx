@@ -5,6 +5,7 @@ import { flushSync } from 'react-dom'
 import { api, isNetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { newClientRef, newLocalId, isOnline } from '@/lib/offline'
+import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
 import {
   openShiftSafe,
   closeShiftSafe,
@@ -514,6 +515,43 @@ export default function CashierModule({
   const [tickets, setTickets] = useState<PosTicket[]>([bootTicket])
   const [activeTicketId, setActiveTicketId] = useState(bootTicket.id)
   const [nextTicketSeq, setNextTicketSeq] = useState(2)
+  const ticketsHydratedRef = useRef(false)
+
+  // Восстановление открытых чеков после света / перезапуска
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const saved = await loadPosSessionState<{
+        tickets?: PosTicket[]
+        activeTicketId?: string
+        nextTicketSeq?: number
+      }>()
+      if (cancelled || !saved?.tickets?.length) {
+        ticketsHydratedRef.current = true
+        return
+      }
+      setTickets(saved.tickets)
+      setActiveTicketId(saved.activeTicketId || saved.tickets[0].id)
+      if (saved.nextTicketSeq) setNextTicketSeq(saved.nextTicketSeq)
+      ticketsHydratedRef.current = true
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // Сохраняем чеки на диск (локальная база) — переживает обрыв электричества
+  useEffect(() => {
+    if (!ticketsHydratedRef.current) return
+    const t = window.setTimeout(() => {
+      void savePosSessionState({
+        tickets,
+        activeTicketId,
+        nextTicketSeq,
+        savedAt: new Date().toISOString(),
+      })
+    }, 200)
+    return () => window.clearTimeout(t)
+  }, [tickets, activeTicketId, nextTicketSeq])
+
   const activeTicket = tickets.find(t => t.id === activeTicketId) || tickets[0] || bootTicket
   const cart = activeTicket.cart
   const client = activeTicket.client

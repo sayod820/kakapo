@@ -16,6 +16,7 @@ import {
   type PosSalePayload,
   type QueueKind,
 } from './offline'
+import { markLocalSyncAt } from './offlineBootstrap'
 
 interface OfflineSyncState {
   online: boolean
@@ -117,6 +118,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       // очередь ушла — подтягиваем свежие остатки, смены, карты и долги
       if (res.sent > 0 && !res.stopped) {
         try { await refetchEverything() } catch { /* обновим при следующем цикле */ }
+        try { await markLocalSyncAt() } catch { /* ignore */ }
       }
     } catch (e) {
       set({
@@ -159,6 +161,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     set({ online: true })
     await get().flush()
     try { await refetchEverything() } catch { /* обновим при следующем цикле */ }
+    try { await markLocalSyncAt() } catch { /* ignore */ }
     set({ lastSyncAtIso: new Date().toISOString() })
   },
 

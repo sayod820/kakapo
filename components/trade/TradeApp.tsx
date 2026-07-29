@@ -17,12 +17,14 @@ import ComingSoonModule from '@/components/trade/ComingSoonModule'
 import FinanceModule from '@/components/trade/FinanceModule'
 import ReportsModule from '@/components/trade/ReportsModule'
 import TradeLoginPage from '@/components/trade/TradeLoginPage'
+import LocalDbBootstrap from '@/components/trade/LocalDbBootstrap'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import {
   getKakapoDesktop,
   isKakapoDesktop,
   type DesktopUpdateStatus,
 } from '@/lib/desktopBridge'
+import { isLocalBootstrapComplete } from '@/lib/offlineBootstrap'
 import {
   clearTradeEmployeeSession,
   loadTradeEmployeeSession,
@@ -769,6 +771,7 @@ function TradeAppGate() {
   const [session, setSession] = useState<TradeEmployeeSession | null>(null)
   const [ready, setReady] = useState(false)
   const [theme, setTheme] = useState<TradeTheme>(() => loadTradeTheme())
+  const [localDbReady, setLocalDbReady] = useState(() => !isKakapoDesktop())
 
   useEffect(() => {
     // Кэш поднимаем до сетевых запросов: без интернета разделы
@@ -777,6 +780,11 @@ function TradeAppGate() {
     useOfflineSync.getState().start()
     setSession(loadTradeEmployeeSession())
     setTheme(loadTradeTheme())
+    if (isKakapoDesktop()) {
+      void isLocalBootstrapComplete().then(done => setLocalDbReady(done))
+    } else {
+      setLocalDbReady(true)
+    }
     setReady(true)
   }, [])
 
@@ -813,6 +821,19 @@ function TradeAppGate() {
           }}
         />
       </div>
+    )
+  }
+
+  // Desktop: первый запуск — скачать всё в локальную базу на диск
+  if (isKakapoDesktop() && !localDbReady) {
+    return (
+      <LocalDbBootstrap
+        theme={theme}
+        onDone={() => {
+          void hydrateOfflineCaches()
+          setLocalDbReady(true)
+        }}
+      />
     )
   }
 

@@ -49,7 +49,7 @@ export interface PendingOp<P = any> {
 /** Старое название — чек в очереди */
 export type PendingSale = PendingOp<PosSalePayload>
 
-// ── Хранилище (IndexedDB с фолбэком на localStorage) ──
+// ── Хранилище (Desktop local DB → IndexedDB → localStorage) ──
 const DB_NAME = 'kakapo_offline'
 const DB_VERSION = 1
 const STORE_KV = 'kv'
@@ -61,6 +61,13 @@ const LS_PREFIX = 'kakapo_offline_'
 
 function hasIndexedDB(): boolean {
   return typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined'
+}
+
+function deskDb() {
+  if (typeof window === 'undefined') return null
+  const d = window.kakapoDesktop
+  if (!d?.isDesktop || !d.localDbKvGet || !d.localDbKvSet) return null
+  return d
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -91,6 +98,17 @@ function idbRun<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectSto
 
 // ── KV: кэш каталога ──
 async function kvSet(key: string, value: unknown): Promise<void> {
+  const desk = deskDb()
+  if (desk?.localDbKvSet) {
+    try {
+      await desk.localDbKvSet(key, value)
+      // зеркало в IDB — на случай открытия в браузере
+      if (hasIndexedDB()) {
+        try { await idbRun(STORE_KV, 'readwrite', s => s.put(value as unknown as Record<string, unknown>, key)) } catch { /* ignore */ }
+      }
+      return
+    } catch { /* fallback */ }
+  }
   if (hasIndexedDB()) {
     try { await idbRun(STORE_KV, 'readwrite', s => s.put(value as unknown as Record<string, unknown>, key)); return } catch { /* fallback */ }
   }
@@ -98,6 +116,13 @@ async function kvSet(key: string, value: unknown): Promise<void> {
 }
 
 async function kvGet<T>(key: string): Promise<T | null> {
+  const desk = deskDb()
+  if (desk?.localDbKvGet) {
+    try {
+      const v = await desk.localDbKvGet(key)
+      if (v !== undefined && v !== null) return v as T
+    } catch { /* fallback */ }
+  }
   if (hasIndexedDB()) {
     try {
       const v = await idbRun<T | undefined>(STORE_KV, 'readonly', s => s.get(key))
@@ -165,6 +190,13 @@ function lsQueueWrite(list: PendingOp[]) {
 }
 
 export async function getPending(): Promise<PendingOp[]> {
+  const desk = deskDb()
+  if (desk?.localDbQueueAll) {
+    try {
+      const all = await desk.localDbQueueAll()
+      return (all || []).map(normalizeRow).sort(byOrder)
+    } catch { /* fallback */ }
+  }
   if (hasIndexedDB()) {
     try {
       const all = await idbRun<PendingOp[]>(STORE_QUEUE, 'readonly', s => s.getAll())
@@ -175,6 +207,16 @@ export async function getPending(): Promise<PendingOp[]> {
 }
 
 async function putPending(row: PendingOp): Promise<void> {
+  const desk = deskDb()
+  if (desk?.localDbQueuePut) {
+    try {
+      await desk.localDbQueuePut(row)
+      if (hasIndexedDB()) {
+        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)) } catch { /* ignore */ }
+      }
+      return
+    } catch { /* fallback */ }
+  }
   if (hasIndexedDB()) {
     try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)); return } catch { /* fallback */ }
   }
@@ -184,6 +226,16 @@ async function putPending(row: PendingOp): Promise<void> {
 }
 
 async function deletePending(clientRef: string): Promise<void> {
+  const desk = deskDb()
+  if (desk?.localDbQueueDelete) {
+    try {
+      await desk.localDbQueueDelete(clientRef)
+      if (hasIndexedDB()) {
+        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.delete(clientRef)) } catch { /* ignore */ }
+      }
+      return
+    } catch { /* fallback */ }
+  }
   if (hasIndexedDB()) {
     try { await idbRun(STORE_QUEUE, 'readwrite', s => s.delete(clientRef)); return } catch { /* fallback */ }
   }

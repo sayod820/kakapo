@@ -28,6 +28,7 @@
       "receiptTemplate.cjs",
       "localServer.cjs",
       "updater.cjs",
+      "localDb.cjs",
       "icon.png",
       "icon.ico",
       "config.json",

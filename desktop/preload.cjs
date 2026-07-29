@@ -36,4 +36,13 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
       ipcRenderer.removeListener('desktop:updateStatus', listener)
     }
   },
+  localDbInfo: () => ipcRenderer.invoke('desktop:localDbInfo'),
+  localDbKvGet: (key) => ipcRenderer.invoke('desktop:localDbKvGet', key),
+  localDbKvSet: (key, value) => ipcRenderer.invoke('desktop:localDbKvSet', key, value),
+  localDbKvDelete: (key) => ipcRenderer.invoke('desktop:localDbKvDelete', key),
+  localDbQueueAll: () => ipcRenderer.invoke('desktop:localDbQueueAll'),
+  localDbQueuePut: (row) => ipcRenderer.invoke('desktop:localDbQueuePut', row),
+  localDbQueueDelete: (clientRef) => ipcRenderer.invoke('desktop:localDbQueueDelete', clientRef),
+  localDbMetaGet: () => ipcRenderer.invoke('desktop:localDbMetaGet'),
+  localDbMetaPatch: (patch) => ipcRenderer.invoke('desktop:localDbMetaPatch', patch),
 })

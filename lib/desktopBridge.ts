@@ -145,6 +145,24 @@ export type KakapoDesktopApi = {
   downloadUpdate?: () => Promise<DesktopUpdateStatus>
   quitAndInstall?: () => Promise<{ ok: boolean; error?: string }>
   onUpdateStatus?: (handler: (payload: DesktopUpdateStatus) => void) => () => void
+  /** Локальная база на диске ПК */
+  localDbInfo?: () => Promise<{
+    ok: boolean
+    root: string
+    bootstrapComplete: boolean
+    kvKeys: number
+    queueLen: number
+    lastBootstrapAt?: string | null
+    lastSyncAt?: string | null
+  }>
+  localDbKvGet?: (key: string) => Promise<unknown>
+  localDbKvSet?: (key: string, value: unknown) => Promise<{ ok: boolean }>
+  localDbKvDelete?: (key: string) => Promise<{ ok: boolean }>
+  localDbQueueAll?: () => Promise<unknown[]>
+  localDbQueuePut?: (row: unknown) => Promise<{ ok: boolean }>
+  localDbQueueDelete?: (clientRef: string) => Promise<{ ok: boolean }>
+  localDbMetaGet?: () => Promise<Record<string, unknown>>
+  localDbMetaPatch?: (patch: Record<string, unknown>) => Promise<{ ok: boolean; meta: Record<string, unknown> }>
 }
 
 declare global {

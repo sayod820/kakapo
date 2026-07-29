@@ -20,6 +20,7 @@ const {
 } = require('./receiptTemplate.cjs')
 const { startLocalUi, stopLocalUi, localUiUrl } = require('./localServer.cjs')
 const { installUpdaterIpc } = require('./updater.cjs')
+const { installLocalDbIpc, initLocalDb } = require('./localDb.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const APP_ICON_PATH = (() => {
@@ -815,6 +816,12 @@ app.whenReady().then(async () => {
   // Меню «KAKAPO / Edit / Вид» на кассе не нужно
   Menu.setApplicationMenu(null)
   installApiCorsBypass()
+  try {
+    initLocalDb()
+    installLocalDbIpc()
+  } catch (e) {
+    console.error('[kakapo-desktop] локальная база', e)
+  }
   let localUrl = ''
   try {
     localUrl = await startLocalUi()
