@@ -1,36 +1,30 @@
 'use strict'
 
 /**
- * Локальная база кассы.
- * При установке данные кладутся в $INSTDIR\kakapo-local-db (seed).
- * Рабочая копия — в userData (туда пишем очередь/чеки, чтобы не упираться в Program Files).
+ * Локальная база кассы на SQLite (WAL).
+ * IPC API тот же: kv / queue / meta.
+ * Старые JSON (local-kv.json, kv-*.json, …) один раз мигрируют в kakapo.sqlite.
  */
 
 const fs = require('fs')
 const path = require('path')
 const { app, ipcMain } = require('electron')
 
+const DB_FILE = 'kakapo.sqlite'
 const FILE_KV = 'local-kv.json'
 const FILE_QUEUE = 'local-queue.json'
 const FILE_META = 'local-meta.json'
 const FILE_INSTALL_OK = 'INSTALL_OK'
+const MIGRATED_MARK = 'json-migrated-to-sqlite'
 
-/** Крупные ключи — отдельные файлы, чтобы запись чека не переписывала весь каталог */
-const HEAVY_KV_KEYS = new Set([
+const HEAVY_KV_KEYS = [
   'catalog_products',
   'catalog_clients',
   'catalog_employees_auth',
-])
-
-function heavyFileName(key) {
-  return `kv-${String(key).replace(/[^\w.-]+/g, '_')}.json`
-}
+]
 
 let rootDir = ''
-let kvCache = null
-let queueCache = null
-let metaCache = null
-let heavyLoaded = false
+let db = null
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -56,117 +50,226 @@ function copyFileSafe(from, to) {
   }
 }
 
-/** Один раз: seed из папки установки → рабочая база userData */
-function importInstallSeedIfNeeded(workDir) {
-  const seed = installSeedDir()
-  if (!seed || seed === workDir) return false
-  const seedOk = path.join(seed, FILE_INSTALL_OK)
-  const seedKv = path.join(seed, FILE_KV)
-  if (!fs.existsSync(seedOk) && !fs.existsSync(seedKv)) return false
-
-  const workOk = path.join(workDir, FILE_INSTALL_OK)
-  const workKv = path.join(workDir, FILE_KV)
-  // уже есть рабочая база с данными
-  if (fs.existsSync(workOk) && fs.existsSync(workKv)) return false
-
-  ensureDir(workDir)
-  copyFileSafe(seedKv, path.join(workDir, FILE_KV))
-  copyFileSafe(path.join(seed, FILE_META), path.join(workDir, FILE_META))
-  copyFileSafe(path.join(seed, FILE_QUEUE), path.join(workDir, FILE_QUEUE))
-  copyFileSafe(seedOk, workOk)
-  if (!fs.existsSync(workOk) && fs.existsSync(workKv)) {
-    fs.writeFileSync(workOk, new Date().toISOString(), 'utf8')
-  }
-  console.log('[localDb] импорт seed из установки →', workDir)
-  return true
+function heavyFileName(key) {
+  return `kv-${String(key).replace(/[^\w.-]+/g, '_')}.json`
 }
 
-function readJson(file, fallback) {
+function readJsonFile(file, fallback) {
   try {
-    const p = dbPath(file)
+    const p = typeof file === 'string' && path.isAbsolute(file) ? file : dbPath(file)
     if (!fs.existsSync(p)) return fallback
     const raw = fs.readFileSync(p, 'utf8')
     if (!raw.trim()) return fallback
     return JSON.parse(raw)
   } catch {
     try {
-      const bak = dbPath(file + '.bak')
+      const bak = (typeof file === 'string' && path.isAbsolute(file) ? file : dbPath(file)) + '.bak'
       if (fs.existsSync(bak)) return JSON.parse(fs.readFileSync(bak, 'utf8'))
     } catch { /* ignore */ }
     return fallback
   }
 }
 
-function atomicWrite(file, data) {
+/** Seed из папки установки → рабочая userData (sqlite и/или json) */
+function importInstallSeedIfNeeded(workDir) {
+  const seed = installSeedDir()
+  if (!seed || seed === workDir) return false
+  const seedOk = path.join(seed, FILE_INSTALL_OK)
+  const seedSqlite = path.join(seed, DB_FILE)
+  const seedKv = path.join(seed, FILE_KV)
+  if (!fs.existsSync(seedOk) && !fs.existsSync(seedSqlite) && !fs.existsSync(seedKv)) return false
+
+  const workOk = path.join(workDir, FILE_INSTALL_OK)
+  const workSqlite = path.join(workDir, DB_FILE)
+  const workKv = path.join(workDir, FILE_KV)
+  if (fs.existsSync(workOk) && (fs.existsSync(workSqlite) || fs.existsSync(workKv))) return false
+
+  ensureDir(workDir)
+  copyFileSafe(seedSqlite, workSqlite)
+  copyFileSafe(seedSqlite + '-wal', workSqlite + '-wal')
+  copyFileSafe(seedSqlite + '-shm', workSqlite + '-shm')
+  copyFileSafe(seedKv, workKv)
+  copyFileSafe(path.join(seed, FILE_META), path.join(workDir, FILE_META))
+  copyFileSafe(path.join(seed, FILE_QUEUE), path.join(workDir, FILE_QUEUE))
+  for (const key of HEAVY_KV_KEYS) {
+    copyFileSafe(path.join(seed, heavyFileName(key)), path.join(workDir, heavyFileName(key)))
+  }
+  copyFileSafe(seedOk, workOk)
+  if (!fs.existsSync(workOk) && (fs.existsSync(workSqlite) || fs.existsSync(workKv))) {
+    fs.writeFileSync(workOk, new Date().toISOString(), 'utf8')
+  }
+  console.log('[localDb] импорт seed из установки →', workDir)
+  return true
+}
+
+function openSqlite() {
+  const Database = require('better-sqlite3')
+  const file = dbPath(DB_FILE)
   ensureDir(rootDir)
-  const p = dbPath(file)
-  const tmp = p + '.tmp'
-  const bak = p + '.bak'
-  const json = typeof data === 'string' ? data : JSON.stringify(data)
-  fs.writeFileSync(tmp, json, 'utf8')
+  db = new Database(file)
+  db.pragma('journal_mode = WAL')
+  db.pragma('synchronous = NORMAL')
+  db.pragma('temp_store = MEMORY')
+  db.pragma('foreign_keys = ON')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS kv (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS queue (
+      client_ref TEXT PRIMARY KEY NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL
+    );
+  `)
+}
+
+function sqlKvGet(key) {
+  const row = db.prepare('SELECT value FROM kv WHERE key = ?').get(String(key))
+  if (!row) return null
+  try { return JSON.parse(row.value) } catch { return null }
+}
+
+function sqlKvSet(key, value) {
+  db.prepare(`
+    INSERT INTO kv(key, value) VALUES(?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(String(key), JSON.stringify(value))
+}
+
+function sqlKvDelete(key) {
+  db.prepare('DELETE FROM kv WHERE key = ?').run(String(key))
+}
+
+function sqlKvKeysCount() {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM kv').get()
+  return Number(row && row.n) || 0
+}
+
+function sqlQueueAll() {
+  const rows = db.prepare('SELECT payload FROM queue ORDER BY updated_at ASC, client_ref ASC').all()
+  const out = []
+  for (const r of rows) {
+    try { out.push(JSON.parse(r.payload)) } catch { /* skip */ }
+  }
+  return out
+}
+
+function sqlQueuePut(row) {
+  const ref = String(row.clientRef || '')
+  if (!ref) return false
+  const stamp = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO queue(client_ref, payload, updated_at) VALUES(?, ?, ?)
+    ON CONFLICT(client_ref) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+  `).run(ref, JSON.stringify(row), stamp)
+  return true
+}
+
+function sqlQueueDelete(clientRef) {
+  db.prepare('DELETE FROM queue WHERE client_ref = ?').run(String(clientRef || ''))
+}
+
+function sqlQueueLen() {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM queue').get()
+  return Number(row && row.n) || 0
+}
+
+function sqlMetaGetAll() {
+  const rows = db.prepare('SELECT key, value FROM meta').all()
+  const meta = {}
+  for (const r of rows) {
+    try { meta[r.key] = JSON.parse(r.value) } catch { meta[r.key] = r.value }
+  }
+  return meta
+}
+
+function sqlMetaSet(key, value) {
+  db.prepare(`
+    INSERT INTO meta(key, value) VALUES(?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(String(key), JSON.stringify(value))
+}
+
+function sqlMetaPatch(patch) {
+  if (!patch || typeof patch !== 'object') return sqlMetaGetAll()
+  const tx = db.transaction((obj) => {
+    for (const [k, v] of Object.entries(obj)) sqlMetaSet(k, v)
+  })
+  tx(patch)
+  return sqlMetaGetAll()
+}
+
+function renameAside(file) {
   try {
-    if (fs.existsSync(p)) {
-      try { fs.copyFileSync(p, bak) } catch { /* ignore */ }
-    }
-    fs.renameSync(tmp, p)
-  } catch {
-    fs.writeFileSync(p, json, 'utf8')
-    try { fs.unlinkSync(tmp) } catch { /* ignore */ }
+    const p = dbPath(file)
+    if (!fs.existsSync(p)) return
+    const dest = p + '.bak-pre-sqlite'
+    if (!fs.existsSync(dest)) fs.renameSync(p, dest)
+  } catch (e) {
+    console.warn('[localDb] renameAside', file, e && e.message)
   }
 }
 
-function loadKv() {
-  if (!kvCache) kvCache = readJson(FILE_KV, {})
-  if (!kvCache || typeof kvCache !== 'object') kvCache = {}
-  if (!heavyLoaded) {
-    heavyLoaded = true
-    // Подтянуть тяжёлые ключи из отдельных файлов (и вынести из общего файла при первом save)
-    for (const key of HEAVY_KV_KEYS) {
-      const fromFile = readJson(heavyFileName(key), null)
-      if (fromFile != null) {
-        kvCache[key] = fromFile
+/** Один раз: JSON → SQLite */
+function migrateJsonToSqliteIfNeeded() {
+  const mark = dbPath(MIGRATED_MARK)
+  if (fs.existsSync(mark) && sqlKvKeysCount() > 0) return false
+
+  const hasJson =
+    fs.existsSync(dbPath(FILE_KV)) ||
+    fs.existsSync(dbPath(FILE_QUEUE)) ||
+    fs.existsSync(dbPath(FILE_META)) ||
+    HEAVY_KV_KEYS.some(k => fs.existsSync(dbPath(heavyFileName(k))))
+
+  if (!hasJson) {
+    try { fs.writeFileSync(mark, new Date().toISOString(), 'utf8') } catch { /* ignore */ }
+    return false
+  }
+
+  // Уже есть данные в sqlite — не затираем, только помечаем
+  if (sqlKvKeysCount() > 0 || sqlQueueLen() > 0) {
+    try { fs.writeFileSync(mark, new Date().toISOString(), 'utf8') } catch { /* ignore */ }
+    return false
+  }
+
+  console.log('[localDb] миграция JSON → SQLite…')
+  const tx = db.transaction(() => {
+    const kv = readJsonFile(FILE_KV, {})
+    if (kv && typeof kv === 'object') {
+      for (const [key, value] of Object.entries(kv)) {
+        sqlKvSet(key, value)
       }
     }
-  }
-  return kvCache
-}
-
-function loadQueue() {
-  if (!queueCache) {
-    const raw = readJson(FILE_QUEUE, [])
-    queueCache = Array.isArray(raw) ? raw : []
-  }
-  return queueCache
-}
-
-function loadMeta() {
-  if (!metaCache) metaCache = readJson(FILE_META, {})
-  if (!metaCache || typeof metaCache !== 'object') metaCache = {}
-  return metaCache
-}
-
-function saveLightKv() {
-  const kv = loadKv()
-  const light = {}
-  for (const [key, value] of Object.entries(kv)) {
-    if (!HEAVY_KV_KEYS.has(key)) light[key] = value
-  }
-  atomicWrite(FILE_KV, light)
-}
-
-function saveKv() {
-  const kv = loadKv()
-  for (const key of HEAVY_KV_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(kv, key)) continue
-    try { atomicWrite(heavyFileName(key), kv[key]) } catch (e) {
-      console.error('[localDb] heavy write', key, e)
+    for (const key of HEAVY_KV_KEYS) {
+      const fromFile = readJsonFile(heavyFileName(key), null)
+      if (fromFile != null) sqlKvSet(key, fromFile)
     }
-  }
-  saveLightKv()
-}
+    const queue = readJsonFile(FILE_QUEUE, [])
+    if (Array.isArray(queue)) {
+      for (const row of queue) {
+        if (row && row.clientRef) sqlQueuePut(row)
+      }
+    }
+    const meta = readJsonFile(FILE_META, {})
+    if (meta && typeof meta === 'object') {
+      for (const [key, value] of Object.entries(meta)) sqlMetaSet(key, value)
+    }
+  })
+  tx()
 
-function saveQueue() { atomicWrite(FILE_QUEUE, loadQueue()) }
-function saveMeta() { atomicWrite(FILE_META, loadMeta()) }
+  renameAside(FILE_KV)
+  renameAside(FILE_QUEUE)
+  renameAside(FILE_META)
+  for (const key of HEAVY_KV_KEYS) renameAside(heavyFileName(key))
+  try { fs.writeFileSync(mark, new Date().toISOString(), 'utf8') } catch { /* ignore */ }
+  console.log('[localDb] миграция JSON → SQLite готова, keys=', sqlKvKeysCount())
+  return true
+}
 
 function hasInstallOkFile() {
   try { return fs.existsSync(dbPath(FILE_INSTALL_OK)) } catch { return false }
@@ -176,36 +279,31 @@ function writeInstallOk() {
   ensureDir(rootDir)
   const stamp = new Date().toISOString()
   fs.writeFileSync(dbPath(FILE_INSTALL_OK), stamp, 'utf8')
-  const meta = loadMeta()
-  meta.bootstrapComplete = true
-  meta.installComplete = true
-  meta.lastBootstrapAt = stamp
-  metaCache = meta
-  saveMeta()
+  sqlMetaPatch({
+    bootstrapComplete: true,
+    installComplete: true,
+    lastBootstrapAt: stamp,
+  })
 }
 
 function catalogReady() {
-  const kv = loadKv()
-  const products = kv.catalog_products
+  const products = sqlKvGet('catalog_products')
   return Array.isArray(products) && products.length > 0
 }
 
 function isSetupComplete() {
-  // Готово ТОЛЬКО если реально есть товары на диске
   if (catalogReady()) {
     if (!hasInstallOkFile()) writeInstallOk()
     return true
   }
-  // Битый флаг без каталога — сбрасываем, чтобы снова показать скачку
   try {
     if (hasInstallOkFile()) fs.unlinkSync(dbPath(FILE_INSTALL_OK))
   } catch { /* ignore */ }
-  const meta = loadMeta()
+  const meta = sqlMetaGetAll()
   if (meta.bootstrapComplete || meta.installComplete) {
-    meta.bootstrapComplete = false
-    meta.installComplete = false
-    metaCache = meta
-    try { saveMeta() } catch { /* ignore */ }
+    try {
+      sqlMetaPatch({ bootstrapComplete: false, installComplete: false })
+    } catch { /* ignore */ }
   }
   return false
 }
@@ -214,23 +312,20 @@ function initLocalDb() {
   rootDir = path.join(app.getPath('userData'), 'kakapo-local-db')
   ensureDir(rootDir)
   importInstallSeedIfNeeded(rootDir)
-  // сброс кэша после возможного импорта
-  kvCache = null
-  queueCache = null
-  metaCache = null
-  heavyLoaded = false
-  loadKv()
-  // Один раз вынесем тяжёлые ключи из общего файла, если они ещё там
-  try { saveKv() } catch { /* ignore */ }
-  loadQueue()
-  loadMeta()
+  if (db) {
+    try { db.close() } catch { /* ignore */ }
+    db = null
+  }
+  openSqlite()
+  migrateJsonToSqliteIfNeeded()
   if (!hasInstallOkFile() && catalogReady()) writeInstallOk()
   return {
     root: rootDir,
     seed: installSeedDir(),
+    engine: 'sqlite',
     bootstrapComplete: isSetupComplete(),
-    kvKeys: Object.keys(loadKv()).length,
-    queueLen: loadQueue().length,
+    kvKeys: sqlKvKeysCount(),
+    queueLen: sqlQueueLen(),
   }
 }
 
@@ -241,79 +336,75 @@ function installLocalDbIpc() {
     ok: true,
     root: rootDir,
     seed: installSeedDir(),
+    engine: 'sqlite',
     bootstrapComplete: isSetupComplete(),
     installComplete: isSetupComplete(),
     hasCatalog: catalogReady(),
-    kvKeys: Object.keys(loadKv()).length,
-    queueLen: loadQueue().length,
-    lastBootstrapAt: loadMeta().lastBootstrapAt || null,
-    lastSyncAt: loadMeta().lastSyncAt || null,
+    kvKeys: sqlKvKeysCount(),
+    queueLen: sqlQueueLen(),
+    lastBootstrapAt: sqlMetaGetAll().lastBootstrapAt || null,
+    lastSyncAt: sqlMetaGetAll().lastSyncAt || null,
   }))
 
   ipcMain.handle('desktop:localDbKvGet', (_e, key) => {
     const k = String(key || '')
     if (!k) return null
-    const kv = loadKv()
-    return Object.prototype.hasOwnProperty.call(kv, k) ? kv[k] : null
+    return sqlKvGet(k)
   })
 
   ipcMain.handle('desktop:localDbKvSet', (_e, key, value) => {
     const k = String(key || '')
     if (!k) return { ok: false }
-    const kv = loadKv()
-    kv[k] = value
-    if (HEAVY_KV_KEYS.has(k)) {
-      try { atomicWrite(heavyFileName(k), value) } catch (e) {
-        console.error('[localDb] heavy write', k, e)
-        return { ok: false }
-      }
+    try {
+      sqlKvSet(k, value)
       return { ok: true }
+    } catch (e) {
+      console.error('[localDb] kvSet', k, e)
+      return { ok: false }
     }
-    // Чек/сессия — только лёгкий файл, без перезаписи каталога
-    saveLightKv()
-    return { ok: true }
   })
 
   ipcMain.handle('desktop:localDbKvDelete', (_e, key) => {
     const k = String(key || '')
     if (!k) return { ok: false }
-    const kv = loadKv()
-    delete kv[k]
-    saveKv()
-    return { ok: true }
+    try {
+      sqlKvDelete(k)
+      return { ok: true }
+    } catch (e) {
+      console.error('[localDb] kvDelete', k, e)
+      return { ok: false }
+    }
   })
 
-  ipcMain.handle('desktop:localDbQueueAll', () => loadQueue().slice())
+  ipcMain.handle('desktop:localDbQueueAll', () => sqlQueueAll())
 
   ipcMain.handle('desktop:localDbQueuePut', (_e, row) => {
-    if (!row || !row.clientRef) return { ok: false }
-    const list = loadQueue()
-    const idx = list.findIndex(r => r && r.clientRef === row.clientRef)
-    if (idx >= 0) list[idx] = row
-    else list.push(row)
-    queueCache = list
-    saveQueue()
-    return { ok: true }
+    try {
+      return { ok: sqlQueuePut(row) }
+    } catch (e) {
+      console.error('[localDb] queuePut', e)
+      return { ok: false }
+    }
   })
 
   ipcMain.handle('desktop:localDbQueueDelete', (_e, clientRef) => {
-    const id = String(clientRef || '')
-    queueCache = loadQueue().filter(r => r && r.clientRef !== id)
-    saveQueue()
-    return { ok: true }
+    try {
+      sqlQueueDelete(clientRef)
+      return { ok: true }
+    } catch (e) {
+      console.error('[localDb] queueDelete', e)
+      return { ok: false }
+    }
   })
 
   ipcMain.handle('desktop:localDbMetaGet', () => ({
-    ...loadMeta(),
+    ...sqlMetaGetAll(),
     bootstrapComplete: isSetupComplete(),
     installComplete: isSetupComplete(),
   }))
 
   ipcMain.handle('desktop:localDbMetaPatch', (_e, patch) => {
-    const meta = loadMeta()
-    Object.assign(meta, patch && typeof patch === 'object' ? patch : {})
-    metaCache = meta
-    saveMeta()
+    const meta = sqlMetaPatch(patch && typeof patch === 'object' ? patch : {})
     if (meta.bootstrapComplete || meta.installComplete) {
       try { writeInstallOk() } catch { /* ignore */ }
     }

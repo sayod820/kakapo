@@ -136,10 +136,28 @@ async function kvGet<T>(key: string): Promise<T | null> {
 }
 
 export function cacheProducts(products: Product[]): Promise<void> {
-  return kvSet(KEY_PRODUCTS, products)
+  // В локальную базу кладём только метаданные + URL миниатюр.
+  // Сами файлы картинок Electron не сохраняет — как в веб-браузере грузятся по сети.
+  return kvSet(KEY_PRODUCTS, (products || []).map(sanitizeProductForLocalCache))
 }
 export function readCachedProducts(): Promise<Product[] | null> {
   return kvGet<Product[]>(KEY_PRODUCTS)
+}
+
+/** Убрать base64/blob из каталога — иначе local-kv раздувается и касса лагает */
+export function sanitizeProductForLocalCache(p: Product): Product {
+  const clean = (v?: string | null): string | null => {
+    const s = String(v || '').trim()
+    if (!s) return null
+    if (/^data:/i.test(s) || /^blob:/i.test(s)) return null
+    // оставляем http(s) и серверные пути /api/kakapo/uploads/...
+    return s
+  }
+  return {
+    ...p,
+    photo: clean(p.photo),
+    photoThumb: clean(p.photoThumb),
+  }
 }
 export function cacheClients(clients: AdminClient[]): Promise<void> {
   return kvSet(KEY_CLIENTS, clients)

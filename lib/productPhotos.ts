@@ -59,9 +59,20 @@ export const useProductPhotos = create<ProductPhotosStore>((set, get) => ({
 export function resolvePhotoUrl(value?: string | null): string | undefined {
   const url = String(value || '').trim()
   if (!url) return undefined
-  if (/^(?:https?:|data:|blob:)/i.test(url)) return url
-  if (url.startsWith('/api/kakapo/')) return url
-  if (url.startsWith('/uploads/')) return `${getApiUrl()}${url}`
+  // В API-режиме не тащим base64/blob в UI — только сетевые URL (как в браузере)
+  if (USE_API && (/^data:/i.test(url) || /^blob:/i.test(url))) return undefined
+  if (/^https?:\/\//i.test(url)) return url
+  if (/^data:|^blob:/i.test(url)) return url
+  const api = getApiUrl().replace(/\/$/, '')
+  if (url.startsWith('/api/kakapo/')) {
+    // Десктоп: UI на 127.0.0.1, картинки с продакшн API
+    if (api.startsWith('http')) {
+      const path = url.replace(/^\/api\/kakapo/i, '')
+      return `${api}${path.startsWith('/') ? path : `/${path}`}`
+    }
+    return url
+  }
+  if (url.startsWith('/uploads/')) return `${api}${url}`
   return url.startsWith('/') ? url : `/${url}`
 }
 

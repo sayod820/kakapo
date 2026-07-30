@@ -45,13 +45,25 @@ export function useApiSync(mode: SyncMode = 'all') {
           products: s.products.filter(p => p.id !== Number(incoming.id)),
         }))
       } else if (incoming?.id && (incoming.name || Object.prototype.hasOwnProperty.call(incoming, 'photo'))) {
-        useProducts.setState(s => {
-          const exists = s.products.some(p => p.id === Number(incoming.id))
-          return {
-            products: exists
-              ? s.products.map(p => p.id === Number(incoming.id) ? { ...p, ...incoming } : p)
-              : [...s.products, incoming],
-          }
+        void import('./offline').then(({ sanitizeProductForLocalCache, cacheProducts }) => {
+          const cleaned = sanitizeProductForLocalCache(incoming as import('./types').Product)
+          useProducts.setState(s => {
+            const exists = s.products.some(p => p.id === Number(cleaned.id))
+            const products = exists
+              ? s.products.map(p => p.id === Number(cleaned.id) ? { ...p, ...cleaned } : p)
+              : [...s.products, cleaned]
+            void cacheProducts(products)
+            return { products }
+          })
+        }).catch(() => {
+          useProducts.setState(s => {
+            const exists = s.products.some(p => p.id === Number(incoming.id))
+            return {
+              products: exists
+                ? s.products.map(p => p.id === Number(incoming.id) ? { ...p, ...incoming } : p)
+                : [...s.products, incoming],
+            }
+          })
         })
       }
       void useProducts.getState().fetchProducts()

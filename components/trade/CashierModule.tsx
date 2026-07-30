@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { api, isNetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
@@ -47,7 +47,7 @@ import {
   resolveEffectiveDebtLimit,
 } from '@/lib/loyaltyStatusConfig'
 import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
-import { useProductPhotos, resolveProductPhoto } from '@/lib/productPhotos'
+import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
@@ -451,6 +451,222 @@ function QrIcon({ size = 14 }: { size?: number }) {
 
 type NavTarget = 'products' | 'clients' | 'debts' | 'warehouse' | 'reports' | 'suppliers' | 'finance'
 
+type PosTileProps = {
+  product: Product
+  isFav: boolean
+  photo?: string
+  onAdd: (p: Product) => void
+  onToggleFav: (id: number) => void
+}
+
+const PosProductTile = memo(function PosProductTile({
+  product: p,
+  isFav,
+  photo,
+  onAdd,
+  onToggleFav,
+}: PosTileProps) {
+  const stock = Number(p.stock) || 0
+  const weighted = isWeighted(p)
+  const sellUnit = displaySellUnit(p)
+  const stockUnit = stockUnitLabel(p)
+  const barcode = productBarcodes(p)[0] || ''
+  const art = String(p.art || '').trim()
+  const photoRef = useRef<HTMLDivElement | null>(null)
+  const [showPhoto, setShowPhoto] = useState(false)
+
+  // Грузим картинку только когда плитка реально на экране (как в веб-вьюере)
+  useEffect(() => {
+    if (!photo) return
+    const el = photoRef.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setShowPhoto(true)
+      return
+    }
+    const io = new IntersectionObserver(
+      entries => {
+        if (entries.some(e => e.isIntersecting)) {
+          setShowPhoto(true)
+          io.disconnect()
+        }
+      },
+      { rootMargin: '120px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [photo])
+
+  return (
+    <button
+      type="button"
+      className="p-tile"
+      onClick={() => onAdd(p)}
+    >
+      <span
+        className={`p-fav ${isFav ? 'on' : ''}`}
+        title={isFav ? 'Убрать из избранного' : 'В избранное'}
+        role="button"
+        tabIndex={0}
+        onClick={e => {
+          e.stopPropagation()
+          e.preventDefault()
+          onToggleFav(p.id)
+        }}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation()
+            e.preventDefault()
+            onToggleFav(p.id)
+          }
+        }}
+      >
+        {isFav ? '★' : '☆'}
+      </span>
+      <div className="p-photo" ref={photoRef}>
+        {photo && showPhoto ? (
+          <img src={photo} alt="" loading="lazy" decoding="async" draggable={false} />
+        ) : photo ? null : (
+          (p.e || '📦')
+        )}
+        {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
+      </div>
+      <div className="p-name">{p.name}</div>
+      <div className="p-codes">
+        {art ? <span>арт. {art}</span> : null}
+        {barcode ? <span>ш/к {barcode}</span> : null}
+        {!art && !barcode ? <span className="muted">без кода</span> : null}
+      </div>
+      <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
+      <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
+    </button>
+  )
+})
+
+/** Сетка товаров: все позиции в списке, в DOM только видимые ряды (без пропажи при скролле) */
+function VirtualProductGrid({
+  products,
+  resetKey,
+  renderTile,
+}: {
+  products: Product[]
+  resetKey: string
+  renderTile: (p: Product) => ReactNode
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const metricsRef = useRef({ w: 800, h: 600, rowH: 260, startRow: 0 })
+  const [version, setVersion] = useState(0)
+
+  const GAP = 13
+  const MIN_COL = 150
+  const PAD_X = 40
+  const OVERSCAN = 5
+
+  const bump = useCallback(() => setVersion(v => v + 1), [])
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+
+    const readSize = () => {
+      metricsRef.current.w = Math.max(MIN_COL, el.clientWidth - PAD_X)
+      metricsRef.current.h = Math.max(1, el.clientHeight)
+    }
+
+    const onScroll = () => {
+      const m = metricsRef.current
+      const cols = Math.max(1, Math.floor((m.w + GAP) / (MIN_COL + GAP)))
+      const stride = m.rowH + GAP
+      const nextStart = Math.max(0, Math.floor(el.scrollTop / Math.max(1, stride)) - OVERSCAN)
+      if (nextStart !== m.startRow) {
+        m.startRow = nextStart
+        bump()
+      }
+    }
+
+    readSize()
+    bump()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => {
+        readSize()
+        onScroll()
+        bump()
+      })
+      ro.observe(el)
+    }
+    const onResize = () => {
+      readSize()
+      bump()
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onResize)
+      ro?.disconnect()
+    }
+  }, [bump])
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    el.scrollTop = 0
+    metricsRef.current.startRow = 0
+    bump()
+  }, [resetKey, bump])
+
+  useLayoutEffect(() => {
+    const tile = wrapRef.current?.querySelector('.p-tile') as HTMLElement | null
+    if (!tile) return
+    const h = Math.round(tile.getBoundingClientRect().height)
+    if (h >= 120 && Math.abs(h - metricsRef.current.rowH) > 1) {
+      metricsRef.current.rowH = h
+      bump()
+    }
+  }, [products.length, version, bump])
+
+  if (products.length <= 60) {
+    return (
+      <div className="grid-wrap" ref={wrapRef}>
+        <div className="p-grid">{products.map(p => renderTile(p))}</div>
+      </div>
+    )
+  }
+
+  void version
+  const m = metricsRef.current
+  const cols = Math.max(1, Math.floor((m.w + GAP) / (MIN_COL + GAP)))
+  const stride = m.rowH + GAP
+  const totalRows = Math.max(1, Math.ceil(products.length / cols))
+  const totalHeight = Math.max(stride, totalRows * stride - GAP)
+  const startRow = Math.min(m.startRow, Math.max(0, totalRows - 1))
+  const visibleRows = Math.ceil(m.h / stride) + 1
+  const endRow = Math.min(totalRows, startRow + visibleRows + OVERSCAN * 2)
+  const startIndex = startRow * cols
+  const endIndex = Math.min(products.length, endRow * cols)
+  const slice = products.slice(startIndex, endIndex)
+  const offsetY = startRow * stride
+
+  return (
+    <div className="grid-wrap" ref={wrapRef}>
+      <div className="p-grid-spacer" style={{ height: totalHeight, position: 'relative' }}>
+        <div
+          className="p-grid p-grid-virtual"
+          style={{
+            position: 'absolute',
+            top: offsetY,
+            left: 0,
+            right: 0,
+          }}
+        >
+          {slice.map(p => renderTile(p))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CashierModule({
   onExit,
   onNavigate: _onNavigate,
@@ -485,8 +701,6 @@ export default function CashierModule({
   const suppliers = usePosStore(s => s.suppliers)
   const apiReady = usePosStore(s => s.apiReady)
   const { categories, roots, childrenOf } = useCategories()
-  const { getPhoto, hydrate } = useProductPhotos()
-
   const [settings, setSettings] = useState<PosSettings>(loadSettings)
   const [themeLocal, setThemeLocal] = useState<ThemeName>(loadTheme)
   const theme = themeProp ?? themeLocal
@@ -803,7 +1017,6 @@ export default function CashierModule({
     onSurfaceChange?.(posSurface)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- sync initial surface to TradeApp once
 
-  useEffect(() => { void hydrate() }, [hydrate])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { startNetSync() }, [startNetSync])
 
@@ -1272,7 +1485,10 @@ export default function CashierModule({
   const deferredSearch = useDeferredValue(search)
   const favSet = useMemo(() => new Set(favIds), [favIds])
   const inStockProducts = useMemo(
-    () => products.filter(p => (Number(p.stock) || 0) > 0),
+    () => products
+      .filter(p => (Number(p.stock) || 0) > 0)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
     [products],
   )
   /** Быстрый индекс штрихкод/артикул/PLU → товар (сканер без полного перебора) */
@@ -1342,64 +1558,38 @@ export default function CashierModule({
     }
     if (deferredSearch.trim()) {
       // При поиске — порядок по релевантности (хвост штрихкода / название), не алфавит
-      // deferredSearch: во время сканера сетка не тормозит каждый символ
       return filterProductsBySearch(list, deferredSearch.trim(), 80)
     }
-    return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    // inStockProducts уже отсортирован по имени — повторный sort не нужен
+    return list
   }, [inStockProducts, showFav, favSet, selectedCatSlugs, categories, deferredSearch])
 
+  const addProductRef = useRef<(p: Product, weightKg?: number, opts?: { fromScanner?: boolean }) => void>(() => {})
+  const toggleFavoriteRef = useRef<(id: number) => void>(() => {})
+
+  const onAddProductTile = useCallback((p: Product) => {
+    addProductRef.current(p)
+  }, [])
+
+  const onToggleFavoriteTile = useCallback((id: number) => {
+    toggleFavoriteRef.current(id)
+  }, [])
+
   const renderProductTile = useCallback((p: Product) => {
-    const stock = Number(p.stock) || 0
-    const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto })
-    const weighted = isWeighted(p)
-    const sellUnit = displaySellUnit(p)
-    const stockUnit = stockUnitLabel(p)
-    const barcode = productBarcodes(p)[0] || ''
-    const art = String(p.art || '').trim()
-    const isFav = favSet.has(p.id)
+    // Только URL миниатюры с сервера (как в браузере). Локальные base64 не используем —
+    // иначе Electron раздувает память и диск на тысячах фото.
+    const photo = resolveProductPhoto(p, { preferThumb: true })
     return (
-      <button
+      <PosProductTile
         key={p.id}
-        type="button"
-        className="p-tile"
-        onClick={() => addProduct(p)}
-        style={{ contentVisibility: 'auto', containIntrinsicSize: '248px' }}
-      >
-        <span
-          className={`p-fav ${isFav ? 'on' : ''}`}
-          title={isFav ? 'Убрать из избранного' : 'В избранное'}
-          role="button"
-          tabIndex={0}
-          onClick={e => {
-            e.stopPropagation()
-            e.preventDefault()
-            toggleFavorite(p.id)
-          }}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.stopPropagation()
-              e.preventDefault()
-              toggleFavorite(p.id)
-            }
-          }}
-        >
-          {isFav ? '★' : '☆'}
-        </span>
-        <div className="p-photo">
-          {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
-          {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
-        </div>
-        <div className="p-name">{p.name}</div>
-        <div className="p-codes">
-          {art ? <span>арт. {art}</span> : null}
-          {barcode ? <span>ш/к {barcode}</span> : null}
-          {!art && !barcode ? <span className="muted">без кода</span> : null}
-        </div>
-        <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
-        <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
-      </button>
+        product={p}
+        isFav={favSet.has(p.id)}
+        photo={photo}
+        onAdd={onAddProductTile}
+        onToggleFav={onToggleFavoriteTile}
+      />
     )
-  }, [addProduct, favSet, getPhoto, toggleFavorite])
+  }, [favSet, onAddProductTile, onToggleFavoriteTile])
 
   function toggleFavorite(productId: number) {
     setFavIds(prev => {
@@ -1410,6 +1600,7 @@ export default function CashierModule({
       return next
     })
   }
+  toggleFavoriteRef.current = toggleFavorite
 
   function selectAllProducts() {
     setShowFav(false)
@@ -2886,6 +3077,7 @@ export default function CashierModule({
 
     void addProductWithLayers(p, weightKg, opts)
   }
+  addProductRef.current = addProduct
 
   /** Сканер никогда не ждёт сеть — товар в чек сразу, партии/цены в фоне */
   async function addProductWithLayers(
@@ -5610,19 +5802,21 @@ export default function CashierModule({
               </div>
             )}
           </div>
-          <div className="grid-wrap">
-            {showFav && visibleProducts.length === 0 ? (
+          {showFav && visibleProducts.length === 0 ? (
+            <div className="grid-wrap">
               <div className="cat-empty">
                 <div className="cat-empty-ic">★</div>
                 <b>Избранное пусто</b>
                 <span>Добавьте товары звёздочкой на плитке</span>
               </div>
-            ) : (
-              <div className="p-grid">
-                {visibleProducts.map(renderProductTile)}
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <VirtualProductGrid
+              products={visibleProducts}
+              resetKey={`${showFav}|${selectedCatSlugs.join(',')}|${deferredSearch}`}
+              renderTile={renderProductTile}
+            />
+          )}
         </div>
 
         <div className="cart">

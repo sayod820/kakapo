@@ -1,6 +1,6 @@
 {
   "name": "kakapo-trade-desktop",
-  "version": "1.2.12",
+  "version": "1.2.16",
   "private": true,
   "description": "КАКАПО Касса — одно приложение: чеки, этикетки, оборудование",
   "main": "main.cjs",
@@ -10,12 +10,14 @@
     "pack": "electron-builder --win dir",
     "dist": "electron-builder --win nsis",
     "build-ui": "npm run desktop:build-ui --prefix ..",
-    "publish-out": "node ../scripts/publish-desktop-update.mjs"
+    "publish-out": "node ../scripts/publish-desktop-update.mjs",
+    "postinstall": "electron-builder install-app-deps"
   },
   "build": {
     "appId": "tj.kakapo.trade",
     "productName": "KAKAPO Kassa",
     "afterPack": "./afterPack.cjs",
+    "npmRebuild": true,
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -34,6 +36,10 @@
       "icon.ico",
       "config.json",
       "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node",
+      "**/better-sqlite3/**/*"
     ],
     "extraResources": [
       {
@@ -72,6 +78,7 @@
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
+    "better-sqlite3": "^11.10.0",
     "electron-updater": "^6.8.9",
     "iconv-lite": "^0.6.3"
   }

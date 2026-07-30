@@ -145,10 +145,11 @@ export type KakapoDesktopApi = {
   downloadUpdate?: () => Promise<DesktopUpdateStatus>
   quitAndInstall?: () => Promise<{ ok: boolean; error?: string }>
   onUpdateStatus?: (handler: (payload: DesktopUpdateStatus) => void) => () => void
-  /** Локальная база на диске ПК */
+  /** Локальная база на диске ПК (SQLite) */
   localDbInfo?: () => Promise<{
     ok: boolean
     root: string
+    engine?: string
     bootstrapComplete: boolean
     kvKeys: number
     queueLen: number

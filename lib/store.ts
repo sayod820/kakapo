@@ -795,10 +795,11 @@ export const useProducts = create<ProductsStore>((set, get) => ({
       return
     }
     try {
-      const products = ensureArray<Product>(await api.getProducts(), 'products')
+      const raw = ensureArray<Product>(await api.getProducts(), 'products')
+      const { sanitizeProductForLocalCache, cacheProducts } = await import('./offline')
+      const products = raw.map(sanitizeProductForLocalCache)
       set({ products, loaded: true })
       try {
-        const { cacheProducts } = await import('./offline')
         void cacheProducts(products)
       } catch { /* кэш недоступен */ }
     } catch (e) {
