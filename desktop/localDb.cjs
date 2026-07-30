@@ -15,10 +15,22 @@ const FILE_QUEUE = 'local-queue.json'
 const FILE_META = 'local-meta.json'
 const FILE_INSTALL_OK = 'INSTALL_OK'
 
+/** Крупные ключи — отдельные файлы, чтобы запись чека не переписывала весь каталог */
+const HEAVY_KV_KEYS = new Set([
+  'catalog_products',
+  'catalog_clients',
+  'catalog_employees_auth',
+])
+
+function heavyFileName(key) {
+  return `kv-${String(key).replace(/[^\w.-]+/g, '_')}.json`
+}
+
 let rootDir = ''
 let kvCache = null
 let queueCache = null
 let metaCache = null
+let heavyLoaded = false
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -106,6 +118,16 @@ function atomicWrite(file, data) {
 function loadKv() {
   if (!kvCache) kvCache = readJson(FILE_KV, {})
   if (!kvCache || typeof kvCache !== 'object') kvCache = {}
+  if (!heavyLoaded) {
+    heavyLoaded = true
+    // Подтянуть тяжёлые ключи из отдельных файлов (и вынести из общего файла при первом save)
+    for (const key of HEAVY_KV_KEYS) {
+      const fromFile = readJson(heavyFileName(key), null)
+      if (fromFile != null) {
+        kvCache[key] = fromFile
+      }
+    }
+  }
   return kvCache
 }
 
@@ -123,7 +145,26 @@ function loadMeta() {
   return metaCache
 }
 
-function saveKv() { atomicWrite(FILE_KV, loadKv()) }
+function saveLightKv() {
+  const kv = loadKv()
+  const light = {}
+  for (const [key, value] of Object.entries(kv)) {
+    if (!HEAVY_KV_KEYS.has(key)) light[key] = value
+  }
+  atomicWrite(FILE_KV, light)
+}
+
+function saveKv() {
+  const kv = loadKv()
+  for (const key of HEAVY_KV_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(kv, key)) continue
+    try { atomicWrite(heavyFileName(key), kv[key]) } catch (e) {
+      console.error('[localDb] heavy write', key, e)
+    }
+  }
+  saveLightKv()
+}
+
 function saveQueue() { atomicWrite(FILE_QUEUE, loadQueue()) }
 function saveMeta() { atomicWrite(FILE_META, loadMeta()) }
 
@@ -177,7 +218,10 @@ function initLocalDb() {
   kvCache = null
   queueCache = null
   metaCache = null
+  heavyLoaded = false
   loadKv()
+  // Один раз вынесем тяжёлые ключи из общего файла, если они ещё там
+  try { saveKv() } catch { /* ignore */ }
   loadQueue()
   loadMeta()
   if (!hasInstallOkFile() && catalogReady()) writeInstallOk()
@@ -218,7 +262,15 @@ function installLocalDbIpc() {
     if (!k) return { ok: false }
     const kv = loadKv()
     kv[k] = value
-    saveKv()
+    if (HEAVY_KV_KEYS.has(k)) {
+      try { atomicWrite(heavyFileName(k), value) } catch (e) {
+        console.error('[localDb] heavy write', k, e)
+        return { ok: false }
+      }
+      return { ok: true }
+    }
+    // Чек/сессия — только лёгкий файл, без перезаписи каталога
+    saveLightKv()
     return { ok: true }
   })
 

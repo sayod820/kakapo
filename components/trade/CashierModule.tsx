@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { api, isNetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
@@ -95,6 +95,10 @@ const RECEIPT_HEADER_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f =>
 )
 const RECEIPT_LABEL_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f => f.group === 'Подписи полей')
 const RECEIPT_FOOTER_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f => f.group === 'Футер')
+const PRODUCT_TILE_MIN_WIDTH = 170
+const PRODUCT_TILE_ESTIMATED_HEIGHT = 248
+const PRODUCT_GRID_GAP = 12
+const PRODUCT_GRID_OVERSCAN_ROWS = 2
 
 type CartLine = {
   key: string
@@ -642,6 +646,7 @@ export default function CashierModule({
   const [qtyEditPad, setQtyEditPad] = useState(false)
   const qtyEditInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const productGridWrapRef = useRef<HTMLDivElement>(null)
   const commitPosSearchRef = useRef<(raw?: string, opts?: { fromScanner?: boolean }) => boolean>(() => false)
   const cartItemsRef = useRef<HTMLDivElement>(null)
   const cartEndRef = useRef<HTMLDivElement>(null)
@@ -668,6 +673,7 @@ export default function CashierModule({
   const amountInputRef = useRef<HTMLInputElement>(null)
   const [cashierMenuOpen, setCashierMenuOpen] = useState(false)
   const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
+  const [productGridViewport, setProductGridViewport] = useState({ width: 0, height: 0, scrollTop: 0 })
   const [openShiftModal, setOpenShiftModal] = useState(false)
   const [openingPosId, setOpeningPosId] = useState<string | null>(null)
   const [createPosModal, setCreatePosModal] = useState(false)
@@ -1200,8 +1206,8 @@ export default function CashierModule({
       }
       if (e.key.length === 1) {
         e.preventDefault()
-        const fast = gap < 55 || (scanBurstRef.current && gap < 140)
-        if (gap >= 140) {
+        const fast = gap < 90 || (scanBurstRef.current && gap < 180)
+        if (gap >= 180) {
           scanBurstRef.current = false
           scanAccumRef.current = ''
           scanTypeBufRef.current = e.key
@@ -1224,7 +1230,7 @@ export default function CashierModule({
             const live = String(scanAccumRef.current || scanTypeBufRef.current || '').trim()
             if (live.length < 3) return
             commitPosSearchRef.current(live, { fromScanner: true })
-          }, 90)
+          }, 45)
           return
         }
         // Средний темп — обычный ручной ввод
@@ -1269,11 +1275,37 @@ export default function CashierModule({
   }, [cashiers, settings.cashierName])
 
   const search = q
+  const deferredSearch = useDeferredValue(search)
   const favSet = useMemo(() => new Set(favIds), [favIds])
   const inStockProducts = useMemo(
     () => products.filter(p => (Number(p.stock) || 0) > 0),
     [products],
   )
+  /** Быстрый индекс штрихкод/артикул/PLU → товар (сканер без полного перебора) */
+  const productCodeIndex = useMemo(() => {
+    const map = new Map<string, Product>()
+    const put = (key: string, p: Product) => {
+      const k = key.trim()
+      if (!k || map.has(k)) return
+      map.set(k, p)
+    }
+    for (const p of products) {
+      for (const c of productBarcodes(p)) {
+        put(c, p)
+        const d = c.replace(/\D/g, '')
+        if (d) put(d, p)
+      }
+      const art = String(p.art || '').trim()
+      if (art) {
+        put(art, p)
+        const ad = art.replace(/\D/g, '')
+        if (ad) put(ad, p)
+      }
+      const plu = String(p.plu || '').replace(/\D/g, '')
+      if (plu) put(`plu:${plu}`, p)
+    }
+    return map
+  }, [products])
   const selectedCatSet = useMemo(() => new Set(selectedCatSlugs), [selectedCatSlugs])
   const quickCatSlugs = useMemo(() => (
     selectedCatSlugs.filter(slug => !!getCategoryBySlug(categories, slug))
@@ -1314,12 +1346,139 @@ export default function CashierModule({
         || productMatchesCategoryFilter(p.cat, slug, categories),
       ))
     }
-    if (search.trim()) {
+    if (deferredSearch.trim()) {
       // При поиске — порядок по релевантности (хвост штрихкода / название), не алфавит
-      return filterProductsBySearch(list, search.trim(), 80)
+      // deferredSearch: во время сканера сетка не тормозит каждый символ
+      return filterProductsBySearch(list, deferredSearch.trim(), 80)
     }
     return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-  }, [inStockProducts, showFav, favSet, selectedCatSlugs, categories, search])
+  }, [inStockProducts, showFav, favSet, selectedCatSlugs, categories, deferredSearch])
+
+  useEffect(() => {
+    const el = productGridWrapRef.current
+    if (!el) return
+    const update = () => {
+      const next = {
+        width: el.clientWidth,
+        height: el.clientHeight,
+        scrollTop: el.scrollTop,
+      }
+      setProductGridViewport(prev => (
+        prev.width === next.width
+        && prev.height === next.height
+        && prev.scrollTop === next.scrollTop
+          ? prev
+          : next
+      ))
+    }
+    update()
+    const onScroll = () => update()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    const onResize = () => update()
+    window.addEventListener('resize', onResize)
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(update)
+      ro.observe(el)
+    }
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onResize)
+      ro?.disconnect()
+    }
+  }, [])
+
+  useEffect(() => {
+    const el = productGridWrapRef.current
+    if (!el) return
+    el.scrollTop = 0
+    setProductGridViewport(prev => ({ ...prev, scrollTop: 0 }))
+  }, [showFav, selectedCatSlugs, deferredSearch])
+
+  const visibleProductWindow = useMemo(() => {
+    const total = visibleProducts.length
+    if (total <= 120 || deferredSearch.trim()) {
+      return {
+        items: visibleProducts,
+        topOffset: 0,
+        bottomOffset: 0,
+        virtual: false,
+      }
+    }
+    const width = Math.max(productGridViewport.width, PRODUCT_TILE_MIN_WIDTH)
+    const height = Math.max(productGridViewport.height, PRODUCT_TILE_ESTIMATED_HEIGHT * 2)
+    const columns = Math.max(1, Math.floor((width + PRODUCT_GRID_GAP) / (PRODUCT_TILE_MIN_WIDTH + PRODUCT_GRID_GAP)))
+    const rowHeight = PRODUCT_TILE_ESTIMATED_HEIGHT + PRODUCT_GRID_GAP
+    const totalRows = Math.ceil(total / columns)
+    const startRow = Math.max(0, Math.floor(productGridViewport.scrollTop / rowHeight) - PRODUCT_GRID_OVERSCAN_ROWS)
+    const visibleRowCount = Math.ceil(height / rowHeight) + PRODUCT_GRID_OVERSCAN_ROWS * 2
+    const endRow = Math.min(totalRows, startRow + visibleRowCount)
+    const startIndex = startRow * columns
+    const endIndex = Math.min(total, endRow * columns)
+    return {
+      items: visibleProducts.slice(startIndex, endIndex),
+      topOffset: startRow * rowHeight,
+      bottomOffset: Math.max(0, (totalRows - endRow) * rowHeight),
+      virtual: true,
+    }
+  }, [visibleProducts, deferredSearch, productGridViewport])
+
+  const renderProductTile = useCallback((p: Product) => {
+    const stock = Number(p.stock) || 0
+    const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto })
+    const weighted = isWeighted(p)
+    const sellUnit = displaySellUnit(p)
+    const stockUnit = stockUnitLabel(p)
+    const barcode = productBarcodes(p)[0] || ''
+    const art = String(p.art || '').trim()
+    const isFav = favSet.has(p.id)
+    return (
+      <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
+        <span
+          className={`p-fav ${isFav ? 'on' : ''}`}
+          title={isFav ? 'Убрать из избранного' : 'В избранное'}
+          role="button"
+          tabIndex={0}
+          onClick={e => {
+            e.stopPropagation()
+            e.preventDefault()
+            toggleFavorite(p.id)
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.stopPropagation()
+              e.preventDefault()
+              toggleFavorite(p.id)
+            }
+          }}
+        >
+          {isFav ? '★' : '☆'}
+        </span>
+        <div className="p-photo">
+          {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
+          {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
+        </div>
+        <div className="p-name">{p.name}</div>
+        <div className="p-codes">
+          {art ? <span>арт. {art}</span> : null}
+          {barcode ? <span>ш/к {barcode}</span> : null}
+          {!art && !barcode ? <span className="muted">без кода</span> : null}
+        </div>
+        <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
+        <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
+      </button>
+    )
+  }, [addProduct, favSet, getPhoto, toggleFavorite])
+
+  const productGridShellStyle = useMemo<CSSProperties | undefined>(() => (
+    visibleProductWindow.virtual
+      ? {
+          position: 'relative',
+          paddingTop: visibleProductWindow.topOffset,
+          paddingBottom: visibleProductWindow.bottomOffset,
+        }
+      : undefined
+  ), [visibleProductWindow])
 
   function toggleFavorite(productId: number) {
     setFavIds(prev => {
@@ -1825,7 +1984,11 @@ export default function CashierModule({
 
     const clientHit = findClientByScan(raw)
     const looksLikeClientCard = /какапо/i.test(raw) || /^k-?\d+/i.test(raw)
-    if (clientHit && (looksLikeClientCard || !pickProductBySearch(products, raw))) {
+    if (clientHit && (looksLikeClientCard || !(
+      productCodeIndex.get(raw)
+      || productCodeIndex.get(raw.replace(/\D/g, ''))
+      || pickProductBySearch(products, raw)
+    ))) {
       applyClientScan(raw)
       qRef.current = ''
       setQ('')
@@ -1876,14 +2039,25 @@ export default function CashierModule({
       return true
     }
 
-    // Точное совпадение штрихкод / артикул / PLU
+    // Точное совпадение штрихкод / артикул / PLU (O(1) индекс)
     let productHit =
-      (pool.find(p => productBarcodes(p).some(c => c === raw || c.replace(/\D/g, '') === digits)) as Product | undefined)
-      || (pool.find(p => String(p.art || '').trim() === raw || String(p.art || '').replace(/\D/g, '') === digits) as Product | undefined)
+      productCodeIndex.get(raw)
+      || (digits ? productCodeIndex.get(digits) : undefined)
       || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
-        ? (pool.find(p => String(p.plu || '').replace(/\D/g, '') === digits) as Product | undefined)
+        ? productCodeIndex.get(`plu:${digits}`)
         : undefined)
       || null
+
+    // запасной линейный поиск — если индекс не покрыл
+    if (!productHit) {
+      productHit =
+        (pool.find(p => productBarcodes(p).some(c => c === raw || c.replace(/\D/g, '') === digits)) as Product | undefined)
+        || (pool.find(p => String(p.art || '').trim() === raw || String(p.art || '').replace(/\D/g, '') === digits) as Product | undefined)
+        || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
+          ? (pool.find(p => String(p.plu || '').replace(/\D/g, '') === digits) as Product | undefined)
+          : undefined)
+        || null
+    }
 
     // Сканер: если точный код не сработал, но поиск однозначно нашёл товар — пробиваем
     if (!productHit && fromScanner) {
@@ -1956,8 +2130,8 @@ export default function CashierModule({
     scanLastKeyTs.current = now
 
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      // Пауза ≥140мс — новый ввод; первый символ кладём в буфер (ещё не burst)
-      if (gap >= 140) {
+      // Пауза ≥180мс — новый ввод; первый символ кладём в буфер (ещё не burst)
+      if (gap >= 180) {
         scanBurstRef.current = false
         scanAccumRef.current = ''
         scanTypeBufRef.current = e.key
@@ -1965,7 +2139,7 @@ export default function CashierModule({
         return
       }
       // Быстрый поток (в т.ч. gap==0) = USB-сканер
-      const fast = gap < 55 || scanBurstRef.current
+      const fast = gap < 90 || scanBurstRef.current
       if (fast) {
         scanBurstRef.current = true
         // Первый быстрый gap: в буфере уже первый символ с прошлой клавиши
@@ -1976,7 +2150,7 @@ export default function CashierModule({
         scanAccumRef.current = scanTypeBufRef.current
         qRef.current = scanAccumRef.current
         e.preventDefault() // не перерисовываем сетку на каждый символ
-        scheduleScanCommit(90)
+        scheduleScanCommit(45)
         return
       }
       // Средний темп — ручной ввод, сброс скан-буфера
@@ -2789,10 +2963,16 @@ export default function CashierModule({
       lastPieceAddRef.current = { id: p.id, t: now }
     }
 
-    void addProductWithLayers(p, weightKg)
+    void addProductWithLayers(p, weightKg, opts)
   }
 
-  async function addProductWithLayers(p: Product, weightKg?: number) {
+  /** Сканер никогда не ждёт сеть — товар в чек сразу, партии/цены в фоне */
+  async function addProductWithLayers(
+    p: Product,
+    weightKg?: number,
+    opts?: { fromScanner?: boolean },
+  ) {
+    const fromScanner = !!opts?.fromScanner
     const piece = weightKg == null && !isWeighted(p)
     if (piece) addInflightRef.current.add(p.id)
 
@@ -2804,8 +2984,13 @@ export default function CashierModule({
       for (let i = 0; i < bumps; i++) pushProductToCart(p, weightKg)
     }
 
-    const applyGroupsOrPush = (groups: PriceLayerGroup[]) => {
-      if (groups.length > 1) {
+    const pushDefault = () => {
+      pushProductToCart(p, weightKg)
+      finishBumps()
+    }
+
+    const applyGroupsOrPush = (groups: PriceLayerGroup[], allowModal: boolean) => {
+      if (groups.length > 1 && allowModal && !fromScanner) {
         setLayerPickProduct(p)
         setLayerPickGroups(groups)
         setLayerPickWeightKg(weightKg)
@@ -2816,18 +3001,18 @@ export default function CashierModule({
         }
         return
       }
-      if (groups.length === 1) {
+      if (groups.length >= 1) {
+        const g = groups[0]
         pushProductToCart(p, weightKg, undefined, {
-          preferRetailPrice: groups[0].retailPrice,
-          stock: groups[0].remainingQty,
-          costPrice: groups[0].costPrice,
-          supplierName: groups[0].oldest.supplierName,
+          preferRetailPrice: g.retailPrice,
+          stock: g.remainingQty,
+          costPrice: g.costPrice,
+          supplierName: g.oldest.supplierName,
         })
         finishBumps()
         return
       }
-      pushProductToCart(p, weightKg)
-      finishBumps()
+      pushDefault()
     }
 
     // Весовой без кг — сразу модалка веса, API не ждём
@@ -2837,18 +3022,25 @@ export default function CashierModule({
       return
     }
 
-    // Offline / без API — мгновенно в чек
-    if (!USE_API || !isOnline()) {
-      pushProductToCart(p, weightKg)
-      finishBumps()
+    // Офлайн / сканер / без API — мгновенно в чек
+    if (!USE_API || !isOnline() || fromScanner) {
+      const cached = layerGroupsCacheRef.current.get(p.id)
+      if (cached?.length) applyGroupsOrPush(cached, false)
+      else pushDefault()
+      // фоном обновим партии (не блокируем сканер)
+      if (USE_API && isOnline()) {
+        void api.getProductStockLayers(p.id).then(layers => {
+          const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+          layerGroupsCacheRef.current.set(p.id, groupStockLayersByRetail(open, Number(p.price) || 0))
+        }).catch(() => {})
+      }
       return
     }
 
     // Кэш групп цен — без сетевой задержки
     const cached = layerGroupsCacheRef.current.get(p.id)
     if (cached) {
-      applyGroupsOrPush(cached)
-      // фоном обновим кэш
+      applyGroupsOrPush(cached, true)
       void api.getProductStockLayers(p.id).then(layers => {
         const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
         layerGroupsCacheRef.current.set(p.id, groupStockLayersByRetail(open, Number(p.price) || 0))
@@ -2856,10 +3048,9 @@ export default function CashierModule({
       return
     }
 
-    // Штучный без кэша — сразу в чек (не тормозим сканер), партии подтянем в фоне
+    // Штучный без кэша — сразу в чек
     if (piece) {
-      pushProductToCart(p, weightKg)
-      finishBumps()
+      pushDefault()
       void api.getProductStockLayers(p.id).then(layers => {
         const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
         layerGroupsCacheRef.current.set(p.id, groupStockLayersByRetail(open, Number(p.price) || 0))
@@ -2867,21 +3058,12 @@ export default function CashierModule({
       return
     }
 
-    // Весовой с весом / редкий путь — можно подождать партии коротко
-    setLayerPickBusy(true)
-    try {
-      const layers = await api.getProductStockLayers(p.id)
+    // Весовой с весом (клик, не сканер) — тоже не ждём сеть дольше мгновения
+    pushDefault()
+    void api.getProductStockLayers(p.id).then(layers => {
       const open = (layers || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
-      const groups = groupStockLayersByRetail(open, Number(p.price) || 0)
-      layerGroupsCacheRef.current.set(p.id, groups)
-      applyGroupsOrPush(groups)
-    } catch {
-      pushProductToCart(p, weightKg)
-      finishBumps()
-    } finally {
-      setLayerPickBusy(false)
-      if (piece) addInflightRef.current.delete(p.id)
-    }
+      layerGroupsCacheRef.current.set(p.id, groupStockLayersByRetail(open, Number(p.price) || 0))
+    }).catch(() => {})
   }
 
   function cartLineKey(productId: number, receiptId?: string, weightKg?: number, preferRetailPrice?: number) {
@@ -5507,7 +5689,7 @@ export default function CashierModule({
               </div>
             )}
           </div>
-          <div className="grid-wrap">
+          <div className="grid-wrap" ref={productGridWrapRef}>
             {showFav && visibleProducts.length === 0 ? (
               <div className="cat-empty">
                 <div className="cat-empty-ic">★</div>
@@ -5515,53 +5697,10 @@ export default function CashierModule({
                 <span>Добавьте товары звёздочкой на плитке</span>
               </div>
             ) : (
-              <div className="p-grid">
-                {visibleProducts.map(p => {
-                  const stock = Number(p.stock) || 0
-                  const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto })
-                  const weighted = isWeighted(p)
-                  const sellUnit = displaySellUnit(p)
-                  const stockUnit = stockUnitLabel(p)
-                  const barcode = productBarcodes(p)[0] || ''
-                  const art = String(p.art || '').trim()
-                  const isFav = favSet.has(p.id)
-                  return (
-                    <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
-                      <span
-                        className={`p-fav ${isFav ? 'on' : ''}`}
-                        title={isFav ? 'Убрать из избранного' : 'В избранное'}
-                        role="button"
-                        tabIndex={0}
-                        onClick={e => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          toggleFavorite(p.id)
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            toggleFavorite(p.id)
-                          }
-                        }}
-                      >
-                        {isFav ? '★' : '☆'}
-                      </span>
-                      <div className="p-photo">
-                        {photo ? <img src={photo} alt="" /> : (p.e || '📦')}
-                        {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
-                      </div>
-                      <div className="p-name">{p.name}</div>
-                      <div className="p-codes">
-                        {art ? <span>арт. {art}</span> : null}
-                        {barcode ? <span>ш/к {barcode}</span> : null}
-                        {!art && !barcode ? <span className="muted">без кода</span> : null}
-                      </div>
-                      <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
-                      <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
-                    </button>
-                  )
-                })}
+              <div style={productGridShellStyle}>
+                <div className="p-grid">
+                  {visibleProductWindow.items.map(renderProductTile)}
+                </div>
               </div>
             )}
           </div>
