@@ -147,7 +147,7 @@ function drainSocket(socket) {
   } catch { /* ignore */ }
 }
 
-function writeAndReadWeight(socket, timeoutMs = 900) {
+function writeAndReadWeight(socket, timeoutMs = 600) {
   return new Promise((resolve, reject) => {
     drainSocket(socket)
     const chunks = []
@@ -587,7 +587,7 @@ class CasWeightMonitor {
       if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
 
       const kg = parsed.weightKg
-      // 2 одинаковых подряд ≈ STOP (~160 мс) — быстрее при добавке веса
+      // После смены веса один повтор = STOP (~80–160 мс)
       const STABLE_NEEDED = 2
       if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.0005) {
         this.stableCount += 1
@@ -595,7 +595,8 @@ class CasWeightMonitor {
         this.stableCount = 0
       }
       this.lastRawKg = kg
-      const stable = kg === 0 ? true : this.stableCount >= STABLE_NEEDED
+      // Пустая платформа — сразу «stable», чтобы касса быстро ждала новый товар
+      const stable = kg === 0 || kg < 0.005 ? true : this.stableCount >= STABLE_NEEDED
 
       this.connected = true
       this.lastError = ''
@@ -611,6 +612,8 @@ class CasWeightMonitor {
         raw: parsed.raw,
         display: parsed.display || kg.toFixed(3),
       })
+      // После нуля сбрасываем счётчик — следующий вес быстрее станет STOP
+      if (kg < 0.005) this.stableCount = 0
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)
       this.connected = false
