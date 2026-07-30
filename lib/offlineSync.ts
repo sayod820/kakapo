@@ -52,15 +52,36 @@ interface OfflineSyncState {
 
 let intervalId: ReturnType<typeof setInterval> | null = null
 
-/** Реальная проверка связи: navigator.onLine врёт при «есть Wi-Fi, нет интернета» */
+/** Реальная проверка связи с API (не путать с Wi‑Fi без доступа к серверу) */
 async function pingServer(): Promise<boolean> {
   if (!isOnline()) return false
+  const api = getApiUrl().replace(/\/$/, '')
+  const candidates: string[] = [`${api}/health`]
+  try {
+    const origin = new URL(api).origin
+    // На nginx health часто на корне сайта, не под /api/kakapo
+    if (origin && `${origin}/health` !== candidates[0]) {
+      candidates.push(`${origin}/health`)
+    }
+  } catch { /* ignore */ }
+
+  for (const url of candidates) {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 6000)
+      const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal })
+      clearTimeout(timer)
+      if (res.ok) return true
+    } catch { /* следующий URL */ }
+  }
+
+  // Сервер ответил чем угодно кроме сетевой ошибки — связь есть
   try {
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 4000)
-    const res = await fetch(`${getApiUrl()}/health`, { cache: 'no-store', signal: ctrl.signal })
+    const timer = setTimeout(() => ctrl.abort(), 6000)
+    const res = await fetch(`${api}/products?limit=1`, { cache: 'no-store', signal: ctrl.signal })
     clearTimeout(timer)
-    return res.ok
+    return res.status > 0 && res.status < 500
   } catch {
     return false
   }
@@ -131,13 +152,11 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   queueSale: async (payload) => {
     await enqueueSale(payload)
-    set({ online: false })
     await get().refresh()
   },
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
-    set({ online: false })
     await get().refresh()
     return row
   },

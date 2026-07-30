@@ -381,7 +381,9 @@ function NetworkStatus() {
     ? `Синхронизация ${progress.total > 0 ? `${progress.done} из ${progress.total}` : ''}`.trim()
     : online
       ? 'Онлайн'
-      : 'Без интернета'
+      : (typeof navigator !== 'undefined' && navigator.onLine
+        ? 'Нет связи с сервером'
+        : 'Без интернета')
 
   const lastSync = lastSyncAtIso
     ? new Date(lastSyncAtIso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
