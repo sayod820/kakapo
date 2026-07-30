@@ -813,7 +813,7 @@ function TradeAppGate() {
     )
   }
 
-  // Первый запуск приложения = шаг установки (до входа). Потом больше не показывается.
+  // Пока данные не скачаны (товары + пароли) — только экран загрузки, без логина
   if (isKakapoDesktop() && localDbReady === false) {
     return (
       <LocalDbBootstrap

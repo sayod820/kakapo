@@ -1,9 +1,9 @@
 'use strict'
 
 /**
- * Локальная база кассы на диске ПК (userData).
- * Атомарная запись: temp → rename — переживает обрыв света.
- * Флаг INSTALL_OK — установка завершена, больше не просим интернет.
+ * Локальная база кассы.
+ * При установке данные кладутся в $INSTDIR\kakapo-local-db (seed).
+ * Рабочая копия — в userData (туда пишем очередь/чеки, чтобы не упираться в Program Files).
  */
 
 const fs = require('fs')
@@ -26,6 +26,47 @@ function ensureDir(dir) {
 
 function dbPath(name) {
   return path.join(rootDir, name)
+}
+
+function installSeedDir() {
+  try {
+    return path.join(path.dirname(process.execPath), 'kakapo-local-db')
+  } catch {
+    return ''
+  }
+}
+
+function copyFileSafe(from, to) {
+  try {
+    if (fs.existsSync(from)) fs.copyFileSync(from, to)
+  } catch (e) {
+    console.error('[localDb] copy', from, e)
+  }
+}
+
+/** Один раз: seed из папки установки → рабочая база userData */
+function importInstallSeedIfNeeded(workDir) {
+  const seed = installSeedDir()
+  if (!seed || seed === workDir) return false
+  const seedOk = path.join(seed, FILE_INSTALL_OK)
+  const seedKv = path.join(seed, FILE_KV)
+  if (!fs.existsSync(seedOk) && !fs.existsSync(seedKv)) return false
+
+  const workOk = path.join(workDir, FILE_INSTALL_OK)
+  const workKv = path.join(workDir, FILE_KV)
+  // уже есть рабочая база с данными
+  if (fs.existsSync(workOk) && fs.existsSync(workKv)) return false
+
+  ensureDir(workDir)
+  copyFileSafe(seedKv, path.join(workDir, FILE_KV))
+  copyFileSafe(path.join(seed, FILE_META), path.join(workDir, FILE_META))
+  copyFileSafe(path.join(seed, FILE_QUEUE), path.join(workDir, FILE_QUEUE))
+  copyFileSafe(seedOk, workOk)
+  if (!fs.existsSync(workOk) && fs.existsSync(workKv)) {
+    fs.writeFileSync(workOk, new Date().toISOString(), 'utf8')
+  }
+  console.log('[localDb] импорт seed из установки →', workDir)
+  return true
 }
 
 function readJson(file, fallback) {
@@ -109,12 +150,21 @@ function catalogReady() {
 }
 
 function isSetupComplete() {
-  if (hasInstallOkFile()) return true
-  if (loadMeta().bootstrapComplete || loadMeta().installComplete) return true
-  // Данные уже на диске (старая сессия) — считаем установку завершённой
+  // Готово ТОЛЬКО если реально есть товары на диске
   if (catalogReady()) {
-    writeInstallOk()
+    if (!hasInstallOkFile()) writeInstallOk()
     return true
+  }
+  // Битый флаг без каталога — сбрасываем, чтобы снова показать скачку
+  try {
+    if (hasInstallOkFile()) fs.unlinkSync(dbPath(FILE_INSTALL_OK))
+  } catch { /* ignore */ }
+  const meta = loadMeta()
+  if (meta.bootstrapComplete || meta.installComplete) {
+    meta.bootstrapComplete = false
+    meta.installComplete = false
+    metaCache = meta
+    try { saveMeta() } catch { /* ignore */ }
   }
   return false
 }
@@ -122,13 +172,18 @@ function isSetupComplete() {
 function initLocalDb() {
   rootDir = path.join(app.getPath('userData'), 'kakapo-local-db')
   ensureDir(rootDir)
+  importInstallSeedIfNeeded(rootDir)
+  // сброс кэша после возможного импорта
+  kvCache = null
+  queueCache = null
+  metaCache = null
   loadKv()
   loadQueue()
   loadMeta()
-  // самовосстановление флага, если каталог уже есть
   if (!hasInstallOkFile() && catalogReady()) writeInstallOk()
   return {
     root: rootDir,
+    seed: installSeedDir(),
     bootstrapComplete: isSetupComplete(),
     kvKeys: Object.keys(loadKv()).length,
     queueLen: loadQueue().length,
@@ -141,6 +196,7 @@ function installLocalDbIpc() {
   ipcMain.handle('desktop:localDbInfo', () => ({
     ok: true,
     root: rootDir,
+    seed: installSeedDir(),
     bootstrapComplete: isSetupComplete(),
     installComplete: isSetupComplete(),
     hasCatalog: catalogReady(),

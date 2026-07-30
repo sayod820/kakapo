@@ -5,12 +5,14 @@ import {
   isLocalBootstrapComplete,
   pingApiForBootstrap,
   runLocalBootstrap,
+  sealEmployeePasswordsForOffline,
   type BootstrapProgress,
+  type EmployeePasswordRow,
 } from '@/lib/offlineBootstrap'
 
 /**
- * Один раз при установке / первом запуске кассы.
- * После успешной загрузки больше никогда не показывается.
+ * После установки — один раз при первом запуске скачивает данные на ПК.
+ * Логин открывается только когда товары + пароли сотрудников уже на диске.
  */
 export default function LocalDbBootstrap({
   theme = 'light',
@@ -24,24 +26,50 @@ export default function LocalDbBootstrap({
   const [progress, setProgress] = useState<BootstrapProgress | null>(null)
   const [error, setError] = useState('')
   const [online, setOnline] = useState(true)
+  const [passwordStep, setPasswordStep] = useState<EmployeePasswordRow[] | null>(null)
+  const [passwords, setPasswords] = useState<Record<string, string>>({})
   const startedRef = useRef(false)
 
   async function startDownload() {
     setBusy(true)
     setError('')
-    const alive = await pingApiForBootstrap()
+    setPasswordStep(null)
+    const alive = await pingApiForBootstrap(25000)
     setOnline(alive)
     if (!alive) {
-      setError('Для первой установки нужен интернет. Подключите сеть и нажмите «Скачать».')
+      setError('Для первого запуска нужен интернет. Подключите сеть и нажмите «Скачать на ПК».')
       setBusy(false)
       return
     }
     const res = await runLocalBootstrap(p => setProgress(p))
     setBusy(false)
-    if (!res.ok) {
-      setError(res.error || 'Не удалось загрузить данные')
+    if (res.ok) {
+      onDone()
       return
     }
+    if (res.needEmployeePasswords?.length) {
+      setPasswordStep(res.needEmployeePasswords)
+      setPasswords(Object.fromEntries(res.needEmployeePasswords.map(e => [e.id, ''])))
+      setError(res.error || '')
+      return
+    }
+    setError(res.error || 'Не удалось загрузить данные')
+  }
+
+  async function submitPasswords() {
+    if (!passwordStep?.length) return
+    setBusy(true)
+    setError('')
+    const res = await sealEmployeePasswordsForOffline(
+      passwordStep.map(e => ({ id: e.id, password: passwords[e.id] || '' })),
+    )
+    setBusy(false)
+    if (!res.ok) {
+      setError(res.error || 'Неверный пароль')
+      return
+    }
+    // докачаем клиентов/карты если ещё не успели
+    void import('@/lib/offlineBootstrap').then(m => m.silentSyncFromServer()).catch(() => {})
     onDone()
   }
 
@@ -55,11 +83,10 @@ export default function LocalDbBootstrap({
           onDone()
           return
         }
-        const alive = await pingApiForBootstrap()
+        const alive = await pingApiForBootstrap(25000)
         if (cancelled) return
         setOnline(alive)
         setChecking(false)
-        // Автостарт при интернете — как шаг установки
         if (alive && !startedRef.current) {
           startedRef.current = true
           void startDownload()
@@ -77,7 +104,7 @@ export default function LocalDbBootstrap({
       <div className="ldb-wrap" data-theme={theme}>
         <style>{CSS}</style>
         <div className="ldb-card">
-          <div className="ldb-badge">Установка</div>
+          <div className="ldb-badge">Первый запуск</div>
           <div className="ldb-title">Подготовка кассы…</div>
           <div className="ldb-sub">Проверяем локальную базу на этом ПК</div>
         </div>
@@ -89,16 +116,68 @@ export default function LocalDbBootstrap({
     ? Math.round((progress.done / Math.max(1, progress.total)) * 100)
     : 0
 
+  if (passwordStep?.length) {
+    return (
+      <div className="ldb-wrap" data-theme={theme}>
+        <style>{CSS}</style>
+        <div className="ldb-card">
+          <div className="ldb-badge">Почти готово</div>
+          <h1 className="ldb-title">Сохранить пароли на ПК</h1>
+          <p className="ldb-sub">
+            Товары уже скачаны. Введите пароли сотрудников — они останутся на этом компьютере.
+            Экран входа откроется только после этого.
+          </p>
+          {error ? <div className="ldb-err">{error}</div> : null}
+          {passwordStep.map(e => (
+            <div key={e.id} className="ldb-field">
+              <div className="ldb-label">
+                {e.name}{e.roleLabel ? ` · ${e.roleLabel}` : ''}
+              </div>
+              <input
+                type="password"
+                value={passwords[e.id] || ''}
+                onChange={ev => setPasswords(p => ({ ...p, [e.id]: ev.target.value }))}
+                placeholder="Пароль"
+                autoComplete="current-password"
+                disabled={busy}
+              />
+            </div>
+          ))}
+          <button
+            type="button"
+            className="ldb-btn"
+            disabled={busy}
+            onClick={() => void submitPasswords()}
+          >
+            {busy ? 'Проверка…' : 'Сохранить и открыть вход'}
+          </button>
+          <button
+            type="button"
+            className="ldb-btn ldb-btn-sec"
+            disabled={busy}
+            onClick={() => void startDownload()}
+            style={{ marginTop: 10 }}
+          >
+            Снова скачать с сервера
+          </button>
+          <p className="ldb-hint">
+            Если на сервере уже включена выдача паролей — нажмите «Снова скачать с сервера»,
+            вводить вручную не нужно.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="ldb-wrap" data-theme={theme}>
       <style>{CSS}</style>
       <div className="ldb-card">
-        <div className="ldb-badge">Установка · один раз</div>
-        <h1 className="ldb-title">Загрузка данных на этот ПК</h1>
+        <div className="ldb-badge">Первый запуск · один раз</div>
+        <h1 className="ldb-title">Скачать данные на ПК</h1>
         <p className="ldb-sub">
-          Скачиваем товары, цены, остатки, клиентов и сотрудников в локальную базу.
-          Это делается <b>один раз при установке</b>. Потом касса работает без интернета.
-          Когда сеть есть — сама синхронизирует остатки и цены.
+          Сейчас один раз загрузим товары, цены, остатки, клиентов и сотрудников.
+          Окно входа откроется <b>только после</b> полной загрузки. Потом касса работает без интернета.
         </p>
 
         {!online && (
@@ -132,7 +211,7 @@ export default function LocalDbBootstrap({
         )}
 
         <p className="ldb-hint">
-          После этой загрузки при каждом запуске интернет не нужен — данные уже на компьютере.
+          После загрузки при каждом запуске интернет не нужен — данные уже на компьютере.
         </p>
       </div>
     </div>
@@ -169,10 +248,23 @@ const CSS = `
 .ldb-bar{height:10px;border-radius:999px;background:var(--border);overflow:hidden;}
 .ldb-bar-fill{height:100%;background:linear-gradient(90deg,var(--green),#14b24f);transition:width .25s ease;}
 .ldb-prog-meta{font-size:11px;color:var(--muted);margin-top:6px;font-weight:700;}
+.ldb-field{margin-bottom:12px;}
+.ldb-label{font-size:12px;font-weight:800;color:var(--muted);margin-bottom:6px;}
+.ldb-field input{
+  width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;
+  border:1.5px solid var(--border);background:var(--bg);color:var(--text);
+  font-size:15px;font-weight:700;font-family:inherit;outline:none;
+}
+.ldb-field input:focus{border-color:var(--green);}
 .ldb-btn{
   width:100%;padding:14px 16px;border-radius:14px;border:none;cursor:pointer;
   background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;
-  font-size:15px;font-weight:900;font-family:inherit;
+  font-size:15px;font-weight:900;font-family:inherit;margin-top:4px;
+}
+.ldb-btn:disabled{opacity:.55;cursor:default;}
+.ldb-btn-sec{
+  background:transparent!important;color:var(--text)!important;
+  border:1.5px solid var(--border)!important;
 }
 .ldb-hint{font-size:11.5px;color:var(--muted);margin:14px 0 0;line-height:1.4;text-align:center;}
 `

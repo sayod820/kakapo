@@ -3,8 +3,93 @@
 // Дальше работа из локалки; при интернете — тихий синк.
 // ════════════════════════════════════════════════
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
-import { isOnline, readCachedProducts } from './offline'
+import { cacheEmployeesAuth, isOnline, readCachedEmployeesAuth, readCachedProducts } from './offline'
 import { getApiUrl } from './config'
+import { api } from './api'
+
+const STEPS: { id: BootstrapStepId; label: string }[] = [
+  { id: 'products', label: 'Товары и остатки' },
+  { id: 'pos', label: 'Кассы, смены, сотрудники' },
+  { id: 'clients', label: 'Клиенты' },
+  { id: 'cards', label: 'Карты лояльности' },
+]
+
+async function cacheEmployeesForOfflineLogin(): Promise<void> {
+  const rows = await api.getEmployeesLocalAuth()
+  const mapped = (rows || []).map(r => ({
+    id: String(r.id),
+    name: String(r.name || ''),
+    role: String(r.role || 'custom'),
+    roleLabel: r.roleLabel,
+    permissions: Array.isArray(r.permissions) ? r.permissions.map(String) : [],
+    active: r.active !== false,
+    password: String(r.password || ''),
+  }))
+  const withPass = mapped.filter(r => r.active !== false && r.password.length >= 4)
+  if (!withPass.length) {
+    throw new Error('Сервер не отдал пароли сотрудников')
+  }
+  await cacheEmployeesAuth(mapped)
+}
+
+export type EmployeePasswordRow = {
+  id: string
+  name: string
+  role: string
+  roleLabel?: string
+}
+
+export type BootstrapResult =
+  | { ok: true }
+  | { ok: false; error: string; needEmployeePasswords?: EmployeePasswordRow[] }
+
+/**
+ * Если API ещё без /local-auth — проверяем пароли онлайн и сохраняем на диск.
+ * Логин-экран откроется только после этого.
+ */
+export async function sealEmployeePasswordsForOffline(
+  entries: Array<{ id: string; password: string }>,
+): Promise<{ ok: boolean; error?: string }> {
+  const filled = entries.filter(e => e.id && String(e.password || '').trim().length >= 4)
+  if (!filled.length) {
+    return { ok: false, error: 'Введите пароль хотя бы одного сотрудника' }
+  }
+  const cached: Array<{
+    id: string
+    name: string
+    role: string
+    roleLabel?: string
+    permissions: string[]
+    active: boolean
+    password: string
+  }> = []
+  const errors: string[] = []
+  for (const e of filled) {
+    try {
+      const row = await api.loginEmployee({ id: e.id, password: e.password.trim() })
+      cached.push({
+        id: row.id,
+        name: row.name,
+        role: row.role,
+        roleLabel: row.roleLabel,
+        permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : [],
+        active: true,
+        password: e.password.trim(),
+      })
+    } catch (err) {
+      const name = e.id
+      errors.push(`${name}: ${err instanceof Error ? err.message : 'ошибка'}`)
+    }
+  }
+  if (!cached.length) {
+    return { ok: false, error: errors[0] || 'Неверный пароль' }
+  }
+  // подтянем остальных из directory без пароля — только успешно проверенных
+  await cacheEmployeesAuth(cached)
+  await markLocalBootstrapComplete()
+  await markLocalSyncAt()
+  return { ok: true }
+}
 
 export type BootstrapStepId =
   | 'products'
@@ -21,37 +106,27 @@ export type BootstrapProgress = {
   error?: string
 }
 
-const STEPS: { id: BootstrapStepId; label: string }[] = [
-  { id: 'products', label: 'Товары и остатки' },
-  { id: 'pos', label: 'Кассы, смены, сотрудники' },
-  { id: 'clients', label: 'Клиенты' },
-  { id: 'cards', label: 'Карты лояльности' },
-]
+/** Есть ли на диске сотрудники с паролями для офлайн-входа */
+export async function hasOfflineEmployeeAuth(): Promise<boolean> {
+  try {
+    const rows = await readCachedEmployeesAuth()
+    return !!(rows && rows.some(r => r.active !== false && String(r.password || '').length >= 4))
+  } catch {
+    return false
+  }
+}
 
-/** Установка уже была: флаг на диске ИЛИ каталог уже скачан */
+/** Готово только если на диске есть товары И сотрудники с паролями */
 export async function isLocalBootstrapComplete(): Promise<boolean> {
   if (!isKakapoDesktop()) return true
-  const desk = getKakapoDesktop()
   try {
-    const info = await desk?.localDbInfo?.()
-    if (info?.bootstrapComplete) return true
-    if ((info as { hasCatalog?: boolean } | undefined)?.hasCatalog) return true
-    const meta = await desk?.localDbMetaGet?.()
-    if (meta?.bootstrapComplete || meta?.installComplete) return true
-    // запасной путь: товары уже в локальном KV
     const products = await readCachedProducts()
-    if (products && products.length > 0) {
-      await markLocalBootstrapComplete()
-      return true
-    }
-    return false
+    if (!products || products.length === 0) return false
+    if (!(await hasOfflineEmployeeAuth())) return false
+    await markLocalBootstrapComplete()
+    return true
   } catch {
-    try {
-      const products = await readCachedProducts()
-      return !!(products && products.length > 0)
-    } catch {
-      return false
-    }
+    return false
   }
 }
 
@@ -77,7 +152,7 @@ export async function markLocalSyncAt(): Promise<void> {
   })
 }
 
-export async function pingApiForBootstrap(timeoutMs = 6000): Promise<boolean> {
+export async function pingApiForBootstrap(timeoutMs = 20000): Promise<boolean> {
   if (!isOnline()) return false
   try {
     const ctrl = new AbortController()
@@ -90,12 +165,28 @@ export async function pingApiForBootstrap(timeoutMs = 6000): Promise<boolean> {
   }
 }
 
+async function withRetries<T>(label: string, fn: () => Promise<T>, tries = 5): Promise<T> {
+  let last: unknown
+  for (let i = 1; i <= tries; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      last = e
+      if (i >= tries) break
+      await new Promise(r => window.setTimeout(r, Math.min(15000, 1500 * i)))
+    }
+  }
+  throw last instanceof Error ? last : new Error(`${label}: не удалось загрузить`)
+}
+
 /**
- * Один раз при установке/первом запуске — качает всё на диск ПК.
+ * Один раз при первом запуске после установки — качает всё на диск ПК.
+ * Потом касса работает локально без интернета.
+ * Логин не показывают, пока нет товаров + паролей сотрудников.
  */
 export async function runLocalBootstrap(
   onProgress?: (p: BootstrapProgress) => void,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<BootstrapResult> {
   const total = STEPS.length
   const report = (i: number, step: BootstrapStepId, label: string, error?: string) => {
     onProgress?.({ step, label, done: i, total, error })
@@ -103,9 +194,9 @@ export async function runLocalBootstrap(
 
   if (!isKakapoDesktop()) return { ok: true }
 
-  const alive = await pingApiForBootstrap()
+  const alive = await pingApiForBootstrap(25000)
   if (!alive) {
-    return { ok: false, error: 'Нет интернета. Для первой установки подключите сеть.' }
+    return { ok: false, error: 'Нет интернета. Для первого запуска подключите сеть и нажмите «Скачать».' }
   }
 
   try {
@@ -117,20 +208,49 @@ export async function runLocalBootstrap(
     ])
 
     report(0, 'products', STEPS[0].label)
-    await useProducts.getState().fetchProducts()
+    await withRetries('products', () => useProducts.getState().fetchProducts())
     report(1, 'products', STEPS[0].label)
 
     report(1, 'pos', STEPS[1].label)
-    await syncPosFromApi()
+    await withRetries('pos', () => syncPosFromApi())
     report(2, 'pos', STEPS[1].label)
 
     report(2, 'clients', STEPS[2].label)
-    await syncClientsFromApi()
+    await withRetries('clients', () => syncClientsFromApi())
     report(3, 'clients', STEPS[2].label)
 
     report(3, 'cards', STEPS[3].label)
-    await syncCardsFromApi()
+    await withRetries('cards', () => syncCardsFromApi())
     report(4, 'cards', STEPS[3].label)
+
+    // Сотрудники с паролями — обязательно до экрана логина
+    try {
+      await withRetries('employees', () => cacheEmployeesForOfflineLogin(), 3)
+    } catch {
+      let employees: EmployeePasswordRow[] = []
+      try {
+        const dir = await api.getEmployeesDirectory()
+        employees = (dir || []).map(d => ({
+          id: d.id,
+          name: d.name,
+          role: d.role,
+          roleLabel: d.roleLabel,
+        }))
+      } catch { /* ignore */ }
+      report(4, 'pos', 'Пароли сотрудников')
+      return {
+        ok: false,
+        error: 'Данные загружены. Введите пароли сотрудников — сохраним на ПК, затем откроется вход.',
+        needEmployeePasswords: employees.length ? employees : undefined,
+      }
+    }
+
+    if (!(await hasOfflineEmployeeAuth())) {
+      return {
+        ok: false,
+        error: 'Не удалось сохранить пароли сотрудников. Повторите загрузку.',
+      }
+    }
 
     await markLocalBootstrapComplete()
     await markLocalSyncAt()
@@ -138,14 +258,12 @@ export async function runLocalBootstrap(
     return { ok: true }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Ошибка загрузки'
-    // если хоть товары успели лечь на диск — не считаем полный провал
-    const products = await readCachedProducts()
-    if (products && products.length > 0) {
-      await markLocalBootstrapComplete()
+    if (await isLocalBootstrapComplete()) {
+      report(total, 'done', 'Готово')
       return { ok: true }
     }
     report(0, 'products', 'Ошибка', msg)
-    return { ok: false, error: msg }
+    return { ok: false, error: `${msg}. На слабом интернете нажмите «Повторить».` }
   }
 }
 
@@ -165,6 +283,7 @@ export async function silentSyncFromServer(): Promise<void> {
     syncPosFromApi(),
     syncClientsFromApi(),
     syncCardsFromApi(),
+    cacheEmployeesForOfflineLogin(),
   ])
   await markLocalSyncAt()
 }

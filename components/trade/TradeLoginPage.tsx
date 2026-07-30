@@ -1,12 +1,34 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api, isNetworkError } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import type { TradeEmployeeSession } from '@/lib/employeeSession'
+import { isOnline, readCachedEmployeesAuth, cacheEmployeesAuth, type CachedEmployeeAuth } from '@/lib/offline'
+import type { TradePageId } from '@/lib/tradeAccess'
 
 type DirectoryRow = { id: string; name: string; role: string; roleLabel?: string }
 type TradeTheme = 'dark' | 'light'
+
+function directoryFromAuth(rows: CachedEmployeeAuth[]): DirectoryRow[] {
+  return rows
+    .filter(r => r.active !== false)
+    .map(r => ({
+      id: r.id,
+      name: r.name,
+      role: r.role,
+      roleLabel: r.roleLabel,
+    }))
+}
+
+function sessionFromAuth(row: CachedEmployeeAuth): TradeEmployeeSession {
+  return {
+    employeeId: row.id,
+    name: row.name,
+    role: row.role,
+    permissions: (row.permissions || []) as TradePageId[],
+  }
+}
 
 export default function TradeLoginPage({
   onSuccess,
@@ -33,10 +55,57 @@ export default function TradeLoginPage({
         return
       }
       try {
-        const rows = await api.getEmployeesDirectory()
-        if (cancelled) return
-        setDirectory(rows)
-        if (rows.length === 1) setEmployeeId(rows[0].id)
+        // Сначала локальный кэш — чтобы без интернета сразу показать список
+        const cached = await readCachedEmployeesAuth()
+        if (!cancelled && cached?.length) {
+          const rows = directoryFromAuth(cached)
+          setDirectory(rows)
+          if (rows.length === 1) setEmployeeId(rows[0].id)
+          setErr('')
+          setLoadingDir(false)
+        }
+
+        if (!isOnline()) {
+          if (!cached?.length && !cancelled) {
+            setErr('Нет локальных сотрудников. Нужен интернет для первой загрузки.')
+          }
+          if (!cancelled) setLoadingDir(false)
+          return
+        }
+
+        try {
+          const rows = await api.getEmployeesDirectory()
+          if (cancelled) return
+          setDirectory(rows)
+          if (rows.length === 1) setEmployeeId(rows[0].id)
+          setErr('')
+          // сохраним список локально (пароли подтянем отдельно или после входа)
+          const prev = (await readCachedEmployeesAuth()) || []
+          const merged: CachedEmployeeAuth[] = rows.map(d => {
+            const old = prev.find(p => p.id === d.id)
+            return {
+              id: d.id,
+              name: d.name,
+              role: d.role,
+              roleLabel: d.roleLabel,
+              permissions: old?.permissions || [],
+              active: true,
+              password: old?.password || '',
+            }
+          })
+          await cacheEmployeesAuth(merged)
+          void api.getEmployeesLocalAuth()
+            .then(full => cacheEmployeesAuth(full || []))
+            .catch(() => {})
+        } catch (e) {
+          if (cancelled) return
+          if (cached?.length) {
+            // уже показали локальный список — сеть не обязательна
+            setErr('')
+          } else {
+            setErr(e instanceof Error ? e.message : 'Не удалось загрузить сотрудников')
+          }
+        }
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : 'Не удалось загрузить сотрудников')
       } finally {
@@ -59,13 +128,55 @@ export default function TradeLoginPage({
     }
     setBusy(true)
     try {
-      const row = await api.loginEmployee({ id: employeeId, password: password.trim() })
-      onSuccess({
-        employeeId: row.id,
-        name: row.name,
-        role: row.role,
-        permissions: (row.permissions || []) as TradeEmployeeSession['permissions'],
-      })
+      // Офлайн или сбой сети — вход по локальному кэшу
+      const tryLocal = async (): Promise<boolean> => {
+        const cached = await readCachedEmployeesAuth()
+        const row = cached?.find(r => r.id === employeeId && r.active !== false)
+        if (!row || !row.password) return false
+        if (String(row.password) !== password.trim()) {
+          throw new Error('Неверный пароль')
+        }
+        onSuccess(sessionFromAuth(row))
+        return true
+      }
+
+      if (!isOnline()) {
+        const ok = await tryLocal()
+        if (!ok) throw new Error('Нет локальных данных сотрудника. Нужен интернет один раз.')
+        return
+      }
+
+      try {
+        const row = await api.loginEmployee({ id: employeeId, password: password.trim() })
+        onSuccess({
+          employeeId: row.id,
+          name: row.name,
+          role: row.role,
+          permissions: (row.permissions || []) as TradeEmployeeSession['permissions'],
+        })
+        // запомним пароль локально — следующий вход без интернета
+        const prev = (await readCachedEmployeesAuth()) || []
+        const next = prev.filter(p => p.id !== row.id)
+        next.push({
+          id: row.id,
+          name: row.name,
+          role: row.role,
+          roleLabel: row.roleLabel,
+          permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : [],
+          active: true,
+          password: password.trim(),
+        })
+        await cacheEmployeesAuth(next)
+        void api.getEmployeesLocalAuth()
+          .then(full => cacheEmployeesAuth(full || []))
+          .catch(() => {})
+      } catch (error) {
+        if (isNetworkError(error)) {
+          const ok = await tryLocal()
+          if (ok) return
+        }
+        throw error
+      }
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Неверный пароль')
     } finally {
@@ -183,6 +294,7 @@ export default function TradeLoginPage({
           </div>
         ) : (
           <>
+            {err ? <div className="tl-err">{err}</div> : null}
             <div className="tl-label">Сотрудник</div>
             <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}>
               <option value="">Выберите…</option>
@@ -199,14 +311,13 @@ export default function TradeLoginPage({
               onChange={e => setPassword(e.target.value)}
               placeholder="••••"
               autoComplete="current-password"
-              autoFocus
             />
-            {err && <div className="tl-err">{err}</div>}
-            <button type="submit" className="tl-btn" disabled={busy || !employeeId}>
-              {busy ? 'Входим…' : 'Войти'}
+            <button type="submit" className="tl-btn" disabled={busy}>
+              {busy ? 'Вход…' : 'Войти'}
             </button>
           </>
         )}
+        <div className="tl-hint">Пароли задаются в Админке → Сотрудники</div>
       </form>
     </div>
   )

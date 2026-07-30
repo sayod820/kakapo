@@ -1,6 +1,6 @@
 {
   "name": "kakapo-trade-desktop",
-  "version": "1.2.5",
+  "version": "1.2.11",
   "private": true,
   "description": "КАКАПО Касса — одно приложение: чеки, этикетки, оборудование",
   "main": "main.cjs",
@@ -17,7 +17,8 @@
     "productName": "KAKAPO Kassa",
     "afterPack": "./afterPack.cjs",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "main.cjs",
@@ -38,6 +39,10 @@
       {
         "from": "ui",
         "to": "ui"
+      },
+      {
+        "from": "build/install-bootstrap.ps1",
+        "to": "install-bootstrap.ps1"
       }
     ],
     "publish": [
@@ -57,7 +62,9 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "KAKAPO Kassa"
+      "shortcutName": "KAKAPO Kassa",
+      "include": "installer.nsh",
+      "warningsAsErrors": false
     }
   },
   "devDependencies": {

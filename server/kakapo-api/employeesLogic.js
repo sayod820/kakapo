@@ -78,6 +78,23 @@ export function listEmployees(db) {
     .map(publicEmployee)
 }
 
+/** Для офлайн-кассы: сотрудники с паролями (кэш на ПК) */
+export function listEmployeesLocalAuth(db) {
+  ensureEmployees(db)
+  return [...db.employees]
+    .filter(e => e && e.active !== false)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'))
+    .map(e => ({
+      id: e.id,
+      name: e.name,
+      role: e.role || 'custom',
+      roleLabel: EMPLOYEE_ROLE_PRESETS[e.role]?.label || 'Свой набор',
+      permissions: Array.isArray(e.permissions) ? [...e.permissions] : [],
+      active: e.active !== false,
+      password: String(e.password || ''),
+    }))
+}
+
 export function createEmployee(db, data = {}) {
   ensureEmployees(db)
   const name = String(data.name || '').trim()

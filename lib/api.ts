@@ -822,6 +822,17 @@ export const api = {
   getEmployees: () => request<import('./types').TradeEmployee[]>('/employees'),
   getEmployeesDirectory: () =>
     request<Array<{ id: string; name: string; role: string; roleLabel?: string }>>('/employees/directory'),
+  /** Полный список с паролями — кэш локальной кассы для офлайн-входа */
+  getEmployeesLocalAuth: () =>
+    request<Array<{
+      id: string
+      name: string
+      role: string
+      roleLabel?: string
+      permissions: string[]
+      active: boolean
+      password: string
+    }>>('/employees/local-auth'),
   createEmployee: (data: {
     name: string
     password: string

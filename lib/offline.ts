@@ -148,6 +148,26 @@ export function readCachedClients(): Promise<AdminClient[] | null> {
   return kvGet<AdminClient[]>(KEY_CLIENTS)
 }
 
+/** Сотрудники для офлайн-входа (пароли только на локальном диске кассы) */
+export type CachedEmployeeAuth = {
+  id: string
+  name: string
+  role: string
+  roleLabel?: string
+  permissions: string[]
+  active: boolean
+  password: string
+}
+
+const KEY_EMPLOYEES_AUTH = 'catalog_employees_auth'
+
+export function cacheEmployeesAuth(rows: CachedEmployeeAuth[]): Promise<void> {
+  return kvSet(KEY_EMPLOYEES_AUTH, rows)
+}
+export function readCachedEmployeesAuth(): Promise<CachedEmployeeAuth[] | null> {
+  return kvGet<CachedEmployeeAuth[]>(KEY_EMPLOYEES_AUTH)
+}
+
 /** Универсальный кэш данных вкладок (клиенты, карты, POS-снимок и т.д.) */
 export function cacheData<T>(key: string, data: T): Promise<void> {
   return kvSet(`data_${key}`, data)

@@ -136,6 +136,7 @@ import {
 } from './financeTruth.js'
 import {
   listEmployees,
+  listEmployeesLocalAuth,
   createEmployee,
   updateEmployee,
   deleteEmployee,
@@ -1960,6 +1961,10 @@ app.get('/employees/directory', (_req, res) => {
     role: e.role,
     roleLabel: e.roleLabel,
   })))
+})
+/** Для локальной кассы (офлайн): сотрудники с паролями — кэш на ПК */
+app.get('/employees/local-auth', (_req, res) => {
+  res.json(listEmployeesLocalAuth(db))
 })
 app.post('/employees', (req, res) => {
   try {
