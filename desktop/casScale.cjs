@@ -455,18 +455,19 @@ class CasWeightMonitor {
       await this.ensureSocket()
     }
 
-    // Сразу читаем текущий вес (товар уже на платформе → не показываем 0)
+    // Сразу читаем, но stable=false — в кассу вес попадёт только после остановки
     try {
       const snap = await this.readOnce()
+      this.stableCount = 0
       this.emit({
         connected: true,
         weightKg: snap.weightKg,
         grams: snap.grams,
         price: snap.price,
-        stable: true,
+        stable: false,
         error: '',
         raw: snap.raw,
-        display: snap.display,
+        display: snap.display || snap.weightKg.toFixed(3),
       })
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)
@@ -475,6 +476,7 @@ class CasWeightMonitor {
         weightKg: this.lastEmitKg || 0,
         grams: Math.round((this.lastEmitKg || 0) * 1000),
         error: this.lastError,
+        stable: false,
       })
     }
 
@@ -569,13 +571,15 @@ class CasWeightMonitor {
       if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
 
       const kg = parsed.weightKg
+      // Одинаковые показания подряд ≈ остановка (ST). Рука/движение → сброс.
+      const STABLE_NEEDED = 4 // ~0.5 с при interval 120 мс
       if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.0005) {
         this.stableCount += 1
       } else {
         this.stableCount = 0
       }
       this.lastRawKg = kg
-      const stable = this.stableCount >= 1 || kg === 0
+      const stable = kg === 0 ? true : this.stableCount >= STABLE_NEEDED
 
       this.connected = true
       this.lastError = ''
@@ -589,7 +593,7 @@ class CasWeightMonitor {
         stable,
         error: '',
         raw: parsed.raw,
-        display: parsed.display,
+        display: parsed.display || kg.toFixed(3),
       })
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)

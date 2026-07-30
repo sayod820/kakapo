@@ -62,6 +62,8 @@ export type CasWeightEvent = {
   grams: number
   price?: number | null
   stable?: boolean
+  /** Строка как на дисплее CAS, напр. "0.255" */
+  display?: string
   error?: string
   raw?: string
   ts?: number
