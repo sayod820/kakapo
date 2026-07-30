@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { api, isNetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
@@ -95,10 +95,6 @@ const RECEIPT_HEADER_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f =>
 )
 const RECEIPT_LABEL_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f => f.group === 'Подписи полей')
 const RECEIPT_FOOTER_TEXT_FIELDS = RECEIPT_TEXT_FIELDS.filter(f => f.group === 'Футер')
-const PRODUCT_TILE_MIN_WIDTH = 170
-const PRODUCT_TILE_ESTIMATED_HEIGHT = 248
-const PRODUCT_GRID_GAP = 12
-const PRODUCT_GRID_OVERSCAN_ROWS = 2
 
 type CartLine = {
   key: string
@@ -646,7 +642,6 @@ export default function CashierModule({
   const [qtyEditPad, setQtyEditPad] = useState(false)
   const qtyEditInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const productGridWrapRef = useRef<HTMLDivElement>(null)
   const commitPosSearchRef = useRef<(raw?: string, opts?: { fromScanner?: boolean }) => boolean>(() => false)
   const cartItemsRef = useRef<HTMLDivElement>(null)
   const cartEndRef = useRef<HTMLDivElement>(null)
@@ -673,7 +668,6 @@ export default function CashierModule({
   const amountInputRef = useRef<HTMLInputElement>(null)
   const [cashierMenuOpen, setCashierMenuOpen] = useState(false)
   const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
-  const [productGridViewport, setProductGridViewport] = useState({ width: 0, height: 0, scrollTop: 0 })
   const [openShiftModal, setOpenShiftModal] = useState(false)
   const [openingPosId, setOpeningPosId] = useState<string | null>(null)
   const [createPosModal, setCreatePosModal] = useState(false)
@@ -1354,75 +1348,6 @@ export default function CashierModule({
     return [...list].sort((a, b) => a.name.localeCompare(b.name, 'ru'))
   }, [inStockProducts, showFav, favSet, selectedCatSlugs, categories, deferredSearch])
 
-  useEffect(() => {
-    const el = productGridWrapRef.current
-    if (!el) return
-    const update = () => {
-      const next = {
-        width: el.clientWidth,
-        height: el.clientHeight,
-        scrollTop: el.scrollTop,
-      }
-      setProductGridViewport(prev => (
-        prev.width === next.width
-        && prev.height === next.height
-        && prev.scrollTop === next.scrollTop
-          ? prev
-          : next
-      ))
-    }
-    update()
-    const onScroll = () => update()
-    el.addEventListener('scroll', onScroll, { passive: true })
-    const onResize = () => update()
-    window.addEventListener('resize', onResize)
-    let ro: ResizeObserver | null = null
-    if (typeof ResizeObserver !== 'undefined') {
-      ro = new ResizeObserver(update)
-      ro.observe(el)
-    }
-    return () => {
-      el.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onResize)
-      ro?.disconnect()
-    }
-  }, [])
-
-  useEffect(() => {
-    const el = productGridWrapRef.current
-    if (!el) return
-    el.scrollTop = 0
-    setProductGridViewport(prev => ({ ...prev, scrollTop: 0 }))
-  }, [showFav, selectedCatSlugs, deferredSearch])
-
-  const visibleProductWindow = useMemo(() => {
-    const total = visibleProducts.length
-    if (total <= 120 || deferredSearch.trim()) {
-      return {
-        items: visibleProducts,
-        topOffset: 0,
-        bottomOffset: 0,
-        virtual: false,
-      }
-    }
-    const width = Math.max(productGridViewport.width, PRODUCT_TILE_MIN_WIDTH)
-    const height = Math.max(productGridViewport.height, PRODUCT_TILE_ESTIMATED_HEIGHT * 2)
-    const columns = Math.max(1, Math.floor((width + PRODUCT_GRID_GAP) / (PRODUCT_TILE_MIN_WIDTH + PRODUCT_GRID_GAP)))
-    const rowHeight = PRODUCT_TILE_ESTIMATED_HEIGHT + PRODUCT_GRID_GAP
-    const totalRows = Math.ceil(total / columns)
-    const startRow = Math.max(0, Math.floor(productGridViewport.scrollTop / rowHeight) - PRODUCT_GRID_OVERSCAN_ROWS)
-    const visibleRowCount = Math.ceil(height / rowHeight) + PRODUCT_GRID_OVERSCAN_ROWS * 2
-    const endRow = Math.min(totalRows, startRow + visibleRowCount)
-    const startIndex = startRow * columns
-    const endIndex = Math.min(total, endRow * columns)
-    return {
-      items: visibleProducts.slice(startIndex, endIndex),
-      topOffset: startRow * rowHeight,
-      bottomOffset: Math.max(0, (totalRows - endRow) * rowHeight),
-      virtual: true,
-    }
-  }, [visibleProducts, deferredSearch, productGridViewport])
-
   const renderProductTile = useCallback((p: Product) => {
     const stock = Number(p.stock) || 0
     const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto })
@@ -1433,7 +1358,13 @@ export default function CashierModule({
     const art = String(p.art || '').trim()
     const isFav = favSet.has(p.id)
     return (
-      <button key={p.id} type="button" className="p-tile" onClick={() => addProduct(p)}>
+      <button
+        key={p.id}
+        type="button"
+        className="p-tile"
+        onClick={() => addProduct(p)}
+        style={{ contentVisibility: 'auto', containIntrinsicSize: '248px' }}
+      >
         <span
           className={`p-fav ${isFav ? 'on' : ''}`}
           title={isFav ? 'Убрать из избранного' : 'В избранное'}
@@ -1469,16 +1400,6 @@ export default function CashierModule({
       </button>
     )
   }, [addProduct, favSet, getPhoto, toggleFavorite])
-
-  const productGridShellStyle = useMemo<CSSProperties | undefined>(() => (
-    visibleProductWindow.virtual
-      ? {
-          position: 'relative',
-          paddingTop: visibleProductWindow.topOffset,
-          paddingBottom: visibleProductWindow.bottomOffset,
-        }
-      : undefined
-  ), [visibleProductWindow])
 
   function toggleFavorite(productId: number) {
     setFavIds(prev => {
@@ -5689,7 +5610,7 @@ export default function CashierModule({
               </div>
             )}
           </div>
-          <div className="grid-wrap" ref={productGridWrapRef}>
+          <div className="grid-wrap">
             {showFav && visibleProducts.length === 0 ? (
               <div className="cat-empty">
                 <div className="cat-empty-ic">★</div>
@@ -5697,10 +5618,8 @@ export default function CashierModule({
                 <span>Добавьте товары звёздочкой на плитке</span>
               </div>
             ) : (
-              <div style={productGridShellStyle}>
-                <div className="p-grid">
-                  {visibleProductWindow.items.map(renderProductTile)}
-                </div>
+              <div className="p-grid">
+                {visibleProducts.map(renderProductTile)}
               </div>
             )}
           </div>
