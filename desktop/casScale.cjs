@@ -129,16 +129,27 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
 /** Ответ веса готов: есть W=число и терминатор поля. */
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  // CAS часто шлёт W=0,255. (запятая) или W=0.255.P=
-  // Терминатор после числа: точка-разделитель полей, CR/LF, P=, ; 
-  // Не путать с десятичной запятой внутри числа.
-  return /W\s*=\s*-?\d+[.,]\d+\s*(?:\.(?:\s|$|[A-Za-z])|\r|\n|;|P\s*=)/i.test(text)
-    || /W\s*=\s*-?\d+\s*(?:\.(?:\s|$|[A-Za-z])|\r|\n|;|P\s*=)/i.test(text)
+  // CAS: W=0,070.P=… или W=0.070,P=… или W=70.
+  return /W\s*=\s*-?\d+[.,]\d+\s*(?:[.,]\s*)?(?:P\s*=|\r|\n|;|(?:\.(?:\s|$|[A-Za-z])))/i.test(text)
+    || /W\s*=\s*-?\d+\s*(?:[.,]\s*)?(?:P\s*=|\r|\n|;|(?:\.(?:\s|$|[A-Za-z])))/i.test(text)
     || /(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d+/i.test(text)
+}
+
+/** Выбросить хвост прошлого ответа — иначе парсер берёт старый W= */
+function drainSocket(socket) {
+  if (!socket || socket.destroyed) return
+  try {
+    socket.resume()
+    let chunk
+    while ((chunk = socket.read()) !== null) {
+      /* discard */
+    }
+  } catch { /* ignore */ }
 }
 
 function writeAndReadWeight(socket, timeoutMs = 900) {
   return new Promise((resolve, reject) => {
+    drainSocket(socket)
     const chunks = []
     let settled = false
     let settleTimer = null
@@ -169,8 +180,8 @@ function writeAndReadWeight(socket, timeoutMs = 900) {
       if (isWeightFrameComplete(buf)) {
         clearTimeout(timer)
         if (settleTimer) clearTimeout(settleTimer)
-        // Чуть подождать хвост P=…, но не тормозить UI
-        settleTimer = setTimeout(finish, 15)
+        // Короткий хвост P=…, без лишней задержки
+        settleTimer = setTimeout(finish, 8)
       }
     }
     function onErr(e) {
@@ -270,6 +281,7 @@ async function syncCasPlu(opts) {
 /**
  * Разбор ответа R45F04 / W45… или CAS stream ST,NT,…
  * Важно: русские CAS часто шлют десятичную запятую: W=0,255.
+ * В буфере может быть несколько W= — берём ПОСЛЕДНИЙ (актуальный).
  */
 function parseWeightResponse(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
@@ -278,29 +290,33 @@ function parseWeightResponse(buf) {
   let wToken = null
   let fromHex = false
 
-  // 1) Hex-граммы: W=00FF. (буквы A–F) — до десятичного разбора
-  const hex = text.match(/(?:^|[^A-Za-z0-9])W\s*=\s*([0-9A-Fa-f]{2,8})\s*\./)
-  if (hex && /[A-Fa-f]/.test(hex[1])) {
-    const gramsHex = parseInt(hex[1], 16)
-    if (Number.isFinite(gramsHex)) {
-      wToken = String(gramsHex / 1000)
-      fromHex = true
+  // Hex-граммы W=00FF. (только если есть A–F)
+  const hexAll = [...text.matchAll(/W\s*=\s*([0-9A-Fa-f]{2,8})\s*\./gi)]
+  if (hexAll.length) {
+    const lastHex = hexAll[hexAll.length - 1][1]
+    if (/[A-Fa-f]/.test(lastHex)) {
+      const gramsHex = parseInt(lastHex, 16)
+      if (Number.isFinite(gramsHex)) {
+        wToken = String(gramsHex / 1000)
+        fromHex = true
+      }
     }
   }
 
-  // 2) Поле W=… с точкой или запятой (русские CAS: W=0,255.)
+  // Все десятичные W=… — последнее = свежий ответ (даже если ответы склеились: …P=1W=0.070)
   if (!wToken) {
-    const wEq = text.match(/(?:^|[^A-Za-z0-9])W\s*=\s*(-?\d+[.,]\d+|-?\d+)/i)
-    if (wEq) wToken = wEq[1]
+    const wAll = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)/gi)]
+    if (wAll.length) wToken = wAll[wAll.length - 1][1]
   }
 
-  // 3) Поток ST,NT,+  0.255kg
+  // Поток ST,NT,+  0.255kg — тоже последний
   if (!wToken) {
-    const stream = text.match(/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,\s*[+\-]?\s*(-?\d+[.,]\d+|-?\d+)\s*(?:kg|г|g)?/i)
-    if (stream) wToken = stream[1]
+    const streams = [...text.matchAll(/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,\s*[+\-]?\s*(-?\d+[.,]\d+|-?\d+)\s*(?:kg|г|g)?/gi)]
+    if (streams.length) wToken = streams[streams.length - 1][1]
   }
 
-  const pMatch = text.match(/(?:^|[^A-Za-z0-9])P\s*=\s*(-?\d+[.,]\d+|-?\d+)/i)
+  const pAll = [...text.matchAll(/P\s*=\s*(-?\d+[.,]\d+|-?\d+)/gi)]
+  const pMatch = pAll.length ? pAll[pAll.length - 1] : null
 
   if (!wToken) {
     return {
@@ -318,7 +334,7 @@ function parseWeightResponse(buf) {
   if (!Number.isFinite(weightKg)) weightKg = 0
 
   if (!fromHex && !rawW.includes('.')) {
-    // Целое без дробной части: граммы (255 → 0.255 кг)
+    // Целое без дробной части: граммы (70 → 0.070 кг)
     if (Math.abs(weightKg) >= 1 && Math.abs(weightKg) < 100000) {
       weightKg = weightKg / 1000
     }
@@ -403,7 +419,7 @@ class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
-    this.intervalMs = 120
+    this.intervalMs = 80
     this.socket = null
     this.timer = null
     this.busy = false
@@ -446,7 +462,7 @@ class CasWeightMonitor {
     const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(80, Math.min(500, Number(opts.intervalMs) || 120))
+    this.intervalMs = Math.max(60, Math.min(300, Number(opts.intervalMs) || 80))
     this.running = true
     this.lastError = ''
 
@@ -571,8 +587,8 @@ class CasWeightMonitor {
       if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
 
       const kg = parsed.weightKg
-      // Одинаковые показания подряд ≈ остановка (ST). Рука/движение → сброс.
-      const STABLE_NEEDED = 4 // ~0.5 с при interval 120 мс
+      // 2 одинаковых подряд ≈ STOP (~160 мс) — быстрее при добавке веса
+      const STABLE_NEEDED = 2
       if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.0005) {
         this.stableCount += 1
       } else {

@@ -979,8 +979,8 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** После снятия держим последний СТАБИЛЬНЫЙ вес 1 с; в поле — только после STOP */
-  const SCALE_HOLD_MS = 1000
+  /** После снятия держим 0.5 с; в поле — только STOP; быстрее при добавке */
+  const SCALE_HOLD_MS = 500
   const SCALE_ZERO_KG = 0.005
   const scaleHoldUntilRef = useRef(0)
   const lastHeldKgRef = useRef(0)
@@ -6185,7 +6185,7 @@ export default function CashierModule({
                       ? (scaleMoving
                         ? 'Весы движутся · ждём остановки…'
                         : scaleHolding
-                          ? 'Вес удержан 1 с · можно сохранить'
+                          ? 'Вес удержан · можно сохранить'
                           : (casWeight.connected
                             ? ((casWeight.grams || 0) > 0
                               ? (casWeight.stable
