@@ -367,29 +367,51 @@ function toWeightResult(parsed, host, port) {
 }
 
 /**
- * Однократное чтение веса.
- * Если монитор уже держит TCP — читаем через него (у CAS часто 1 соединение).
+ * Однократное чтение веса по указанному IP/порту.
+ * Если монитор сидит на ДРУГОМ адресе — сначала переключаем его (у CAS часто 1 TCP).
  * @param {{ host: string, port?: number, timeoutMs?: number }} opts
  */
 async function readLiveWeight(opts) {
-  const host = String(opts.host || weightMonitor.host || '').trim()
-  const port = Number(opts.port || weightMonitor.port) || 20304
+  const host = String(opts.host || '').trim()
+  const port = Number(opts.port) || 20304
   const timeoutMs = Number(opts.timeoutMs) || 4000
   if (!host) throw new Error('Укажите IP весов CAS')
 
-  if (weightMonitor.running) {
+  // Монитор уже на этом IP — читаем через него
+  if (
+    weightMonitor.running
+    && weightMonitor.host === host
+    && weightMonitor.port === port
+    && weightMonitor.socket
+    && !weightMonitor.socket.destroyed
+  ) {
     const snap = await weightMonitor.readOnce()
     return toWeightResult(snap, host, port)
   }
 
-  const socket = await tcpConnect(host, port, timeoutMs)
+  // Другой IP или монитор выключен: освобождаем старое соединение и читаем напрямую
+  const wasRunning = weightMonitor.running
+  if (wasRunning) {
+    await weightMonitor.stop()
+    await sleep(200)
+  }
+
   try {
-    const resp = await writeAndReadWeight(socket, timeoutMs)
-    const parsed = parseWeightResponse(resp)
-    if (!parsed.ok) throw new Error(parsed.error || 'Не удалось разобрать вес')
-    return toWeightResult(parsed, host, port)
+    const socket = await tcpConnect(host, port, timeoutMs)
+    try {
+      const resp = await writeAndReadWeight(socket, timeoutMs)
+      const parsed = parseWeightResponse(resp)
+      if (!parsed.ok) throw new Error(parsed.error || 'Не удалось разобрать вес')
+      return toWeightResult(parsed, host, port)
+    } finally {
+      try { socket.destroy() } catch { /* ignore */ }
+    }
   } finally {
-    socket.destroy()
+    if (wasRunning) {
+      try {
+        await weightMonitor.start({ host, port })
+      } catch { /* монитор поднимет UI / следующий старт */ }
+    }
   }
 }
 
@@ -444,7 +466,9 @@ class CasWeightMonitor {
     const port = Number(opts.port) || 20304
     if (!host) throw new Error('Укажите IP весов CAS')
 
-    const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
+    const sameHost = this.host === host && this.port === port
+    const same = this.running && sameHost && this.socket && !this.socket.destroyed
+
     this.host = host
     this.port = port
     this.intervalMs = Math.max(120, Math.min(400, Number(opts.intervalMs) || 150))
@@ -457,6 +481,8 @@ class CasWeightMonitor {
     if (!same) {
       this.sameGrams = null
       this.sameCount = 0
+      // Важно: при смене IP нельзя переиспользовать старый сокет
+      this.destroySocket()
       await this.ensureSocket()
     }
 

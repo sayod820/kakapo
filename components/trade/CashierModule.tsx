@@ -2450,10 +2450,15 @@ export default function CashierModule({
         setDeskScaleDept(String(settings?.scaleDept || 1))
         setDeskScaleLiveWeight(settings?.scaleLiveWeight !== false)
         if (name && desk) {
+          // Не затираем IP/порт весов при автосохранении принтера
           void desk.savePrinterSettings({
-            ...settings,
             printerName: name,
             paperWidthMm: XP58C_RECEIPT_MM,
+            scaleMode: settings?.scaleMode === 'none' ? 'none' : 'plu-label',
+            scaleHost: settings?.scaleHost || '',
+            scalePort: Number(settings?.scalePort) || 20304,
+            scaleDept: Number(settings?.scaleDept) || 1,
+            scaleLiveWeight: settings?.scaleLiveWeight !== false,
           }).catch(() => undefined)
         }
       })
@@ -2480,20 +2485,21 @@ export default function CashierModule({
           ? deskPrinters
           : await desk?.getPrinters().catch(() => [] as DesktopPrinter[]) || []
         const printerName = deskPrinterName || pickReceiptPrinter(printers) || printers[0]?.name || ''
-        if (!printerName) throw new Error('Выберите принтер XP-58C')
         const cur = await desk?.getPrinterSettings()
+        // Весы сохраняем всегда; принтер — если выбран
         await desk?.savePrinterSettings({
           ...cur,
-          printerName,
-          paperWidthMm: XP58C_RECEIPT_MM,
+          ...(printerName ? { printerName, paperWidthMm: XP58C_RECEIPT_MM } : {}),
           scaleMode: deskScaleMode,
           scaleHost: deskScaleHost.trim(),
           scalePort: Number(deskScalePort) || 20304,
           scaleDept: Number(deskScaleDept) || 1,
           scaleLiveWeight: deskScaleLiveWeight,
         })
-        setDeskPrinterName(printerName)
-        setDeskPaperMm(XP58C_RECEIPT_MM)
+        if (printerName) {
+          setDeskPrinterName(printerName)
+          setDeskPaperMm(XP58C_RECEIPT_MM)
+        }
         if (deskScaleLiveWeight && deskScaleHost.trim()) {
           void ensureCasWeightMonitor(true)
         } else {
@@ -5114,13 +5120,13 @@ export default function CashierModule({
 
                           <div className={`pos-settings-status ${casWeight.connected ? 'ok' : 'warn'}`}>
                             {casWeight.connected
-                              ? `Связь OK · ${casWeight.grams || 0} г (${(casWeight.weightKg || 0).toFixed(3)} кг)${casWeight.stable ? ' · стабильно' : ''}`
+                              ? `Связь OK · ${deskScaleHost.trim() || '—'}:${deskScalePort || 20304} · ${casWeight.grams || 0} г (${(casWeight.weightKg || 0).toFixed(3)} кг)${casWeight.stable ? ' · стабильно' : ''}`
                               : (casWeight.error
-                                ? `Нет связи: ${casWeight.error}`
-                                : 'Нет связи с весами')}
+                                ? `Нет связи (${deskScaleHost.trim() || 'нет IP'}:${deskScalePort || 20304}): ${casWeight.error}`
+                                : `Нет связи с весами${deskScaleHost.trim() ? ` · ${deskScaleHost.trim()}:${deskScalePort || 20304}` : ' · укажите IP'}`)}
                             <div className="pos-settings-net-hint">
-                              Прямой кабель: на кассовом ПК нужен статический IPv4 <b>192.168.1.2/24</b>
-                              (весы обычно <b>192.168.1.10:20304</b>). Приложение не меняет настройки Windows.
+                              После смены IP нажмите <b>Тест связи</b> или <b>Сохранить</b> — иначе остаётся старое подключение.
+                              ПК и весы в одной сети (часто весы <b>192.168.1.10:20304</b>).
                             </div>
                           </div>
 
@@ -5133,14 +5139,31 @@ export default function CashierModule({
                                 void (async () => {
                                   const desk = getKakapoDesktop()
                                   if (!desk?.readCasWeight) return
+                                  const host = deskScaleHost.trim()
+                                  const port = Number(deskScalePort) || 20304
+                                  if (!host) return
                                   setDeskCasTestBusy(true)
                                   try {
+                                    // Сразу пишем IP/порт на диск и переключаем TCP
+                                    const cur = await desk.getPrinterSettings()
+                                    await desk.savePrinterSettings({
+                                      ...cur,
+                                      scaleMode: deskScaleMode,
+                                      scaleHost: host,
+                                      scalePort: port,
+                                      scaleDept: Number(deskScaleDept) || 1,
+                                      scaleLiveWeight: deskScaleLiveWeight,
+                                    })
                                     const res = await desk.readCasWeight({
-                                      host: deskScaleHost.trim(),
-                                      port: Number(deskScalePort) || 20304,
+                                      host,
+                                      port,
+                                      timeoutMs: 5000,
                                     })
                                     setCasWeight({
                                       connected: true,
+                                      running: !!deskScaleLiveWeight,
+                                      host,
+                                      port,
                                       weightKg: res.weightKg,
                                       grams: res.grams,
                                       price: res.price,
@@ -5150,13 +5173,21 @@ export default function CashierModule({
                                     })
                                     showToast(
                                       'CAS',
-                                      `Вес: ${res.grams} г (${res.weightKg.toFixed(3)} кг)${res.raw ? ` · ${String(res.raw).slice(0, 40)}` : ''}`,
+                                      `OK ${host}:${port} · ${res.grams} г (${res.weightKg.toFixed(3)} кг)`,
                                     )
-                                    if (deskScaleLiveWeight) void ensureCasWeightMonitor(true)
+                                    if (deskScaleLiveWeight) {
+                                      await desk.startCasWeight?.({ host, port })
+                                    }
                                   } catch (e) {
                                     const msg = e instanceof Error ? e.message : 'Ошибка связи с весами'
-                                    setCasWeight(prev => ({ ...prev, connected: false, error: msg }))
-                                    showToast('CAS', msg)
+                                    setCasWeight(prev => ({
+                                      ...prev,
+                                      connected: false,
+                                      host,
+                                      port,
+                                      error: msg,
+                                    }))
+                                    showToast('CAS', `${host}:${port} — ${msg}`)
                                   } finally {
                                     setDeskCasTestBusy(false)
                                   }

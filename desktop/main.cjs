@@ -116,16 +116,20 @@ function loadPrinterSettings() {
 function savePrinterSettings(next) {
   const cur = loadPrinterSettings()
   const port = Number(next.scalePort ?? cur.scalePort) || 20304
+  const scaleMode = next.scaleMode !== undefined
+    ? (next.scaleMode === 'none' ? 'none' : 'plu-label')
+    : (cur.scaleMode === 'none' ? 'none' : 'plu-label')
   const merged = {
     printerName: String(next.printerName ?? cur.printerName ?? ''),
     paperWidthMm: Number(next.paperWidthMm) === 80 ? 80 : 58,
     labelPrinterName: String(next.labelPrinterName ?? cur.labelPrinterName ?? ''),
-    scaleMode: next.scaleMode === 'none' ? 'none' : 'plu-label',
-    scaleHost: String(next.scaleHost ?? cur.scaleHost ?? '').trim(),
+    scaleMode,
+    scaleHost: String(next.scaleHost !== undefined ? next.scaleHost : (cur.scaleHost ?? '')).trim(),
     scalePort: port > 0 && port < 65536 ? port : 20304,
     scaleDept: Math.max(1, Math.min(99, Number(next.scaleDept ?? cur.scaleDept) || 1)),
     scaleLiveWeight: next.scaleLiveWeight != null ? !!next.scaleLiveWeight : cur.scaleLiveWeight !== false,
   }
+  fs.mkdirSync(path.dirname(SETTINGS_PATH()), { recursive: true })
   fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(merged, null, 2), 'utf8')
   return merged
 }
