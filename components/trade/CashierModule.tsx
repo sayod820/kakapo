@@ -979,13 +979,15 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** Постоянный пинг CAS R45F04; в поле — после STOP (±5 г, ~0.3 с), добавка тоже */
+  /** Постоянный пинг CAS; в поле после STOP (3 одинаковых г); добавка ≥5 г */
   const SCALE_ZERO_KG = 0.005
-  /** Шаг весов: изменение ≥ 5 г = новый вес / добавка */
+  /** Шаг весов: добавка / смена веса */
   const SCALE_DIVISION_G = 5
   const lastHeldKgRef = useRef(0)
   const scaleSawZeroRef = useRef(false)
   const lastCommittedGramsRef = useRef(0)
+  const liveSameGramsRef = useRef(-1)
+  const liveSameCountRef = useRef(0)
   const [scaleHolding, setScaleHolding] = useState(false)
   const [scaleMoving, setScaleMoving] = useState(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
@@ -1290,7 +1292,13 @@ export default function CashierModule({
     }).catch(() => undefined)
   }, [])
 
-  /** Пинг весов → live статус; в поле — после STOP (одинаковые г ~0.25 с); добавка ≥5 г */
+  /**
+   * Живой вес:
+   * 1) каждый ответ → статус (live)
+   * 2) 3 одинаковых грамма подряд ИЛИ payload.stable → STOP
+   * 3) в поле: первый / после снятия / изменение ≥5 г
+   * 4) ноль на весах → поле не трогаем (держим)
+   */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
@@ -1318,7 +1326,6 @@ export default function CashierModule({
     }
 
     const off = desk.onCasWeight(payload => {
-      // Каждый пинг — live в UI (подсказка / статус)
       setCasWeight(payload)
       if (!deskScaleLiveWeightRef.current) return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
@@ -1331,6 +1338,8 @@ export default function CashierModule({
       const empty = !(kg > SCALE_ZERO_KG)
 
       if (empty) {
+        liveSameGramsRef.current = 0
+        liveSameCountRef.current = 0
         setScaleMoving(false)
         if (prev > SCALE_ZERO_KG || lastCommittedGramsRef.current > 0) {
           scaleSawZeroRef.current = true
@@ -1339,14 +1348,20 @@ export default function CashierModule({
         return
       }
 
-      // Ещё качается — live уже в casWeight, поле не трогаем
-      if (!payload.stable) {
+      if (liveSameGramsRef.current === grams) {
+        liveSameCountRef.current += 1
+      } else {
+        liveSameGramsRef.current = grams
+        liveSameCountRef.current = 1
+      }
+
+      const stopped = payload.stable || liveSameCountRef.current >= 3
+      if (!stopped) {
         setScaleMoving(true)
         setScaleHolding(false)
         return
       }
 
-      // STOP: в кассу — первый вес / добавка ≥5 г / любое изменение ≥5 г / после снятия
       const afterRemove = scaleSawZeroRef.current
       const first = !(prev > SCALE_ZERO_KG) && lastCommittedGramsRef.current <= 0
       const deltaG = Math.abs(grams - lastCommittedGramsRef.current)
@@ -3266,6 +3281,8 @@ export default function CashierModule({
   function startWeightModalMonitor() {
     qtyEditIsWeightRef.current = true
     scaleSawZeroRef.current = false
+    liveSameGramsRef.current = -1
+    liveSameCountRef.current = 0
     setScaleHolding(false)
     setScaleMoving(false)
     if (casWeight.stable && casWeight.weightKg > SCALE_ZERO_KG) {
@@ -3280,6 +3297,8 @@ export default function CashierModule({
     lastHeldKgRef.current = 0
     lastCommittedGramsRef.current = 0
     scaleSawZeroRef.current = false
+    liveSameGramsRef.current = -1
+    liveSameCountRef.current = 0
     setScaleHolding(false)
     setScaleMoving(false)
   }
