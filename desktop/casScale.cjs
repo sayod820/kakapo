@@ -582,20 +582,21 @@ class CasWeightMonitor {
     this.busy = true
     try {
       const socket = await this.ensureSocket()
-      const resp = await writeAndReadWeight(socket, 900)
+      const resp = await writeAndReadWeight(socket, 350)
       const parsed = parseWeightResponse(resp)
       if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
 
       const kg = parsed.weightKg
-      // После смены веса один повтор = STOP (~80–160 мс)
-      const STABLE_NEEDED = 2
+      const prevEmit = this.lastEmitKg
+      const rising = prevEmit != null && kg > prevEmit + 0.0005
+      // Добавка веса: быстрее STOP (1 повтор). Иначе 2 повтора.
+      const STABLE_NEEDED = rising ? 1 : 2
       if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.0005) {
         this.stableCount += 1
       } else {
         this.stableCount = 0
       }
       this.lastRawKg = kg
-      // Пустая платформа — сразу «stable», чтобы касса быстро ждала новый товар
       const stable = kg === 0 || kg < 0.005 ? true : this.stableCount >= STABLE_NEEDED
 
       this.connected = true
@@ -612,7 +613,6 @@ class CasWeightMonitor {
         raw: parsed.raw,
         display: parsed.display || kg.toFixed(3),
       })
-      // После нуля сбрасываем счётчик — следующий вес быстрее станет STOP
       if (kg < 0.005) this.stableCount = 0
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)

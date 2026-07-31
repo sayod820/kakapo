@@ -979,10 +979,10 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** В поле — только STOP; после снятия сразу ждём новый вес (без долгого «думания») */
+  /** В поле — только STOP; добавка веса на платформе тоже обновляет кассу */
   const SCALE_ZERO_KG = 0.005
-  /** Разница ≥ 5 г = другой вес на том же товаре */
-  const SCALE_NEW_DELTA_KG = 0.005
+  /** Разница ≥ 1 г = вес изменился (добавка / другой кусок) */
+  const SCALE_NEW_DELTA_KG = 0.001
   const lastHeldKgRef = useRef(0)
   const scaleSawZeroRef = useRef(false)
   const [scaleHolding, setScaleHolding] = useState(false)
@@ -1290,7 +1290,7 @@ export default function CashierModule({
     }).catch(() => undefined)
   }, [])
 
-  /** Вес в кассу только на STOP. Снял → поставил другой — сразу новый вес, без паузы. */
+  /** STOP → в кассу. Добавка на весы (без снятия) тоже обновляет вес. */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
@@ -1325,7 +1325,7 @@ export default function CashierModule({
       const prev = lastHeldKgRef.current
       const empty = !(kg > SCALE_ZERO_KG)
 
-      // Сняли — цифру в поле оставляем, ждём новый STOP
+      // Сняли полностью — цифру оставляем, ждём новый STOP
       if (empty) {
         setScaleMoving(false)
         if (prev > SCALE_ZERO_KG) {
@@ -1335,7 +1335,7 @@ export default function CashierModule({
         return
       }
 
-      // Движение / рука — не пишем
+      // Движение / рука — ждём STOP (поле пока со старым весом)
       if (!payload.stable) {
         setScaleMoving(true)
         setScaleHolding(false)
@@ -1346,16 +1346,17 @@ export default function CashierModule({
       const next = Number(exact) || kg
       const afterRemove = scaleSawZeroRef.current
       const first = !(prev > SCALE_ZERO_KG)
+      const added = next > prev + SCALE_NEW_DELTA_KG - 1e-9   // добавили вес сверху
       const changed = Math.abs(next - prev) >= SCALE_NEW_DELTA_KG
 
-      // Тот же вес уже стоит — ничего не делаем
-      if (!afterRemove && !first && !changed) {
+      // Тот же вес — ничего
+      if (!afterRemove && !first && !added && !changed) {
         setScaleMoving(false)
         setScaleHolding(false)
         return
       }
 
-      // Новый / после снятия / добавка — сразу как на дисплее весов
+      // Первый / после снятия / добавка / другой вес
       applyExact(payload, kg)
     })
     return () => { off() }
@@ -6173,7 +6174,7 @@ export default function CashierModule({
                       ? (scaleMoving
                         ? 'Весы движутся · ждём остановки…'
                         : scaleHolding
-                        ? 'Вес сохранён · можно подтвердить или поставить другой'
+                          ? 'Вес сохранён · можно добавить ещё или подтвердить'
                           : (casWeight.connected
                             ? ((casWeight.grams || 0) > 0
                               ? (casWeight.stable
