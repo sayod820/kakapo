@@ -979,8 +979,8 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** Постоянный пинг CAS; в поле после STOP (3 одинаковых г); добавка ≥5 г */
-  const SCALE_ZERO_KG = 0.005
+  /** Постоянный пинг CAS; live в поле; фиксация после 2 одинаковых г; добавка ≥5 г */
+  const SCALE_ZERO_KG = 0.002
   /** Шаг весов: добавка / смена веса */
   const SCALE_DIVISION_G = 5
   const lastHeldKgRef = useRef(0)
@@ -1294,10 +1294,10 @@ export default function CashierModule({
 
   /**
    * Живой вес:
-   * 1) каждый ответ → статус (live)
-   * 2) 3 одинаковых грамма подряд ИЛИ payload.stable → STOP
-   * 3) в поле: первый / после снятия / изменение ≥5 г
-   * 4) ноль на весах → поле не трогаем (держим)
+   * 1) каждый ответ → статус + live в поле (пока кладут)
+   * 2) 2 одинаковых грамма / stable → фиксируем
+   * 3) ноль → поле не очищаем
+   * 4) добавка ≥5 г → обновляем
    */
   useEffect(() => {
     if (!isKakapoDesktop()) return
@@ -1313,14 +1313,19 @@ export default function CashierModule({
       return kg.toFixed(3)
     }
 
-    const commitToField = (payload: CasWeightEvent, kg: number) => {
+    const commitToField = (payload: CasWeightEvent, kg: number, opts?: { live?: boolean }) => {
       const exact = exactFromScale(payload)
       const grams = Math.round((Number(exact) || kg) * 1000)
+      setQtyEditMode('qty')
+      setQtyEditBuf(exact)
+      if (opts?.live) {
+        setScaleMoving(true)
+        setScaleHolding(false)
+        return
+      }
       lastHeldKgRef.current = Number(exact) || kg
       lastCommittedGramsRef.current = grams
       scaleSawZeroRef.current = false
-      setQtyEditMode('qty')
-      setQtyEditBuf(exact)
       setScaleMoving(false)
       setScaleHolding(false)
     }
@@ -1355,10 +1360,11 @@ export default function CashierModule({
         liveSameCountRef.current = 1
       }
 
-      const stopped = payload.stable || liveSameCountRef.current >= 3
+      const stopped = payload.stable || liveSameCountRef.current >= 2
+
+      // Пока качается — сразу видно вес в поле
       if (!stopped) {
-        setScaleMoving(true)
-        setScaleHolding(false)
+        commitToField(payload, kg, { live: true })
         return
       }
 
@@ -1369,8 +1375,8 @@ export default function CashierModule({
       const changed = deltaG >= SCALE_DIVISION_G
 
       if (!afterRemove && !first && !added && !changed) {
-        setScaleMoving(false)
-        setScaleHolding(false)
+        // Тот же вес — всё равно синхронизируем отображение
+        commitToField(payload, kg)
         return
       }
 
@@ -5173,7 +5179,7 @@ export default function CashierModule({
                                     })
                                     showToast(
                                       'CAS',
-                                      `OK ${host}:${port} · ${res.grams} г (${res.weightKg.toFixed(3)} кг)`,
+                                      `OK ${host}:${port} · ${res.grams} г (${res.weightKg.toFixed(3)} кг)${res.raw ? ` · ${String(res.raw).replace(/\s+/g, ' ').slice(0, 48)}` : ''}`,
                                     )
                                     if (deskScaleLiveWeight) {
                                       await desk.startCasWeight?.({ host, port })
