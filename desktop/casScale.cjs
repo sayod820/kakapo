@@ -133,16 +133,16 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
   })
 }
 
-/** Ответ веса готов по формату CAS: W=значение. затем P= или конец */
+/** Ответ веса готов: есть W=… и конец поля (P= / точка-терминатор / перевод строки). */
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  // Нельзя закрывать кадр на W=0.25 из ещё идущего W=0.255.
-  // Терминатор поля — точка ПОСЛЕ значения (не десятичный разделитель).
-  if (/W\s*=\s*-?\d+[.,]\d+\s*\.(?:\s*(?:P\s*=)|[A-Za-z]|\r|\n|$)/i.test(text)) return true
-  // Целые граммы W=0255. — точка не должна быть десятичной (после неё не цифра)
-  if (/W\s*=\s*-?\d+\s*\.(?!\d)(?:\s*(?:P\s*=)|[A-Za-z]|\r|\n|$)/i.test(text)) return true
-  if (/W\s*=\s*-?\d+[.,]\d+\s*,\s*P\s*=/i.test(text)) return true
-  if (/(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d+/i.test(text)) return true
+  // Самый частый полный кадр: W=…P=
+  if (/W\s*=\s*-?\d+(?:[.,]\d+)?\s*[.,;:\s]*P\s*=/i.test(text)) return true
+  // Терминатор «.» после десятичного значения: W=0.255. или W=0,255. (не путать с 0.25↑)
+  if (/W\s*=\s*-?\d+[.,]\d+\.(?!\d)/i.test(text)) return true
+  // Целые граммы: W=0255.
+  if (/W\s*=\s*-?\d+\.(?!\d)/i.test(text)) return true
+  if (/(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d/i.test(text)) return true
   return false
 }
 
@@ -158,7 +158,7 @@ function drainSocket(socket) {
   } catch { /* ignore */ }
 }
 
-function writeAndReadWeight(socket, timeoutMs = 400) {
+function writeAndReadWeight(socket, timeoutMs = 500) {
   return new Promise((resolve, reject) => {
     drainSocket(socket)
     const chunks = []
@@ -168,7 +168,7 @@ function writeAndReadWeight(socket, timeoutMs = 400) {
       if (settled) return
       const buf = Buffer.concat(chunks)
       const text = buf.toString('latin1')
-      // Не отдаём обрезанный W=0.25 — иначе касса пишет неверный вес
+      // На таймауте берём только полный кадр (с P= или терминатором)
       if (buf.length > 0 && isWeightFrameComplete(text)) {
         settled = true
         cleanup()
@@ -177,7 +177,7 @@ function writeAndReadWeight(socket, timeoutMs = 400) {
       }
       cleanup()
       settled = true
-      reject(new Error('Нет ответа от весов CAS'))
+      reject(new Error(buf.length ? 'Неполный ответ весов CAS' : 'Нет ответа от весов CAS'))
     }, timeoutMs)
 
     function finish() {
@@ -193,8 +193,7 @@ function writeAndReadWeight(socket, timeoutMs = 400) {
       if (isWeightFrameComplete(buf)) {
         clearTimeout(timer)
         if (settleTimer) clearTimeout(settleTimer)
-        // Дождаться хвоста P=… (полный кадр), но не тормозить пинг
-        settleTimer = setTimeout(finish, 25)
+        settleTimer = setTimeout(finish, 30)
       }
     }
     function onErr(e) {
@@ -303,28 +302,24 @@ function parseWeightResponse(buf) {
   let wToken = null
   let fromHex = false
 
-  // Полное поле с терминатором «.» после значения (не путать с «0.» в 0.255)
-  const dottedDec = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)\s*\.(?!\d)/gi)]
-  if (dottedDec.length) {
-    wToken = dottedDec[dottedDec.length - 1][1]
-  }
+  // 1) W=… прямо перед P= (полный кадр Network Manual)
+  const withP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)\s*[.,;:\s]*P\s*=/gi)]
+  if (withP.length) wToken = withP[withP.length - 1][1]
 
+  // 2) Поле с терминатором «.» после значения: W=0.255. / W=0255.
   if (!wToken) {
-    const dottedInt = [...text.matchAll(/W\s*=\s*([+-]?\d+)\s*\.(?!\d)/gi)]
+    const dottedDec = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)\.(?!\d)/gi)]
+    if (dottedDec.length) wToken = dottedDec[dottedDec.length - 1][1]
+  }
+  if (!wToken) {
+    const dottedInt = [...text.matchAll(/W\s*=\s*([+-]?\d+)\.(?!\d)/gi)]
     if (dottedInt.length) wToken = dottedInt[dottedInt.length - 1][1]
   }
 
-  // Без терминатора — только если кадр уже похож на полный (есть P=) или целое без точки
-  if (!wToken) {
-    const withP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)\s*[,.]?\s*P\s*=/gi)]
-    if (withP.length) wToken = withP[withP.length - 1][1]
-  }
-
-  if (!wToken) {
-    const wAll = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)/gi)]
-    if (wAll.length && isWeightFrameComplete(text)) {
-      wToken = wAll[wAll.length - 1][1]
-    }
+  // 3) Последний десятичный W= только если кадр уже полный
+  if (!wToken && isWeightFrameComplete(text)) {
+    const wAll = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)/gi)]
+    if (wAll.length) wToken = wAll[wAll.length - 1][1]
   }
 
   // Hex-граммы только при A–F: W=00FF.
@@ -437,16 +432,17 @@ async function readLiveWeight(opts) {
 }
 
 /**
- * Фоновый монитор веса: постоянный пинг ~8 Гц (как A/D весов).
- * Live вес каждый ответ; stable=true после ~300 мс в пределах шага 5 г.
+ * Фоновый монитор веса: постоянный пинг ~8 Гц.
+ * Live вес каждый ответ; stable=true когда граммы не менялись ~250 мс (одинаковый отсчёт).
+ * Шаг 5 г используется только в кассе для «добавка / новый вес».
  */
 class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
-    this.intervalMs = 125
-    this.readTimeoutMs = 280
-    this.settleMs = 300
+    this.intervalMs = 120
+    this.readTimeoutMs = 450
+    this.settleMs = 250
     this.divisionG = DEFAULT_DIVISION_G
     this.socket = null
     this.timer = null
@@ -492,10 +488,10 @@ class CasWeightMonitor {
     const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(100, Math.min(250, Number(opts.intervalMs) || 125))
-    this.readTimeoutMs = Math.max(200, Math.min(500, Number(opts.readTimeoutMs) || 280))
-    // ~2–3 цикла A/D (8 Гц) — как кассы ждут стабилизацию
-    this.settleMs = Math.max(200, Math.min(600, Number(opts.settleMs) || 300))
+    this.intervalMs = Math.max(100, Math.min(250, Number(opts.intervalMs) || 120))
+    this.readTimeoutMs = Math.max(250, Math.min(800, Number(opts.readTimeoutMs) || 450))
+    // 2–3 одинаковых отсчёта подряд (~250 мс)
+    this.settleMs = Math.max(150, Math.min(600, Number(opts.settleMs) || 250))
     this.divisionG = Math.max(1, Math.min(10, Number(opts.divisionG) || DEFAULT_DIVISION_G))
     this.running = true
     this.lastError = ''
@@ -590,13 +586,11 @@ class CasWeightMonitor {
     }, delay == null ? this.intervalMs : delay)
   }
 
-  /** STOP: вес не менялся дольше settleMs в пределах шага весов (5 г) */
+  /** STOP: одни и те же граммы без изменения дольше settleMs */
   noteSample(kg) {
     const now = Date.now()
     const g = Math.round((Number(kg) || 0) * 1000)
-    const prev = this.settleGrams
-    const div = this.divisionG || DEFAULT_DIVISION_G
-    if (prev == null || Math.abs(g - prev) >= div) {
+    if (this.settleGrams == null || this.settleGrams !== g) {
       this.settleGrams = g
       this.settleSince = now
       return false
@@ -608,8 +602,7 @@ class CasWeightMonitor {
     if (!(kg > 0.0005)) return true
     if (this.settleGrams == null) return false
     const g = Math.round(kg * 1000)
-    const div = this.divisionG || DEFAULT_DIVISION_G
-    if (Math.abs(g - this.settleGrams) >= div) return false
+    if (g !== this.settleGrams) return false
     return Date.now() - this.settleSince >= this.settleMs
   }
 
@@ -670,10 +663,15 @@ class CasWeightMonitor {
       })
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)
-      this.connected = false
-      this.destroySocket()
+      const fatal = /ECONN|ECONNRESET|EPIPE|ETIMEDOUT|EHOST|ENET|closed|destroy|отказа|connect/i.test(this.lastError)
+        || !this.socket
+        || this.socket.destroyed
+      if (fatal) {
+        this.connected = false
+        this.destroySocket()
+      }
       this.emit({
-        connected: false,
+        connected: this.connected,
         weightKg: this.lastEmitKg || 0,
         grams: Math.round((this.lastEmitKg || 0) * 1000),
         stable: false,

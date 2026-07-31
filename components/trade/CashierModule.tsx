@@ -1290,7 +1290,7 @@ export default function CashierModule({
     }).catch(() => undefined)
   }, [])
 
-  /** Пинг весов → live статус; в поле — после STOP (±5 г, ~0.3 с), в т.ч. добавка сверху. */
+  /** Пинг весов → live статус; в поле — после STOP (одинаковые г ~0.25 с); добавка ≥5 г */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
