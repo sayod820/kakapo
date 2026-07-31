@@ -123,6 +123,8 @@ export type KakapoDesktopApi = {
     host?: string
     port?: number
     timeoutMs?: number
+    /** true = новый TCP, не читать кэш монитора (для теста) */
+    fresh?: boolean
   }) => Promise<{
     ok: boolean
     host: string

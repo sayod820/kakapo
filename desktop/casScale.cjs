@@ -16,7 +16,13 @@ const net = require('net')
 const iconv = require('iconv-lite')
 
 const PLU_SIZE = 148
-const WEIGHT_CMD = Buffer.from('R45F04,00\n', 'ascii')
+/** Варианты команды живого веса — разные прошивки CL ждут разный конец строки */
+const WEIGHT_CMDS = [
+  Buffer.from('R45F04,00\n', 'ascii'),
+  Buffer.from('R45F04,00\r\n', 'ascii'),
+  Buffer.from('R45F04,00\r', 'ascii'),
+  Buffer.from('R45F04\n', 'ascii'),
+]
 /** Шаг весов точки (г) — только для «добавка», не для STOP */
 const DEFAULT_DIVISION_G = 5
 
@@ -135,18 +141,19 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
 }
 
 /**
- * Кадр готов только когда есть W=… и P=… (полный ответ Network Manual).
- * Иначе на «W=3» из «W=3.250» / «W=350» касса ошибочно показывает 3 г.
+ * Кадр готов: W=число и (P= или точка-терминатор после десятичного веса).
  */
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  return /W\s*=\s*-?\d+(?:[.,]\d+)?[\s.,;:]*P\s*=/i.test(text)
+  if (/W\s*=\s*-?\d+(?:[.,]\d+)?[\s.,;:]*P\s*=/i.test(text)) return true
+  if (/W\s*=\s*-?\d+[.,]\d+\.(?!\d)/i.test(text)) return true
+  return false
 }
 
 /**
- * Один запрос веса. Закрываем чтение ТОЛЬКО после W=…P=.
+ * Один запрос веса. Не закрываем на обрезок «W=3» — ждём P= / полное десятичное / тишину 200 мс.
  */
-function writeAndReadWeight(socket, timeoutMs = 1200) {
+function writeAndReadWeight(socket, timeoutMs = 1500, cmd = WEIGHT_CMDS[0]) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let settled = false
@@ -154,18 +161,15 @@ function writeAndReadWeight(socket, timeoutMs = 1200) {
     const timer = setTimeout(() => {
       if (settled) return
       const buf = Buffer.concat(chunks)
-      const text = buf.toString('latin1')
-      if (isWeightFrameComplete(text)) {
+      if (buf.length > 0 && /W\s*=/i.test(buf.toString('latin1'))) {
         finish()
         return
       }
       cleanup()
       settled = true
-      reject(new Error(
-        buf.length
-          ? `Неполный ответ весов: ${text.slice(0, 80)}`
-          : 'Нет ответа от весов CAS',
-      ))
+      reject(new Error(buf.length
+        ? `Неполный ответ весов: ${buf.toString('latin1').slice(0, 80)}`
+        : 'Нет ответа от весов CAS'))
     }, timeoutMs)
 
     function finish() {
@@ -180,7 +184,10 @@ function writeAndReadWeight(socket, timeoutMs = 1200) {
       const text = Buffer.concat(chunks).toString('latin1')
       if (quietTimer) clearTimeout(quietTimer)
       if (isWeightFrameComplete(text)) {
-        quietTimer = setTimeout(finish, 30)
+        quietTimer = setTimeout(finish, 40)
+      } else if (/W\s*=\s*-?\d/i.test(text)) {
+        // Есть цифры — ждём остаток кадра (не 80 мс!)
+        quietTimer = setTimeout(finish, 220)
       }
     }
     function onErr(e) {
@@ -199,7 +206,7 @@ function writeAndReadWeight(socket, timeoutMs = 1200) {
 
     socket.on('data', onData)
     socket.on('error', onErr)
-    socket.write(WEIGHT_CMD)
+    socket.write(cmd)
   })
 }
 
@@ -278,22 +285,29 @@ async function syncCasPlu(opts) {
 }
 
 /**
- * Разбор R45F04: только поле W= перед P= (полный кадр).
+ * Разбор R45F04.
  * Пример: W45F04,00L0016:W=0.255.P=6.50.
  */
 function parseWeightResponse(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
   const raw = text.slice(0, 240)
 
-  // Только W=…P= — не берём обрезок W=3 из W=3.250 / W=350
-  const beforeP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)\s*[.,;:\s]*P\s*=/gi)]
-  let wToken = beforeP.length ? beforeP[beforeP.length - 1][1] : null
+  let wToken = null
   let fromHex = false
 
+  const beforeP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)\s*[.,;:\s]*P\s*=/gi)]
+  if (beforeP.length) wToken = beforeP[beforeP.length - 1][1]
+
   if (!wToken) {
-    return { ok: false, weightKg: 0, grams: 0, price: null, raw, error: 'Нет полного W=…P= в ответе' }
+    const dotted = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)\.(?!\d)/gi)]
+    if (dotted.length) wToken = dotted[dotted.length - 1][1]
   }
 
+  if (!wToken) {
+    return { ok: false, weightKg: 0, grams: 0, price: null, raw, error: 'Нет поля W= в ответе весов' }
+  }
+
+  // Hex только при A–F: W=00FF.
   if (/^[0-9A-Fa-f]+$/i.test(wToken) && /[A-Fa-f]/.test(wToken) && !/[.,]/.test(wToken)) {
     const gramsHex = parseInt(wToken, 16)
     if (Number.isFinite(gramsHex)) {
@@ -306,13 +320,11 @@ function parseWeightResponse(buf) {
   let weightKg = Number(rawW)
   if (!Number.isFinite(weightKg)) weightKg = 0
 
-  // Целое без точки: граммы только если похоже на граммы (0255 / 255), не «3» кг
   if (!fromHex && !rawW.includes('.')) {
     const digits = rawW.replace(/^[+-]/, '')
     if (/^0\d+$/.test(digits) || digits.length >= 3) {
       weightKg = weightKg / 1000
     }
-    // 1–2 цифры без точки при P= — считаем кг (редко); обычно CAS шлёт 0.xxx
   }
 
   weightKg = Math.round(weightKg * 1000) / 1000
@@ -358,19 +370,20 @@ function toWeightResult(parsed, host, port) {
 }
 
 /**
- * Однократное чтение веса по указанному IP/порту.
- * Если монитор сидит на ДРУГОМ адресе — сначала переключаем его (у CAS часто 1 TCP).
- * @param {{ host: string, port?: number, timeoutMs?: number }} opts
+ * Свежее чтение веса (для теста всегда fresh=true — новый TCP, не кэш монитора).
+ * @param {{ host: string, port?: number, timeoutMs?: number, fresh?: boolean }} opts
  */
 async function readLiveWeight(opts) {
   const host = String(opts.host || '').trim()
   const port = Number(opts.port) || 20304
-  const timeoutMs = Number(opts.timeoutMs) || 4000
+  const timeoutMs = Number(opts.timeoutMs) || 5000
+  const fresh = opts.fresh !== false
   if (!host) throw new Error('Укажите IP весов CAS')
 
-  // Монитор уже на этом IP — читаем через него
+  // Через монитор — только если явно не fresh и тот же IP
   if (
-    weightMonitor.running
+    !fresh
+    && weightMonitor.running
     && weightMonitor.host === host
     && weightMonitor.port === port
     && weightMonitor.socket
@@ -380,28 +393,41 @@ async function readLiveWeight(opts) {
     return toWeightResult(snap, host, port)
   }
 
-  // Другой IP или монитор выключен: освобождаем старое соединение и читаем напрямую
   const wasRunning = weightMonitor.running
   if (wasRunning) {
     await weightMonitor.stop()
-    await sleep(200)
+    await sleep(300)
   }
 
   try {
     const socket = await tcpConnect(host, port, timeoutMs)
     try {
-      const resp = await writeAndReadWeight(socket, timeoutMs)
+      let resp
+      let lastErr = null
+      for (const cmd of WEIGHT_CMDS) {
+        try {
+          resp = await writeAndReadWeight(socket, timeoutMs, cmd)
+          if (resp && /W\s*=/i.test(resp.toString('latin1'))) break
+        } catch (e) {
+          lastErr = e
+          resp = null
+        }
+      }
+      if (!resp) throw lastErr || new Error('Нет ответа от весов CAS')
+
       const parsed = parseWeightResponse(resp)
-      if (!parsed.ok) throw new Error(parsed.error || 'Не удалось разобрать вес')
+      if (!parsed.ok) {
+        const err = new Error(parsed.error || 'Не удалось разобрать вес')
+        err.raw = parsed.raw
+        throw err
+      }
       return toWeightResult(parsed, host, port)
     } finally {
       try { socket.destroy() } catch { /* ignore */ }
     }
   } finally {
     if (wasRunning) {
-      try {
-        await weightMonitor.start({ host, port })
-      } catch { /* монитор поднимет UI / следующий старт */ }
+      try { await weightMonitor.start({ host, port }) } catch { /* ignore */ }
     }
   }
 }

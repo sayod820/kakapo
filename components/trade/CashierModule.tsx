@@ -5131,8 +5131,9 @@ export default function CashierModule({
                                 ? `Нет связи (${deskScaleHost.trim() || 'нет IP'}:${deskScalePort || 20304}): ${casWeight.error}`
                                 : `Нет связи с весами${deskScaleHost.trim() ? ` · ${deskScaleHost.trim()}:${deskScalePort || 20304}` : ' · укажите IP'}`)}
                             <div className="pos-settings-net-hint">
-                              После смены IP нажмите <b>Тест связи</b> или <b>Сохранить</b> — иначе остаётся старое подключение.
-                              ПК и весы в одной сети (часто весы <b>192.168.1.10:20304</b>).
+                              Важно: положите товар на весы, подождите 1–2 сек, потом нажмите <b>Тест связи</b>.
+                              В тосте будет <b>RAW</b> (ответ весов). Если на дисплее CAS есть вес, а в RAW
+                              <code> W=0.000</code> — весы по сети не отдают живой вес (настройка/прошивка CAS).
                             </div>
                           </div>
 
@@ -5163,8 +5164,13 @@ export default function CashierModule({
                                     const res = await desk.readCasWeight({
                                       host,
                                       port,
-                                      timeoutMs: 5000,
+                                      timeoutMs: 6000,
+                                      fresh: true,
                                     })
+                                    const rawShort = String(res.raw || '')
+                                      .replace(/\r/g, '\\r')
+                                      .replace(/\n/g, '\\n')
+                                      .slice(0, 70)
                                     setCasWeight({
                                       connected: true,
                                       running: !!deskScaleLiveWeight,
@@ -5175,11 +5181,12 @@ export default function CashierModule({
                                       price: res.price,
                                       stable: true,
                                       error: '',
+                                      raw: res.raw,
                                       ts: res.ts,
                                     })
                                     showToast(
-                                      'CAS',
-                                      `OK ${host}:${port} · ${res.grams} г (${res.weightKg.toFixed(3)} кг)${res.raw ? ` · ${String(res.raw).replace(/\s+/g, ' ').slice(0, 48)}` : ''}`,
+                                      'CAS тест',
+                                      `${res.grams} г · ${res.weightKg.toFixed(3)} кг · RAW: ${rawShort || '—'}`,
                                     )
                                     if (deskScaleLiveWeight) {
                                       await desk.startCasWeight?.({ host, port })

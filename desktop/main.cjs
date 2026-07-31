@@ -922,7 +922,13 @@ app.whenReady().then(async () => {
     const settings = loadPrinterSettings()
     const host = String(payload?.host || settings.scaleHost || '').trim()
     const port = Number(payload?.port || settings.scalePort) || 20304
-    return readLiveWeight({ host, port, timeoutMs: payload?.timeoutMs })
+    // Тест всегда fresh: новый TCP, не старый кэш монитора
+    return readLiveWeight({
+      host,
+      port,
+      timeoutMs: payload?.timeoutMs || 5000,
+      fresh: payload?.fresh !== false,
+    })
   })
 
   ipcMain.handle('desktop:getCasWeightStatus', () => ({
