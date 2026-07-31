@@ -147,7 +147,7 @@ function drainSocket(socket) {
   } catch { /* ignore */ }
 }
 
-function writeAndReadWeight(socket, timeoutMs = 600) {
+function writeAndReadWeight(socket, timeoutMs = 400) {
   return new Promise((resolve, reject) => {
     drainSocket(socket)
     const chunks = []
@@ -180,8 +180,8 @@ function writeAndReadWeight(socket, timeoutMs = 600) {
       if (isWeightFrameComplete(buf)) {
         clearTimeout(timer)
         if (settleTimer) clearTimeout(settleTimer)
-        // Короткий хвост P=…, без лишней задержки
-        settleTimer = setTimeout(finish, 8)
+        // Дождаться хвоста P=… (полный кадр), но не тормозить пинг
+        settleTimer = setTimeout(finish, 25)
       }
     }
     function onErr(e) {
@@ -413,13 +413,16 @@ async function readLiveWeight(opts) {
 }
 
 /**
- * Фоновый монитор веса: опрос ~10 Гц, одно TCP-соединение.
+ * Фоновый монитор веса: постоянный пинг ~6–7 раз/сек.
+ * Каждый ответ → live вес. stable=true когда вес не менялся ~250 мс (в т.ч. после добавки).
  */
 class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
-    this.intervalMs = 80
+    this.intervalMs = 150
+    this.readTimeoutMs = 280
+    this.settleMs = 250
     this.socket = null
     this.timer = null
     this.busy = false
@@ -427,10 +430,12 @@ class CasWeightMonitor {
     this.onUpdate = null
     this.lastError = ''
     this.connected = false
-    this.stableCount = 0
     this.lastRawKg = null
     this.lastEmitKg = null
     this.lastParsed = null
+    /** кг, с которого идёт «тишина» */
+    this.settleKg = null
+    this.settleSince = 0
   }
 
   setListener(fn) {
@@ -462,19 +467,21 @@ class CasWeightMonitor {
     const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(60, Math.min(300, Number(opts.intervalMs) || 80))
+    this.intervalMs = Math.max(100, Math.min(300, Number(opts.intervalMs) || 150))
+    this.readTimeoutMs = Math.max(200, Math.min(500, Number(opts.readTimeoutMs) || 280))
+    this.settleMs = Math.max(150, Math.min(500, Number(opts.settleMs) || 250))
     this.running = true
     this.lastError = ''
 
     if (!same) {
-      this.stableCount = 0
+      this.settleKg = null
+      this.settleSince = 0
       await this.ensureSocket()
     }
 
-    // Сразу читаем, но stable=false — в кассу вес попадёт только после остановки
     try {
       const snap = await this.readOnce()
-      this.stableCount = 0
+      this.noteSample(snap.weightKg)
       this.emit({
         connected: true,
         weightKg: snap.weightKg,
@@ -511,7 +518,13 @@ class CasWeightMonitor {
       await sleep(30)
     }
     this.destroySocket()
-    this.emit({ connected: false, running: false, weightKg: this.lastEmitKg || 0, grams: Math.round((this.lastEmitKg || 0) * 1000) })
+    this.emit({
+      connected: false,
+      running: false,
+      weightKg: this.lastEmitKg || 0,
+      grams: Math.round((this.lastEmitKg || 0) * 1000),
+      stable: false,
+    })
     return { ok: true, running: false }
   }
 
@@ -550,8 +563,29 @@ class CasWeightMonitor {
     }, delay == null ? this.intervalMs : delay)
   }
 
+  /** Обновить окно «тишины» для STOP */
+  noteSample(kg) {
+    const now = Date.now()
+    const g = Math.round((Number(kg) || 0) * 1000)
+    const prevG = this.settleKg == null ? null : Math.round(this.settleKg * 1000)
+    if (prevG == null || Math.abs(g - prevG) > 0) {
+      this.settleKg = g / 1000
+      this.settleSince = now
+      return false
+    }
+    return now - this.settleSince >= this.settleMs
+  }
+
+  isStableNow(kg) {
+    if (!(kg > 0.0005)) return true
+    if (this.settleKg == null) return false
+    const g = Math.round(kg * 1000)
+    const sg = Math.round(this.settleKg * 1000)
+    if (g !== sg) return false
+    return Date.now() - this.settleSince >= this.settleMs
+  }
+
   async readOnce() {
-    // Ждём освобождения текущего опроса, чтобы не слать 2 команды сразу
     const started = Date.now()
     while (this.busy && Date.now() - started < 1500) {
       await new Promise(r => setTimeout(r, 20))
@@ -559,7 +593,7 @@ class CasWeightMonitor {
     this.busy = true
     try {
       const socket = await this.ensureSocket()
-      const resp = await writeAndReadWeight(socket, 1200)
+      const resp = await writeAndReadWeight(socket, Math.max(this.readTimeoutMs, 400))
       const parsed = parseWeightResponse(resp)
       if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
       this.connected = true
@@ -580,28 +614,21 @@ class CasWeightMonitor {
       return
     }
     this.busy = true
+    const tickStarted = Date.now()
     try {
       const socket = await this.ensureSocket()
-      const resp = await writeAndReadWeight(socket, 350)
+      const resp = await writeAndReadWeight(socket, this.readTimeoutMs)
       const parsed = parseWeightResponse(resp)
       if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
 
       const kg = parsed.weightKg
-      const prevEmit = this.lastEmitKg
-      const rising = prevEmit != null && kg > prevEmit + 0.0005
-      // Добавка веса: быстрее STOP (1 повтор). Иначе 2 повтора.
-      const STABLE_NEEDED = rising ? 1 : 2
-      if (this.lastRawKg != null && Math.abs(this.lastRawKg - kg) <= 0.0005) {
-        this.stableCount += 1
-      } else {
-        this.stableCount = 0
-      }
-      this.lastRawKg = kg
-      const stable = kg === 0 || kg < 0.005 ? true : this.stableCount >= STABLE_NEEDED
+      this.noteSample(kg)
+      const stable = this.isStableNow(kg)
 
       this.connected = true
       this.lastError = ''
       this.lastEmitKg = kg
+      this.lastRawKg = kg
       this.lastParsed = parsed
       this.emit({
         connected: true,
@@ -613,7 +640,6 @@ class CasWeightMonitor {
         raw: parsed.raw,
         display: parsed.display || kg.toFixed(3),
       })
-      if (kg < 0.005) this.stableCount = 0
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)
       this.connected = false
@@ -627,7 +653,10 @@ class CasWeightMonitor {
       })
     } finally {
       this.busy = false
-      this.schedule(this.intervalMs)
+      // Держим ритм пинга: следующий тик не раньше intervalMs от старта текущего
+      const elapsed = Date.now() - tickStarted
+      const wait = Math.max(40, this.intervalMs - elapsed)
+      this.schedule(wait)
     }
   }
 }

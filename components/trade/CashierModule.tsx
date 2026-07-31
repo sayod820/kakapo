@@ -979,14 +979,13 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** В поле — только STOP; добавка веса на платформе тоже обновляет кассу */
+  /** Постоянный пинг весов: live в статусе; в поле — после ~0.25 с без изменения (добавка тоже) */
   const SCALE_ZERO_KG = 0.005
-  /** Разница ≥ 1 г = вес изменился (добавка / другой кусок) */
   const SCALE_NEW_DELTA_KG = 0.001
   const lastHeldKgRef = useRef(0)
   const scaleSawZeroRef = useRef(false)
+  const lastCommittedGramsRef = useRef(0)
   const [scaleHolding, setScaleHolding] = useState(false)
-  /** true = весы ещё качаются / рука на платформе */
   const [scaleMoving, setScaleMoving] = useState(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
   const [receiptTemplateDraft, setReceiptTemplateDraft] = useState<ReceiptStoreConfig>(() => ({
@@ -1290,13 +1289,12 @@ export default function CashierModule({
     }).catch(() => undefined)
   }, [])
 
-  /** STOP → в кассу. Добавка на весы (без снятия) тоже обновляет вес. */
+  /** Пинг весов → live статус; в поле чека — когда вес стоял ~0.25 с (в т.ч. добавка сверху). */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
     if (!desk?.onCasWeight) return
 
-    /** Точное значение как на экране CAS: целые граммы → кг с 3 знаками */
     const exactFromScale = (payload: CasWeightEvent) => {
       const grams = Number(payload.grams)
       if (Number.isFinite(grams) && grams >= 0) {
@@ -1306,9 +1304,11 @@ export default function CashierModule({
       return kg.toFixed(3)
     }
 
-    const applyExact = (payload: CasWeightEvent, kg: number) => {
+    const commitToField = (payload: CasWeightEvent, kg: number) => {
       const exact = exactFromScale(payload)
+      const grams = Math.round((Number(exact) || kg) * 1000)
       lastHeldKgRef.current = Number(exact) || kg
+      lastCommittedGramsRef.current = grams
       scaleSawZeroRef.current = false
       setQtyEditMode('qty')
       setQtyEditBuf(exact)
@@ -1317,47 +1317,48 @@ export default function CashierModule({
     }
 
     const off = desk.onCasWeight(payload => {
+      // Каждый пинг — live в UI (подсказка / статус)
       setCasWeight(payload)
       if (!deskScaleLiveWeightRef.current) return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
 
       const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
+      const grams = Number.isFinite(Number(payload.grams))
+        ? Math.round(Number(payload.grams))
+        : Math.round(kg * 1000)
       const prev = lastHeldKgRef.current
       const empty = !(kg > SCALE_ZERO_KG)
 
-      // Сняли полностью — цифру оставляем, ждём новый STOP
       if (empty) {
         setScaleMoving(false)
-        if (prev > SCALE_ZERO_KG) {
+        if (prev > SCALE_ZERO_KG || lastCommittedGramsRef.current > 0) {
           scaleSawZeroRef.current = true
           setScaleHolding(true)
         }
         return
       }
 
-      // Движение / рука — ждём STOP (поле пока со старым весом)
+      // Ещё качается — live уже в casWeight, поле не трогаем
       if (!payload.stable) {
         setScaleMoving(true)
         setScaleHolding(false)
         return
       }
 
-      const exact = exactFromScale(payload)
-      const next = Number(exact) || kg
+      // STOP (~0.25 с одно и то же): пишем в кассу, если новый / добавка / после снятия
       const afterRemove = scaleSawZeroRef.current
-      const first = !(prev > SCALE_ZERO_KG)
-      const added = next > prev + SCALE_NEW_DELTA_KG - 1e-9   // добавили вес сверху
-      const changed = Math.abs(next - prev) >= SCALE_NEW_DELTA_KG
+      const first = !(prev > SCALE_ZERO_KG) && lastCommittedGramsRef.current <= 0
+      const added = grams > lastCommittedGramsRef.current
+      const changed = Math.abs(grams - lastCommittedGramsRef.current) >= 1
+        || Math.abs(kg - prev) >= SCALE_NEW_DELTA_KG
 
-      // Тот же вес — ничего
       if (!afterRemove && !first && !added && !changed) {
         setScaleMoving(false)
         setScaleHolding(false)
         return
       }
 
-      // Первый / после снятия / добавка / другой вес
-      applyExact(payload, kg)
+      commitToField(payload, kg)
     })
     return () => { off() }
   }, [])
@@ -3253,6 +3254,7 @@ export default function CashierModule({
     if (!(g > 0)) return
     const exact = (g / 1000).toFixed(3)
     lastHeldKgRef.current = g / 1000
+    lastCommittedGramsRef.current = g
     scaleSawZeroRef.current = false
     setScaleHolding(false)
     setScaleMoving(false)
@@ -3265,24 +3267,20 @@ export default function CashierModule({
     scaleSawZeroRef.current = false
     setScaleHolding(false)
     setScaleMoving(false)
-    // Уже стабильный вес с монитора — сразу в поле; иначе ждём STOP
     if (casWeight.stable && casWeight.weightKg > SCALE_ZERO_KG) {
       applyScaleKgToModal(casWeight.weightKg, casWeight.grams)
     }
     if (!liveWeightEnabled()) return
-    void (async () => {
-      await ensureCasWeightMonitor(true)
-      // Не пишем одиночное чтение — только стабильные события монитора
-    })()
+    void ensureCasWeightMonitor(true)
   }
 
   function stopWeightModalMonitor() {
     qtyEditIsWeightRef.current = false
     lastHeldKgRef.current = 0
+    lastCommittedGramsRef.current = 0
     scaleSawZeroRef.current = false
     setScaleHolding(false)
     setScaleMoving(false)
-    // TCP-соединение оставляем активным: следующему товару вес доступен сразу.
   }
 
   function pushProductToCart(
@@ -6172,14 +6170,14 @@ export default function CashierModule({
                   : isWeight
                     ? (liveWeightEnabled()
                       ? (scaleMoving
-                        ? 'Весы движутся · ждём остановки…'
+                        ? `Сейчас на весах: ${casWeight.grams || 0} г · ждём остановки…`
                         : scaleHolding
-                          ? 'Вес сохранён · можно добавить ещё или подтвердить'
+                          ? `Сохранено · сейчас: ${casWeight.grams || 0} г · можно добавить ещё`
                           : (casWeight.connected
                             ? ((casWeight.grams || 0) > 0
                               ? (casWeight.stable
                                 ? `Весы STOP · ${casWeight.grams} г · ${(casWeight.weightKg || 0).toFixed(3)} кг`
-                                : `Весы: ${casWeight.grams} г · ждём STOP…`)
+                                : `Пинг: ${casWeight.grams} г · ждём STOP…`)
                               : 'Весы подключены · положите товар на весы')
                             : (casWeight.error
                               ? `Весы: ${casWeight.error}`
