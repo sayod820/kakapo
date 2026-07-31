@@ -141,17 +141,26 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
 }
 
 /**
- * Кадр готов: W=число и (P= или точка-терминатор после десятичного веса).
+ * Кадр готов: есть W=число (желательно с P= или точкой-терминатором).
  */
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
   if (/W\s*=\s*-?\d+(?:[.,]\d+)?[\s.,;:]*P\s*=/i.test(text)) return true
   if (/W\s*=\s*-?\d+[.,]\d+\.(?!\d)/i.test(text)) return true
+  // W=0.255 без хвоста — тоже достаточно для разбора
+  if (/W\s*=\s*-?\d+[.,]\d+/i.test(text)) return true
   return false
 }
 
+function bufPreview(buf, max = 100) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(String(buf || ''), 'latin1')
+  const text = b.toString('latin1').replace(/\r/g, '\\r').replace(/\n/g, '\\n')
+  const hex = [...b.subarray(0, Math.min(b.length, 48))].map(x => x.toString(16).padStart(2, '0')).join(' ')
+  return { text: text.slice(0, max), hex, bytes: b.length }
+}
+
 /**
- * Один запрос веса. Не закрываем на обрезок «W=3» — ждём P= / полное десятичное / тишину 200 мс.
+ * Один запрос веса. Всегда возвращаем буфер, если хоть что-то пришло (для RAW в тесте).
  */
 function writeAndReadWeight(socket, timeoutMs = 1500, cmd = WEIGHT_CMDS[0]) {
   return new Promise((resolve, reject) => {
@@ -161,15 +170,13 @@ function writeAndReadWeight(socket, timeoutMs = 1500, cmd = WEIGHT_CMDS[0]) {
     const timer = setTimeout(() => {
       if (settled) return
       const buf = Buffer.concat(chunks)
-      if (buf.length > 0 && /W\s*=/i.test(buf.toString('latin1'))) {
+      if (buf.length > 0) {
         finish()
         return
       }
       cleanup()
       settled = true
-      reject(new Error(buf.length
-        ? `Неполный ответ весов: ${buf.toString('latin1').slice(0, 80)}`
-        : 'Нет ответа от весов CAS'))
+      reject(new Error('Нет ответа от весов CAS'))
     }, timeoutMs)
 
     function finish() {
@@ -184,10 +191,10 @@ function writeAndReadWeight(socket, timeoutMs = 1500, cmd = WEIGHT_CMDS[0]) {
       const text = Buffer.concat(chunks).toString('latin1')
       if (quietTimer) clearTimeout(quietTimer)
       if (isWeightFrameComplete(text)) {
-        quietTimer = setTimeout(finish, 40)
-      } else if (/W\s*=\s*-?\d/i.test(text)) {
-        // Есть цифры — ждём остаток кадра (не 80 мс!)
-        quietTimer = setTimeout(finish, 220)
+        quietTimer = setTimeout(finish, 50)
+      } else {
+        // Любые данные — ждём хвост
+        quietTimer = setTimeout(finish, 250)
       }
     }
     function onErr(e) {
@@ -286,7 +293,7 @@ async function syncCasPlu(opts) {
 
 /**
  * Разбор R45F04.
- * Пример: W45F04,00L0016:W=0.255.P=6.50.
+ * Примеры: W=0.255.P=6.50.  /  W=0,255.P=…  /  W=0.255
  */
 function parseWeightResponse(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
@@ -303,11 +310,35 @@ function parseWeightResponse(buf) {
     if (dotted.length) wToken = dotted[dotted.length - 1][1]
   }
 
+  // Просто W=0.255 или W=0,255 (без P= и без второй точки)
   if (!wToken) {
-    return { ok: false, weightKg: 0, grams: 0, price: null, raw, error: 'Нет поля W= в ответе весов' }
+    const plain = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)/gi)]
+    if (plain.length) wToken = plain[plain.length - 1][1]
   }
 
-  // Hex только при A–F: W=00FF.
+  if (!wToken) {
+    const ints = [...text.matchAll(/W\s*=\s*([+-]?\d+)/gi)]
+    if (ints.length) wToken = ints[ints.length - 1][1]
+  }
+
+  if (!wToken) {
+    // Иногда вес в потоке ST,NT,+0.255kg
+    const streams = [...text.matchAll(/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,\s*[+\-]?\s*(-?\d+[.,]\d+|-?\d+)/gi)]
+    if (streams.length) wToken = streams[streams.length - 1][1]
+  }
+
+  if (!wToken) {
+    const prev = bufPreview(buf)
+    return {
+      ok: false,
+      weightKg: 0,
+      grams: 0,
+      price: null,
+      raw,
+      error: `Нет W=число в ответе (${prev.bytes} б): ${prev.text || prev.hex || 'пусто'}`,
+    }
+  }
+
   if (/^[0-9A-Fa-f]+$/i.test(wToken) && /[A-Fa-f]/.test(wToken) && !/[.,]/.test(wToken)) {
     const gramsHex = parseInt(wToken, 16)
     if (Number.isFinite(gramsHex)) {
@@ -402,26 +433,36 @@ async function readLiveWeight(opts) {
   try {
     const socket = await tcpConnect(host, port, timeoutMs)
     try {
-      let resp
+      let resp = null
       let lastErr = null
+      const tried = []
       for (const cmd of WEIGHT_CMDS) {
         try {
-          resp = await writeAndReadWeight(socket, timeoutMs, cmd)
-          if (resp && /W\s*=/i.test(resp.toString('latin1'))) break
+          const buf = await writeAndReadWeight(socket, Math.min(timeoutMs, 2000), cmd)
+          const preview = bufPreview(buf)
+          tried.push(`${cmd.toString('ascii').replace(/\r/g, '\\r').replace(/\n/g, '\\n')}→${preview.bytes}б:${preview.text.slice(0, 40)}`)
+          resp = buf
+          const parsedTry = parseWeightResponse(buf)
+          if (parsedTry.ok) {
+            return toWeightResult(parsedTry, host, port)
+          }
         } catch (e) {
           lastErr = e
-          resp = null
+          tried.push(`${cmd.toString('ascii').replace(/\r/g, '\\r').replace(/\n/g, '\\n')}→err`)
         }
       }
-      if (!resp) throw lastErr || new Error('Нет ответа от весов CAS')
 
-      const parsed = parseWeightResponse(resp)
-      if (!parsed.ok) {
-        const err = new Error(parsed.error || 'Не удалось разобрать вес')
-        err.raw = parsed.raw
+      if (resp && resp.length) {
+        const parsed = parseWeightResponse(resp)
+        const prev = bufPreview(resp)
+        const err = new Error(
+          parsed.error || `Нет W=число. RAW(${prev.bytes}б): ${prev.text || prev.hex}`,
+        )
+        err.raw = prev.text
+        err.hex = prev.hex
         throw err
       }
-      return toWeightResult(parsed, host, port)
+      throw lastErr || new Error(`Нет ответа от весов. Пробы: ${tried.join(' | ')}`)
     } finally {
       try { socket.destroy() } catch { /* ignore */ }
     }

@@ -5192,7 +5192,8 @@ export default function CashierModule({
                                       await desk.startCasWeight?.({ host, port })
                                     }
                                   } catch (e) {
-                                    const msg = e instanceof Error ? e.message : 'Ошибка связи с весами'
+                                    let msg = e instanceof Error ? e.message : 'Ошибка связи с весами'
+                                    msg = msg.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '')
                                     setCasWeight(prev => ({
                                       ...prev,
                                       connected: false,
@@ -5200,7 +5201,7 @@ export default function CashierModule({
                                       port,
                                       error: msg,
                                     }))
-                                    showToast('CAS', `${host}:${port} — ${msg}`)
+                                    showToast('CAS RAW', msg.slice(0, 120))
                                   } finally {
                                     setDeskCasTestBusy(false)
                                   }
