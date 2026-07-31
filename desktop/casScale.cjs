@@ -3,7 +3,11 @@
 /**
  * TCP-протокол CAS CL-3000 / CL-5000 (семейство CL).
  * PLU: https://github.com/alexesDev/cas
- * Живой вес: CAS Network Manual — R45F04,00\\n → W=… P=…
+ * Живой вес (CAS Network Manual 4.9.4):
+ *   Send: R45F04,00\\n
+ *   Recv: W45F03,00L: … W=…. P=….
+ * A/D весов ~8 раз/сек; dual-interval CL-3000 обычно 2 г / 5 г.
+ * У этой точки шаг 5 г.
  */
 
 const net = require('net')
@@ -11,6 +15,9 @@ const iconv = require('iconv-lite')
 
 const PLU_SIZE = 148
 const WEIGHT_CMD = Buffer.from('R45F04,00\n', 'ascii')
+const INFO_CMD = Buffer.from('R45F03,00\n', 'ascii')
+/** Шаг весов (г) — для STOP «одинаковый вес» */
+const DEFAULT_DIVISION_G = 5
 
 function checksum(data) {
   let sum = 0
@@ -126,13 +133,17 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
   })
 }
 
-/** Ответ веса готов: есть W=число и терминатор поля. */
+/** Ответ веса готов по формату CAS: W=значение. затем P= или конец */
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  // CAS: W=0,070.P=… или W=0.070,P=… или W=70.
-  return /W\s*=\s*-?\d+[.,]\d+\s*(?:[.,]\s*)?(?:P\s*=|\r|\n|;|(?:\.(?:\s|$|[A-Za-z])))/i.test(text)
-    || /W\s*=\s*-?\d+\s*(?:[.,]\s*)?(?:P\s*=|\r|\n|;|(?:\.(?:\s|$|[A-Za-z])))/i.test(text)
-    || /(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d+/i.test(text)
+  // Нельзя закрывать кадр на W=0.25 из ещё идущего W=0.255.
+  // Терминатор поля — точка ПОСЛЕ значения (не десятичный разделитель).
+  if (/W\s*=\s*-?\d+[.,]\d+\s*\.(?:\s*(?:P\s*=)|[A-Za-z]|\r|\n|$)/i.test(text)) return true
+  // Целые граммы W=0255. — точка не должна быть десятичной (после неё не цифра)
+  if (/W\s*=\s*-?\d+\s*\.(?!\d)(?:\s*(?:P\s*=)|[A-Za-z]|\r|\n|$)/i.test(text)) return true
+  if (/W\s*=\s*-?\d+[.,]\d+\s*,\s*P\s*=/i.test(text)) return true
+  if (/(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d+/i.test(text)) return true
+  return false
 }
 
 /** Выбросить хвост прошлого ответа — иначе парсер берёт старый W= */
@@ -156,7 +167,9 @@ function writeAndReadWeight(socket, timeoutMs = 400) {
     const timer = setTimeout(() => {
       if (settled) return
       const buf = Buffer.concat(chunks)
-      if (buf.length > 0 && /W\s*=/i.test(buf.toString('latin1'))) {
+      const text = buf.toString('latin1')
+      // Не отдаём обрезанный W=0.25 — иначе касса пишет неверный вес
+      if (buf.length > 0 && isWeightFrameComplete(text)) {
         settled = true
         cleanup()
         resolve(buf)
@@ -279,9 +292,9 @@ async function syncCasPlu(opts) {
 }
 
 /**
- * Разбор ответа R45F04 / W45… или CAS stream ST,NT,…
- * Важно: русские CAS часто шлют десятичную запятую: W=0,255.
- * В буфере может быть несколько W= — берём ПОСЛЕДНИЙ (актуальный).
+ * Разбор ответа R45F04 (Network Manual 4.9.4): поля W= и P=.
+ * Реальные кадры: W45F04,00L0016:W=0.255.P=6.50.  /  W=0,255.P=…
+ * Берём ПОСЛЕДНИЙ W= (если в буфере несколько ответов).
  */
 function parseWeightResponse(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
@@ -290,32 +303,45 @@ function parseWeightResponse(buf) {
   let wToken = null
   let fromHex = false
 
-  // Hex-граммы W=00FF. (только если есть A–F)
-  const hexAll = [...text.matchAll(/W\s*=\s*([0-9A-Fa-f]{2,8})\s*\./gi)]
-  if (hexAll.length) {
-    const lastHex = hexAll[hexAll.length - 1][1]
-    if (/[A-Fa-f]/.test(lastHex)) {
-      const gramsHex = parseInt(lastHex, 16)
-      if (Number.isFinite(gramsHex)) {
-        wToken = String(gramsHex / 1000)
-        fromHex = true
-      }
+  // Полное поле с терминатором «.» после значения (не путать с «0.» в 0.255)
+  const dottedDec = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)\s*\.(?!\d)/gi)]
+  if (dottedDec.length) {
+    wToken = dottedDec[dottedDec.length - 1][1]
+  }
+
+  if (!wToken) {
+    const dottedInt = [...text.matchAll(/W\s*=\s*([+-]?\d+)\s*\.(?!\d)/gi)]
+    if (dottedInt.length) wToken = dottedInt[dottedInt.length - 1][1]
+  }
+
+  // Без терминатора — только если кадр уже похож на полный (есть P=) или целое без точки
+  if (!wToken) {
+    const withP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)\s*[,.]?\s*P\s*=/gi)]
+    if (withP.length) wToken = withP[withP.length - 1][1]
+  }
+
+  if (!wToken) {
+    const wAll = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)/gi)]
+    if (wAll.length && isWeightFrameComplete(text)) {
+      wToken = wAll[wAll.length - 1][1]
     }
   }
 
-  // Все десятичные W=… — последнее = свежий ответ (даже если ответы склеились: …P=1W=0.070)
-  if (!wToken) {
-    const wAll = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)/gi)]
-    if (wAll.length) wToken = wAll[wAll.length - 1][1]
+  // Hex-граммы только при A–F: W=00FF.
+  if (wToken && /^[0-9A-Fa-f]+$/i.test(wToken) && /[A-Fa-f]/.test(wToken) && !/[.,]/.test(wToken)) {
+    const gramsHex = parseInt(wToken, 16)
+    if (Number.isFinite(gramsHex)) {
+      wToken = String(gramsHex / 1000)
+      fromHex = true
+    }
   }
 
-  // Поток ST,NT,+  0.255kg — тоже последний
   if (!wToken) {
     const streams = [...text.matchAll(/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,\s*[+\-]?\s*(-?\d+[.,]\d+|-?\d+)\s*(?:kg|г|g)?/gi)]
     if (streams.length) wToken = streams[streams.length - 1][1]
   }
 
-  const pAll = [...text.matchAll(/P\s*=\s*(-?\d+[.,]\d+|-?\d+)/gi)]
+  const pAll = [...text.matchAll(/P\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)\s*\.?/gi)]
   const pMatch = pAll.length ? pAll[pAll.length - 1] : null
 
   if (!wToken) {
@@ -325,7 +351,7 @@ function parseWeightResponse(buf) {
       grams: 0,
       price: null,
       raw,
-      error: 'Нет поля веса в ответе весов',
+      error: 'Нет поля W= в ответе весов',
     }
   }
 
@@ -334,13 +360,12 @@ function parseWeightResponse(buf) {
   if (!Number.isFinite(weightKg)) weightKg = 0
 
   if (!fromHex && !rawW.includes('.')) {
-    // Целое без дробной части: граммы (70 → 0.070 кг)
+    // Целое без точки: граммы (255 → 0.255 кг), как W=0255.
     if (Math.abs(weightKg) >= 1 && Math.abs(weightKg) < 100000) {
       weightKg = weightKg / 1000
     }
   }
 
-  // Точность как на дисплее CAS: 1 г
   weightKg = Math.round(weightKg * 1000) / 1000
   if (weightKg < 0) weightKg = 0
   if (weightKg > 150) {
@@ -366,7 +391,6 @@ function parseWeightResponse(buf) {
     price,
     raw,
     display: weightKg.toFixed(3),
-    stable: true,
   }
 }
 
@@ -413,16 +437,17 @@ async function readLiveWeight(opts) {
 }
 
 /**
- * Фоновый монитор веса: постоянный пинг ~6–7 раз/сек.
- * Каждый ответ → live вес. stable=true когда вес не менялся ~250 мс (в т.ч. после добавки).
+ * Фоновый монитор веса: постоянный пинг ~8 Гц (как A/D весов).
+ * Live вес каждый ответ; stable=true после ~300 мс в пределах шага 5 г.
  */
 class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
-    this.intervalMs = 150
+    this.intervalMs = 125
     this.readTimeoutMs = 280
-    this.settleMs = 250
+    this.settleMs = 300
+    this.divisionG = DEFAULT_DIVISION_G
     this.socket = null
     this.timer = null
     this.busy = false
@@ -433,8 +458,8 @@ class CasWeightMonitor {
     this.lastRawKg = null
     this.lastEmitKg = null
     this.lastParsed = null
-    /** кг, с которого идёт «тишина» */
-    this.settleKg = null
+    /** граммы, с которых идёт «тишина» STOP */
+    this.settleGrams = null
     this.settleSince = 0
   }
 
@@ -467,14 +492,16 @@ class CasWeightMonitor {
     const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(100, Math.min(300, Number(opts.intervalMs) || 150))
+    this.intervalMs = Math.max(100, Math.min(250, Number(opts.intervalMs) || 125))
     this.readTimeoutMs = Math.max(200, Math.min(500, Number(opts.readTimeoutMs) || 280))
-    this.settleMs = Math.max(150, Math.min(500, Number(opts.settleMs) || 250))
+    // ~2–3 цикла A/D (8 Гц) — как кассы ждут стабилизацию
+    this.settleMs = Math.max(200, Math.min(600, Number(opts.settleMs) || 300))
+    this.divisionG = Math.max(1, Math.min(10, Number(opts.divisionG) || DEFAULT_DIVISION_G))
     this.running = true
     this.lastError = ''
 
     if (!same) {
-      this.settleKg = null
+      this.settleGrams = null
       this.settleSince = 0
       await this.ensureSocket()
     }
@@ -563,13 +590,14 @@ class CasWeightMonitor {
     }, delay == null ? this.intervalMs : delay)
   }
 
-  /** Обновить окно «тишины» для STOP */
+  /** STOP: вес не менялся дольше settleMs в пределах шага весов (5 г) */
   noteSample(kg) {
     const now = Date.now()
     const g = Math.round((Number(kg) || 0) * 1000)
-    const prevG = this.settleKg == null ? null : Math.round(this.settleKg * 1000)
-    if (prevG == null || Math.abs(g - prevG) > 0) {
-      this.settleKg = g / 1000
+    const prev = this.settleGrams
+    const div = this.divisionG || DEFAULT_DIVISION_G
+    if (prev == null || Math.abs(g - prev) >= div) {
+      this.settleGrams = g
       this.settleSince = now
       return false
     }
@@ -578,10 +606,10 @@ class CasWeightMonitor {
 
   isStableNow(kg) {
     if (!(kg > 0.0005)) return true
-    if (this.settleKg == null) return false
+    if (this.settleGrams == null) return false
     const g = Math.round(kg * 1000)
-    const sg = Math.round(this.settleKg * 1000)
-    if (g !== sg) return false
+    const div = this.divisionG || DEFAULT_DIVISION_G
+    if (Math.abs(g - this.settleGrams) >= div) return false
     return Date.now() - this.settleSince >= this.settleMs
   }
 
@@ -667,6 +695,8 @@ module.exports = {
   syncCasPlu,
   readLiveWeight,
   parseWeightResponse,
+  isWeightFrameComplete,
   weightMonitor,
   CasWeightMonitor,
+  DEFAULT_DIVISION_G,
 }

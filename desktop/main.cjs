@@ -902,7 +902,14 @@ app.whenReady().then(async () => {
     const settings = loadPrinterSettings()
     const host = String(payload?.host || settings.scaleHost || '').trim()
     const port = Number(payload?.port || settings.scalePort) || 20304
-    return weightMonitor.start({ host, port, intervalMs: payload?.intervalMs })
+    return weightMonitor.start({
+      host,
+      port,
+      intervalMs: payload?.intervalMs,
+      settleMs: payload?.settleMs,
+      divisionG: payload?.divisionG,
+      readTimeoutMs: payload?.readTimeoutMs,
+    })
   })
 
   ipcMain.handle('desktop:stopCasWeight', async () => weightMonitor.stop())

@@ -979,9 +979,10 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** Постоянный пинг весов: live в статусе; в поле — после ~0.25 с без изменения (добавка тоже) */
+  /** Постоянный пинг CAS R45F04; в поле — после STOP (±5 г, ~0.3 с), добавка тоже */
   const SCALE_ZERO_KG = 0.005
-  const SCALE_NEW_DELTA_KG = 0.001
+  /** Шаг весов: изменение ≥ 5 г = новый вес / добавка */
+  const SCALE_DIVISION_G = 5
   const lastHeldKgRef = useRef(0)
   const scaleSawZeroRef = useRef(false)
   const lastCommittedGramsRef = useRef(0)
@@ -1289,7 +1290,7 @@ export default function CashierModule({
     }).catch(() => undefined)
   }, [])
 
-  /** Пинг весов → live статус; в поле чека — когда вес стоял ~0.25 с (в т.ч. добавка сверху). */
+  /** Пинг весов → live статус; в поле — после STOP (±5 г, ~0.3 с), в т.ч. добавка сверху. */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
@@ -1345,12 +1346,12 @@ export default function CashierModule({
         return
       }
 
-      // STOP (~0.25 с одно и то же): пишем в кассу, если новый / добавка / после снятия
+      // STOP: в кассу — первый вес / добавка ≥5 г / любое изменение ≥5 г / после снятия
       const afterRemove = scaleSawZeroRef.current
       const first = !(prev > SCALE_ZERO_KG) && lastCommittedGramsRef.current <= 0
-      const added = grams > lastCommittedGramsRef.current
-      const changed = Math.abs(grams - lastCommittedGramsRef.current) >= 1
-        || Math.abs(kg - prev) >= SCALE_NEW_DELTA_KG
+      const deltaG = Math.abs(grams - lastCommittedGramsRef.current)
+      const added = grams >= lastCommittedGramsRef.current + SCALE_DIVISION_G
+      const changed = deltaG >= SCALE_DIVISION_G
 
       if (!afterRemove && !first && !added && !changed) {
         setScaleMoving(false)
