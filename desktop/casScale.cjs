@@ -126,35 +126,22 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
   })
 }
 
-/** Есть ли в буфере хоть какой-то намёк на вес. */
-function hasWeightField(buf) {
-  const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  return /W\s*=\s*-?\d/i.test(text) || /(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,/i.test(text)
-}
-
-/** Можно принимать кадр по тишине: есть дробный вес или W=…P=. */
-function hasUsableWeightPrefix(buf) {
-  const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  if (/W\s*=\s*-?\d+[.,]\d+/i.test(text)) return true
-  if (/W\s*=\s*-?\d+[\s.,;:]*P\s*=/i.test(text)) return true
-  if (/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,/i.test(text)) return true
-  return false
-}
-
 /**
- * Кадр достаточно полный: W=…P= / W=0.070. / тишина после полноценного W=.
- * Не режем по «W=0.» из середины 0.070.
+ * Кадр веса готов только когда есть W=…P= или кг с ≥2 знаками + терминатор,
+ * либо ≥3 знака в конце буфера. Иначе 0.253 → 0.25 / 3 г.
  */
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  if (/W\s*=\s*-?\d+(?:[.,]\d+)?[\s.,;:]*P\s*=/i.test(text)) return true
-  if (/W\s*=\s*-?\d+[.,]\d{2,}\.(?!\d)/i.test(text)) return true
-  if (/W\s*=\s*-?\d+[.,]\d+[.\s\r\n;]/i.test(text) && text.length >= 14) return true
-  if (/(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d+/i.test(text)) return true
+  if (/W\s*=\s*-?\d+[.,]\d+\s*[.,;:\s]*P\s*=/i.test(text)) return true
+  // W=0.25. / W=0,070. — терминатор после дроби (не следующая цифра)
+  if (/W\s*=\s*-?\d+[.,]\d{2,}[\s.;:\r\n]/i.test(text)) return true
+  // полный кг без терминатора, но уже 3 знака: W=0.253
+  if (/W\s*=\s*-?\d+[.,]\d{3,}\s*$/i.test(text)) return true
+  if (/(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d{2,}/i.test(text)) return true
   return false
 }
 
-/** Выбросить хвост прошлого ответа (только paused + read — без resume без listener). */
+/** Выбросить хвост прошлого ответа. */
 function drainSocket(socket) {
   if (!socket || socket.destroyed) return
   try {
@@ -166,7 +153,7 @@ function drainSocket(socket) {
   } catch { /* ignore */ }
 }
 
-function writeAndReadWeight(socket, timeoutMs = 2500) {
+function writeAndReadWeight(socket, timeoutMs = 2000) {
   return new Promise((resolve, reject) => {
     if (!socket || socket.destroyed) {
       reject(new Error('Нет связи с весами'))
@@ -179,7 +166,8 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
     const timer = setTimeout(() => {
       if (settled) return
       const buf = Buffer.concat(chunks)
-      if (buf.length > 0 && hasWeightField(buf)) {
+      // На таймауте принимаем ТОЛЬКО полный кадр — иначе 3 г вместо реального веса
+      if (buf.length > 0 && isWeightFrameComplete(buf)) {
         settled = true
         cleanup()
         resolve(buf)
@@ -187,7 +175,7 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
       }
       cleanup()
       settled = true
-      reject(new Error('Нет ответа от весов'))
+      reject(new Error(buf.length ? 'Неполный ответ весов' : 'Нет ответа от весов'))
     }, timeoutMs)
 
     function finish() {
@@ -202,12 +190,8 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
       const buf = Buffer.concat(chunks)
       if (settleTimer) clearTimeout(settleTimer)
       if (isWeightFrameComplete(buf)) {
-        settleTimer = setTimeout(finish, 45)
-      } else if (hasUsableWeightPrefix(buf)) {
-        // Ждём хвост дольше — иначе обрежем 0.070 → 0.0 / 0.07
-        settleTimer = setTimeout(finish, 120)
+        settleTimer = setTimeout(finish, 50)
       }
-      // голый «W=0.» / «W=0» — ждём дальше до таймаута, не принимаем рано
     }
     function onErr(e) {
       if (settled) return
@@ -311,47 +295,35 @@ async function syncCasPlu(opts) {
 }
 
 /**
- * Разбор R45F04. Берём ПОСЛЕДНИЙ W= (если в буфере старый+новый ответ).
- * Примеры: W=0.070.P=…  /  W=0,070.P=…
+ * Разбор R45F04. Берём ПОСЛЕДНИЙ полный W= (старый+новый в буфере).
+ * Примеры: W=0.070.P=…  /  W=0,255.P=…
  */
 function parseWeightResponse(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
   const raw = text.slice(0, 240)
 
   let wToken = null
-  let fromHex = false
 
-  // Предпочтительно W=… перед P=
-  const beforeP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)\s*[.,;:\s]*P\s*=/gi)]
+  // 1) последний W=кг перед P=
+  const beforeP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)\s*[.,;:\s]*P\s*=/gi)]
   if (beforeP.length) wToken = beforeP[beforeP.length - 1][1]
 
+  // 2) последний W= с ≥2 знаками после запятой/точки
   if (!wToken) {
-    const hexAll = [...text.matchAll(/W\s*=\s*([0-9A-Fa-f]{2,8})\s*\./gi)]
-    if (hexAll.length) {
-      const lastHex = hexAll[hexAll.length - 1][1]
-      if (/[A-Fa-f]/.test(lastHex)) {
-        const gramsHex = parseInt(lastHex, 16)
-        if (Number.isFinite(gramsHex)) {
-          wToken = String(gramsHex / 1000)
-          fromHex = true
-        }
-      }
-    }
-  }
-
-  if (!wToken) {
-    const dec = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)/gi)]
+    const dec = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d{2,})/gi)]
     if (dec.length) wToken = dec[dec.length - 1][1]
   }
 
-  if (!wToken) {
-    const ints = [...text.matchAll(/W\s*=\s*([+-]?\d+)/gi)]
-    if (ints.length) wToken = ints[ints.length - 1][1]
-  }
-
+  // 3) stream-формат
   if (!wToken) {
     const streams = [...text.matchAll(/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,\s*[+\-]?\s*(-?\d+[.,]\d+|-?\d+)/gi)]
     if (streams.length) wToken = streams[streams.length - 1][1]
+  }
+
+  // 4) целое: только ≥10 как граммы (W=70 → 0.070). W=3 без точки НЕ делим → это 3 кг, не 3 г
+  if (!wToken) {
+    const ints = [...text.matchAll(/W\s*=\s*([+-]?\d+)(?![.,\d])/gi)]
+    if (ints.length) wToken = ints[ints.length - 1][1]
   }
 
   const pAll = [...text.matchAll(/P\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)/gi)]
@@ -372,10 +344,13 @@ function parseWeightResponse(buf) {
   let weightKg = Number(rawW)
   if (!Number.isFinite(weightKg)) weightKg = 0
 
-  if (!fromHex && !rawW.includes('.')) {
-    if (Math.abs(weightKg) >= 1 && Math.abs(weightKg) < 100000) {
+  if (!rawW.includes('.')) {
+    const abs = Math.abs(weightKg)
+    if (abs >= 10 && abs < 100000) {
+      // граммы целым числом
       weightKg = weightKg / 1000
     }
+    // 0..9 без точки — кг (редко); не превращаем 3 → 0.003
   }
 
   weightKg = Math.round(weightKg * 1000) / 1000
@@ -478,11 +453,11 @@ class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
-    this.intervalMs = 180
+    this.intervalMs = 200
     /** Сколько одинаковых отсчётов подряд = STOP */
-    this.sameNeed = 3
+    this.sameNeed = 4
     /** Пауза после STOP перед подтверждением веса */
-    this.confirmDelayMs = 320
+    this.confirmDelayMs = 350
     this.socket = null
     this.timer = null
     this.busy = false
@@ -530,7 +505,7 @@ class CasWeightMonitor {
     const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(120, Math.min(500, Number(opts.intervalMs) || 180))
+    this.intervalMs = Math.max(150, Math.min(500, Number(opts.intervalMs) || 200))
     this.running = true
     this.lastError = ''
 
@@ -683,7 +658,7 @@ class CasWeightMonitor {
         // Уже подтвердили этот вес
         stable = true
       } else if (!empty && this.stableCount >= this.sameNeed) {
-        // STOP → пауза → повторный запрос. Сбой подтверждения НЕ рвёт связь.
+        // STOP → пауза → ещё один полный кадр. Без совпадения stable не ставим.
         this.confirming = true
         this.emit({
           connected: true,
@@ -702,7 +677,7 @@ class CasWeightMonitor {
         this.busy = true
         try {
           const confirm = await this.readWeightNow()
-          if (Math.abs(confirm.grams - grams) <= 2) {
+          if (Math.abs(confirm.grams - grams) <= 5) {
             parsed = confirm
             kg = confirm.weightKg
             grams = confirm.grams
@@ -719,9 +694,10 @@ class CasWeightMonitor {
             stable = false
           }
         } catch {
-          // Весы заняты при постановке товара — берём уже пойманный STOP-вес
-          this.lastStableGrams = grams
-          stable = true
+          // Не фиксируем вес при сбое подтверждения — иначе 3 г «залипает» как STOP
+          this.stableCount = 0
+          this.lastStableGrams = null
+          stable = false
         } finally {
           this.confirming = false
         }
