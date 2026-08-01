@@ -1292,8 +1292,8 @@ export default function CashierModule({
 
   /**
    * Живой вес:
-   * empty → hold; !stable → moving (поле не трогаем);
-   * stable → commit если first / afterRemove / grams±1 / Δkg ≥ SCALE_NEW_DELTA_KG
+   * при движении — поле не трогаем;
+   * после STOP (+ подтверждение с весов) — пишем в кассу
    */
   useEffect(() => {
     if (!isKakapoDesktop()) return
@@ -1342,7 +1342,7 @@ export default function CashierModule({
         return
       }
 
-      // Ещё качается — live уже в casWeight, поле не трогаем
+      // Движение / рука / ждём подтверждение — в поле не пишем
       if (!payload.stable) {
         setScaleMoving(true)
         setScaleHolding(false)
@@ -6212,7 +6212,7 @@ export default function CashierModule({
                             ? ((casWeight.grams || 0) > 0
                               ? (casWeight.stable
                                 ? `Весы STOP · ${casWeight.grams} г · ${(casWeight.weightKg || 0).toFixed(3)} кг`
-                                : `Пинг: ${casWeight.grams} г · ждём STOP…`)
+                                : `Сейчас: ${casWeight.grams} г · ждём STOP и подтверждение…`)
                               : 'Весы подключены · положите товар на весы')
                             : (casWeight.error
                               ? `Весы: ${casWeight.error}`
