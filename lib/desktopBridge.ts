@@ -123,7 +123,8 @@ export type KakapoDesktopApi = {
     host?: string
     port?: number
     timeoutMs?: number
-    /** true = новый TCP, не читать кэш монитора (для теста) */
+    /** true = новое TCP-соединение (тест), не через монитор */
+    forceDirect?: boolean
     fresh?: boolean
   }) => Promise<{
     ok: boolean
@@ -133,6 +134,7 @@ export type KakapoDesktopApi = {
     grams: number
     price: number | null
     raw?: string
+    display?: string
     connected: boolean
     ts: number
   }>

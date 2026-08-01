@@ -5256,7 +5256,8 @@ export default function CashierModule({
                                     const res = await desk.readCasWeight({
                                       host,
                                       port,
-                                      timeoutMs: 4000,
+                                      timeoutMs: 5000,
+                                      forceDirect: true,
                                     })
                                     setCasWeight({
                                       connected: true,
@@ -5270,9 +5271,12 @@ export default function CashierModule({
                                       error: '',
                                       ts: res.ts,
                                     })
+                                    const raw = String(res.raw || '').replace(/\s+/g, ' ').slice(0, 60)
                                     showToast(
-                                      'CAS',
-                                      `Вес: ${res.grams} г (${res.weightKg.toFixed(3)} кг)`,
+                                      res.grams > 0 ? `Вес ${res.grams} г` : 'Вес 0 г',
+                                      raw
+                                        ? `${res.weightKg.toFixed(3)} кг · ${raw}`
+                                        : `${res.weightKg.toFixed(3)} кг · положите товар и повторите тест`,
                                     )
                                     if (deskScaleMode === 'plu-label' && deskScaleLiveWeight) {
                                       await desk.startCasWeight?.({ host, port })

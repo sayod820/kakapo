@@ -924,6 +924,7 @@ app.whenReady().then(async () => {
       host,
       port,
       timeoutMs: payload?.timeoutMs,
+      forceDirect: payload?.forceDirect !== false && payload?.fresh !== false,
     })
   })
 
