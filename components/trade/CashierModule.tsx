@@ -977,6 +977,8 @@ export default function CashierModule({
   })
   const deskScaleLiveWeightRef = useRef(true)
   const deskScaleModeRef = useRef<'none' | 'plu-label'>('plu-label')
+  const deskScaleHostRef = useRef('')
+  const deskScalePortRef = useRef(20304)
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
@@ -1265,6 +1267,14 @@ export default function CashierModule({
   }, [deskScaleMode])
 
   useEffect(() => {
+    deskScaleHostRef.current = deskScaleHost.trim()
+  }, [deskScaleHost])
+
+  useEffect(() => {
+    deskScalePortRef.current = Number(deskScalePort) || 20304
+  }, [deskScalePort])
+
+  useEffect(() => {
     qtyEditOpenRef.current = qtyEditOpen
   }, [qtyEditOpen])
 
@@ -1277,9 +1287,11 @@ export default function CashierModule({
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
     if (!desk) return
-    void desk.getPrinterSettings().then(settings => {
+    void desk.getPrinterSettings().then(async settings => {
       const mode = settings?.scaleMode === 'none' ? 'none' : 'plu-label'
-      const host = String(settings?.scaleHost || '').trim()
+      // Если IP пустой — подставляем типичный адрес CAS и сохраняем
+      let host = String(settings?.scaleHost || '').trim()
+      if (!host) host = '192.168.1.10'
       const port = Number(settings?.scalePort) || 20304
       const live = settings?.scaleLiveWeight !== false
       setDeskScaleMode(mode)
@@ -1287,8 +1299,22 @@ export default function CashierModule({
       setDeskScalePort(String(port))
       setDeskScaleDept(String(settings?.scaleDept || 1))
       setDeskScaleLiveWeight(live)
+      deskScaleHostRef.current = host
+      deskScalePortRef.current = port
 
-      // IP/порт сохраняются один раз. При каждом запуске кассы связь поднимается сама.
+      if (!String(settings?.scaleHost || '').trim() && desk.savePrinterSettings) {
+        try {
+          await desk.savePrinterSettings({
+            ...settings,
+            scaleMode: mode,
+            scaleHost: host,
+            scalePort: port,
+            scaleDept: Number(settings?.scaleDept) || 1,
+            scaleLiveWeight: live,
+          })
+        } catch { /* ignore */ }
+      }
+
       if (mode !== 'none' && live && host && desk.startCasWeight) {
         casMonitorWantedRef.current = true
         void desk.startCasWeight({ host, port }).catch(e => {
@@ -1303,36 +1329,36 @@ export default function CashierModule({
     }).catch(() => undefined)
   }, [])
 
-  /**
-   * Живой вес:
-   * 1) положил 200 → STOP → в кассе 200;
-   * 2) снял → в кассе остаётся 200;
-   * 3) положил другой 150 (после снятия) → в кассе 150 (замена);
-   * 4) не снимая: 150 + сверху ещё → на весах 350 → в кассе 350;
-   * 5) рука / движение → поле не трогаем, пишем только после STOP.
-   * Шаг весов: 5 г.
-   */
-  // Модалка веса уже открыта, а IP/настройки подтянулись позже → поднять монитор
+  // Модалка веса открыта → поднять TCP-монитор
   useEffect(() => {
     if (!qtyEditOpen) return
     if (!qtyEditIsWeightRef.current) return
     if (deskScaleMode === 'none' || !deskScaleLiveWeight) return
     if (!isKakapoDesktop()) return
     void ensureCasWeightMonitor(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- только когда меняются условия живого веса
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qtyEditOpen, deskScaleHost, deskScalePort, deskScaleLiveWeight, deskScaleMode])
 
+  /**
+   * Живой вес — упрощённо и надёжно:
+   * - опрос весов каждые 450 мс, пока открыто окно веса;
+   * - STOP = 3 одинаковых показания подряд (шаг 5 г);
+   * - рука/движение: поле не трогаем; после STOP пишем;
+   * - снял → вес остаётся; новый после нуля → замена; досып без снятия → вес платформы.
+   */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
-    if (!desk?.onCasWeight) return
+    if (!desk) return
 
-    /** Дискретность весов CAS */
     const STEP_G = 5
+    let uiLastG: number | null = null
+    let uiSame = 0
+    let pollBusy = false
 
     const commitPlatterGrams = (platterGrams: number) => {
-      // Квантуем к шагу 5 г — как на дисплее весов
       const g = Math.max(0, Math.round(platterGrams / STEP_G) * STEP_G)
+      if (g < STEP_G) return
       const exact = (g / 1000).toFixed(3)
       lastHeldKgRef.current = g / 1000
       lastCommittedGramsRef.current = g
@@ -1342,9 +1368,8 @@ export default function CashierModule({
       setQtyEditBuf(exact)
       setScaleMoving(false)
       setScaleHolding(false)
-      // Сразу пишем вес в строку чека — чтобы на экране было видно
       const key = qtyEditKeyRef.current
-      if (key && g >= STEP_G) {
+      if (key) {
         const w = g / 1000
         setCart(prev => prev.map(l => {
           if (l.key !== key || l.weightKg == null) return l
@@ -1354,58 +1379,132 @@ export default function CashierModule({
       }
     }
 
-    const off = desk.onCasWeight(payload => {
-      setCasWeight(payload)
-      if (!deskScaleLiveWeightRef.current) return
-      if (deskScaleModeRef.current === 'none') return
-      if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
-
+    const handleReading = (payload: {
+      weightKg?: number
+      grams?: number
+      connected?: boolean
+      error?: string
+      raw?: string
+      price?: number | null
+      host?: string
+      port?: number
+    }) => {
       const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
       const rawG = Number.isFinite(Number(payload.grams))
         ? Math.round(Number(payload.grams))
         : Math.round(kg * 1000)
       const grams = Math.round(rawG / STEP_G) * STEP_G
+
+      setCasWeight(prev => ({
+        ...prev,
+        connected: payload.connected !== false,
+        running: true,
+        weightKg: kg,
+        grams,
+        price: payload.price ?? prev.price,
+        error: payload.error || '',
+        host: payload.host || prev.host,
+        port: payload.port || prev.port,
+        raw: payload.raw,
+        stable: uiSame >= 3 && grams >= STEP_G,
+        ts: Date.now(),
+      }))
+
+      if (!deskScaleLiveWeightRef.current) return
+      if (deskScaleModeRef.current === 'none') return
+      if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
+
       const empty = grams < STEP_G
       const saved = lastCommittedGramsRef.current
 
       if (empty) {
+        uiLastG = 0
+        uiSame = 0
         setScaleMoving(false)
         platterBaselineGramsRef.current = 0
         if (saved > 0) {
           scaleSawZeroRef.current = true
           setScaleHolding(true)
         }
-        // Поле НЕ чистим — вес остаётся в кассе
         return
       }
 
-      // Рука / движение / не STOP — в кассу вес НЕ пишем
-      if (!payload.stable) {
+      if (uiLastG != null && Math.abs(uiLastG - grams) < STEP_G) {
+        uiSame += 1
+      } else {
+        uiLastG = grams
+        uiSame = 1
         setScaleMoving(true)
         setScaleHolding(false)
+        return
+      }
+
+      if (uiSame < 3) {
+        setScaleMoving(true)
         return
       }
 
       const afterRemove = scaleSawZeroRef.current
       const baseline = platterBaselineGramsRef.current
 
-      // Первый вес ИЛИ новая порция после снятия → ЗАМЕНА (200 сняли → 150 = 150)
       if (saved <= 0 || afterRemove) {
         commitPlatterGrams(grams)
         return
       }
-
-      // Не снимая досыпали сверху: на платформе стало больше на ≥1 шаг → пишем вес платформы (150→350)
       if (grams >= baseline + STEP_G) {
         commitPlatterGrams(grams)
         return
       }
-
-      // Тот же вес / чуть меньше без нуля — ждём полного снятия
       setScaleMoving(false)
       setScaleHolding(false)
+    }
+
+    // Статус связи из фонового монитора
+    const off = desk.onCasWeight?.(payload => {
+      if (qtyEditOpenRef.current && qtyEditIsWeightRef.current) return
+      setCasWeight(payload)
     })
-    return () => { off() }
+
+    // Главный путь: прямой опрос, пока открыто окно веса
+    const pollId = window.setInterval(() => {
+      if (pollBusy) return
+      if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
+      if (!deskScaleLiveWeightRef.current) return
+      if (deskScaleModeRef.current === 'none') return
+      const host = deskScaleHostRef.current.trim()
+      if (!host || !desk.readCasWeight) return
+      pollBusy = true
+      void desk.readCasWeight({
+        host,
+        port: deskScalePortRef.current,
+        timeoutMs: 2200,
+        forceDirect: false,
+      }).then(res => {
+        handleReading({
+          connected: true,
+          weightKg: res.weightKg,
+          grams: res.grams,
+          price: res.price,
+          raw: res.raw,
+          host: res.host,
+          port: res.port,
+        })
+      }).catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        setCasWeight(prev => ({
+          ...prev,
+          connected: false,
+          error: msg.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, ''),
+        }))
+      }).finally(() => {
+        pollBusy = false
+      })
+    }, 450)
+
+    return () => {
+      off?.()
+      window.clearInterval(pollId)
+    }
   }, [])
 
   useEffect(() => () => {
@@ -3279,7 +3378,6 @@ export default function CashierModule({
       }
       let host = deskScaleHost.trim()
       let port = Number(deskScalePort) || 20304
-      // Если state ещё не подтянул настройки — берём из Electron
       if (!host && desk.getPrinterSettings) {
         const settings = await desk.getPrinterSettings().catch(() => null)
         host = String(settings?.scaleHost || '').trim()
@@ -3290,6 +3388,11 @@ export default function CashierModule({
           if (settings?.scaleMode === 'none') setDeskScaleMode('none')
           if (settings?.scaleLiveWeight === false) setDeskScaleLiveWeight(false)
         }
+      }
+      if (!host) {
+        host = '192.168.1.10'
+        setDeskScaleHost(host)
+        deskScaleHostRef.current = host
       }
       if (!host || !desk.startCasWeight) {
         setCasWeight(prev => ({

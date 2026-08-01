@@ -54,7 +54,7 @@ const DEFAULT_SETTINGS = {
   paperWidthMm: 58,
   labelPrinterName: '',
   scaleMode: 'plu-label',
-  scaleHost: '',
+  scaleHost: '192.168.1.10',
   scalePort: 20304,
   scaleDept: 1,
   /** Живой вес в POS по TCP */
@@ -103,7 +103,7 @@ function loadPrinterSettings() {
       paperWidthMm: Number(raw.paperWidthMm) === 80 ? 80 : 58,
       labelPrinterName: String(raw.labelPrinterName || ''),
       scaleMode: raw.scaleMode === 'none' ? 'none' : 'plu-label',
-      scaleHost: String(raw.scaleHost || ''),
+      scaleHost: String(raw.scaleHost || '').trim() || '192.168.1.10',
       scalePort: Number(raw.scalePort) || 20304,
       scaleDept: Number(raw.scaleDept) || 1,
       scaleLiveWeight: raw.scaleLiveWeight !== false,
