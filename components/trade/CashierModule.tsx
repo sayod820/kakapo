@@ -979,13 +979,16 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** В поле — только STOP; добавка веса на платформе тоже обновляет кассу */
+  /** Пусто на платформе: меньше 1 деления (5 г) */
   const SCALE_ZERO_KG = 0.005
-  /** Разница ≥ 1 г = вес изменился (добавка / другой кусок) */
-  const SCALE_NEW_DELTA_KG = 0.001
+  const SCALE_STEP_G = 5
   const lastHeldKgRef = useRef(0)
+  /** Было обнуление платформы после сохранённого веса */
   const scaleSawZeroRef = useRef(false)
+  /** Итоговый вес в поле кассы (граммы) */
   const lastCommittedGramsRef = useRef(0)
+  /** Сколько граммов на платформе было в момент последнего commit */
+  const platterBaselineGramsRef = useRef(0)
   const [scaleHolding, setScaleHolding] = useState(false)
   const [scaleMoving, setScaleMoving] = useState(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
@@ -1292,28 +1295,28 @@ export default function CashierModule({
 
   /**
    * Живой вес:
-   * при движении — поле не трогаем;
-   * после STOP (+ подтверждение с весов) — пишем в кассу
+   * 1) положил 200 → STOP → в кассе 200;
+   * 2) снял → в кассе остаётся 200;
+   * 3) положил другой 150 (после снятия) → в кассе 150 (замена);
+   * 4) не снимая: 150 + сверху ещё → на весах 350 → в кассе 350;
+   * 5) рука / движение → поле не трогаем, пишем только после STOP.
+   * Шаг весов: 5 г.
    */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
     if (!desk?.onCasWeight) return
 
-    const exactFromScale = (payload: CasWeightEvent) => {
-      const grams = Number(payload.grams)
-      if (Number.isFinite(grams) && grams >= 0) {
-        return (Math.round(grams) / 1000).toFixed(3)
-      }
-      const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
-      return kg.toFixed(3)
-    }
+    /** Дискретность весов CAS */
+    const STEP_G = 5
 
-    const commitToField = (payload: CasWeightEvent, kg: number) => {
-      const exact = exactFromScale(payload)
-      const grams = Math.round((Number(exact) || kg) * 1000)
-      lastHeldKgRef.current = Number(exact) || kg
-      lastCommittedGramsRef.current = grams
+    const commitPlatterGrams = (platterGrams: number) => {
+      // Квантуем к шагу 5 г — как на дисплее весов
+      const g = Math.max(0, Math.round(platterGrams / STEP_G) * STEP_G)
+      const exact = (g / 1000).toFixed(3)
+      lastHeldKgRef.current = g / 1000
+      lastCommittedGramsRef.current = g
+      platterBaselineGramsRef.current = g
       scaleSawZeroRef.current = false
       setQtyEditMode('qty')
       setQtyEditBuf(exact)
@@ -1327,22 +1330,25 @@ export default function CashierModule({
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
 
       const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
-      const grams = Number.isFinite(Number(payload.grams))
+      const rawG = Number.isFinite(Number(payload.grams))
         ? Math.round(Number(payload.grams))
         : Math.round(kg * 1000)
-      const prev = lastHeldKgRef.current
-      const empty = !(kg > SCALE_ZERO_KG)
+      const grams = Math.round(rawG / STEP_G) * STEP_G
+      const empty = grams < STEP_G
+      const saved = lastCommittedGramsRef.current
 
       if (empty) {
         setScaleMoving(false)
-        if (prev > SCALE_ZERO_KG || lastCommittedGramsRef.current > 0) {
+        platterBaselineGramsRef.current = 0
+        if (saved > 0) {
           scaleSawZeroRef.current = true
           setScaleHolding(true)
         }
+        // Поле НЕ чистим — вес остаётся в кассе
         return
       }
 
-      // Движение / рука / ждём подтверждение — в поле не пишем
+      // Рука / движение / не STOP — в кассу вес НЕ пишем
       if (!payload.stable) {
         setScaleMoving(true)
         setScaleHolding(false)
@@ -1350,18 +1356,23 @@ export default function CashierModule({
       }
 
       const afterRemove = scaleSawZeroRef.current
-      const first = !(prev > SCALE_ZERO_KG) && lastCommittedGramsRef.current <= 0
-      const added = grams > lastCommittedGramsRef.current
-      const changed = Math.abs(grams - lastCommittedGramsRef.current) >= 1
-        || Math.abs(kg - prev) >= SCALE_NEW_DELTA_KG
+      const baseline = platterBaselineGramsRef.current
 
-      if (!afterRemove && !first && !added && !changed) {
-        setScaleMoving(false)
-        setScaleHolding(false)
+      // Первый вес ИЛИ новая порция после снятия → ЗАМЕНА (200 сняли → 150 = 150)
+      if (saved <= 0 || afterRemove) {
+        commitPlatterGrams(grams)
         return
       }
 
-      commitToField(payload, kg)
+      // Не снимая досыпали сверху: на платформе стало больше на ≥1 шаг → пишем вес платформы (150→350)
+      if (grams >= baseline + STEP_G) {
+        commitPlatterGrams(grams)
+        return
+      }
+
+      // Тот же вес / чуть меньше без нуля — ждём полного снятия
+      setScaleMoving(false)
+      setScaleHolding(false)
     })
     return () => { off() }
   }, [])
@@ -3259,11 +3270,13 @@ export default function CashierModule({
   }
 
   function applyScaleKgToModal(kg: number, grams?: number) {
-    const g = Number.isFinite(grams) ? Math.round(Number(grams)) : Math.round((Number(kg) || 0) * 1000)
-    if (!(g > 0)) return
+    const raw = Number.isFinite(grams) ? Math.round(Number(grams)) : Math.round((Number(kg) || 0) * 1000)
+    const g = Math.round(raw / SCALE_STEP_G) * SCALE_STEP_G
+    if (!(g >= SCALE_STEP_G)) return
     const exact = (g / 1000).toFixed(3)
     lastHeldKgRef.current = g / 1000
     lastCommittedGramsRef.current = g
+    platterBaselineGramsRef.current = g
     scaleSawZeroRef.current = false
     setScaleHolding(false)
     setScaleMoving(false)
@@ -3271,14 +3284,38 @@ export default function CashierModule({
     setQtyEditBuf(exact)
   }
 
-  function startWeightModalMonitor() {
+  function startWeightModalMonitor(seedKg?: number) {
     qtyEditIsWeightRef.current = true
-    scaleSawZeroRef.current = false
     setScaleHolding(false)
     setScaleMoving(false)
-    if (casWeight.stable && casWeight.weightKg > SCALE_ZERO_KG) {
+
+    const existing = Math.round((Number(seedKg != null ? seedKg : qtyEditBuf) || 0) * 1000)
+    const scaleG = casWeight.stable && casWeight.weightKg > SCALE_ZERO_KG
+      ? (Number.isFinite(Number(casWeight.grams))
+        ? Math.round(Number(casWeight.grams))
+        : Math.round(casWeight.weightKg * 1000))
+      : 0
+
+    if (existing > 0) {
+      lastCommittedGramsRef.current = existing
+      lastHeldKgRef.current = existing / 1000
+      if (scaleG > 0) {
+        // Уже есть вес в поле и товар на весах — не удваиваем, ждём досып/снятие
+        platterBaselineGramsRef.current = scaleG
+        scaleSawZeroRef.current = false
+      } else {
+        platterBaselineGramsRef.current = 0
+        scaleSawZeroRef.current = true
+      }
+    } else if (scaleG > 0) {
       applyScaleKgToModal(casWeight.weightKg, casWeight.grams)
+    } else {
+      lastCommittedGramsRef.current = 0
+      lastHeldKgRef.current = 0
+      platterBaselineGramsRef.current = 0
+      scaleSawZeroRef.current = false
     }
+
     if (!liveWeightEnabled()) return
     void ensureCasWeightMonitor(true)
   }
@@ -3287,6 +3324,7 @@ export default function CashierModule({
     qtyEditIsWeightRef.current = false
     lastHeldKgRef.current = 0
     lastCommittedGramsRef.current = 0
+    platterBaselineGramsRef.current = 0
     scaleSawZeroRef.current = false
     setScaleHolding(false)
     setScaleMoving(false)
@@ -3356,7 +3394,7 @@ export default function CashierModule({
       setQtyEditBuf('')
       setQtyEditPad(false)
       setQtyEditOpen(true)
-      startWeightModalMonitor()
+      startWeightModalMonitor(0)
       setLayerPickOpen(false)
       setLayerPickProduct(null)
       setLayerPickGroups([])
@@ -3512,7 +3550,7 @@ export default function CashierModule({
     setQtyEditBuf(line.weightKg != null ? String(line.weightKg) : String(line.qty))
     setQtyEditPad(false)
     setQtyEditOpen(true)
-    if (line.weightKg != null) startWeightModalMonitor()
+    if (line.weightKg != null) startWeightModalMonitor(line.weightKg > 0 ? line.weightKg : 0)
     else {
       qtyEditIsWeightRef.current = false
     }
@@ -6205,15 +6243,17 @@ export default function CashierModule({
                   : isWeight
                     ? (liveWeightEnabled()
                       ? (scaleMoving
-                        ? `Сейчас на весах: ${casWeight.grams || 0} г · ждём остановки…`
+                        ? `Рука / движение: ${casWeight.grams || 0} г · в кассу не пишем · ждём STOP…`
                         : scaleHolding
-                          ? `Сохранено · сейчас: ${casWeight.grams || 0} г · можно добавить ещё`
+                          ? `Снято · в кассе осталось ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · следующий товар заменит вес`
                           : (casWeight.connected
-                            ? ((casWeight.grams || 0) > 0
+                            ? ((casWeight.grams || 0) >= SCALE_STEP_G
                               ? (casWeight.stable
-                                ? `Весы STOP · ${casWeight.grams} г · ${(casWeight.weightKg || 0).toFixed(3)} кг`
-                                : `Сейчас: ${casWeight.grams} г · ждём STOP и подтверждение…`)
-                              : 'Весы подключены · положите товар на весы')
+                                ? `STOP · на весах ${casWeight.grams} г · в кассе ${(Number(qtyEditBuf) || 0).toFixed(3)} кг`
+                                : `Сейчас: ${casWeight.grams} г · ждём STOP…`)
+                              : (Number(qtyEditBuf) > 0
+                                ? `В кассе ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · положите товар`
+                                : 'Весы подключены · положите товар на весы'))
                             : (casWeight.error
                               ? `Нет связи с весами · ${casWeight.error}`
                               : 'Нет связи с весами… Можно ввести вес вручную')))

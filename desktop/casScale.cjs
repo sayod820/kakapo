@@ -458,6 +458,8 @@ class CasWeightMonitor {
     this.sameNeed = 4
     /** Пауза после STOP перед подтверждением веса */
     this.confirmDelayMs = 350
+    /** Дискретность весов (г) — рука/шум меньше шага не двигает STOP */
+    this.stepGrams = 5
     this.socket = null
     this.timer = null
     this.busy = false
@@ -640,22 +642,32 @@ class CasWeightMonitor {
       let parsed = await this.readWeightNow()
       let kg = parsed.weightKg
       let grams = parsed.grams
+      const step = Math.max(1, Number(this.stepGrams) || 5)
+      // К шагу весов (5 г)
+      grams = Math.round(grams / step) * step
+      kg = grams / 1000
 
-      if (this.lastGrams != null && this.lastGrams === grams) {
+      const near = (a, b) => Math.abs((a || 0) - (b || 0)) < step
+
+      if (this.lastGrams != null && near(this.lastGrams, grams)) {
         this.stableCount += 1
+        grams = this.lastGrams
+        kg = grams / 1000
       } else {
         this.stableCount = 0
         this.lastStableGrams = null
       }
       this.lastGrams = grams
 
-      const empty = !(kg > 0.0005)
+      const empty = grams < step
       let stable = empty
 
       if (!empty && this.stableCount < this.sameNeed) {
         stable = false
-      } else if (!empty && this.lastStableGrams === grams) {
+      } else if (!empty && this.lastStableGrams != null && near(this.lastStableGrams, grams)) {
         // Уже подтвердили этот вес
+        grams = this.lastStableGrams
+        kg = grams / 1000
         stable = true
       } else if (!empty && this.stableCount >= this.sameNeed) {
         // STOP → пауза → ещё один полный кадр. Без совпадения stable не ставим.
@@ -677,24 +689,25 @@ class CasWeightMonitor {
         this.busy = true
         try {
           const confirm = await this.readWeightNow()
-          if (Math.abs(confirm.grams - grams) <= 5) {
+          let cg = Math.round(confirm.grams / step) * step
+          if (near(cg, grams)) {
             parsed = confirm
-            kg = confirm.weightKg
-            grams = confirm.grams
+            grams = cg
+            kg = grams / 1000
             this.lastGrams = grams
             this.lastStableGrams = grams
             stable = true
           } else {
             this.stableCount = 0
             this.lastStableGrams = null
-            this.lastGrams = confirm.grams
+            this.lastGrams = cg
             parsed = confirm
-            kg = confirm.weightKg
-            grams = confirm.grams
+            grams = cg
+            kg = grams / 1000
             stable = false
           }
         } catch {
-          // Не фиксируем вес при сбое подтверждения — иначе 3 г «залипает» как STOP
+          // Не фиксируем вес при сбое подтверждения
           this.stableCount = 0
           this.lastStableGrams = null
           stable = false
