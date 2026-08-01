@@ -979,15 +979,13 @@ export default function CashierModule({
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
-  /** Постоянный пинг CAS; live в поле; фиксация после 2 одинаковых г; добавка ≥5 г */
-  const SCALE_ZERO_KG = 0.002
-  /** Шаг весов: добавка / смена веса */
-  const SCALE_DIVISION_G = 5
+  /** В поле — только STOP; добавка веса на платформе тоже обновляет кассу */
+  const SCALE_ZERO_KG = 0.005
+  /** Разница ≥ 1 г = вес изменился (добавка / другой кусок) */
+  const SCALE_NEW_DELTA_KG = 0.001
   const lastHeldKgRef = useRef(0)
   const scaleSawZeroRef = useRef(false)
   const lastCommittedGramsRef = useRef(0)
-  const liveSameGramsRef = useRef(-1)
-  const liveSameCountRef = useRef(0)
   const [scaleHolding, setScaleHolding] = useState(false)
   const [scaleMoving, setScaleMoving] = useState(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
@@ -1294,10 +1292,8 @@ export default function CashierModule({
 
   /**
    * Живой вес:
-   * 1) каждый ответ → статус + live в поле (пока кладут)
-   * 2) 2 одинаковых грамма / stable → фиксируем
-   * 3) ноль → поле не очищаем
-   * 4) добавка ≥5 г → обновляем
+   * empty → hold; !stable → moving (поле не трогаем);
+   * stable → commit если first / afterRemove / grams±1 / Δkg ≥ SCALE_NEW_DELTA_KG
    */
   useEffect(() => {
     if (!isKakapoDesktop()) return
@@ -1313,19 +1309,14 @@ export default function CashierModule({
       return kg.toFixed(3)
     }
 
-    const commitToField = (payload: CasWeightEvent, kg: number, opts?: { live?: boolean }) => {
+    const commitToField = (payload: CasWeightEvent, kg: number) => {
       const exact = exactFromScale(payload)
       const grams = Math.round((Number(exact) || kg) * 1000)
-      setQtyEditMode('qty')
-      setQtyEditBuf(exact)
-      if (opts?.live) {
-        setScaleMoving(true)
-        setScaleHolding(false)
-        return
-      }
       lastHeldKgRef.current = Number(exact) || kg
       lastCommittedGramsRef.current = grams
       scaleSawZeroRef.current = false
+      setQtyEditMode('qty')
+      setQtyEditBuf(exact)
       setScaleMoving(false)
       setScaleHolding(false)
     }
@@ -1343,8 +1334,6 @@ export default function CashierModule({
       const empty = !(kg > SCALE_ZERO_KG)
 
       if (empty) {
-        liveSameGramsRef.current = 0
-        liveSameCountRef.current = 0
         setScaleMoving(false)
         if (prev > SCALE_ZERO_KG || lastCommittedGramsRef.current > 0) {
           scaleSawZeroRef.current = true
@@ -1353,30 +1342,22 @@ export default function CashierModule({
         return
       }
 
-      if (liveSameGramsRef.current === grams) {
-        liveSameCountRef.current += 1
-      } else {
-        liveSameGramsRef.current = grams
-        liveSameCountRef.current = 1
-      }
-
-      const stopped = payload.stable || liveSameCountRef.current >= 2
-
-      // Пока качается — сразу видно вес в поле
-      if (!stopped) {
-        commitToField(payload, kg, { live: true })
+      // Ещё качается — live уже в casWeight, поле не трогаем
+      if (!payload.stable) {
+        setScaleMoving(true)
+        setScaleHolding(false)
         return
       }
 
       const afterRemove = scaleSawZeroRef.current
       const first = !(prev > SCALE_ZERO_KG) && lastCommittedGramsRef.current <= 0
-      const deltaG = Math.abs(grams - lastCommittedGramsRef.current)
-      const added = grams >= lastCommittedGramsRef.current + SCALE_DIVISION_G
-      const changed = deltaG >= SCALE_DIVISION_G
+      const added = grams > lastCommittedGramsRef.current
+      const changed = Math.abs(grams - lastCommittedGramsRef.current) >= 1
+        || Math.abs(kg - prev) >= SCALE_NEW_DELTA_KG
 
       if (!afterRemove && !first && !added && !changed) {
-        // Тот же вес — всё равно синхронизируем отображение
-        commitToField(payload, kg)
+        setScaleMoving(false)
+        setScaleHolding(false)
         return
       }
 
@@ -3293,8 +3274,6 @@ export default function CashierModule({
   function startWeightModalMonitor() {
     qtyEditIsWeightRef.current = true
     scaleSawZeroRef.current = false
-    liveSameGramsRef.current = -1
-    liveSameCountRef.current = 0
     setScaleHolding(false)
     setScaleMoving(false)
     if (casWeight.stable && casWeight.weightKg > SCALE_ZERO_KG) {
@@ -3309,8 +3288,6 @@ export default function CashierModule({
     lastHeldKgRef.current = 0
     lastCommittedGramsRef.current = 0
     scaleSawZeroRef.current = false
-    liveSameGramsRef.current = -1
-    liveSameCountRef.current = 0
     setScaleHolding(false)
     setScaleMoving(false)
   }
@@ -5126,14 +5103,13 @@ export default function CashierModule({
 
                           <div className={`pos-settings-status ${casWeight.connected ? 'ok' : 'warn'}`}>
                             {casWeight.connected
-                              ? `Связь OK · ${deskScaleHost.trim() || '—'}:${deskScalePort || 20304} · ${casWeight.grams || 0} г (${(casWeight.weightKg || 0).toFixed(3)} кг)${casWeight.stable ? ' · стабильно' : ''}`
+                              ? `Связь OK · ${casWeight.grams || 0} г (${(casWeight.weightKg || 0).toFixed(3)} кг)${casWeight.stable ? ' · стабильно' : ''}`
                               : (casWeight.error
-                                ? `Нет связи (${deskScaleHost.trim() || 'нет IP'}:${deskScalePort || 20304}): ${casWeight.error}`
-                                : `Нет связи с весами${deskScaleHost.trim() ? ` · ${deskScaleHost.trim()}:${deskScalePort || 20304}` : ' · укажите IP'}`)}
+                                ? `Нет связи: ${casWeight.error}`
+                                : 'Нет связи с весами')}
                             <div className="pos-settings-net-hint">
-                              Важно: положите товар на весы, подождите 1–2 сек, потом нажмите <b>Тест связи</b>.
-                              В тосте будет <b>RAW</b> (ответ весов). Если на дисплее CAS есть вес, а в RAW
-                              <code> W=0.000</code> — весы по сети не отдают живой вес (настройка/прошивка CAS).
+                              Прямой кабель: на кассовом ПК нужен статический IPv4 <b>192.168.1.2/24</b>
+                              (весы обычно <b>192.168.1.10:20304</b>). Приложение не меняет настройки Windows.
                             </div>
                           </div>
 
@@ -5164,13 +5140,8 @@ export default function CashierModule({
                                     const res = await desk.readCasWeight({
                                       host,
                                       port,
-                                      timeoutMs: 6000,
-                                      fresh: true,
+                                      timeoutMs: 4000,
                                     })
-                                    const rawShort = String(res.raw || '')
-                                      .replace(/\r/g, '\\r')
-                                      .replace(/\n/g, '\\n')
-                                      .slice(0, 70)
                                     setCasWeight({
                                       connected: true,
                                       running: !!deskScaleLiveWeight,
@@ -5181,12 +5152,11 @@ export default function CashierModule({
                                       price: res.price,
                                       stable: true,
                                       error: '',
-                                      raw: res.raw,
                                       ts: res.ts,
                                     })
                                     showToast(
-                                      'CAS тест',
-                                      `${res.grams} г · ${res.weightKg.toFixed(3)} кг · RAW: ${rawShort || '—'}`,
+                                      'CAS',
+                                      `Вес: ${res.grams} г (${res.weightKg.toFixed(3)} кг)`,
                                     )
                                     if (deskScaleLiveWeight) {
                                       await desk.startCasWeight?.({ host, port })
@@ -5201,7 +5171,7 @@ export default function CashierModule({
                                       port,
                                       error: msg,
                                     }))
-                                    showToast('CAS RAW', msg.slice(0, 120))
+                                    showToast('CAS', msg)
                                   } finally {
                                     setDeskCasTestBusy(false)
                                   }

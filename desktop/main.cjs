@@ -910,9 +910,6 @@ app.whenReady().then(async () => {
       host,
       port,
       intervalMs: payload?.intervalMs,
-      settleMs: payload?.settleMs,
-      divisionG: payload?.divisionG,
-      readTimeoutMs: payload?.readTimeoutMs,
     })
   })
 
@@ -922,12 +919,11 @@ app.whenReady().then(async () => {
     const settings = loadPrinterSettings()
     const host = String(payload?.host || settings.scaleHost || '').trim()
     const port = Number(payload?.port || settings.scalePort) || 20304
-    // Тест всегда fresh: новый TCP, не старый кэш монитора
+    // same host → через монитор; другой IP → stop + reconnect внутри readLiveWeight
     return readLiveWeight({
       host,
       port,
-      timeoutMs: payload?.timeoutMs || 5000,
-      fresh: payload?.fresh !== false,
+      timeoutMs: payload?.timeoutMs,
     })
   })
 
