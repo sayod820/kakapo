@@ -1312,6 +1312,16 @@ export default function CashierModule({
    * 5) рука / движение → поле не трогаем, пишем только после STOP.
    * Шаг весов: 5 г.
    */
+  // Модалка веса уже открыта, а IP/настройки подтянулись позже → поднять монитор
+  useEffect(() => {
+    if (!qtyEditOpen) return
+    if (!qtyEditIsWeightRef.current) return
+    if (deskScaleMode === 'none' || !deskScaleLiveWeight) return
+    if (!isKakapoDesktop()) return
+    void ensureCasWeightMonitor(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- только когда меняются условия живого веса
+  }, [qtyEditOpen, deskScaleHost, deskScalePort, deskScaleLiveWeight, deskScaleMode])
+
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
@@ -3267,12 +3277,30 @@ export default function CashierModule({
         setCasWeight(prev => ({ ...prev, connected: false, running: false, weightKg: 0, grams: 0, error: '' }))
         return
       }
-      const host = deskScaleHost.trim()
-      if (!host || !desk.startCasWeight) return
-      await desk.startCasWeight({
-        host,
-        port: Number(deskScalePort) || 20304,
-      })
+      let host = deskScaleHost.trim()
+      let port = Number(deskScalePort) || 20304
+      // Если state ещё не подтянул настройки — берём из Electron
+      if (!host && desk.getPrinterSettings) {
+        const settings = await desk.getPrinterSettings().catch(() => null)
+        host = String(settings?.scaleHost || '').trim()
+        port = Number(settings?.scalePort) || port
+        if (host) {
+          setDeskScaleHost(host)
+          setDeskScalePort(String(port))
+          if (settings?.scaleMode === 'none') setDeskScaleMode('none')
+          if (settings?.scaleLiveWeight === false) setDeskScaleLiveWeight(false)
+        }
+      }
+      if (!host || !desk.startCasWeight) {
+        setCasWeight(prev => ({
+          ...prev,
+          connected: false,
+          running: false,
+          error: host ? prev.error : 'Укажите IP весов в настройках и нажмите Сохранить',
+        }))
+        return
+      }
+      await desk.startCasWeight({ host, port })
     } catch (e) {
       setCasWeight(prev => ({
         ...prev,
@@ -6305,9 +6333,13 @@ export default function CashierModule({
                                 ? `В кассе ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · положите товар`
                                 : 'Весы подключены · положите товар на весы'))
                             : (casWeight.error
-                              ? `Нет связи с весами · ${casWeight.error}`
-                              : 'Нет связи с весами… Можно ввести вес вручную')))
-                      : 'Введите вес с клавиатуры — сумма посчитается сама')
+                              ? `Нет связи · ${casWeight.error}`
+                              : 'Нет связи с весами… Проверьте IP и «Тест связи» в настройках')))
+                      : (!deskScaleHost.trim()
+                        ? 'Нет IP весов · Настройки → Весы CAS → IP → Сохранить → Тест связи'
+                        : deskScaleMode === 'none' || !deskScaleLiveWeight
+                          ? 'Живой вес выключен · включите в Настройки → Весы CAS'
+                          : 'Введите вес с клавиатуры — сумма посчитается сама'))
                     : 'Введите количество с клавиатуры — сумма посчитается сама'}
               </div>
 
