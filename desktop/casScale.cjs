@@ -126,15 +126,24 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
   })
 }
 
-/** Есть ли в буфере поле веса (для принятия ответа). */
+/** Есть ли в буфере хоть какой-то намёк на вес. */
 function hasWeightField(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
   return /W\s*=\s*-?\d/i.test(text) || /(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,/i.test(text)
 }
 
+/** Можно принимать кадр по тишине: есть дробный вес или W=…P=. */
+function hasUsableWeightPrefix(buf) {
+  const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
+  if (/W\s*=\s*-?\d+[.,]\d+/i.test(text)) return true
+  if (/W\s*=\s*-?\d+[\s.,;:]*P\s*=/i.test(text)) return true
+  if (/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,/i.test(text)) return true
+  return false
+}
+
 /**
- * Кадр достаточно полный: W=…P= / W=0.070. / тишина после W=.
- * Не режем по «W=0.» из середины 0.070 — ждём цифры или P=.
+ * Кадр достаточно полный: W=…P= / W=0.070. / тишина после полноценного W=.
+ * Не режем по «W=0.» из середины 0.070.
  */
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
@@ -157,10 +166,10 @@ function drainSocket(socket) {
   } catch { /* ignore */ }
 }
 
-function writeAndReadWeight(socket, timeoutMs = 2000) {
+function writeAndReadWeight(socket, timeoutMs = 2500) {
   return new Promise((resolve, reject) => {
     if (!socket || socket.destroyed) {
-      reject(new Error('Нет связи с весами CAS'))
+      reject(new Error('Нет связи с весами'))
       return
     }
     drainSocket(socket)
@@ -170,7 +179,6 @@ function writeAndReadWeight(socket, timeoutMs = 2000) {
     const timer = setTimeout(() => {
       if (settled) return
       const buf = Buffer.concat(chunks)
-      // Лучше отдать то, что есть с W=, чем рвать связь из‑за строгого кадра
       if (buf.length > 0 && hasWeightField(buf)) {
         settled = true
         cleanup()
@@ -179,7 +187,7 @@ function writeAndReadWeight(socket, timeoutMs = 2000) {
       }
       cleanup()
       settled = true
-      reject(new Error('Нет ответа от весов CAS'))
+      reject(new Error('Нет ответа от весов'))
     }, timeoutMs)
 
     function finish() {
@@ -194,12 +202,12 @@ function writeAndReadWeight(socket, timeoutMs = 2000) {
       const buf = Buffer.concat(chunks)
       if (settleTimer) clearTimeout(settleTimer)
       if (isWeightFrameComplete(buf)) {
-        // Хвост P=… после короткой паузы
-        settleTimer = setTimeout(finish, 40)
-      } else if (hasWeightField(buf)) {
-        // Есть W=, ждём ещё кусок; если тишина — принимаем
-        settleTimer = setTimeout(finish, 80)
+        settleTimer = setTimeout(finish, 45)
+      } else if (hasUsableWeightPrefix(buf)) {
+        // Ждём хвост дольше — иначе обрежем 0.070 → 0.0 / 0.07
+        settleTimer = setTimeout(finish, 120)
       }
+      // голый «W=0.» / «W=0» — ждём дальше до таймаута, не принимаем рано
     }
     function onErr(e) {
       if (settled) return
@@ -470,11 +478,11 @@ class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
-    this.intervalMs = 120
+    this.intervalMs = 180
     /** Сколько одинаковых отсчётов подряд = STOP */
     this.sameNeed = 3
     /** Пауза после STOP перед подтверждением веса */
-    this.confirmDelayMs = 280
+    this.confirmDelayMs = 320
     this.socket = null
     this.timer = null
     this.busy = false
@@ -489,7 +497,7 @@ class CasWeightMonitor {
     this.confirming = false
     /** Уже подтверждённый STOP-вес — не переспрашивать каждое тиканье */
     this.lastStableGrams = null
-    /** Подряд неудачных опросов — рвём сокет только после нескольких */
+    /** Подряд неудачных опросов */
     this.failCount = 0
   }
 
@@ -522,7 +530,7 @@ class CasWeightMonitor {
     const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(80, Math.min(500, Number(opts.intervalMs) || 120))
+    this.intervalMs = Math.max(120, Math.min(500, Number(opts.intervalMs) || 180))
     this.running = true
     this.lastError = ''
 
@@ -595,15 +603,15 @@ class CasWeightMonitor {
   async ensureSocket() {
     if (this.socket && !this.socket.destroyed) return this.socket
     this.destroySocket()
-    const socket = await tcpConnect(this.host, this.port, 3000)
+    const socket = await tcpConnect(this.host, this.port, 4000)
     socket.setNoDelay(true)
     socket.on('error', () => {
-      this.connected = false
-      this.destroySocket()
+      // не трогаем UI здесь — tick сам переподключит
+      try { socket.destroy() } catch { /* ignore */ }
     })
     socket.on('close', () => {
-      this.connected = false
-      this.socket = null
+      if (this.socket === socket) this.socket = null
+      // connected оставим true до явного fail — иначе при каждом «качке» веса мигает «нет связи»
     })
     this.socket = socket
     this.connected = true
@@ -675,7 +683,7 @@ class CasWeightMonitor {
         // Уже подтвердили этот вес
         stable = true
       } else if (!empty && this.stableCount >= this.sameNeed) {
-        // STOP → пауза ~0.3 с → новый запрос с весов
+        // STOP → пауза → повторный запрос. Сбой подтверждения НЕ рвёт связь.
         this.confirming = true
         this.emit({
           connected: true,
@@ -694,7 +702,7 @@ class CasWeightMonitor {
         this.busy = true
         try {
           const confirm = await this.readWeightNow()
-          if (Math.abs(confirm.grams - grams) <= 1) {
+          if (Math.abs(confirm.grams - grams) <= 2) {
             parsed = confirm
             kg = confirm.weightKg
             grams = confirm.grams
@@ -710,6 +718,10 @@ class CasWeightMonitor {
             grams = confirm.grams
             stable = false
           }
+        } catch {
+          // Весы заняты при постановке товара — берём уже пойманный STOP-вес
+          this.lastStableGrams = grams
+          stable = true
         } finally {
           this.confirming = false
         }
@@ -717,6 +729,8 @@ class CasWeightMonitor {
 
       this.lastEmitKg = kg
       this.lastParsed = parsed
+      this.failCount = 0
+      this.connected = true
       this.emit({
         connected: true,
         weightKg: kg,
@@ -731,19 +745,44 @@ class CasWeightMonitor {
       this.confirming = false
       this.lastError = e instanceof Error ? e.message : String(e)
       this.failCount = (this.failCount || 0) + 1
-      // Один сбой — не рвём UI «нет связи»; после 3 подряд — переподключение
-      if (this.failCount >= 3) {
-        this.destroySocket()
+
+      // Мягкий реконнект: при постановке товара CAS часто рвёт TCP на мгновение
+      const dead = !this.socket || this.socket.destroyed
+      if (dead || this.failCount >= 2) {
+        try { this.destroySocket() } catch { /* ignore */ }
+        await sleep(250)
+      } else {
+        await sleep(120)
+      }
+      let back = false
+      if (this.running) {
+        try {
+          await this.ensureSocket()
+          back = true
+          this.failCount = 0
+        } catch { /* remain down */ }
+      }
+
+      if (back) {
+        this.emit({
+          connected: true,
+          weightKg: this.lastEmitKg || 0,
+          grams: Math.round((this.lastEmitKg || 0) * 1000),
+          stable: false,
+          error: '',
+        })
+      } else if (this.failCount >= 3) {
+        this.connected = false
         this.emit({
           connected: false,
           weightKg: this.lastEmitKg || 0,
           grams: Math.round((this.lastEmitKg || 0) * 1000),
           stable: false,
-          error: this.lastError,
+          error: 'Нет связи с весами. Проверьте IP и кабель.',
         })
       } else {
         this.emit({
-          connected: this.connected || !!this.lastEmitKg,
+          connected: true,
           weightKg: this.lastEmitKg || 0,
           grams: Math.round((this.lastEmitKg || 0) * 1000),
           stable: false,
@@ -754,8 +793,8 @@ class CasWeightMonitor {
       this.busy = false
       const elapsed = Date.now() - tickStarted
       const wait = this.failCount >= 3
-        ? Math.max(400, this.intervalMs)
-        : Math.max(40, this.intervalMs - elapsed)
+        ? 600
+        : Math.max(80, this.intervalMs - elapsed)
       this.schedule(wait)
     }
   }
