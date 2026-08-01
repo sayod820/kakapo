@@ -1340,25 +1340,52 @@ export default function CashierModule({
   }, [qtyEditOpen, deskScaleHost, deskScalePort, deskScaleLiveWeight, deskScaleMode])
 
   /**
-   * Живой вес — упрощённо и надёжно:
-   * - опрос весов каждые 450 мс, пока открыто окно веса;
-   * - STOP = 3 одинаковых показания подряд (шаг 5 г);
-   * - рука/движение: поле не трогаем; после STOP пишем;
-   * - снял → вес остаётся; новый после нуля → замена; досып без снятия → вес платформы.
+   * Живой вес (этап 1): STOP = разброс ≤ ±2 г за ≥350 мс (не точное совпадение).
+   * Снятие → вес остаётся; новый после нуля → замена; досып без снятия → вес платформы.
    */
   useEffect(() => {
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
     if (!desk) return
 
-    const STEP_G = 5
-    let uiLastG: number | null = null
-    let uiSame = 0
+    const STABLE_TOLERANCE_G = 2
+    const STABLE_DURATION_MS = 350
+    const STABLE_BUFFER_MS = 500
+    const EMPTY_G = 5
+    /** @type {{ grams: number, t: number }[]} */
+    let samples: { grams: number, t: number }[] = []
     let pollBusy = false
 
+    const evaluateUiStable = (now: number) => {
+      const cutoff = now - STABLE_BUFFER_MS
+      samples = samples.filter(s => s.t >= cutoff)
+      if (samples.length < 2) {
+        return { stable: false, grams: samples.length ? samples[samples.length - 1].grams : 0 }
+      }
+      const newest = samples[samples.length - 1]
+      if (newest.t - samples[0].t < STABLE_DURATION_MS) {
+        return { stable: false, grams: newest.grams }
+      }
+      const windowStart = newest.t - STABLE_DURATION_MS
+      const inWindow = samples.filter(s => s.t >= windowStart)
+      if (inWindow.length < 2) return { stable: false, grams: newest.grams }
+      let min = inWindow[0].grams
+      let max = inWindow[0].grams
+      let sum = 0
+      for (const s of inWindow) {
+        if (s.grams < min) min = s.grams
+        if (s.grams > max) max = s.grams
+        sum += s.grams
+      }
+      return {
+        stable: (max - min) <= STABLE_TOLERANCE_G,
+        grams: Math.round(sum / inWindow.length),
+      }
+    }
+
     const commitPlatterGrams = (platterGrams: number) => {
-      const g = Math.max(0, Math.round(platterGrams / STEP_G) * STEP_G)
-      if (g < STEP_G) return
+      const g = Math.max(0, Math.round(platterGrams))
+      if (g < EMPTY_G) return
       const exact = (g / 1000).toFixed(3)
       lastHeldKgRef.current = g / 1000
       lastCommittedGramsRef.current = g
@@ -1388,38 +1415,45 @@ export default function CashierModule({
       price?: number | null
       host?: string
       port?: number
+      stable?: boolean
     }) => {
-      const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
+      const now = Date.now()
+      const kgIn = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
       const rawG = Number.isFinite(Number(payload.grams))
         ? Math.round(Number(payload.grams))
-        : Math.round(kg * 1000)
-      const grams = Math.round(rawG / STEP_G) * STEP_G
+        : Math.round(kgIn * 1000)
+      const grams = Math.max(0, rawG)
+
+      samples.push({ grams, t: now })
+      const ev = evaluateUiStable(now)
+      // Если монитор уже посчитал stable — доверяем ему тоже
+      const stable = !!(payload.stable || ev.stable)
+      const useG = stable ? (ev.stable ? ev.grams : grams) : grams
 
       setCasWeight(prev => ({
         ...prev,
         connected: payload.connected !== false,
         running: true,
-        weightKg: kg,
-        grams,
+        weightKg: useG / 1000,
+        grams: useG,
         price: payload.price ?? prev.price,
         error: payload.error || '',
         host: payload.host || prev.host,
         port: payload.port || prev.port,
         raw: payload.raw,
-        stable: uiSame >= 3 && grams >= STEP_G,
-        ts: Date.now(),
+        stable,
+        ts: now,
       }))
 
       if (!deskScaleLiveWeightRef.current) return
       if (deskScaleModeRef.current === 'none') return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
 
-      const empty = grams < STEP_G
+      const empty = grams < EMPTY_G
       const saved = lastCommittedGramsRef.current
 
       if (empty) {
-        uiLastG = 0
-        uiSame = 0
+        samples = []
         setScaleMoving(false)
         platterBaselineGramsRef.current = 0
         if (saved > 0) {
@@ -1429,43 +1463,35 @@ export default function CashierModule({
         return
       }
 
-      if (uiLastG != null && Math.abs(uiLastG - grams) < STEP_G) {
-        uiSame += 1
-      } else {
-        uiLastG = grams
-        uiSame = 1
+      if (!stable) {
         setScaleMoving(true)
         setScaleHolding(false)
         return
       }
 
-      if (uiSame < 3) {
-        setScaleMoving(true)
-        return
-      }
-
       const afterRemove = scaleSawZeroRef.current
       const baseline = platterBaselineGramsRef.current
+      const commitG = useG
 
       if (saved <= 0 || afterRemove) {
-        commitPlatterGrams(grams)
+        commitPlatterGrams(commitG)
         return
       }
-      if (grams >= baseline + STEP_G) {
-        commitPlatterGrams(grams)
+      // Досып: платформа выросла больше допуска
+      if (commitG >= baseline + STABLE_TOLERANCE_G) {
+        commitPlatterGrams(commitG)
         return
       }
       setScaleMoving(false)
       setScaleHolding(false)
     }
 
-    // Статус связи из фонового монитора
+    // События монитора (stable уже с допуском ±2 г / 350 мс)
     const off = desk.onCasWeight?.(payload => {
-      if (qtyEditOpenRef.current && qtyEditIsWeightRef.current) return
-      setCasWeight(payload)
+      handleReading(payload)
     })
 
-    // Главный путь: прямой опрос, пока открыто окно веса
+    // Запасной опрос, если событие монитора редкое
     const pollId = window.setInterval(() => {
       if (pollBusy) return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return

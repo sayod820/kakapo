@@ -12,6 +12,49 @@ const iconv = require('iconv-lite')
 const PLU_SIZE = 148
 const WEIGHT_CMD = Buffer.from('R45F04,00\n', 'ascii')
 
+/** Допуск стабильности (г): весы CL-3000 дрожат ±1–2 г при докладе */
+const STABLE_TOLERANCE_G = 2
+/** Сколько мс вес должен держаться в допуске, чтобы считать STOP */
+const STABLE_DURATION_MS = 350
+/** Хранить семплы чуть дольше окна стабильности */
+const STABLE_BUFFER_MS = 500
+
+/**
+ * По буферу { grams, t }: stable если окно ≥ STABLE_DURATION_MS и max−min ≤ STABLE_TOLERANCE_G.
+ * @returns {{ stable: boolean, grams: number }}
+ */
+function evaluateStability(samples, now = Date.now()) {
+  const cutoff = now - STABLE_BUFFER_MS
+  const live = samples.filter(s => s.t >= cutoff)
+  if (live.length < 2) {
+    return { stable: false, grams: live.length ? live[live.length - 1].grams : 0 }
+  }
+  const newest = live[live.length - 1]
+  const oldestInWindow = live[0]
+  const spanMs = newest.t - oldestInWindow.t
+  if (spanMs < STABLE_DURATION_MS) {
+    return { stable: false, grams: newest.grams }
+  }
+  // Только семплы за последние STABLE_DURATION_MS (хвост окна)
+  const windowStart = newest.t - STABLE_DURATION_MS
+  const inWindow = live.filter(s => s.t >= windowStart)
+  if (inWindow.length < 2) {
+    return { stable: false, grams: newest.grams }
+  }
+  let min = inWindow[0].grams
+  let max = inWindow[0].grams
+  let sum = 0
+  for (const s of inWindow) {
+    if (s.grams < min) min = s.grams
+    if (s.grams > max) max = s.grams
+    sum += s.grams
+  }
+  const stable = (max - min) <= STABLE_TOLERANCE_G
+  // Для отображения — среднее по окну (округление до 1 г)
+  const grams = Math.round(sum / inWindow.length)
+  return { stable, grams }
+}
+
 function checksum(data) {
   let sum = 0
   for (let i = 0; i < data.length; i++) sum = (sum + data[i]) & 0xff
@@ -456,18 +499,14 @@ async function readLiveWeight(opts) {
 }
 
 /**
- * Фоновый монитор: опрос ~8 Гц.
- * stable=true только после одинаковых граммов + пауза ~0.3 с + повторный запрос.
+ * Фоновый монитор веса.
+ * stable = разброс ≤ STABLE_TOLERANCE_G г в течение STABLE_DURATION_MS (не точное совпадение).
  */
 class CasWeightMonitor {
   constructor() {
     this.host = ''
     this.port = 20304
     this.intervalMs = 180
-    /** Сколько одинаковых (в пределах шага) отсчётов = STOP */
-    this.sameNeed = 3
-    /** Дискретность весов (г) */
-    this.stepGrams = 5
     this.socket = null
     this.timer = null
     this.busy = false
@@ -475,13 +514,14 @@ class CasWeightMonitor {
     this.onUpdate = null
     this.lastError = ''
     this.connected = false
-    this.stableCount = 0
     this.lastGrams = null
     this.lastEmitKg = null
     this.lastParsed = null
     this.confirming = false
     this.lastStableGrams = null
     this.failCount = 0
+    /** @type {{ grams: number, t: number }[]} */
+    this.samples = []
   }
 
   setListener(fn) {
@@ -513,16 +553,16 @@ class CasWeightMonitor {
     const same = this.running && this.host === host && this.port === port && this.socket && !this.socket.destroyed
     this.host = host
     this.port = port
-    this.intervalMs = Math.max(150, Math.min(500, Number(opts.intervalMs) || 200))
+    this.intervalMs = Math.max(150, Math.min(500, Number(opts.intervalMs) || 180))
     this.running = true
     this.lastError = ''
 
     if (!same) {
-      this.stableCount = 0
       this.lastGrams = null
       this.lastStableGrams = null
       this.confirming = false
       this.failCount = 0
+      this.samples = []
       this.destroySocket()
       await this.ensureSocket()
     }
@@ -646,26 +686,32 @@ class CasWeightMonitor {
     const tickStarted = Date.now()
     try {
       const parsed = await this.readWeightNow()
-      const step = Math.max(1, Number(this.stepGrams) || 5)
-      let grams = Math.round(parsed.grams / step) * step
-      let kg = grams / 1000
-      const near = (a, b) => Math.abs((a || 0) - (b || 0)) < step
+      const now = Date.now()
+      // Без округления до 5 г — иначе допуск ±2 г бессмысленен
+      let grams = Math.round(Number(parsed.grams) || 0)
+      if (grams < 0) grams = 0
 
-      if (this.lastGrams != null && near(this.lastGrams, grams)) {
-        this.stableCount += 1
-        grams = this.lastGrams
-        kg = grams / 1000
+      this.samples.push({ grams, t: now })
+      const cutoff = now - STABLE_BUFFER_MS
+      this.samples = this.samples.filter(s => s.t >= cutoff)
+
+      const empty = grams < 1
+      let stable = empty
+      let emitGrams = grams
+
+      if (!empty) {
+        const ev = evaluateStability(this.samples, now)
+        stable = ev.stable
+        emitGrams = ev.stable ? ev.grams : grams
+        if (stable) this.lastStableGrams = emitGrams
+        else this.lastStableGrams = null
       } else {
-        this.stableCount = 0
+        this.samples = []
         this.lastStableGrams = null
       }
-      this.lastGrams = grams
 
-      const empty = grams < step
-      // STOP = несколько одинаковых показаний подряд (без второго запроса — он ломал связь)
-      let stable = empty || (!empty && this.stableCount >= this.sameNeed)
-      if (stable && !empty) this.lastStableGrams = grams
-
+      this.lastGrams = emitGrams
+      const kg = emitGrams / 1000
       this.lastEmitKg = kg
       this.lastParsed = parsed
       this.failCount = 0
@@ -673,12 +719,12 @@ class CasWeightMonitor {
       this.emit({
         connected: true,
         weightKg: kg,
-        grams,
+        grams: emitGrams,
         price: parsed.price,
         stable,
         error: '',
         raw: parsed.raw,
-        display: (kg).toFixed(3),
+        display: kg.toFixed(3),
       })
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e)
@@ -743,6 +789,9 @@ module.exports = {
   syncCasPlu,
   readLiveWeight,
   parseWeightResponse,
+  evaluateStability,
+  STABLE_TOLERANCE_G,
+  STABLE_DURATION_MS,
   weightMonitor,
   CasWeightMonitor,
 }
