@@ -145,6 +145,7 @@ export type KakapoDesktopApi = {
     port: number
     error: string
   }>
+  getLocalIpv4?: () => Promise<{ ok: boolean; list: { name: string; address: string; netmask: string }[] }>
   onCasWeight?: (handler: (payload: CasWeightEvent) => void) => () => void
   getUpdateStatus?: () => Promise<DesktopUpdateStatus>
   checkForUpdates?: () => Promise<DesktopUpdateStatus>

@@ -919,13 +919,36 @@ app.whenReady().then(async () => {
     const settings = loadPrinterSettings()
     const host = String(payload?.host || settings.scaleHost || '').trim()
     const port = Number(payload?.port || settings.scalePort) || 20304
-    // same host → через монитор; другой IP → stop + reconnect внутри readLiveWeight
-    return readLiveWeight({
-      host,
-      port,
-      timeoutMs: payload?.timeoutMs,
-      forceDirect: payload?.forceDirect !== false && payload?.fresh !== false,
-    })
+    // forceDirect только если явно true (иначе каждый опрос рвал монитор)
+    const forceDirect = payload?.forceDirect === true || payload?.fresh === true
+    try {
+      return await readLiveWeight({
+        host,
+        port,
+        timeoutMs: payload?.timeoutMs,
+        forceDirect,
+      })
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e)
+      const hint = /ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|Таймаут|Nет связи|Нет ответа/i.test(raw)
+        ? ` Нет связи с ${host}:${port}. ПК и весы должны быть в одной сети (касса обычно 192.168.1.2, весы 192.168.1.10). Сейчас проверьте кабель Ethernet к весам.`
+        : ''
+      throw new Error((raw.replace(/^Error:\s*/i, '') + hint).trim())
+    }
+  })
+
+  ipcMain.handle('desktop:getLocalIpv4', () => {
+    const os = require('os')
+    const nets = os.networkInterfaces()
+    const list = []
+    for (const name of Object.keys(nets || {})) {
+      for (const net of nets[name] || []) {
+        if (net.family === 'IPv4' && !net.internal) {
+          list.push({ name, address: net.address, netmask: net.netmask })
+        }
+      }
+    }
+    return { ok: true, list }
   })
 
   ipcMain.handle('desktop:getCasWeightStatus', () => ({

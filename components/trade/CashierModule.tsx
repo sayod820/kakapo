@@ -962,6 +962,7 @@ export default function CashierModule({
   const [deskPaperMm, setDeskPaperMm] = useState<58 | 80>(XP58C_RECEIPT_MM)
   const [deskScaleMode, setDeskScaleMode] = useState<'none' | 'plu-label'>('plu-label')
   const [deskScaleHost, setDeskScaleHost] = useState('')
+  const [deskLocalIps, setDeskLocalIps] = useState<string[]>([])
   const [deskScalePort, setDeskScalePort] = useState('20304')
   const [deskScaleDept, setDeskScaleDept] = useState('1')
   const [deskScaleLiveWeight, setDeskScaleLiveWeight] = useState(true)
@@ -1287,6 +1288,10 @@ export default function CashierModule({
     if (!isKakapoDesktop()) return
     const desk = getKakapoDesktop()
     if (!desk) return
+    void desk.getLocalIpv4?.().then(res => {
+      const ips = (res?.list || []).map(i => i.address).filter(Boolean)
+      setDeskLocalIps(ips)
+    }).catch(() => undefined)
     void desk.getPrinterSettings().then(async settings => {
       const mode = settings?.scaleMode === 'none' ? 'none' : 'plu-label'
       // Если IP пустой — подставляем типичный адрес CAS и сохраняем
@@ -5353,8 +5358,31 @@ export default function CashierModule({
                                 ? `Нет связи: ${casWeight.error}`
                                 : 'Нет связи с весами')}
                             <div className="pos-settings-net-hint">
-                              Прямой кабель: на кассовом ПК нужен статический IPv4 <b>192.168.1.2/24</b>
-                              (весы обычно <b>192.168.1.10:20304</b>). Приложение не меняет настройки Windows.
+                              ПК сейчас: <b>{deskLocalIps.length ? deskLocalIps.join(', ') : 'нет IPv4'}</b>
+                              <br />
+                              Весы: <b>{deskScaleHost.trim() || '192.168.1.10'}:{deskScalePort || 20304}</b>
+                              <br />
+                              {(() => {
+                                const host = deskScaleHost.trim() || '192.168.1.10'
+                                const sameLan = deskLocalIps.some(ip => {
+                                  const a = ip.split('.')
+                                  const b = host.split('.')
+                                  return a.length === 4 && b.length === 4 && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
+                                })
+                                if (!sameLan) {
+                                  return (
+                                    <span style={{ color: '#b45309' }}>
+                                      ПК и весы в РАЗНЫХ сетях — касса их не увидит.
+                                      Подключите Ethernet к весам и поставьте на ПК IP <b>192.168.1.2</b> / маска 255.255.255.0
+                                    </span>
+                                  )
+                                }
+                                return (
+                                  <span>
+                                    Сеть совпадает. Если теста нет — проверьте кабель и что весы включены.
+                                  </span>
+                                )
+                              })()}
                             </div>
                           </div>
 

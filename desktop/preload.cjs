@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   stopCasWeight: () => ipcRenderer.invoke('desktop:stopCasWeight'),
   readCasWeight: payload => ipcRenderer.invoke('desktop:readCasWeight', payload),
   getCasWeightStatus: () => ipcRenderer.invoke('desktop:getCasWeightStatus'),
+  getLocalIpv4: () => ipcRenderer.invoke('desktop:getLocalIpv4'),
   onCasWeight: (handler) => {
     if (typeof handler !== 'function') return () => {}
     const listener = (_event, payload) => handler(payload)
