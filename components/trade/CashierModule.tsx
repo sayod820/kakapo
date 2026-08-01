@@ -5358,7 +5358,7 @@ export default function CashierModule({
                             {casWeight.connected
                               ? ((casWeight.grams || 0) > 0
                                 ? `Связь OK · ${casWeight.grams} г (${(casWeight.weightKg || 0).toFixed(3)} кг)${casWeight.stable ? ' · вес стабилен' : ' · взвешивание…'}`
-                                : 'Связь OK · на весах 0 г · положите товар')
+                                : `Связь OK · 0 г · положите товар и нажмите «Тест»${casWeight.raw ? ` · ответ: ${String(casWeight.raw).replace(/\s+/g, ' ').slice(0, 40)}` : ''}`)
                               : (casWeight.error
                                 ? `Нет связи: ${casWeight.error}`
                                 : 'Нет связи с весами')}

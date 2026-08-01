@@ -173,8 +173,8 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
 }
 
 /**
- * Кадр веса: есть W=число (достаточно для CAS R45).
- * Не режем посреди дроби: ждём тишину после данных.
+ * Кадр веса готов только с полным кг (≥3 знака) или W=…P=.
+ * Иначе W=0.075 обрежется до W=0. / W=0.0 → ложный 0 г.
  */
 function hasWeightPayload(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
@@ -183,9 +183,22 @@ function hasWeightPayload(buf) {
 
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
+  // Полный ответ с ценой
+  if (/W\s*=\s*-?\d+[.,]\d{2,}\s*[.,;:\s]*P\s*=/i.test(text)) return true
+  // W=0.075. или W=0,075. — минимум 3 знака после точки + терминатор
+  if (/W\s*=\s*-?\d+[.,]\d{3,}[\s.;:\r\n]/i.test(text)) return true
+  // W=0.075 в конце буфера (уже 3 знака)
+  if (/W\s*=\s*-?\d+[.,]\d{3,}\s*$/i.test(text)) return true
+  if (/(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d{2,}/i.test(text)) return true
+  return false
+}
+
+/** Есть полноценное число веса (не обрезок W=0. / W=0.0). */
+function hasUsableWeightNumber(buf) {
+  const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
+  if (/W\s*=\s*-?\d+[.,]\d{3,}/i.test(text)) return true
   if (/W\s*=\s*-?\d+[.,]\d+\s*[.,;:\s]*P\s*=/i.test(text)) return true
-  if (/W\s*=\s*-?\d+[.,]\d{2,}\s*(?:[.;:\r\n]|P\s*=|$)/i.test(text)) return true
-  if (/(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d+/i.test(text)) return true
+  if (/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,/i.test(text)) return true
   return false
 }
 
@@ -202,8 +215,8 @@ function drainSocket(socket) {
 }
 
 /**
- * Простое чтение R45: пишем команду → копим ответ → тишина 70 мс или полный W=…P=.
- * На таймауте принимаем любой буфер с W= (связь важнее идеала кадра).
+ * Чтение R45: ждём полный W=0.xxx или W=…P=.
+ * Не закрываем кадр по «W=0.» — это начало 0.075.
  */
 function writeAndReadWeight(socket, timeoutMs = 2500) {
   return new Promise((resolve, reject) => {
@@ -218,7 +231,8 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
     const timer = setTimeout(() => {
       if (settled) return
       const buf = Buffer.concat(chunks)
-      if (buf.length > 0 && hasWeightPayload(buf)) {
+      // Только полноценный вес — иначе ложный 0 г
+      if (buf.length > 0 && (isWeightFrameComplete(buf) || hasUsableWeightNumber(buf))) {
         settled = true
         cleanup()
         resolve(buf)
@@ -226,7 +240,8 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
       }
       cleanup()
       settled = true
-      reject(new Error(buf.length ? `Неполный ответ: ${buf.toString('latin1').slice(0, 80)}` : 'Нет ответа от весов'))
+      const raw = buf.toString('latin1').slice(0, 100)
+      reject(new Error(buf.length ? `Неполный ответ весов: ${raw}` : 'Нет ответа от весов'))
     }, timeoutMs)
 
     function finish() {
@@ -241,10 +256,10 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
       const buf = Buffer.concat(chunks)
       if (settleTimer) clearTimeout(settleTimer)
       if (isWeightFrameComplete(buf)) {
-        settleTimer = setTimeout(finish, 40)
-      } else if (hasWeightPayload(buf)) {
-        settleTimer = setTimeout(finish, 100)
+        // Хвост P=… после короткой паузы
+        settleTimer = setTimeout(finish, 50)
       }
+      // НЕ закрываем по голому W= / W=0. — ждём цифры или таймаут
     }
     function onErr(e) {
       if (settled) return
@@ -357,11 +372,17 @@ function parseWeightResponse(buf) {
 
   let wToken = null
 
-  // 1) последний W= перед P=
-  const beforeP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)\s*[.,;:\s]*P\s*=/gi)]
+  // 1) последний W= перед P= (с дробью)
+  const beforeP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)\s*[.,;:\s]*P\s*=/gi)]
   if (beforeP.length) wToken = beforeP[beforeP.length - 1][1]
 
-  // 2) последний W= с десятичной частью
+  // 2) последний W= с ≥3 знаками (полный кг как на дисплее 0.075)
+  if (!wToken) {
+    const dec3 = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d{3,})/gi)]
+    if (dec3.length) wToken = dec3[dec3.length - 1][1]
+  }
+
+  // 3) любой десятичный W=
   if (!wToken) {
     const dec = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)/gi)]
     if (dec.length) wToken = dec[dec.length - 1][1]
