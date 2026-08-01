@@ -976,9 +976,11 @@ export default function CashierModule({
     error: '',
   })
   const deskScaleLiveWeightRef = useRef(true)
+  const deskScaleModeRef = useRef<'none' | 'plu-label'>('plu-label')
   const casMonitorWantedRef = useRef(false)
   const qtyEditOpenRef = useRef(false)
   const qtyEditIsWeightRef = useRef(false)
+  const qtyEditKeyRef = useRef<string | null>(null)
   /** Пусто на платформе: меньше 1 деления (5 г) */
   const SCALE_ZERO_KG = 0.005
   const SCALE_STEP_G = 5
@@ -1259,8 +1261,16 @@ export default function CashierModule({
   }, [deskScaleLiveWeight])
 
   useEffect(() => {
+    deskScaleModeRef.current = deskScaleMode
+  }, [deskScaleMode])
+
+  useEffect(() => {
     qtyEditOpenRef.current = qtyEditOpen
   }, [qtyEditOpen])
+
+  useEffect(() => {
+    qtyEditKeyRef.current = qtyEditKey
+  }, [qtyEditKey])
 
   /** Загрузить настройки весов при старте desktop-кассы */
   useEffect(() => {
@@ -1322,11 +1332,22 @@ export default function CashierModule({
       setQtyEditBuf(exact)
       setScaleMoving(false)
       setScaleHolding(false)
+      // Сразу пишем вес в строку чека — чтобы на экране было видно
+      const key = qtyEditKeyRef.current
+      if (key && g >= STEP_G) {
+        const w = g / 1000
+        setCart(prev => prev.map(l => {
+          if (l.key !== key || l.weightKg == null) return l
+          const maxW = Number(l.stock) || w
+          return { ...l, weightKg: Math.min(w, maxW), qty: 1 }
+        }))
+      }
     }
 
     const off = desk.onCasWeight(payload => {
       setCasWeight(payload)
       if (!deskScaleLiveWeightRef.current) return
+      if (deskScaleModeRef.current === 'none') return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
 
       const kg = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
@@ -2498,7 +2519,7 @@ export default function CashierModule({
           setDeskPrinterName(printerName)
           setDeskPaperMm(XP58C_RECEIPT_MM)
         }
-        if (deskScaleLiveWeight && deskScaleHost.trim()) {
+        if (deskScaleMode === 'plu-label' && deskScaleLiveWeight && deskScaleHost.trim()) {
           void ensureCasWeightMonitor(true)
         } else {
           void ensureCasWeightMonitor(false)
@@ -3263,7 +3284,8 @@ export default function CashierModule({
   }
 
   function liveWeightEnabled() {
-    return deskScaleLiveWeightRef.current
+    return deskScaleMode !== 'none'
+      && deskScaleLiveWeightRef.current
       && deskScaleLiveWeight
       && isKakapoDesktop()
       && !!deskScaleHost.trim()
@@ -3282,10 +3304,22 @@ export default function CashierModule({
     setScaleMoving(false)
     setQtyEditMode('qty')
     setQtyEditBuf(exact)
+    const key = qtyEditKeyRef.current
+    if (key) {
+      const w = g / 1000
+      setCart(prev => prev.map(l => {
+        if (l.key !== key || l.weightKg == null) return l
+        const maxW = Number(l.stock) || w
+        return { ...l, weightKg: Math.min(w, maxW), qty: 1 }
+      }))
+    }
   }
 
   function startWeightModalMonitor(seedKg?: number) {
+    // Важно: ставим refs СРАЗУ — иначе первый вес с монитора отбрасывается,
+    // пока React ещё не успел выполнить useEffect для qtyEditOpen.
     qtyEditIsWeightRef.current = true
+    qtyEditOpenRef.current = true
     setScaleHolding(false)
     setScaleMoving(false)
 
@@ -3322,6 +3356,7 @@ export default function CashierModule({
 
   function stopWeightModalMonitor() {
     qtyEditIsWeightRef.current = false
+    qtyEditOpenRef.current = false
     lastHeldKgRef.current = 0
     lastCommittedGramsRef.current = 0
     platterBaselineGramsRef.current = 0
@@ -3390,10 +3425,12 @@ export default function CashierModule({
       }], key)
       setQtyEditDraftKey(key)
       setQtyEditKey(key)
+      qtyEditKeyRef.current = key
       setQtyEditMode('qty')
       setQtyEditBuf('')
       setQtyEditPad(false)
       setQtyEditOpen(true)
+      qtyEditOpenRef.current = true
       startWeightModalMonitor(0)
       setLayerPickOpen(false)
       setLayerPickProduct(null)
@@ -3546,10 +3583,12 @@ export default function CashierModule({
     setSelectedLineKey(line.key)
     setQtyEditDraftKey(null)
     setQtyEditKey(line.key)
+    qtyEditKeyRef.current = line.key
     setQtyEditMode('qty')
     setQtyEditBuf(line.weightKg != null ? String(line.weightKg) : String(line.qty))
     setQtyEditPad(false)
     setQtyEditOpen(true)
+    qtyEditOpenRef.current = true
     if (line.weightKg != null) startWeightModalMonitor(line.weightKg > 0 ? line.weightKg : 0)
     else {
       qtyEditIsWeightRef.current = false
@@ -3560,7 +3599,9 @@ export default function CashierModule({
     discardWeightDraft(discardDraft)
     setQtyEditDraftKey(null)
     setQtyEditOpen(false)
+    qtyEditOpenRef.current = false
     setQtyEditKey(null)
+    qtyEditKeyRef.current = null
     setQtyEditPad(false)
     stopWeightModalMonitor()
   }
@@ -5083,7 +5124,16 @@ export default function CashierModule({
                         <select
                           className="gate-input"
                           value={deskScaleMode}
-                          onChange={e => setDeskScaleMode(e.target.value === 'none' ? 'none' : 'plu-label')}
+                          onChange={e => {
+                            const mode = e.target.value === 'none' ? 'none' : 'plu-label'
+                            setDeskScaleMode(mode)
+                            deskScaleModeRef.current = mode
+                            if (mode === 'none') {
+                              void ensureCasWeightMonitor(false)
+                            } else if (deskScaleLiveWeight && deskScaleHost.trim()) {
+                              void ensureCasWeightMonitor(true)
+                            }
+                          }}
                         >
                           <option value="plu-label">CAS · сеть TCP/IP</option>
                           <option value="none">Нет / вручную на кассе</option>
@@ -5128,7 +5178,7 @@ export default function CashierModule({
                               onChange={e => {
                                 const on = e.target.checked
                                 setDeskScaleLiveWeight(on)
-                                if (!on) {
+                                if (!on || deskScaleMode === 'none') {
                                   qtyEditIsWeightRef.current = false
                                   void ensureCasWeightMonitor(false)
                                 } else if (deskScaleHost.trim()) {
@@ -5196,7 +5246,7 @@ export default function CashierModule({
                                       'CAS',
                                       `Вес: ${res.grams} г (${res.weightKg.toFixed(3)} кг)`,
                                     )
-                                    if (deskScaleLiveWeight) {
+                                    if (deskScaleMode === 'plu-label' && deskScaleLiveWeight) {
                                       await desk.startCasWeight?.({ host, port })
                                     }
                                   } catch (e) {
@@ -5264,7 +5314,7 @@ export default function CashierModule({
                                   } catch (e) {
                                     showToast('CAS', e instanceof Error ? e.message : 'Ошибка связи с весами')
                                   } finally {
-                                    if (deskScaleLiveWeight && deskScaleHost.trim()) {
+                                    if (deskScaleMode === 'plu-label' && deskScaleLiveWeight && deskScaleHost.trim()) {
                                       await ensureCasWeightMonitor(true)
                                     }
                                     setDeskCasBusy(false)

@@ -47,7 +47,10 @@ function buildPluBuffer(item) {
   const dept = Math.max(1, Math.min(99, Number(item.department) || 1))
   const plu = Math.max(1, Math.min(999999, Number(item.plu) || 0))
   const price = Math.max(0, Math.round((Number(item.price) || 0) * 100))
-  const itemCode = Math.max(0, Number(String(item.barcode || '').replace(/\D/g, '').slice(0, 9)) || 0)
+  const itemCode = Math.max(
+    0,
+    Number(plu) || Number(String(item.barcode || '').replace(/\D/g, '').slice(0, 9)) || 0,
+  )
 
   buf.writeUInt16LE(dept, 0)
   buf.writeUInt32LE(plu, 2)
