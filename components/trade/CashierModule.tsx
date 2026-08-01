@@ -1468,6 +1468,10 @@ export default function CashierModule({
         return
       }
 
+      // Всегда показываем текущий вес (кассир видит реакцию), в чек — только после STOP
+      setQtyEditMode('qty')
+      setQtyEditBuf((grams / 1000).toFixed(3))
+
       if (!stable) {
         setScaleMoving(true)
         setScaleHolding(false)
@@ -1482,7 +1486,6 @@ export default function CashierModule({
         commitPlatterGrams(commitG)
         return
       }
-      // Досып: платформа выросла больше допуска
       if (commitG >= baseline + STABLE_TOLERANCE_G) {
         commitPlatterGrams(commitG)
         return
@@ -5353,7 +5356,9 @@ export default function CashierModule({
 
                           <div className={`pos-settings-status ${casWeight.connected ? 'ok' : 'warn'}`}>
                             {casWeight.connected
-                              ? `Связь OK · ${casWeight.grams || 0} г (${(casWeight.weightKg || 0).toFixed(3)} кг)${casWeight.stable ? ' · стабильно' : ''}`
+                              ? ((casWeight.grams || 0) > 0
+                                ? `Связь OK · ${casWeight.grams} г (${(casWeight.weightKg || 0).toFixed(3)} кг)${casWeight.stable ? ' · вес стабилен' : ' · взвешивание…'}`
+                                : 'Связь OK · на весах 0 г · положите товар')
                               : (casWeight.error
                                 ? `Нет связи: ${casWeight.error}`
                                 : 'Нет связи с весами')}
@@ -5379,7 +5384,7 @@ export default function CashierModule({
                                 }
                                 return (
                                   <span>
-                                    Сеть совпадает. Если теста нет — проверьте кабель и что весы включены.
+                                    Сеть совпадает. Положите товар на весы и нажмите «Тест» — должны появиться граммы.
                                   </span>
                                 )
                               })()}
@@ -5399,8 +5404,12 @@ export default function CashierModule({
                                   const port = Number(deskScalePort) || 20304
                                   if (!host) return
                                   setDeskCasTestBusy(true)
+                                  setCasWeight(prev => ({
+                                    ...prev,
+                                    error: '',
+                                    connected: prev.connected,
+                                  }))
                                   try {
-                                    // Сразу пишем IP/порт на диск и переключаем TCP
                                     const cur = await desk.getPrinterSettings()
                                     await desk.savePrinterSettings({
                                       ...cur,
@@ -5410,12 +5419,30 @@ export default function CashierModule({
                                       scaleDept: Number(deskScaleDept) || 1,
                                       scaleLiveWeight: deskScaleLiveWeight,
                                     })
-                                    const res = await desk.readCasWeight({
-                                      host,
-                                      port,
-                                      timeoutMs: 5000,
-                                      forceDirect: true,
-                                    })
+
+                                    // Сначала через монитор (не рвём TCP). Если нет — прямое чтение.
+                                    let res: Awaited<ReturnType<NonNullable<typeof desk.readCasWeight>>>
+                                    try {
+                                      if (deskScaleLiveWeight) {
+                                        await desk.startCasWeight?.({ host, port })
+                                        await new Promise(r => setTimeout(r, 200))
+                                      }
+                                      res = await desk.readCasWeight({
+                                        host,
+                                        port,
+                                        timeoutMs: 4000,
+                                        forceDirect: false,
+                                      })
+                                    } catch {
+                                      res = await desk.readCasWeight({
+                                        host,
+                                        port,
+                                        timeoutMs: 5000,
+                                        forceDirect: true,
+                                      })
+                                    }
+
+                                    const hasWeight = (res.grams || 0) > 0
                                     setCasWeight({
                                       connected: true,
                                       running: !!deskScaleLiveWeight,
@@ -5424,17 +5451,21 @@ export default function CashierModule({
                                       weightKg: res.weightKg,
                                       grams: res.grams,
                                       price: res.price,
-                                      stable: true,
+                                      stable: hasWeight,
                                       error: '',
                                       ts: res.ts,
                                     })
-                                    const raw = String(res.raw || '').replace(/\s+/g, ' ').slice(0, 60)
-                                    showToast(
-                                      res.grams > 0 ? `Вес ${res.grams} г` : 'Вес 0 г',
-                                      raw
-                                        ? `${res.weightKg.toFixed(3)} кг · ${raw}`
-                                        : `${res.weightKg.toFixed(3)} кг · положите товар и повторите тест`,
-                                    )
+                                    const raw = String(res.raw || '').replace(/\s+/g, ' ').slice(0, 70)
+                                    if (hasWeight) {
+                                      showToast(`Вес ${res.grams} г`, raw || `${res.weightKg.toFixed(3)} кг`)
+                                    } else {
+                                      showToast(
+                                        'Связь есть · вес 0 г',
+                                        raw
+                                          ? `Положите товар и нажмите тест снова · ${raw}`
+                                          : 'Положите товар на весы и нажмите тест снова',
+                                      )
+                                    }
                                     if (deskScaleMode === 'plu-label' && deskScaleLiveWeight) {
                                       await desk.startCasWeight?.({ host, port })
                                     }
@@ -5448,7 +5479,7 @@ export default function CashierModule({
                                       port,
                                       error: msg,
                                     }))
-                                    showToast('CAS', msg)
+                                    showToast('Нет связи с весами', msg.slice(0, 120))
                                   } finally {
                                     setDeskCasTestBusy(false)
                                   }
@@ -6482,16 +6513,16 @@ export default function CashierModule({
                   : isWeight
                     ? (liveWeightEnabled()
                       ? (scaleMoving
-                        ? `Рука / движение: ${casWeight.grams || 0} г · в кассу не пишем · ждём STOP…`
+                        ? `На весах сейчас ${casWeight.grams || 0} г · ждём остановки (STOP)…`
                         : scaleHolding
-                          ? `Снято · в кассе осталось ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · следующий товар заменит вес`
+                          ? `Снято · сохранено ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · можно положить другой товар`
                           : (casWeight.connected
                             ? ((casWeight.grams || 0) >= SCALE_STEP_G
                               ? (casWeight.stable
-                                ? `STOP · на весах ${casWeight.grams} г · в кассе ${(Number(qtyEditBuf) || 0).toFixed(3)} кг`
+                                ? `Готово · ${casWeight.grams} г · можно сохранить`
                                 : `Сейчас: ${casWeight.grams} г · ждём STOP…`)
                               : (Number(qtyEditBuf) > 0
-                                ? `В кассе ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · положите товар`
+                                ? `Сохранено ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · положите товар`
                                 : 'Весы подключены · положите товар на весы'))
                             : (casWeight.error
                               ? `Нет связи · ${casWeight.error}`
@@ -6578,8 +6609,8 @@ export default function CashierModule({
 
               <div className="modal-card-actions">
                 <button type="button" className="btn-cancel" onClick={() => closeQtyEdit()}>Отмена</button>
-                <button type="button" className="btn-confirm" disabled={previewQty <= 0 || overStock} onClick={applyQtyEdit}>
-                  {isWeight ? 'Сохранить' : 'Применить'}
+                <button type="button" className="btn-confirm" disabled={previewQty <= 0 || overStock || (isWeight && liveWeightEnabled() && scaleMoving)} onClick={applyQtyEdit}>
+                  {isWeight ? (scaleMoving ? 'Ждём STOP…' : 'Сохранить') : 'Применить'}
                 </button>
               </div>
             </div>

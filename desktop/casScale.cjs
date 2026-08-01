@@ -696,18 +696,20 @@ class CasWeightMonitor {
       this.samples = this.samples.filter(s => s.t >= cutoff)
 
       const empty = grams < 1
-      let stable = empty
+      let stable = false
       let emitGrams = grams
 
-      if (!empty) {
+      if (empty) {
+        this.samples = []
+        this.lastStableGrams = null
+        // Пустая платформа ≠ «стабильный вес» — иначе в UI «стабильно» при 0 г
+        stable = false
+      } else {
         const ev = evaluateStability(this.samples, now)
         stable = ev.stable
         emitGrams = ev.stable ? ev.grams : grams
         if (stable) this.lastStableGrams = emitGrams
         else this.lastStableGrams = null
-      } else {
-        this.samples = []
-        this.lastStableGrams = null
       }
 
       this.lastGrams = emitGrams
