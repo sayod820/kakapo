@@ -26,6 +26,8 @@ type ProductStockAgg = {
   multiCost: boolean
 }
 
+const STOCK_PAGE = 60
+
 function stockBadge(stock: number) {
   if (stock <= 0) return { c: 'var(--red)', bg: 'var(--badge-stock-no)', l: 'Нет' }
   if (stock <= 5) return { c: 'var(--gold)', bg: 'var(--badge-stock-low)', l: 'Мало' }
@@ -103,11 +105,14 @@ export default function WarehouseStockPanel({
   const [sortDesc, setSortDesc] = useState(false)
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
   const [layersLoading, setLayersLoading] = useState(false)
+  const [layersBooted, setLayersBooted] = useState(false)
   const [arrivalsProduct, setArrivalsProduct] = useState<Product | null>(null)
+  const [visibleCount, setVisibleCount] = useState(STOCK_PAGE)
 
   const loadLayers = useCallback(async () => {
     if (!USE_API) {
       setLayers([])
+      setLayersBooted(true)
       return
     }
     setLayersLoading(true)
@@ -117,12 +122,20 @@ export default function WarehouseStockPanel({
       setLayers([])
     } finally {
       setLayersLoading(false)
+      setLayersBooted(true)
     }
   }, [])
 
+  // Сначала таблица по product.stock, партии — после paint (не блокируем вход)
   useEffect(() => {
-    void loadLayers()
-    // products намеренно не в deps — иначе каждый fetchProducts заново тянет все партии
+    let cancelled = false
+    const t = window.setTimeout(() => {
+      if (!cancelled) void loadLayers()
+    }, 80)
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
   }, [loadLayers, refreshGen])
 
   const layersByProduct = useMemo(() => {
@@ -173,6 +186,15 @@ export default function WarehouseStockPanel({
     return list
   }, [products, categories, q, filter, sort, sortDesc, aggByProduct])
 
+  useEffect(() => {
+    setVisibleCount(STOCK_PAGE)
+  }, [q, filter, sort, sortDesc])
+
+  const visibleRows = useMemo(
+    () => rows.slice(0, visibleCount),
+    [rows, visibleCount],
+  )
+
   const totals = useMemo(() => {
     let costSum = 0
     let retailSum = 0
@@ -186,6 +208,19 @@ export default function WarehouseStockPanel({
     return { costSum, retailSum, qtySum, count: rows.length }
   }, [rows, aggByProduct])
 
+  const filterCounts = useMemo(() => {
+    let inStock = 0
+    let low = 0
+    let out = 0
+    for (const p of products) {
+      const s = aggByProduct.get(p.id)?.layerQty || 0
+      if (s > 5) inStock += 1
+      else if (s > 0) low += 1
+      else out += 1
+    }
+    return { all: products.length, inStock, low, out }
+  }, [products, aggByProduct])
+
   function toggleSort(key: SortKey) {
     if (sort === key) setSortDesc(d => !d)
     else { setSort(key); setSortDesc(false) }
@@ -197,10 +232,10 @@ export default function WarehouseStockPanel({
   }
 
   const filters: { id: StockFilter; label: string; count: number }[] = [
-    { id: 'all', label: 'Все', count: products.length },
-    { id: 'inStock', label: 'В наличии', count: products.filter(p => (aggByProduct.get(p.id)?.layerQty || 0) > 5).length },
-    { id: 'low', label: 'Мало', count: products.filter(p => { const s = aggByProduct.get(p.id)?.layerQty || 0; return s > 0 && s <= 5 }).length },
-    { id: 'out', label: 'Нет', count: products.filter(p => (aggByProduct.get(p.id)?.layerQty || 0) <= 0).length },
+    { id: 'all', label: 'Все', count: filterCounts.all },
+    { id: 'inStock', label: 'В наличии', count: filterCounts.inStock },
+    { id: 'low', label: 'Мало', count: filterCounts.low },
+    { id: 'out', label: 'Нет', count: filterCounts.out },
   ]
 
   return (
@@ -229,16 +264,17 @@ export default function WarehouseStockPanel({
             onChange={e => setQ(e.target.value)}
           />
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Показано: <b style={{ color: 'var(--text)' }}>{totals.count}</b>
+            Показано: <b style={{ color: 'var(--text)' }}>{Math.min(visibleCount, totals.count)}</b>
+            {' / '}{totals.count}
             {' · '}Остаток: <b style={{ color: 'var(--text)' }}>{totals.qtySum}</b>
-            {layersLoading ? ' · партии…' : ''}
+            {layersLoading ? ' · подгружаем партии…' : (layersBooted ? '' : ' · подготовка…')}
           </div>
           <button type="button" className="k-btn k-btn-s" disabled={layersLoading} onClick={() => void loadLayers()}>
             ↻ Партии
           </button>
         </div>
         <div style={{ padding: '0 14px 12px', fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>
-          Суммы считаются по партиям (например 48×12 + 67×13). Нажмите на товар — откроются его приходы.
+          Сначала остатки из каталога, затем уточнение по партиям. Нажмите на товар — откроются приходы.
         </div>
       </div>
 
@@ -279,7 +315,7 @@ export default function WarehouseStockPanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map(p => {
+              {visibleRows.map(p => {
                 const agg = aggByProduct.get(p.id)!
                 const stock = agg.layerQty
                 const badge = stockBadge(stock)
@@ -355,6 +391,17 @@ export default function WarehouseStockPanel({
               </tr>
             </tfoot>
           </table>
+          {rows.length > visibleCount && (
+            <div style={{ padding: 12, textAlign: 'center' }}>
+              <button
+                type="button"
+                className="k-btn k-btn-s"
+                onClick={() => setVisibleCount(c => c + STOCK_PAGE)}
+              >
+                Показать ещё ({rows.length - visibleCount})
+              </button>
+            </div>
+          )}
         </div>
       )}
 

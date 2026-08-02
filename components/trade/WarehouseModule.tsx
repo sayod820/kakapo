@@ -21,6 +21,8 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
   const [expiry, setExpiry] = useState<ExpiryRow[]>([])
   const [expiryLoading, setExpiryLoading] = useState(false)
   const [refreshGen, setRefreshGen] = useState(0)
+  /** Сначала рисуем шапку/вкладки — тяжёлую таблицу после paint */
+  const [bodyReady, setBodyReady] = useState(false)
 
   const receipts = usePosStore(s => s.receipts)
   const writeoffs = usePosStore(s => s.writeoffs)
@@ -34,8 +36,18 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
     saveWarehouseTab(tab)
   }, [tab])
 
-  // При открытии склада НЕ гоняем reconcile + полный POS sync (это давало паузу в секунды).
-  // Данные уже в store от фонового sync; тяжёлое обновление — только по кнопке «Обновить».
+  useEffect(() => {
+    let cancelled = false
+    const raf = window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        if (!cancelled) setBodyReady(true)
+      }, 0)
+    })
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(raf)
+    }
+  }, [])
 
   const { totalStock, low, out } = useMemo(() => {
     let totalStock = 0
@@ -75,8 +87,9 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
   }, [])
 
   useEffect(() => {
+    if (!bodyReady) return
     if (tab === 'expiry') void loadExpiry(expiryDays)
-  }, [tab, expiryDays, loadExpiry])
+  }, [bodyReady, tab, expiryDays, loadExpiry])
 
   const writeOffExpiredBatch = useCallback(async (row: ExpiryRow) => {
     if (!USE_API) return
@@ -139,45 +152,52 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
         ))}
       </div>
 
-      {tab === 'stock' && (
-        <WarehouseStockPanel products={products} onRefresh={refreshAll} refreshGen={refreshGen} />
-      )}
-      {tab === 'receipts' && (
-        <WarehouseReceiptsPanel
-          receipts={receipts}
-          suppliers={suppliers}
-          products={products}
-          onRefresh={refreshAll}
-        />
-      )}
-      {tab === 'writeoffs' && (
-        <WarehouseWriteoffsPanel
-          writeoffs={writeoffs}
-          products={products}
-          onRefresh={refreshAll}
-        />
-      )}
-      {tab === 'revisions' && (
-        <WarehouseRevisionsPanel
-          revisions={revisions}
-          products={products}
-          onRefresh={refreshAll}
-        />
-      )}
-      {tab === 'expiry' && (
-        expiryLoading
-          ? <div className="k-empty">Загрузка…</div>
-          : (
-            <WarehouseExpiryPanel
-              expiry={expiry}
-              days={expiryDays}
+      {!bodyReady ? (
+        <div className="k-empty" style={{ padding: '28px 16px' }}>
+          Загрузка раздела…
+        </div>
+      ) : (
+        <>
+          {tab === 'stock' && (
+            <WarehouseStockPanel products={products} onRefresh={refreshAll} refreshGen={refreshGen} />
+          )}
+          {tab === 'receipts' && (
+            <WarehouseReceiptsPanel
+              receipts={receipts}
+              suppliers={suppliers}
               products={products}
-              onDaysChange={setExpiryDays}
-              onWriteOff={writeOffExpiredBatch}
+              onRefresh={refreshAll}
             />
-          )
+          )}
+          {tab === 'writeoffs' && (
+            <WarehouseWriteoffsPanel
+              writeoffs={writeoffs}
+              products={products}
+              onRefresh={refreshAll}
+            />
+          )}
+          {tab === 'revisions' && (
+            <WarehouseRevisionsPanel
+              revisions={revisions}
+              products={products}
+              onRefresh={refreshAll}
+            />
+          )}
+          {tab === 'expiry' && (
+            expiryLoading
+              ? <div className="k-empty">Загрузка…</div>
+              : (
+                <WarehouseExpiryPanel
+                  expiry={expiry}
+                  days={expiryDays}
+                  products={products}
+                  onDaysChange={setExpiryDays}
+                  onWriteOff={writeOffExpiredBatch}
+                />
+              )
+          )}
+        </>
       )}
-
     </div>
   )
 }

@@ -671,6 +671,7 @@ export default function CashierModule({
   onExit,
   onNavigate: _onNavigate,
   embedded = false,
+  active = true,
   onSurfaceChange,
   theme: themeProp,
   onThemeChange,
@@ -679,6 +680,8 @@ export default function CashierModule({
   onNavigate?: (page: NavTarget) => void
   /** Встроена в правую панель «Торговля» (с боковым меню) */
   embedded?: boolean
+  /** false = раздел скрыт, но не размонтирован (быстрый переход на Склад/Товар) */
+  active?: boolean
   onSurfaceChange?: (surface: 'dashboard' | 'register') => void
   theme?: ThemeName
   onThemeChange?: (theme: ThemeName) => void
@@ -1167,7 +1170,8 @@ export default function CashierModule({
   }
 
   const overlayBlocksSearch =
-    posSurface !== 'register'
+    !active
+    || posSurface !== 'register'
     || !activeShift
     || openShiftModal
     || createPosModal
@@ -1573,6 +1577,18 @@ export default function CashierModule({
     const desk = getKakapoDesktop()
     void desk?.stopCasWeight?.()
   }, [])
+
+  // Раздел скрыт (перешли на Склад/Товар) — стоп весов; при возврате — снова старт
+  useEffect(() => {
+    if (!active) {
+      void ensureCasWeightMonitor(false)
+      return
+    }
+    if (deskScaleMode !== 'none' && deskScaleLiveWeight && deskScaleHost.trim()) {
+      void ensureCasWeightMonitor(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
 
   /**
    * Главный экран кассы: поиск товара всегда в фокусе.

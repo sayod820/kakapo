@@ -642,6 +642,12 @@ function TradeAppInner({
     || allowedNav.find(n => n.id === 'sales')?.id
     || defaultPage
 
+  const salesActive = current === 'sales'
+  const [salesKeepAlive, setSalesKeepAlive] = useState(salesActive)
+  useEffect(() => {
+    if (salesActive) setSalesKeepAlive(true)
+  }, [salesActive])
+
   return (
     <div className={`k-trade ${posFullscreen ? 'pos-fs' : ''}`} data-theme={theme}>
       <style>{CSS}</style>
@@ -737,19 +743,24 @@ function TradeAppInner({
           </header>
         )}
 
-        <div className={current === 'sales' ? 'k-body k-body-pos' : 'k-body'}>
-          {current === 'sales' ? (
-            <CashierModule
-              embedded={!posFullscreen}
-              theme={theme}
-              onThemeChange={applyTheme}
-              onSurfaceChange={setPosSurface}
-              onExit={() => goTo(homePage)}
-              onNavigate={p => goTo(p as TradePage)}
-            />
-          ) : (
-            renderPage()
+        <div className={salesActive ? 'k-body k-body-pos' : 'k-body'}>
+          {salesKeepAlive && (
+            <div
+              style={salesActive ? undefined : { display: 'none' }}
+              aria-hidden={!salesActive}
+            >
+              <CashierModule
+                active={salesActive}
+                embedded={!posFullscreen}
+                theme={theme}
+                onThemeChange={applyTheme}
+                onSurfaceChange={setPosSurface}
+                onExit={() => goTo(homePage)}
+                onNavigate={p => goTo(p as TradePage)}
+              />
+            </div>
           )}
+          {!salesActive && renderPage()}
         </div>
       </div>
 
