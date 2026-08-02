@@ -4504,7 +4504,16 @@ export default function CashierModule({
       }
 
       let created: PosSale & { orderId?: string; _offline?: boolean }
-      if (!apiReachable) {
+      // Нал / долг / смешанная без карты: сразу локально (без ожидания сервера),
+      // потом очередь уходит в фоне — так чек не «висит» даже при медленном интернете.
+      const needsLiveServer =
+        cardPaid > 0.001
+        || walletPaid > 0.001
+        || spend > 0
+        || apiMethod === 'card'
+        || apiMethod === 'wallet'
+        || apiMethod === 'balance'
+      if (!apiReachable || !needsLiveServer) {
         created = await applyOfflineSaleLocal()
       } else {
         try {
@@ -4538,7 +4547,11 @@ export default function CashierModule({
       }
 
       if (created._offline) {
-        showToast('Офлайн-чек сохранён', 'Отправится автоматически при появлении связи')
+        // Не пугаем «офлайн», если сеть есть — просто фоновая отправка
+        if (!apiReachable) {
+          showToast('Офлайн-чек сохранён', 'Отправится автоматически при появлении связи')
+        }
+        void useOfflineSync.getState().syncNow()
       }
       if (!created._offline && client?.phone) {
         const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')

@@ -222,6 +222,23 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       return
     }
     set({ online: true, lastError: null })
+    // Сначала подтянуть смены — иначе чеки падают с «Смена не найдена»
+    try {
+      const { softSyncPosAfterSale } = await import('./posStore')
+      await softSyncPosAfterSale()
+    } catch { /* ignore */ }
+    // Вернуть в очередь отклонённые из‑за смены
+    try {
+      const list = await getPending()
+      for (const row of list) {
+        if (!row.failed) continue
+        const err = String(row.lastError || '')
+        if (/смена|связанная операция|не найдена/i.test(err)) {
+          await retryPending(row.clientRef)
+        }
+      }
+      await get().refresh()
+    } catch { /* ignore */ }
     await get().flush()
     if (get().pending === 0) {
       try { await refetchEverything() } catch { /* ignore */ }

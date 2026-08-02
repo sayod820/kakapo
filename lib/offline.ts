@@ -410,34 +410,67 @@ async function resolveRefs(payload: any, fields: string[]): Promise<any> {
   return next
 }
 
+async function findOpenServerShift(payload: any): Promise<string> {
+  const { usePosStore } = await import('./posStore')
+  const shifts = usePosStore.getState().shifts
+  const cashierId = String(payload?.cashierId || '')
+  const posId = String(payload?.posId || '')
+  const open = shifts.find(s =>
+    s.status === 'open'
+    && !isLocalId(s.id)
+    && (!cashierId || s.cashierId === cashierId)
+    && (!posId || !s.posId || s.posId === posId),
+  ) || shifts.find(s => s.status === 'open' && !isLocalId(s.id))
+  return open?.id || ''
+}
+
+/** Подставляет shiftId: локальный → серверный, или текущая открытая смена */
+async function resolveSalePayload(payload: any): Promise<any> {
+  const next = { ...(payload || {}) }
+  if (isLocalId(next.shiftId)) {
+    const real = await resolveLocalId(next.shiftId)
+    if (real) {
+      next.shiftId = real
+    } else {
+      const openId = await findOpenServerShift(next)
+      if (!openId) throw new BrokenRefError('Связанная операция не отправлена — разберите её первой')
+      await rememberId(String(payload.shiftId), openId)
+      next.shiftId = openId
+    }
+  } else if (next.shiftId) {
+    // Закрытая/чужая смена на клиенте ≠ валидна для новых чеков
+    const { usePosStore } = await import('./posStore')
+    const row = usePosStore.getState().shifts.find(s => s.id === next.shiftId)
+    if (!row || row.status !== 'open') {
+      const openId = await findOpenServerShift(next)
+      if (openId) next.shiftId = openId
+    }
+  }
+  return next
+}
+
 /** Отправка одной операции. Возвращает id созданной записи, если он есть. */
 async function sendOp(row: PendingOp): Promise<string> {
   switch (row.kind) {
     case 'sale': {
-      let payload: any
+      let payload = await resolveSalePayload(row.payload)
       try {
-        payload = await resolveRefs(row.payload, ['shiftId'])
+        const sale = await api.createPosSale(payload, { mode: 'sync' })
+        return String((sale as any)?.id || '')
       } catch (e) {
-        // Смена открыта офлайн, но shift_open уже не в очереди / id потерян —
-        // привязываем чек к текущей открытой смене на сервере.
-        if (!(e instanceof BrokenRefError) || !isLocalId((row.payload as any)?.shiftId)) throw e
-        const { usePosStore } = await import('./posStore')
-        const shifts = usePosStore.getState().shifts
-        const cashierId = String((row.payload as any)?.cashierId || '')
-        const posId = String((row.payload as any)?.posId || '')
-        const open = shifts.find(s =>
-          s.status === 'open'
-          && !isLocalId(s.id)
-          && (!cashierId || s.cashierId === cashierId)
-          && (!posId || !s.posId || s.posId === posId),
-        ) || shifts.find(s => s.status === 'open' && !isLocalId(s.id))
-        if (!open) throw e
-        const localShiftId = String((row.payload as any).shiftId)
-        await rememberId(localShiftId, open.id)
-        payload = { ...(row.payload as any), shiftId: open.id }
+        const msg = e instanceof Error ? e.message : String(e)
+        if (/смена не найдена/i.test(msg)) {
+          const openId = await findOpenServerShift(payload)
+          if (!openId) throw e
+          if (isLocalId((row.payload as any)?.shiftId)) {
+            await rememberId(String((row.payload as any).shiftId), openId)
+          }
+          payload = { ...payload, shiftId: openId }
+          const sale = await api.createPosSale(payload, { mode: 'sync' })
+          return String((sale as any)?.id || '')
+        }
+        throw e
       }
-      const sale = await api.createPosSale(payload, { mode: 'sync' })
-      return String((sale as any)?.id || '')
     }
     case 'shift_open': {
       const p = row.payload || {}
