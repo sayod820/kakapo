@@ -202,7 +202,7 @@ function hasUsableWeightNumber(buf) {
   return false
 }
 
-/** Выбросить хвост прошлого ответа. */
+/** Выбросить хвост прошлого ответа (потом обязательно resume — иначе data не приходит). */
 function drainSocket(socket) {
   if (!socket || socket.destroyed) return
   try {
@@ -211,6 +211,9 @@ function drainSocket(socket) {
     while ((chunk = socket.read()) !== null) {
       /* discard */
     }
+  } catch { /* ignore */ }
+  try {
+    socket.resume()
   } catch { /* ignore */ }
 }
 
@@ -230,6 +233,11 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
     let settleTimer = null
     const timer = setTimeout(() => {
       if (settled) return
+      // Дочитать буфер, если data не успел (paused/flowing)
+      try {
+        let chunk
+        while ((chunk = socket.read()) !== null) chunks.push(chunk)
+      } catch { /* ignore */ }
       const buf = Buffer.concat(chunks)
       // Только полноценный вес — иначе ложный 0 г
       if (buf.length > 0 && (isWeightFrameComplete(buf) || hasUsableWeightNumber(buf))) {
@@ -273,12 +281,14 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
       settleTimer = null
       try { socket.off('data', onData) } catch { /* ignore */ }
       try { socket.off('error', onErr) } catch { /* ignore */ }
-      try { socket.pause() } catch { /* ignore */ }
+      // НЕ pause() — иначе следующий опрос не получит data (сокет остаётся paused)
+      try { socket.resume() } catch { /* ignore */ }
     }
 
     socket.on('data', onData)
     socket.on('error', onErr)
     try {
+      socket.resume()
       socket.write(WEIGHT_CMD)
     } catch (e) {
       settled = true
@@ -770,12 +780,13 @@ class CasWeightMonitor {
       }
 
       if (back) {
+        // TCP есть, но вес не прочитан — не маскируем ошибку пустым error
         this.emit({
           connected: true,
           weightKg: this.lastEmitKg || 0,
           grams: Math.round((this.lastEmitKg || 0) * 1000),
           stable: false,
-          error: '',
+          error: this.lastError || '',
         })
       } else if (this.failCount >= 3) {
         this.connected = false
