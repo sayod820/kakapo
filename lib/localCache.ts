@@ -19,6 +19,7 @@ export const APP_DATA_LOCAL_KEYS = [
   'kakapo_admin_store',
   'kakapo-client-addresses',
   'kakapo_client_notifs',
+  'kakapo_categories_cache_v3',
 ] as const
 
 export function persistAppDataLocally(): boolean {

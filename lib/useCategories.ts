@@ -101,10 +101,14 @@ export function categoryDisplayLabel(categories: Category[], catId?: string, fal
   return parent ? `${parent.name} · ${cat.name}` : cat.name
 }
 
-/** Общий кэш — сразу показываем seed/локальный кэш, API обновляет в фоне */
-const CACHE_KEY = 'kakapo_categories_cache_v3'
+/** Общий кэш для торговли / магазина / админки — API источник правды */
+export const CATEGORIES_CACHE_KEY = 'kakapo_categories_cache_v3'
+const CACHE_KEY = CATEGORIES_CACHE_KEY
+/** null = ещё не инициализировали; [] = с сервера реально пусто */
 let memoryCategories: Category[] | null = null
 let memoryLoaded = false
+/** Успешный ответ API (в т.ч. пустой) — больше не подмешиваем seed */
+let memoryFromApi = false
 let inflight: Promise<Category[]> | null = null
 const listeners = new Set<() => void>()
 
@@ -116,9 +120,10 @@ function readPersistedCategories(): Category[] | null {
   if (typeof window === 'undefined') return null
   try {
     const raw = sessionStorage.getItem(CACHE_KEY) || localStorage.getItem(CACHE_KEY)
-    if (!raw) return null
+    if (raw == null) return null
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) && parsed.length ? parsed as Category[] : null
+    // Пустой массив тоже валиден (все категории удалены)
+    return Array.isArray(parsed) ? parsed as Category[] : null
   } catch {
     return null
   }
@@ -133,56 +138,54 @@ function persistCategories(list: Category[]) {
   } catch { /* quota */ }
 }
 
+function setMemoryCategories(list: Category[], fromApi: boolean) {
+  memoryCategories = list
+  memoryLoaded = true
+  if (fromApi) memoryFromApi = true
+  if (fromApi || !USE_API) persistCategories(list)
+  notifyCategories()
+}
+
 function bootstrapCategories(): Category[] {
-  if (memoryCategories?.length) return memoryCategories
+  if (memoryCategories !== null) return memoryCategories
   const cached = readPersistedCategories()
-  if (cached?.length) {
+  if (cached !== null) {
     memoryCategories = cached
     memoryLoaded = true
+    // Кэш мог быть с API — не форсим seed поверх
     return cached
   }
-  // Тот же каталог, что на сервере — мгновенный показ при обновлении страницы
+  // Мгновенный показ до ответа сервера; после GET seed не вернётся
   const seed = seedToCategories()
   memoryCategories = seed
   memoryLoaded = true
   return seed
 }
 
-async function fetchCategoriesShared(): Promise<Category[]> {
-  if (inflight) return inflight
+async function fetchCategoriesShared(opts?: { force?: boolean }): Promise<Category[]> {
+  if (inflight && !opts?.force) return inflight
+  if (opts?.force) inflight = null
   inflight = (async () => {
     try {
       if (USE_API) {
         const data = await api.getCategories()
         const list = Array.isArray(data) ? data : []
-        if (list.length) {
-          memoryCategories = list
-          memoryLoaded = true
-          persistCategories(list)
-          notifyCategories()
-          return list
-        }
-        // API пустой — оставляем то, что уже на экране
-        memoryLoaded = true
-        notifyCategories()
-        return memoryCategories || []
+        // Важно: пустой список с сервера принимаем — иначе удалённые «воскресают» из seed
+        setMemoryCategories(list, true)
+        return list
       }
       const seed = seedToCategories()
-      memoryCategories = seed
-      memoryLoaded = true
-      notifyCategories()
+      setMemoryCategories(seed, false)
       return seed
     } catch (e) {
       if (!USE_API) {
         const seed = seedToCategories()
-        memoryCategories = seed
-        memoryLoaded = true
-        notifyCategories()
+        setMemoryCategories(seed, false)
         return seed
       }
       memoryLoaded = true
       notifyCategories()
-      if (memoryCategories?.length) return memoryCategories
+      if (memoryCategories !== null) return memoryCategories
       throw e
     } finally {
       inflight = null
@@ -191,18 +194,35 @@ async function fetchCategoriesShared(): Promise<Category[]> {
   return inflight
 }
 
+/** Мгновенно убрать категории из общего кэша (торговля + магазин + админка) */
+export function applyCategoryDeletion(payload: {
+  ids?: Array<number | string>
+  slugs?: string[]
+}) {
+  const idSet = new Set((payload.ids || []).map(Number).filter(n => Number.isFinite(n)))
+  const slugSet = new Set((payload.slugs || []).filter(Boolean))
+  if (!idSet.size && !slugSet.size) return
+  const cur = memoryCategories ?? readPersistedCategories() ?? []
+  const next = cur.filter(c => {
+    if (idSet.has(Number(c.id))) return false
+    if (slugSet.has(c.slug) || slugSet.has(categorySlug(c))) return false
+    return true
+  })
+  setMemoryCategories(next, memoryFromApi || USE_API)
+}
+
 export function useCategories() {
   const [categories, setCategories] = useState<Category[]>(() => bootstrapCategories())
   const [loaded, setLoaded] = useState(() => true)
   const [error, setError] = useState('')
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (force = false) => {
     try {
-      const list = await fetchCategoriesShared()
+      const list = await fetchCategoriesShared({ force })
       setCategories(list)
       setError('')
     } catch (e) {
-      if (memoryCategories?.length) setCategories(memoryCategories)
+      if (memoryCategories !== null) setCategories(memoryCategories)
       else setCategories(bootstrapCategories())
       setError(e instanceof Error ? e.message : 'Не удалось загрузить категории')
     } finally {
@@ -212,7 +232,7 @@ export function useCategories() {
 
   useEffect(() => {
     const sync = () => {
-      setCategories(memoryCategories || [])
+      setCategories(memoryCategories !== null ? memoryCategories : [])
       setLoaded(memoryLoaded)
     }
     listeners.add(sync)
@@ -222,7 +242,7 @@ export function useCategories() {
   useEffect(() => { void reload() }, [reload])
 
   useEffect(() => {
-    const onSync = () => { void reload() }
+    const onSync = () => { void reload(true) }
     window.addEventListener('kakapo:categories', onSync)
     return () => window.removeEventListener('kakapo:categories', onSync)
   }, [reload])
@@ -248,25 +268,33 @@ export function useCategories() {
     active?: boolean
   }) => {
     const created = await api.createCategory(data)
-    await reload()
+    await reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
     return created as Category
   }, [reload])
 
   const updateCategory = useCallback(async (id: number, data: Partial<Category>) => {
     const updated = await api.updateCategory(id, data)
-    await reload()
+    await reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
     return updated as Category
   }, [reload])
 
   const deleteCategory = useCallback(async (id: number) => {
     try {
-      await api.deleteCategory(id)
+      const res = await api.deleteCategory(id) as {
+        deleted?: number[]
+        slugs?: string[]
+        movedProducts?: number
+      }
+      applyCategoryDeletion({
+        ids: res?.deleted?.length ? res.deleted : [id],
+        slugs: res?.slugs,
+      })
     } catch (e) {
       throw e instanceof Error ? e : new Error('Не удалось удалить категорию')
     }
-    await reload()
+    await reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
   }, [reload])
 
@@ -275,7 +303,11 @@ export function useCategories() {
     if (!unique.length) return { removed: 0, movedProducts: 0 }
     try {
       const res = await api.deleteCategories(unique)
-      await reload()
+      applyCategoryDeletion({
+        ids: res?.deleted?.length ? res.deleted : unique,
+        slugs: res?.slugs,
+      })
+      await reload(true)
       window.dispatchEvent(new CustomEvent('kakapo:categories'))
       return {
         removed: Number(res?.removed) || unique.length,

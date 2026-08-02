@@ -466,11 +466,17 @@ export const api = {
   getCategoriesTree: () => request<any[]>('/categories/tree'),
   createCategory: (data: any) => request('/categories', { method: 'POST', body: JSON.stringify(data) }),
   updateCategory: (id: number, data: any) => request<Category>(`/categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteCategory: (id: number) => request(`/categories/${id}`, { method: 'DELETE' }),
+  deleteCategory: (id: number) => request<{
+    ok: boolean
+    movedProducts?: number
+    deleted?: number[]
+    slugs?: string[]
+  }>(`/categories/${id}`, { method: 'DELETE' }),
   deleteCategories: (ids: number[]) => request<{
     ok: boolean
     removed: number
     deleted: number[]
+    slugs?: string[]
     movedProducts: number
   }>('/categories/bulk-delete', {
     method: 'POST',

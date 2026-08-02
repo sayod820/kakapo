@@ -92,8 +92,21 @@ export function useApiSync(mode: SyncMode = 'all') {
       return
     }
     if (msg.event === 'category_update') {
+      const incoming = msg.category
+      if (incoming?.deleted) {
+        void import('./useCategories').then(({ applyCategoryDeletion }) => {
+          applyCategoryDeletion({
+            ids: Array.isArray(incoming.ids)
+              ? incoming.ids
+              : incoming.id != null
+                ? [incoming.id]
+                : [],
+            slugs: Array.isArray(incoming.slugs) ? incoming.slugs : undefined,
+          })
+        })
+        void useProducts.getState().fetchProducts()
+      }
       window.dispatchEvent(new CustomEvent('kakapo:categories'))
-      if (msg.category?.deleted) void useProducts.getState().fetchProducts()
       return
     }
     if (msg.event === 'pos_update') {

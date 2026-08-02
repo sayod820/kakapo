@@ -1144,7 +1144,12 @@ app.delete('/categories/:id', (req, res) => {
     movedProducts: result.movedProducts,
   })
   if (result.movedProducts) broadcastProduct({ reason: 'category_delete' })
-  res.json({ ok: true, movedProducts: result.movedProducts, deleted: result.deleted })
+  res.json({
+    ok: true,
+    movedProducts: result.movedProducts,
+    deleted: result.deleted,
+    slugs: result.slugs,
+  })
 })
 
 /** Массовое удаление категорий — один persist / один broadcast */
@@ -1155,10 +1160,10 @@ app.post('/categories/bulk-delete', (req, res) => {
 
   const reqSet = new Set(requested)
   const hasAncestorInRequest = (catId) => {
-    let pid = db.categories.find(c => c.id === catId)?.parent_id
+    let pid = db.categories.find(c => Number(c.id) === Number(catId))?.parent_id
     while (pid != null) {
       if (reqSet.has(Number(pid))) return true
-      pid = db.categories.find(c => c.id === Number(pid))?.parent_id ?? null
+      pid = db.categories.find(c => Number(c.id) === Number(pid))?.parent_id ?? null
     }
     return false
   }
@@ -1167,10 +1172,12 @@ app.post('/categories/bulk-delete', (req, res) => {
   const allDeleted = []
   const allSlugs = []
   let movedProducts = 0
+  let removedRoots = 0
   for (const id of roots) {
-    if (!db.categories.some(c => c.id === id)) continue
+    if (!db.categories.some(c => Number(c.id) === Number(id))) continue
     const result = removeCategoryTree(db, id)
     if (!result.ok) continue
+    removedRoots += 1
     allDeleted.push(...result.deleted)
     allSlugs.push(...result.slugs)
     movedProducts += result.movedProducts
@@ -1184,29 +1191,31 @@ app.post('/categories/bulk-delete', (req, res) => {
     movedProducts,
   })
   if (movedProducts) broadcastProduct({ reason: 'category_delete' })
-  res.json({ ok: true, removed: roots.length, deleted: allDeleted, movedProducts })
+  res.json({ ok: true, removed: removedRoots, deleted: allDeleted, slugs: allSlugs, movedProducts })
 })
 
 function removeCategoryTree(dbRef, rootId) {
-  const root = dbRef.categories.find(c => c.id === rootId)
+  const rootNum = Number(rootId)
+  const root = dbRef.categories.find(c => Number(c.id) === rootNum)
   if (!root) return { ok: false }
 
-  const ids = new Set([rootId])
-  const queue = [rootId]
+  const ids = new Set([rootNum])
+  const queue = [rootNum]
   while (queue.length) {
     const pid = queue.pop()
     for (const child of dbRef.categories.filter(c => Number(c.parent_id) === pid)) {
-      if (!ids.has(child.id)) {
-        ids.add(child.id)
-        queue.push(child.id)
+      const cid = Number(child.id)
+      if (!ids.has(cid)) {
+        ids.add(cid)
+        queue.push(cid)
       }
     }
   }
 
-  const catsToDelete = dbRef.categories.filter(c => ids.has(c.id))
+  const catsToDelete = dbRef.categories.filter(c => ids.has(Number(c.id)))
   const slugsToDelete = new Set(catsToDelete.map(c => c.slug))
   const parentCat = root.parent_id != null
-    ? dbRef.categories.find(c => c.id === Number(root.parent_id))
+    ? dbRef.categories.find(c => Number(c.id) === Number(root.parent_id))
     : null
   const fallbackSlug = parentCat?.slug || ''
   const fallbackName = parentCat?.name || 'Прочее'
@@ -1225,7 +1234,7 @@ function removeCategoryTree(dbRef, rootId) {
     if (!dbRef.deletedCategorySlugs.includes(slug)) dbRef.deletedCategorySlugs.push(slug)
   }
 
-  dbRef.categories = dbRef.categories.filter(c => !ids.has(c.id))
+  dbRef.categories = dbRef.categories.filter(c => !ids.has(Number(c.id)))
   return {
     ok: true,
     deleted: [...ids],
