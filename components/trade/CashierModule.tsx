@@ -2388,48 +2388,7 @@ export default function CashierModule({
     const digits = raw.replace(/\D/g, '')
     const pool = inStockProducts.length ? inStockProducts : products
 
-    // Весовая этикетка CAS/EAN-13: 21 00001 00255 8 → товар по PLU + вес в граммах
-    const scaleLabel = parseScaleBarcode(raw)
-    if (scaleLabel) {
-      const scaleHit =
-        findProductForScaleBarcode(pool, scaleLabel)
-        || findProductForScaleBarcode(products, scaleLabel)
-      if (!scaleHit) {
-        openScanBlockAlert(
-          'Этикетка не найдена',
-          `PLU ${scaleLabel.itemCode} · ${scaleLabel.grams} г — проверьте выгрузку PLU на весы`,
-          raw,
-        )
-        scanBurstRef.current = false
-        return true
-      }
-      if ((Number(scaleHit.stock) || 0) <= 0) {
-        openScanBlockAlert(
-          'Нет на складе',
-          `${scaleHit.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
-          raw,
-        )
-        scanBurstRef.current = false
-        return true
-      }
-      if (!isWeighted(scaleHit)) {
-        openScanBlockAlert(
-          'Не весовой товар',
-          `${scaleHit.name} — в карточке тип не «вес». Касса остановлена — нажмите «Отмена».`,
-          raw,
-        )
-        scanBurstRef.current = false
-        return true
-      }
-      addProduct(scaleHit as Product, scaleLabel.weightKg, { fromScanner: true })
-      qRef.current = ''
-      setQ('')
-      scanBurstRef.current = false
-      window.setTimeout(focusProductSearch, 0)
-      return true
-    }
-
-    // Точное совпадение штрихкод / артикул / PLU (O(1) индекс)
+    // 1) Сначала точный штрихкод / артикул / PLU — обычные товары с 22… не путать с весом
     let productHit =
       productCodeIndex.get(raw)
       || (digits ? productCodeIndex.get(digits) : undefined)
@@ -2438,15 +2397,58 @@ export default function CashierModule({
         : undefined)
       || null
 
-    // запасной линейный поиск — если индекс не покрыл
     if (!productHit) {
       productHit =
         (pool.find(p => productBarcodes(p).some(c => c === raw || c.replace(/\D/g, '') === digits)) as Product | undefined)
+        || (products.find(p => productBarcodes(p).some(c => c === raw || c.replace(/\D/g, '') === digits)) as Product | undefined)
         || (pool.find(p => String(p.art || '').trim() === raw || String(p.art || '').replace(/\D/g, '') === digits) as Product | undefined)
         || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
           ? (pool.find(p => String(p.plu || '').replace(/\D/g, '') === digits) as Product | undefined)
           : undefined)
         || null
+    }
+
+    // 2) Весовая этикетка только 21 IIIII WWWWW C (после точного штриха)
+    if (!productHit) {
+      const scaleLabel = parseScaleBarcode(raw)
+      if (scaleLabel) {
+        const scaleHit =
+          findProductForScaleBarcode(pool, scaleLabel)
+          || findProductForScaleBarcode(products, scaleLabel)
+        if (!scaleHit) {
+          openScanBlockAlert(
+            'Этикетка не найдена',
+            `PLU ${scaleLabel.itemCode} · ${scaleLabel.grams} г — проверьте выгрузку PLU на весы`,
+            raw,
+          )
+          scanBurstRef.current = false
+          return true
+        }
+        if ((Number(scaleHit.stock) || 0) <= 0) {
+          openScanBlockAlert(
+            'Нет на складе',
+            `${scaleHit.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
+            raw,
+          )
+          scanBurstRef.current = false
+          return true
+        }
+        if (!isWeighted(scaleHit)) {
+          openScanBlockAlert(
+            'Не весовой товар',
+            `${scaleHit.name} — в карточке тип не «вес». Касса остановлена — нажмите «Отмена».`,
+            raw,
+          )
+          scanBurstRef.current = false
+          return true
+        }
+        addProduct(scaleHit as Product, scaleLabel.weightKg, { fromScanner: true })
+        qRef.current = ''
+        setQ('')
+        scanBurstRef.current = false
+        window.setTimeout(focusProductSearch, 0)
+        return true
+      }
     }
 
     // Сканер: если точный код не сработал, но поиск однозначно нашёл товар — пробиваем
