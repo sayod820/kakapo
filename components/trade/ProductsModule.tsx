@@ -38,6 +38,7 @@ export default function ProductsModule({
   const loaded = useProducts(s => s.loaded)
   const saveProduct = useProducts(s => s.saveProduct)
   const removeProduct = useProducts(s => s.removeProduct)
+  const removeProducts = useProducts(s => s.removeProducts)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const { getPhoto, setPhoto, hydrate } = useProductPhotos()
   const {
@@ -181,23 +182,19 @@ export default function ProductsModule({
   async function handleDeleteProducts(ids: number[]) {
     if (!guardMutation(setMsg)) return
     if (!ids.length) return
-    let ok = 0
-    for (const id of ids) {
-      try {
-        await removeProduct(id)
-        ok += 1
-        if (selectedId === id) {
-          setSelectedId(null)
-          setIsNew(false)
-          setForm(emptyForm())
-          setFormDirty(false)
-          formLoadedForId.current = null
-        }
-      } catch (e) {
-        console.error(e)
+    try {
+      const { removed } = await removeProducts(ids)
+      if (selectedId != null && ids.includes(selectedId)) {
+        setSelectedId(null)
+        setIsNew(false)
+        setForm(emptyForm())
+        setFormDirty(false)
+        formLoadedForId.current = null
       }
+      setMsg(`Удалено товаров: ${removed}`)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось удалить товары')
     }
-    setMsg(ok === ids.length ? `Удалено товаров: ${ok}` : `Удалено ${ok} из ${ids.length}`)
   }
 
   return (

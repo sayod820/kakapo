@@ -1030,6 +1030,36 @@ app.delete('/products/:id', (req, res) => {
   res.json({ ok: true })
 })
 
+/** Массовое удаление — один persist / один broadcast (иначе N запросов висят минутами) */
+app.post('/products/bulk-delete', (req, res) => {
+  const raw = Array.isArray(req.body?.ids) ? req.body.ids : []
+  const ids = [...new Set(raw.map(x => Number(x)).filter(n => Number.isFinite(n) && n > 0))]
+  if (!ids.length) return res.status(400).json({ detail: 'Укажите ids товаров' })
+  const idSet = new Set(ids)
+  const removed = []
+  for (const existing of db.products) {
+    if (!idSet.has(Number(existing.id))) continue
+    if (existing.photo) {
+      try { deleteManagedProductPhoto(existing.photo) } catch { /* ignore */ }
+    }
+    auditFromReq(db, req, {
+      action: 'delete',
+      entity: 'product',
+      entityId: existing.id,
+      entityName: existing.name,
+      summary: `Удалён товар «${existing.name}»`,
+      before: { name: existing.name, price: existing.price, stock: existing.stock, art: existing.art },
+    })
+    removed.push(Number(existing.id))
+  }
+  if (!removed.length) return res.status(404).json({ detail: 'Товары не найдены' })
+  const remSet = new Set(removed)
+  db.products = db.products.filter(x => !remSet.has(Number(x.id)))
+  persist()
+  broadcastProduct({ deleted: true, ids: removed })
+  res.json({ ok: true, removed: removed.length, ids: removed })
+})
+
 function categoryErrorMessage(code) {
   if (code === 'has products') return 'В категории есть товары'
   if (code === 'not found') return 'Категория не найдена'

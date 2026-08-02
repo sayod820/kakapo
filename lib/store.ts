@@ -784,6 +784,7 @@ interface ProductsStore {
   updateProduct: (id: number, updates: Partial<Product>) => void
   addProduct: (p: Product) => void
   removeProduct: (id: number) => Promise<void>
+  removeProducts: (ids: number[]) => Promise<{ removed: number }>
 }
 export const useProducts = create<ProductsStore>((set, get) => ({
   products: USE_API ? [] : PRODUCTS,
@@ -863,6 +864,23 @@ export const useProducts = create<ProductsStore>((set, get) => ({
       try { await api.deleteProduct(id) } catch (e) { console.error(e) }
     }
     set(s => ({ products: s.products.filter(p => p.id !== id) }))
+  },
+
+  removeProducts: async (ids) => {
+    const unique = [...new Set((ids || []).map(Number).filter(n => Number.isFinite(n) && n > 0))]
+    if (!unique.length) return { removed: 0 }
+    let removed = unique.length
+    if (USE_API) {
+      const res = await api.deleteProducts(unique)
+      removed = Number(res?.removed) || unique.length
+    }
+    const idSet = new Set(unique)
+    set(s => ({ products: s.products.filter(p => !idSet.has(p.id)) }))
+    try {
+      const { cacheProducts } = await import('./offline')
+      void cacheProducts(get().products)
+    } catch { /* кэш недоступен */ }
+    return { removed }
   },
 }))
 

@@ -440,6 +440,12 @@ export const api = {
   createProduct: (data: any) => request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: number, data: any) => request<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProduct: (id: number) => request(`/products/${id}`, { method: 'DELETE' }),
+  deleteProducts: (ids: number[]) => request<{ ok: boolean; removed: number; ids: number[] }>(
+    '/products/bulk-delete',
+    { method: 'POST', body: JSON.stringify({ ids }) },
+    0,
+    300_000,
+  ),
   /** Одно фото: сервер обрезает, WebP 1200×1200 + thumb. Старое удаляется после успеха. */
   uploadProductPhoto: (file: Blob, opts?: { productId?: number; replaceUrl?: string; fileName?: string }) => {
     const fd = new FormData()

@@ -40,10 +40,18 @@ export function useApiSync(mode: SyncMode = 'all') {
     }
     if (msg.event === 'product_update') {
       const incoming = msg.product
-      if (incoming?.id && incoming.deleted) {
-        useProducts.setState(s => ({
-          products: s.products.filter(p => p.id !== Number(incoming.id)),
-        }))
+      if (incoming?.deleted) {
+        const ids = Array.isArray(incoming.ids)
+          ? incoming.ids.map(Number).filter(n => Number.isFinite(n))
+          : incoming.id != null
+            ? [Number(incoming.id)]
+            : []
+        if (ids.length) {
+          const idSet = new Set(ids)
+          useProducts.setState(s => ({
+            products: s.products.filter(p => !idSet.has(Number(p.id))),
+          }))
+        }
       } else if (incoming?.id && (incoming.name || Object.prototype.hasOwnProperty.call(incoming, 'photo'))) {
         void import('./offline').then(({ sanitizeProductForLocalCache, cacheProducts }) => {
           const cleaned = sanitizeProductForLocalCache(incoming as import('./types').Product)
