@@ -17,7 +17,7 @@ import {
 } from './restaurantPhotoPipeline.js'
 import multer from 'multer'
 import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
-import { ensureMarketCategories } from './marketCategoriesSeed.js'
+import { ensureMarketCategories, replaceCategoriesFromSeed } from './marketCategoriesSeed.js'
 import { backupDatabaseFile, resetOperationalData } from './resetOperational.js'
 import {
   applyStatusPatch,
@@ -195,9 +195,16 @@ ensureAuditLog(db)
 pruneAuditLog(db)
 if (ensureDefaultEmployees(db)) persist()
 if (ensurePosSaleNumbers(db)) persist()
-if (!db._categorySeedVersion) {
-  if (ensureMarketCategories(db)) persist()
-  db._categorySeedVersion = 1
+/** 3 = дерево с фото POS (грамматика + 19 корневых групп) */
+const CATEGORY_SEED_VERSION = 3
+if (!db._categorySeedVersion || db._categorySeedVersion < CATEGORY_SEED_VERSION) {
+  if (db._categorySeedVersion && db._categorySeedVersion < CATEGORY_SEED_VERSION) {
+    const result = replaceCategoriesFromSeed(db)
+    console.log(`[categories] Сид v${CATEGORY_SEED_VERSION}: ${result.total} категорий, товаров переназначено: ${result.remapped}`)
+  } else if (ensureMarketCategories(db)) {
+    console.log('[categories] Добавлены недостающие категории из сида')
+  }
+  db._categorySeedVersion = CATEGORY_SEED_VERSION
   persist()
 }
 if (!db._supplierPayableSyncVersion) {

@@ -17,10 +17,11 @@ if (existsSync(file)) {
 }
 
 const result = replaceCategoriesFromSeed(db)
-db._categorySeedVersion = 2
+db._categorySeedVersion = 3
 saveDb()
 
 console.log('Категории обновлены.')
-console.log('Всего категорий:', result.categories)
+console.log('Всего категорий:', result.total)
+console.log('Корневых групп:', result.roots)
 console.log('Товаров переназначено:', result.remapped)
 console.log('База:', file)
