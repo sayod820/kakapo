@@ -173,29 +173,50 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
 }
 
 /**
- * Кадр веса готов только с полным кг (≥3 знака) или W=…P=.
- * Иначе W=0.075 обрежется до W=0. / W=0.0 → ложный 0 г.
+ * CL-3000 отвечает на R45F04 пакетом:
+ *   W45F04,000L031:^=03.*=01.…@=4F50.W=00004B.w=3.
+ * где W=XXXXXX — граммы в HEX (00004B₁₆ = 75 г), не «W=0.075».
  */
+function casWeightPacketInfo(text) {
+  const m = String(text || '').match(/W45F0[0-9A-Fa-f],[0-9A-Fa-f]*L([0-9A-Fa-f]+):([\s\S]*)/i)
+  if (!m) return null
+  const need = parseInt(m[1], 16)
+  if (!Number.isFinite(need) || need <= 0) return null
+  return { need, got: m[2].length, payload: m[2], complete: m[2].length >= need }
+}
+
+/** Hex-граммы: .W=00004B. / W=00004B.w= (без десятичной точки кг). */
+function hasHexWeightField(text) {
+  return /(?:^|[.\s:])W\s*=\s*[0-9A-Fa-f]{3,8}\s*(?:[.\r\n]|w\s*=|$)/i.test(String(text || ''))
+}
+
 function hasWeightPayload(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  return /W\s*=\s*-?\d/i.test(text) || /(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,/i.test(text)
+  if (hasHexWeightField(text)) return true
+  if (/W\s*=\s*-?\d+[.,]\d+/i.test(text)) return true
+  if (/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,/i.test(text)) return true
+  return /W45F0[0-9A-Fa-f]/i.test(text) && /(?:^|[.\s:])W\s*=/i.test(text)
 }
 
 function isWeightFrameComplete(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
-  // Полный ответ с ценой
+  const pkt = casWeightPacketInfo(text)
+  if (pkt && pkt.complete && hasHexWeightField(text)) return true
+  // Hex W= уже есть + хвост w= / P= / конец пакета
+  if (hasHexWeightField(text) && /(?:[.\s]w\s*=|[.\s]P\s*=|\r|\n)/i.test(text)) return true
+  if (hasHexWeightField(text) && pkt && pkt.got >= Math.min(pkt.need, 40)) return true
+  // Классика: W=0.075.P=…
   if (/W\s*=\s*-?\d+[.,]\d{2,}\s*[.,;:\s]*P\s*=/i.test(text)) return true
-  // W=0.075. или W=0,075. — минимум 3 знака после точки + терминатор
   if (/W\s*=\s*-?\d+[.,]\d{3,}[\s.;:\r\n]/i.test(text)) return true
-  // W=0.075 в конце буфера (уже 3 знака)
   if (/W\s*=\s*-?\d+[.,]\d{3,}\s*$/i.test(text)) return true
   if (/(?:ST|US)\s*,\s*(?:NT|GS)\s*,[^]*?\d+[.,]\d{2,}/i.test(text)) return true
   return false
 }
 
-/** Есть полноценное число веса (не обрезок W=0. / W=0.0). */
+/** Есть полноценное число веса (hex-г или кг с ≥3 знаками / P=). */
 function hasUsableWeightNumber(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
+  if (hasHexWeightField(text)) return true
   if (/W\s*=\s*-?\d+[.,]\d{3,}/i.test(text)) return true
   if (/W\s*=\s*-?\d+[.,]\d+\s*[.,;:\s]*P\s*=/i.test(text)) return true
   if (/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,/i.test(text)) return true
@@ -218,10 +239,9 @@ function drainSocket(socket) {
 }
 
 /**
- * Чтение R45: ждём полный W=0.xxx или W=…P=.
- * Не закрываем кадр по «W=0.» — это начало 0.075.
+ * Чтение R45: ждём полный пакет Lxxx с W=HEX или W=0.xxx / P=.
  */
-function writeAndReadWeight(socket, timeoutMs = 2500) {
+function writeAndReadWeight(socket, timeoutMs = 3500) {
   return new Promise((resolve, reject) => {
     if (!socket || socket.destroyed) {
       reject(new Error('Нет связи с весами'))
@@ -264,8 +284,11 @@ function writeAndReadWeight(socket, timeoutMs = 2500) {
       const buf = Buffer.concat(chunks)
       if (settleTimer) clearTimeout(settleTimer)
       if (isWeightFrameComplete(buf)) {
-        // Хвост P=… после короткой паузы
-        settleTimer = setTimeout(finish, 50)
+        settleTimer = setTimeout(finish, 80)
+      } else {
+        const pkt = casWeightPacketInfo(buf.toString('latin1'))
+        // Заголовок есть, ждём остаток Lxxx — не сбрасываем общий таймер
+        if (pkt && !pkt.complete && settleTimer) clearTimeout(settleTimer)
       }
       // НЕ закрываем по голому W= / W=0. — ждём цифры или таймаут
     }
@@ -373,47 +396,66 @@ async function syncCasPlu(opts) {
 }
 
 /**
- * Разбор R45F04. Берём ПОСЛЕДНИЙ W= (если в буфере старый+новый).
- * Примеры: W=0.070.P=…  /  W=0,255.P=…  /  W=0.255.
+ * Разбор R45F04.
+ * 1) Пакет CL: …W=00004B. → граммы HEX
+ * 2) Классика: W=0.075.P=… → кг
  */
 function parseWeightResponse(buf) {
   const text = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf || '')
   const raw = text.slice(0, 240)
 
-  let wToken = null
+  let weightKg = null
+  let grams = null
 
-  // 1) последний W= перед P= (с дробью)
-  const beforeP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)\s*[.,;:\s]*P\s*=/gi)]
-  if (beforeP.length) wToken = beforeP[beforeP.length - 1][1]
-
-  // 2) последний W= с ≥3 знаками (полный кг как на дисплее 0.075)
-  if (!wToken) {
-    const dec3 = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d{3,})/gi)]
-    if (dec3.length) wToken = dec3[dec3.length - 1][1]
+  // 1) Hex-граммы в пакете W45F04 (реальный CL-3000): W=00004B → 75 г
+  //    Не путать с десятичным W=0.075 (там есть точка).
+  // После hex может быть «.» (разделитель полей CAS) — не требовать «не точка»
+  const hexMatches = [...text.matchAll(/(?:^|[.\s:])W\s*=\s*([0-9A-Fa-f]{3,8})(?![0-9A-Fa-f])/gi)]
+  if (hexMatches.length) {
+    const token = hexMatches[hexMatches.length - 1][1]
+    // «0.075» сюда не попадёт (точка режет токен). Нулепад / A–F / пакет W45 → граммы HEX.
+    const looksHex = /[A-Fa-f]/.test(token) || /^0+[0-9A-Fa-f]+$/.test(token) || /W45F0/i.test(text)
+    if (looksHex) {
+      const g = parseInt(token, 16)
+      if (Number.isFinite(g) && g >= 0 && g <= 150000) {
+        grams = g
+        weightKg = g / 1000
+      }
+    }
   }
 
-  // 3) любой десятичный W=
-  if (!wToken) {
-    const dec = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)/gi)]
-    if (dec.length) wToken = dec[dec.length - 1][1]
+  // 2) Десятичные кг: W=0.075 / W=0.075.P=
+  if (weightKg == null) {
+    let wToken = null
+    const beforeP = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)\s*[.,;:\s]*P\s*=/gi)]
+    if (beforeP.length) wToken = beforeP[beforeP.length - 1][1]
+    if (!wToken) {
+      const dec3 = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d{3,})/gi)]
+      if (dec3.length) wToken = dec3[dec3.length - 1][1]
+    }
+    if (!wToken) {
+      const dec = [...text.matchAll(/W\s*=\s*([+-]?\d+[.,]\d+)/gi)]
+      if (dec.length) wToken = dec[dec.length - 1][1]
+    }
+    if (!wToken) {
+      const streams = [...text.matchAll(/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,\s*[+\-]?\s*(-?\d+[.,]\d+|-?\d+)/gi)]
+      if (streams.length) wToken = streams[streams.length - 1][1]
+    }
+    if (wToken) {
+      const rawW = String(wToken).trim().replace(',', '.')
+      let kg = Number(rawW)
+      if (Number.isFinite(kg)) {
+        if (!rawW.includes('.') && Math.abs(kg) >= 10 && Math.abs(kg) < 100000) kg = kg / 1000
+        weightKg = kg
+        grams = Math.round(kg * 1000)
+      }
+    }
   }
 
-  // 3) stream
-  if (!wToken) {
-    const streams = [...text.matchAll(/(?:ST|US|OL|HD)\s*,\s*(?:NT|GS)\s*,\s*[+\-]?\s*(-?\d+[.,]\d+|-?\d+)/gi)]
-    if (streams.length) wToken = streams[streams.length - 1][1]
-  }
-
-  // 4) целое ≥10 = граммы
-  if (!wToken) {
-    const ints = [...text.matchAll(/W\s*=\s*([+-]?\d+)(?![.,\d])/gi)]
-    if (ints.length) wToken = ints[ints.length - 1][1]
-  }
-
-  const pAll = [...text.matchAll(/P\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)/gi)]
+  const pAll = [...text.matchAll(/(?:^|[.\s:])P\s*=\s*([+-]?\d+[.,]\d+|[+-]?\d+)/gi)]
   const pMatch = pAll.length ? pAll[pAll.length - 1] : null
 
-  if (!wToken) {
+  if (weightKg == null || grams == null) {
     return {
       ok: false,
       weightKg: 0,
@@ -424,22 +466,13 @@ function parseWeightResponse(buf) {
     }
   }
 
-  const rawW = String(wToken).trim().replace(',', '.')
-  let weightKg = Number(rawW)
-  if (!Number.isFinite(weightKg)) weightKg = 0
-
-  if (!rawW.includes('.')) {
-    const abs = Math.abs(weightKg)
-    if (abs >= 10 && abs < 100000) weightKg = weightKg / 1000
-  }
-
   weightKg = Math.round(weightKg * 1000) / 1000
   if (weightKg < 0) weightKg = 0
   if (weightKg > 150) {
     return { ok: false, weightKg: 0, grams: 0, price: null, raw, error: 'Вес вне диапазона' }
   }
+  grams = Math.round(weightKg * 1000)
 
-  const grams = Math.round(weightKg * 1000)
   let price = null
   if (pMatch) {
     let pv = Number(String(pMatch[1]).replace(',', '.'))
@@ -683,7 +716,7 @@ class CasWeightMonitor {
 
   async readWeightNow() {
     const socket = await this.ensureSocket()
-    const resp = await writeAndReadWeight(socket, 2500)
+    const resp = await writeAndReadWeight(socket, 3500)
     const parsed = parseWeightResponse(resp)
     if (!parsed.ok) throw new Error(parsed.error || 'Пустой ответ')
     this.connected = true
