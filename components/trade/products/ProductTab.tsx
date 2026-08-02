@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import ProductFormFields from './ProductFormFields'
 import ProductImage from '@/components/shared/ProductImage'
 import ProductArrivalsPanel from './ProductArrivalsPanel'
 import { money, stockStatus } from './productFormShared'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
-import { productBarcodes, productMatchesSearch } from '@/lib/productBarcodes'
+import { productBarcodes } from '@/lib/productBarcodes'
+import { buildProductCodeIndex, filterProductsByQuery } from '@/lib/productSearchIndex'
 import {
   categoryDisplayLabel,
   categorySlug,
@@ -142,6 +143,9 @@ export default function ProductTab({
   }, [products, categories])
 
   const q = search.trim()
+  const deferredQ = useDeferredValue(q)
+  const codeIndex = useMemo(() => buildProductCodeIndex(products), [products])
+
   const filtered = useMemo(() => {
     const matchStat = (p: Product) => {
       const stock = Number(p.stock) || 0
@@ -152,13 +156,16 @@ export default function ProductTab({
       if (statFlt === 'bulk') return hasBulkPricing(p)
       return true
     }
-    return products.filter(p => {
-      const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-      const matchQ = productMatchesSearch(p, q, `${p.cat} ${catLabel}`)
-      const matchC = productMatchesCategoryFilter(p.catId, catFlt, categories)
-      return matchQ && matchC && matchStat(p)
-    })
-  }, [products, categories, q, catFlt, statFlt])
+    const byQuery = filterProductsByQuery(
+      products,
+      codeIndex,
+      deferredQ,
+      p => `${p.cat} ${categoryDisplayLabel(categories, p.catId, p.cat)}`,
+    )
+    return byQuery.filter(p =>
+      productMatchesCategoryFilter(p.catId, catFlt, categories) && matchStat(p),
+    )
+  }, [products, categories, deferredQ, catFlt, statFlt, codeIndex])
 
   const visibleRows = useMemo(
     () => filtered.slice(0, visibleCount),
@@ -190,10 +197,12 @@ export default function ProductTab({
 
   if (view === 'edit') {
     const qList = search.trim()
-    const list = products.filter(p => {
-      const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-      return productMatchesSearch(p, qList, catLabel)
-    })
+    const list = filterProductsByQuery(
+      products,
+      codeIndex,
+      qList,
+      p => categoryDisplayLabel(categories, p.catId, p.cat),
+    )
     const editProduct = selectedId ? products.find(p => p.id === selectedId) || null : null
 
     return (

@@ -1,12 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
-import { productMatchesSearch } from '@/lib/productBarcodes'
 import { isWeighted } from '@/lib/productWeight'
 import type { Product, ProductStockLayer } from '@/lib/types'
+import { buildProductCodeIndex, filterProductsByQuery } from '@/lib/productSearchIndex'
 import { categoryDisplayLabel, useCategories } from '@/lib/useCategories'
 import ProductArrivalsPanel from '../products/ProductArrivalsPanel'
 import { fmtMoney } from './warehouseShared'
@@ -102,6 +102,8 @@ export default function WarehouseStockPanel({
 }) {
   const { categories } = useCategories()
   const q = search
+  const deferredQ = useDeferredValue(q.trim())
+  const codeIndex = useMemo(() => buildProductCodeIndex(products), [products])
   const [filter, setFilter] = useState<StockFilter>('all')
   const [sort, setSort] = useState<SortKey>('name')
   const [sortDesc, setSortDesc] = useState(false)
@@ -160,19 +162,23 @@ export default function WarehouseStockPanel({
   }, [products, layersByProduct])
 
   const rows = useMemo(() => {
-    const query = q.trim()
-    let list = products.filter(p => {
-      const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-      const matchQ = productMatchesSearch(p, query, catLabel)
+    const query = deferredQ
+    let list = filterProductsByQuery(
+      products,
+      codeIndex,
+      query,
+      p => categoryDisplayLabel(categories, p.catId, p.cat),
+    ).filter(p => {
       const agg = aggByProduct.get(p.id)
       const stock = agg?.layerQty ?? (Number(p.stock) || 0)
-      const matchF =
-        filter === 'all' ? true
-          : filter === 'inStock' ? stock > 5
-            : filter === 'low' ? stock > 0 && stock <= 5
-              : stock <= 0
-      return matchQ && matchF
+      return filter === 'all' ? true
+        : filter === 'inStock' ? stock > 5
+          : filter === 'low' ? stock > 0 && stock <= 5
+            : stock <= 0
     })
+
+    // Один товар по штрихкоду — без тяжёлой сортировки всего каталога
+    if (list.length <= 1) return list
 
     list = [...list].sort((a, b) => {
       const aa = aggByProduct.get(a.id)!
@@ -186,11 +192,11 @@ export default function WarehouseStockPanel({
       return sortDesc ? -cmp : cmp
     })
     return list
-  }, [products, categories, q, filter, sort, sortDesc, aggByProduct])
+  }, [products, categories, deferredQ, filter, sort, sortDesc, aggByProduct, codeIndex])
 
   useEffect(() => {
     setVisibleCount(STOCK_PAGE)
-  }, [q, filter, sort, sortDesc])
+  }, [deferredQ, filter, sort, sortDesc])
 
   const visibleRows = useMemo(
     () => rows.slice(0, visibleCount),
