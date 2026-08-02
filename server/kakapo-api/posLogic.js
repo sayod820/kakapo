@@ -256,14 +256,45 @@ export function listProductStockLayers(db, productId) {
   return layers
 }
 
-/** Все открытые партии склада (для остатков по партиям) */
+/** Все открытые партии склада — один проход по приходам (не O(products × receipts)). */
 export function listAllOpenStockLayers(db) {
   ensurePosCollections(db)
-  const out = []
-  for (const product of db.products || []) {
-    for (const layer of listProductStockLayers(db, product.id)) {
-      out.push(layer)
+  const receipts = [...(db.stockReceipts || [])].sort((a, b) =>
+    String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')),
+  )
+  /** @type {Map<number, any[]>} */
+  const byProduct = new Map()
+  for (const receipt of receipts) {
+    for (const item of receipt.items || []) {
+      const remainingQty = round2(item.remainingQty)
+      if (!(remainingQty > 0)) continue
+      const productId = Number(item.productId)
+      let list = byProduct.get(productId)
+      if (!list) {
+        list = []
+        byProduct.set(productId, list)
+      }
+      const queueIndex = list.length
+      list.push({
+        receiptId: receipt.id,
+        productId,
+        productName: item.productName,
+        qty: round2(item.qty),
+        remainingQty,
+        costPrice: round2(item.costPrice),
+        retailPrice: round2(item.retailPrice),
+        bulkPricing: normalizeBulkPricing(item.bulkPricing),
+        expiryDate: item.expiryDate || null,
+        createdAtIso: receipt.createdAtIso,
+        supplierName: receipt.supplierName || '',
+        queueIndex,
+        isActive: queueIndex === 0,
+      })
     }
+  }
+  const out = []
+  for (const list of byProduct.values()) {
+    for (const layer of list) out.push(layer)
   }
   return out
 }

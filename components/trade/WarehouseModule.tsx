@@ -20,6 +20,7 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
   const [expiryDays, setExpiryDays] = useState(14)
   const [expiry, setExpiry] = useState<ExpiryRow[]>([])
   const [expiryLoading, setExpiryLoading] = useState(false)
+  const [refreshGen, setRefreshGen] = useState(0)
 
   const receipts = usePosStore(s => s.receipts)
   const writeoffs = usePosStore(s => s.writeoffs)
@@ -33,26 +34,28 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
     saveWarehouseTab(tab)
   }, [tab])
 
-  useEffect(() => {
-    if (!USE_API) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        await api.reconcileStock()
-        if (!cancelled) await Promise.all([syncPosFromApi(), fetchProducts()])
-      } catch {
-        /* тихая сверка — не блокируем UI */
-      }
-    })()
-    return () => { cancelled = true }
-  }, [fetchProducts])
+  // При открытии склада НЕ гоняем reconcile + полный POS sync (это давало паузу в секунды).
+  // Данные уже в store от фонового sync; тяжёлое обновление — только по кнопке «Обновить».
 
-  const totalStock = useMemo(() => products.reduce((s, p) => s + (Number(p.stock) || 0), 0), [products])
-  const low = useMemo(() => products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= 5).length, [products])
-  const out = useMemo(() => products.filter(p => Number(p.stock) <= 0).length, [products])
+  const { totalStock, low, out } = useMemo(() => {
+    let totalStock = 0
+    let low = 0
+    let out = 0
+    for (const p of products) {
+      const s = Number(p.stock) || 0
+      totalStock += s
+      if (s <= 0) out += 1
+      else if (s <= 5) low += 1
+    }
+    return { totalStock, low, out }
+  }, [products])
 
   const refreshAll = useCallback(async () => {
+    if (USE_API) {
+      try { await api.reconcileStock() } catch { /* ignore */ }
+    }
     await Promise.all([syncPosFromApi(), fetchProducts()])
+    setRefreshGen(g => g + 1)
   }, [fetchProducts])
 
   const loadExpiry = useCallback(async (days: number) => {
@@ -136,7 +139,9 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
         ))}
       </div>
 
-      {tab === 'stock' && <WarehouseStockPanel products={products} onRefresh={refreshAll} />}
+      {tab === 'stock' && (
+        <WarehouseStockPanel products={products} onRefresh={refreshAll} refreshGen={refreshGen} />
+      )}
       {tab === 'receipts' && (
         <WarehouseReceiptsPanel
           receipts={receipts}

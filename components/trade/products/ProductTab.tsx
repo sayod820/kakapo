@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ProductFormFields from './ProductFormFields'
 import ProductImage from '@/components/shared/ProductImage'
 import ProductArrivalsPanel from './ProductArrivalsPanel'
@@ -11,13 +11,16 @@ import { productBarcodes, productMatchesSearch } from '@/lib/productBarcodes'
 import {
   categoryDisplayLabel,
   categorySlug,
-  countProductsInCategory,
+  getDescendantSlugs,
   productMatchesCategoryFilter,
 } from '@/lib/useCategories'
 import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 
 type StatFilter = 'all' | 'inStock' | 'low' | 'out' | 'hot' | 'bulk'
+
+/** Сначала рисуем часть таблицы — полный каталог без виртуализации вешает UI */
+const CATALOG_PAGE = 80
 
 function StatCard({ label, value, color, active, onClick }: {
   label: string; value: number; color?: string; active?: boolean; onClick: () => void
@@ -81,6 +84,7 @@ export default function ProductTab({
   const [arrivalsOpen, setArrivalsOpen] = useState(false)
   const [catFlt, setCatFlt] = useState('all')
   const [statFlt, setStatFlt] = useState<StatFilter>('all')
+  const [visibleCount, setVisibleCount] = useState(CATALOG_PAGE)
 
   const roots = useMemo(
     () => categories.filter(c => c.parent_id == null).sort((a, b) => (a.order || 0) - (b.order || 0)),
@@ -102,23 +106,68 @@ export default function ProductTab({
       .sort((a, b) => (a.order || 0) - (b.order || 0))
   }, [activeRoot, categories])
 
-  const matchStat = (p: Product) => {
-    const stock = Number(p.stock) || 0
-    if (statFlt === 'inStock') return stock > 5
-    if (statFlt === 'low') return stock > 0 && stock <= 5
-    if (statFlt === 'out') return stock <= 0
-    if (statFlt === 'hot') return !!p.hot
-    if (statFlt === 'bulk') return hasBulkPricing(p)
-    return true
-  }
+  const stats = useMemo(() => {
+    let inStock = 0
+    let low = 0
+    let out = 0
+    let hot = 0
+    let bulk = 0
+    for (const p of products) {
+      const s = Number(p.stock) || 0
+      if (s > 5) inStock += 1
+      else if (s > 0) low += 1
+      else out += 1
+      if (p.hot) hot += 1
+      if (hasBulkPricing(p)) bulk += 1
+    }
+    return { total: products.length, inStock, low, out, hot, bulk }
+  }, [products])
+
+  /** Один проход: catId → count, затем суммы по дереву категорий */
+  const catCounts = useMemo(() => {
+    const byId = new Map<string, number>()
+    for (const p of products) {
+      const id = p.catId || ''
+      byId.set(id, (byId.get(id) || 0) + 1)
+    }
+    const cache = new Map<string, number>()
+    const countFor = (slug: string) => {
+      if (cache.has(slug)) return cache.get(slug)!
+      let n = 0
+      for (const s of getDescendantSlugs(categories, slug)) n += byId.get(s) || 0
+      cache.set(slug, n)
+      return n
+    }
+    return { countFor }
+  }, [products, categories])
 
   const q = search.trim()
-  const filtered = products.filter(p => {
-    const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
-    const matchQ = productMatchesSearch(p, q, `${p.cat} ${catLabel}`)
-    const matchC = productMatchesCategoryFilter(p.catId, catFlt, categories)
-    return matchQ && matchC && matchStat(p)
-  })
+  const filtered = useMemo(() => {
+    const matchStat = (p: Product) => {
+      const stock = Number(p.stock) || 0
+      if (statFlt === 'inStock') return stock > 5
+      if (statFlt === 'low') return stock > 0 && stock <= 5
+      if (statFlt === 'out') return stock <= 0
+      if (statFlt === 'hot') return !!p.hot
+      if (statFlt === 'bulk') return hasBulkPricing(p)
+      return true
+    }
+    return products.filter(p => {
+      const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
+      const matchQ = productMatchesSearch(p, q, `${p.cat} ${catLabel}`)
+      const matchC = productMatchesCategoryFilter(p.catId, catFlt, categories)
+      return matchQ && matchC && matchStat(p)
+    })
+  }, [products, categories, q, catFlt, statFlt])
+
+  const visibleRows = useMemo(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount],
+  )
+
+  useEffect(() => {
+    setVisibleCount(CATALOG_PAGE)
+  }, [q, catFlt, statFlt])
 
   function pickCategory(slug: string) {
     setCatFlt(slug)
@@ -238,22 +287,22 @@ export default function ProductTab({
       </div>
 
       <div className="k-kpis">
-        <StatCard label="Всего позиций" value={products.length} active={statFlt === 'all' && catFlt === 'all'} onClick={() => { setStatFlt('all'); setCatFlt('all') }} />
-        <StatCard label="В наличии" value={products.filter(p => Number(p.stock) > 5).length} color="var(--green)" active={statFlt === 'inStock'} onClick={() => setStatFlt(s => s === 'inStock' ? 'all' : 'inStock')} />
-        <StatCard label="Мало (≤5)" value={products.filter(p => { const s = Number(p.stock); return s > 0 && s <= 5 }).length} color="var(--gold)" active={statFlt === 'low'} onClick={() => setStatFlt(s => s === 'low' ? 'all' : 'low')} />
-        <StatCard label="Нет в наличии" value={products.filter(p => Number(p.stock) <= 0).length} color="var(--red)" active={statFlt === 'out'} onClick={() => setStatFlt(s => s === 'out' ? 'all' : 'out')} />
-        <StatCard label="Хиты" value={products.filter(p => p.hot).length} color="var(--gold)" active={statFlt === 'hot'} onClick={() => setStatFlt(s => s === 'hot' ? 'all' : 'hot')} />
-        <StatCard label="С оптом" value={products.filter(p => hasBulkPricing(p)).length} color="#FF8C00" active={statFlt === 'bulk'} onClick={() => setStatFlt(s => s === 'bulk' ? 'all' : 'bulk')} />
+        <StatCard label="Всего позиций" value={stats.total} active={statFlt === 'all' && catFlt === 'all'} onClick={() => { setStatFlt('all'); setCatFlt('all') }} />
+        <StatCard label="В наличии" value={stats.inStock} color="var(--green)" active={statFlt === 'inStock'} onClick={() => setStatFlt(s => s === 'inStock' ? 'all' : 'inStock')} />
+        <StatCard label="Мало (≤5)" value={stats.low} color="var(--gold)" active={statFlt === 'low'} onClick={() => setStatFlt(s => s === 'low' ? 'all' : 'low')} />
+        <StatCard label="Нет в наличии" value={stats.out} color="var(--red)" active={statFlt === 'out'} onClick={() => setStatFlt(s => s === 'out' ? 'all' : 'out')} />
+        <StatCard label="Хиты" value={stats.hot} color="var(--gold)" active={statFlt === 'hot'} onClick={() => setStatFlt(s => s === 'hot' ? 'all' : 'hot')} />
+        <StatCard label="С оптом" value={stats.bulk} color="#FF8C00" active={statFlt === 'bulk'} onClick={() => setStatFlt(s => s === 'bulk' ? 'all' : 'bulk')} />
       </div>
 
       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>Категории</div>
       <div className="k-cats" style={{ marginBottom: subcategories.length ? 8 : 16 }}>
         <button type="button" className={`k-cat ${catFlt === 'all' ? 'active' : ''}`} onClick={() => pickCategory('all')}>
-          <span className="ce">🏪</span>Все<div style={{ fontSize: 10, opacity: 0.75 }}>{products.length}</div>
+          <span className="ce">🏪</span>Все<div style={{ fontSize: 10, opacity: 0.75 }}>{stats.total}</div>
         </button>
         {roots.map(c => {
           const slug = categorySlug(c)
-          const count = countProductsInCategory(products, slug, categories)
+          const count = catCounts.countFor(slug)
           const active = catFlt === slug || activeRoot?.id === c.id
           return (
             <button key={c.id} type="button" className={`k-cat ${active ? 'active' : ''}`} onClick={() => pickCategory(slug)}>
@@ -277,11 +326,11 @@ export default function ProductTab({
               style={{ minWidth: 90 }}
             >
               <span className="ce">{activeRoot.emoji || '📦'}</span>Все
-              <div style={{ fontSize: 10, opacity: 0.75 }}>{countProductsInCategory(products, categorySlug(activeRoot), categories)}</div>
+              <div style={{ fontSize: 10, opacity: 0.75 }}>{catCounts.countFor(categorySlug(activeRoot))}</div>
             </button>
             {subcategories.map(sub => {
               const slug = categorySlug(sub)
-              const count = countProductsInCategory(products, slug, categories)
+              const count = catCounts.countFor(slug)
               return (
                 <button key={sub.id} type="button" className={`k-cat ${catFlt === slug ? 'active' : ''}`} onClick={() => pickCategory(slug)} style={{ minWidth: 90 }}>
                   <span className="ce">{sub.emoji || '📦'}</span>{sub.name.split(' ')[0]}
@@ -294,7 +343,8 @@ export default function ProductTab({
       )}
 
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-        Показано {filtered.length} из {products.length}
+        Показано {Math.min(visibleCount, filtered.length)} из {filtered.length}
+        {filtered.length !== products.length ? ` (фильтр · всего ${products.length})` : ''}
         {catFlt !== 'all' && ` · ${categoryDisplayLabel(categories, catFlt, catFlt)}`}
         {!loaded && ' · загрузка…'}
       </div>
@@ -317,10 +367,11 @@ export default function ProductTab({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(p => {
+                {visibleRows.map(p => {
                   const sc = stockStatus(Number(p.stock) || 0)
                   const bulkHint = formatBulkPricingHint(p)
                   const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
+                  const codes = productBarcodes(p)
                   return (
                     <tr key={p.id} className="k-prodrow" onClick={() => openEdit(p.id)}>
                       <td><span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 800 }}>{p.art}</span></td>
@@ -329,15 +380,11 @@ export default function ProductTab({
                           <ProductImage product={p} preferThumb getPhoto={getPhoto} size={44} radius={10} plate="theme" />
                           <div>
                             <div style={{ fontWeight: 800 }}>{p.name}</div>
-                            {(() => {
-                              const codes = productBarcodes(p)
-                              if (!codes.length) return null
-                              return (
-                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                                  ШК: {codes[0]}{codes.length > 1 ? ` +${codes.length - 1}` : ''}
-                                </div>
-                              )
-                            })()}
+                            {codes.length > 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                                ШК: {codes[0]}{codes.length > 1 ? ` +${codes.length - 1}` : ''}
+                              </div>
+                            )}
                             {bulkHint && <div style={{ fontSize: 10, color: 'var(--gold)' }}>{bulkHint}</div>}
                           </div>
                         </div>
@@ -359,6 +406,17 @@ export default function ProductTab({
               </tbody>
             </table>
             {!filtered.length && <div className="k-empty">{loaded ? 'Товары не найдены' : 'Загрузка товаров…'}</div>}
+            {filtered.length > visibleCount && (
+              <div style={{ padding: 12, textAlign: 'center' }}>
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  onClick={() => setVisibleCount(c => c + CATALOG_PAGE)}
+                >
+                  Показать ещё ({filtered.length - visibleCount})
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </section>

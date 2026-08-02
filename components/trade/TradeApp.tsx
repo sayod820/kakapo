@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { useApiSync } from '@/lib/useApiSync'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
@@ -598,9 +598,12 @@ function TradeAppInner({
 
   function goTo(p: TradePage) {
     if (!canAccessTradePage(session.permissions, p)) return
-    setPage(p)
     setMenuOpen(false)
     if (p !== 'sales') setPosSurface('dashboard')
+    // Тяжёлые экраны (Товар / Склад) — не блокируем клик синхронным рендером
+    startTransition(() => {
+      setPage(p)
+    })
   }
 
   useEffect(() => {

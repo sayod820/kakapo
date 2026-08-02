@@ -89,9 +89,12 @@ function buildAgg(layers: ProductStockLayer[], product: Product): ProductStockAg
 export default function WarehouseStockPanel({
   products,
   onRefresh,
+  refreshGen = 0,
 }: {
   products: Product[]
   onRefresh?: () => void
+  /** Инкремент с кнопки «Обновить» — перезагрузить партии без привязки к products */
+  refreshGen?: number
 }) {
   const { categories } = useCategories()
   const [q, setQ] = useState('')
@@ -119,7 +122,8 @@ export default function WarehouseStockPanel({
 
   useEffect(() => {
     void loadLayers()
-  }, [loadLayers, products])
+    // products намеренно не в deps — иначе каждый fetchProducts заново тянет все партии
+  }, [loadLayers, refreshGen])
 
   const layersByProduct = useMemo(() => {
     const map = new Map<number, ProductStockLayer[]>()
