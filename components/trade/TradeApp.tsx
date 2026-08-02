@@ -63,8 +63,8 @@ const CSS = `
     --text:#0C1A10; --muted:#4A6B52; --muted2:#7A9580;
     --green:#129B45; --green-d:#D6F0DF; --blue:#2563EB; --purple:#7C3AED; --red:#DC2626; --gold:#D97706;
     --hover:#EAF1EC; --tbl-line:#D0DDD4; --nav-hover:#EAF1EC; --scroll:#BCCBBF;
-    /* Категории: мягкий зелёный, не чёрный и не белый */
-    --photo-plate:#E2EBE5; --badge-cat-bg:#D5E6DB; --badge-cat-fg:#1A6B3C; --badge-cat-border:#A9C4B2;
+    /* Категории: как в Товарах — круглая плашка с фоном */
+    --photo-plate:#E2EBE5; --badge-cat-bg:#DCE8E1; --badge-cat-fg:#2F5A3C; --badge-cat-border:#B5C9BC;
     --badge-stock-ok:#D6F0DF; --badge-stock-low:#FEF3C7; --badge-stock-no:#FEE2E2;
     --badge-debt-bg:#FEF3C7; --badge-debt-ok:#D6F0DF; --badge-warn-bg:#FEE2E2; --badge-vip-bg:#EDE9FE;
     --border-debt:#F0D9A8; --border-debt-over:#FECACA;

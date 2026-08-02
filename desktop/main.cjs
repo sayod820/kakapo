@@ -280,15 +280,24 @@ function createWindow(localUrl = '') {
   })
 
   // Меню отключено — F11/Esc сами (иначе из полноэкрана не выйти)
+  mainWindow.setFullScreenable(true)
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || !mainWindow || mainWindow.isDestroyed()) return
-    if (input.key === 'F11') {
+    if (input.type !== 'keyDown' || input.isAutoRepeat || !mainWindow || mainWindow.isDestroyed()) return
+    const code = String(input.code || '')
+    const key = String(input.key || '')
+    const isF11 = code === 'F11' || key === 'F11'
+    const isEsc = code === 'Escape' || key === 'Escape' || key === 'Esc'
+    if (isF11) {
       event.preventDefault()
-      mainWindow.setFullScreen(!mainWindow.isFullScreen())
+      const next = !mainWindow.isFullScreen()
+      mainWindow.setFullScreen(next)
+      if (!next && mainWindow.isMaximized()) mainWindow.unmaximize()
       return
     }
-    if (input.key === 'Escape' && mainWindow.isFullScreen()) {
+    if (isEsc && mainWindow.isFullScreen()) {
+      event.preventDefault()
       mainWindow.setFullScreen(false)
+      if (mainWindow.isMaximized()) mainWindow.unmaximize()
     }
   })
 
