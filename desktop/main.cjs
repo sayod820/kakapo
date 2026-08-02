@@ -279,6 +279,19 @@ function createWindow(localUrl = '') {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
   })
 
+  // Меню отключено — F11/Esc сами (иначе из полноэкрана не выйти)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !mainWindow || mainWindow.isDestroyed()) return
+    if (input.key === 'F11') {
+      event.preventDefault()
+      mainWindow.setFullScreen(!mainWindow.isFullScreen())
+      return
+    }
+    if (input.key === 'Escape' && mainWindow.isFullScreen()) {
+      mainWindow.setFullScreen(false)
+    }
+  })
+
   // Если страница долго не грузится — всё равно показать окно
   setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
