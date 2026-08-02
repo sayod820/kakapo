@@ -63,7 +63,7 @@ const DEFAULT_SETTINGS = {
 
 /** Конфиг рядом с приложением + переопределение из userData */
 function loadConfigSync() {
-  let base = { tradeUrl: DEFAULT_TRADE_URL, window: { width: 1360, height: 900 } }
+  let base = { tradeUrl: DEFAULT_TRADE_URL, window: { width: 1360, height: 900, fullscreen: true } }
   try {
     base = { ...base, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) }
   } catch { /* packaged default */ }
@@ -79,6 +79,8 @@ function loadConfigSync() {
   if (/46\.225\.92\.161|46\.255\.92\.161/.test(rawUrl) || !rawUrl.trim()) {
     base.tradeUrl = DEFAULT_TRADE_URL
   }
+  // Касса открывается на весь экран; старые config с false тоже
+  base.window = { width: 1360, height: 900, fullscreen: true, ...(base.window || {}), fullscreen: true }
   return base
 }
 
@@ -250,7 +252,8 @@ function createWindow(localUrl = '') {
     height: Number(winCfg.height) || 900,
     minWidth: 1024,
     minHeight: 700,
-    fullscreen: !!winCfg.fullscreen,
+    // Касса по умолчанию на весь экран (Esc / F11 — выйти). В config: "fullscreen": false
+    fullscreen: winCfg.fullscreen !== false,
     title: 'KAKAPO Касса',
     icon: APP_ICON_PATH,
     backgroundColor: '#030B05',

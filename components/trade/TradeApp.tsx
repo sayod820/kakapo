@@ -49,7 +49,7 @@ const CSS = `
     --text:#E8F3EB; --muted:#7E9A86; --muted2:#5E7A67;
     --green:#1FD760; --green-d:#12351E; --blue:#3B8EF0; --purple:#9B6DFF; --red:#FF5A5A; --gold:#FFB800;
     --hover:#0e1712; --tbl-line:#16241b; --nav-hover:#111d15; --scroll:#1e2f24;
-    --photo-plate:#0c1610; --badge-cat-bg:#1a2430; --badge-cat-fg:#3B8EF0;
+    --photo-plate:#0c1610; --badge-cat-bg:#1a2430; --badge-cat-fg:#3B8EF0; --badge-cat-border:#2a3548;
     --badge-stock-ok:#12351E; --badge-stock-low:#2a2414; --badge-stock-no:#2a1420;
     --badge-debt-bg:#2a2414; --badge-debt-ok:#122018; --badge-warn-bg:#2a1420; --badge-vip-bg:#2a1a40;
     --border-debt:#5a4020; --border-debt-over:#5a2030;
@@ -63,8 +63,7 @@ const CSS = `
     --text:#0C1A10; --muted:#4A6B52; --muted2:#7A9580;
     --green:#129B45; --green-d:#D6F0DF; --blue:#2563EB; --purple:#7C3AED; --red:#DC2626; --gold:#D97706;
     --hover:#EAF1EC; --tbl-line:#D0DDD4; --nav-hover:#EAF1EC; --scroll:#BCCBBF;
-    /* Категорийные «чёрные точки» — как в тёмной теме: тёмный фон + синий текст */
-    --photo-plate:#E8F0EA; --badge-cat-bg:#1a2430; --badge-cat-fg:#3B8EF0;
+    --photo-plate:#E8F0EA; --badge-cat-bg:#DBEAFE; --badge-cat-fg:#1D4ED8; --badge-cat-border:#BFDBFE;
     --badge-stock-ok:#D6F0DF; --badge-stock-low:#FEF3C7; --badge-stock-no:#FEE2E2;
     --badge-debt-bg:#FEF3C7; --badge-debt-ok:#D6F0DF; --badge-warn-bg:#FEE2E2; --badge-vip-bg:#EDE9FE;
     --border-debt:#F0D9A8; --border-debt-over:#FECACA;
@@ -169,7 +168,7 @@ const CSS = `
   .k-tbl tbody tr:hover{background:var(--hover)}
   .k-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
   .k-badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:800}
-  .k-badge-cat{background:var(--badge-cat-bg);color:var(--badge-cat-fg);border:1px solid #2a3548}
+  .k-badge-cat{background:var(--badge-cat-bg);color:var(--badge-cat-fg);border:1px solid var(--badge-cat-border)}
   .k-empty{padding:34px;text-align:center;color:var(--muted2)}
   .k-alert{padding:10px 14px;border-radius:10px;font-size:13px;background:var(--green-d);color:var(--green);border:1px solid #1f5a33}
   .k-trade[data-theme="light"] .k-alert{border-color:#9FD4B0}
