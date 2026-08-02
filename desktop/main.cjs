@@ -270,10 +270,10 @@ function createWindow(localUrl = '') {
     },
   })
 
-  // Локальная сборка интерфейса — касса открывается без интернета.
-  // Если её нет, работаем по-старому: грузим сайт.
+  // Сайт = свежие фиксы. Локальный UI — только если сайт не открылся (офлайн).
   const remoteUrl = String(config.tradeUrl || DEFAULT_TRADE_URL).trim() || DEFAULT_TRADE_URL
-  const url = localUrl || remoteUrl
+  const preferRemote = config.preferRemote !== false
+  const url = preferRemote ? remoteUrl : (localUrl || remoteUrl)
 
   mainWindow.once('ready-to-show', () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
@@ -308,16 +308,24 @@ function createWindow(localUrl = '') {
     }
   }, 4000)
 
-  let triedRemoteFallback = false
+  let triedLocalFallback = false
 
   mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame || !mainWindow || mainWindow.isDestroyed()) return
     // -3 = aborted (навигация отменена) — игнор
     if (errorCode === -3) return
     console.error('[kakapo-desktop] load fail', errorCode, errorDescription, validatedURL)
-    // Локальная сборка не открылась — пробуем сайт
-    if (localUrl && !triedRemoteFallback) {
-      triedRemoteFallback = true
+    // Сайт не открылся — пробуем локальный UI (офлайн)
+    if (preferRemote && localUrl && !triedLocalFallback) {
+      triedLocalFallback = true
+      mainWindow.loadURL(localUrl).catch(() => {
+        showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
+      })
+      return
+    }
+    // Локальный не открылся — пробуем сайт
+    if (!preferRemote && localUrl && validatedURL && String(validatedURL).includes('127.0.0.1') && !triedLocalFallback) {
+      triedLocalFallback = true
       mainWindow.loadURL(remoteUrl).catch(() => {
         showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
       })
