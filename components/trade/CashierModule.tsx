@@ -2386,18 +2386,22 @@ export default function CashierModule({
         return true
       }
       if ((Number(scaleHit.stock) || 0) <= 0) {
-        showToast('Нет на складе', scaleHit.name)
-        qRef.current = ''
-        setQ('')
+        openScanBlockAlert(
+          'Нет на складе',
+          `${scaleHit.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
+          raw,
+        )
         scanBurstRef.current = false
-        return false
+        return true
       }
       if (!isWeighted(scaleHit)) {
-        showToast('Не весовой товар', `${scaleHit.name} — в карточке тип не «вес»`)
-        qRef.current = ''
-        setQ('')
+        openScanBlockAlert(
+          'Не весовой товар',
+          `${scaleHit.name} — в карточке тип не «вес». Касса остановлена — нажмите «Отмена».`,
+          raw,
+        )
         scanBurstRef.current = false
-        return false
+        return true
       }
       addProduct(scaleHit as Product, scaleLabel.weightKg, { fromScanner: true })
       qRef.current = ''
@@ -2436,22 +2440,30 @@ export default function CashierModule({
     }
 
     if (!productHit) {
-      if (fromScanner) {
+      // Скан / длинный код — блокируем кассу (не просто toast снизу)
+      if (fromScanner || digits.length >= 6 || raw.length >= 6) {
         openScanBlockAlert(
           'Товар не найден',
-          'Штрихкод нет в базе. Касса остановлена — нажмите «Отмена», затем сканируйте снова.',
+          'Штрихкода нет в базе. Касса остановлена — нажмите «Отмена», затем сканируйте снова.',
           raw,
         )
+        scanBurstRef.current = false
+        return true
       }
       scanBurstRef.current = false
       return false
     }
     if ((Number(productHit.stock) || 0) <= 0) {
-      showToast('Нет на складе', productHit.name)
-      if (fromScanner) {
-        qRef.current = ''
-        setQ('')
+      if (fromScanner || digits.length >= 6 || raw.length >= 6) {
+        openScanBlockAlert(
+          'Нет на складе',
+          `${productHit.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
+          raw,
+        )
+        scanBurstRef.current = false
+        return true
       }
+      showToast('Нет на складе', productHit.name)
       scanBurstRef.current = false
       return false
     }
