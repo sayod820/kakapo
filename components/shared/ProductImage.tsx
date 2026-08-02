@@ -56,7 +56,7 @@ export default function ProductImage({
     position: 'relative',
     background:
       plate === 'light'
-        ? 'linear-gradient(160deg,#f3f7f4 0%,#e6eee8 100%)'
+        ? 'linear-gradient(160deg,#e2ebe5 0%,#d5e3da 100%)'
         : plate === 'dark'
           ? 'linear-gradient(145deg,#121f16,#0c1610)'
           : plate === 'none'

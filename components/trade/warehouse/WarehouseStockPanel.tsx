@@ -347,7 +347,7 @@ export default function WarehouseStockPanel({
                       </div>
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--muted)' }}>{p.art}</td>
-                    <td><span className="k-badge k-badge-cat">{catLabel}</span></td>
+                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>{catLabel}</td>
                     <td style={{ fontSize: 12 }}>{p.unit || 'шт'}</td>
                     <td className="num">
                       {agg.multiCost ? (

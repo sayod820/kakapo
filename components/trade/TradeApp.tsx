@@ -63,7 +63,8 @@ const CSS = `
     --text:#0C1A10; --muted:#4A6B52; --muted2:#7A9580;
     --green:#129B45; --green-d:#D6F0DF; --blue:#2563EB; --purple:#7C3AED; --red:#DC2626; --gold:#D97706;
     --hover:#EAF1EC; --tbl-line:#D0DDD4; --nav-hover:#EAF1EC; --scroll:#BCCBBF;
-    --photo-plate:#E8F0EA; --badge-cat-bg:#DBEAFE; --badge-cat-fg:#1D4ED8; --badge-cat-border:#BFDBFE;
+    /* Категории: мягкий зелёный, не чёрный и не белый */
+    --photo-plate:#E2EBE5; --badge-cat-bg:#D5E6DB; --badge-cat-fg:#1A6B3C; --badge-cat-border:#A9C4B2;
     --badge-stock-ok:#D6F0DF; --badge-stock-low:#FEF3C7; --badge-stock-no:#FEE2E2;
     --badge-debt-bg:#FEF3C7; --badge-debt-ok:#D6F0DF; --badge-warn-bg:#FEE2E2; --badge-vip-bg:#EDE9FE;
     --border-debt:#F0D9A8; --border-debt-over:#FECACA;
@@ -173,10 +174,13 @@ const CSS = `
   .k-alert{padding:10px 14px;border-radius:10px;font-size:13px;background:var(--green-d);color:var(--green);border:1px solid #1f5a33}
   .k-trade[data-theme="light"] .k-alert{border-color:#9FD4B0}
   .k-cats{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
-  .k-cat{flex-shrink:0;border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:14px;padding:10px 14px;font-weight:800;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:78px;transition:.12s}
+  .k-cat{flex-shrink:0;border:1px solid var(--border);background:var(--card2);color:var(--muted);border-radius:14px;padding:10px 14px;font-weight:800;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:78px;transition:.12s}
   .k-cat .ce{font-size:18px}
-  .k-cat:hover{color:var(--text);border-color:var(--muted2)}
+  .k-cat:hover{color:var(--text);border-color:var(--muted2);background:var(--hover)}
   .k-cat.active{background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;border-color:transparent}
+  .k-trade[data-theme="light"] .k-cat{background:#DCE8E1;color:#2F5A3C;border-color:#B5C9BC}
+  .k-trade[data-theme="light"] .k-cat:hover{background:#D0DED5;color:#0C1A10}
+  .k-trade[data-theme="light"] .k-cat.active{background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;border-color:transparent}
   .k-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:60;padding:20px}
   .k-trade[data-theme="light"] .k-modal-bg{background:rgba(12,26,16,.45)}
   .k-modal{width:460px;max-width:100%;max-height:88vh;background:var(--panel);border:1px solid var(--border);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
