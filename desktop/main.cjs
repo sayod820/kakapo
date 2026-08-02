@@ -557,46 +557,6 @@ function createWindow(localUrl = '') {
   })
 }
 
-  mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
-    shell.openExternal(openUrl)
-    return { action: 'deny' }
-  })
-
-  if (isDev) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
-  }
-
-  mainWindow.on('close', event => {
-    if (allowMainWindowClose) return
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    event.preventDefault()
-    try {
-      const answer = dialog.showMessageBoxSync(mainWindow, {
-        type: 'question',
-        title: 'Закрыть KAKAPO Касса?',
-        message: 'Вы действительно хотите выйти из приложения?',
-        detail: 'Открытые несохранённые действия могут быть потеряны.',
-        buttons: ['Выйти', 'Отмена'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
-      })
-      if (answer === 0) {
-        allowMainWindowClose = true
-        mainWindow.close()
-      }
-    } catch (err) {
-      bootLog('close dialog fail — оставляем окно', err?.message || String(err))
-    }
-  })
-
-  mainWindow.on('closed', () => {
-    bootLog('window closed')
-    mainWindow = null
-    allowMainWindowClose = false
-  })
-}
-
 async function getPrintersAsync() {
   const win = mainWindow || BrowserWindow.getAllWindows()[0]
   if (!win) return []
