@@ -1,6 +1,6 @@
 {
   "name": "kakapo-trade-desktop",
-  "version": "1.2.66",
+  "version": "1.2.67",
   "private": true,
   "description": "КАКАПО Касса — одно приложение: чеки, этикетки, оборудование",
   "main": "main.cjs",
@@ -69,8 +69,10 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "KAKAPO Kassa",
-      "include": "installer.nsh",
-      "warningsAsErrors": false
+      "warningsAsErrors": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "uninstallDisplayName": "KAKAPO Kassa"
     }
   },
   "devDependencies": {
