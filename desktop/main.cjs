@@ -34,10 +34,35 @@ const APP_ICON_PATH = (() => {
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
 const USER_CONFIG_PATH = () => path.join(app.getPath('userData'), 'config.json')
 const DEFAULT_TRADE_URL = 'https://kakappo.shop/trade'
+const BOOT_LOG_PATH = () => path.join(app.getPath('userData'), 'kassa-boot.log')
 
 let mainWindow = null
 let printWindow = null
 let allowMainWindowClose = false
+
+function bootLog(msg, extra) {
+  const line = `[${new Date().toISOString()}] ${msg}${extra != null ? ' ' + (typeof extra === 'string' ? extra : JSON.stringify(extra)) : ''}`
+  try { console.log(line) } catch { /* ignore */ }
+  try {
+    fs.mkdirSync(path.dirname(BOOT_LOG_PATH()), { recursive: true })
+    fs.appendFileSync(BOOT_LOG_PATH(), line + '\n', 'utf8')
+  } catch { /* ignore */ }
+}
+
+// На слабых кассовых ПК GPU/полноэкран часто дают чёрный экран и вылет.
+try {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('disable-gpu')
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+  app.commandLine.appendSwitch('in-process-gpu')
+} catch { /* ignore */ }
+
+process.on('uncaughtException', err => {
+  bootLog('uncaughtException', err?.stack || String(err))
+})
+process.on('unhandledRejection', err => {
+  bootLog('unhandledRejection', err?.stack || String(err))
+})
 
 // Разрешаем service worker при загрузке интерфейса с http-сервера (иначе касса не открывается офлайн).
 // Service worker требует «безопасный контекст»; помечаем origin кассы как доверенный.
@@ -63,7 +88,7 @@ const DEFAULT_SETTINGS = {
 
 /** Конфиг рядом с приложением + переопределение из userData */
 function loadConfigSync() {
-  let base = { tradeUrl: DEFAULT_TRADE_URL, window: { width: 1360, height: 900, fullscreen: true } }
+  let base = { tradeUrl: DEFAULT_TRADE_URL, window: { width: 1360, height: 900, fullscreen: false } }
   try {
     base = { ...base, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) }
   } catch { /* packaged default */ }
@@ -79,8 +104,8 @@ function loadConfigSync() {
   if (/46\.225\.92\.161|46\.255\.92\.161/.test(rawUrl) || !rawUrl.trim()) {
     base.tradeUrl = DEFAULT_TRADE_URL
   }
-  // Касса открывается на весь экран; старые config с false тоже
-  base.window = { width: 1360, height: 900, fullscreen: true, ...(base.window || {}), fullscreen: true }
+  // Полноэкран после загрузки (не при create) — иначе на части ПК чёрный экран/вылет
+  base.window = { width: 1360, height: 900, fullscreen: false, ...(base.window || {}) }
   return base
 }
 
@@ -237,22 +262,40 @@ button.sec{background:#162B1A;color:#EBF5ED}
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
 }
 
+function splashHtml() {
+  return `<!doctype html><html><head><meta charset="utf-8"/>
+<title>КАКАПО Касса</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0a1a12;color:#EBF5ED;font-family:Segoe UI,system-ui,sans-serif}
+.box{text-align:center}
+h1{margin:0 0 8px;font-size:28px;letter-spacing:.08em;color:#1FD760}
+p{margin:0;color:#8FB897;font-size:14px}
+</style></head><body><div class="box">
+<h1>КАКАПО</h1>
+<p>Загрузка кассы…</p>
+</div></body></html>`
+}
+
 function createWindow(localUrl = '') {
   const config = loadConfig()
   const winCfg = config.window || {}
   const isDev = process.argv.includes('--dev')
+  const wantFullscreen = winCfg.fullscreen !== false
 
   try {
     saveUserConfig({ tradeUrl: config.tradeUrl || DEFAULT_TRADE_URL })
   } catch { /* ignore */ }
 
-  // Не блокируем старт на local UI / clearCache — из-за них был чёрный экран и вылет.
+  bootLog('createWindow start', { version: app.getVersion(), wantFullscreen })
+
+  // Без fullscreen при create — на части кассовых ПК это чёрный экран + закрытие.
   mainWindow = new BrowserWindow({
     width: Number(winCfg.width) || 1360,
     height: Number(winCfg.height) || 900,
     minWidth: 1024,
     minHeight: 700,
-    fullscreen: winCfg.fullscreen !== false,
+    fullscreen: false,
     title: 'KAKAPO Касса',
     icon: APP_ICON_PATH,
     backgroundColor: '#0a1a12',
@@ -267,6 +310,8 @@ function createWindow(localUrl = '') {
       backgroundThrottling: false,
     },
   })
+
+  try { mainWindow.maximize() } catch { /* ignore */ }
 
   const remoteUrl = String(config.tradeUrl || DEFAULT_TRADE_URL).trim() || DEFAULT_TRADE_URL
   const preferRemote = config.preferRemote !== false
@@ -295,17 +340,44 @@ function createWindow(localUrl = '') {
   })
 
   let triedLocalFallback = false
+  let enteredFullscreen = false
 
-  mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+  const enterFullscreenSafe = () => {
+    if (enteredFullscreen || !wantFullscreen || !mainWindow || mainWindow.isDestroyed()) return
+    enteredFullscreen = true
+    setTimeout(() => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setFullScreen(true)
+      } catch (e) {
+        bootLog('setFullScreen fail', e?.message || String(e))
+      }
+    }, 800)
+  }
+
+  const ensureOfflineUi = async () => {
+    if (offlineUrl) return offlineUrl
+    try {
+      offlineUrl = String(await startLocalUi({ timeoutMs: 12000 }) || '').trim()
+      bootLog('local UI fallback', offlineUrl || '(empty)')
+    } catch (err) {
+      bootLog('local UI fail', err?.message || String(err))
+    }
+    return offlineUrl
+  }
+
+  mainWindow.webContents.on('did-fail-load', async (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame || !mainWindow || mainWindow.isDestroyed()) return
     if (errorCode === -3) return
-    console.error('[kakapo-desktop] load fail', errorCode, errorDescription, validatedURL)
-    if (preferRemote && offlineUrl && !triedLocalFallback) {
+    bootLog('did-fail-load', { errorCode, errorDescription, validatedURL })
+    if (preferRemote && !triedLocalFallback) {
       triedLocalFallback = true
-      mainWindow.loadURL(offlineUrl).catch(() => {
-        showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
-      })
-      return
+      const local = await ensureOfflineUi()
+      if (local && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL(local).catch(() => {
+          showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
+        })
+        return
+      }
     }
     if (!preferRemote && offlineUrl && validatedURL && String(validatedURL).includes('127.0.0.1') && !triedLocalFallback) {
       triedLocalFallback = true
@@ -318,17 +390,20 @@ function createWindow(localUrl = '') {
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
-    console.log('[kakapo-desktop] loaded', mainWindow?.webContents.getURL())
+    const loaded = mainWindow?.webContents.getURL() || ''
+    bootLog('did-finish-load', loaded)
+    if (loaded.startsWith('http://') || loaded.startsWith('https://')) {
+      enterFullscreenSafe()
+    }
   })
 
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
-    console.error('[kakapo-desktop] render-process-gone', details)
+    bootLog('render-process-gone', details)
     if (!mainWindow || mainWindow.isDestroyed()) return
-    setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-      mainWindow.loadURL(remoteUrl).catch(() => {})
-    }, 500)
+    showLoadErrorPage(mainWindow, remoteUrl, -2, `renderer ${details?.reason || 'gone'}`)
   })
+
+  mainWindow.webContents.on('unresponsive', () => bootLog('webContents unresponsive'))
 
   const loadTarget = (() => {
     try {
@@ -340,20 +415,16 @@ function createWindow(localUrl = '') {
     }
   })()
 
-  mainWindow.loadURL(loadTarget).catch(err => {
-    console.error('[kakapo-desktop] loadURL', err)
-    showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
-  })
-
-  // Локальный UI в фоне — для офлайн fallback
-  if (preferRemote && !offlineUrl) {
-    startLocalUi()
-      .then(u => {
-        offlineUrl = String(u || '').trim()
-        console.log('[kakapo-desktop] local UI ready (fallback)', offlineUrl)
-      })
-      .catch(err => console.warn('[kakapo-desktop] local UI skip', err?.message || err))
-  }
+  // Сначала splash (не чёрный экран), потом сайт
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml())}`).catch(() => {})
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    bootLog('loadURL', loadTarget)
+    mainWindow.loadURL(loadTarget).catch(err => {
+      bootLog('loadURL fail', err?.message || String(err))
+      showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
+    })
+  }, 300)
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
     shell.openExternal(openUrl)
@@ -366,10 +437,7 @@ function createWindow(localUrl = '') {
 
   mainWindow.on('close', event => {
     if (allowMainWindowClose) return
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      allowMainWindowClose = true
-      return
-    }
+    if (!mainWindow || mainWindow.isDestroyed()) return
     event.preventDefault()
     try {
       const answer = dialog.showMessageBoxSync(mainWindow, {
@@ -387,13 +455,12 @@ function createWindow(localUrl = '') {
         mainWindow.close()
       }
     } catch (err) {
-      console.error('[kakapo-desktop] close dialog', err)
-      allowMainWindowClose = true
-      mainWindow.close()
+      bootLog('close dialog fail — оставляем окно', err?.message || String(err))
     }
   })
 
   mainWindow.on('closed', () => {
+    bootLog('window closed')
     mainWindow = null
     allowMainWindowClose = false
   })
@@ -870,18 +937,23 @@ function installApiCorsBypass() {
 }
 
 app.whenReady().then(async () => {
+  bootLog('whenReady', { version: app.getVersion(), electron: process.versions.electron })
   // Меню «KAKAPO / Edit / Вид» на кассе не нужно
   Menu.setApplicationMenu(null)
-  installApiCorsBypass()
+  try { installApiCorsBypass() } catch (e) { bootLog('cors bypass', e?.message || String(e)) }
   try {
     initLocalDb()
     installLocalDbIpc()
   } catch (e) {
-    console.error('[kakapo-desktop] локальная база', e)
+    bootLog('localDb', e?.stack || String(e))
   }
-  // Окно сразу — local UI поднимается в фоне внутри createWindow
-  createWindow('')
-  installUpdaterIpc(() => mainWindow)
+  // Окно сразу; локальный UI — только если сайт не открылся
+  try {
+    createWindow('')
+  } catch (e) {
+    bootLog('createWindow throw', e?.stack || String(e))
+  }
+  try { installUpdaterIpc(() => mainWindow) } catch (e) { bootLog('updater ipc', e?.message || String(e)) }
 
   ipcMain.handle('desktop:getInfo', () => ({
     isDesktop: true,
