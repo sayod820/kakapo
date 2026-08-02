@@ -116,9 +116,16 @@ const CSS = `
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   .k-top{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--panel)}
   .k-search{flex:1;position:relative;max-width:640px}
-  .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 14px 11px 42px;font-size:14px;outline:none}
+  .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 40px 11px 42px;font-size:14px;outline:none}
   .k-search input:focus{border-color:var(--green)}
-  .k-search .mag{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted)}
+  .k-search .mag{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+  .k-search-clear{
+    position:absolute;right:8px;top:50%;transform:translateY(-50%);
+    width:28px;height:28px;border-radius:9px;border:none;cursor:pointer;
+    background:var(--card2);color:var(--muted);font-size:14px;font-weight:800;line-height:1;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .k-search-clear:hover{color:var(--text);background:var(--border)}
   .k-theme-toggle{display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--card2);border:1.5px solid var(--border);flex-shrink:0}
   .k-theme-mode{width:34px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--muted);border:none;background:transparent;cursor:pointer;transition:background .15s,color .15s}
   .k-theme-mode:hover{color:var(--text)}
@@ -561,6 +568,7 @@ function TradeAppInner({
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
   const [search, setSearch] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
 
@@ -593,7 +601,39 @@ function TradeAppInner({
     }
   }, [session.permissions, page, defaultPage, setPage])
 
-  const showSearch = current === 'products'
+  const showSearch = current === 'products' || current === 'warehouse'
+
+  function focusTradeSearch() {
+    const el = searchInputRef.current
+    if (!el) return
+    try { el.focus({ preventScroll: true }) } catch { el.focus() }
+  }
+
+  useEffect(() => {
+    if (!showSearch) return
+    setSearch('')
+    const t = window.setTimeout(focusTradeSearch, 40)
+    return () => window.clearTimeout(t)
+  }, [current, showSearch])
+
+  // Пока в Товар/Склад — печать с клавиатуры/сканера сразу в поиск
+  useEffect(() => {
+    if (!showSearch) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const active = document.activeElement as HTMLElement | null
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
+        return
+      }
+      if (active?.closest?.('.modal-card, .overlay, .k-modal, .k-modal-bg')) return
+      if (e.key.length === 1 || e.key === 'Backspace') {
+        focusTradeSearch()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [showSearch])
+
   const posFullscreen = current === 'sales' && posSurface === 'register'
 
   function goTo(p: TradePage) {
@@ -627,7 +667,7 @@ function TradeAppInner({
     }
     if (!loaded && current === 'products') return <div className="k-empty">Загрузка товаров…</div>
     if (current === 'products') return <ProductsModule search={search} />
-    if (current === 'warehouse') return <WarehouseModule products={products} />
+    if (current === 'warehouse') return <WarehouseModule products={products} search={search} />
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule />
@@ -703,10 +743,26 @@ function TradeAppInner({
               <div className="k-search">
                 <span className="mag">🔍</span>
                 <input
+                  ref={searchInputRef}
                   placeholder="Поиск по названию, артикулу, штрихкоду…"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
+                  onFocus={e => e.currentTarget.select()}
                 />
+                {search.trim() ? (
+                  <button
+                    type="button"
+                    className="k-search-clear"
+                    aria-label="Очистить поиск"
+                    title="Очистить"
+                    onClick={() => {
+                      setSearch('')
+                      window.setTimeout(focusTradeSearch, 0)
+                    }}
+                  >
+                    ✕
+                  </button>
+                ) : null}
               </div>
             ) : (
               <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>

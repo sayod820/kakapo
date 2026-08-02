@@ -90,16 +90,18 @@ function buildAgg(layers: ProductStockLayer[], product: Product): ProductStockAg
 
 export default function WarehouseStockPanel({
   products,
+  search = '',
   onRefresh,
   refreshGen = 0,
 }: {
   products: Product[]
+  search?: string
   onRefresh?: () => void
   /** Инкремент с кнопки «Обновить» — перезагрузить партии без привязки к products */
   refreshGen?: number
 }) {
   const { categories } = useCategories()
-  const [q, setQ] = useState('')
+  const q = search
   const [filter, setFilter] = useState<StockFilter>('all')
   const [sort, setSort] = useState<SortKey>('name')
   const [sortDesc, setSortDesc] = useState(false)
@@ -255,26 +257,20 @@ export default function WarehouseStockPanel({
       </div>
 
       <div className="k-card" style={{ marginBottom: 12 }}>
-        <div className="k-card-b" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            className="k-inp"
-            style={{ flex: 1, minWidth: 200 }}
-            placeholder="Поиск по названию, артикулу, штрихкоду…"
-            value={q}
-            onChange={e => setQ(e.target.value)}
-          />
+        <div className="k-card-b" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
             Показано: <b style={{ color: 'var(--text)' }}>{Math.min(visibleCount, totals.count)}</b>
             {' / '}{totals.count}
             {' · '}Остаток: <b style={{ color: 'var(--text)' }}>{totals.qtySum}</b>
             {layersLoading ? ' · подгружаем партии…' : (layersBooted ? '' : ' · подготовка…')}
+            {q.trim() ? ` · поиск: «${q.trim()}»` : ''}
           </div>
           <button type="button" className="k-btn k-btn-s" disabled={layersLoading} onClick={() => void loadLayers()}>
             ↻ Партии
           </button>
         </div>
         <div style={{ padding: '0 14px 12px', fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>
-          Сначала остатки из каталога, затем уточнение по партиям. Нажмите на товар — откроются приходы.
+          Поиск сверху · сначала остатки из каталога, затем партии. Нажмите на товар — откроются приходы.
         </div>
       </div>
 

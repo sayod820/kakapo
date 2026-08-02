@@ -15,7 +15,13 @@ import WarehouseWriteoffsPanel from './warehouse/WarehouseWriteoffsPanel'
 import { loadWarehouseTab, saveWarehouseTab } from './warehouse/receiptDraftStorage'
 import { WAREHOUSE_TABS, type WarehouseTab } from './warehouse/warehouseShared'
 
-export default function WarehouseModule({ products }: { products: Product[] }) {
+export default function WarehouseModule({
+  products,
+  search = '',
+}: {
+  products: Product[]
+  search?: string
+}) {
   const [tab, setTab] = useState<WarehouseTab>(() => loadWarehouseTab() || 'stock')
   const [expiryDays, setExpiryDays] = useState(14)
   const [expiry, setExpiry] = useState<ExpiryRow[]>([])
@@ -159,7 +165,12 @@ export default function WarehouseModule({ products }: { products: Product[] }) {
       ) : (
         <>
           {tab === 'stock' && (
-            <WarehouseStockPanel products={products} onRefresh={refreshAll} refreshGen={refreshGen} />
+            <WarehouseStockPanel
+              products={products}
+              search={search}
+              onRefresh={refreshAll}
+              refreshGen={refreshGen}
+            />
           )}
           {tab === 'receipts' && (
             <WarehouseReceiptsPanel
