@@ -10,13 +10,18 @@ export const POS_MOCK_CSS = `
     position:fixed;inset:0;z-index:100;height:100vh;height:100dvh;width:100vw;margin:0;background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;overflow:hidden;
   }
   .pos-root[data-embed="1"]{
-    position:relative;inset:auto;z-index:1;height:100%;width:100%;min-height:0;
+    position:relative;inset:auto;z-index:1;height:100%;width:100%;min-height:0;flex:1;
   }
   .pos-root[data-embed="1"] .gate,
   .pos-root[data-embed="1"] .overlay,
   .pos-root[data-embed="1"] .cashier-screen,
   .pos-root[data-embed="1"] .toast{
     position:absolute;
+  }
+  /* Модалки поверх всего окна торговли — иначе обрезаются по высоте колонки */
+  .pos-root[data-embed="1"] .gate.gate-modal,
+  .pos-root[data-embed="1"] .overlay{
+    position:fixed;
   }
   /* настройки всегда fixed на весь экран — даже в embed */
   .pos-root[data-embed="1"] .pos-settings-fs{
@@ -180,12 +185,13 @@ export const POS_MOCK_CSS = `
   .pos-root button.odoo-btn-secondary:disabled:hover{border-color:var(--border);color:var(--t3);background:var(--surface2);}
 
   .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:500;}
-  .gate.gate-modal{background:rgba(3,11,5,.78);backdrop-filter:blur(5px);}
-  .pos-root[data-theme="light"] .gate.gate-modal{background:rgba(12,26,16,.45);}
+  /* без backdrop-filter: в Electron/Windows даёт белый прямоугольник на половину экрана */
+  .gate.gate-modal{background:rgba(3,11,5,.82);}
+  .pos-root[data-theme="light"] .gate.gate-modal{background:rgba(12,26,16,.52);}
   .gate.hide{display:none;}
   .gate-bg{position:absolute;inset:0;opacity:.55;background:radial-gradient(circle at 20% 20%, rgba(31,215,96,.12), transparent 45%),radial-gradient(circle at 82% 78%, rgba(31,215,96,.05), transparent 45%);}
   .pos-root[data-theme="light"] .gate-bg{opacity:.35;background:radial-gradient(circle at 20% 20%, rgba(18,155,69,.14), transparent 45%),radial-gradient(circle at 82% 78%, rgba(18,155,69,.06), transparent 45%);}
-  .gate-card{position:relative;width:400px;max-width:92vw;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:32px;color:var(--t1);animation:popIn .3s cubic-bezier(.16,1,.3,1);box-shadow:0 18px 40px var(--shade);}
+  .gate-card{position:relative;width:400px;max-width:92vw;max-height:min(92vh,920px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:32px;color:var(--t1);animation:popIn .3s cubic-bezier(.16,1,.3,1);box-shadow:0 18px 40px var(--shade);}
   .gate-logo{width:50px;height:50px;border-radius:16px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:900;font-size:21px;color:var(--bg);margin:0 auto 14px;}
   .gate-title{font-family:'Unbounded';font-size:16px;font-weight:800;text-align:center;margin-bottom:4px;color:var(--t1);}
   .gate-sub{font-size:12px;color:var(--t2);text-align:center;margin-bottom:24px;}
@@ -1167,7 +1173,8 @@ export const POS_MOCK_CSS = `
   .pos-root button.btn-checkout{margin:0 14px 12px;padding:12px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:13.5px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 16px rgba(31,215,96,.22);}
   .pos-root button.btn-checkout:disabled{opacity:.3;box-shadow:none;}
 
-  .overlay{position:fixed;inset:0;background:rgba(3,11,5,.75);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:200;animation:fadeIn .2s ease;}
+  .overlay{position:fixed;inset:0;background:rgba(3,11,5,.82);display:flex;align-items:center;justify-content:center;z-index:200;animation:fadeIn .2s ease;}
+  .pos-root[data-theme="light"] .overlay{background:rgba(12,26,16,.52);}
   .modal-card{width:360px;background:var(--surface);border:1.5px solid var(--border);border-radius:22px;padding:22px;animation:popIn .25s cubic-bezier(.16,1,.3,1);max-width:92vw;}
   .modal-card h3{font-family:'Unbounded';font-size:13.5px;font-weight:800;margin-bottom:14px;}
   .modal-input,.modal-card-input{

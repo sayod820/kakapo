@@ -137,7 +137,9 @@ const CSS = `
   .k-user .who span{font-size:11px;color:var(--muted)}
   .k-body{flex:1;min-height:0;overflow:auto;padding:18px 20px}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
-  .k-body-pos > .pos-root{flex:1;min-height:0;}
+  .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
+  .k-body-pos > .pos-host > .pos-root,
+  .k-body-pos .pos-root{flex:1;min-height:0;height:100%;}
   .k-trade.pos-fs{display:block;min-height:100vh;}
   .k-pos-fs-host{min-height:100vh;width:100%;}
   .k-page-h{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
@@ -805,6 +807,7 @@ function TradeAppInner({
         <div className={salesActive ? 'k-body k-body-pos' : 'k-body'}>
           {salesKeepAlive && (
             <div
+              className="pos-host"
               style={salesActive ? undefined : { display: 'none' }}
               aria-hidden={!salesActive}
             >
