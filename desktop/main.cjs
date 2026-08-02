@@ -242,44 +242,37 @@ function createWindow(localUrl = '') {
   const winCfg = config.window || {}
   const isDev = process.argv.includes('--dev')
 
-  // Сохраняем актуальный URL в userData (чинит старые установщики с IP)
   try {
     saveUserConfig({ tradeUrl: config.tradeUrl || DEFAULT_TRADE_URL })
   } catch { /* ignore */ }
 
+  // Не блокируем старт на local UI / clearCache — из-за них был чёрный экран и вылет.
   mainWindow = new BrowserWindow({
     width: Number(winCfg.width) || 1360,
     height: Number(winCfg.height) || 900,
     minWidth: 1024,
     minHeight: 700,
-    // Касса по умолчанию на весь экран (Esc / F11 — выйти). В config: "fullscreen": false
     fullscreen: winCfg.fullscreen !== false,
     title: 'KAKAPO Касса',
     icon: APP_ICON_PATH,
-    backgroundColor: '#030B05',
+    backgroundColor: '#0a1a12',
     autoHideMenuBar: true,
-    show: false,
+    show: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      // Локальный UI на 127.0.0.1 ходит напрямую на kakappo.shop —
-      // без этого Chromium режет ответы по CORS и касса тормозит/ломается.
       webSecurity: false,
+      backgroundThrottling: false,
     },
   })
 
-  // Сайт = свежие фиксы. Локальный UI — только если сайт не открылся (офлайн).
   const remoteUrl = String(config.tradeUrl || DEFAULT_TRADE_URL).trim() || DEFAULT_TRADE_URL
   const preferRemote = config.preferRemote !== false
-  const url = preferRemote ? remoteUrl : (localUrl || remoteUrl)
+  let offlineUrl = String(localUrl || '').trim()
+  const url = preferRemote ? remoteUrl : (offlineUrl || remoteUrl)
 
-  mainWindow.once('ready-to-show', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
-  })
-
-  // Меню отключено — F11/Esc сами (иначе из полноэкрана не выйти)
   mainWindow.setFullScreenable(true)
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || input.isAutoRepeat || !mainWindow || mainWindow.isDestroyed()) return
@@ -301,30 +294,20 @@ function createWindow(localUrl = '') {
     }
   })
 
-  // Если страница долго не грузится — всё равно показать окно
-  setTimeout(() => {
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      mainWindow.show()
-    }
-  }, 4000)
-
   let triedLocalFallback = false
 
   mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame || !mainWindow || mainWindow.isDestroyed()) return
-    // -3 = aborted (навигация отменена) — игнор
     if (errorCode === -3) return
     console.error('[kakapo-desktop] load fail', errorCode, errorDescription, validatedURL)
-    // Сайт не открылся — пробуем локальный UI (офлайн)
-    if (preferRemote && localUrl && !triedLocalFallback) {
+    if (preferRemote && offlineUrl && !triedLocalFallback) {
       triedLocalFallback = true
-      mainWindow.loadURL(localUrl).catch(() => {
+      mainWindow.loadURL(offlineUrl).catch(() => {
         showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
       })
       return
     }
-    // Локальный не открылся — пробуем сайт
-    if (!preferRemote && localUrl && validatedURL && String(validatedURL).includes('127.0.0.1') && !triedLocalFallback) {
+    if (!preferRemote && offlineUrl && validatedURL && String(validatedURL).includes('127.0.0.1') && !triedLocalFallback) {
       triedLocalFallback = true
       mainWindow.loadURL(remoteUrl).catch(() => {
         showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
@@ -332,11 +315,19 @@ function createWindow(localUrl = '') {
       return
     }
     showLoadErrorPage(mainWindow, validatedURL || url, errorCode, errorDescription)
-    if (!mainWindow.isVisible()) mainWindow.show()
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
     console.log('[kakapo-desktop] loaded', mainWindow?.webContents.getURL())
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[kakapo-desktop] render-process-gone', details)
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      mainWindow.loadURL(remoteUrl).catch(() => {})
+    }, 500)
   })
 
   const loadTarget = (() => {
@@ -349,20 +340,19 @@ function createWindow(localUrl = '') {
     }
   })()
 
-  // Сбрасываем кэш Chromium — иначе после деплоя сайта касса держит старый JS
-  const startLoad = () => {
-    mainWindow.loadURL(loadTarget).catch(err => {
-      console.error('[kakapo-desktop] loadURL', err)
-      showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
-    })
-  }
-  try {
-    mainWindow.webContents.session.clearCache()
-      .catch(() => {})
-      .finally(() => startLoad())
-  } catch {
-    startLoad()
+  mainWindow.loadURL(loadTarget).catch(err => {
+    console.error('[kakapo-desktop] loadURL', err)
+    showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
+  })
+
+  // Локальный UI в фоне — для офлайн fallback
+  if (preferRemote && !offlineUrl) {
+    startLocalUi()
+      .then(u => {
+        offlineUrl = String(u || '').trim()
+        console.log('[kakapo-desktop] local UI ready (fallback)', offlineUrl)
+      })
+      .catch(err => console.warn('[kakapo-desktop] local UI skip', err?.message || err))
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
@@ -376,18 +366,28 @@ function createWindow(localUrl = '') {
 
   mainWindow.on('close', event => {
     if (allowMainWindowClose) return
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      allowMainWindowClose = true
+      return
+    }
     event.preventDefault()
-    const answer = dialog.showMessageBoxSync(mainWindow, {
-      type: 'question',
-      title: 'Закрыть KAKAPO Касса?',
-      message: 'Вы действительно хотите выйти из приложения?',
-      detail: 'Открытые несохранённые действия могут быть потеряны.',
-      buttons: ['Выйти', 'Отмена'],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    })
-    if (answer === 0) {
+    try {
+      const answer = dialog.showMessageBoxSync(mainWindow, {
+        type: 'question',
+        title: 'Закрыть KAKAPO Касса?',
+        message: 'Вы действительно хотите выйти из приложения?',
+        detail: 'Открытые несохранённые действия могут быть потеряны.',
+        buttons: ['Выйти', 'Отмена'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (answer === 0) {
+        allowMainWindowClose = true
+        mainWindow.close()
+      }
+    } catch (err) {
+      console.error('[kakapo-desktop] close dialog', err)
       allowMainWindowClose = true
       mainWindow.close()
     }
@@ -879,13 +879,8 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error('[kakapo-desktop] локальная база', e)
   }
-  let localUrl = ''
-  try {
-    localUrl = await startLocalUi()
-  } catch (e) {
-    console.error('[kakapo-desktop] не удалось поднять локальный интерфейс', e)
-  }
-  createWindow(localUrl)
+  // Окно сразу — local UI поднимается в фоне внутри createWindow
+  createWindow('')
   installUpdaterIpc(() => mainWindow)
 
   ipcMain.handle('desktop:getInfo', () => ({
