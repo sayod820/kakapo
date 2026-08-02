@@ -1345,8 +1345,12 @@ export default function CashierModule({
   }, [qtyEditOpen, deskScaleHost, deskScalePort, deskScaleLiveWeight, deskScaleMode])
 
   /**
-   * Живой вес (этап 1): STOP = разброс ≤ ±2 г за ≥350 мс (не точное совпадение).
-   * Снятие → вес остаётся; новый после нуля → замена; досып без снятия → вес платформы.
+   * Живой вес CAS (как на кассе):
+   * 1) Пока платформа дрожит — в чек НЕ пишем (только «сейчас N г · ждём STOP»)
+   * 2) STOP (разброс ≤ ±2 г ≥ 500 мс) → пишем точный вес в поле и в строку чека
+   * 3) Сняли товар (≈0 г) → вес в чеке остаётся
+   * 4) Положили другой после нуля → замена
+   * 5) Не снимали, досыпали → новый абсолютный вес платформы
    */
   useEffect(() => {
     if (!isKakapoDesktop()) return
@@ -1354,8 +1358,8 @@ export default function CashierModule({
     if (!desk) return
 
     const STABLE_TOLERANCE_G = 2
-    const STABLE_DURATION_MS = 350
-    const STABLE_BUFFER_MS = 500
+    const STABLE_DURATION_MS = 500
+    const STABLE_BUFFER_MS = 700
     const EMPTY_G = 5
     /** @type {{ grams: number, t: number }[]} */
     let samples: { grams: number, t: number }[] = []
@@ -1388,8 +1392,11 @@ export default function CashierModule({
       }
     }
 
+    /** Округление к цене деления весов 5 г */
+    const roundStep = (g: number) => Math.round(Math.max(0, g) / SCALE_STEP_G) * SCALE_STEP_G
+
     const commitPlatterGrams = (platterGrams: number) => {
-      const g = Math.max(0, Math.round(platterGrams))
+      const g = roundStep(platterGrams)
       if (g < EMPTY_G) return
       const exact = (g / 1000).toFixed(3)
       lastHeldKgRef.current = g / 1000
@@ -1431,22 +1438,23 @@ export default function CashierModule({
 
       samples.push({ grams, t: now })
       const ev = evaluateUiStable(now)
-      // Если монитор уже посчитал stable — доверяем ему тоже
-      const stable = !!(payload.stable || ev.stable)
-      const useG = stable ? (ev.stable ? ev.grams : grams) : grams
+      // В чек — только по локальному STOP (не по одиночному флагу монитора)
+      const stopped = ev.stable
+      const liveG = grams
+      const commitG = stopped ? roundStep(ev.grams) : liveG
 
       setCasWeight(prev => ({
         ...prev,
         connected: payload.connected !== false,
         running: true,
-        weightKg: useG / 1000,
-        grams: useG,
+        weightKg: liveG / 1000,
+        grams: liveG,
         price: payload.price ?? prev.price,
         error: payload.error || '',
         host: payload.host || prev.host,
         port: payload.port || prev.port,
         raw: payload.raw,
-        stable,
+        stable: stopped,
         ts: now,
       }))
 
@@ -1454,9 +1462,10 @@ export default function CashierModule({
       if (deskScaleModeRef.current === 'none') return
       if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
 
-      const empty = grams < EMPTY_G
+      const empty = liveG < EMPTY_G
       const saved = lastCommittedGramsRef.current
 
+      // Сняли с платформы → вес в чеке/поле остаётся
       if (empty) {
         samples = []
         setScaleMoving(false)
@@ -1464,29 +1473,29 @@ export default function CashierModule({
         if (saved > 0) {
           scaleSawZeroRef.current = true
           setScaleHolding(true)
+          setQtyEditMode('qty')
+          setQtyEditBuf((saved / 1000).toFixed(3))
         }
         return
       }
 
-      // Всегда показываем текущий вес (кассир видит реакцию), в чек — только после STOP
-      setQtyEditMode('qty')
-      setQtyEditBuf((grams / 1000).toFixed(3))
-
-      if (!stable) {
+      // Движение / рука — в чек НЕ пишем, поле не трогаем (живьём видно в подсказке)
+      if (!stopped) {
         setScaleMoving(true)
         setScaleHolding(false)
         return
       }
 
+      // STOP
       const afterRemove = scaleSawZeroRef.current
       const baseline = platterBaselineGramsRef.current
-      const commitG = useG
 
       if (saved <= 0 || afterRemove) {
         commitPlatterGrams(commitG)
         return
       }
-      if (commitG >= baseline + STABLE_TOLERANCE_G) {
+      // Досып без снятия (или убрали часть) — абсолютный вес платформы, шаг 5 г
+      if (Math.abs(commitG - baseline) >= SCALE_STEP_G) {
         commitPlatterGrams(commitG)
         return
       }
@@ -6515,16 +6524,16 @@ export default function CashierModule({
                   : isWeight
                     ? (liveWeightEnabled()
                       ? (scaleMoving
-                        ? `На весах сейчас ${casWeight.grams || 0} г · ждём остановки (STOP)…`
+                        ? `Движение · на весах ${casWeight.grams || 0} г · в чек ещё не пишем · ждём STOP…`
                         : scaleHolding
-                          ? `Снято · сохранено ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · можно положить другой товар`
+                          ? `Снято · в чеке ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · положите другой товар`
                           : (casWeight.connected
                             ? ((casWeight.grams || 0) >= SCALE_STEP_G
                               ? (casWeight.stable
-                                ? `Готово · ${casWeight.grams} г · можно сохранить`
+                                ? `STOP · в чеке ${casWeight.grams} г · можно сохранить или досыпать`
                                 : `Сейчас: ${casWeight.grams} г · ждём STOP…`)
                               : (Number(qtyEditBuf) > 0
-                                ? `Сохранено ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · положите товар`
+                                ? `В чеке ${(Number(qtyEditBuf) || 0).toFixed(3)} кг · положите товар`
                                 : 'Весы подключены · положите товар на весы'))
                             : (casWeight.error
                               ? `Нет связи · ${casWeight.error}`

@@ -15,9 +15,9 @@ const WEIGHT_CMD = Buffer.from('R45F04,00\n', 'ascii')
 /** Допуск стабильности (г): весы CL-3000 дрожат ±1–2 г при докладе */
 const STABLE_TOLERANCE_G = 2
 /** Сколько мс вес должен держаться в допуске, чтобы считать STOP */
-const STABLE_DURATION_MS = 350
+const STABLE_DURATION_MS = 500
 /** Хранить семплы чуть дольше окна стабильности */
-const STABLE_BUFFER_MS = 500
+const STABLE_BUFFER_MS = 700
 
 /**
  * По буферу { grams, t }: stable если окно ≥ STABLE_DURATION_MS и max−min ≤ STABLE_TOLERANCE_G.
