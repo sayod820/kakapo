@@ -339,11 +339,31 @@ function createWindow(localUrl = '') {
     console.log('[kakapo-desktop] loaded', mainWindow?.webContents.getURL())
   })
 
-  mainWindow.loadURL(url).catch(err => {
-    console.error('[kakapo-desktop] loadURL', err)
-    showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
-  })
+  const loadTarget = (() => {
+    try {
+      const u = new URL(url)
+      u.searchParams.set('_kassa', String(app.getVersion() || '0'))
+      return u.toString()
+    } catch {
+      return url
+    }
+  })()
+
+  // Сбрасываем кэш Chromium — иначе после деплоя сайта касса держит старый JS
+  const startLoad = () => {
+    mainWindow.loadURL(loadTarget).catch(err => {
+      console.error('[kakapo-desktop] loadURL', err)
+      showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
+    })
+  }
+  try {
+    mainWindow.webContents.session.clearCache()
+      .catch(() => {})
+      .finally(() => startLoad())
+  } catch {
+    startLoad()
+  }
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
     shell.openExternal(openUrl)
