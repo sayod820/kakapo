@@ -18,6 +18,7 @@ import {
 import multer from 'multer'
 import { seedIfEmpty, nextOrderId, DEFAULT_PROMOS, COURIERS, ASSEMBLERS, DEFAULT_CLIENTS, DEFAULT_CARDS } from './seed.js'
 import { ensureMarketCategories } from './marketCategoriesSeed.js'
+import { backupDatabaseFile, resetOperationalData } from './resetOperational.js'
 import {
   applyStatusPatch,
   inferType,
@@ -4517,6 +4518,60 @@ app.get('/admin/dashboard', (_req, res) => {
     revenueToday: db.orders.reduce((s, o) => s + bonusEligibleTotal(o), 0),
     activeCouriers: 2,
     activeRestaurants: db.restaurants.length,
+  })
+})
+
+/**
+ * Полная очистка операционных данных.
+ * Остаются: сотрудники, клиенты, карты, настройки, вход админа.
+ * Body: { confirm: "ОЧИСТИТЬ", currentPassword: "..." }
+ */
+app.post('/admin/reset-operational', (req, res) => {
+  const body = req.body || {}
+  const confirm = String(body.confirm || '').trim()
+  if (confirm !== 'ОЧИСТИТЬ') {
+    return res.status(400).json({ detail: 'Для подтверждения введите слово ОЧИСТИТЬ' })
+  }
+  const auth = ensureAdminAuth()
+  const currentPassword = String(body.currentPassword || '')
+  if (!currentPassword || currentPassword !== auth.password) {
+    return res.status(401).json({ detail: 'Неверный пароль админа' })
+  }
+
+  let backupPath = null
+  try {
+    backupPath = backupDatabaseFile()
+  } catch (e) {
+    console.error('[reset-operational] backup failed', e)
+    return res.status(500).json({ detail: 'Не удалось создать резервную копию' })
+  }
+
+  // Фото товаров до очистки массива
+  try {
+    for (const p of db.products || []) {
+      if (p?.photo) {
+        try { deleteManagedProductPhoto(p.photo) } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore */ }
+
+  const result = resetOperationalData(db, { reseedCategories: true })
+  flushDb()
+
+  try {
+    broadcastProduct({ reason: 'reset-operational', deleted: true, ids: [] })
+    broadcastCategory({ reason: 'reset-operational', deleted: true, ids: [], slugs: [] })
+    broadcastPosUpdate({ reason: 'reset-operational' })
+  } catch (e) {
+    console.error('[reset-operational] broadcast', e)
+  }
+
+  res.json({
+    ok: true,
+    backup: backupPath,
+    kept: result.kept,
+    categories: result.categories,
+    cleared: result.cleared,
   })
 })
 

@@ -777,6 +777,17 @@ export const api = {
 
   // ── Админ ──
   getDashboard: () => request<any>('/admin/dashboard'),
+  resetOperationalData: (data: { confirm: string; currentPassword: string }) =>
+    request<{
+      ok: boolean
+      backup: string | null
+      kept: { employees: number; clients: number; cards: number }
+      categories: number
+      cleared: string[]
+    }>('/admin/reset-operational', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, 0, 300_000),
   getFinanceSummary: () => request<any>('/finance/summary'),
   getAdminAiStatus: () =>
     request<{

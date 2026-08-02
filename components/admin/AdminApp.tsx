@@ -7207,6 +7207,12 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
   const [authErr, setAuthErr] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
 
+  const [resetConfirm, setResetConfirm] = useState('')
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetBusy, setResetBusy] = useState(false)
+  const [resetErr, setResetErr] = useState('')
+  const [resetOk, setResetOk] = useState('')
+
   useEffect(() => {
     const loadLocal = () => {
       try {
@@ -7328,10 +7334,56 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
     }
   }
 
+  const runOperationalReset = async () => {
+    setResetErr('')
+    setResetOk('')
+    if (resetConfirm.trim() !== 'ОЧИСТИТЬ') {
+      setResetErr('Введите слово ОЧИСТИТЬ для подтверждения')
+      return
+    }
+    if (!resetPassword) {
+      setResetErr('Введите пароль админа')
+      return
+    }
+    if (!USE_API) {
+      setResetErr('Очистка доступна только при подключении к серверу')
+      return
+    }
+    if (!confirm('Удалить ВСЕ товары, заказы, кассу, склад и финансы?\n\nОстанутся только сотрудники и клиенты (с картами).\nЭто нельзя отменить (кроме резервной копии на сервере).')) {
+      return
+    }
+    setResetBusy(true)
+    try {
+      const res = await api.resetOperationalData({
+        confirm: 'ОЧИСТИТЬ',
+        currentPassword: resetPassword,
+      })
+      try {
+        sessionStorage.removeItem('kakapo_categories_cache_v3')
+        localStorage.removeItem('kakapo_categories_cache_v3')
+      } catch { /* private mode */ }
+      try {
+        const { useProducts } = await import('@/lib/store')
+        await useProducts.getState().fetchProducts()
+      } catch { /* ignore */ }
+      window.dispatchEvent(new CustomEvent('kakapo:categories'))
+      setResetPassword('')
+      setResetConfirm('')
+      setResetOk(
+        `Готово. Осталось: сотрудников ${res.kept.employees}, клиентов ${res.kept.clients}, карт ${res.kept.cards}. Категорий из сида: ${res.categories}.`,
+      )
+    } catch (e) {
+      setResetErr(e instanceof Error ? e.message : 'Не удалось очистить данные')
+    } finally {
+      setResetBusy(false)
+    }
+  }
+
   const STABS = [
     { id: 'access', l: '🔐 Доступ' },
     { id: 'sms', l: '💬 SMS / OTP' },
     { id: 'store', l: '🏪 Контакты' },
+    { id: 'danger', l: '⚠ Опасная зона' },
   ]
 
   const patchStore = (key: keyof typeof DEFAULT_STORE_INFO, val: string) => {
@@ -7363,14 +7415,14 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
             {t.l}
           </button>
         ))}
-        {stab !== 'access' && (
+        {stab !== 'access' && stab !== 'danger' && (
           <button type="button" onClick={saveAll} className="ab abp" style={{ marginLeft: 'auto', padding: '8px 16px' }}>
             {saved ? '✓ Сохранено!' : '💾 Сохранить'}
           </button>
         )}
       </div>
 
-      {saveErr && stab !== 'access' && (
+      {saveErr && stab !== 'access' && stab !== 'danger' && (
         <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', fontSize: 12, color: '#FF4545' }}>
           {saveErr}
         </div>
@@ -7434,6 +7486,58 @@ function SettingsPage({ setPage, session, onSessionUpdate }: {
             <NI lbl="Telegram" val={storeInfo.telegram} set={v => patchStore('telegram', v)}/>
             <NI lbl="Время работы" val={storeInfo.hours} set={v => patchStore('hours', v)}/>
           </div>
+        </div>
+      )}
+
+      {stab === 'danger' && (
+        <div className="ac" style={{ padding: 20, maxWidth: 560, border: '1.5px solid rgba(255,69,69,.35)' }}>
+          <div className="ub" style={{ fontSize: 14, fontWeight: 800, marginBottom: 6, color: '#FF4545' }}>
+            Полная очистка данных
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12, lineHeight: 1.5 }}>
+            Удалит товары, категории (затем стандартный каталог категорий), заказы, кассу, склад, финансы, акции, рестораны, курьеров, сборщиков и журнал действий.
+          </div>
+          <div style={{ fontSize: 12, color: '#1FD760', marginBottom: 16, fontWeight: 700 }}>
+            Останутся: сотрудники Торговли, клиенты и их карты, настройки и вход админа.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <NI
+              lbl='Подтверждение — введите слово ОЧИСТИТЬ'
+              val={resetConfirm}
+              set={setResetConfirm}
+              ph="ОЧИСТИТЬ"
+            />
+            <NI
+              lbl="Пароль админа"
+              val={resetPassword}
+              set={setResetPassword}
+              type="password"
+              ph="••••••••"
+            />
+          </div>
+          {resetErr && (
+            <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(255,69,69,.08)', border: '1px solid rgba(255,69,69,.25)', fontSize: 12, color: '#FF4545' }}>
+              {resetErr}
+            </div>
+          )}
+          {resetOk && (
+            <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(31,215,96,.08)', border: '1px solid rgba(31,215,96,.25)', fontSize: 12, color: '#1FD760' }}>
+              {resetOk}
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={resetBusy}
+            onClick={() => void runOperationalReset()}
+            className="ab"
+            style={{
+              width: '100%', marginTop: 16, padding: 12, fontWeight: 800,
+              background: 'rgba(255,69,69,.15)', border: '1.5px solid rgba(255,69,69,.45)', color: '#FF4545',
+              opacity: resetBusy ? 0.6 : 1,
+            }}
+          >
+            {resetBusy ? 'Очистка…' : 'Удалить все данные кроме сотрудников и клиентов'}
+          </button>
         </div>
       )}
     </div>
