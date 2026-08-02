@@ -262,7 +262,8 @@ button.sec{background:#162B1A;color:#EBF5ED}
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
 }
 
-function splashHtml() {
+function splashHtml(msg) {
+  const text = String(msg || 'Загрузка кассы…').replace(/</g, '')
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <title>КАКАПО Касса</title>
 <style>
@@ -276,9 +277,29 @@ border-radius:50%;animation:s .7s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}
 </style></head><body><div class="box">
 <h1>КАКАПО</h1>
-<p>Загрузка кассы…</p>
+<p>${text}</p>
 <div class="spin"></div>
 </div></body></html>`
+}
+
+/** Быстрая проверка: есть ли ответ от сайта (не путать с Wi‑Fi без интернета) */
+function probeRemoteReachable(timeoutMs = 1500) {
+  return new Promise(resolve => {
+    try {
+      const https = require('https')
+      const req = https.get('https://kakappo.shop/health', { timeout: timeoutMs, servername: 'kakappo.shop' }, res => {
+        res.resume()
+        resolve(res.statusCode > 0 && res.statusCode < 500)
+      })
+      req.on('error', () => resolve(false))
+      req.on('timeout', () => {
+        try { req.destroy() } catch { /* ignore */ }
+        resolve(false)
+      })
+    } catch {
+      resolve(false)
+    }
+  })
 }
 
 function createWindow(localUrl = '') {
@@ -319,7 +340,6 @@ function createWindow(localUrl = '') {
   const remoteUrl = String(config.tradeUrl || DEFAULT_TRADE_URL).trim() || DEFAULT_TRADE_URL
   const preferRemote = config.preferRemote !== false
   let offlineUrl = String(localUrl || '').trim()
-  const url = preferRemote ? remoteUrl : (offlineUrl || remoteUrl)
 
   mainWindow.setFullScreenable(true)
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -359,109 +379,165 @@ function createWindow(localUrl = '') {
     }, 800)
   }
 
-  const ensureOfflineUi = async (timeoutMs = 10000) => {
+  const ensureOfflineUi = async (timeoutMs = 20000) => {
     if (offlineUrl) return offlineUrl
     try {
       offlineUrl = String(await startLocalUi({ timeoutMs }) || '').trim()
-      bootLog('local UI fallback', offlineUrl || '(empty)')
+      bootLog('local UI', offlineUrl || '(empty)')
     } catch (err) {
       bootLog('local UI fail', err?.message || String(err))
     }
     return offlineUrl
   }
 
-  // Локальный UI сразу в фоне — к моменту таймаута сайта уже готов
-  if (preferRemote && !offlineUrl) {
-    void ensureOfflineUi(15000)
+  const showSplash = (msg) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml(msg))}`).catch(() => {})
   }
+
+  const loadLocal = async (reason) => {
+    if (triedLocalFallback && offlineUrl) {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(offlineUrl).catch(() => {})
+      return !!offlineUrl
+    }
+    triedLocalFallback = true
+    bootLog('boot local', reason)
+    showSplash('Офлайн-режим…')
+    const local = await ensureOfflineUi(25000)
+    if (local && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(local).catch(() => {
+        showLoadErrorPage(mainWindow, remoteUrl, -1, 'Локальный интерфейс не открылся')
+      })
+      return true
+    }
+    showLoadErrorPage(mainWindow, remoteUrl, -1, 'Нет интернета и локальный интерфейс недоступен')
+    return false
+  }
+
+  const remoteTarget = (() => {
+    try {
+      const u = new URL(remoteUrl)
+      u.searchParams.set('_kassa', String(app.getVersion() || '0'))
+      return u.toString()
+    } catch {
+      return remoteUrl
+    }
+  })()
+
+  // Локальный UI сразу в фоне (нужен и онлайн как запасной, и офлайн как основной)
+  void ensureOfflineUi(25000)
 
   mainWindow.webContents.on('did-fail-load', async (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame || !mainWindow || mainWindow.isDestroyed()) return
     if (errorCode === -3) return
     bootLog('did-fail-load', { errorCode, errorDescription, validatedURL })
-    if (preferRemote && !triedLocalFallback) {
-      triedLocalFallback = true
-      const local = await ensureOfflineUi(8000)
-      if (local && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.loadURL(local).catch(() => {
-          showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
-        })
-        return
-      }
-    }
-    if (!preferRemote && offlineUrl && validatedURL && String(validatedURL).includes('127.0.0.1') && !triedLocalFallback) {
-      triedLocalFallback = true
-      mainWindow.loadURL(remoteUrl).catch(() => {
-        showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
-      })
+    const isRemote = validatedURL && !String(validatedURL).includes('127.0.0.1') && !String(validatedURL).startsWith('data:')
+    if (isRemote) {
+      await loadLocal(`fail-load ${errorCode}`)
       return
     }
-    showLoadErrorPage(mainWindow, validatedURL || url, errorCode, errorDescription)
+    if (!String(validatedURL || '').includes('127.0.0.1')) {
+      showLoadErrorPage(mainWindow, validatedURL || remoteUrl, errorCode, errorDescription)
+    }
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
     const loaded = mainWindow?.webContents.getURL() || ''
     bootLog('did-finish-load', loaded)
     if (/^https?:\/\//i.test(loaded) && !loaded.startsWith('data:')) {
-      if (loaded.includes('kakappo.shop') || loaded.includes('/trade')) {
+      if (loaded.includes('kakappo.shop') || (loaded.includes('/trade') && !loaded.includes('127.0.0.1'))) {
         remoteOk = true
       }
-      if (!loaded.includes('127.0.0.1')) enterFullscreenSafe()
-      else enterFullscreenSafe()
+      enterFullscreenSafe()
     }
   })
 
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     bootLog('render-process-gone', details)
     if (!mainWindow || mainWindow.isDestroyed()) return
-    showLoadErrorPage(mainWindow, remoteUrl, -2, `renderer ${details?.reason || 'gone'}`)
+    void loadLocal(`renderer ${details?.reason || 'gone'}`)
   })
 
   mainWindow.webContents.on('unresponsive', () => bootLog('webContents unresponsive'))
 
-  const loadTarget = (() => {
-    try {
-      const u = new URL(url)
-      u.searchParams.set('_kassa', String(app.getVersion() || '0'))
-      return u.toString()
-    } catch {
-      return url
-    }
-  })()
-
-  // Splash сразу → сайт; если сайт >4.5с — локальная касса (слабый/нет интернета)
-  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml())}`).catch(() => {})
+  // Старт: сначала проверяем сеть. Без интернета — сразу локальная касса (не ждём DNS).
+  showSplash('Загрузка кассы…')
   setTimeout(() => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    const gen = ++bootGen
-    remoteOk = false
-    bootLog('loadURL', loadTarget)
-    mainWindow.loadURL(loadTarget).catch(err => {
-      bootLog('loadURL fail', err?.message || String(err))
-      showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
-    })
-    if (preferRemote) {
+    void (async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      const gen = ++bootGen
+      remoteOk = false
+
+      if (!preferRemote) {
+        await loadLocal('preferRemote=false')
+        return
+      }
+
+      bootLog('probe remote…')
+      const online = await probeRemoteReachable(1600)
+      bootLog('probe remote', online ? 'ok' : 'offline')
+      if (gen !== bootGen || !mainWindow || mainWindow.isDestroyed()) return
+
+      if (!online) {
+        await loadLocal('no-network')
+        return
+      }
+
+      // Сеть есть — сайт; если зависнет — через 3с локально
+      bootLog('loadURL remote', remoteTarget)
+      mainWindow.loadURL(remoteTarget).catch(err => {
+        bootLog('loadURL fail', err?.message || String(err))
+        void loadLocal('loadURL catch')
+      })
       setTimeout(() => {
-        void (async () => {
-          if (gen !== bootGen || remoteOk || triedLocalFallback) return
-          if (!mainWindow || mainWindow.isDestroyed()) return
-          const cur = mainWindow.webContents.getURL() || ''
-          if (/kakappo\.shop|\/trade/i.test(cur) && !cur.startsWith('data:') && mainWindow.webContents.isLoadingMainFrame() === false) {
-            remoteOk = true
-            return
-          }
-          triedLocalFallback = true
-          bootLog('remote slow — switch local')
-          const local = await ensureOfflineUi(8000)
-          if (local && mainWindow && !mainWindow.isDestroyed() && gen === bootGen && !remoteOk) {
-            mainWindow.loadURL(local).catch(() => {})
-          } else if (!local && mainWindow && !mainWindow.isDestroyed()) {
-            // оставляем splash / remote — покажет ошибку через did-fail-load
-          }
-        })()
-      }, 4500)
+        if (gen !== bootGen || remoteOk || triedLocalFallback) return
+        if (!mainWindow || mainWindow.isDestroyed()) return
+        if (mainWindow.webContents.isLoadingMainFrame()) {
+          void loadLocal('remote-timeout')
+        }
+      }, 3000)
+    })()
+  }, 80)
+
+  mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
+    shell.openExternal(openUrl)
+    return { action: 'deny' }
+  })
+
+  if (isDev) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  mainWindow.on('close', event => {
+    if (allowMainWindowClose) return
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    event.preventDefault()
+    try {
+      const answer = dialog.showMessageBoxSync(mainWindow, {
+        type: 'question',
+        title: 'Закрыть KAKAPO Касса?',
+        message: 'Вы действительно хотите выйти из приложения?',
+        detail: 'Открытые несохранённые действия могут быть потеряны.',
+        buttons: ['Выйти', 'Отмена'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (answer === 0) {
+        allowMainWindowClose = true
+        mainWindow.close()
+      }
+    } catch (err) {
+      bootLog('close dialog fail — оставляем окно', err?.message || String(err))
     }
-  }, 150)
+  })
+
+  mainWindow.on('closed', () => {
+    bootLog('window closed')
+    mainWindow = null
+    allowMainWindowClose = false
+  })
+}
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
     shell.openExternal(openUrl)
