@@ -1233,6 +1233,20 @@ export const POS_MOCK_CSS = `
   .keypad button:active{transform:scale(.94);}
   .keypad button.kp-clear{color:var(--red);font-family:'Nunito';font-size:12px;font-weight:800;}
 
+  .overlay.scan-block-overlay{z-index:320;background:rgba(3,11,5,.82);}
+  .modal-card.scan-block-card{width:400px;border-color:rgba(220,80,60,.45);}
+  .scan-block-x{
+    flex-shrink:0;width:36px;height:36px;border-radius:12px;border:1.5px solid var(--border);
+    background:var(--bg);color:var(--t1);font-size:16px;font-weight:800;cursor:pointer;line-height:1;
+  }
+  .scan-block-x:hover{border-color:rgba(220,80,60,.55);color:#c23b2a;}
+  .scan-block-code{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:10px 12px;border-radius:14px;background:var(--bg);border:1.5px solid var(--border);
+    font-size:12px;
+  }
+  .scan-block-code span{color:var(--t3);font-weight:700;}
+  .scan-block-code b{font-family:ui-monospace,Consolas,monospace;font-size:13px;word-break:break-all;text-align:right;}
   .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--surface);border:1.5px solid var(--accent);border-radius:18px;padding:14px 20px;display:flex;align-items:center;gap:11px;box-shadow:0 14px 32px var(--shade);z-index:300;animation:toastIn .3s cubic-bezier(.16,1,.3,1);}
   .toast .ic{width:34px;height:34px;border-radius:11px;background:rgba(31,215,96,.15);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
   .toast b{font-size:13px;display:block;}

@@ -830,6 +830,9 @@ export default function CashierModule({
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [toast, setToast] = useState<{ title: string; sub: string } | null>(null)
+  /** Блокировка кассы после скана неизвестного штрихкода — пока не нажали Отмена / ✕ */
+  const [scanBlockAlert, setScanBlockAlert] = useState<{ title: string; sub: string; code: string } | null>(null)
+  const scanBlockAlertRef = useRef(false)
 
   const [gateCash, setGateCash] = useState('0.00')
   const [gateName, setGateName] = useState(settings.cashierName)
@@ -1057,6 +1060,19 @@ export default function CashierModule({
     const t = setTimeout(() => setToast(null), 2500)
     return () => clearTimeout(t)
   }, [toast])
+
+  useEffect(() => {
+    if (!scanBlockAlert) return
+    const onKey = (e: KeyboardEvent) => {
+      // Глотаем весь ввод сканера, пока окно открыто (Enter не закрывает — сканер шлёт Enter)
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') closeScanBlockAlert()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closeScanBlockAlert стабилен по смыслу
+  }, [scanBlockAlert])
   useEffect(() => {
     const bump = () => setHistTick(n => n + 1)
     const offDebt = subscribeDebtHistory(bump)
@@ -1161,6 +1177,7 @@ export default function CashierModule({
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
     || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!saleConfirm
     || !!dashMenuPosId
+    || !!scanBlockAlert
 
   function focusProductSearch() {
     const el = searchInputRef.current
@@ -2264,6 +2281,28 @@ export default function CashierModule({
     setToast({ title, sub })
   }
 
+  function openScanBlockAlert(title: string, sub: string, code = '') {
+    scanBlockAlertRef.current = true
+    if (scanCommitTimer.current) {
+      window.clearTimeout(scanCommitTimer.current)
+      scanCommitTimer.current = null
+    }
+    scanBurstRef.current = false
+    scanAccumRef.current = ''
+    scanTypeBufRef.current = ''
+    qRef.current = ''
+    setQ('')
+    if (searchInputRef.current) searchInputRef.current.value = ''
+    try { searchInputRef.current?.blur() } catch { /* ignore */ }
+    setScanBlockAlert({ title, sub, code })
+  }
+
+  function closeScanBlockAlert() {
+    scanBlockAlertRef.current = false
+    setScanBlockAlert(null)
+    window.setTimeout(focusProductSearch, 40)
+  }
+
   function findClientByScan(raw: string): AdminClient | null {
     const q = raw.trim().replace(/\s+/g, '')
     if (!q) return null
@@ -2300,6 +2339,7 @@ export default function CashierModule({
 
   /** Сканер / Enter: положить товар в чек. Ручной ввод без Enter — только фильтр (не сюда). */
   function commitPosSearch(rawIn?: string, opts?: { fromScanner?: boolean }): boolean {
+    if (scanBlockAlertRef.current) return false
     const fromScanner = !!opts?.fromScanner || scanBurstRef.current
     const raw = String(
       rawIn
@@ -2337,14 +2377,12 @@ export default function CashierModule({
         findProductForScaleBarcode(pool, scaleLabel)
         || findProductForScaleBarcode(products, scaleLabel)
       if (!scaleHit) {
-        showToast(
+        openScanBlockAlert(
           'Этикетка не найдена',
           `PLU ${scaleLabel.itemCode} · ${scaleLabel.grams} г — проверьте выгрузку PLU на весы`,
+          raw,
         )
-        qRef.current = ''
-        setQ('')
         scanBurstRef.current = false
-        window.setTimeout(focusProductSearch, 0)
         return true
       }
       if ((Number(scaleHit.stock) || 0) <= 0) {
@@ -2399,9 +2437,11 @@ export default function CashierModule({
 
     if (!productHit) {
       if (fromScanner) {
-        showToast('Товар не найден', raw.length > 24 ? `${raw.slice(0, 24)}…` : raw)
-        qRef.current = ''
-        setQ('')
+        openScanBlockAlert(
+          'Товар не найден',
+          'Штрихкод нет в базе. Касса остановлена — нажмите «Отмена», затем сканируйте снова.',
+          raw,
+        )
       }
       scanBurstRef.current = false
       return false
@@ -2431,6 +2471,7 @@ export default function CashierModule({
     }
     scanCommitTimer.current = window.setTimeout(() => {
       scanCommitTimer.current = null
+      if (scanBlockAlertRef.current) return
       if (!scanBurstRef.current) return
       const live = String(
         scanAccumRef.current
@@ -2455,6 +2496,12 @@ export default function CashierModule({
   }
 
   function onProductSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (scanBlockAlertRef.current) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') closeScanBlockAlert()
+      return
+    }
     const now = performance.now()
     const gap = now - scanLastKeyTs.current
     scanLastKeyTs.current = now
@@ -6900,6 +6947,47 @@ export default function CashierModule({
                 onClick={() => void confirmCreditNote()}
               >
                 {busy ? 'Проводим…' : 'В долг'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scanBlockAlert && (
+        <div className="overlay scan-block-overlay" onClick={e => e.stopPropagation()}>
+          <div
+            className="modal-card scan-block-card"
+            onClick={e => e.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="scan-block-title"
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+              <h3 id="scan-block-title" style={{ marginBottom: 0 }}>{scanBlockAlert.title}</h3>
+              <button
+                type="button"
+                className="scan-block-x"
+                aria-label="Закрыть"
+                onClick={() => closeScanBlockAlert()}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 12 }}>
+              {scanBlockAlert.sub}
+            </div>
+            {scanBlockAlert.code ? (
+              <div className="scan-block-code">
+                <span>Код</span>
+                <b>{scanBlockAlert.code.length > 32 ? `${scanBlockAlert.code.slice(0, 32)}…` : scanBlockAlert.code}</b>
+              </div>
+            ) : null}
+            <div style={{ fontSize: 12, color: 'var(--t3)', margin: '12px 0 16px', lineHeight: 1.4 }}>
+              Касса заблокирована — следующий скан не примется, пока не закроете это окно.
+            </div>
+            <div className="modal-card-actions">
+              <button type="button" className="btn-cancel" onClick={() => closeScanBlockAlert()}>
+                Отмена
               </button>
             </div>
           </div>
