@@ -4,13 +4,11 @@ import { isWeighted } from './productWeight'
 import type { Product } from './types'
 
 /**
- * Весовая этикетка EAN-13 (CAS / in-store GS1):
- *   2X IIIII WWWWW C
+ * Весовая этикетка EAN-13 (CAS / in-store):
+ *   21 IIIII WWWWW C
  *   21 00001 00255 8  → PLU 1, 255 г = 0.255 кг
  *
- * Альтернатива (некоторые настройки весов):
- *   2 PPPPP WWWWW C
- *   2 10001 00255 8 → PLU 10001, 255 г
+ * Только префикс 21. Коды 20/22–29 — обычные штрихкоды товаров, не вес.
  */
 export type ScaleBarcodeParse = {
   digits: string
@@ -24,14 +22,15 @@ export type ScaleBarcodeParse = {
   valueRaw: string
 }
 
+/** Префикс весовых этикеток на весах KAKAPO */
+export const SCALE_BARCODE_PREFIX = '21'
+
 export function parseScaleBarcode(raw: string): ScaleBarcodeParse | null {
   const digits = String(raw || '').replace(/\D/g, '')
   if (digits.length !== 13) return null
-  if (digits[0] !== '2') return null
+  if (!digits.startsWith(SCALE_BARCODE_PREFIX)) return null
 
-  const prefix = digits.slice(0, 2)
-  if (!/^2\d$/.test(prefix)) return null
-
+  const prefix = SCALE_BARCODE_PREFIX
   const itemCodeRaw = digits.slice(2, 7)
   const valueRaw = digits.slice(7, 12)
   const itemCode = Number(itemCodeRaw)
