@@ -44,7 +44,7 @@ export function resetOperationalData(db, opts = {}) {
     db.categories = []
     db.deletedCategorySlugs = []
     replaceCategoriesFromSeed(db)
-    db._categorySeedVersion = 2
+    db._categorySeedVersion = 3
   }
 
   if (!db.settings || typeof db.settings !== 'object') db.settings = {}
