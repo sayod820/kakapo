@@ -833,6 +833,7 @@ export default function CashierModule({
   /** Блокировка кассы после скана неизвестного штрихкода — пока не нажали Отмена / ✕ */
   const [scanBlockAlert, setScanBlockAlert] = useState<{ title: string; sub: string; code: string } | null>(null)
   const scanBlockAlertRef = useRef(false)
+  const [clearCartConfirm, setClearCartConfirm] = useState(false)
 
   const [gateCash, setGateCash] = useState('0.00')
   const [gateName, setGateName] = useState(settings.cashierName)
@@ -1178,6 +1179,7 @@ export default function CashierModule({
     || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!saleConfirm
     || !!dashMenuPosId
     || !!scanBlockAlert
+    || clearCartConfirm
 
   function focusProductSearch() {
     const el = searchInputRef.current
@@ -3887,6 +3889,12 @@ export default function CashierModule({
   }
 
   function clearCart() {
+    if (!cart.length && discountPct <= 0) return
+    setClearCartConfirm(true)
+  }
+
+  function confirmClearCart() {
+    setClearCartConfirm(false)
     setTickets(prev => prev.map(t => t.id !== activeTicketId ? t : {
       ...t,
       cart: [],
@@ -3898,6 +3906,7 @@ export default function CashierModule({
     }))
     setDiscLineKey(null)
     setPosMobPanel('shop')
+    window.setTimeout(focusProductSearch, 40)
   }
 
   function addTicket() {
@@ -6385,7 +6394,7 @@ export default function CashierModule({
           </div>
 
           <div className="check-actions">
-            <button type="button" className="action-chip ac-clear" onClick={clearCart} disabled={!cart.length && discountPct <= 0}>
+            <button type="button" className="action-chip ac-clear" onClick={() => clearCart()} disabled={!cart.length && discountPct <= 0}>
               <span className="ic-wrap">🗑</span><span>Очистить</span>
             </button>
             <button type="button" className="action-chip ac-discount" onClick={() => openLineDiscount()} disabled={!cart.length}>
@@ -6959,6 +6968,25 @@ export default function CashierModule({
                 onClick={() => void confirmCreditNote()}
               >
                 {busy ? 'Проводим…' : 'В долг'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {clearCartConfirm && (
+        <div className="overlay" onClick={() => setClearCartConfirm(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()} role="alertdialog" aria-modal="true">
+            <h3>Очистить чек?</h3>
+            <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 16 }}>
+              Все товары{discountPct > 0 ? ', скидки' : ''} и клиент будут удалены из текущего чека. Это нельзя отменить.
+            </div>
+            <div className="modal-card-actions" style={{ gap: 8 }}>
+              <button type="button" className="btn-cancel" onClick={() => setClearCartConfirm(false)}>
+                Отмена
+              </button>
+              <button type="button" className="btn-confirm" onClick={() => confirmClearCart()}>
+                Очистить
               </button>
             </div>
           </div>
