@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>КАКАПО Касса</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%;
+      background: #0a1a12;
+      color: #EBF5ED;
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    body {
+      display: flex; align-items: center; justify-content: center;
+    }
+    .box { text-align: center; padding: 24px; }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      letter-spacing: 0.12em;
+      color: #1FD760;
+      font-weight: 800;
+    }
+    p { margin: 0; color: #8FB897; font-size: 15px; }
+    .spin {
+      width: 30px; height: 30px; margin: 20px auto 0;
+      border: 3px solid #1a3d28; border-top-color: #1FD760;
+      border-radius: 50%;
+      animation: s .65s linear infinite;
+    }
+    @keyframes s { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>КАКАПО</h1>
+    <p id="msg">Запуск кассы…</p>
+    <div class="spin"></div>
+  </div>
+  <script>
+    window.setSplash = function (t) {
+      var el = document.getElementById('msg')
+      if (el && t) el.textContent = String(t)
+    }
+  </script>
+</body>
+</html>

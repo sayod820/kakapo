@@ -109,7 +109,9 @@ async function startLocalUi({ timeoutMs = 20000 } = {}) {
   })
 
   const base = `http://127.0.0.1:${port}`
-  const ready = await waitReady(`${base}/trade`, timeoutMs)
+  // / быстрее /trade при холодном старте Next
+  const ready = (await waitReady(`${base}/`, Math.min(8000, timeoutMs)))
+    || (await waitReady(`${base}/trade`, timeoutMs))
   if (!ready) {
     console.warn('[kakapo-desktop] локальный интерфейс не ответил вовремя')
     stopLocalUi()

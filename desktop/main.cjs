@@ -314,6 +314,9 @@ function createWindow(localUrl = '') {
 
   bootLog('createWindow start', { version: app.getVersion(), wantFullscreen })
 
+  const splashPath = path.join(__dirname, 'splash.html')
+
+  // Не показываем пустое чёрное окно — сначала splash, потом show
   mainWindow = new BrowserWindow({
     width: Number(winCfg.width) || 1360,
     height: Number(winCfg.height) || 900,
@@ -324,7 +327,8 @@ function createWindow(localUrl = '') {
     icon: APP_ICON_PATH,
     backgroundColor: '#0a1a12',
     autoHideMenuBar: true,
-    show: true,
+    show: false,
+    paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -335,11 +339,38 @@ function createWindow(localUrl = '') {
     },
   })
 
-  try { mainWindow.maximize() } catch { /* ignore */ }
-
   const remoteUrl = String(config.tradeUrl || DEFAULT_TRADE_URL).trim() || DEFAULT_TRADE_URL
-  const preferRemote = config.preferRemote !== false
   let offlineUrl = String(localUrl || '').trim()
+  let triedLocalFallback = false
+  let enteredFullscreen = false
+  let contentShown = false
+  let bootGen = 0
+
+  const splashReady = new Promise(resolve => {
+    mainWindow.once('ready-to-show', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try { mainWindow.maximize() } catch { /* ignore */ }
+        mainWindow.show()
+      }
+      resolve()
+    })
+    // страховка: не держать окно скрытым дольше 1.2с
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+        try { mainWindow.maximize() } catch { /* ignore */ }
+        mainWindow.show()
+      }
+      resolve()
+    }, 1200)
+  })
+
+  if (fs.existsSync(splashPath)) {
+    mainWindow.loadFile(splashPath).catch(() => {
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml())}`).catch(() => {})
+    })
+  } else {
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml())}`).catch(() => {})
+  }
 
   mainWindow.setFullScreenable(true)
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -362,11 +393,6 @@ function createWindow(localUrl = '') {
     }
   })
 
-  let triedLocalFallback = false
-  let enteredFullscreen = false
-  let remoteOk = false
-  let bootGen = 0
-
   const enterFullscreenSafe = () => {
     if (enteredFullscreen || !wantFullscreen || !mainWindow || mainWindow.isDestroyed()) return
     enteredFullscreen = true
@@ -376,7 +402,16 @@ function createWindow(localUrl = '') {
       } catch (e) {
         bootLog('setFullScreen fail', e?.message || String(e))
       }
-    }, 800)
+    }, 400)
+  }
+
+  const setSplashMsg = (msg) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const t = String(msg || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    mainWindow.webContents.executeJavaScript(
+      `try{window.setSplash&&window.setSplash('${t}')}catch(e){}`,
+      true,
+    ).catch(() => {})
   }
 
   const ensureOfflineUi = async (timeoutMs = 20000) => {
@@ -390,28 +425,11 @@ function createWindow(localUrl = '') {
     return offlineUrl
   }
 
-  const showSplash = (msg) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml(msg))}`).catch(() => {})
-  }
-
-  const loadLocal = async (reason) => {
-    if (triedLocalFallback && offlineUrl) {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(offlineUrl).catch(() => {})
-      return !!offlineUrl
-    }
-    triedLocalFallback = true
-    bootLog('boot local', reason)
-    showSplash('Офлайн-режим…')
-    const local = await ensureOfflineUi(25000)
-    if (local && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.loadURL(local).catch(() => {
-        showLoadErrorPage(mainWindow, remoteUrl, -1, 'Локальный интерфейс не открылся')
-      })
-      return true
-    }
-    showLoadErrorPage(mainWindow, remoteUrl, -1, 'Нет интернета и локальный интерфейс недоступен')
-    return false
+  const openUrl = (target) => {
+    if (!mainWindow || mainWindow.isDestroyed() || !target) return
+    mainWindow.loadURL(target).catch(err => {
+      bootLog('openUrl fail', err?.message || String(err))
+    })
   }
 
   const remoteTarget = (() => {
@@ -424,83 +442,83 @@ function createWindow(localUrl = '') {
     }
   })()
 
-  // Локальный UI сразу в фоне (нужен и онлайн как запасной, и офлайн как основной)
-  void ensureOfflineUi(25000)
-
   mainWindow.webContents.on('did-fail-load', async (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame || !mainWindow || mainWindow.isDestroyed()) return
     if (errorCode === -3) return
     bootLog('did-fail-load', { errorCode, errorDescription, validatedURL })
-    const isRemote = validatedURL && !String(validatedURL).includes('127.0.0.1') && !String(validatedURL).startsWith('data:')
-    if (isRemote) {
-      await loadLocal(`fail-load ${errorCode}`)
+    const v = String(validatedURL || '')
+    if (v.startsWith('data:') || v.includes('splash.html')) return
+    if (v.includes('127.0.0.1')) {
+      // локальный упал — пробуем сайт если есть сеть
+      const online = await probeRemoteReachable(1200)
+      if (online) openUrl(remoteTarget)
+      else showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
       return
     }
-    if (!String(validatedURL || '').includes('127.0.0.1')) {
-      showLoadErrorPage(mainWindow, validatedURL || remoteUrl, errorCode, errorDescription)
-    }
+    // сайт не открылся — локально
+    setSplashMsg('Переход в офлайн…')
+    triedLocalFallback = true
+    const local = await ensureOfflineUi(20000)
+    if (local) openUrl(local)
+    else showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
     const loaded = mainWindow?.webContents.getURL() || ''
     bootLog('did-finish-load', loaded)
-    if (/^https?:\/\//i.test(loaded) && !loaded.startsWith('data:')) {
-      if (loaded.includes('kakappo.shop') || (loaded.includes('/trade') && !loaded.includes('127.0.0.1'))) {
-        remoteOk = true
-      }
+    if (/^https?:\/\//i.test(loaded)) {
+      contentShown = true
       enterFullscreenSafe()
     }
   })
 
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     bootLog('render-process-gone', details)
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    void loadLocal(`renderer ${details?.reason || 'gone'}`)
   })
 
-  mainWindow.webContents.on('unresponsive', () => bootLog('webContents unresponsive'))
+  // Главное: сначала локальная касса (быстро, без чёрного экрана сайта).
+  // Сайт — только если локальный UI не поднялся.
+  void (async () => {
+    const gen = ++bootGen
+    await splashReady
+    if (!mainWindow || mainWindow.isDestroyed() || gen !== bootGen) return
 
-  // Старт: сначала проверяем сеть. Без интернета — сразу локальная касса (не ждём DNS).
-  showSplash('Загрузка кассы…')
-  setTimeout(() => {
-    void (async () => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-      const gen = ++bootGen
-      remoteOk = false
+    setSplashMsg('Подготовка кассы…')
+    const localPromise = ensureOfflineUi(20000)
+    const onlinePromise = probeRemoteReachable(1000)
 
-      if (!preferRemote) {
-        await loadLocal('preferRemote=false')
-        return
-      }
+    // Локальный UI — приоритет (и онлайн, и офлайн)
+    const local = await localPromise
+    if (gen !== bootGen || !mainWindow || mainWindow.isDestroyed()) return
 
-      bootLog('probe remote…')
-      const online = await probeRemoteReachable(1600)
-      bootLog('probe remote', online ? 'ok' : 'offline')
-      if (gen !== bootGen || !mainWindow || mainWindow.isDestroyed()) return
+    if (local) {
+      bootLog('boot → local first', local)
+      setSplashMsg('Открытие…')
+      openUrl(local)
+      return
+    }
 
-      if (!online) {
-        await loadLocal('no-network')
-        return
-      }
-
-      // Сеть есть — сайт; если зависнет — через 3с локально
-      bootLog('loadURL remote', remoteTarget)
-      mainWindow.loadURL(remoteTarget).catch(err => {
-        bootLog('loadURL fail', err?.message || String(err))
-        void loadLocal('loadURL catch')
-      })
+    // Локального нет — сайт, если есть сеть
+    const online = await onlinePromise
+    if (online) {
+      bootLog('boot → remote (no local ui)')
+      setSplashMsg('Загрузка с сервера…')
+      openUrl(remoteTarget)
+      // если сайт завис — ошибка через did-fail-load / таймаут
       setTimeout(() => {
-        if (gen !== bootGen || remoteOk || triedLocalFallback) return
-        if (!mainWindow || mainWindow.isDestroyed()) return
+        if (gen !== bootGen || contentShown || !mainWindow || mainWindow.isDestroyed()) return
         if (mainWindow.webContents.isLoadingMainFrame()) {
-          void loadLocal('remote-timeout')
+          showLoadErrorPage(mainWindow, remoteUrl, -1, 'Сервер не отвечает')
         }
-      }, 3000)
-    })()
-  }, 80)
+      }, 8000)
+      return
+    }
 
-  mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
-    shell.openExternal(openUrl)
+    showLoadErrorPage(mainWindow, remoteUrl, -1, 'Нет интернета и локальный интерфейс недоступен')
+  })()
+
+  mainWindow.webContents.setWindowOpenHandler(({ url: openUrlExt }) => {
+    shell.openExternal(openUrlExt)
     return { action: 'deny' }
   })
 
@@ -1051,7 +1069,6 @@ function installApiCorsBypass() {
 
 app.whenReady().then(async () => {
   bootLog('whenReady', { version: app.getVersion(), electron: process.versions.electron })
-  // Меню «KAKAPO / Edit / Вид» на кассе не нужно
   Menu.setApplicationMenu(null)
   try { installApiCorsBypass() } catch (e) { bootLog('cors bypass', e?.message || String(e)) }
   try {
@@ -1060,9 +1077,10 @@ app.whenReady().then(async () => {
   } catch (e) {
     bootLog('localDb', e?.stack || String(e))
   }
-  // Окно сразу; локальный UI — только если сайт не открылся
+  // Локальный UI греем сразу — к открытию окна уже почти готов
+  void startLocalUi({ timeoutMs: 25000 }).catch(err => bootLog('early local UI', err?.message || String(err)))
   try {
-    createWindow('')
+    createWindow(localUiUrl() || '')
   } catch (e) {
     bootLog('createWindow throw', e?.stack || String(e))
   }

@@ -1,6 +1,6 @@
 {
   "name": "kakapo-trade-desktop",
-  "version": "1.2.68",
+  "version": "1.2.69",
   "private": true,
   "description": "КАКАПО Касса — одно приложение: чеки, этикетки, оборудование",
   "main": "main.cjs",
@@ -34,6 +34,7 @@
       "localDb.cjs",
       "icon.png",
       "icon.ico",
+      "splash.html",
       "config.json",
       "package.json"
     ],
