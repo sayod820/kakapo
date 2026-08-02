@@ -178,6 +178,28 @@ export default function ProductsModule({
     await handleDelete(selectedProduct.id, selectedProduct.name)
   }
 
+  async function handleDeleteProducts(ids: number[]) {
+    if (!guardMutation(setMsg)) return
+    if (!ids.length) return
+    let ok = 0
+    for (const id of ids) {
+      try {
+        await removeProduct(id)
+        ok += 1
+        if (selectedId === id) {
+          setSelectedId(null)
+          setIsNew(false)
+          setForm(emptyForm())
+          setFormDirty(false)
+          formLoadedForId.current = null
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+    setMsg(ok === ids.length ? `Удалено товаров: ${ok}` : `Удалено ${ok} из ${ids.length}`)
+  }
+
   return (
     <div>
       <div className="k-subtabs">
@@ -215,6 +237,7 @@ export default function ProductsModule({
           onSave={() => void handleSave()}
           onDelete={() => void handleDeleteSelected()}
           onDeleteProduct={(id, name) => void handleDelete(id, name)}
+          onDeleteProducts={ids => handleDeleteProducts(ids)}
           onOpenEdit={openProduct}
           onRefreshProducts={() => void refreshAfterArrivals()}
         />

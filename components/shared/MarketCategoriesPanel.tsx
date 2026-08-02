@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
 import type { Category, Product } from '@/lib/types'
 
@@ -77,6 +77,21 @@ export default function MarketCategoriesPanel({
   const [eParent, setEParent] = useState<number | ''>('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [checked, setChecked] = useState<Set<number>>(() => new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+
+  useEffect(() => {
+    const alive = new Set(categories.map(c => c.id))
+    setChecked(prev => {
+      let changed = false
+      const next = new Set<number>()
+      for (const id of prev) {
+        if (alive.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [categories])
 
   const productCountBySlug = useMemo(() => {
     const map = new Map<string, number>()
@@ -183,12 +198,71 @@ export default function MarketCategoriesPanel({
     try {
       await onDelete(cat.id)
       if (editCat?.id === cat.id) setEditCat(null)
+      setChecked(prev => {
+        if (!prev.has(cat.id)) return prev
+        const next = new Set(prev)
+        next.delete(cat.id)
+        return next
+      })
       setMsg(productTotal > 0
         ? `Категория удалена · ${productTotal} товар(ов) перенесено в «${moveTo}»`
         : 'Категория удалена')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     }
+  }
+
+  function hasSelectedAncestor(cat: Category, selectedIds: Set<number>) {
+    let pid = cat.parent_id
+    while (pid != null) {
+      if (selectedIds.has(Number(pid))) return true
+      pid = categories.find(c => c.id === Number(pid))?.parent_id ?? null
+    }
+    return false
+  }
+
+  async function handleDeleteChecked() {
+    const selected = categories.filter(c => checked.has(c.id))
+    if (!selected.length) return
+    // Если отмечен родитель — дочерние не дублируем (удалятся с ним)
+    const toDelete = selected.filter(c => !hasSelectedAncestor(c, checked))
+    const productTotal = toDelete.reduce((s, c) => s + countInTree(c), 0)
+    const productHint = productTotal > 0
+      ? `\n\nТовары из этих категорий (${productTotal}) будут перенесены в родительскую / «Прочее».`
+      : ''
+    if (!confirm(`Удалить ${toDelete.length} категори${toDelete.length === 1 ? 'ю' : toDelete.length < 5 ? 'и' : 'й'}?${productHint}`)) return
+    setBulkDeleting(true)
+    let ok = 0
+    try {
+      for (const cat of toDelete) {
+        try {
+          await onDelete(cat.id)
+          ok += 1
+          if (editCat?.id === cat.id) setEditCat(null)
+        } catch (e) {
+          console.error(e)
+        }
+      }
+      setChecked(new Set())
+      setMsg(ok === toDelete.length
+        ? `Удалено категорий: ${ok}`
+        : `Удалено ${ok} из ${toDelete.length}`)
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
+  function toggleChecked(id: number, on: boolean) {
+    setChecked(prev => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  function toggleAllCategories(on: boolean) {
+    setChecked(on ? new Set(categories.map(c => c.id)) : new Set())
   }
 
   async function toggleActive(cat: Category) {
@@ -341,6 +415,14 @@ export default function MarketCategoriesPanel({
     return (
       <>
         <tr style={{ background: depth > 0 ? 'rgba(31,215,96,.03)' : undefined }}>
+          <td onClick={e => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={checked.has(cat.id)}
+              onChange={e => toggleChecked(cat.id, e.target.checked)}
+              aria-label={`Выбрать ${cat.name}`}
+            />
+          </td>
           <td>{nameCell}</td>
           <td>{typeCell}</td>
           <td className="num">{countCell}</td>
@@ -367,10 +449,32 @@ export default function MarketCategoriesPanel({
     </div>
   )
 
+  const allChecked = categories.length > 0 && categories.every(c => checked.has(c.id))
+  const someChecked = categories.some(c => checked.has(c.id))
+
   const toolbar = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-      <div style={{ fontSize: 12, color: isAdmin ? 'var(--t3)' : 'var(--muted)' }}>
-        Нажмите <span style={{ color: '#3B8EF0', fontWeight: 700 }}>+ Подкат.</span> рядом с категорией чтобы добавить подкатегорию
+      <div style={{ fontSize: 12, color: isAdmin ? 'var(--t3)' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span>
+          Нажмите <span style={{ color: '#3B8EF0', fontWeight: 700 }}>+ Подкат.</span> рядом с категорией чтобы добавить подкатегорию
+        </span>
+        {!isAdmin && checked.size > 0 && (
+          <>
+            <span style={{ fontWeight: 800, color: 'var(--text)' }}>Выбрано {checked.size}</span>
+            <button
+              type="button"
+              className="k-btn k-btn-s"
+              style={{ color: 'var(--red)' }}
+              disabled={bulkDeleting}
+              onClick={() => void handleDeleteChecked()}
+            >
+              {bulkDeleting ? 'Удаление…' : 'Удалить отмеченные'}
+            </button>
+            <button type="button" className="k-btn k-btn-s" disabled={bulkDeleting} onClick={() => setChecked(new Set())}>
+              Снять
+            </button>
+          </>
+        )}
       </div>
       <button
         type="button"
@@ -484,6 +588,20 @@ export default function MarketCategoriesPanel({
               <table className={isAdmin ? 'at' : 'k-tbl'}>
                 <thead>
                   <tr>
+                    {!isAdmin && (
+                      <th style={{ width: 36 }}>
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          ref={el => {
+                            if (el) el.indeterminate = someChecked && !allChecked
+                          }}
+                          onChange={e => toggleAllCategories(e.target.checked)}
+                          title="Выбрать все"
+                          aria-label="Выбрать все категории"
+                        />
+                      </th>
+                    )}
                     <th>Категория</th>
                     <th>Тип / Родитель</th>
                     <th className={!isAdmin ? 'num' : undefined}>Товаров</th>

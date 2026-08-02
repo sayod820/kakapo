@@ -59,6 +59,7 @@ export default function ProductTab({
   onSave,
   onDelete,
   onDeleteProduct,
+  onDeleteProducts,
   onOpenEdit,
   onRefreshProducts,
 }: {
@@ -78,6 +79,7 @@ export default function ProductTab({
   onSave: () => void
   onDelete: () => void
   onDeleteProduct: (id: number, name: string) => void
+  onDeleteProducts: (ids: number[]) => Promise<void> | void
   onOpenEdit: (id: number) => void
   onRefreshProducts?: () => void
 }) {
@@ -86,6 +88,8 @@ export default function ProductTab({
   const [catFlt, setCatFlt] = useState('all')
   const [statFlt, setStatFlt] = useState<StatFilter>('all')
   const [visibleCount, setVisibleCount] = useState(CATALOG_PAGE)
+  const [checked, setChecked] = useState<Set<number>>(() => new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const roots = useMemo(
     () => categories.filter(c => c.parent_id == null).sort((a, b) => (a.order || 0) - (b.order || 0)),
@@ -175,6 +179,56 @@ export default function ProductTab({
   useEffect(() => {
     setVisibleCount(CATALOG_PAGE)
   }, [q, catFlt, statFlt])
+
+  useEffect(() => {
+    const alive = new Set(products.map(p => p.id))
+    setChecked(prev => {
+      let changed = false
+      const next = new Set<number>()
+      for (const id of prev) {
+        if (alive.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [products])
+
+  const filteredIds = useMemo(() => filtered.map(p => p.id), [filtered])
+  const allFilteredChecked = filteredIds.length > 0 && filteredIds.every(id => checked.has(id))
+  const someFilteredChecked = filteredIds.some(id => checked.has(id))
+
+  function toggleChecked(id: number, on: boolean) {
+    setChecked(prev => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  function toggleAllFiltered(on: boolean) {
+    setChecked(prev => {
+      const next = new Set(prev)
+      for (const id of filteredIds) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
+
+  async function deleteChecked() {
+    const ids = [...checked]
+    if (!ids.length) return
+    if (!confirm(`Удалить ${ids.length} товар(ов)?`)) return
+    setBulkDeleting(true)
+    try {
+      await onDeleteProducts(ids)
+      setChecked(new Set())
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
 
   function pickCategory(slug: string) {
     setCatFlt(slug)
@@ -351,11 +405,30 @@ export default function ProductTab({
         </>
       )}
 
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-        Показано {Math.min(visibleCount, filtered.length)} из {filtered.length}
-        {filtered.length !== products.length ? ` (фильтр · всего ${products.length})` : ''}
-        {catFlt !== 'all' && ` · ${categoryDisplayLabel(categories, catFlt, catFlt)}`}
-        {!loaded && ' · загрузка…'}
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span>
+          Показано {Math.min(visibleCount, filtered.length)} из {filtered.length}
+          {filtered.length !== products.length ? ` (фильтр · всего ${products.length})` : ''}
+          {catFlt !== 'all' && ` · ${categoryDisplayLabel(categories, catFlt, catFlt)}`}
+          {!loaded && ' · загрузка…'}
+        </span>
+        {checked.size > 0 && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+            <span style={{ fontWeight: 800, color: 'var(--text)' }}>Выбрано {checked.size}</span>
+            <button
+              type="button"
+              className="k-btn k-btn-s"
+              style={{ color: 'var(--red)' }}
+              disabled={bulkDeleting}
+              onClick={() => void deleteChecked()}
+            >
+              {bulkDeleting ? 'Удаление…' : 'Удалить отмеченные'}
+            </button>
+            <button type="button" className="k-btn k-btn-s" disabled={bulkDeleting} onClick={() => setChecked(new Set())}>
+              Снять
+            </button>
+          </span>
+        )}
       </div>
 
       <section className="k-card">
@@ -364,6 +437,18 @@ export default function ProductTab({
             <table className="k-tbl">
               <thead>
                 <tr>
+                  <th style={{ width: 36 }} onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={allFilteredChecked}
+                      ref={el => {
+                        if (el) el.indeterminate = someFilteredChecked && !allFilteredChecked
+                      }}
+                      onChange={e => toggleAllFiltered(e.target.checked)}
+                      title="Выбрать все в фильтре"
+                      aria-label="Выбрать все в фильтре"
+                    />
+                  </th>
                   <th>Артикул</th>
                   <th>Товар</th>
                   <th>Категория</th>
@@ -381,8 +466,17 @@ export default function ProductTab({
                   const bulkHint = formatBulkPricingHint(p)
                   const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
                   const codes = productBarcodes(p)
+                  const isChecked = checked.has(p.id)
                   return (
                     <tr key={p.id} className="k-prodrow" onClick={() => openEdit(p.id)}>
+                      <td onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={e => toggleChecked(p.id, e.target.checked)}
+                          aria-label={`Выбрать ${p.name}`}
+                        />
+                      </td>
                       <td><span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 800 }}>{p.art}</span></td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
