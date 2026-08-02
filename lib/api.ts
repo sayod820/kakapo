@@ -182,7 +182,7 @@ const REQUEST_TIMEOUT_MS = 12000
 const LIST_TIMEOUT_MS = 20000
 const REVIEW_TIMEOUT_MS = 30000
 /** Чек кассы: лучше быстро уйти в офлайн-очередь, чем висеть 24+ сек */
-const POS_SALE_TIMEOUT_MS = 4000
+const POS_SALE_TIMEOUT_MS = 2500
 const MAX_ATTEMPTS = 2
 const RETRY_DELAY_MS = 1200
 

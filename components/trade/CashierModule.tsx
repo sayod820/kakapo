@@ -1021,6 +1021,14 @@ export default function CashierModule({
     await Promise.all([syncPosFromApi(), syncClientsFromApi(), syncCardsFromApi(), fetchProducts()])
   }, [fetchProducts])
 
+  // При старте — лёгкий sync, без ожидания всего склада/финансов (иначе слабый интернет = долгий чёрный экран)
+  useEffect(() => {
+    void softSyncPosAfterSale()
+    void fetchProducts()
+    void syncClientsFromApi()
+    void syncCardsFromApi()
+  }, [fetchProducts])
+
   useEffect(() => {
     if (!cashierMenuOpen) return
     const onDoc = (e: MouseEvent) => {
@@ -1034,7 +1042,6 @@ export default function CashierModule({
     onSurfaceChange?.(posSurface)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- sync initial surface to TradeApp once
 
-  useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { startNetSync() }, [startNetSync])
 
   /** Автообновление статуса кассы (смена открыта/закрыта, продажи) */
@@ -1043,9 +1050,8 @@ export default function CashierModule({
     let cancelled = false
     const softSync = () => {
       if (cancelled || document.visibilityState === 'hidden') return
-      // без сети не дёргаем сервер пачкой запросов
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return
-      void syncPosFromApi()
+      void softSyncPosAfterSale()
     }
     const id = window.setInterval(softSync, 20000)
     const onVisible = () => {
@@ -4613,40 +4619,40 @@ export default function CashierModule({
         void softSyncPosAfterSale()
         void syncClientsFromApi()
         void syncCardsFromApi()
-        // После успешного онлайн-чека сразу выталкиваем очередь ожидающих
         if (useOfflineSync.getState().pending > 0) {
           void useOfflineSync.getState().syncNow()
         }
       }
+
       const debtRepay = currentPayDebtAmt()
       let debtRepayNote = ''
       if (debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
-        try {
-          const method = cashPaid > 0.001 ? 'cash' : 'card'
-          if (created._offline && method === 'card') {
-            showToast('Долг не погашен', 'Погашение картой недоступно офлайн — примите наличными отдельно')
-          } else {
-            const prevDebt = Number(loyalty?.debt) || clientDebt
-            const repaid = await debtRepaySafe(client.card, {
-              amount: debtRepay,
-              method,
-              cashierId: activeShift.cashierId,
-              shiftId: activeShift.id,
-              posId: activeShift.posId || activePosPoint?.id,
-              clientId: client.id,
-              prevDebt,
-            })
-            debtRepayNote = ' · погашен долг ' + fmtMoney(debtRepay)
-            if (client.phone) {
-              recordStoreDebtRepayment(client.phone, debtRepay, { method })
-            }
-            if (!repaid.offline) {
-              void softSyncPosAfterSale()
-              void syncCardsFromApi()
-            }
-          }
-        } catch { /* чек уже проведён */ }
+        const method = cashPaid > 0.001 ? 'cash' : 'card'
+        if (created._offline && method === 'card') {
+          showToast('Долг не погашен', 'Погашение картой недоступно офлайн — примите наличными отдельно')
+        } else {
+          // Сразу локально — не ждём сервер (иначе слабый интернет тормозит «Пробиваем…»)
+          const prevDebt = Number(loyalty?.debt) || clientDebt
+          const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
+          const nextDebt = Math.max(0, Math.round((prevDebt - payAmt) * 100) / 100)
+          debtRepayNote = ' · погашен долг ' + fmtMoney(payAmt)
+          try {
+            useCardStore.getState().updateCardLoyalty(client.card, { debt: nextDebt }, { skipApi: true })
+            useClientStore.getState().updateClient(client.id, { debt: nextDebt }, { skipApi: true })
+            if (client.phone) recordStoreDebtRepayment(client.phone, payAmt, { method })
+          } catch { /* ignore */ }
+          void debtRepaySafe(client.card, {
+            amount: payAmt,
+            method,
+            cashierId: activeShift.cashierId,
+            shiftId: activeShift.id,
+            posId: activeShift.posId || activePosPoint?.id,
+            clientId: client.id,
+            prevDebt,
+          }).catch(() => {})
+        }
       }
+
       const parts: string[] = []
       if (cashPaid > 0.001) parts.push(`нал ${fmtMoney(cashPaid)}`)
       if (cardPaid > 0.001) parts.push(`карта ${fmtMoney(cardPaid)}`)

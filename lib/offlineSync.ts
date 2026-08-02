@@ -222,10 +222,13 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       return
     }
     set({ online: true, lastError: null })
-    // Сначала подтянуть смены — иначе чеки падают с «Смена не найдена»
+    // Сначала подтянуть смены (макс 3с) — иначе чеки падают с «Смена не найдена»
     try {
       const { softSyncPosAfterSale } = await import('./posStore')
-      await softSyncPosAfterSale()
+      await Promise.race([
+        softSyncPosAfterSale(),
+        new Promise(resolve => setTimeout(resolve, 3000)),
+      ])
     } catch { /* ignore */ }
     // Вернуть в очередь отклонённые из‑за смены
     try {

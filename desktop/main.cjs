@@ -271,9 +271,13 @@ background:#0a1a12;color:#EBF5ED;font-family:Segoe UI,system-ui,sans-serif}
 .box{text-align:center}
 h1{margin:0 0 8px;font-size:28px;letter-spacing:.08em;color:#1FD760}
 p{margin:0;color:#8FB897;font-size:14px}
+.spin{width:28px;height:28px;margin:18px auto 0;border:3px solid #1a3d28;border-top-color:#1FD760;
+border-radius:50%;animation:s .7s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
 </style></head><body><div class="box">
 <h1>КАКАПО</h1>
 <p>Загрузка кассы…</p>
+<div class="spin"></div>
 </div></body></html>`
 }
 
@@ -289,7 +293,6 @@ function createWindow(localUrl = '') {
 
   bootLog('createWindow start', { version: app.getVersion(), wantFullscreen })
 
-  // Без fullscreen при create — на части кассовых ПК это чёрный экран + закрытие.
   mainWindow = new BrowserWindow({
     width: Number(winCfg.width) || 1360,
     height: Number(winCfg.height) || 900,
@@ -341,6 +344,8 @@ function createWindow(localUrl = '') {
 
   let triedLocalFallback = false
   let enteredFullscreen = false
+  let remoteOk = false
+  let bootGen = 0
 
   const enterFullscreenSafe = () => {
     if (enteredFullscreen || !wantFullscreen || !mainWindow || mainWindow.isDestroyed()) return
@@ -354,15 +359,20 @@ function createWindow(localUrl = '') {
     }, 800)
   }
 
-  const ensureOfflineUi = async () => {
+  const ensureOfflineUi = async (timeoutMs = 10000) => {
     if (offlineUrl) return offlineUrl
     try {
-      offlineUrl = String(await startLocalUi({ timeoutMs: 12000 }) || '').trim()
+      offlineUrl = String(await startLocalUi({ timeoutMs }) || '').trim()
       bootLog('local UI fallback', offlineUrl || '(empty)')
     } catch (err) {
       bootLog('local UI fail', err?.message || String(err))
     }
     return offlineUrl
+  }
+
+  // Локальный UI сразу в фоне — к моменту таймаута сайта уже готов
+  if (preferRemote && !offlineUrl) {
+    void ensureOfflineUi(15000)
   }
 
   mainWindow.webContents.on('did-fail-load', async (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
@@ -371,7 +381,7 @@ function createWindow(localUrl = '') {
     bootLog('did-fail-load', { errorCode, errorDescription, validatedURL })
     if (preferRemote && !triedLocalFallback) {
       triedLocalFallback = true
-      const local = await ensureOfflineUi()
+      const local = await ensureOfflineUi(8000)
       if (local && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.loadURL(local).catch(() => {
           showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
@@ -392,8 +402,12 @@ function createWindow(localUrl = '') {
   mainWindow.webContents.on('did-finish-load', () => {
     const loaded = mainWindow?.webContents.getURL() || ''
     bootLog('did-finish-load', loaded)
-    if (loaded.startsWith('http://') || loaded.startsWith('https://')) {
-      enterFullscreenSafe()
+    if (/^https?:\/\//i.test(loaded) && !loaded.startsWith('data:')) {
+      if (loaded.includes('kakappo.shop') || loaded.includes('/trade')) {
+        remoteOk = true
+      }
+      if (!loaded.includes('127.0.0.1')) enterFullscreenSafe()
+      else enterFullscreenSafe()
     }
   })
 
@@ -415,16 +429,39 @@ function createWindow(localUrl = '') {
     }
   })()
 
-  // Сначала splash (не чёрный экран), потом сайт
+  // Splash сразу → сайт; если сайт >4.5с — локальная касса (слабый/нет интернета)
   mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml())}`).catch(() => {})
   setTimeout(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return
+    const gen = ++bootGen
+    remoteOk = false
     bootLog('loadURL', loadTarget)
     mainWindow.loadURL(loadTarget).catch(err => {
       bootLog('loadURL fail', err?.message || String(err))
       showLoadErrorPage(mainWindow, url, -1, err?.message || String(err))
     })
-  }, 300)
+    if (preferRemote) {
+      setTimeout(() => {
+        void (async () => {
+          if (gen !== bootGen || remoteOk || triedLocalFallback) return
+          if (!mainWindow || mainWindow.isDestroyed()) return
+          const cur = mainWindow.webContents.getURL() || ''
+          if (/kakappo\.shop|\/trade/i.test(cur) && !cur.startsWith('data:') && mainWindow.webContents.isLoadingMainFrame() === false) {
+            remoteOk = true
+            return
+          }
+          triedLocalFallback = true
+          bootLog('remote slow — switch local')
+          const local = await ensureOfflineUi(8000)
+          if (local && mainWindow && !mainWindow.isDestroyed() && gen === bootGen && !remoteOk) {
+            mainWindow.loadURL(local).catch(() => {})
+          } else if (!local && mainWindow && !mainWindow.isDestroyed()) {
+            // оставляем splash / remote — покажет ошибку через did-fail-load
+          }
+        })()
+      }, 4500)
+    }
+  }, 150)
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
     shell.openExternal(openUrl)

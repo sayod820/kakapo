@@ -860,11 +860,17 @@ function TradeAppGate() {
     if (isKakapoDesktop()) {
       void isLocalBootstrapComplete().then(done => {
         setLocalDbReady(done)
-        // если база уже есть — тихо подтянем остатки/цены при наличии сети
         if (done) {
           void import('@/lib/offlineBootstrap').then(m => m.silentSyncFromServer()).catch(() => {})
         }
+      }).catch(() => {
+        // IPC/диск тормозит — не держим чёрный экран, пускаем в логин
+        setLocalDbReady(true)
       })
+      // страховка: через 2.5с всё равно показываем UI
+      window.setTimeout(() => {
+        setLocalDbReady(prev => (prev === null ? true : prev))
+      }, 2500)
     } else {
       setLocalDbReady(true)
     }
