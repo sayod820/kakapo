@@ -1133,14 +1133,69 @@ app.patch('/categories/:id', (req, res) => {
 })
 app.delete('/categories/:id', (req, res) => {
   const id = Number(req.params.id)
-  const root = db.categories.find(c => c.id === id)
-  if (!root) return res.status(404).json({ error: 'not found' })
+  const result = removeCategoryTree(db, id)
+  if (!result.ok) return res.status(404).json({ error: 'not found' })
+  persist()
+  broadcastCategory({
+    id,
+    deleted: true,
+    ids: result.deleted,
+    slugs: result.slugs,
+    movedProducts: result.movedProducts,
+  })
+  if (result.movedProducts) broadcastProduct({ reason: 'category_delete' })
+  res.json({ ok: true, movedProducts: result.movedProducts, deleted: result.deleted })
+})
 
-  const ids = new Set([id])
-  const queue = [id]
+/** Массовое удаление категорий — один persist / один broadcast */
+app.post('/categories/bulk-delete', (req, res) => {
+  const raw = Array.isArray(req.body?.ids) ? req.body.ids : []
+  const requested = [...new Set(raw.map(x => Number(x)).filter(n => Number.isFinite(n) && n > 0))]
+  if (!requested.length) return res.status(400).json({ detail: 'Укажите ids категорий' })
+
+  const reqSet = new Set(requested)
+  const hasAncestorInRequest = (catId) => {
+    let pid = db.categories.find(c => c.id === catId)?.parent_id
+    while (pid != null) {
+      if (reqSet.has(Number(pid))) return true
+      pid = db.categories.find(c => c.id === Number(pid))?.parent_id ?? null
+    }
+    return false
+  }
+  const roots = requested.filter(id => !hasAncestorInRequest(id))
+
+  const allDeleted = []
+  const allSlugs = []
+  let movedProducts = 0
+  for (const id of roots) {
+    if (!db.categories.some(c => c.id === id)) continue
+    const result = removeCategoryTree(db, id)
+    if (!result.ok) continue
+    allDeleted.push(...result.deleted)
+    allSlugs.push(...result.slugs)
+    movedProducts += result.movedProducts
+  }
+  if (!allDeleted.length) return res.status(404).json({ detail: 'Категории не найдены' })
+  persist()
+  broadcastCategory({
+    deleted: true,
+    ids: allDeleted,
+    slugs: allSlugs,
+    movedProducts,
+  })
+  if (movedProducts) broadcastProduct({ reason: 'category_delete' })
+  res.json({ ok: true, removed: roots.length, deleted: allDeleted, movedProducts })
+})
+
+function removeCategoryTree(dbRef, rootId) {
+  const root = dbRef.categories.find(c => c.id === rootId)
+  if (!root) return { ok: false }
+
+  const ids = new Set([rootId])
+  const queue = [rootId]
   while (queue.length) {
     const pid = queue.pop()
-    for (const child of db.categories.filter(c => Number(c.parent_id) === pid)) {
+    for (const child of dbRef.categories.filter(c => Number(c.parent_id) === pid)) {
       if (!ids.has(child.id)) {
         ids.add(child.id)
         queue.push(child.id)
@@ -1148,16 +1203,16 @@ app.delete('/categories/:id', (req, res) => {
     }
   }
 
-  const catsToDelete = db.categories.filter(c => ids.has(c.id))
+  const catsToDelete = dbRef.categories.filter(c => ids.has(c.id))
   const slugsToDelete = new Set(catsToDelete.map(c => c.slug))
   const parentCat = root.parent_id != null
-    ? db.categories.find(c => c.id === Number(root.parent_id))
+    ? dbRef.categories.find(c => c.id === Number(root.parent_id))
     : null
   const fallbackSlug = parentCat?.slug || ''
   const fallbackName = parentCat?.name || 'Прочее'
 
   let movedProducts = 0
-  for (const p of db.products) {
+  for (const p of dbRef.products) {
     if (slugsToDelete.has(p.catId)) {
       p.catId = fallbackSlug
       p.cat = fallbackName
@@ -1165,17 +1220,19 @@ app.delete('/categories/:id', (req, res) => {
     }
   }
 
-  if (!Array.isArray(db.deletedCategorySlugs)) db.deletedCategorySlugs = []
+  if (!Array.isArray(dbRef.deletedCategorySlugs)) dbRef.deletedCategorySlugs = []
   for (const slug of slugsToDelete) {
-    if (!db.deletedCategorySlugs.includes(slug)) db.deletedCategorySlugs.push(slug)
+    if (!dbRef.deletedCategorySlugs.includes(slug)) dbRef.deletedCategorySlugs.push(slug)
   }
 
-  db.categories = db.categories.filter(c => !ids.has(c.id))
-  persist()
-  broadcastCategory({ id, deleted: true, ids: [...ids], slugs: [...slugsToDelete], movedProducts })
-  if (movedProducts) broadcastProduct({ reason: 'category_delete' })
-  res.json({ ok: true, movedProducts, deleted: [...ids] })
-})
+  dbRef.categories = dbRef.categories.filter(c => !ids.has(c.id))
+  return {
+    ok: true,
+    deleted: [...ids],
+    slugs: [...slugsToDelete],
+    movedProducts,
+  }
+}
 
 function broadcastCategory(category) {
   const msg = JSON.stringify({ event: 'category_update', category })

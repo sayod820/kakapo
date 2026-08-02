@@ -12,6 +12,7 @@ export default function CategoryTab({
   onCreate,
   onUpdate,
   onDelete,
+  onDeleteMany,
 }: {
   categories: Category[]
   loaded: boolean
@@ -26,6 +27,7 @@ export default function CategoryTab({
   }) => Promise<void>
   onUpdate: (id: number, data: Partial<Category>) => Promise<void>
   onDelete: (id: number) => Promise<void>
+  onDeleteMany?: (ids: number[]) => Promise<{ removed?: number; movedProducts?: number } | void>
 }) {
   return (
     <MarketCategoriesPanel
@@ -39,6 +41,7 @@ export default function CategoryTab({
       onCreate={onCreate}
       onUpdate={onUpdate}
       onDelete={onDelete}
+      onDeleteMany={onDeleteMany}
     />
   )
 }

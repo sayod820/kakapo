@@ -49,6 +49,7 @@ export default function ProductsModule({
     createCategory,
     updateCategory,
     deleteCategory,
+    deleteCategories,
   } = useCategories()
 
   const [internalSub, setInternalSub] = useState<ProductsSubPage>('product')
@@ -250,6 +251,7 @@ export default function ProductsModule({
           onCreate={async data => { await createCategory(data) }}
           onUpdate={updateCategory}
           onDelete={deleteCategory}
+          onDeleteMany={ids => deleteCategories(ids)}
         />
       )}
 

@@ -467,6 +467,15 @@ export const api = {
   createCategory: (data: any) => request('/categories', { method: 'POST', body: JSON.stringify(data) }),
   updateCategory: (id: number, data: any) => request<Category>(`/categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteCategory: (id: number) => request(`/categories/${id}`, { method: 'DELETE' }),
+  deleteCategories: (ids: number[]) => request<{
+    ok: boolean
+    removed: number
+    deleted: number[]
+    movedProducts: number
+  }>('/categories/bulk-delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  }, 0, 300_000),
 
   // ── Акции ──
   getPromos: () => request<Promo[]>('/promos'),

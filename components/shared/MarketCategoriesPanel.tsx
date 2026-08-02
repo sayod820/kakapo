@@ -44,6 +44,7 @@ export default function MarketCategoriesPanel({
   onCreate,
   onUpdate,
   onDelete,
+  onDeleteMany,
   headerExtra,
 }: {
   theme?: Theme
@@ -61,6 +62,7 @@ export default function MarketCategoriesPanel({
   }) => Promise<void>
   onUpdate: (id: number, data: Partial<Category>) => Promise<void>
   onDelete: (id: number) => Promise<void>
+  onDeleteMany?: (ids: number[]) => Promise<{ removed?: number; movedProducts?: number } | void>
   headerExtra?: React.ReactNode
 }) {
   const isAdmin = theme === 'admin'
@@ -232,21 +234,36 @@ export default function MarketCategoriesPanel({
       : ''
     if (!confirm(`Удалить ${toDelete.length} категори${toDelete.length === 1 ? 'ю' : toDelete.length < 5 ? 'и' : 'й'}?${productHint}`)) return
     setBulkDeleting(true)
-    let ok = 0
     try {
-      for (const cat of toDelete) {
-        try {
-          await onDelete(cat.id)
-          ok += 1
-          if (editCat?.id === cat.id) setEditCat(null)
-        } catch (e) {
-          console.error(e)
+      if (onDeleteMany) {
+        const res = await onDeleteMany(toDelete.map(c => c.id))
+        if (editCat && toDelete.some(c => c.id === editCat.id || hasSelectedAncestor(editCat, new Set(toDelete.map(x => x.id))))) {
+          setEditCat(null)
         }
+        setChecked(new Set())
+        const moved = Number(res?.movedProducts) || 0
+        const removed = Number(res?.removed) || toDelete.length
+        setMsg(moved > 0
+          ? `Удалено категорий: ${removed} · товаров перенесено: ${moved}`
+          : `Удалено категорий: ${removed}`)
+      } else {
+        let ok = 0
+        for (const cat of toDelete) {
+          try {
+            await onDelete(cat.id)
+            ok += 1
+            if (editCat?.id === cat.id) setEditCat(null)
+          } catch (e) {
+            console.error(e)
+          }
+        }
+        setChecked(new Set())
+        setMsg(ok === toDelete.length
+          ? `Удалено категорий: ${ok}`
+          : `Удалено ${ok} из ${toDelete.length}`)
       }
-      setChecked(new Set())
-      setMsg(ok === toDelete.length
-        ? `Удалено категорий: ${ok}`
-        : `Удалено ${ok} из ${toDelete.length}`)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     } finally {
       setBulkDeleting(false)
     }

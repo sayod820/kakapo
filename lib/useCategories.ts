@@ -270,6 +270,22 @@ export function useCategories() {
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
   }, [reload])
 
+  const deleteCategories = useCallback(async (ids: number[]) => {
+    const unique = [...new Set((ids || []).map(Number).filter(n => Number.isFinite(n) && n > 0))]
+    if (!unique.length) return { removed: 0, movedProducts: 0 }
+    try {
+      const res = await api.deleteCategories(unique)
+      await reload()
+      window.dispatchEvent(new CustomEvent('kakapo:categories'))
+      return {
+        removed: Number(res?.removed) || unique.length,
+        movedProducts: Number(res?.movedProducts) || 0,
+      }
+    } catch (e) {
+      throw e instanceof Error ? e : new Error('Не удалось удалить категории')
+    }
+  }, [reload])
+
   return {
     categories,
     loaded,
@@ -280,6 +296,7 @@ export function useCategories() {
     createCategory,
     updateCategory,
     deleteCategory,
+    deleteCategories,
   }
 }
 
