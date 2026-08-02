@@ -44,13 +44,14 @@ interface OfflineSyncState {
   retry: (clientRef: string) => Promise<void>
   /** убрать отклонённую операцию из очереди */
   drop: (clientRef: string) => Promise<void>
-  /** отправить очередь прямо сейчас */
+  /** отправить очередь прямо сейчас (сначала ping) */
   syncNow: () => Promise<void>
   /** запустить слушатели online/offline и периодический flush */
   start: () => void
 }
 
 let intervalId: ReturnType<typeof setInterval> | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
 /** Реальная проверка связи с API (не путать с Wi‑Fi без доступа к серверу) */
 async function pingServer(): Promise<boolean> {
@@ -59,7 +60,6 @@ async function pingServer(): Promise<boolean> {
   const candidates: string[] = [`${api}/health`]
   try {
     const origin = new URL(api).origin
-    // На nginx health часто на корне сайта, не под /api/kakapo
     if (origin && `${origin}/health` !== candidates[0]) {
       candidates.push(`${origin}/health`)
     }
@@ -68,17 +68,16 @@ async function pingServer(): Promise<boolean> {
   for (const url of candidates) {
     try {
       const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 6000)
+      const timer = setTimeout(() => ctrl.abort(), 2500)
       const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal })
       clearTimeout(timer)
       if (res.ok) return true
     } catch { /* следующий URL */ }
   }
 
-  // Сервер ответил чем угодно кроме сетевой ошибки — связь есть
   try {
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 6000)
+    const timer = setTimeout(() => ctrl.abort(), 2500)
     const res = await fetch(`${api}/products?limit=1`, { cache: 'no-store', signal: ctrl.signal })
     clearTimeout(timer)
     return res.status > 0 && res.status < 500
@@ -101,6 +100,27 @@ async function refetchEverything() {
     syncClientsFromApi(),
     syncCardsFromApi(),
   ])
+}
+
+function scheduleReconnect(get: () => OfflineSyncState, set: (p: Partial<OfflineSyncState>) => void) {
+  if (reconnectTimer) return
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    void (async () => {
+      if (get().syncing) return
+      const alive = await pingServer()
+      if (!alive) {
+        set({ online: false })
+        // ещё попытка через 8 сек, пока есть очередь
+        if (get().pending > 0) scheduleReconnect(get, set)
+        return
+      }
+      set({ online: true })
+      if (get().pending > 0 || get().failed > 0) {
+        await get().flush()
+      }
+    })()
+  }, 2500)
 }
 
 export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
@@ -129,17 +149,31 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     set({ syncing: true, lastError: null, progress: { done: 0, total: get().pending } })
     try {
       const res = await flushQueue((done, total) => set({ progress: { done, total } }))
+      // Не помечаем «офлайн» только из-за таймаута одной операции —
+      // сначала проверяем API ping.
+      let online = true
+      if (res.stopped) {
+        online = await pingServer()
+      }
       set({
         syncing: false,
-        online: !res.stopped,
-        lastSyncAtIso: res.stopped ? get().lastSyncAtIso : new Date().toISOString(),
+        online,
+        lastSyncAtIso: res.sent > 0 ? new Date().toISOString() : get().lastSyncAtIso,
         progress: { done: 0, total: 0 },
+        lastError: res.stopped && !online
+          ? 'Нет связи при отправке очереди'
+          : (res.remaining > 0 && res.failed > 0 ? 'Часть операций отклонена' : null),
       })
       await get().refresh()
-      // очередь ушла — подтягиваем свежие остатки, смены, карты и долги
-      if (res.sent > 0 && !res.stopped) {
-        try { await refetchEverything() } catch { /* обновим при следующем цикле */ }
+      if (res.sent > 0) {
+        try { await refetchEverything() } catch { /* следующий цикл */ }
         try { await markLocalSyncAt() } catch { /* ignore */ }
+      }
+      // очередь ещё есть — повторим скоро
+      if (get().pending > 0 && online) {
+        scheduleReconnect(get, set)
+      } else if (get().pending > 0 && !online) {
+        scheduleReconnect(get, set)
       }
     } catch (e) {
       set({
@@ -147,26 +181,32 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         progress: { done: 0, total: 0 },
         lastError: e instanceof Error ? e.message : 'Ошибка синхронизации',
       })
+      scheduleReconnect(get, set)
     }
   },
 
   queueSale: async (payload) => {
     await enqueueSale(payload)
     await get().refresh()
+    scheduleReconnect(get, set)
   },
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
     await get().refresh()
+    scheduleReconnect(get, set)
     return row
   },
 
-  markOffline: () => set({ online: false }),
+  markOffline: () => {
+    set({ online: false })
+    scheduleReconnect(get, set)
+  },
 
   retry: async (clientRef) => {
     await retryPending(clientRef)
     await get().refresh()
-    if (isOnline()) await get().flush()
+    await get().syncNow()
   },
 
   drop: async (clientRef) => {
@@ -176,12 +216,18 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   syncNow: async () => {
     const alive = await pingServer()
-    if (!alive) { set({ online: false }); return }
-    set({ online: true })
+    if (!alive) {
+      set({ online: false, lastError: 'Сервер не отвечает — очередь пока ждёт' })
+      scheduleReconnect(get, set)
+      return
+    }
+    set({ online: true, lastError: null })
     await get().flush()
-    try { await refetchEverything() } catch { /* обновим при следующем цикле */ }
-    try { await markLocalSyncAt() } catch { /* ignore */ }
-    set({ lastSyncAtIso: new Date().toISOString() })
+    if (get().pending === 0) {
+      try { await refetchEverything() } catch { /* ignore */ }
+      try { await markLocalSyncAt() } catch { /* ignore */ }
+      set({ lastSyncAtIso: new Date().toISOString() })
+    }
   },
 
   start: () => {
@@ -189,41 +235,51 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     set({ started: true, online: isOnline() })
 
     const goOnline = () => { void reconnect() }
-    const goOffline = () => { set({ online: false }) }
+    const goOffline = () => {
+      set({ online: false })
+      scheduleReconnect(get, set)
+    }
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
 
-    /** связь вернулась: очередь → полное обновление данных */
     const reconnect = async () => {
       const alive = await pingServer()
-      if (!alive) { set({ online: false }); return }
-      const hadQueue = get().pending > 0
+      if (!alive) {
+        set({ online: false })
+        scheduleReconnect(get, set)
+        return
+      }
       set({ online: true })
       await get().flush()
       try {
         const { silentSyncFromServer } = await import('./offlineBootstrap')
         await silentSyncFromServer()
-      } catch { /* обновим при следующем цикле */ }
-      if (!hadQueue) {
+      } catch { /* ignore */ }
+      if (get().pending === 0) {
         set({ lastSyncAtIso: new Date().toISOString() })
       }
     }
 
-    void get().refresh()
-    void reconnect()
+    void get().refresh().then(() => {
+      if (get().pending > 0) void reconnect()
+      else void reconnect()
+    })
 
-    // страховка: события online/offline срабатывают не всегда
     if (intervalId) clearInterval(intervalId)
     intervalId = setInterval(() => {
       if (get().syncing) return
       void (async () => {
-        const wasOnline = get().online
         const alive = await pingServer()
-        if (!alive) { set({ online: false }); return }
-        if (!wasOnline) { await reconnect(); return }
+        if (!alive) {
+          set({ online: false })
+          return
+        }
+        const wasOffline = !get().online
         set({ online: true })
-        if (get().pending > 0) await get().flush()
+        if (wasOffline || get().pending > 0) {
+          await get().flush()
+        }
       })()
-    }, 45000)
+    }, 12000)
   },
 }))

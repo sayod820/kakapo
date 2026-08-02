@@ -181,6 +181,8 @@ const RETRY_STATUS = new Set([500, 502, 503, 504])
 const REQUEST_TIMEOUT_MS = 12000
 const LIST_TIMEOUT_MS = 20000
 const REVIEW_TIMEOUT_MS = 30000
+/** Чек кассы: лучше быстро уйти в офлайн-очередь, чем висеть 24+ сек */
+const POS_SALE_TIMEOUT_MS = 4000
 const MAX_ATTEMPTS = 2
 const RETRY_DELAY_MS = 1200
 
@@ -914,32 +916,44 @@ export const api = {
   closePosShift: (id: string, data: { clientRef?: string; closingCash: number; note?: string }) =>
     request<PosShift>(`/pos/shifts/${id}/close`, { method: 'PATCH', body: JSON.stringify(data) }),
   getPosSales: () => request<PosSale[]>('/pos/sales'),
-  createPosSale: (data: {
-    clientRef?: string
-    createdAtIso?: string
-    cashierId?: string
-    shiftId?: string
-    posId?: string
-    clientId?: string
-    clientName?: string
-    clientPhone?: string
-    cardNum?: string
-    paymentMethod: 'cash' | 'card' | 'credit' | 'wallet' | 'mixed'
-    paidCash?: number
-    paidCard?: number
-    paidWallet?: number
-    debtAdded?: number
-    cashReceived?: number
-    changeGiven?: number
-    bonusSpent?: number
-    bonusEarned?: number
-    bonusBalanceBefore?: number
-    bonusBalanceAfter?: number
-    orderGoodsTotal?: number
-    discountAmount?: number
-    note?: string
-    items: { productId: number; productName?: string; qty: number; price?: number; receiptId?: string; preferRetailPrice?: number }[]
-  }) => request<PosSale & { orderId?: string }>('/pos/sales', { method: 'POST', body: JSON.stringify(data) }),
+  createPosSale: (
+    data: {
+      clientRef?: string
+      createdAtIso?: string
+      cashierId?: string
+      shiftId?: string
+      posId?: string
+      clientId?: string
+      clientName?: string
+      clientPhone?: string
+      cardNum?: string
+      paymentMethod: 'cash' | 'card' | 'credit' | 'wallet' | 'mixed'
+      paidCash?: number
+      paidCard?: number
+      paidWallet?: number
+      debtAdded?: number
+      cashReceived?: number
+      changeGiven?: number
+      bonusSpent?: number
+      bonusEarned?: number
+      bonusBalanceBefore?: number
+      bonusBalanceAfter?: number
+      orderGoodsTotal?: number
+      discountAmount?: number
+      note?: string
+      items: { productId: number; productName?: string; qty: number; price?: number; receiptId?: string; preferRetailPrice?: number }[]
+    },
+    opts?: { mode?: 'fast' | 'sync' },
+  ) => {
+    const sync = opts?.mode === 'sync'
+    // fast: касса не ждёт; sync: очередь офлайн-чеков (дольше + 1 повтор)
+    return requestUrl<PosSale & { orderId?: string }>(
+      `${getApiUrl()}/pos/sales`,
+      { method: 'POST', body: JSON.stringify(data) },
+      sync ? 0 : 1,
+      sync ? 20000 : POS_SALE_TIMEOUT_MS,
+    )
+  },
   returnPosSale: (id: string, data?: {
     clientRef?: string
     note?: string

@@ -145,3 +145,33 @@ export const usePosStore = create<PosStore>((set) => ({
 export async function syncPosFromApi() {
   await usePosStore.getState().fetchFromApi()
 }
+
+/** Лёгкое обновление после чека — только продажи и смены, без склада/финансов */
+export async function softSyncPosAfterSale() {
+  try {
+    const [sales, shifts] = await Promise.all([
+      api.getPosSales(),
+      api.getPosShifts(),
+    ])
+    usePosStore.setState({ sales, shifts })
+    try {
+      const { cacheData } = await import('./offline')
+      const cur = usePosStore.getState()
+      void cacheData('pos_snapshot', {
+        cashiers: cur.cashiers,
+        posPoints: cur.posPoints,
+        shifts: cur.shifts,
+        sales: cur.sales,
+        receipts: cur.receipts,
+        writeoffs: cur.writeoffs,
+        revisions: cur.revisions,
+        suppliers: cur.suppliers,
+        expenses: cur.expenses,
+        financeMoves: cur.financeMoves,
+        expiry: cur.expiry,
+        financeSummary: cur.financeSummary,
+        report: cur.report,
+      })
+    } catch { /* ignore */ }
+  } catch { /* нет связи — локальный чек уже на экране */ }
+}

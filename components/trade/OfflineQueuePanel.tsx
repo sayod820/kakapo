@@ -33,7 +33,6 @@ function amountOf(payload: any): string {
 export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) {
   const items = useOfflineSync(s => s.items)
   const syncing = useOfflineSync(s => s.syncing)
-  const online = useOfflineSync(s => s.online)
   const retry = useOfflineSync(s => s.retry)
   const drop = useOfflineSync(s => s.drop)
   const syncNow = useOfflineSync(s => s.syncNow)
@@ -87,7 +86,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
           <button
             type="button"
             className="k-btn k-btn-s"
-            disabled={syncing || !online}
+            disabled={syncing}
             onClick={() => void syncNow()}
           >
             {syncing ? 'Синхронизация…' : 'Отправить сейчас'}

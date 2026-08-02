@@ -50,7 +50,7 @@ import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/
 import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
-import { syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import {
   printPosReceipt,
   buildDemoReceiptSale,
@@ -4390,8 +4390,10 @@ export default function CashierModule({
       cardPaid = payable
     }
 
-    // ── Офлайн: карта и бонусы недоступны (нужен онлайн-терминал/сервер) ──
-    if (!isOnline()) {
+    // Офлайн только если браузер реально без сети.
+    // Статус «сервер недоступен» не должен блокировать попытку пробить чек онлайн.
+    const apiReachable = isOnline()
+    if (!apiReachable) {
       if (cardPaid > 0.001 || apiMethod === 'card') {
         showToast('Нет связи', 'Оплата картой недоступна офлайн. Проведите наличными или в долг.')
         return false
@@ -4452,17 +4454,71 @@ export default function CashierModule({
           preferRetailPrice: l.preferRetailPrice != null ? l.preferRetailPrice : undefined,
         })),
       }
+      const applyOfflineSaleLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
+        useOfflineSync.getState().markOffline()
+        const offlineSaleId = newLocalId('sale')
+        await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
+        try {
+          const ps = useProducts.getState()
+          for (const l of cart) {
+            const p = ps.products.find(x => x.id === l.productId)
+            if (!p) continue
+            const dec = l.weightKg != null ? l.weightKg : l.qty
+            ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
+          }
+        } catch { /* ignore */ }
+        if (debtAdded > 0.001 && client) {
+          const nextDebt = Math.round(((Number(client.debt) || 0) + debtAdded) * 100) / 100
+          useClientStore.getState().updateClient(
+            client.id,
+            { debt: nextDebt, debtEnabled: true },
+            { skipApi: true },
+          )
+          if (client.card) {
+            const currentCard = cards.find(c => cardNumsMatch(c.num, client.card))
+            useCardStore.getState().updateCardLoyalty(
+              client.card,
+              { debt: Math.round(((Number(currentCard?.debt) || 0) + debtAdded) * 100) / 100, debtEnabled: true },
+              { skipApi: true },
+            )
+          }
+        }
+        const offlineSale: PosSale & { orderId?: string; _offline?: boolean } = {
+          ...(salePayload as unknown as PosSale),
+          id: offlineSaleId,
+          orderId: salePayload.clientRef,
+          total,
+          _offline: true,
+        }
+        usePosStore.setState(st => ({
+          sales: [offlineSale, ...st.sales],
+          shifts: st.shifts.map(sh => sh.id === activeShift.id ? {
+            ...sh,
+            salesCash: Math.round(((sh.salesCash || 0) + cashPaid) * 100) / 100,
+            salesCard: Math.round(((sh.salesCard || 0) + cardPaid) * 100) / 100,
+            salesCredit: Math.round(((sh.salesCredit || 0) + debtAdded) * 100) / 100,
+            salesCount: (sh.salesCount || 0) + 1,
+          } : sh),
+        }))
+        return offlineSale
+      }
+
       let created: PosSale & { orderId?: string; _offline?: boolean }
-      let offlineSaleId = ''
-      try {
-        created = await api.createPosSale(salePayload)
-      } catch (e) {
-        if (isNetworkError(e)) {
-          // нет связи — сохраняем чек в очередь и продолжаем работать.
-          // Временный id нужен, чтобы возврат по этому чеку нашёл его после синхронизации.
-          offlineSaleId = newLocalId('sale')
-          await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
-          // локально списываем остатки, чтобы не продать в минус до синхронизации
+      if (!apiReachable) {
+        created = await applyOfflineSaleLocal()
+      } else {
+        try {
+          created = await api.createPosSale(salePayload)
+          usePosStore.setState(st => ({
+            sales: [created, ...st.sales.filter(x => x.id !== created.id)],
+            shifts: st.shifts.map(sh => sh.id === activeShift.id ? {
+              ...sh,
+              salesCash: Math.round(((sh.salesCash || 0) + cashPaid) * 100) / 100,
+              salesCard: Math.round(((sh.salesCard || 0) + cardPaid) * 100) / 100,
+              salesCredit: Math.round(((sh.salesCredit || 0) + debtAdded) * 100) / 100,
+              salesCount: (sh.salesCount || 0) + 1,
+            } : sh),
+          }))
           try {
             const ps = useProducts.getState()
             for (const l of cart) {
@@ -4472,46 +4528,15 @@ export default function CashierModule({
               ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
             }
           } catch { /* ignore */ }
-          // Если офлайн-чек выдан в долг — сразу включаем раздел долга локально.
-          // После восстановления сети сервер подтвердит те же значения из очереди.
-          if (debtAdded > 0.001 && client) {
-            const nextDebt = Math.round(((Number(client.debt) || 0) + debtAdded) * 100) / 100
-            useClientStore.getState().updateClient(
-              client.id,
-              { debt: nextDebt, debtEnabled: true },
-              { skipApi: true },
-            )
-            if (client.card) {
-              const currentCard = cards.find(c => cardNumsMatch(c.num, client.card))
-              useCardStore.getState().updateCardLoyalty(
-                client.card,
-                { debt: Math.round(((Number(currentCard?.debt) || 0) + debtAdded) * 100) / 100, debtEnabled: true },
-                { skipApi: true },
-              )
-            }
+        } catch (e) {
+          if (isNetworkError(e)) {
+            created = await applyOfflineSaleLocal()
+          } else {
+            throw e
           }
-          created = {
-            ...(salePayload as unknown as PosSale),
-            id: offlineSaleId,
-            orderId: salePayload.clientRef,
-            total,
-            _offline: true,
-          }
-          // чек сразу виден в разделе «Чеки», а деньги — в кассе смены
-          usePosStore.setState(s => ({
-            sales: [created, ...s.sales],
-            shifts: s.shifts.map(sh => sh.id === activeShift.id ? {
-              ...sh,
-              salesCash: Math.round(((sh.salesCash || 0) + cashPaid) * 100) / 100,
-              salesCard: Math.round(((sh.salesCard || 0) + cardPaid) * 100) / 100,
-              salesCredit: Math.round(((sh.salesCredit || 0) + debtAdded) * 100) / 100,
-              salesCount: (sh.salesCount || 0) + 1,
-            } : sh),
-          }))
-        } else {
-          throw e
         }
       }
+
       if (created._offline) {
         showToast('Офлайн-чек сохранён', 'Отправится автоматически при появлении связи')
       }
@@ -4543,43 +4568,70 @@ export default function CashierModule({
       if (cashPaid > 0 && client?.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
         earnedBonus = calcCashDepositBonus(cashPaid)
       }
-      // Бонусы и кэшбэк по заказу начисляет API через loyalty; здесь — только кэшбэк занал (posCashBonus)
+      // Бонусы — в фоне, не блокируют подтверждение чека
       if (!created._offline && client?.card && USE_API && earnedBonus > 0) {
-        try {
-          const cardRow = cards.find(c => client.card && cardNumsMatch(c.num, client.card))
-          const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-          const nextPos = prevPos + earnedBonus
-          const base = Number(loyalty?.bonus) || 0
-          await api.updateCard(client.card, {
-            bonus: base + earnedBonus,
-            posCashBonus: nextPos,
-          })
-          if (client.phone) {
-            recordBalanceTopup(client.phone, cashPaid, earnedBonus, apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)')
+        const cardNum = client.card
+        const phone = client.phone
+        const cardRow = cards.find(c => cardNumsMatch(c.num, cardNum))
+        const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
+        const nextPos = prevPos + earnedBonus
+        const base = Number(loyalty?.bonus) || 0
+        void api.updateCard(cardNum, {
+          bonus: base + earnedBonus,
+          posCashBonus: nextPos,
+        }).then(() => {
+          if (phone) {
+            recordBalanceTopup(phone, cashPaid, earnedBonus, apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)')
           }
-        } catch { /* ignore */ }
+        }).catch(() => {})
       } else if (!created._offline && client?.card && USE_API && spend > 0 && !created?.orderId) {
-        try {
-          const base = Number(loyalty?.bonus) || 0
-          const cardRow = cards.find(c => client.card && cardNumsMatch(c.num, client.card))
-          const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-          const nextPos = Math.max(0, prevPos - spend)
-          await api.updateCard(client.card, {
-            bonus: Math.max(0, base - spend),
-            posCashBonus: nextPos,
-            allowBonusDecrease: true,
-          })
-        } catch { /* ignore */ }
+        const cardNum = client.card
+        const base = Number(loyalty?.bonus) || 0
+        const cardRow = cards.find(c => cardNumsMatch(c.num, cardNum))
+        const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
+        const nextPos = Math.max(0, prevPos - spend)
+        void api.updateCard(cardNum, {
+          bonus: Math.max(0, base - spend),
+          posCashBonus: nextPos,
+          allowBonusDecrease: true,
+        }).catch(() => {})
       }
-      if (!created._offline) await refresh()
+      if (!created._offline) {
+        void softSyncPosAfterSale()
+        void syncClientsFromApi()
+        void syncCardsFromApi()
+        // После успешного онлайн-чека сразу выталкиваем очередь ожидающих
+        if (useOfflineSync.getState().pending > 0) {
+          void useOfflineSync.getState().syncNow()
+        }
+      }
       const debtRepay = currentPayDebtAmt()
       let debtRepayNote = ''
-      if (!created._offline && debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
+      if (debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
         try {
-          const method: 'cash' | 'card' = cashPaid > 0.001 ? 'cash' : 'card'
-          await applyDebtRepayAfterSale(debtRepay, method)
-          debtRepayNote = ` · погашен долг ${fmtMoney(debtRepay)}`
-          await refresh()
+          const method = cashPaid > 0.001 ? 'cash' : 'card'
+          if (created._offline && method === 'card') {
+            showToast('Долг не погашен', 'Погашение картой недоступно офлайн — примите наличными отдельно')
+          } else {
+            const prevDebt = Number(loyalty?.debt) || clientDebt
+            const repaid = await debtRepaySafe(client.card, {
+              amount: debtRepay,
+              method,
+              cashierId: activeShift.cashierId,
+              shiftId: activeShift.id,
+              posId: activeShift.posId || activePosPoint?.id,
+              clientId: client.id,
+              prevDebt,
+            })
+            debtRepayNote = ' · погашен долг ' + fmtMoney(debtRepay)
+            if (client.phone) {
+              recordStoreDebtRepayment(client.phone, debtRepay, { method })
+            }
+            if (!repaid.offline) {
+              void softSyncPosAfterSale()
+              void syncCardsFromApi()
+            }
+          }
         } catch { /* чек уже проведён */ }
       }
       const parts: string[] = []
@@ -5984,20 +6036,24 @@ export default function CashierModule({
               type="button"
               className="net-sync-chip"
               onClick={() => { void flushNetQueue() }}
-              disabled={netSyncing || !netOnline}
-              title={netOnline ? 'Отправить чеки на сервер' : 'Нет связи — чеки уйдут автоматически'}
+              disabled={netSyncing}
+              title="Проверить связь и отправить очередь на сервер"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '4px 10px', borderRadius: 999,
                 border: `1px solid ${netOnline ? 'var(--line, #d7e0d9)' : '#e11d48'}`,
                 background: netOnline ? 'var(--card2, #eef3ef)' : 'rgba(225,29,72,0.12)',
                 color: netOnline ? 'var(--fg, #16321f)' : '#e11d48',
-                fontSize: 12, fontWeight: 700, cursor: netOnline ? 'pointer' : 'default',
+                fontSize: 12, fontWeight: 700, cursor: netSyncing ? 'wait' : 'pointer',
                 whiteSpace: 'nowrap',
               }}
             >
               <span style={{ fontSize: 13 }}>{netOnline ? '⟳' : '⚠'}</span>
-              {netSyncing ? 'Синхронизация…' : (netOnline ? `Отправить (${netPending})` : `Офлайн · ${netPending}`)}
+              {netSyncing
+                ? `Синхронизация${netProgress.total > 0 ? ` ${netProgress.done}/${netProgress.total}` : '…'}`
+                : (netPending > 0
+                    ? `Отправить (${netPending})`
+                    : (netOnline ? 'Онлайн' : 'Проверить связь'))}
             </button>
           )}
 
