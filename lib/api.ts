@@ -466,6 +466,11 @@ export const api = {
   getCategoriesTree: () => request<any[]>('/categories/tree'),
   createCategory: (data: any) => request('/categories', { method: 'POST', body: JSON.stringify(data) }),
   updateCategory: (id: number, data: any) => request<Category>(`/categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  reorderCategories: (items: { id: number; order: number }[]) =>
+    request<{ ok: boolean; changed: number }>('/categories/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }),
   deleteCategory: (id: number) => request<{
     ok: boolean
     movedProducts?: number

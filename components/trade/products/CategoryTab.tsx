@@ -11,6 +11,7 @@ export default function CategoryTab({
   childrenOf,
   onCreate,
   onUpdate,
+  onReorder,
   onDelete,
   onDeleteMany,
 }: {
@@ -24,8 +25,10 @@ export default function CategoryTab({
     parent_id?: number | null
     emoji?: string
     desc?: string
+    order?: number
   }) => Promise<void>
   onUpdate: (id: number, data: Partial<Category>) => Promise<void>
+  onReorder?: (items: { id: number; order: number }[]) => Promise<void>
   onDelete: (id: number) => Promise<void>
   onDeleteMany?: (ids: number[]) => Promise<{ removed?: number; movedProducts?: number } | void>
 }) {
@@ -40,6 +43,7 @@ export default function CategoryTab({
       childrenOf={childrenOf}
       onCreate={onCreate}
       onUpdate={onUpdate}
+      onReorder={onReorder}
       onDelete={onDelete}
       onDeleteMany={onDeleteMany}
     />

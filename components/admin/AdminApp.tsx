@@ -5732,6 +5732,7 @@ function CategoriesPage() {
     childrenOf,
     createCategory,
     updateCategory,
+    reorderCategories,
     deleteCategory,
   } = useCategories()
 
@@ -5746,6 +5747,7 @@ function CategoriesPage() {
       childrenOf={childrenOf}
       onCreate={async data => { await createCategory(data) }}
       onUpdate={updateCategory}
+      onReorder={reorderCategories}
       onDelete={deleteCategory}
     />
   )

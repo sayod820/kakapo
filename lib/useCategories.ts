@@ -280,6 +280,13 @@ export function useCategories() {
     return updated as Category
   }, [reload])
 
+  const reorderCategories = useCallback(async (items: { id: number; order: number }[]) => {
+    if (!items.length) return
+    await api.reorderCategories(items)
+    await reload(true)
+    window.dispatchEvent(new CustomEvent('kakapo:categories'))
+  }, [reload])
+
   const deleteCategory = useCallback(async (id: number) => {
     try {
       const res = await api.deleteCategory(id) as {
@@ -327,6 +334,7 @@ export function useCategories() {
     reload,
     createCategory,
     updateCategory,
+    reorderCategories,
     deleteCategory,
     deleteCategories,
   }

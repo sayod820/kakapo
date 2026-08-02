@@ -1160,6 +1160,29 @@ app.delete('/categories/:id', (req, res) => {
   })
 })
 
+/** Массовая смена порядка (siblings: [{ id, order }]) */
+app.post('/categories/reorder', (req, res) => {
+  const raw = Array.isArray(req.body?.items) ? req.body.items : []
+  if (!raw.length) return res.status(400).json({ detail: 'Укажите items: [{ id, order }]' })
+  let changed = 0
+  for (const it of raw) {
+    const id = Number(it?.id)
+    const order = Number(it?.order)
+    if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(order)) continue
+    const idx = db.categories.findIndex(c => Number(c.id) === id)
+    if (idx < 0) continue
+    if (Number(db.categories[idx].order) !== order) {
+      db.categories[idx] = { ...db.categories[idx], order }
+      changed += 1
+    }
+  }
+  if (changed) {
+    persist()
+    broadcastCategory({ reason: 'reorder' })
+  }
+  res.json({ ok: true, changed })
+})
+
 /** Массовое удаление категорий — один persist / один broadcast */
 app.post('/categories/bulk-delete', (req, res) => {
   const raw = Array.isArray(req.body?.ids) ? req.body.ids : []

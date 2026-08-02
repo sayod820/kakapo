@@ -43,6 +43,7 @@ export default function MarketCategoriesPanel({
   childrenOf,
   onCreate,
   onUpdate,
+  onReorder,
   onDelete,
   onDeleteMany,
   headerExtra,
@@ -59,8 +60,10 @@ export default function MarketCategoriesPanel({
     parent_id?: number | null
     emoji?: string
     desc?: string
+    order?: number
   }) => Promise<void>
   onUpdate: (id: number, data: Partial<Category>) => Promise<void>
+  onReorder?: (items: { id: number; order: number }[]) => Promise<void>
   onDelete: (id: number) => Promise<void>
   onDeleteMany?: (ids: number[]) => Promise<{ removed?: number; movedProducts?: number } | void>
   headerExtra?: React.ReactNode
@@ -141,11 +144,16 @@ export default function MarketCategoriesPanel({
     setSaving(true)
     setMsg('')
     try {
+      const siblings = nParent === ''
+        ? roots
+        : childrenOf(Number(nParent))
+      const maxOrder = siblings.reduce((m, c) => Math.max(m, Number(c.order) || 0), 0)
       await onCreate({
         name: nName.trim(),
         parent_id: nParent === '' ? null : nParent,
         emoji: nEmoji || '📦',
         desc: nDesc.trim(),
+        order: maxOrder + 1,
       })
       setShowAdd(false)
       setMsg(nParent === '' ? 'Категория создана' : 'Подкатегория создана')
@@ -291,11 +299,41 @@ export default function MarketCategoriesPanel({
     }
   }
 
+  function siblingsOf(cat: Category): Category[] {
+    if (cat.parent_id == null) return roots
+    return childrenOf(Number(cat.parent_id))
+  }
+
+  async function moveCategory(cat: Category, dir: -1 | 1) {
+    if (!onReorder) return
+    const siblings = siblingsOf(cat)
+    const idx = siblings.findIndex(c => c.id === cat.id)
+    const j = idx + dir
+    if (idx < 0 || j < 0 || j >= siblings.length) return
+    const next = [...siblings]
+    ;[next[idx], next[j]] = [next[j], next[idx]]
+    const items = next.map((c, i) => ({ id: c.id, order: i + 1 }))
+    setSaving(true)
+    setMsg('')
+    try {
+      await onReorder(items)
+      setMsg(dir < 0 ? 'Подняли выше' : 'Опустили ниже')
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось изменить порядок')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function CatRow({ cat, depth = 0 }: { cat: Category; depth?: number }) {
     const kids = childrenOf(cat.id)
     const isOpen = !collapsed[cat.id]
     const selfCount = countFor(cat)
     const childTotal = kids.reduce((s, k) => s + countFor(k), 0)
+    const siblings = siblingsOf(cat)
+    const pos = siblings.findIndex(c => c.id === cat.id)
+    const canUp = onReorder && pos > 0
+    const canDown = onReorder && pos >= 0 && pos < siblings.length - 1
 
     const nameCell = (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: depth * 22 }}>
@@ -328,6 +366,55 @@ export default function MarketCategoriesPanel({
           <div style={{ fontSize: 13, fontWeight: depth > 0 ? 600 : 700 }}>{cat.name}</div>
           {cat.desc && <div style={{ fontSize: 10, color: isAdmin ? 'var(--t3)' : 'var(--muted)' }}>{cat.desc}</div>}
         </div>
+      </div>
+    )
+
+    const orderCell = (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{
+          minWidth: 22, textAlign: 'center', fontSize: 12, fontWeight: 800,
+          color: isAdmin ? 'var(--t2)' : 'var(--muted)',
+        }}>
+          {pos >= 0 ? pos + 1 : '—'}
+        </span>
+        {onReorder && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <button
+              type="button"
+              disabled={!canUp || saving}
+              onClick={() => void moveCategory(cat, -1)}
+              className={isAdmin ? 'ab' : 'k-btn k-btn-s'}
+              style={isAdmin ? {
+                width: 22, height: 18, padding: 0, fontSize: 10, lineHeight: 1,
+                opacity: canUp ? 1 : 0.35, cursor: canUp ? 'pointer' : 'default',
+              } : {
+                width: 24, height: 18, padding: 0, fontSize: 10, lineHeight: 1,
+                opacity: canUp ? 1 : 0.35,
+              }}
+              title="Выше"
+              aria-label={`Поднять «${cat.name}» выше`}
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              disabled={!canDown || saving}
+              onClick={() => void moveCategory(cat, 1)}
+              className={isAdmin ? 'ab' : 'k-btn k-btn-s'}
+              style={isAdmin ? {
+                width: 22, height: 18, padding: 0, fontSize: 10, lineHeight: 1,
+                opacity: canDown ? 1 : 0.35, cursor: canDown ? 'pointer' : 'default',
+              } : {
+                width: 24, height: 18, padding: 0, fontSize: 10, lineHeight: 1,
+                opacity: canDown ? 1 : 0.35,
+              }}
+              title="Ниже"
+              aria-label={`Опустить «${cat.name}» ниже`}
+            >
+              ▼
+            </button>
+          </div>
+        )}
       </div>
     )
 
@@ -411,6 +498,7 @@ export default function MarketCategoriesPanel({
       return (
         <>
           <tr style={{ background: depth > 0 ? 'rgba(31,215,96,.03)' : 'transparent' }}>
+            <td style={{ width: 64 }}>{orderCell}</td>
             <td>{nameCell}</td>
             <td>{typeCell}</td>
             <td>{countCell}</td>
@@ -440,6 +528,7 @@ export default function MarketCategoriesPanel({
               aria-label={`Выбрать ${cat.name}`}
             />
           </td>
+          <td style={{ width: 64 }}>{orderCell}</td>
           <td>{nameCell}</td>
           <td>{typeCell}</td>
           <td className="num">{countCell}</td>
@@ -473,7 +562,9 @@ export default function MarketCategoriesPanel({
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
       <div style={{ fontSize: 12, color: isAdmin ? 'var(--t3)' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span>
-          Нажмите <span style={{ color: '#3B8EF0', fontWeight: 700 }}>+ Подкат.</span> рядом с категорией чтобы добавить подкатегорию
+          Порядок: <span style={{ fontWeight: 700 }}>▲ ▼</span>
+          {' · '}
+          <span style={{ color: '#3B8EF0', fontWeight: 700 }}>+ Подкат.</span> — подкатегория
         </span>
         {!isAdmin && checked.size > 0 && (
           <>
@@ -619,6 +710,7 @@ export default function MarketCategoriesPanel({
                         />
                       </th>
                     )}
+                    <th style={{ width: 64 }}>№</th>
                     <th>Категория</th>
                     <th>Тип / Родитель</th>
                     <th className={!isAdmin ? 'num' : undefined}>Товаров</th>

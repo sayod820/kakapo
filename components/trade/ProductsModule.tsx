@@ -48,6 +48,7 @@ export default function ProductsModule({
     childrenOf,
     createCategory,
     updateCategory,
+    reorderCategories,
     deleteCategory,
     deleteCategories,
   } = useCategories()
@@ -250,6 +251,7 @@ export default function ProductsModule({
           childrenOf={childrenOf}
           onCreate={async data => { await createCategory(data) }}
           onUpdate={updateCategory}
+          onReorder={reorderCategories}
           onDelete={deleteCategory}
           onDeleteMany={ids => deleteCategories(ids)}
         />
